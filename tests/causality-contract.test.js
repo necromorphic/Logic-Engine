@@ -453,3 +453,79 @@ test('legacy event history is backfilled with stable commit_sequence values', (t
   }));
   assert.equal(next.commit_sequence, 3);
 });
+
+
+test('REQUIRES predicate is checked before commit and rejected input can retry with the same key', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  assert.throws(
+    () => engine.commitEvent('causality-world', command({
+      idempotency_key: 'requires-retry',
+      causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'guard' } }],
+    })),
+    (error) => error.code === 'REQUIRED_PREDICATE_NOT_SATISFIED' && error.status === 409,
+  );
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'create-guard',
+    idempotency_key: 'create-guard',
+    effects: [{ kind: 'entity.upsert', entity_id: 'guard', entity_type: 'object' }],
+  }));
+  const accepted = engine.commitEvent('causality-world', command({
+    event_id: 'requires-guard',
+    idempotency_key: 'requires-retry',
+    turn_id: 'requires-guard',
+    expected_revision: 1,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'guard' } }],
+  }));
+
+  assert.equal(accepted.accepted, true);
+  assert.equal(accepted.commit_sequence, 2);
+});
+
+test('rollback invalidates an event when its REQUIRES predicate becomes false at its historical commit point', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'create-ready-actor',
+    idempotency_key: 'create-ready-actor',
+    effects: [{ kind: 'entity.upsert', entity_id: 'actor', entity_type: 'character', attributes: { stage: 'ready' } }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'action-requiring-ready-actor',
+    idempotency_key: 'action-requiring-ready-actor',
+    turn_id: 'action-requiring-ready-actor',
+    expected_revision: 1,
+    causal_links: [{
+      relation: 'REQUIRES',
+      predicate: { kind: 'entity_attribute', entity_id: 'actor', attribute: 'stage', value: 'ready' },
+    }],
+    effects: [{ kind: 'fact.set', fact_id: 'action-result', predicate: 'completed', value: true }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'create-ready-actor',
+    idempotency_key: 'rollback-ready-actor',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+  const state = engine.getState('causality-world');
+
+  assert.deepEqual(new Set(rollback.invalidated_event_ids), new Set(['create-ready-actor', 'action-requiring-ready-actor']));
+  assert.equal(events.get('action-requiring-ready-actor').validity, 'invalidated');
+  assert.equal(state.facts.some((fact) => fact.fact_id === 'action-result'), false);
+});
+
+test('REQUIRES survives rollback when an independent event still satisfies the historical predicate', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'actor-source-to-rollback',
+    idempotency_key: 'actor-source-to-rollback',
+    effects: [{ kind: 'entity.upsert', entity_id: 'actor', entity_type: 'character', attributes: { stage: 'ready' } }],
+  }));
+  engine.commitEvent('independent-world-fact',
+    command({ idempotency_key: 'placeholder' }));
+});
