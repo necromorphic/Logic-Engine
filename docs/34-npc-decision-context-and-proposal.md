@@ -226,3 +226,76 @@ Runtime implementation should not begin until all of the following are evidenced
 ## 9. Current decision
 
 **Proceed with specification and test-boundary discovery only.** The readiness audit found material gaps in context completeness, effect mapping, and rollback guarantees. Until those gaps are closed, the correct first vertical slice is a non-mutating contract—not autonomous runtime code.
+
+
+## 10. Actor-relative context: what the current core does and does not establish
+
+This section records a source-level boundary check. It is not a new core contract and does not claim that the fields below are implemented.
+
+### 10.1 Observed current primitives
+
+The inspected `src/application/engine.js` implementation of `registerContextManifest(...)` validates and records:
+
+- `generation_id`;
+- `base_world_revision` and `base_commit_sequence`;
+- a normalized list of `items`, whose supported kinds are `entity`, `fact`, `event`, `entity_absence`, and `fact_absence`;
+- an optional SHA-256 `content_hash` per item.
+
+This is a reference manifest for a generation and world snapshot. The inspected validator does **not** accept an actor identity, an actor-specific permission decision, a knowledge-acquisition history, an actor belief, or an explicit completeness/access status for each requested information field. An explicit absence item is a world-reference type; by itself it does not prove that the actor knows the absence.
+
+The inspected `ProposalService.create(...)` requires a trusted adapter identity and stages a pending proposal. Its validation metadata explicitly lists actor authorization and player-agency policy among the checks not performed there. This does not make the adapter identity equivalent to the NPC whose action is proposed.
+
+These are source observations for the inspected branch revision. Re-check them before implementation if the core changes.
+
+### 10.2 Field-by-field readiness
+
+| Context concern | Current evidence in inspected core | NPC decision for the first slice |
+|---|---|---|
+| World identity and snapshot cursor | Manifest accepts world-scoped base revision and commit sequence | Reuse when supplied; reject stale/mismatched context through the existing core path where supported |
+| Generation reference | Manifest accepts `generation_id` | Reuse as a correlation reference; do not assume it proves the exact model input was immutably bound unless that behavior is verified |
+| Referenced entities/facts/events | Manifest accepts normalized typed references and optional content hashes | Treat as references only, not proof of actor knowledge or permission |
+| Explicit entity/fact absence | Manifest has `entity_absence` and `fact_absence` kinds | Do not interpret omission as absence; do not interpret a reference as actor awareness |
+| Acting NPC identity | Not represented by the inspected manifest item schema | Must come from a trusted caller/adapter input; exact field/API remains undecided |
+| Actor-specific access/authorization | Not established by the inspected manifest validator or proposal semantic checks | If no trusted check exists, omit restricted content and fail closed for actions requiring authorization |
+| Actor's knowledge acquisition | No acquisition provenance is established by the manifest itself | Do not create knowledge from retrieval or prompt inclusion |
+| Actor belief, suspicion, or false belief | Not represented as distinct actor-relative states by the inspected manifest schema | Keep as a separate semantic input only if an authoritative source supplies it; otherwise mark unavailable |
+| Known true vs known false vs unknown/incomplete | Manifest references do not provide a complete epistemic status model | Do not infer a negative from missing references; leave a blocked precondition unresolved |
+| Inaccessible/withheld information | No per-actor withheld status is established by the inspected manifest schema | Enforce withholding before model input; do not send secrets for the model to self-filter |
+| Decision purpose and allowed action set | Not a manifest guarantee | Must be bounded by the caller/decision contract; do not assume core validation enforces NPC-specific action policy |
+| Player-agency restrictions | Explicitly outside the proposal service's listed semantic checks | Keep in the NPC/presentation contract; proposal validation alone cannot certify compliance |
+
+### 10.3 Proposed preparation sequence (not implemented)
+
+1. A trusted caller identifies the actor and the decision being requested.
+2. It obtains the current world snapshot and explicit world time from existing authoritative sources where available.
+3. It gathers candidate source material. Retrieval output remains untrusted.
+4. A trusted validation step checks source validity, visibility/access, and whether the actor has a permitted path to the information. Anything it cannot verify is omitted from model-visible content.
+5. It labels supplied information by epistemic status and origin: canonical fact, explicit absence, actor belief, uncertainty, or unresolved conflict. It never turns missing data into a negative claim.
+6. It records context completeness separately from the current manifest unless and until the core approves an extension. The existing manifest must not be overloaded with invented semantics.
+7. It binds the resulting decision input to the appropriate snapshot/generation reference using whatever binding guarantees the core actually provides; if exact binding is not proven, the limitation is explicit and the decision remains review-only where material.
+8. The NPC decision step returns a bounded proposal or `no_action` / `needs_review`. Existing core validation and approval remain separate; successful staging is not authorization to act.
+
+This sequence describes the responsibility boundary, not a requirement to add a new service. A future implementation may reuse an existing trusted caller if it can demonstrate these checks.
+
+### 10.4 Minimal example: a secret appears in search
+
+- Retrieval returns a document containing a secret.
+- The fact that the document was retrieved proves only that a candidate was found.
+- If source, visibility, and actor acquisition/access cannot be verified, the trusted preparation step excludes the secret from the model input.
+- The context may record that the decision is incomplete or that the candidate was withheld, but must not reveal the secret itself through the status or rationale.
+- The NPC cannot use the omitted secret as evidence. No knowledge record, world event, report, or state mutation is created by this preparation step.
+- If an action can only be justified by that secret, the safe result is no proposal or `needs_review`.
+
+### 10.5 Open decisions before executable tests
+
+The following are intentionally unresolved, not hidden implementation assumptions:
+
+1. Which existing caller is trusted to assemble actor-relative context, and how its identity/permissions are established.
+2. Whether actor knowledge/beliefs already have an authoritative source in the wider application; if not, this slice must operate without inventing persistent NPC state.
+3. How to represent context completeness and withheld information without conflating it with core world absence.
+4. What exact binding exists between `generation_id`, the manifest, and the bytes actually sent to the model on the target branch.
+5. Which actions require actor capability/authorization checks, and which trusted component owns those checks.
+6. How the caller communicates a blocked decision without accidentally leaking restricted content.
+7. Which of these guarantees can be proven at a real boundary and therefore deserve executable tests.
+
+Until those questions have evidence-backed answers, keep these as design acceptance criteria. Do not add tests that assume a tri-state core evaluator, a new knowledge store, actor authorization inside `ProposalService`, or a new manifest schema.
