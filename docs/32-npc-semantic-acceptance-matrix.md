@@ -181,3 +181,52 @@ Status: test design only on `feat/npc-subsystem`. These cases are not yet execut
 ## Exit criteria for this matrix
 
 Before implementation begins, review each expected result against the core's actual supported contracts. Convert these cases into automated tests only after the relevant state/event interfaces exist. If a required primitive is not implemented, record the case as blocked by a core dependency rather than faking it with prompt text or test-only state.
+
+
+## 13. Information-acquisition scenarios and current core support
+
+This section makes the knowledge scenarios more concrete. It is still a semantic acceptance specification, not a claim that the repository currently implements NPC knowledge acquisition or that these cases are executable.
+
+### 13.1 Source-type matrix
+
+| Situation | What the NPC may tentatively know/believe | Evidence required before treating it as acquired knowledge | Current core support observed in this branch | Acceptance outcome until a trusted acquisition boundary exists |
+|---|---|---|---|---|
+| NPC directly witnesses event E | E, limited to what the character could perceive from their location and senses | A supported event/observation record or trusted scene adapter recording actor, event, time, and perceptible details | Core can represent canonical events and context references; the inspected context manifest does not itself record that this actor witnessed E | Do not infer witnessing merely because E is canonical or appears in narration; leave acquisition unconfirmed |
+| NPC receives a report from character A | The report's contents, with source attribution; not necessarily the underlying truth | A delivered communication/report transition with sender, recipient, content, delivery status, and in-world time | Generic proposals/events may support ordinary world changes, but no NPC report-delivery/knowledge transition was established by this audit | Pending report is not recipient knowledge; only a confirmed delivery boundary may establish receipt |
+| NPC reads a document D | Information actually present in D and accessible to this character at the time | A valid document/source reference plus access and reading/acquisition evidence; distinguish reading from mere document existence | Manifest references entities/facts/events and may include content hashes; it does not prove actor access or that the actor read D | Search result or document reference alone must not establish knowledge |
+| NPC infers conclusion C from evidence E1…En | A belief, inference, suspicion, or confidence-qualified conclusion—not automatically a canonical fact | Explicit input evidence, inference provenance, and a policy for recording beliefs separately from canonical truth | No actor-relative belief record or inference transition was verified in the inspected core path | Keep C as an uncommitted decision-time inference; do not write C into canonical world state or durable knowledge by implication |
+| NPC hears a rumor R | That a rumor was heard, attributed to a source if known; R itself remains unverified | A delivered rumor/statement record and recipient acquisition transition | No rumor-delivery or actor-knowledge acquisition service was established by this audit | Do not promote rumor content to canon; keep source and uncertainty attached if a trusted caller supplies them |
+| NPC searches/retrieves candidate X | At most, that the system found a candidate; not that the NPC encountered or understood it in-world | A separately authorized acquisition path; retrieval provenance alone is insufficient | The inspected manifest is a reference list, not an access-control or acquisition log | Candidate is excluded from usable context if permission and permitted acquisition cannot be established |
+| NPC is told a false claim F | The NPC may believe F; canonical truth remains unchanged unless a separate supported event changes it | Delivered communication plus an actor-belief state or explicitly scoped decision input | The manifest does not distinguish actor belief from canonical truth | Do not auto-correct the NPC's belief from canon, and do not rewrite canon to match the belief |
+| NPC independently observes an absence (e.g. person not present) | Only a bounded observation: “I did not see X here/then,” not universal “X does not exist” | Scene bounds, actor perception, time, and observation conditions | `entity_absence` / `fact_absence` manifest references exist, but do not establish an actor's observation or universal absence | Keep the claim scoped to the observation; absence of a manifest entry is not evidence |
+
+### 13.2 Cross-cutting rules for every acquisition path
+
+1. **World fact and acquired information are separate dimensions.** A canonical event may be true without every NPC knowing it.
+2. **Acquisition is an event/transition, not a retrieval side effect.** Searching, injecting into a prompt, or mentioning something in generated prose does not by itself grant knowledge.
+3. **Source reliability and actor belief are separate.** A trusted record that A said P proves the utterance/delivery if that is what the record represents; it does not automatically prove P.
+4. **Perception is bounded.** Location, timing, visibility, audibility, attention, language comprehension, and relevant capabilities may limit what was acquired. Do not assume these values unless a trusted scene/context source supplies them.
+5. **Inference is not canon.** A conclusion can guide a proposed decision while remaining a belief or suspicion. It becomes canonical only through an explicit, supported core operation and the ordinary validation/commit path.
+6. **Withheld information must be withheld before model input.** Do not expose a secret together with instructions not to use it.
+7. **Missing acquisition evidence remains unknown.** It must not be silently interpreted as either “the NPC knows” or “the NPC definitely does not know.”
+8. **A delivery/acquisition transition must have a declared owner.** Until the core or a trusted adapter owns that boundary, these cases remain blocked specifications rather than prompt-only guarantees.
+
+### 13.3 Worked distinctions
+
+- **Witnessed event:** the event is canonical; whether NPC B saw it is a separate question. If B was not present or visibility is unknown, do not claim B witnessed it.
+- **Report:** a message was prepared for B; that does not mean it arrived. Even after delivery, B may misunderstand it or disbelieve it if the actor-belief model allows that distinction.
+- **Document:** D exists and a search found it; that does not prove B could access, opened, read, or understood D.
+- **Inference:** B sees footprints and suspects A was present. The suspicion can motivate a question or investigation proposal, but cannot be recorded as a confirmed fact that A was present.
+- **Rumor:** B hears “A betrayed the group.” The supported acquired information is that B heard a claim (and perhaps who said it), not that A betrayed the group.
+- **False claim:** A tells B “the meeting is tomorrow,” while the meeting is today. The utterance may be a supported event and B may believe it, but neither changes the canonical meeting time.
+
+### 13.4 Required test-boundary classification
+
+Do not create runtime tests for these scenarios yet. Once an authoritative acquisition boundary exists, split tests by layer:
+
+- **Pure semantic tests:** given a trusted input describing witness/report/document/inference/rumor, verify the expected epistemic distinction without pretending to test persistence or authorization.
+- **Context-preparation tests:** verify unauthorized/retrieved-only secrets are excluded before model input; verify provenance, actor identity, and completeness failures fail closed.
+- **Core integration tests:** verify only real supported event/transaction paths establish canonical changes, report delivery, or durable records; verify rejected operations do not partially mutate state.
+- **Rollback tests:** add only after the core's causal ownership for acquisition and derived belief records is explicitly defined; preserve independent sources of knowledge when one source is invalidated, if the approved semantics require that behavior.
+
+The current branch has not established the required actor-relative acquisition boundary. Therefore the immediate decision is to retain these as acceptance criteria and identify the trusted caller/core owner before authoring executable tests or adding any NPC state model.
