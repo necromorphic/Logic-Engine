@@ -145,6 +145,85 @@ test('time bounds and declarative rules reject invalid AST and unsafe paths', (t
   assert.throws(() => evaluateCondition({ op: 'gt', path: 'npc.age', value: '18' }, { npc: { age: 24 } }), (error) => error.code === 'RULE_TYPE_MISMATCH');
 });
 
+
+test('declarative rule evaluator accepts schema-shaped nested rules and compares JSON values deterministically', () => {
+  const context = {
+    npc: { status: 'active', age: 24, metadata: { first: 1, second: 2 } },
+  };
+
+  assert.equal(evaluateCondition({
+    op: 'all',
+    rules: [
+      { op: 'eq', path: 'npc.status', value: 'active' },
+      { op: 'not', rules: [{ op: 'lt', path: 'npc.age', value: 18 }] },
+      { op: 'eq', path: 'npc.metadata', value: { second: 2, first: 1 } },
+    ],
+  }, context), true);
+
+  assert.equal(evaluateCondition({
+    op: 'any',
+    rules: [
+      { op: 'eq', path: 'npc.status', value: 'inactive' },
+      { op: 'in', path: 'npc.metadata', values: [{ second: 2, first: 1 }] },
+    ],
+  }, context), true);
+
+  assert.throws(
+    () => evaluateCondition({ op: 'not', rules: [] }, context),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  assert.throws(
+    () => evaluateCondition({ op: 'all', rules: [], conditions: [] }, context),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  assert.throws(
+    () => evaluateCondition({ op: 'in', path: 'npc.status', values: Array(129).fill('active') }, context),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  assert.throws(
+    () => evaluateCondition({ op: 'in', path: 'npc.missing', values: 'not-an-array' }, context),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  assert.throws(
+    () => evaluateCondition({ op: 'gt', path: 'npc.missing', value: '24' }, context),
+    (error) => error.code === 'RULE_TYPE_MISMATCH',
+  );
+  assert.throws(
+    () => evaluateCondition({ op: 'exists', path: 'npc.status', value: 'yes' }, context),
+    (error) => error.code === 'INVALID_RULE',
+  );
+});
+
+
+test('rule evaluator rejects unknown fields and read_set references must exist locally', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+
+  assert.throws(
+    () => evaluateCondition({ op: 'eq', path: 'npc.status', value: 'active', typo: true }, { npc: { status: 'active' } }),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  assert.throws(
+    () => h.engine.commitEvent('w', cmd({ read_set: ['entity:missing'] })),
+    (error) => error.code === 'INVALID_READ_SET_REFERENCE',
+  );
+
+  h.engine.createWorld({ world_id: 'other-world', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2005-12-29T10:00:00Z' });
+  h.engine.commitEvent('other-world', cmd({
+    event_id: 'foreign-entity-event',
+    idempotency_key: 'foreign-entity',
+    effects: [{ kind: 'entity.upsert', entity_id: 'foreign-only', entity_type: 'object' }],
+  }));
+  assert.throws(
+    () => h.engine.commitEvent('w', cmd({ read_set: ['entity:foreign-only'] })),
+    (error) => error.code === 'INVALID_READ_SET_REFERENCE',
+  );
+  assert.throws(
+    () => h.engine.commitEvent('w', cmd({ event_id: 'entity:reserved-prefix' })),
+    (error) => error.code === 'INVALID_EVENT_ID',
+  );
+});
+
 test('a failed audit write rolls back the entire event transaction', (t) => {
   const h = setup();
   t.after(() => h.store.close());
