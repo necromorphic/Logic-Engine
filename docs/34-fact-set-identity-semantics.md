@@ -15,6 +15,7 @@ The current SQLite projection treats `fact.set` as an append-only claim:
 There are two gaps in the current implementation that should not be mistaken for approved semantics:
 - The projection takes `subject_ref` and `predicate` from the last claim for a `fact_id`, without checking that all claims share the same fact identity.
 - The `fact_claims` table is keyed by `(world_id, fact_id, event_id)`. Two `fact.set` effects for the same `fact_id` in a single event cannot both be stored under that key; the current path can therefore fail with a storage constraint error instead of a stable domain error.
+- `validateEffects` currently accepts an empty-string `subject_ref`, but persistence uses `effect.subject_ref || null`, so an empty string is silently collapsed to SQL `NULL`. That is inconsistent with a rule where only an absent or explicit `null` subject means “no subject”. The canonical validation contract should reject empty or whitespace-only `subject_ref` values rather than silently normalizing them.
 
 ## 2. Proposed semantic decision
 
@@ -23,7 +24,9 @@ There are two gaps in the current implementation that should not be mistaken for
 Treat `fact_id` as the stable identity of one proposition slot within a world. Its identity consists of:
 - `fact_id`;
 - `predicate`;
-- `subject_ref`, with an absent subject normalized to `null`.
+- `subject_ref`, where an absent field and explicit `null` both normalize to `null`, and a non-empty string is preserved exactly.
+
+An empty or whitespace-only `subject_ref` is invalid and must be rejected during canonical effect validation; it must not be silently converted to `null`. This makes identity normalization explicit and avoids treating malformed identifiers as an absent subject.
 
 For any existing `fact_id`, subsequent claims must use the same `predicate` and normalized `subject_ref`. A mismatch is not a competing value for the same proposition; it is an identity collision and must be rejected at the canonical commit boundary with a stable 409 error such as `FACT_IDENTITY_MISMATCH`. Do not overwrite the existing identity or reinterpret the previous claims.
 
@@ -67,12 +70,13 @@ Until an explicit provenance mapping is approved, non-empty intent `source_refs`
 2. Same `fact_id`, same identity and same value across separate events remains active with one distinct candidate and preserves all valid source event IDs.
 3. Same `fact_id`, same identity but a different value across separate events produces a conflicted fact, not last-write-wins.
 4. Same `fact_id` with a different predicate is rejected with `FACT_IDENTITY_MISMATCH`.
-5. Same `fact_id` with a different normalized `subject_ref` is rejected with `FACT_IDENTITY_MISMATCH`.
-6. Two `fact.set` effects for the same `fact_id` in one event are rejected with `DUPLICATE_FACT_EFFECT`, before durable writes.
-7. Rejected identity/duplicate cases leave event history, world revision, fact projections, audit entries, and idempotency state unchanged.
-8. Rollback of one competing claim rebuilds the expected active/conflicted projection from remaining valid claims.
-9. Existing canonical effects and mechanic-intent-translated effects follow the same commit rules.
-10. No test relies on storage constraint exceptions as domain behavior.
+5. Same `fact_id` with a different normalized `subject_ref` is rejected with `FACT_IDENTITY_MISMATCH`; absent and explicit `null` are equivalent, but a non-empty string differs from `null`.
+6. Empty and whitespace-only `subject_ref` values are rejected as `INVALID_EFFECT` before writes; they are not normalized to `null`.
+7. Two `fact.set` effects for the same `fact_id` in one event are rejected with `DUPLICATE_FACT_EFFECT`, before durable writes.
+8. Rejected identity/duplicate cases leave event history, world revision, fact projections, audit entries, and idempotency state unchanged.
+9. Rollback of one competing claim rebuilds the expected active/conflicted projection from remaining valid claims.
+10. Existing canonical effects and mechanic-intent-translated effects follow the same commit rules.
+11. No test relies on storage constraint exceptions as domain behavior.
 
 ## 6. Non-goals and questions still open
 
