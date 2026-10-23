@@ -156,7 +156,32 @@ Do not merge Stage 1 implementation unless:
 5. Run the complete existing test suite and inspect the diff for accidental adapter, vectorization, or unrelated core changes.
 6. Request independent review before any merge.
 
-## 11. Open decisions to resolve during implementation review
+## 11.1 Findings from the current repository audit
+
+The following are source-backed implementation constraints, not assumptions:
+
+- `SQLiteStore.state(worldId)` currently reads the world row, entity rows, and fact rows using separate SELECT statements without an explicit read transaction around the whole snapshot. It returns the full entity attribute objects and fact payloads. Do not treat this method as a proven atomic snapshot boundary for a card projection.
+- Entity rows currently contain `entity_id`, `entity_type`, `status`, arbitrary `attributes`, `created_by_event_id`, and `updated_revision`. The entity projection is rebuilt from accepted event effects. The runtime does not enforce a character-only entity-type taxonomy or a typed schema for profile attributes.
+- The event contract currently accepts caller-supplied entity IDs in entity effects. The card contract's eventual invariant that IDs are system-generated is therefore not satisfied by the current runtime. Stage 1 must reuse an existing ID and must not claim to solve identity allocation; this gap remains visible for core planning.
+- The existing `GET .../state` route returns the general state payload. It is not an acceptable card endpoint and must not be repurposed as one. The existing internal token guard applies to direct event commits; it does not establish an authorization boundary for a new read route.
+- Current error handling uses `EngineError` codes/statuses, but Stage 1 does not need an HTTP route. Keep projector-level failures internal and translate them only at an established application/API boundary.
+- Causal completeness is explicitly unknown in Stage 1. The projector must not infer source validity solely from the presence of an event reference or claim stronger rollback guarantees than the core contract.
+
+## 11.2 Conservative decisions for the first implementation
+
+To avoid inventing schema or exposing data before the relevant subsystems exist, the first implementation should use these defaults:
+
+1. **Supported entities:** no implicit type-name guessing. Require an explicit allowlist supplied by the internal caller/configuration. If no allowlist is configured, do not classify arbitrary entities as characters. Do not add guessed aliases such as `npc`, `person`, or `character` without evidence from the World Pack/tests.
+2. **Profile fields:** the approved attribute allowlist is empty initially. Do not copy `attributes` into `profile`. Add a field only after a typed schema/source contract and fixtures are agreed.
+3. **Current state:** Stage 1 may expose only the entity's explicit identity/type/status metadata plus source revision, and only to trusted internal tests/callers. Do not label raw attributes or world facts as character knowledge. `profile` and `known_state` are omitted until approved mappings exist.
+4. **Snapshot:** add a narrow storage read boundary that obtains world metadata, the selected entity, and any explicitly needed source records under one read transaction/snapshot. Do not reuse the existing multi-query `state()` method while claiming atomicity. If the database driver/runtime cannot provide the required transaction behavior, document the exact weaker guarantee before proceeding.
+5. **Caller:** first implementation is a pure application-level projector plus an internal service/read method and tests only. No new public route, no model-context exposure, and no UI path.
+6. **Errors:** use internal typed result/error conventions consistent with `EngineError`; preserve `WORLD_NOT_FOUND` for a missing world and define a stable entity-not-found/unsupported-type code only if needed by the implementation. Error payloads must not include raw source data.
+7. **Identity contract gap:** do not retrofit ID generation as part of this read-only slice. Track it as a separate core-contract/runtime alignment item before authoring/card-creation features depend on it.
+
+These defaults make the first slice deliberately small. They are safer than pretending the current arbitrary attributes are a complete character schema. A later slice can expand the projection only after the World Pack/type contract and authored-profile source are explicit.
+
+## 12. Remaining decisions to resolve during implementation review
 
 These are intentionally not guessed here:
 - Which current entity types should count as characters in the first supported slice?
@@ -167,6 +192,6 @@ These are intentionally not guessed here:
 
 Resolve these against current source and tests before coding. Do not broaden Stage 1 to answer them by assumption.
 
-## 12. Implementation status disclaimer
+## 13. Implementation status disclaimer
 
 This is a proposed specification only. It does not claim that the projector, card API, character profile store, knowledge model, or player-safe access filtering has been implemented. The current runtime and its tests remain the source for claims about existing behavior.
