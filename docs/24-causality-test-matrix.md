@@ -189,6 +189,19 @@ Expected:
 - The per-event reason for D is distinct from the operation-level outcome.
 - `causal_completeness = unknown` alone does not force review for B or C.
 
+## T-16 — generation-bound context manifests (implemented subset)
+
+Executable coverage verifies:
+- a manifest is registered against the current `world_revision` and `commit_sequence` and is immutable per generation;
+- identical registration is idempotent;
+- an event must reference a manifest from the same world and generation;
+- declared `read_set`/typed read/precondition references must be included in the manifest;
+- a rejected declared read does not consume the idempotency key, so corrected input can retry;
+- if the world revision changes after manifest registration, commit is rejected with `CONTEXT_SNAPSHOT_STALE`;
+- the HTTP endpoint registers manifests and permits a matching event commit.
+
+The manifest records canonical context references and optional content hashes. It does not prove the host captured the exact prompt or that every causal dependency was declared; that remains a trusted-adapter responsibility.
+
 ## T-15 — historical `REQUIRES` fact-value predicates (implemented subset)
 
 Executable coverage verifies:
