@@ -167,3 +167,20 @@ This stage does not define or change:
 - a universal numeric relationship model, universal emotion model, or setting-specific NPC facts.
 
 Those decisions require a separate design step after the semantics and test cases have been reviewed.
+
+
+## 14. Optional social identities and cover representations
+
+A character may have zero or more additional **social identities**: cover names, aliases with claimed biographies, false identities, double-agent covers, or other public-facing representations. This is one underlying character using different social representations, not a claim about multiple psychological personalities.
+
+The editor/profile layer may hold optional names and claimed attributes, a claimed biography, appearance/disguise differences, references to documents or evidence, the reason the identity exists, known weaknesses/contradictions, and free-form notes. These fields are optional and may be grouped/collapsed. An ordinary character does not need an extra identity.
+
+The underlying character remains the canonical owner of stable traits, physical properties, abilities, limitations, and shared characterization. A social identity overrides only explicitly authored presentation fields; unspecified appearance inherits the underlying appearance. Disguise changes presentation, not actual anatomy or capabilities. Shared data must not be duplicated as independently writable copies.
+
+Claims made under a social identity are not automatically canonical facts. Claiming to be someone's twin does not create a real twin; claiming an age, job, relative, or biography does not make it true. Entering a document in the editor does not itself issue or create a canonical document. Unsupported fields remain unknown, and editor notes do not create past events or supporting evidence.
+
+Creating a social identity does not create another NPC/entity, disclose the identity to other characters, establish their knowledge, or automatically reveal the underlying person. Contradictions or missing documents may create situational risk only when the observer has relevant evidence and the World Pack's rules make a check plausible. They do not automatically expose the identity.
+
+The future editor, character-card projection, core, and actor-relative knowledge boundary must remain separate: the editor records author-defined profile data and references; the card is a view; the core owns canonical entities/documents/events and consequences; the core-owned knowledge/delivery contract governs what others actually learn when implemented. No social-identity feature may create a parallel knowledge store, event journal, revision counter, access-control system, or rollback mechanism.
+
+Detailed editor requirements and NPC-SID-001–012 acceptance scenarios are specified in `docs/40-npc-social-identities-editor-contract.md`. That proposal does not assert that an editor or runtime support exists and does not authorize API, schema, storage, or runtime changes.
