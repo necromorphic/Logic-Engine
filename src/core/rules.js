@@ -85,20 +85,29 @@ export function evaluateCondition(rule, context, depth = 0) {
     return !evaluateCondition(rules[0], context, depth + 1);
   }
 
-  if (op !== 'exists' && !Object.hasOwn(rule, 'value') && op !== 'in') {
+  if (['eq', 'neq', 'gt', 'gte', 'lt', 'lte'].includes(op) && !Object.hasOwn(rule, 'value')) {
     throw new EngineError('INVALID_RULE', op + ' requires a value.');
+  }
+  if (['gt', 'gte', 'lt', 'lte'].includes(op)
+    && (typeof rule.value !== 'number' || !Number.isFinite(rule.value))) {
+    throw new EngineError('RULE_TYPE_MISMATCH', op + ' requires a finite numeric value.');
+  }
+  if (op === 'exists' && rule.value !== undefined && typeof rule.value !== 'boolean') {
+    throw new EngineError('INVALID_RULE', 'exists value must be boolean when provided.');
+  }
+  if (op === 'in' && (!Array.isArray(rule.values) || rule.values.length > 128)) {
+    throw new EngineError('INVALID_RULE', 'in requires at most 128 values.');
   }
 
   const found = readPath(context, rule.path);
-  if (op === 'exists') return found.exists === Boolean(rule.value ?? true);
+  if (op === 'exists') return found.exists === (rule.value ?? true);
   if (!found.exists) return false;
   if (op === 'eq') return jsonEqual(found.value, rule.value);
   if (op === 'neq') return !jsonEqual(found.value, rule.value);
 
   if (['gt', 'gte', 'lt', 'lte'].includes(op)) {
-    if (typeof found.value !== 'number' || typeof rule.value !== 'number'
-      || !Number.isFinite(found.value) || !Number.isFinite(rule.value)) {
-      throw new EngineError('RULE_TYPE_MISMATCH', op + ' requires finite numbers.');
+    if (typeof found.value !== 'number' || !Number.isFinite(found.value)) {
+      throw new EngineError('RULE_TYPE_MISMATCH', op + ' requires the context value to be a finite number.');
     }
     if (op === 'gt') return found.value > rule.value;
     if (op === 'gte') return found.value >= rule.value;
@@ -106,12 +115,7 @@ export function evaluateCondition(rule, context, depth = 0) {
     return found.value <= rule.value;
   }
 
-  if (op === 'in') {
-    if (!Array.isArray(rule.values) || rule.values.length > 128) {
-      throw new EngineError('INVALID_RULE', 'in requires at most 128 values.');
-    }
-    return rule.values.some((value) => jsonEqual(value, found.value));
-  }
+  if (op === 'in') return rule.values.some((value) => jsonEqual(value, found.value));
 
   throw new EngineError('UNSUPPORTED_RULE_OPERATOR', 'Unsupported operator: ' + op);
 }
