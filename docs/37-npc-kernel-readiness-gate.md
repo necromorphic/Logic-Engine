@@ -86,6 +86,28 @@ Do not add runtime code or new executable NPC tests at this stage. Maintain the 
 
 The next implementation step should be chosen only after the kernel's current work and decisions are checked again. If the core changes, update this inventory rather than treating this note as authority over the core.
 
-## 7. Non-authority statement
+
+## 7. Active core work discovered during source-level review
+
+This is a time-bounded branch snapshot, not a statement that any listed change is merged or approved. The default branch inspected for this review was `main` at `cb4ad189f12484ca5458c30b1d176cbd9f7d4ccc`. Always re-check current branch heads and PR dependencies before relying on this inventory.
+
+| Area | Observed development location | Safe interpretation for NPC work |
+|---|---|---|
+| Universal mechanic execution | `docs/core-stage1.3-mechanics-execution-contract`, including `docs/30-stage1.3-mechanic-execution-boundary.md` | A proposed core execution contract exists on a separate branch. Its stated scope explicitly excludes NPC goals, plans, schedules, and off-screen autonomy. Do not treat it as shipped runtime behavior. |
+| Mechanic intent translation and proposal integration | `feat/mechanic-effect-translator`, `docs/mechanic-intent-proposal-boundary`, and `feat/mechanic-intent-proposal-integration`; PRs #36–#40 form a stacked sequence | Translation and proposal integration are being developed with tests and explicit fail-closed limits. Keep the stack's dependencies and unresolved decisions intact; do not create a second translator in the NPC subsystem or assume these changes are already in `main`. |
+| Typed causal links | `feat/typed-causal-links` | A separate implementation/test line exists. Because it diverges from `main`, its exact semantics must be reviewed against current core decisions before NPC work depends on them. |
+| Historical tri-state predicates | `feat/tri-state-historical-fact-predicates` | Work exists around historical predicate uncertainty. This does not prove that general rule evaluation has a universal tri-state result; keep the observed boolean behavior of the inspected `main` path distinct from branch-specific behavior. |
+| Generation-bound context manifests | `feat/generation-bound-context-manifests` | A separate line develops manifest binding and persistence behavior. Do not assume that the `main` manifest is already immutably bound to the exact model input or that it proves actor-specific access. |
+| Proposal validation before approval | `feat/validate-proposals-before-approval` | A separate proposal-lifecycle change exists. Re-check its current diff and dependencies before asserting where validation occurs in the final lifecycle. |
+
+### Consequences for NPC planning
+
+1. Use `main` to state what is currently shipped; use a feature branch only as evidence that work is in progress.
+2. Do not copy code, tests, or assumptions from a diverged branch into the NPC branch without first checking its current PR, base, dependency stack, and approved contract.
+3. Treat mechanic intent translation as a potential shared core capability, not an NPC-owned implementation. The NPC subsystem should express its needs and wait for the agreed boundary rather than fork the translator.
+4. Keep open questions—especially provenance mapping, canonical fact identity/replacement semantics, actor authorization, and the general meaning of unknown/incomplete context—open until the relevant core owner resolves them.
+5. This branch inventory is evidence for coordination only. It does not authorize merges, rebases, API/storage changes, or runtime implementation.
+
+## 8. Non-authority statement
 
 This document does not amend the kernel contract, freeze its architecture, require a new knowledge/access-control subsystem, or authorize changes to runtime code, API, schemas, storage, event semantics, rollback, prompts, or SillyTavern. It exists to keep the NPC branch aligned with the evolving core.
