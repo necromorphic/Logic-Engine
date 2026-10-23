@@ -233,7 +233,7 @@ export class SQLiteStore {
       }
     }
     for (const link of event.causal_links ?? []) {
-      if (link.relation === 'CAUSES' || link.relation === 'READS_SOURCE') {
+      if (link.relation === 'READS_SOURCE') {
         this.validateEventReference(worldId, link.target_id, nextRevision, 'causal_links');
       } else if (link.relation === 'READS_ENTITY') {
         if (!this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, link.target_id)) {
@@ -321,9 +321,9 @@ export class SQLiteStore {
             || event.depends_on.some((value) => invalid.has(value) || affected.has(value))
             || event.read_set.some((value) => affected.has(value))
             || (event.causal_links ?? []).some((link) => {
-              if (link.relation === 'CAUSES' || link.relation === 'READS_SOURCE') return invalid.has(link.target_id);
+              if (link.relation === 'READS_SOURCE') return invalid.has(link.target_id);
               if (link.relation === 'READS_ENTITY') return affected.has('entity:' + link.target_id);
-              if (link.relation === 'READS_CLAIM') return affected.has('fact:' + link.target_id);
+              if (link.relation === 'READS_CLAIM') return affected.has('fact:' + link.target_id) && !all.some((sourceEvent) => sourceEvent.validity === 'valid' && !invalid.has(sourceEvent.event_id) && sourceEvent.effects.some((effect) => effect.kind === 'fact.set' && effect.fact_id === link.target_id));
               return false;
             })) {
             invalid.add(event.event_id);
