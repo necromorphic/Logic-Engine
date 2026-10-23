@@ -47,6 +47,18 @@ export class ProposalService {
     assert(typeof body.idempotency_key === 'string' && body.idempotency_key.trim() && body.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key is required.');
     assert(typeof body.source_text === 'string' && body.source_text.length <= 50000, 'INVALID_SOURCE_TEXT', 'source_text must be a string of at most 50000 characters.');
     assert(object(body.event), 'INVALID_EVENT_PROPOSAL', 'event must be an object containing the proposed event payload.');
+    // Resolve existing idempotency keys before translating untrusted intents. A changed
+    // request must remain an idempotency conflict even when the changed intent is invalid.
+    const request = { source_text: body.source_text, event: body.event };
+    const requestHash = hashRequest(request);
+    const existingBeforeTranslation = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND idempotency_key=?')
+      .get(worldId, body.idempotency_key.trim());
+    if (existingBeforeTranslation) {
+      if (existingBeforeTranslation.created_by_adapter_id !== adapterId) throw new EngineError('PROPOSAL_ADAPTER_MISMATCH', 'Proposal idempotency key belongs to another adapter.', 403);
+      if (existingBeforeTranslation.request_hash !== requestHash) throw new EngineError('IDEMPOTENCY_KEY_CONFLICT', 'Proposal idempotency key was reused with different content.', 409);
+      return this.publicProposal(existingBeforeTranslation, true);
+    }
+
     const allowedEventFields = ['turn_id', 'event_type', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects', 'effect_intents'];
     assert(Object.keys(body.event).every((key) => allowedEventFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event payload contains an unsupported or server-owned field.');
     const hasEffects = Object.hasOwn(body.event, 'effects');
@@ -65,8 +77,6 @@ export class ProposalService {
     const world = this.engine.store.world(worldId);
     if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
     const sequence = this.engine.store.currentCommitSequence(worldId);
-    const request = { source_text: body.source_text, event: body.event };
-    const requestHash = hashRequest(request);
     const existing = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND idempotency_key=?').get(worldId, body.idempotency_key.trim());
     if (existing) {
       if (existing.created_by_adapter_id !== adapterId) throw new EngineError('PROPOSAL_ADAPTER_MISMATCH', 'Proposal idempotency key belongs to another adapter.', 403);
