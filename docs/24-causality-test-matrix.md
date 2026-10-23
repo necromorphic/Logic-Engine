@@ -300,3 +300,16 @@ Before turning a scenario into a normative executable test:
 - [ ] Define transactional atomicity for event status, projections, audit rows, and world revision, including transitive unresolved dependencies and no-op `requires_review` outcomes.
 - [ ] Formalize character-card/management invariants before implementation: cards cannot become a duplicate writable source of canonical truth; management exposes validated engine operations rather than direct storage updates.
 - [ ] Verify compatibility/migration for existing string-based metadata.
+
+
+## T-18 — rollback review is conservative and idempotent (implemented subset)
+
+### T-18A — affected historical predicate is unknown
+
+The fixture creates conflicting historical fact claims, then mutates a committed event's typed metadata to simulate a legacy/inconsistent record with a `REQUIRES(fact_value)` predicate that evaluates to `unknown`. Rolling back a source that affects that fact must return `rollback_outcome = "requires_review"`, a structured `requires_review_items` entry with stable reason code `historical_predicate_unknown`, and `proposed_invalidated_event_ids`. It must not change event statuses, projections, `world_revision`, or write a canonical rollback audit row. Retrying with the same idempotency key returns the same review result and does not increment revision.
+
+### T-18B — unrelated historical unknown does not block rollback
+
+The same kind of legacy/inconsistent unknown predicate refers to a fact not affected by the rollback. The independent rollback completes with `rollback_outcome = "resolved"`, no review items, and the expected projection update.
+
+These fixtures intentionally bypass commit-time validation. They test defensive handling of legacy/inconsistent stored history, not a history that can be produced through the ordinary event-commit API.
