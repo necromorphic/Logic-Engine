@@ -115,7 +115,7 @@ Before implementing the storage method, reviewers should agree on these observab
 
 A test using only sequential reads cannot prove concurrency consistency. The test harness must coordinate a concurrent writer/read interleaving or use a deterministic storage hook/fault-injection seam. Do not claim the race is tested if the test only checks the returned object in a single-threaded happy path.
 
-### 5.4 Concrete test scenarios and pass/fail oracle
+### 5.3 Concrete test scenarios and pass/fail oracle
 
 Use a temporary database and synthetic records only. The test names below are contract IDs for future automated tests; they do not imply that the storage boundary already exists.
 
@@ -138,7 +138,7 @@ Use a temporary database and synthetic records only. The test names below are co
 
 
 
-### 5.3 Cross-contract review against PR #29 and current core
+### 5.4 Cross-contract review against PR #29 and current core
 
 The current draft has been checked against the Character Cards Contract v1.2.1 in PR #29, the Stage 1 causal contracts (docs/21 and docs/22), and the Stage 1.3 mechanic-execution boundary now merged into main as docs/30-stage1.3-mechanic-execution-boundary.md.
 
