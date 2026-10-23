@@ -36,9 +36,8 @@ The runtime now accepts an additive, typed subset of causal relationships while 
 
 Supported relations in this increment:
 - `READS_SOURCE`: target is a prior valid event used as a source; rollback invalidates the reader when that source is invalidated.
-- `READS_SOURCE`: target is a prior valid event used as a source; rollback invalidates the reader when that source is invalidated.
 - `READS_ENTITY`: target is an entity identity in this world; rollback invalidates the reader when an invalidated event changes/removes that entity's canonical projection.
-- `READS_CLAIM`: target is a fact/claim identity with at least one current valid source in this world; rollback invalidates the reader when the claim loses support through invalidation of its source event(s).
+- `READS_CLAIM`: target is a fact/claim identity with at least one current valid source in this world; rollback invalidates the reader only when no valid source remains for that claim projection.
 
 Unknown relationship types are rejected with HTTP 400 before a committed event or successful idempotency result is written. Corrected input may retry the same key because pre-commit validation did not consume it. The model cannot use these links to activate mechanics or bypass engine validation.
 
