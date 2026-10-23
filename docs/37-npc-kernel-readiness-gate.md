@@ -175,3 +175,19 @@ This is a proposal for core-owner review, not an implementation or an approved p
 - defers API, schema, SQLite, runtime, host-delivery, and end-to-end test work until the contract is approved and mapped to real code.
 
 The current evidence status is unchanged: no complete actor-specific acquisition/query contract has been verified in the inspected runtime. The proposal's acceptance criteria are future test targets, not test results.
+
+
+## 13. Optional social identities — readiness gate
+
+`docs/40-npc-social-identities-editor-contract.md` defines an author-requested optional character-editor capability for social identities and cover biographies. The feature is one underlying character using multiple social representations, not multiple psychological personalities and not multiple NPCs by default.
+
+The proposed editor fields include claimed identity/biography, appearance differences, references to documents/evidence, rationale, vulnerabilities/contradictions, and free notes. They are optional and must distinguish author declarations from canonical facts and verified world references.
+
+Readiness status:
+- **Architecture alignment:** consistent with `docs/23-character-and-control-architecture.md`, which treats a character card as a structured view over canonical records and leaves final fields/UI open.
+- **Current implementation:** no social-identity editor or runtime model has been verified by this audit.
+- **Canonical boundaries:** author profile entries must not silently create entities, documents, relationships, events, or disclosure/knowledge records.
+- **Knowledge boundary:** creating a cover does not make other characters aware; actor-specific filtering remains dependent on the future core-owned knowledge/context contract.
+- **Deferred:** editor UI, profile serialization, entity references, document status, activation rules, runtime identity selection, investigation consequences, and integration tests until actual interfaces are identified and approved.
+
+This proposal does not authorize runtime, API, schema, SQLite, prompt, vectorization, or host-adapter changes. No parallel identity-truth, knowledge, event, revision, access-control, or rollback mechanism may be created.
