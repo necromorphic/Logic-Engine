@@ -121,7 +121,7 @@ test('fact.set rejects empty and whitespace-only subject references', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
 
-  for (const subject_ref of ['', '   ', '\\t']) {
+  for (const subject_ref of ['', '   ', String.fromCharCode(9)]) {
     assert.throws(() => engine.commitEvent('fact-identity-world', command({
       idempotency_key: 'empty-subject-' + JSON.stringify(subject_ref),
       effects: [{ kind: 'fact.set', fact_id: 'bad-subject', subject_ref, predicate: 'p', value: true }],
