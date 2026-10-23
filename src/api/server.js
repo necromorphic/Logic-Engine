@@ -133,6 +133,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         if (typeof body.proposal_id !== 'string' || !body.proposal_id.trim()) {
           throw new EngineError('PROPOSAL_REQUIRED', 'Direct event route accepts only an approved proposal_id.', 400);
         }
+        if (Object.keys(body).some((key) => key !== 'proposal_id')) {
+          throw new EngineError('UNSUPPORTED_INTERNAL_COMMIT_FIELD', 'Internal event route accepts only proposal_id.');
+        }
         const proposal = proposals.get(worldId, body.proposal_id.trim());
         if (proposal.status !== 'approved' && proposal.status !== 'committed') {
           throw new EngineError('PROPOSAL_NOT_APPROVED', 'Internal event route requires an approved proposal.', 409, { status: proposal.status });
