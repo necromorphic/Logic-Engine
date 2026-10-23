@@ -191,3 +191,16 @@ Readiness status:
 - **Deferred:** editor UI, profile serialization, entity references, document status, activation rules, runtime identity selection, investigation consequences, and integration tests until actual interfaces are identified and approved.
 
 This proposal does not authorize runtime, API, schema, SQLite, prompt, vectorization, or host-adapter changes. No parallel identity-truth, knowledge, event, revision, access-control, or rollback mechanism may be created.
+
+
+## 14. Core-owner response received: knowledge contract
+
+On 2026-10-24, the core owner reviewed all eight questions in `docs/39-npc-core-knowledge-contract-proposal.md`. The decision is recorded there. Current readiness classification:
+
+- **Semantics confirmed:** core owns acquisition/provenance, delivery-attempt/receipt status, source-validity reconciliation, and persistent subject-relative belief state. Acquisition, belief, and canonical truth are separate.
+- **Existing identifiers confirmed for reuse:** `world_id`, `entity_id`, `event_id`, `fact_id`, `context_manifest_id`, `generation_id`, and the consistent snapshot pair `(world_revision, commit_sequence)`.
+- **First slice direction confirmed:** only explicitly authorized author-initial/imported initial knowledge; an internal actor/purpose/snapshot-scoped read/filter contract; reserved-secret exclusion; separation tests and proposal non-mutation.
+- **Still unimplemented/unverified:** the actor-specific read/filter interface, initial-source representation at a real production boundary, persistent acquisition/belief integration, supported host rendering signal, and end-to-end tests. Direct observation, communication, documents, inference, and rumor remain out of scope for the first slice.
+- **No authorization implied:** no public endpoint, schema, SQLite, vectorization, prompt, host adapter, or runtime change is authorized by the semantic decision alone.
+
+The next engineering action is to reconcile the confirmed contract with actual source/test boundaries, then propose the narrow internal interface and acceptance tests before any implementation.
