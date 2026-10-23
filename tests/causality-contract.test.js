@@ -187,3 +187,36 @@ test('entity dependency references cannot cross world boundaries', (t) => {
     (error) => error.code === 'INVALID_DEPENDENCY_REFERENCE' && error.status === 400,
   );
 });
+
+
+test('rolling back one of two conflicting fact claims restores the remaining source', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'claim-open',
+    idempotency_key: 'claim-open',
+    effects: [{ kind: 'fact.set', fact_id: 'door-state', predicate: 'open', value: true }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'claim-closed',
+    idempotency_key: 'claim-closed',
+    turn_id: 'claim-closed',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'door-state', predicate: 'open', value: false }],
+  }));
+
+  const conflicted = engine.getState('causality-world').facts.find((item) => item.fact_id === 'door-state');
+  assert.equal(conflicted.status, 'conflicted');
+  assert.deepEqual(new Set(conflicted.source_event_ids), new Set(['claim-open', 'claim-closed']));
+
+  engine.rollbackEvent('causality-world', {
+    root_event_id: 'claim-closed',
+    idempotency_key: 'rollback-claim-closed',
+  });
+
+  const restored = engine.getState('causality-world').facts.find((item) => item.fact_id === 'door-state');
+  assert.equal(restored.status, 'active');
+  assert.equal(restored.value, true);
+  assert.deepEqual(restored.source_event_ids, ['claim-open']);
+});
