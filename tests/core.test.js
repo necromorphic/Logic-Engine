@@ -145,6 +145,43 @@ test('time bounds and declarative rules reject invalid AST and unsafe paths', (t
   assert.throws(() => evaluateCondition({ op: 'gt', path: 'npc.age', value: '18' }, { npc: { age: 24 } }), (error) => error.code === 'RULE_TYPE_MISMATCH');
 });
 
+
+test('declarative rule evaluator accepts schema-shaped nested rules and compares JSON values deterministically', () => {
+  const context = {
+    npc: { status: 'active', age: 24, metadata: { first: 1, second: 2 } },
+  };
+
+  assert.equal(evaluateCondition({
+    op: 'all',
+    rules: [
+      { op: 'eq', path: 'npc.status', value: 'active' },
+      { op: 'not', rules: [{ op: 'lt', path: 'npc.age', value: 18 }] },
+      { op: 'eq', path: 'npc.metadata', value: { second: 2, first: 1 } },
+    ],
+  }, context), true);
+
+  assert.equal(evaluateCondition({
+    op: 'any',
+    rules: [
+      { op: 'eq', path: 'npc.status', value: 'inactive' },
+      { op: 'in', path: 'npc.metadata', values: [{ second: 2, first: 1 }] },
+    ],
+  }, context), true);
+
+  assert.throws(
+    () => evaluateCondition({ op: 'not', rules: [] }, context),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  assert.throws(
+    () => evaluateCondition({ op: 'all', rules: [], conditions: [] }, context),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  assert.throws(
+    () => evaluateCondition({ op: 'in', path: 'npc.status', values: Array(129).fill('active') }, context),
+    (error) => error.code === 'INVALID_RULE',
+  );
+});
+
 test('a failed audit write rolls back the entire event transaction', (t) => {
   const h = setup();
   t.after(() => h.store.close());
