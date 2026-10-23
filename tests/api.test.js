@@ -673,7 +673,8 @@ test('mechanic intent translation rejects ambiguous or invalid batches without c
   assert.equal(state.world_revision, 0);
   assert.deepEqual(state.entities, []);
   assert.deepEqual(events, []);
-  assert.deepEqual(audit, []);
+  assert.equal(audit.length, 1);
+  assert.equal(audit[0].action, 'world.created');
 
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
