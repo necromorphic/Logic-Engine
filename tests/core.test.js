@@ -182,6 +182,36 @@ test('declarative rule evaluator accepts schema-shaped nested rules and compares
   );
 });
 
+
+test('rule evaluator rejects unknown fields and read_set references must exist locally', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+
+  assert.throws(
+    () => evaluateCondition({ op: 'eq', path: 'npc.status', value: 'active', typo: true }, { npc: { status: 'active' } }),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  assert.throws(
+    () => h.engine.commitEvent('w', cmd({ read_set: ['entity:missing'] })),
+    (error) => error.code === 'INVALID_READ_SET_REFERENCE',
+  );
+
+  h.engine.createWorld({ world_id: 'other-world', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2005-12-29T10:00:00Z' });
+  h.engine.commitEvent('other-world', cmd({
+    event_id: 'foreign-entity-event',
+    idempotency_key: 'foreign-entity',
+    effects: [{ kind: 'entity.upsert', entity_id: 'foreign-only', entity_type: 'object' }],
+  }));
+  assert.throws(
+    () => h.engine.commitEvent('w', cmd({ read_set: ['entity:foreign-only'] })),
+    (error) => error.code === 'INVALID_READ_SET_REFERENCE',
+  );
+  assert.throws(
+    () => h.engine.commitEvent('w', cmd({ event_id: 'entity:reserved-prefix' })),
+    (error) => error.code === 'INVALID_EVENT_ID',
+  );
+});
+
 test('a failed audit write rolls back the entire event transaction', (t) => {
   const h = setup();
   t.after(() => h.store.close());
