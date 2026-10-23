@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logic-engine.invalid/schemas/mechanic-instance.schema.json",
+  "title": "Mechanic Instance",
+  "description": "World-local attachment to one immutable mechanic template version.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["instance_id", "world_id", "template_id", "template_version", "status", "parameters", "state", "created_by_event_id", "created_revision", "updated_revision"],
+  "properties": {
+    "instance_id": {"type": "string", "minLength": 1, "maxLength": 200, "pattern": "^(?!entity:|fact:).+$"},
+    "world_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "template_id": {"type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$"},
+    "template_version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"},
+    "status": {"enum": ["disabled", "enabled", "needs_review"]},
+    "parameters": {"type": "object", "description": "Instance-specific validated data; executable code is forbidden."},
+    "state": {"type": "object", "description": "World-local state; canonical mutations require validated engine events."},
+    "created_by_event_id": {"type": "string", "minLength": 1, "maxLength": 200},
+    "created_revision": {"type": "integer", "minimum": 0},
+    "updated_revision": {"type": "integer", "minimum": 0},
+    "disabled_at_revision": {"type": "integer", "minimum": 0},
+    "needs_review_reason": {"type": "string", "maxLength": 2000}
+  }
+}
