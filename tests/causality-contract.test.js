@@ -832,3 +832,98 @@ test('context manifest rejects a generation mismatch and a manifest from another
     (error) => error.code === 'CONTEXT_MANIFEST_NOT_FOUND' && error.status === 400,
   );
 });
+
+
+test('entity_absent REQUIRES is re-evaluated when rollback restores a previously present entity', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'absence-guard-created',
+    idempotency_key: 'absence-guard-created',
+    effects: [{ kind: 'entity.upsert', entity_id: 'guard', entity_type: 'character', status: 'active' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'absence-guard-destroyed',
+    idempotency_key: 'absence-guard-destroyed',
+    turn_id: 'absence-guard-destroyed',
+    expected_revision: 1,
+    effects: [{ kind: 'entity.delete', entity_id: 'guard' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'action-requiring-guard-absence',
+    idempotency_key: 'action-requiring-guard-absence',
+    turn_id: 'action-requiring-guard-absence',
+    expected_revision: 2,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_absent', entity_id: 'guard' } }],
+    effects: [{ kind: 'fact.set', fact_id: 'action-result', predicate: 'completed', value: true }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'absence-guard-destroyed',
+    idempotency_key: 'rollback-guard-destruction',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+
+  assert.deepEqual(new Set(rollback.invalidated_event_ids), new Set(['absence-guard-destroyed', 'action-requiring-guard-absence']));
+  assert.equal(events.get('action-requiring-guard-absence').validity, 'invalidated');
+  assert.equal(engine.getState('causality-world').entities.find((entity) => entity.entity_id === 'guard').status, 'active');
+  assert.equal(engine.getState('causality-world').facts.some((fact) => fact.fact_id === 'action-result'), false);
+});
+
+test('fact_absent REQUIRES distinguishes absence from an existing or conflicted fact', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const absentEvent = engine.commitEvent('causality-world', command({
+    event_id: 'action-requiring-no-signal',
+    idempotency_key: 'action-requiring-no-signal',
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'fact_absent', fact_id: 'signal' } }],
+    effects: [{ kind: 'fact.set', fact_id: 'absence-result', predicate: 'completed', value: true }],
+  }));
+  assert.equal(absentEvent.accepted, true);
+  engine.commitEvent('causality-world', command({
+    event_id: 'signal-now-exists',
+    idempotency_key: 'signal-now-exists',
+    turn_id: 'signal-now-exists',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'signal', predicate: 'state', value: 'present' }],
+  }));
+
+  assert.throws(
+    () => engine.commitEvent('causality-world', command({
+      event_id: 'action-requiring-absence-after-signal',
+      idempotency_key: 'action-requiring-absence-after-signal',
+      turn_id: 'action-requiring-absence-after-signal',
+      expected_revision: 2,
+      causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'fact_absent', fact_id: 'signal' } }],
+    })),
+    (error) => error.code === 'REQUIRED_PREDICATE_NOT_SATISFIED' && error.status === 409,
+  );
+});
+
+test('context manifests can explicitly represent an absent entity or fact', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const manifest = engine.registerContextManifest('causality-world', {
+    generation_id: 'absence-generation',
+    base_commit_sequence: 0,
+    base_world_revision: 0,
+    items: [
+      { kind: 'entity_absence', target_id: 'guard' },
+      { kind: 'fact_absence', target_id: 'signal' },
+    ],
+  });
+  const accepted = engine.commitEvent('causality-world', command({
+    event_id: 'absence-manifest-action',
+    idempotency_key: 'absence-manifest-action',
+    generation_id: 'absence-generation',
+    context_manifest_id: manifest.manifest_id,
+    causal_links: [
+      { relation: 'REQUIRES', predicate: { kind: 'entity_absent', entity_id: 'guard' } },
+      { relation: 'REQUIRES', predicate: { kind: 'fact_absent', fact_id: 'signal' } },
+    ],
+  }));
+  assert.equal(accepted.accepted, true);
+});
