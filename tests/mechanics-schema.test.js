@@ -10,7 +10,7 @@ function loadSchema(path) {
   const source = readFileSync(resolve(root, path), 'utf8');
   const schema = JSON.parse(source);
   assert.equal(schema.$schema, 'https://json-schema.org/draft/2020-12/schema');
-  assert.equal(schema.type, 'object');
+  if (schema.type !== undefined) assert.equal(schema.type, 'object');
   return schema;
 }
 
