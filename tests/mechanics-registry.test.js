@@ -65,6 +65,7 @@ test('mechanic and module registries start empty and keep immutable exact versio
   const next = engine.registerMechanicTemplate(template({ version: '1.1.0', display_name: 'New version' }));
   assert.equal(next.already_registered, false);
   assert.equal(engine.listMechanicTemplates('test.mechanic').length, 2);
+  assert.equal(engine.getMechanicRegistryAudit().filter((entry) => entry.action === 'mechanic_template.registered').length, 2);
   assert.throws(
     () => engine.getMechanicTemplate('test.mechanic', '9.9.9'),
     (error) => error.code === 'MECHANIC_TEMPLATE_NOT_FOUND' && error.status === 404,
