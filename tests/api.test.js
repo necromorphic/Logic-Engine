@@ -611,6 +611,12 @@ test('mechanic effect intents translate into canonical effects inside the propos
   assert.equal(conflict.status, 409);
   assert.equal((await conflict.json()).error.code, 'IDEMPOTENCY_KEY_CONFLICT');
 
+  const invalidChangedIntent = structuredClone(body);
+  invalidChangedIntent.event.effect_intents[0].kind = 'create_relation';
+  const invalidConflict = await fetch(createUrl, { method: 'POST', headers, body: json(invalidChangedIntent) });
+  assert.equal(invalidConflict.status, 409);
+  assert.equal((await invalidConflict.json()).error.code, 'IDEMPOTENCY_KEY_CONFLICT');
+
   const approvalUrl = base + '/v1/worlds/intent-world/proposals/' + proposal.proposal_id + '/approve';
   const approved = await fetch(approvalUrl, {
     method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
