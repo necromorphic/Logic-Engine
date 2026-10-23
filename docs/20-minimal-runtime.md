@@ -11,21 +11,21 @@ Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in su
 - `GET /health` — public health check.
 - `POST /v1/worlds` — create a world with a pinned World Pack ID/version and explicit in-world time.
 - `GET /v1/mechanic-templates` — list immutable mechanic-template versions.
-- `POST /v1/mechanic-templates` — validate and register an immutable template version.
+- `POST /v1/mechanic-templates` — validate and register an immutable template version (requires `x-admin-token`).
 - `GET /v1/mechanic-templates/:template_id/:version` — retrieve one exact template version.
 - `GET /v1/rule-modules` — list registered versioned rule-module manifests.
-- `POST /v1/rule-modules` — validate and register a versioned rule-module manifest.
+- `POST /v1/rule-modules` — validate and register a versioned rule-module manifest (requires `x-admin-token`).
 - `GET /v1/rule-modules/:module_id/:version` — retrieve one exact module manifest.
 - `GET /v1/mechanics/audit` — append-only registry audit records.
 - `GET /v1/worlds/:id/state` — canonical entity/fact projections.
 - `GET /v1/worlds/:id/events` — valid events; add `?include_invalid=true` to include retracted events.
 - `GET /v1/worlds/:id/audit` — append-only audit.
-- `POST /v1/worlds/:id/events` — validate and commit structured effects (authenticated direct-commit route; not a proposal/approval workflow).
+- `POST /v1/worlds/:id/events` — restricted internal route; requires the internal credential and an already-approved `proposal_id`, never an arbitrary event payload.
 - `POST /v1/worlds/:id/rollback` — invalidate a causal branch and rebuild projections.
 
 ## Trust-boundary note
 
-The bearer-authenticated `POST /v1/worlds/:id/events` route commits directly after the validations currently implemented by the engine. It is not an unauthenticated write, but any caller holding the shared service token can submit a commit-ready event; the runtime does not yet persist proposal status, enforce a separate approval step, or detect cancelled generations. Do not give this token to the LLM. A proposal/commit boundary is specified as a target in [27. Proposal-to-commit boundary](27-proposal-to-commit-boundary.md); it is not yet implemented.
+The API requires the general bearer token. Proposal creation and cancellation additionally require a configured per-adapter identity (`x-adapter-id`, `x-adapter-token`); cancellation is restricted to the creating adapter. Registry writes require `x-admin-token`. Approval requires the separate `x-approval-token`, which is a shared-secret gate and not proof of a named human identity. The internal events route cannot bypass the proposal lifecycle: it accepts only an already-approved `proposal_id`. Do not expose any credential to the LLM.
 
 ## Implemented in this prototype
 
@@ -34,7 +34,7 @@ The bearer-authenticated `POST /v1/worlds/:id/events` route commits directly aft
 - Schema migration tracking in `schema_migrations`; migrations add request fingerprints, typed causal-link storage, and stable per-world `commit_sequence` values to older databases.
 - `entity.upsert`, `entity.delete`, and `fact.set` effects.
 - Immutable mechanics registries: exact `(template_id, version)` and `(module_id, version)` keys, contract validation, stable content hashes, rejection of changed content under an existing version, exact-version retrieval, and append-only registry audit.
-- Mechanics template/module registration is infrastructure only: it does not execute module code or attach/enable a mechanic in a world. Instance lifecycle, trusted actor roles, conflict execution, and process lifecycle behavior remain unimplemented.
+- Mechanics template/module registration is infrastructure only: it does not execute module code or attach/enable a mechanic in a world. Instance lifecycle, general trusted actor roles, conflict execution, and process lifecycle behavior remain unimplemented.
 - Bounded declarative condition evaluator; arbitrary code execution is not supported. The current runtime subset is `eq`, `neq`, `exists`, numeric comparisons, `in`, `all`, `any`, and `not`. Nested rules use the schema's canonical `rules` array (`not` requires exactly one child); legacy `conditions`/`condition` aliases remain accepted. Rule paths, nesting/list sizes, and numeric comparisons are checked deterministically. Other operators in the broader declarative schema are not yet implemented by this runtime.
 - Causal references are validated at commit: `caused_by` must refer to a valid prior event in the same world; `depends_on` must refer to a valid prior event or an existing entity/fact in that world; `read_set` must reference existing entities/facts in the current world. Additive `causal_links[]` supports `READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`, and the restricted `REQUIRES` predicate contract; unknown typed relations are rejected. `REQUIRES` supports `entity_exists`, `entity_absent`, `entity_attribute`, `fact_value`, and `fact_absent` predicates and reevaluates them against reconstructed entity/fact history at the event's historical `commit_sequence` during rollback. A destroyed entity counts as absent for `entity_absent` while remaining as a tombstone identity. A conflicted fact evaluates to `unknown`: new commits requiring it are rejected with `REQUIRED_PREDICATE_UNKNOWN`, while rollback preserves an affected still-valid event and reports its ID in `requires_review_event_ids` if recomputation remains unknown. General predicate composition and other forms of negative/absence reads are not supported yet. Event IDs may not begin with the reserved `entity:` or `fact:` prefixes.
 - Rollback follows explicit `caused_by`, `depends_on`, `read_set`, and supported typed links. `READS_CLAIM` preserves a reader while another valid source supports the referenced fact projection. Independent events remain under the current prototype algorithm.
@@ -46,4 +46,4 @@ The bearer-authenticated `POST /v1/worlds/:id/events` route commits directly aft
 
 This remains a prototype, not the complete simulation engine. The engine validates caller-supplied causal links but does **not** infer a complete causal graph from the context sent to an LLM. A syntactically valid graph can still omit a real dependency. The current rollback implementation is not yet the full RollbackPlan classifier from `docs/05` and `docs/18`: multiple independent causes, process/task/knowledge recomputation, StoryBeat re-evaluation, and explicit conflict/review records are not implemented.
 
-There is no World Pack loader/validator, NPC autonomy, process scheduler, knowledge access control, StoryBeat engine, vector-memory adapter, ST adapter, first-party UI, or multi-user security model. The current runtime still handles projection-identity references rather than historical entity/fact versions; historical `REQUIRES`, context-manifest verification, and proof of causal completeness require a later versioned contract and tests. Back up prototype databases before upgrading and test restore procedures before storing valuable world state.
+There is no World Pack loader/validator, NPC autonomy, process scheduler, knowledge access control, StoryBeat engine, vector-memory adapter, ST adapter, first-party UI, or human multi-user role/identity model. The current runtime still handles projection-identity references rather than historical entity/fact versions; historical `REQUIRES`, context-manifest verification, and proof of causal completeness require a later versioned contract and tests. Back up prototype databases before upgrading and test restore procedures before storing valuable world state.
