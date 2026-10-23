@@ -155,3 +155,108 @@ test('rollback rebuilds fact identity claims and projection from remaining valid
     effects: [{ kind: 'fact.set', fact_id: 'signal', subject_ref: 'other-tower', predicate: 'signal', value: 'red' }],
   })), (error) => error.code === 'FACT_IDENTITY_MISMATCH');
 });
+
+
+test('fact.set treats absent subject_ref as SQL NULL and keeps it equivalent to explicit null', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('fact-identity-world', command({
+    event_id: 'absent-subject-ref', idempotency_key: 'absent-subject-ref',
+    effects: [{ kind: 'fact.set', fact_id: 'nullable-subject', predicate: 'p', value: 'v1' }],
+  }));
+  const stored = store.db.prepare(
+    'SELECT subject_ref FROM fact_claims WHERE world_id=? AND fact_id=?'
+  ).get('fact-identity-world', 'nullable-subject');
+  assert.equal(stored.subject_ref, null);
+
+  const accepted = engine.commitEvent('fact-identity-world', command({
+    event_id: 'explicit-null-subject-ref', idempotency_key: 'explicit-null-subject-ref',
+    turn_id: 'turn-null', expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'nullable-subject', subject_ref: null, predicate: 'p', value: 'v2' }],
+  }));
+  assert.equal(accepted.accepted, true);
+});
+
+test('fact.set identity is isolated between worlds', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.createWorld({
+    world_id: 'fact-identity-world-b',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00Z',
+  });
+
+  engine.commitEvent('fact-identity-world', command({
+    event_id: 'world-a-fact', idempotency_key: 'world-a-fact',
+    effects: [{ kind: 'fact.set', fact_id: 'shared-id', predicate: 'p1', value: 'a' }],
+  }));
+  const accepted = engine.commitEvent('fact-identity-world-b', command({
+    event_id: 'world-b-fact', idempotency_key: 'world-b-fact',
+    effects: [{ kind: 'fact.set', fact_id: 'shared-id', predicate: 'p2', value: 'b' }],
+  }));
+  assert.equal(accepted.accepted, true);
+});
+
+test('fact.set rejects exact duplicate effects in one event', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const duplicate = { kind: 'fact.set', fact_id: 'same', predicate: 'p', value: 'v' };
+  assert.throws(() => engine.commitEvent('fact-identity-world', command({
+    event_id: 'exact-duplicate', idempotency_key: 'exact-duplicate',
+    effects: [duplicate, { ...duplicate }],
+  })), (error) => error.code === 'DUPLICATE_FACT_EFFECT' && error.status === 400);
+  assert.equal(engine.getState('fact-identity-world').world_revision, 0);
+});
+
+test('identity mismatch rejection does not consume the idempotency key', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('fact-identity-world', command({
+    event_id: 'key-identity-original', idempotency_key: 'key-identity-original',
+    effects: [{ kind: 'fact.set', fact_id: 'keyed-fact', predicate: 'p1', value: 'v' }],
+  }));
+  assert.throws(() => engine.commitEvent('fact-identity-world', command({
+    event_id: 'key-identity-rejected', idempotency_key: 'reusable-after-identity-error',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'keyed-fact', predicate: 'p2', value: 'v' }],
+  })), (error) => error.code === 'FACT_IDENTITY_MISMATCH');
+
+  const accepted = engine.commitEvent('fact-identity-world', command({
+    event_id: 'key-identity-retry-valid', idempotency_key: 'reusable-after-identity-error',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'another-fact', predicate: 'p2', value: 'v' }],
+  }));
+  assert.equal(accepted.accepted, true);
+});
+
+test('rollback of the last claim releases fact identity for a later valid event', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('fact-identity-world', command({
+    event_id: 'rollback-last-claim', idempotency_key: 'rollback-last-claim',
+    effects: [{ kind: 'fact.set', fact_id: 'reusable-fact-id', predicate: 'old_predicate', value: 'old' }],
+  }));
+  engine.rollbackEvent('fact-identity-world', {
+    root_event_id: 'rollback-last-claim',
+    idempotency_key: 'rollback-last-claim-key',
+  });
+
+  assert.equal(store.db.prepare(
+    'SELECT COUNT(*) AS count FROM fact_claims WHERE world_id=? AND fact_id=?'
+  ).get('fact-identity-world', 'reusable-fact-id').count, 0);
+
+  const currentRevision = engine.getState('fact-identity-world').world_revision;
+  const accepted = engine.commitEvent('fact-identity-world', command({
+    event_id: 'reused-fact-id-after-rollback',
+    idempotency_key: 'reused-fact-id-after-rollback',
+    expected_revision: currentRevision,
+    effects: [{ kind: 'fact.set', fact_id: 'reusable-fact-id', predicate: 'new_predicate', value: 'new' }],
+  }));
+  assert.equal(accepted.accepted, true);
+  assert.equal(engine.getState('fact-identity-world').facts.find((fact) => fact.fact_id === 'reusable-fact-id').predicate, 'new_predicate');
+});
