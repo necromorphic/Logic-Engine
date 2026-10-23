@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
-import { LogicEngine } from '../src/application/engine.js';
+import { LogicEngine } from '../src/application/engine.js';\nimport { ProposalService } from '../src/application/proposals.js';
 import { evaluateCondition } from '../src/core/rules.js';
 
 function setup() {
@@ -325,4 +325,24 @@ test('a failed rollback audit write leaves the world and rollback metadata uncha
   assert.equal(h.engine.getState('w').world_revision, 2);
   assert.equal(h.engine.getState('w').entities.length, 0);
   assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 1);
+});
+
+
+test('proposal commit rolls back canonical event if proposal finalization fails', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  const proposals = new ProposalService(h.engine);
+  const proposal = proposals.create('w', {
+    idempotency_key: 'proposal-atomicity',
+    source_text: 'A harmless action.',
+    event: { turn_id: 'turn-atomicity', event_type: 'action.completed', effects: [] },
+  });
+  proposals.approve('w', proposal.proposal_id);
+  h.store.db.exec(`CREATE TRIGGER fail_proposal_finalization BEFORE INSERT ON audit_entries
+    WHEN NEW.action='proposal.committed'
+    BEGIN SELECT RAISE(ABORT, 'injected proposal finalization failure'); END;`);
+  assert.throws(() => proposals.commit('w', proposal.proposal_id), /injected proposal finalization failure/);
+  assert.equal(h.engine.getState('w').world_revision, 0);
+  assert.equal(h.engine.getEvents('w', true).length, 0);
+  assert.equal(proposals.get('w', proposal.proposal_id).status, 'approved');
 });
