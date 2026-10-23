@@ -25,7 +25,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {} }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -34,6 +34,17 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (approvalToken !== null && (typeof approvalToken !== 'string' || approvalToken.length < 16 || approvalToken === token || approvalToken === internalToken)) {
     throw new TypeError('Approval token must be at least 16 characters and differ from other tokens');
   }
+  if (adminToken !== null && (typeof adminToken !== 'string' || adminToken.length < 16 || [token, internalToken, approvalToken].includes(adminToken))) {
+    throw new TypeError('Admin token must be at least 16 characters and differ from other tokens');
+  }
+  if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret))) {
+    throw new TypeError('Adapter tokens must map non-empty adapter IDs to distinct secrets of at least 16 characters');
+  }
+  const adapterIdFor = (req) => {
+    const id = req.headers['x-adapter-id'];
+    const secret = req.headers['x-adapter-token'];
+    return typeof id === 'string' && typeof secret === 'string' && adapterTokens[id] === secret ? id : null;
+  };
   const proposals = new ProposalService(engine);
 
   return createServer(async (req, res) => {
@@ -44,12 +55,18 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
 
       if (req.method === 'GET' && url.pathname === '/v1/mechanics/audit') return send(res, 200, { audit: engine.getMechanicRegistryAudit() });
       if (url.pathname === '/v1/mechanic-templates') {
-        if (req.method === 'POST') return send(res, 201, { ...engine.registerMechanicTemplate(await readBody(req)) });
+        if (req.method === 'POST') {
+          if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
+          return send(res, 201, { ...engine.registerMechanicTemplate(await readBody(req)) });
+        }
         if (req.method === 'GET') return send(res, 200, { templates: engine.listMechanicTemplates() });
         return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported method for route.' } });
       }
       if (url.pathname === '/v1/rule-modules') {
-        if (req.method === 'POST') return send(res, 201, { ...engine.registerRuleModuleManifest(await readBody(req)) });
+        if (req.method === 'POST') {
+          if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
+          return send(res, 201, { ...engine.registerRuleModuleManifest(await readBody(req)) });
+        }
         if (req.method === 'GET') return send(res, 200, { modules: engine.listRuleModuleManifests() });
         return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported method for route.' } });
       }
@@ -69,7 +86,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       const action = parts[3] || 'state';
 
       if (parts.length === 4 && action === 'proposals' && req.method === 'POST') {
-        return send(res, 201, { proposal: proposals.create(worldId, await readBody(req)) });
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required to create proposals.' } });
+        return send(res, 201, { proposal: proposals.create(worldId, await readBody(req), adapterId) });
       }
       if (parts.length === 5 && action === 'proposals' && req.method === 'GET') {
         return send(res, 200, { proposal: proposals.get(worldId, decodeURIComponent(parts[4])) });
@@ -91,12 +110,14 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           return send(res, 200, { proposal, commit_result: commitResult });
         }
         if (operation === 'cancel') {
+          const adapterId = adapterIdFor(req);
+          if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required to cancel proposals.' } });
           const body = await readBody(req);
           const allowed = ['reason'];
           if (Object.keys(body).some((key) => !allowed.includes(key))) throw new EngineError('UNSUPPORTED_CANCELLATION_FIELD', 'Cancellation accepts only an optional reason.');
           const reason = body.reason ?? 'adapter_cancelled';
           if (typeof reason !== 'string' || !reason.trim() || reason.length > 200) throw new EngineError('INVALID_CANCELLATION_REASON', 'reason must be a non-empty string of at most 200 characters.');
-          return send(res, 200, { proposal: proposals.cancel(worldId, proposalId, reason.trim()) });
+          return send(res, 200, { proposal: proposals.cancel(worldId, proposalId, reason.trim(), adapterId) });
         }
       }
 
@@ -108,7 +129,17 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         if (!internalToken || req.headers['x-engine-internal-token'] !== internalToken) {
           return send(res, 403, { error: { code: 'DIRECT_COMMIT_DISABLED', message: 'Direct event commit is restricted to the separately configured internal credential.' } });
         }
-        return send(res, 200, engine.commitEvent(worldId, await readBody(req)));
+        const body = await readBody(req);
+        if (typeof body.proposal_id !== 'string' || !body.proposal_id.trim()) {
+          throw new EngineError('PROPOSAL_REQUIRED', 'Direct event route accepts only an approved proposal_id.', 400);
+        }
+        const proposal = proposals.get(worldId, body.proposal_id.trim());
+        if (proposal.status !== 'approved' && proposal.status !== 'committed') {
+          throw new EngineError('PROPOSAL_NOT_APPROVED', 'Internal event route requires an approved proposal.', 409, { status: proposal.status });
+        }
+        const result = proposals.commit(worldId, body.proposal_id.trim());
+        const { commit_result: commitResult, ...publicProposal } = result;
+        return send(res, 200, { proposal: publicProposal, commit_result: commitResult });
       }
       if (req.method === 'POST' && action === 'rollback') return send(res, 200, engine.rollbackEvent(worldId, await readBody(req)));
       return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported method for route.' } });
