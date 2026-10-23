@@ -189,6 +189,16 @@ Expected:
 - The per-event reason for D is distinct from the operation-level outcome.
 - `causal_completeness = unknown` alone does not force review for B or C.
 
+## T-17 — explicit historical absence predicates (implemented subset)
+
+Executable coverage verifies:
+- `entity_absent` accepts an absent/destroyed entity and is reevaluated against history before the requiring event;
+- rolling back the event that marked an entity destroyed restores its prior active state and invalidates an event that required the entity to be absent;
+- `fact_absent` accepts a missing fact and rejects a new event after a valid claim for that fact appears;
+- context manifests can explicitly list `entity_absence` and `fact_absence` items, and such entries are validated against the snapshot.
+
+`entity_absent` treats a destroyed tombstone as absent; it does not delete the entity identity. These are explicit predicate forms, not general support for arbitrary negative reads or negated predicate composition.
+
 ## T-16 — generation-bound context manifests (implemented subset)
 
 Executable coverage verifies:
