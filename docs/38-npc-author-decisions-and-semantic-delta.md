@@ -27,9 +27,9 @@ A true fact in the world is not automatically known by every NPC. Search/retriev
 
 ### 2.2 Responsibility boundary — Author-confirmed
 
-The canonical core is responsible for canonical world state and for the validation/evidence mechanisms it actually implements. A trusted context-preparation caller/mediator is responsible for determining which information is available to a particular NPC and what may be included in that NPC's model input.
+The canonical core is responsible for canonical world state and for the validation/evidence mechanisms it actually implements. The repository's architecture baseline also assigns authoritative knowledge/acquisition records and delivery statuses to the core as a target capability; the current runtime audit has not verified a complete NPC knowledge/acquisition API or persistent belief model. A trusted context-preparation caller/mediator selects and filters what may be included in a particular NPC's model input, but it is not the authoritative knowledge store and may not invent missing records.
 
-This is a target ownership boundary, not an assertion that such a trusted mediator already exists. Adapter identity is not automatically in-world NPC identity. The current context manifest and proposal lifecycle must not be treated as proof of NPC knowledge or access.
+This is a target ownership boundary, not an assertion that a complete trusted mediator or knowledge subsystem already exists. Adapter identity is not automatically in-world NPC identity. The current context manifest and proposal lifecycle must not be treated as proof of NPC knowledge or access.
 
 ### 2.3 Memory and beliefs — Author-confirmed
 
@@ -168,7 +168,8 @@ No tests were run as part of this consolidation. This document is a requirements
 
 The following documentation-only alignment was made on `feat/npc-subsystem`:
 
-- `docs/31-npc-subsystem-contract.md`: expanded relationship dimensions, codified the pre-model-input protection for author-reserved secrets, and updated uncertainty/author-control rules so an explicit compatible author-mandated outcome is preserved while causal gaps remain explicit and future causes remain prospective until committed.
+- `docs/31-npc-subsystem-contract.md`: aligned authoritative knowledge/acquisition and delivery-record ownership with the repository architecture baseline, expanded relationship dimensions, codified pre-model-input protection for author-reserved secrets, and updated author-control rules so compatible mandatory outcomes are preserved while causal gaps remain explicit.
+- `docs/34-npc-decision-context-and-proposal.md`: clarified that the core is the target owner of authoritative knowledge/delivery records, while a trusted caller only prepares the actor-specific decision-time subset; absent core interfaces remain deferred.
 - `docs/32-npc-semantic-acceptance-matrix.md`: added NPC-SEM-013–020 covering those author decisions and their blocked runtime status.
 - `docs/34-npc-decision-context-and-proposal.md`: clarified that fail-closed execution does not silently erase a mandatory author target; it may return `needs_review` while preserving the target and missing rationale. Added the explicit distinction between required outcome, prospective causal path, and committed event.
 - `docs/35-npc-test-boundary-map.md`: mapped NPC-SEM-013–020 to the production boundaries and required test evidence.
