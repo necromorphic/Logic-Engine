@@ -1,5 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 
@@ -342,4 +346,110 @@ test('typed READS_CLAIM reader survives rollback while another valid source stil
   assert.deepEqual(new Set(rollback.invalidated_event_ids), new Set(['claim-source-a']));
   assert.deepEqual(fact.source_event_ids, ['claim-source-b']);
   assert.equal(fact.status, 'active');
+});
+
+
+test('commit_sequence is per-world, stable across rollback, and distinct from world_revision', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const first = engine.commitEvent('causality-world', command({
+    event_id: 'sequence-first',
+    idempotency_key: 'sequence-first',
+  }));
+  const second = engine.commitEvent('causality-world', command({
+    event_id: 'sequence-second',
+    idempotency_key: 'sequence-second',
+    turn_id: 'sequence-second',
+    expected_revision: 1,
+  }));
+  assert.equal(first.commit_sequence, 1);
+  assert.equal(second.commit_sequence, 2);
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'sequence-second',
+    idempotency_key: 'rollback-sequence-second',
+  });
+  assert.equal(rollback.world_revision, 3);
+
+  const third = engine.commitEvent('causality-world', command({
+    event_id: 'sequence-third',
+    idempotency_key: 'sequence-third',
+    turn_id: 'sequence-third',
+    expected_revision: 3,
+  }));
+  assert.equal(third.commit_sequence, 3);
+  assert.equal(third.world_revision, 4);
+
+  const events = engine.getEvents('causality-world', true);
+  assert.deepEqual(events.map((event) => event.commit_sequence), [1, 2, 3]);
+  assert.equal(events.find((event) => event.event_id === 'sequence-second').validity, 'retracted');
+});
+
+test('commit_sequence starts independently for each world', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.createWorld({
+    world_id: 'sequence-other-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00Z',
+  });
+  const a = engine.commitEvent('causality-world', command({
+    event_id: 'sequence-world-a',
+    idempotency_key: 'sequence-world-a',
+  }));
+  const b = engine.commitEvent('sequence-other-world', command({
+    event_id: 'sequence-world-b',
+    idempotency_key: 'sequence-world-b',
+  }));
+
+  assert.equal(a.commit_sequence, 1);
+  assert.equal(b.commit_sequence, 1);
+});
+
+test('legacy event history is backfilled with stable commit_sequence values', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-sequence-migration-'));
+  const databasePath = join(directory, 'legacy.sqlite');
+  const legacy = new DatabaseSync(databasePath);
+  legacy.exec(`
+    PRAGMA foreign_keys=ON;
+    CREATE TABLE worlds(
+      world_id TEXT PRIMARY KEY, world_pack_id TEXT NOT NULL, world_pack_version TEXT NOT NULL,
+      initial_game_time TEXT NOT NULL, game_time TEXT NOT NULL, world_revision INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL
+    );
+    CREATE TABLE world_events(
+      event_id TEXT PRIMARY KEY, world_id TEXT NOT NULL, turn_id TEXT NOT NULL,
+      generation_id TEXT, event_type TEXT NOT NULL, game_time TEXT NOT NULL, committed_revision INTEGER NOT NULL,
+      validity TEXT NOT NULL CHECK(validity IN ('valid','retracted','invalidated')),
+      caused_by_json TEXT NOT NULL, depends_on_json TEXT NOT NULL, read_set_json TEXT NOT NULL,
+      effects_json TEXT NOT NULL, time_advance_seconds INTEGER NOT NULL DEFAULT 0, source_message_id TEXT,
+      created_at TEXT NOT NULL, rollback_id TEXT
+    );
+    INSERT INTO worlds(world_id,world_pack_id,world_pack_version,initial_game_time,game_time,world_revision,created_at)
+      VALUES('legacy-world','test.world','1.0.0','2005-12-29T10:00:00.000Z','2005-12-29T10:00:00.000Z',2,'2005-12-29T10:00:00.000Z');
+    INSERT INTO world_events(event_id,world_id,turn_id,event_type,game_time,committed_revision,validity,caused_by_json,depends_on_json,read_set_json,effects_json,created_at)
+      VALUES('legacy-event-a','legacy-world','legacy-turn-a','action.completed','2005-12-29T10:00:00.000Z',1,'valid','[]','[]','[]','[]','2005-12-29T10:00:00.000Z');
+    INSERT INTO world_events(event_id,world_id,turn_id,event_type,game_time,committed_revision,validity,caused_by_json,depends_on_json,read_set_json,effects_json,created_at)
+      VALUES('legacy-event-b','legacy-world','legacy-turn-b','action.completed','2005-12-29T10:00:00.000Z',2,'valid','[]','[]','[]','[]','2005-12-29T10:00:00.000Z');
+  `);
+  legacy.close();
+
+  const store = new SQLiteStore(databasePath);
+  const engine = new LogicEngine(store);
+  t.after(() => {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  assert.deepEqual(engine.getEvents('legacy-world', true).map((event) => event.commit_sequence), [1, 2]);
+  const next = engine.commitEvent('legacy-world', command({
+    event_id: 'legacy-event-c',
+    idempotency_key: 'legacy-event-c',
+    turn_id: 'legacy-turn-c',
+    expected_revision: 2,
+  }));
+  assert.equal(next.commit_sequence, 3);
 });
