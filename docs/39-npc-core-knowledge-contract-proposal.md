@@ -64,7 +64,7 @@ Belief is subject-relative and may change independently of acquisition history. 
 - forgetting or loss of detail without falsifying the historical fact that acquisition occurred;
 - different subjects to reach different conclusions from the same evidence.
 
-The owner and persistent representation of belief state must be explicitly assigned before implementation. It must not be silently implemented as a duplicate authoritative knowledge store inside the NPC module. If core decides that some mutable belief semantics belong to an NPC-domain projection, the core must still define how that projection relates to authoritative acquisition/provenance and rollback.
+The core owner has confirmed that persistent subject-relative belief state is core-owned simulation state. It remains logically separate from acquisition history and canonical world truth. An NPC-domain projection may be used only if the core explicitly defines its authority/reconciliation boundary; it must never become a second source of truth. This is a semantic ownership decision, not evidence that the required belief persistence/runtime is already implemented.
 
 ### 4.3 Delivery record
 
@@ -137,19 +137,22 @@ Do not implement these in the NPC branch yet:
 
 The first executable tests should be written against an agreed real interface. Until then, acceptance scenarios remain semantic tests/specifications, not evidence of runtime capability.
 
-## 10. Decisions required from the core owner before implementation
+## 10. Core-owner decision record — 2026-10-24
 
-The core owner should confirm or amend the following:
-1. **Record ownership:** whether acquisition records and delivery records are both core-owned persistent state (this proposal assumes yes, consistent with the architecture baseline).
-2. **Belief ownership:** whether current beliefs are a core-owned record or a separate NPC-domain projection, and how either option links to acquisition provenance and rollback.
-3. **Existing identifiers:** which current canonical event/source/world references can be used without introducing new identity or revision systems.
-4. **Acquisition semantics:** which observation, communication, document, inference, and author-initialization paths are supported first.
-5. **Delivery signals:** which host signals actually exist and what each can prove; unsupported states must remain unconfirmed.
-6. **Read/query boundary:** which existing core service should expose the actor-specific knowledge view, or whether a new core-owned contract must be designed after semantic approval.
-7. **Rollback reconciliation:** how the future records attach to the existing causal rollback path without duplicating it.
-8. **First vertical slice:** the smallest supported acquisition path to implement and test end-to-end.
+The core owner reviewed all eight questions in this proposal. The following semantic decisions are confirmed; they do not claim that runtime implementation already exists.
 
-No runtime work should begin until these choices are answered and mapped to inspected source.
+1. **Ownership — confirmed.** The core owns authoritative acquisition/provenance records, delivery attempts/receipt status, and reconciliation against canonical source validity. Persistent subject-relative belief state is also core-owned simulation state.
+2. **Three separate concepts — confirmed.** Acquisition history, current belief stance, and canonical proposition/world truth remain distinct. Acquisition does not force belief; belief does not prove acquisition or objective truth. Unknown, withheld, and incomplete are query/access results, not falsehood or a belief stance.
+3. **Identifiers/snapshots — confirmed.** Reuse existing `world_id`, `entity_id`, `event_id`, `fact_id`, applicable `context_manifest_id`/`generation_id`, and the exact-snapshot pair `(world_revision, commit_sequence)` from one consistent read view. Do not add parallel identity/revision/event-log/causal-graph/rollback systems.
+4. **First acquisition path — confirmed with narrow scope.** The initial vertical slice supports only explicitly authorized `author_initial`/imported initial knowledge, marked as authored/imported rather than in-world discovery. Observation, communication, documents, inference, and rumor remain unsupported until evidence paths are specified and testable.
+5. **Delivery signals — partially confirmed.** Host injection without a documented rendering signal remains `injected_unconfirmed`; `shown` is unsupported until a real host signal is identified and verified. Delivery, acknowledgement, comprehension, acquisition, and belief remain distinct. No host-rendering capability has been verified.
+6. **Actor-specific read/query boundary — still needs design.** `registerContextManifest(...)` records context/generation references; it is not an actor-relative knowledge query and does not establish permission or acquisition. An internal core-owned actor/purpose/snapshot-scoped read/filter contract must be designed before implementation. No public endpoint is approved.
+7. **Rollback reconciliation — agreed in principle, implementation not established.** Acquisition records must reference existing source/event identities and reconcile against remaining valid acquisition paths. Preserve independent support; do not blindly erase all related memory or automatically rewrite belief because canonical truth changed. Do not add a separate NPC rollback mechanism.
+8. **First vertical slice — direction confirmed, exact interface still open.** The smallest slice should cover authorized initial knowledge with provenance, actor-specific read/filter, truth/acquisition/belief separation, reserved-secret exclusion, and tests for actor separation, provenance, unknown/withheld states, and proposal non-mutation.
+
+### Remaining implementation gate
+
+Before runtime/API/schema/storage work, reconcile the above decisions with inspected production interfaces, define the exact internal read/filter interface and initial-source representation, verify the real host-delivery signal boundary, and identify executable tests against real code. This is a semantic approval record, not an implementation report.
 
 ## 11. Acceptance criteria for a future implementation
 
