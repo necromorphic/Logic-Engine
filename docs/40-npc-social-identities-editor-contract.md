@@ -83,6 +83,18 @@ A recorded vulnerability is a possible basis for questions, investigation, or su
 6. If the social identity contradicts the underlying profile, treat that as a potentially intentional cover claim or an explicit unresolved conflict according to its authored status; do not silently rewrite either side.
 7. An identity can be inactive or unavailable in a particular scene without ceasing to exist as authored configuration, if the eventual model supports context availability.
 
+## 4.1 Runtime-created identities and lifecycle (author-requested semantic decisions)
+
+The same social-identity model must support identities authored in advance and identities an NPC creates during play when a concrete, causally justified need arises. Runtime-created identities remain additional identity cards linked to the same underlying NPC; they are not new NPC entities.
+
+- An NPC selects which available identity to present based on its goals, character, knowledge, relationships, resources, and circumstances. Context may constrain the choice, including coercion, exposure, unavailable documents, or other established events.
+- Creating an identity requires a plausible in-world cause and available means. The system must not invent unsupported biography, documents, contacts, or history merely to make the cover work.
+- A runtime-created identity is retained as an additional card so the NPC can reuse it later. Its origin must distinguish it from an author-authored identity.
+- When no longer in use, an identity can be marked inactive rather than deleted. Inactive means not currently selected/available for ordinary use; it does not mean forgotten, erased from history, or unknown to observers who already learned of it.
+- An NPC may revise an existing identity when circumstances justify adapting the cover. Such revisions must not retroactively change what the NPC previously said or did, invalidate already occurred events by rewriting them, or silently alter canonical facts. Preserve change history through the core's existing history/revision mechanisms; do not add an identity-specific revision counter or event log.
+- An identity may be reactivated when the situation permits. Prior exposure, compromised documents, and observer knowledge remain governed by established world events and actor-relative knowledge, not erased by reactivation.
+- These lifecycle rules are semantic requirements only. They do not establish that runtime card creation/editing, persistence, lifecycle status, or history APIs currently exist.
+
 ## 5. Logic and NPC behavior
 
 When an identity is used in a scene, the eventual NPC decision/context layer should be able to distinguish:
@@ -163,9 +175,9 @@ Before implementation, confirm:
 1. How the existing character identity/profile projection will represent the link from a social identity to one underlying character.
 2. Which profile fields are author configuration versus canonical world references in the current card contract.
 3. How the editor distinguishes an author-declared document from an existing verified world entity.
-4. Whether and how a social identity can be activated/deactivated in runtime, and which rules determine its use in a particular scene.
+4. Which actual editor UI, persistence API, and test boundaries exist; do not assume they exist based on this proposal.
 5. Which World Pack procedures govern checks, document verification, disguise detection, and consequences.
-6. How actor-relative knowledge/access will eventually determine what observers know about the identity.
-7. Which actual editor UI, persistence API, and test boundaries exist; do not assume they exist based on this proposal.
+6. How actor-relative knowledge/access will determine what observers know about the identity, using the core-owned acquisition/provenance, delivery, and belief contracts. The core has confirmed these ownership boundaries semantically, but the actor-specific read/filter interface and real delivery signals remain to be designed/verified.
+7. How runtime-created identity cards are represented and persisted through the existing profile/card projection, and how changes use existing core history without adding a parallel identity-specific revision or event log.
 
-Until these are answered, keep the work documentation-only. Do not change runtime, public API, schemas, SQLite, vectorization, prompts, SillyTavern, or core state semantics.
+The semantic direction for identity selection, need-based runtime creation, retention as an additional card, inactive status rather than deletion, and justified edits is now author-confirmed. The core's knowledge-ownership response resolves the ownership question but does not prove these runtime/profile capabilities exist. Until the remaining interfaces and test boundaries are reconciled with current production code, keep the work documentation-only. Do not change runtime, public API, schemas, SQLite, vectorization, prompts, SillyTavern, or core state semantics.
