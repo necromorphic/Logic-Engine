@@ -1,6 +1,6 @@
 # Stage 1 causality test matrix — proposal
 
-Status: **mixed executable coverage and test specification**. The current runtime supports a limited `causal_links[]` subset (`CAUSES`, `READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`) with declared-edge rollback. Historical cursors, manifests, predicate-based `REQUIRES`, and per-event rollback classification remain proposals. Scenarios below must not be read as claims that those deferred capabilities are implemented.
+Status: **mixed executable coverage and test specification**. The current runtime supports a limited `causal_links[]` subset (`READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`) with declared-edge rollback. Direct event causation remains in `caused_by[]`. Historical cursors, manifests, predicate-based `REQUIRES`, and per-event rollback classification remain proposals. Scenarios below must not be read as claims that those deferred capabilities are implemented.
 
 Related: [Stage 1 causality contract](21-stage1-causality-contract.md), [Causality semantics proposal](22-causality-semantics.md).
 
@@ -193,6 +193,7 @@ Expected:
 
 Executable coverage in `tests/causality-contract.test.js` verifies:
 - `READS_SOURCE` points to a prior valid event and makes the reader a rollback candidate when that source is retracted.
+- `READS_CLAIM` preserves the reader when another valid source still supports the same fact/claim projection.
 - `READS_CLAIM` points to a fact/claim identity with current valid support and makes the reader a rollback candidate when that claim loses its only source.
 - unsupported typed relationships (including deferred `MAINTAINS`) are rejected before an idempotency key is consumed; corrected input can retry the same key.
 
