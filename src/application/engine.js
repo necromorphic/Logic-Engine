@@ -133,6 +133,7 @@ export class LogicEngine {
     if (x.expected_revision !== undefined) assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision must be non-negative.');
 
     if (x.context_manifest_id !== undefined) assert(typeof x.context_manifest_id === 'string' && x.context_manifest_id.trim() && x.context_manifest_id.length <= 200, 'INVALID_CONTEXT_MANIFEST_ID', 'context_manifest_id must be a non-empty string of at most 200 characters.');
+    if (x.generation_id !== undefined && x.generation_id !== null) assert(typeof x.generation_id === 'string' && x.generation_id.trim() && x.generation_id.length <= 200, 'INVALID_GENERATION_ID', 'generation_id must be a non-empty string of at most 200 characters.');
 
     const seconds = x.time_advance_seconds ?? 0;
     const skip = x.time_mode === 'explicit_skip';
@@ -147,8 +148,8 @@ export class LogicEngine {
       operation: 'event.commit',
       event_id: x.event_id ?? null,
       turn_id: x.turn_id.trim(),
-      generation_id: x.generation_id ?? null,
-      context_manifest_id: x.context_manifest_id ?? null,
+      generation_id: x.generation_id == null ? null : x.generation_id.trim(),
+      context_manifest_id: x.context_manifest_id == null ? null : x.context_manifest_id.trim(),
       source_message_id: x.source_message_id ?? null,
       event_type: x.event_type.trim(),
       expected_revision: x.expected_revision ?? null,
