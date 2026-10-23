@@ -20,8 +20,12 @@ Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in su
 - `GET /v1/worlds/:id/state` — canonical entity/fact projections.
 - `GET /v1/worlds/:id/events` — valid events; add `?include_invalid=true` to include retracted events.
 - `GET /v1/worlds/:id/audit` — append-only audit.
-- `POST /v1/worlds/:id/events` — validate and commit structured effects.
+- `POST /v1/worlds/:id/events` — validate and commit structured effects (authenticated direct-commit route; not a proposal/approval workflow).
 - `POST /v1/worlds/:id/rollback` — invalidate a causal branch and rebuild projections.
+
+## Trust-boundary note
+
+The bearer-authenticated `POST /v1/worlds/:id/events` route commits directly after the validations currently implemented by the engine. It is not an unauthenticated write, but any caller holding the shared service token can submit a commit-ready event; the runtime does not yet persist proposal status, enforce a separate approval step, or detect cancelled generations. Do not give this token to the LLM. A proposal/commit boundary is specified as a target in [27. Proposal-to-commit boundary](27-proposal-to-commit-boundary.md); it is not yet implemented.
 
 ## Implemented in this prototype
 
