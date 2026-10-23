@@ -260,3 +260,25 @@ test('rollback of the last claim releases fact identity for a later valid event'
   assert.equal(accepted.accepted, true);
   assert.equal(engine.getState('fact-identity-world').facts.find((fact) => fact.fact_id === 'reusable-fact-id').predicate, 'new_predicate');
 });
+
+
+test('fact.set identity guard detects inconsistent historical claims, not only the projection', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('fact-identity-world', command({
+    event_id: 'historical-consistent-claim', idempotency_key: 'historical-consistent-claim',
+    effects: [{ kind: 'fact.set', fact_id: 'legacy-fact', predicate: 'p1', value: 'v1' }],
+  }));
+  // Simulate legacy/inconsistent storage history that predates the identity guard.
+  store.db.prepare(
+    'INSERT INTO fact_claims(world_id,fact_id,event_id,subject_ref,predicate,value_json,committed_revision) VALUES(?,?,?,?,?,?,?)'
+  ).run('fact-identity-world', 'legacy-fact', 'historical-inconsistent-event', null, 'p2', JSON.stringify('v2'), 0);
+
+  assert.throws(() => engine.commitEvent('fact-identity-world', command({
+    event_id: 'legacy-fact-new-claim', idempotency_key: 'legacy-fact-new-claim',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'legacy-fact', predicate: 'p1', value: 'v3' }],
+  })), (error) => error.code === 'FACT_IDENTITY_MISMATCH' && error.status === 409);
+  assert.equal(engine.getState('fact-identity-world').world_revision, 1);
+});
