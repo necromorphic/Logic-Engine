@@ -15,21 +15,39 @@ Related: [Stage 1 causality contract](21-stage1-causality-contract.md), [Causali
 
 ## T-03R — negative observation over reconstructed history
 
-**Purpose:** define how rollback affects an observation that a predicate was false at an earlier point.
+**Purpose:** define how rollback affects an observation that a predicate was false at an earlier point. The observation must be consistent when committed; rollback can later make it inconsistent by removing the only support for the predicate's negation.
+
+### T-03R-A — rollback removes the only support for the negative observation
 
 Setup:
-1. At cursor 1, event A establishes `character:X.status = "alive"`.
-2. At cursor 2, event B commits an observation asserting `character:X.status = "alive"` was false at cursor 2. B's immutable generation manifest records the context actually supplied.
-3. Roll back A at a later world revision.
+1. At cursor 1, event S establishes `character:X.status = "alive"`.
+2. At cursor 2, event A changes X to `status = "destroyed"`.
+3. At cursor 3, event B records that predicate `character:X.status = "alive"` was false at cursor 3. Its generation manifest is immutable.
+4. Roll back A at a later world revision.
 
 Expected under the recommended reconstructed-history policy:
-- Reconstructing canonical history at cursor 2 without A makes the predicate false only if no other valid source establishes it.
-- If the predicate is false at cursor 2, B's assertion remains consistent; B is not invalidated by this observation.
-- If an independent event D also established the same predicate before cursor 2 and remains valid, the predicate is true after reconstruction; B's assertion that it was false is inconsistent and B becomes an invalidation candidate.
+- At B's commit point, the predicate was false because A's destroyed status superseded the prior alive status.
+- After reconstructing canonical history without A, X is alive at cursor 3.
+- B's assertion that the alive predicate was false is inconsistent with the reconstructed canonical history; B becomes an invalidation candidate.
 - The original manifest is not rewritten.
-- A result of `unknown` does not count as false; classification requires review or partial resolution according to the operation-level policy.
+- If predicate evaluation is `unknown`, do not coerce it to false; classification needs review or partial resolution.
 
-This test deliberately does not decide whether an LLM can truthfully report what it saw; the manifest proves availability, not causal use.
+### T-03R-B — independent support preserves the negative observation
+
+Setup:
+1. At cursor 1, event S establishes `character:X.status = "alive"`.
+2. At cursor 2, event A changes X to `status = "destroyed"`.
+3. At cursor 3, independent event D also establishes `character:X.status = "destroyed"` and does not depend on A.
+4. At cursor 4, event B records that `character:X.status = "alive"` was false.
+5. Roll back A.
+
+Expected:
+- D still supports destroyed status at B's observation point.
+- The alive predicate remains false at cursor 4 in reconstructed canonical history.
+- B's negative observation remains consistent and B is not invalidated by this observation alone.
+- The result depends on D being genuinely independent and valid at B's cursor; merely existing later is insufficient.
+
+These scenarios test canonical-history reconstruction, not whether the model's reported basis is complete. The manifest proves availability, not causal use.
 
 ## T-04R-1 — required precondition loses its only support
 
