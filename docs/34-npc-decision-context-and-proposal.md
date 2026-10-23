@@ -126,7 +126,7 @@ Before a proposal can be considered for commitment, the caller/core must be able
 
 The NPC decision step itself does not replace core validation. Model confidence, a fluent rationale, retrieved text, or narrative assertion cannot satisfy a failed check.
 
-When a check cannot be completed, the safe outcome is no proposal or `needs_review`, not speculative execution.
+When a check required for safe execution cannot be completed, the safe outcome is no executable proposal or `needs_review`, not speculative execution. This rule must not silently erase an explicit author-mandated outcome: retain that outcome as a required target, identify the unresolved check or missing rationale, and prepare only a bounded prospective path or a review result. The author instruction does not bypass higher-priority constraints, player agency, validation, approval, or commit requirements.
 
 ## 6. First-slice scenarios
 
@@ -299,3 +299,17 @@ The following are intentionally unresolved, not hidden implementation assumption
 7. Which of these guarantees can be proven at a real boundary and therefore deserve executable tests.
 
 Until those questions have evidence-backed answers, keep these as design acceptance criteria. Do not add tests that assume a tri-state core evaluator, a new knowledge store, actor authorization inside `ProposalService`, or a new manifest schema.
+
+
+### 10.6 Author-mandated outcomes and causal preparation
+
+The author-confirmed rule in `docs/31-npc-subsystem-contract.md` applies to this decision-context slice, but it does not turn a proposal into a committed action or weaken core validation.
+
+- If the author directly requires an outcome compatible with higher-priority constraints and player agency, preserve it as a mandatory target. Do not silently discard it because an NPC's ordinary preferences would point elsewhere.
+- First evaluate established motives, relationships, evidence, goals, pressures, commitments, and circumstances.
+- If those do not support a plausible path, the decision step may identify or propose new future circumstances/actions as prospective steps. They remain proposals until the normal supported core path validates and commits them.
+- Never invent prior events, evidence, promises, or hidden motives as established facts to retrofit a cause.
+- If no credible path can yet be grounded, return `needs_review` with the required outcome and missing rationale preserved. Do not convert the missing rationale into an unmarked cancellation or fabricate a causal explanation.
+- The author-mandated outcome fixes the required destination, not unspecified intermediate actions. NPC autonomy remains for the path between the current state and that destination. No step may author the player's voluntary action, dialogue, internal state, consent, or unprovided reaction.
+
+This remains a semantic requirement, not a feature claim. The current first slice has no verified causal planner or author-intent arbitration implementation. Acceptance coverage is in NPC-SEM-013 and NPC-SEM-014; both remain blocked until a real production boundary can be tested.
