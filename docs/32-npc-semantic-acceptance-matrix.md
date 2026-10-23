@@ -230,3 +230,147 @@ Do not create runtime tests for these scenarios yet. Once an authoritative acqui
 - **Rollback tests:** add only after the core's causal ownership for acquisition and derived belief records is explicitly defined; preserve independent sources of knowledge when one source is invalidated, if the approved semantics require that behavior.
 
 The current branch has not established the required actor-relative acquisition boundary. Therefore the immediate decision is to retain these as acceptance criteria and identify the trusted caller/core owner before authoring executable tests or adding any NPC state model.
+
+
+## 14. Author-confirmed behavior scenarios (requirements; not yet executable)
+
+These scenarios operationalize `docs/38-npc-author-decisions-and-semantic-delta.md`. They are acceptance requirements only. They must remain marked blocked until a real production boundary can exercise them; do not simulate missing guarantees in a test-only mock.
+
+### NPC-SEM-013 — A direct author-mandated outcome is not silently cancelled
+
+**Given**
+- The author explicitly requires outcome O.
+- O does not conflict with higher-priority system constraints or player agency.
+- The NPC's ordinary preferences would normally make O unlikely or lead the NPC to refuse.
+- No instruction prescribes every intermediate step.
+
+**When** the system plans the next story developments.
+
+**Then**
+- O remains a mandatory target; the NPC's ordinary refusal tendency alone does not cancel it.
+- The NPC retains autonomy over intermediate actions not specified by the author.
+- The system first evaluates already-established motives, relationships, evidence, pressures, and circumstances.
+- It does not invent a past cause or silently rewrite established history to force O.
+- Any route still awaiting causal justification is explicitly marked as needing rationale, not represented as settled canon.
+- No voluntary player action, dialogue, thought, feeling, intention, consent, or reaction is invented.
+
+### NPC-SEM-014 — Missing motivation is prepared through future causes, not fabricated history
+
+**Given**
+- The author requires outcome O.
+- Existing established circumstances do not yet provide a convincing causal path to O.
+- The outcome remains compatible with higher-priority constraints and player agency.
+
+**When** the system prepares a path toward O.
+
+**Then**
+- It may propose new future circumstances or actions that could credibly motivate O.
+- New causes are prospective proposals until they occur through the approved world/event path.
+- It does not assert that the NPC secretly had a previously unrecorded motive, promise, encounter, or piece of evidence.
+- If no credible route can yet be constructed, O remains an explicit author requirement and the missing causal link is surfaced for resolution.
+
+### NPC-SEM-015 — An author-reserved secret is not autonomously disclosed
+
+**Given**
+- Secret S is explicitly reserved by the author and marked as not to be disclosed autonomously.
+- An NPC has access to S and a dramatic opportunity to reveal it.
+- No explicit author instruction authorizes this disclosure.
+
+**When** the NPC's candidate action or dialogue is prepared.
+
+**Then**
+- The system does not disclose S through that autonomous action, including as an accidental leak invented solely for drama.
+- The restriction is applied before S is placed into a context that could cause an unauthorized disclosure.
+- Ordinary NPC autonomy remains available for unrelated actions.
+- Any explicit authorized override is evaluated under the higher-priority instruction rules; it is not inferred from narrative convenience.
+
+### NPC-SEM-016 — Relationship dimensions may coexist without implying reciprocity
+
+**Given**
+- NPC A feels attraction toward character B.
+- A and B also have rivalry or a reluctant alliance.
+- No evidence establishes that B reciprocates A's attraction.
+
+**When** the system evaluates their relationship and proposes a reaction.
+
+**Then**
+- Attraction and rivalry/alliance may coexist; one label or score does not erase the other.
+- A's attraction is not converted into B's attraction, consent, or romantic commitment.
+- The proposed reaction is grounded in each character's own history, traits, evidence, and current goals.
+- A change to one relationship dimension does not automatically change all other dimensions.
+
+### NPC-SEM-017 — Relationship change is dimension-specific and proportionate to the event
+
+**Given**
+- Two NPCs have a documented relationship history across multiple dimensions.
+- A new event affects them; its importance and meaning differ by context or character.
+- No rule mandates a universal response.
+
+**When** relationship consequences are evaluated.
+
+**Then**
+- Each NPC may react differently to the same event for grounded character-specific reasons.
+- A minor interaction normally causes a limited or gradual change; a major betrayal, rescue, or revelation may cause a sharp change.
+- Only supported dimensions change; a trust increase need not erase hostility, attraction, rivalry, obligation, or suspicion.
+- The cause and relevant history remain available for explaining the change; a lone aggregate score is not sufficient evidence.
+
+### NPC-SEM-018 — An off-screen event reaches the player only through a plausible channel
+
+**Given**
+- NPC A completes a consequential action outside the player's viewpoint.
+- The action is committed through the approved world/event mechanism.
+- No message, report, conversation, visible consequence, or other allowed channel has yet informed the player.
+
+**When** a later player-facing scene is generated.
+
+**Then**
+- The event and its valid effects may remain part of canonical world state.
+- The player is not treated as already aware merely because the event exists in canon, logs, or model context.
+- The system may later surface it through a plausible in-world channel, including an NPC independently requesting help.
+- A report being drafted or pending is not the same as being sent, received, understood, or known by the player.
+
+### NPC-SEM-019 — Report lifecycle distinguishes occurrence, sending, receipt, and awareness
+
+**Given**
+- NPC A prepares a report about event E for NPC B or the player.
+- Delivery may be delayed, fail, or be received without being understood.
+- The current implementation may not yet provide report lifecycle primitives.
+
+**When** knowledge and player awareness are prepared.
+
+**Then**
+- Occurrence of E does not by itself establish awareness.
+- A pending report does not establish sending; sending does not by itself establish receipt; receipt does not automatically establish comprehension or belief.
+- The system must not claim these transitions occurred without trusted evidence.
+- If the necessary transition boundary is absent, the scenario remains blocked rather than being faked by prompt text or a parallel store.
+
+### NPC-SEM-020 — Significant information persists without forcing permanent certainty
+
+**Given**
+- An NPC acquired meaningful information through a valid, actor-specific source.
+- The information later becomes disputed, partially forgotten, or contradicted by new evidence.
+- The source event and the NPC's acquisition are distinct from the current canonical truth.
+
+**When** the NPC's later decision context is prepared.
+
+**Then**
+- The history of acquisition may remain distinguishable from the NPC's current belief.
+- The NPC may retain the memory of a rumor or statement while doubting or rejecting its content.
+- New evidence may change belief without rewriting the earlier acquisition or canonical history.
+- Selection of relevant context must not imply that omitted information was never acquired.
+- Until a trusted persistence/acquisition boundary exists, this remains a blocked requirement, not a claimed runtime capability.
+
+## 15. Author-decision coverage and blocking status
+
+| Author-confirmed requirement | Acceptance coverage | Current status |
+|---|---|---|
+| Author-mandated outcome must not be silently cancelled | NPC-SEM-013 | Semantic requirement; runtime boundary not verified |
+| Prepare future causes without rewriting past history | NPC-SEM-014 | Semantic requirement; causal-planning support not verified |
+| Protect author-reserved secrets | NPC-SEM-015 | Semantic requirement; disclosure/context guard not verified |
+| Multidimensional relationship tension and non-reciprocal attraction | NPC-SEM-016 | Semantic requirement; relationship model not verified |
+| Event-weighted, character-specific relationship changes | NPC-SEM-017 | Semantic requirement; persistent relationship history not verified |
+| Off-screen events surfaced through natural channels | NPC-SEM-018 | Existing event path does not establish player awareness |
+| Distinguish report lifecycle and awareness | NPC-SEM-019 | Trusted delivery/receipt boundary not verified |
+| Persist acquisition separately from changing belief | NPC-SEM-020 | NPC persistence/belief representation not verified |
+
+These scenarios supplement, rather than replace, NPC-SEM-001–012 and the acquisition matrix. Do not claim end-to-end acceptance until each scenario can call the real production boundary and assert canonical state, actor-relative information, player awareness, and relevant event/revision effects. No new store, event log, scheduler, causal graph, or rollback subsystem is authorized by this test specification.
