@@ -40,6 +40,10 @@ export class LogicEngine {
     assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key required.');
     assert(typeof x.turn_id === 'string' && x.turn_id.trim() && x.turn_id.length <= 200, 'TURN_ID_REQUIRED', 'turn_id required.');
     assert(typeof x.event_type === 'string' && x.event_type.trim() && x.event_type.length <= 200, 'EVENT_TYPE_REQUIRED', 'event_type required.');
+    if (x.event_id !== undefined && x.event_id !== null) {
+      assert(typeof x.event_id === 'string' && x.event_id.trim() && x.event_id.length <= 200, 'INVALID_EVENT_ID', 'event_id must be a non-empty string of at most 200 characters.');
+      assert(!x.event_id.trim().startsWith('entity:') && !x.event_id.trim().startsWith('fact:'), 'INVALID_EVENT_ID', 'event_id cannot use the reserved entity: or fact: reference prefixes.');
+    }
     if (x.expected_revision !== undefined) assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision must be non-negative.');
 
     const seconds = x.time_advance_seconds ?? 0;
@@ -75,8 +79,8 @@ export class LogicEngine {
 
   rollbackEvent(id, x) {
     assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
-    assert(typeof x.root_event_id === 'string' && x.root_event_id.trim(), 'ROOT_EVENT_REQUIRED', 'root_event_id required.');
-    assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim(), 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key required.');
+    assert(typeof x.root_event_id === 'string' && x.root_event_id.trim() && x.root_event_id.length <= 200, 'ROOT_EVENT_REQUIRED', 'root_event_id must be a non-empty string of at most 200 characters.');
+    assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key must be a non-empty string of at most 200 characters.');
     const request = { operation: 'event.rollback', root_event_id: x.root_event_id.trim() };
     return this.store.rollback(id, request.root_event_id, x.idempotency_key.trim(), hashRequest(request));
   }
