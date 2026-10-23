@@ -180,6 +180,18 @@ test('declarative rule evaluator accepts schema-shaped nested rules and compares
     () => evaluateCondition({ op: 'in', path: 'npc.status', values: Array(129).fill('active') }, context),
     (error) => error.code === 'INVALID_RULE',
   );
+  assert.throws(
+    () => evaluateCondition({ op: 'in', path: 'npc.missing', values: 'not-an-array' }, context),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  assert.throws(
+    () => evaluateCondition({ op: 'gt', path: 'npc.missing', value: '24' }, context),
+    (error) => error.code === 'RULE_TYPE_MISMATCH',
+  );
+  assert.throws(
+    () => evaluateCondition({ op: 'exists', path: 'npc.status', value: 'yes' }, context),
+    (error) => error.code === 'INVALID_RULE',
+  );
 });
 
 
