@@ -59,6 +59,19 @@ export function evaluateCondition(rule, context, depth = 0) {
   const op = rule.op;
   if (!OPS.has(op)) throw new EngineError('UNSUPPORTED_RULE_OPERATOR', 'Unsupported operator: ' + String(op));
 
+  const allowed = {
+    eq: ['op', 'path', 'value'], neq: ['op', 'path', 'value'],
+    exists: ['op', 'path', 'value'],
+    gt: ['op', 'path', 'value'], gte: ['op', 'path', 'value'],
+    lt: ['op', 'path', 'value'], lte: ['op', 'path', 'value'],
+    in: ['op', 'path', 'values'],
+    all: ['op', 'rules', 'conditions'], any: ['op', 'rules', 'conditions'],
+    not: ['op', 'rules', 'condition'],
+  }[op];
+  if (Object.keys(rule).some((key) => !allowed.includes(key))) {
+    throw new EngineError('INVALID_RULE', 'Unexpected field for rule operator: ' + op);
+  }
+
   if (op === 'all' || op === 'any') {
     const rules = nestedRules(rule, op);
     if (rules.length > 64) throw new EngineError('INVALID_RULE', op + ' supports at most 64 nested rules.');
