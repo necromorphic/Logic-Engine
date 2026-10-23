@@ -118,3 +118,44 @@ Before adding runtime code, document and agree on all of the following:
 ## 7. Decision
 
 Proceed with documentation and source-boundary discovery only. The existing core can stage and gate generic proposals, but it does not yet provide the actor-specific trusted context required for safe autonomous NPC decisions. No runtime changes are justified until that missing boundary is identified and its semantics are agreed.
+
+## 8. Acquisition ownership: source-evidence decision
+
+This section answers a narrow ownership question from the currently inspected `feat/npc-subsystem` source. It records observed boundaries; it does not create a new subsystem or select unapproved kernel semantics.
+
+### 8.1 What the existing components actually own
+
+| Component / path | Observed responsibility | Acquisition-owner decision |
+|---|---|---|
+| `LogicEngine.registerContextManifest(...)` in `src/application/engine.js` | Validates generation/snapshot identifiers and typed references, normalizes them, hashes the manifest request, and delegates persistence. | **Not the acquisition owner.** A manifest records which references were associated with a generation; it does not prove an NPC witnessed, read, received, inferred, or was permitted to access them. |
+| `SQLiteStore.registerContextManifest(...)` and `context_manifests` in `src/storage/sqlite-store.js` | Persists manifest identity, snapshot cursors, references, hash, and creation time. | **Not the acquisition owner.** Persistence preserves supplied metadata; it does not independently validate the actor's experience or access. |
+| Canonical event path: `LogicEngine.prepareEvent/commitEvent` and `SQLiteStore` event/fact projections | Validates and commits world events/effects and builds canonical world projections; existing event history can evidence that something occurred in the world. | **Evidence source, not sufficient owner.** A canonical event can establish a world occurrence, but by itself does not establish which NPC perceived it or when a report reached them. |
+| `ProposalService.create/approve/commit` in `src/application/proposals.js` | Stages a non-canonical pending proposal, checks supported payload/references and snapshot freshness, then uses separate approval and normal commit flow. | **Not the acquisition owner.** The service explicitly does not check actor authorization; proposal approval is a commit gate, not a record of how an NPC acquired information. |
+| Trusted API adapter / caller | Supplies adapter identity for proposals; context-manifest registration currently accepts the manifest payload. | **Only plausible place to orchestrate acquisition checks today, but no implemented NPC acquisition contract was found.** Adapter identity is not in-world NPC identity and cannot alone prove actor-relative acquisition. |
+| Mechanic/intent translation | Maps supported high-level intents to core effects within its narrow contract. | **Not the acquisition owner.** Translating an intent does not prove that the NPC's input facts were legitimately acquired. |
+
+### 8.2 Current decision
+
+**No existing component in the inspected source can currently be named the authoritative NPC information-acquisition owner.** The safest existing seam is a trusted caller/context-preparation boundary *before* the model input is assembled, with the existing context manifest retained as an audit/reference record and the existing proposal lifecycle retained for proposed world changes.
+
+This is an ownership finding, not an instruction to implement a new context service. Until the core owner approves the contract, the trusted caller must not be presumed to exist, and the NPC subsystem must fail closed for acquisition-sensitive information: omit the content from model-visible context or route the case to review when source, actor-relative access, or acquisition evidence is missing.
+
+### 8.3 Minimum duties a future owner would need to demonstrate
+
+For each candidate item, the boundary would need to distinguish and provide evidence for:
+
+1. **Source identity and world occurrence** — which event, document, report, observation, or claim is being considered; canonical occurrence is evidence about the world, not automatically about NPC awareness.
+2. **Actor-relative acquisition transition** — who witnessed it, received the report, read the document, or made the observation, with enough provenance to distinguish pending delivery from completed delivery.
+3. **Access and scope** — whether that actor could perceive or access this particular information at the relevant time; retrieval success alone is not permission.
+4. **Epistemic classification** — acquired information versus rumor, inference, unverified assertion, false belief, unknown/incomplete context, or withheld/inaccessible material. Source reliability must not be silently converted into the actor's belief.
+5. **Model-input exclusion** — unauthorized or not-yet-acquired secret content must be excluded before generation, not merely labelled after the model has seen it.
+6. **Snapshot/generation linkage** — identify the world snapshot and generation for which the context was prepared, using existing manifest machinery where its current guarantees suffice; do not claim the manifest currently binds the exact model input unless that binding is actually implemented.
+7. **Reviewable failure** — missing or contradictory acquisition evidence stays unknown/incomplete or withheld; it must not default to known-false or be repaired by model-generated rationale.
+
+These are requirements for evaluating a future boundary, not a new data model or approved schema.
+
+### 8.4 Open owner decisions before runtime or tests
+
+The core owner and NPC owner still need to agree on: (a) who is the trusted caller and how its trust is established; (b) the authoritative source of actor identity and actor-relative access; (c) whether acquisition records are represented by existing canonical events, a caller-owned input record, or another already-approved mechanism; (d) how belief/inference/rumor differ from acquired source information; and (e) how acquisition evidence is linked to generation and later invalidation/rollback.
+
+Do not answer these by adding a second event store, knowledge store, revision counter, access-control subsystem, or new API/storage schema in this branch. Do not add executable NPC tests until the owner and semantics are agreed and a real boundary exists. The acceptance matrix remains a requirements map, not proof of runtime support.
