@@ -172,6 +172,7 @@ The following documentation-only alignment was made on `feat/npc-subsystem`:
 - `docs/32-npc-semantic-acceptance-matrix.md`: added NPC-SEM-013–020 covering those author decisions and their blocked runtime status.
 - `docs/34-npc-decision-context-and-proposal.md`: clarified that fail-closed execution does not silently erase a mandatory author target; it may return `needs_review` while preserving the target and missing rationale. Added the explicit distinction between required outcome, prospective causal path, and committed event.
 - `docs/35-npc-test-boundary-map.md`: mapped NPC-SEM-013–020 to the production boundaries and required test evidence.
+- `docs/37-npc-kernel-readiness-gate.md`: recorded that author-directed outcomes do not override core safety, player agency, or the unresolved core readiness gates.
 
 The key semantic distinction is now explicit across the contract and first-slice design: **a required story outcome is not the same as an already-justified action or a committed world event**. The target remains mandatory within higher-priority constraints; unsupported causal steps remain prospective or under review; only the existing core path can commit world effects.
 
