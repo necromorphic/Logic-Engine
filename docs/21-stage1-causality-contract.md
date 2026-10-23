@@ -32,7 +32,7 @@ References to existing entity/fact identities that the caller claims materially 
 
 ### `causal_links[]`
 
-The runtime now accepts an additive, typed subset of causal relationships while retaining the legacy fields above for backward compatibility. Each item is `{ relation, target_id }`; duplicate relation/target pairs are rejected, and links are normalized before request hashing.
+The runtime now accepts an additive, typed subset of causal relationships while retaining the legacy fields above for backward compatibility. Read links use `{ relation, target_id }`; `REQUIRES` uses `{ relation: "REQUIRES", predicate }`. Duplicate normalized links are rejected, and links are normalized before request hashing.
 
 Supported relations in this increment:
 - `REQUIRES`: a precondition expressed as `entity_exists` or `entity_attribute`; it must be true before the event commits. During rollback, the engine reconstructs entity state before the event's `commit_sequence` while excluding events already classified for invalidation. If the predicate is false in that reconstructed history, the event becomes a rollback candidate.
