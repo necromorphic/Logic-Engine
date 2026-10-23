@@ -1,6 +1,6 @@
 # Stage 1 causality test matrix — proposal
 
-Status: **mixed executable coverage and test specification**. The current runtime supports a limited `causal_links[]` subset (`READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`) with declared-edge rollback. Direct event causation remains in `caused_by[]`. The per-world `commit_sequence` cursor and a restricted entity-only `REQUIRES` evaluator are implemented; context manifests, broader predicate forms, tri-state unknown handling, and per-event rollback classification remain proposals. Scenarios below must not be read as claims that those deferred capabilities are implemented.
+Status: **mixed executable coverage and test specification**. The current runtime supports a limited `causal_links[]` subset (`READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`, and entity-only `REQUIRES`) with declared-edge rollback. Direct event causation remains in `caused_by[]`. The per-world `commit_sequence` cursor and a restricted entity-only `REQUIRES` evaluator are implemented; context manifests, broader predicate forms, tri-state unknown handling, and per-event rollback classification remain proposals. Scenarios below must not be read as claims that those deferred capabilities are implemented.
 
 Related: [Stage 1 causality contract](21-stage1-causality-contract.md), [Causality semantics proposal](22-causality-semantics.md).
 
