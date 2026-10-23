@@ -962,6 +962,7 @@ test('rollback returns a structured review result and makes no semantic changes 
   );
 
   const before = engine.getState('causality-world');
+  const auditCountBefore = store.db.prepare('SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=?').get('causality-world').count;
   const first = engine.rollbackEvent('causality-world', {
     root_event_id: 'conflict-root',
     idempotency_key: 'review-contested-root',
@@ -979,6 +980,7 @@ test('rollback returns a structured review result and makes no semantic changes 
     { kind: 'projection', target_ref: 'fact:contested-fact' },
   ]);
   assert.equal(after.world_revision, before.world_revision);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=?').get('causality-world').count, auditCountBefore);
   assert.equal(after.facts.find((fact) => fact.fact_id === 'contested-fact').status, 'conflicted');
   assert.equal(new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event])).get('conflict-root').validity, 'valid');
 
