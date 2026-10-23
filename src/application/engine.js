@@ -152,6 +152,10 @@ export class LogicEngine {
     return this.store.listRuleModuleManifests(moduleId);
   }
 
+  getMechanicRegistryAudit() {
+    return this.store.mechanicRegistryAudit();
+  }
+
   commitEvent(id, x) {
     assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
     assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key required.');
