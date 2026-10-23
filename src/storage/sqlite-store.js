@@ -216,6 +216,12 @@ export class SQLiteStore {
       if (!isEntity && !isFact) {
         throw new EngineError('INVALID_READ_SET_REFERENCE', 'This runtime supports read_set references of the form entity:id or fact:id.', 400, { reference: ref });
       }
+      if (isEntity && !this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, ref.slice('entity:'.length))) {
+        throw new EngineError('INVALID_READ_SET_REFERENCE', 'read_set entity must exist in the current world at commit time: ' + ref, 400, { reference: ref });
+      }
+      if (isFact && !this.db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, ref.slice('fact:'.length))) {
+        throw new EngineError('INVALID_READ_SET_REFERENCE', 'read_set fact must exist in the current world at commit time: ' + ref, 400, { reference: ref });
+      }
     }
   }
 
