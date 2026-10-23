@@ -35,6 +35,7 @@ test('projects only approved identity/status metadata and source revision', () =
     entity_id: 'entity-1',
     entity_type: 'character',
     status: 'active',
+    source_refs: [{ kind: 'event', event_id: 'event-1' }],
     source_revision: 7,
   });
 });
@@ -100,4 +101,5 @@ test('does not copy arbitrary attributes, raw facts, or source event payloads', 
   assert.equal('profile' in result, false);
   assert.equal('known_state' in result, false);
   assert.equal('created_by_event_id' in result, false);
+  assert.deepEqual(result.source_refs, [{ kind: 'event', event_id: 'event-1' }]);
 });
