@@ -159,3 +159,17 @@ These are requirements for evaluating a future boundary, not a new data model or
 The core owner and NPC owner still need to agree on: (a) who is the trusted caller and how its trust is established; (b) the authoritative source of actor identity and actor-relative access; (c) whether acquisition records are represented by existing canonical events, a caller-owned input record, or another already-approved mechanism; (d) how belief/inference/rumor differ from acquired source information; and (e) how acquisition evidence is linked to generation and later invalidation/rollback.
 
 Do not answer these by adding a second event store, knowledge store, revision counter, access-control subsystem, or new API/storage schema in this branch. Do not add executable NPC tests until the owner and semantics are agreed and a real boundary exists. The acceptance matrix remains a requirements map, not proof of runtime support.
+
+
+## 9. Social identity editor integration boundary
+
+`docs/40-npc-social-identities-editor-contract.md` adds an optional authored profile capability for one underlying character to use additional social identities/covers. This is not an NPC acquisition or authorization mechanism.
+
+- The profile/editor may store authored claims and references, but must distinguish them from verified canonical entities, documents, events, and relationships.
+- A social identity links to the underlying character explicitly; it must not create another NPC or merge with an impersonated person.
+- The character-card projection remains a view over authoritative/authored records, not a second writable canonical store.
+- The editor cannot grant another NPC knowledge of the identity, prove that documents exist or were shown, or declare that a cover has been exposed.
+- Runtime selection of an identity, observer-relative access, document checks, investigation, and exposure consequences remain unimplemented/unverified until real integration boundaries are identified.
+- Any canonical document creation, registration, discovery, or exposure must use the existing approved core event/validation path. The social identity proposal adds no new event, knowledge, permission, or rollback subsystem.
+
+No editor, API, schema, SQLite, runtime, or test implementation is authorized by this documentation addition.
