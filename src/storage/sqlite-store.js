@@ -95,7 +95,7 @@ export class SQLiteStore {
       );
       CREATE TABLE IF NOT EXISTS world_events(
         event_id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(world_id), turn_id TEXT NOT NULL,
-        generation_id TEXT, event_type TEXT NOT NULL, game_time TEXT NOT NULL, committed_revision INTEGER NOT NULL,
+        generation_id TEXT, context_manifest_id TEXT, event_type TEXT NOT NULL, game_time TEXT NOT NULL, committed_revision INTEGER NOT NULL,
         commit_sequence INTEGER NOT NULL, validity TEXT NOT NULL CHECK(validity IN ('valid','retracted','invalidated')),
         caused_by_json TEXT NOT NULL, depends_on_json TEXT NOT NULL, read_set_json TEXT NOT NULL,
         causal_links_json TEXT NOT NULL DEFAULT '[]', effects_json TEXT NOT NULL, time_advance_seconds INTEGER NOT NULL DEFAULT 0, source_message_id TEXT,
@@ -131,6 +131,12 @@ export class SQLiteStore {
         rollback_id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(world_id),
         root_event_id TEXT NOT NULL, invalidated_event_ids_json TEXT NOT NULL, world_revision INTEGER NOT NULL,
         created_at TEXT NOT NULL, idempotency_key TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS context_manifests(
+        manifest_id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(world_id),
+        generation_id TEXT NOT NULL, base_commit_sequence INTEGER NOT NULL,
+        items_json TEXT NOT NULL, manifest_hash TEXT NOT NULL, created_at TEXT NOT NULL,
+        UNIQUE(world_id,generation_id)
       );
       CREATE TABLE IF NOT EXISTS schema_migrations(
         version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL
@@ -175,6 +181,21 @@ export class SQLiteStore {
             for (const { event_id: eventId } of events.all(worldId)) setSequence.run(sequence++, worldId, eventId);
           }
           this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS events_world_commit_sequence ON world_events(world_id,commit_sequence)');
+        },
+      },
+      {
+        version: 4,
+        apply: () => {
+          const columns = this.db.prepare('PRAGMA table_info(world_events)').all();
+          if (!columns.some((column) => column.name === 'context_manifest_id')) {
+            this.db.exec('ALTER TABLE world_events ADD COLUMN context_manifest_id TEXT');
+          }
+          this.db.exec(`CREATE TABLE IF NOT EXISTS context_manifests(
+            manifest_id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            generation_id TEXT NOT NULL, base_commit_sequence INTEGER NOT NULL,
+            items_json TEXT NOT NULL, manifest_hash TEXT NOT NULL, created_at TEXT NOT NULL,
+            UNIQUE(world_id,generation_id)
+          )`);
         },
       },
     ];
