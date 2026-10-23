@@ -14,6 +14,14 @@ The current runtime offers partial causal rollback, not a proof-complete rollbac
 
 ## 2. Current metadata semantics
 
+### Generation-bound context manifests
+
+A host may register a context manifest through `POST /v1/worlds/:id/context-manifests` before generation. The manifest contains `generation_id`, `base_commit_sequence`, `base_world_revision`, and `items[]`. Each item has `kind` (`entity`, `fact`, or `event`), `target_id`, and optional SHA-256 `content_hash`. Duplicate item identities are rejected. The manifest is immutable and unique per `(world_id, generation_id)`; identical registration is idempotent, while a different manifest for the same generation is rejected.
+
+Registration requires the supplied cursor and world revision to match the current snapshot and validates that every listed item exists in the world at that snapshot. A committed event may supply `context_manifest_id`; its `generation_id` must match, and the world revision must still match the manifest snapshot at commit. If a manifest is supplied, every `read_set` item, `READS_SOURCE`/`READS_ENTITY`/`READS_CLAIM` target, and entity/fact target read by `REQUIRES` must be listed in the manifest. Missing declared reads are rejected before event persistence and do not consume the idempotency key.
+
+This verifies **declared-read inclusion**, not causal completeness or model attention. The engine cannot prove that a caller-built manifest exactly matches the prompt unless the trusted host adapter derives it from the actual assembled generation context. Manifests store canonical references and optional item content hashes; they do not currently store full prompt text or reconstruct arbitrary prompt fragments. Events without `context_manifest_id` retain legacy behavior for backward compatibility.
+
 ### `caused_by[]`
 
 Direct event-parent references asserted by the caller. The runtime validates that each referenced event exists, is valid, belongs to this world, and was committed before the new event. The runtime cannot infer omitted causes from prose.
