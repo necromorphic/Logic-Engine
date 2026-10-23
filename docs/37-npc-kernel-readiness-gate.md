@@ -150,3 +150,15 @@ The author-confirmed NPC decision record and acceptance matrix now distinguish t
 A missing rationale must remain visible; it must not be replaced by fabricated past evidence or used as a silent reason to discard the required outcome. If a credible path cannot yet be grounded, preserve the required target and mark the causal gap for review. None of this authorizes bypassing core validation or inventing player-controlled actions.
 
 This is an NPC semantic requirement, not a new kernel guarantee. It does not resolve the open core questions around actor-relative context, intent/effect mapping, causal completeness, or rollback ownership. See `docs/31-npc-subsystem-contract.md` section 10, `docs/34-npc-decision-context-and-proposal.md` section 10.6, and NPC-SEM-013–014 in `docs/32-npc-semantic-acceptance-matrix.md`.
+
+
+## 11. Knowledge ownership: architecture target versus current runtime
+
+The core architecture documents (docs/00-architecture-baseline.md, docs/06-npc-autonomy-and-process-manager.md, and docs/07-knowledge-and-narrative-boundaries.md) assign authoritative knowledge records, provenance/reconciliation, and delivery status to the engine. Treat this as a **documented target**, not an observed runtime capability: the current source audit did not find a complete NPC knowledge/acquisition API or persistent belief model.
+
+The responsibilities must remain separate:
+- The core is the intended authority for canonical/authoritative knowledge and delivery records when implemented.
+- A trusted context-preparation caller selects and filters a decision-time subset for a particular actor using approved access and acquisition evidence.
+- The NPC decision step may reason over that supplied context but cannot create authoritative knowledge by retrieval, prompt inclusion, or generated prose.
+
+Do not describe the trusted caller as the canonical knowledge owner, and do not create an NPC-side substitute store. Before implementation, the core owner must confirm how the documented ownership target maps to current or planned core APIs and which capabilities remain deferred.
