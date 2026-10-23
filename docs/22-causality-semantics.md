@@ -1,8 +1,8 @@
 # Causality semantics — Stage 1 proposal
 
-Status: **architecture proposal; not yet a runtime/API contract**. This document records the current agreement and the decisions that must be resolved before tests are treated as normative. It does not change the current runtime's guarantees.
+Status: **architecture proposal; not yet a runtime/API contract**. This document records the current agreement and recommended resolutions for the remaining semantic ambiguities. It does not change current runtime guarantees.
 
-Related: [Stage 1 causality contract](21-stage1-causality-contract.md).
+Related: [Stage 1 causality contract](21-stage1-causality-contract.md) and [Stage 1 causality test matrix](24-causality-test-matrix.md).
 
 ## 1. Purpose and limits
 
@@ -18,7 +18,7 @@ The current runtime supports **partial rollback over declared metadata**. It doe
 
 ## 2. Three distinct evidence layers
 
-1. **Context manifest** — records available context and, when supported, its generation/revision binding.
+1. **Context manifest** — records available context and must be bound to a particular generation and context snapshot.
 2. **Read set** — records the context items the caller declares as materially used.
 3. **Causal relationships** — express how an event relates to events, claims, or predicates.
 
@@ -28,10 +28,12 @@ Proposed basis statuses:
 
 - `all_verified`: every declared read is present in the trusted manifest.
 - `invalid_declared`: at least one declared read is absent from the trusted manifest.
-- `undeclared`: the event has no declared reads.
+- `undeclared`: the read set is empty and a usable manifest is bound.
 - `unbound`: the manifest or its generation binding is unavailable.
 
-These are proposed semantic labels, not current runtime output fields. The precise precedence between an empty read set and a missing manifest remains to be specified before implementation.
+**Precedence rule:** if the manifest is absent/unbound, status is `unbound`, even when `read_set` is empty. With a trusted manifest, an empty read set is `undeclared`. A manifest that is present but untrusted is not sufficient for `all_verified`.
+
+These are proposed semantic labels, not current runtime output fields.
 
 ## 3. Proposed relationship types
 
@@ -39,7 +41,7 @@ These are proposed semantic labels, not current runtime output fields. The preci
 |---|---|---|
 | `CAUSES` | Event A directly caused event B | Declared descendant is a rollback candidate; actual status still depends on the rollback contract |
 | `PRODUCES` | An event produced or changed a projection/claim | Recompute the affected projection from remaining valid claims |
-| `OBSERVES` | Event B asserts predicate P at a specified observation point | Preserve the historical observation unless its asserted historical basis is invalidated; it may be marked stale |
+| `OBSERVES` | Event B asserts predicate P at a specified observation point | Re-evaluate the historical assertion against the reconstructed canonical history; preserve its original manifest as audit evidence |
 | `REQUIRES` | Event B was committed on the precondition that P held at B's commit point | Invalidate B only when recomputation establishes that the required precondition did not hold at that point |
 | `READS_SOURCE` | B used a particular source event | Rolling back that source makes B a candidate for invalidation |
 | `READS_CLAIM` | B used a claim supported by one or more sources | Invalidate B only if the claim no longer satisfies the dependency after recomputation |
@@ -53,7 +55,9 @@ These names are a design vocabulary, not accepted API values. Stage 1 must not s
 
 `REQUIRES` is a historical commit-time precondition, not a continuously maintained invariant. `MAINTAINS` is the proposed interval invariant and is deferred.
 
-Before implementing this distinction, specify how the engine reconstructs the state at an event's commit point after a rollback. A current projection alone is insufficient to answer every historical predicate query.
+A `REQUIRES` predicate is evaluated at the event's commit point in the **reconstructed canonical history**, not against the current projection alone. If rollback removes the only support for the predicate before that point, the requiring event is invalidated. If independent valid support keeps the predicate true at that point, the requiring event can remain valid.
+
+This does not mean every later change to P invalidates the earlier event. A later state change does not violate a commit-time precondition.
 
 ## 4. Predicate vocabulary under consideration
 
@@ -63,17 +67,26 @@ Candidate predicate forms:
 - `entity_attribute(entity_id, attribute, value)`
 - `fact_status(subject, attribute, value)`
 - `event_occurred(event_id, before_game_time)`
-- `predicate_was_false(predicate, observed_revision, observed_game_time)`
+- `predicate_was_false(predicate, observed_at)`
 
 Predicate evaluation should be tri-state: `true`, `false`, or `unknown`. Unknown must not be silently coerced to false.
 
-The final schema must define canonical identifiers, supported attribute values, comparison rules, and the exact relationship between event commit sequence, `world_revision`, and `game_time`.
+The final schema must define canonical identifiers, supported attribute values, comparison rules, and the exact relationship between event commit sequence, world revision, and game time.
 
-### 4.1 Negative observations
+### 4.1 Recommended historical model for negative observations
 
-A negative observation must refer to a predicate/query, not to an absent `fact_id`. A proposed representation may include the predicate, an observation revision, and the observed game time.
+A bare `observed_revision` is not sufficient to define historical meaning. `world_revision` is monotonic and advances on transactions including rollback; it is not, by itself, a stable event-history cursor.
 
-**Open semantic decision:** does `observed_revision` identify an immutable historical snapshot, or a position in a canonical event history that is reconstructed after rollback? Those interpretations produce different results. Do not implement invalidation of negative observations until this is resolved. In particular, a rollback transaction must not be assumed to mutate an immutable historical snapshot retroactively.
+Use two separate concepts:
+
+1. **Generation evidence:** an immutable manifest/snapshot identifier describing what was actually available to the model. Rollback never rewrites this record.
+2. **Historical assertion point:** a stable event-history cursor (for example, the observed event's commit sequence) at which the predicate was asserted.
+
+**Recommended Stage 1 semantics:** after rollback, evaluate the negative observation against the reconstructed canonical history at its historical assertion point. If the predicate that was asserted false is now true at that point, the observation is no longer consistent with the reconstructed canonical history and its owning event becomes an invalidation candidate. The original manifest remains unchanged as evidence of what the model saw. This is a deliberate historical correction, not a mutation of the old manifest.
+
+This model must be adopted explicitly before implementation. If the product instead wants immutable historical truth (“what the engine exposed then remains a true historical record even after a correction”), the observation should remain historically valid and receive a separate stale/corrected annotation. Those policies are not interchangeable. The proposed default here is reconstructed canonical history because rollback is intended to correct canonically accepted history.
+
+The observation point must be addressable even when several events share the same `game_time`. Do not use game time alone as the history cursor.
 
 ## 5. Event status versus rollback outcome
 
@@ -82,45 +95,40 @@ These are separate axes.
 Proposed event statuses:
 
 - `valid`: currently included in the canonical history.
-- `invalidated`: excluded because a required commit-time precondition is no longer supported in the reconstructed canonical history.
-- `superseded`: replaced by a later event under a specifically defined supersession rule.
+- `invalidated`: excluded because a required commit-time precondition or historical assertion is no longer supported in the reconstructed canonical history.
+- `superseded`: replaced by a later event under a specifically defined supersession rule. Supersession is not implemented by this proposal.
 
-Proposed rollback outcomes for the **rollback operation**:
+Proposed rollback outcomes apply to the **rollback operation**:
 
-- `resolved`: all events classified by the defined rules were processed; no known ambiguity blocked the operation.
+- `resolved`: all events and projections covered by the implemented rules were processed; no known ambiguity blocked the operation.
 - `partially_resolved`: some classifications or dependent projections were deferred.
 - `requires_review`: a specific ambiguity requires an explicit decision.
 
-If per-event diagnostics are needed, use a separate per-event classification field rather than attaching an operation-level `rollback_outcome` to each event.
+Per-event diagnostics must use a separate classification/reason field rather than attaching the operation-level `rollback_outcome` to each event.
 
-`causal_completeness = unknown` is a system-wide Stage 1 limitation. It does not, by itself, force every rollback to be `requires_review`; otherwise `resolved` would have no useful meaning. A review reason should identify a concrete unresolved case, such as an unbound manifest, ambiguous legacy predicate, unresolved source conflict, or deferred invariant.
+`causal_completeness = unknown` is a system-wide Stage 1 limitation. It does not, by itself, force every rollback to be `requires_review`; otherwise `resolved` would have no useful meaning. A review reason should identify a concrete unresolved case, such as an unbound manifest, ambiguous legacy predicate, unresolved source conflict, or deferred invariant. A system that cannot determine whether a particular event is affected should not silently label that event definitively valid or invalid.
+
+### 5.1 Deferred `MAINTAINS`
+
+Stage 1 does not accept `MAINTAINS` as a supported causal relationship. The API contract must reject an unsupported relationship rather than silently commit it as though its invariant had been enforced. If a future authoring/analysis layer needs to preserve such a proposal, it may store it as a non-executable review item outside the committed causal contract. It must not be represented as an enforced relationship on a committed event.
 
 ## 6. Candidate invariants
 
-The following are proposed and require testable definitions before they become normative:
+These are proposed and require testable definitions before they become normative:
 
 - **INV-1 — declared reads:** every declared read must be present in a trusted, generation-bound manifest; manifest extras do not imply an incomplete read set.
 - **INV-2 — monotonic game time:** rollback does not decrease `game_time`.
 - **INV-3 — monotonic revision:** each successful rollback transaction increments `world_revision` exactly once.
 - **INV-4 — required preconditions:** an event is invalidated for a `REQUIRES` dependency only when that dependency is false at the event's defined commit point in the reconstructed canonical history.
 - **INV-5 — completeness:** `causal_completeness` remains `unknown` throughout Stage 1.
-- **INV-6 — negative observations:** classification requires a defined historical-snapshot/reconstruction model; no behavior is normative until that model is chosen.
+- **INV-6 — negative observations:** the manifest is immutable generation evidence; the assertion is evaluated at a stable historical cursor in reconstructed canonical history.
 - **INV-7 — source versus claim:** a direct source dependency and a claim dependency have different rollback semantics.
 - **INV-8 — review:** review is driven by a concrete unresolved classification, not solely by the general fact that causal completeness is unknown.
+- **INV-9 — unsupported relationship:** a relationship type deferred from Stage 1 is rejected by the executable causal contract; it is not silently treated as enforced.
 
-## 7. Test plan candidates (not yet normative)
+## 7. Test plan
 
-After the open semantics are settled, derive contract tests for:
-
-- negative observation at a historical revision;
-- required precondition invalidated by rollback of its only support;
-- required precondition still supported by an independent source;
-- source-specific read versus claim-level read with multiple sources;
-- manifest-bound, missing-read, empty-read-set, and unbound-manifest cases;
-- event status independent from rollback-operation outcome;
-- causal diamond rollback and preservation of an independent branch.
-
-Names such as T-03R, T-04R-1, T-04R-3, T-05R, T-05S, T-06R, T-06S, T-07R, and T-08 may be used as working identifiers, but the test matrix should be finalized only after each scenario states its event order, required predicates, and expected historical-state semantics.
+The scenario matrix in [docs/24-causality-test-matrix.md](24-causality-test-matrix.md) is the proposed source of truth for test ordering and setup. Tests must state event order, commit-point predicates, independent sources, rollback root, and expected event/projection/operation status. Tests that depend on a not-yet-implemented historical cursor or typed relationship remain specification tests until the runtime can represent that data.
 
 ## 8. Explicitly deferred
 
