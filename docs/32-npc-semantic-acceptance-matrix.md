@@ -374,3 +374,100 @@ These scenarios operationalize `docs/38-npc-author-decisions-and-semantic-delta.
 | Persist acquisition separately from changing belief | NPC-SEM-020 | NPC persistence/belief representation not verified |
 
 These scenarios supplement, rather than replace, NPC-SEM-001–012 and the acquisition matrix. Do not claim end-to-end acceptance until each scenario can call the real production boundary and assert canonical state, actor-relative information, player awareness, and relevant event/revision effects. No new store, event log, scheduler, causal graph, or rollback subsystem is authorized by this test specification.
+
+
+## 16. Optional social identity editor scenarios
+
+The detailed authoring and integration proposal is in `docs/40-npc-social-identities-editor-contract.md`. These scenarios are semantic requirements, not claims of current runtime support.
+
+### NPC-SEM-021 — Additional social identities are optional representations of one character
+
+**Given** an ordinary character has no additional social identity, or an author adds one or more cover identities.
+
+**When** the character profile is read or edited.
+
+**Then**
+- Zero additional identities is valid; no placeholder form is required.
+- Each additional social identity links explicitly to the same underlying character.
+- Creating an identity does not create another NPC/entity or independent copy of shared traits, abilities, relationships, inventory, or history.
+- Social identities are not conflated with multiple psychological personalities.
+
+### NPC-SEM-022 — Claimed identity data does not become canonical truth
+
+**Given** a social identity claims an age, biography, occupation, relative, affiliation, or other attribute that is false, partial, or unverified.
+
+**When** the editor stores or the NPC layer uses that claim.
+
+**Then**
+- The claim remains distinct from canonical world facts and may be explicitly classified as true, false, partial, fabricated, unverified, or unresolved where the model supports that classification.
+- A claimed twin/relative does not create a real entity or canonical relationship.
+- Missing fields remain unknown; no biography, motive, relationship, document, or supporting event is invented to fill them.
+
+### NPC-SEM-023 — Shared traits inherit; disguise affects presentation only
+
+**Given** a social identity defines only some appearance or presentation differences.
+
+**When** its appearance is rendered or used in a scene.
+
+**Then**
+- Unspecified properties inherit from the underlying character.
+- Explicit disguise details change the presented appearance only; they do not change actual anatomy, abilities, weaknesses, or stable traits.
+- Shared data is not duplicated as an independent writable copy in each identity.
+
+### NPC-SEM-024 — Document declarations do not create world records
+
+**Given** an author enters a document, credential, registration, witness, or other supporting evidence in the social identity editor.
+
+**When** the profile is saved.
+
+**Then**
+- The entry is treated as an author declaration/reference with an explicit evidence status.
+- It does not by itself create an issued, valid canonical document, registration, event, or witness.
+- Unknown, missing, proposed, forged, disputed, and verified-existing evidence are not collapsed into one status.
+- Canonical creation/issuance uses an approved core operation.
+
+### NPC-SEM-025 — Creating a cover does not disclose it
+
+**Given** an author creates or activates a social identity with private editor notes.
+
+**When** another NPC or the player receives a decision context.
+
+**Then**
+- The existence and details of the identity are not automatically disclosed.
+- Private editor notes and reserved secrets are excluded before model input unless authorized by the relevant context/access rules.
+- Context inclusion or retrieval does not establish in-world acquisition, delivery, or belief.
+
+### NPC-SEM-026 — Inconsistencies create risk, not automatic exposure
+
+**Given** a social identity has missing documents or contradictory claims.
+
+**When** an observer interacts with the character.
+
+**Then**
+- Consequences depend on the observer's accessible evidence, the situation, stakes, and applicable World Pack procedure.
+- A mismatch may prompt questions, inspection, suspicion, or no consequence.
+- It does not automatically reveal the underlying identity.
+- An observer cannot act on private weaknesses they have not discovered or received through a valid channel.
+
+### NPC-SEM-027 — Real impersonated persons remain distinct
+
+**Given** a character uses the name or biography of an actual person in the world.
+
+**When** the social identity is authored or referenced.
+
+**Then**
+- The impersonator and impersonated person remain distinct entities unless an explicit canonical relation says otherwise.
+- Names, shared appearance, or claimed family ties do not merge them.
+- Any real-world claims/relationships require explicit references or remain unverified claims.
+
+### NPC-SEM-028 — Social identity consequences use existing core boundaries
+
+**Given** a scene may reveal a cover, issue or invalidate a document, or establish a new fact about identity.
+
+**When** the NPC system proposes the consequential change.
+
+**Then**
+- Editor changes alone remain authored profile/configuration changes, not in-world events.
+- Canonical exposure, registration, document issuance, and related consequences use the existing approved core validation/event path.
+- The NPC subsystem adds no parallel identity truth store, knowledge store, event journal, revision counter, access-control subsystem, or rollback mechanism.
+- If the required production boundary is absent, the scenario remains blocked rather than being simulated by prompt text or mocks.
