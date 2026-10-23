@@ -36,7 +36,9 @@ The current projection is rebuilt from valid events. This restores entity/fact p
 
 ## 3. Rollback guarantees and limits
 
-The current rollback algorithm traverses declared `caused_by`, `depends_on`, and `read_set` links, together with records touched by invalidated effects. It preserves unrelated events that are not reached by that traversal. This gives useful deterministic behavior for well-formed metadata, but it cannot guarantee correct classification when caller-supplied metadata omits a real dependency.
+The current rollback algorithm repeatedly traverses declared `caused_by`, `depends_on`, and `read_set` links, together with records touched by invalidated effects, until no additional event is reached. A causal-diamond acceptance test verifies that both branches and their join are invalidated when they depend on the removed root, while a truly independent later branch survives.
+
+This is deterministic for well-formed declared metadata, but it cannot guarantee correct classification when caller-supplied metadata omits a real dependency. A graph traversal algorithm cannot recover edges that were never recorded.
 
 Consequently:
 
@@ -45,6 +47,10 @@ Consequently:
 3. If an integration cannot provide reliable source IDs or dependency metadata, surface that limitation; do not guess which message caused an event.
 4. The current runtime has no NPC knowledge, process, timer, or StoryBeat records to recompute. Those subsystems must not be described as rollback-supported yet.
 5. `game_time` is not rewound by rollback; `world_revision` increases monotonically.
+
+### Idempotency compatibility boundary
+
+Legacy idempotency rows without a stored request fingerprint cannot safely be replayed as though their request matched a new retry. The runtime deliberately fails closed with `IDEMPOTENCY_KEY_UNVERIFIABLE` (HTTP 409); assigning a placeholder hash during migration would not prove request equality. Clients should use a new key when retrying a legacy request whose fingerprint is unavailable.
 
 ## 4. Next-step contract: verified basis and typed edges
 
@@ -65,6 +71,8 @@ The caller/LLM may submit a compact `basis` of record references and observed ve
 
 If no trustworthy context manifest exists, the engine cannot determine that a basis is complete. Mark provenance as unknown/inferred or require review at rollback; do not assign numerical confidence values that imply statistical calibration without a defined method.
 
+A context manifest records what was made available to the model, not what materially influenced its answer. A mismatch between manifest and declared basis is evidence of uncertainty, not proof that every omitted record caused the outcome. The future contract must define whether such cases require review, rather than automatically invalidating every event that saw the same context.
+
 ### Negative reads
 
 Absence is a first-class observation. Represent it as an explicit predicate/versioned query result (for example, `not_exists` for a typed subject/predicate key), not merely as a missing row. Otherwise a decision based on "no witness was present" cannot be invalidated correctly if a witness is later introduced.
@@ -82,10 +90,11 @@ The current runtime rebuilds fact claims from valid events and marks conflicting
 
 Current runtime tests should verify:
 - rollback invalidates an event whose declared `depends_on` points to an affected entity;
-- rollback preserves an independent later event;
+- rollback traverses a causal diamond and preserves a truly independent later branch;
 - removing one of two identical fact claims leaves the other claim active;
 - removing one of two conflicting claims leaves the surviving claim as canonical;
 - cross-world entity/fact references are rejected;
-- oversized HTTP request bodies receive `413 BODY_TOO_LARGE`.
+- oversized HTTP request bodies receive `413 BODY_TOO_LARGE`;
+- legacy idempotency rows without request hashes fail closed rather than fabricating request identity.
 
 Future typed-graph tests must additionally cover omitted basis, stale observed versions, negative reads, causal cycles, knowledge with multiple sources, process checkpoints, timer consequences, and StoryBeat conflicts before those capabilities are implemented.
