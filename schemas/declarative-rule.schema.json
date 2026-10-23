@@ -17,16 +17,10 @@
             "lt",
             "lte",
             "in",
-            "contains",
             "exists",
             "all",
             "any",
-            "not",
-            "ref_exists",
-            "status_is",
-            "time_before",
-            "time_after",
-            "needs_review"
+            "not"
           ]
         },
         "path": {
@@ -43,14 +37,6 @@
           "maxItems": 64,
           "items": {"$ref": "#/$defs/rule"}
         },
-        "ref": {
-          "type": "string",
-          "maxLength": 256
-        },
-        "reason": {
-          "type": "string",
-          "maxLength": 1000
-        }
       },
       "allOf": [
         {
@@ -65,7 +51,7 @@
           }
         },
         {
-          "if": {"properties": {"op": {"enum": ["eq", "neq", "gt", "gte", "lt", "lte", "contains", "status_is"]}}, "required": ["op"]},
+          "if": {"properties": {"op": {"enum": ["eq", "neq", "gt", "gte", "lt", "lte"]}}, "required": ["op"]},
           "then": {"required": ["path", "value"]}
         },
         {
@@ -76,18 +62,6 @@
           "if": {"properties": {"op": {"const": "exists"}}, "required": ["op"]},
           "then": {"required": ["path"]}
         },
-        {
-          "if": {"properties": {"op": {"const": "ref_exists"}}, "required": ["op"]},
-          "then": {"required": ["ref"]}
-        },
-        {
-          "if": {"properties": {"op": {"enum": ["time_before", "time_after"]}}, "required": ["op"]},
-          "then": {"required": ["value"]}
-        },
-        {
-          "if": {"properties": {"op": {"const": "needs_review"}}, "required": ["op"]},
-          "then": {"required": ["reason"]}
-        }
       ]
     },
     "effectIntent": {
