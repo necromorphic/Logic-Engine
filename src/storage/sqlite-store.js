@@ -353,6 +353,18 @@ export class SQLiteStore {
     }));
   }
 
+  mechanicRegistryAudit() {
+    return this.db.prepare('SELECT * FROM mechanic_registry_audit ORDER BY audit_id').all().map((row) => ({
+      audit_id: row.audit_id,
+      action: row.action,
+      target_id: row.target_id,
+      version: row.version,
+      payload: dec(row.payload_json),
+      registered_by: row.registered_by,
+      occurred_at: row.occurred_at,
+    }));
+  }
+
   state(id) {
     const w = this.world(id);
     if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
