@@ -115,6 +115,28 @@ Before implementing the storage method, reviewers should agree on these observab
 
 A test using only sequential reads cannot prove concurrency consistency. The test harness must coordinate a concurrent writer/read interleaving or use a deterministic storage hook/fault-injection seam. Do not claim the race is tested if the test only checks the returned object in a single-threaded happy path.
 
+### 5.4 Concrete test scenarios and pass/fail oracle
+
+Use a temporary database and synthetic records only. The test names below are contract IDs for future automated tests; they do not imply that the storage boundary already exists.
+
+| ID | Setup / interleaving | Required observation | Fail if |
+|---|---|---|---|
+| CARD-SNAP-001 | Seed world W at revision R with entity E and source record S. Start the read and pause it after the snapshot is established. A second connection commits a transaction changing E/S and advancing revision. Resume the read. | The returned entity, S, and revision/cursor all describe one permitted database read view. | Values combine pre-write and post-write state, or the cursor is sampled outside the read view. |
+| CARD-SNAP-002 | Repeat CARD-SNAP-001 with the writer committing before the reader establishes its snapshot. | The reader returns the complete newer state and its matching marker. | The result mixes state from both sides of the commit. |
+| CARD-SNAP-003 | Start the read, then inject a failure after world metadata but before entity/source retrieval completes. | The operation rejects with a typed error; no partial snapshot is returned. | A partial object is returned or an uncoordinated fallback is attempted. |
+| CARD-SNAP-004 | Snapshot W1 where entity ID E exists only in W2. Request (W1, E). | Typed not-found for W1; no fields from W2. | Cross-world data is returned or the error includes hidden W2 data. |
+| CARD-SNAP-005 | Capture revision, commit sequence, event/audit/idempotency counts, and the relevant rows; perform a successful read. | Every captured canonical value remains unchanged. | The read creates any canonical write or advances a counter. |
+| CARD-SNAP-006 | Inject transaction-open, query, and transaction-close failures separately. | Each failure is surfaced; connection/transaction cleanup follows the driver's documented behavior; no snapshot escapes unless it is complete and valid. | A failure is swallowed, the connection remains in a bad transaction state, or partial data escapes. |
+| CARD-SNAP-007 | Return multiple requested source records with intentionally shuffled insertion order. | Output ordering is stable under the documented sort key, and repeated reads of the same view are structurally equal. | Database incidental order changes the result. |
+| CARD-SNAP-008 | Invoke the existing public state endpoint before and after the internal read implementation is added. | Existing response shape and authorization behavior are unchanged. | This work silently changes or exposes the existing endpoint. |
+
+**Driver-specific gate:** before selecting a transaction pattern, inspect the exact SQLite driver/version and its documented transaction/isolation behavior. A test must prove the behavior actually provided by that driver and journal mode; the contract must not assume that the word “transaction” alone guarantees a snapshot. If the driver cannot provide the required view, stop and document the weaker guarantee for explicit review rather than weakening the test silently.
+
+**Concurrency-test implementation note:** use two independent database connections and an explicit synchronization seam (barrier/hooks around snapshot establishment and selected reads), not arbitrary sleeps. Where deterministic interleaving cannot be created with the current store, introduce a test-only seam or lower-level storage test; do not add production timing hooks solely to make the test pass.
+
+**Scope gate:** these scenarios authorize neither a new public API nor changes to SQLite code by themselves. The core owner must explicitly approve the storage step after reviewing the contract and these test oracles.
+
+
 
 ### 5.3 Cross-contract review against PR #29 and current core
 
