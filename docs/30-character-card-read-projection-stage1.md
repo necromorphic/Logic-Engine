@@ -100,6 +100,18 @@ When storage implementation is authorized, the narrow read boundary should satis
 7. **Failure behavior:** if the snapshot cannot be obtained, fail the whole read. Do not silently fall back to several uncoordinated reads.
 8. **No route yet:** the first boundary is an internal store/application operation, not a new HTTP endpoint. API exposure requires a separate authorization and response-shape review.
 
+### 5.1.1 Snapshot marker semantics
+
+The internal read boundary must capture a **composite snapshot marker** from the same SQLite read view as the returned world/entity/source rows:
+
+- `world_revision` identifies the canonical projection generation visible in that read view. It advances for accepted state transitions, including rollback, even when rollback creates no new event.
+- `commit_sequence` is the greatest committed event sequence visible for that world in the same read view; use `0` when no committed event is visible.
+- These values are a pair, not interchangeable alternatives. `commit_sequence` alone cannot identify current projected state because rollback can advance `world_revision` without adding an event. `world_revision` alone does not identify the event-history cursor needed by causal/history-aware callers.
+- Read both values inside the same transaction/read view as the rows. Do not sample either value before or after the snapshot queries, and do not combine a cursor from one view with rows from another.
+- The internal snapshot result must carry both values. The pure card projection may expose `source_revision` as the observed `world_revision`; it need not expose `commit_sequence` as a player-facing card field. Callers that need history-aware staleness checks must retain the full internal marker pair.
+
+This clarifies the card-read contract without adding a revision counter or changing the existing meaning of either core cursor.
+
 ### 5.2 Snapshot acceptance tests (contract-first)
 
 Before implementing the storage method, reviewers should agree on these observable tests:
@@ -129,6 +141,8 @@ Use a temporary database and synthetic records only. The test names below are co
 | CARD-SNAP-006 | Inject transaction-open, query, and transaction-close failures separately. | Each failure is surfaced; connection/transaction cleanup follows the driver's documented behavior; no snapshot escapes unless it is complete and valid. | A failure is swallowed, the connection remains in a bad transaction state, or partial data escapes. |
 | CARD-SNAP-007 | Return multiple requested source records with intentionally shuffled insertion order. | Output ordering is stable under the documented sort key, and repeated reads of the same view are structurally equal. | Database incidental order changes the result. |
 | CARD-SNAP-008 | Invoke the existing public state endpoint before and after the internal read implementation is added. | Existing response shape and authorization behavior are unchanged. | This work silently changes or exposes the existing endpoint. |
+
+| CARD-SNAP-009 | Seed a world with a committed event at cursor C, then perform a successful rollback that advances `world_revision` but creates no new committed event. Read a snapshot after the rollback. | The marker reports the post-rollback `world_revision` and the unchanged greatest visible `commit_sequence` C from the same read view. A marker captured before rollback must not be presented as current. | The implementation relies on `commit_sequence` alone, reports a stale `world_revision`, or samples marker fields outside the read view. |
 
 **Driver-specific gate:** before selecting a transaction pattern, inspect the exact SQLite driver/version and its documented transaction/isolation behavior. A test must prove the behavior actually provided by that driver and journal mode; the contract must not assume that the word “transaction” alone guarantees a snapshot. If the driver cannot provide the required view, stop and document the weaker guarantee for explicit review rather than weakening the test silently.
 
