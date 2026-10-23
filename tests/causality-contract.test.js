@@ -882,13 +882,20 @@ test('fact_absent REQUIRES distinguishes absence from an existing or conflicted 
     effects: [{ kind: 'fact.set', fact_id: 'absence-result', predicate: 'completed', value: true }],
   }));
   assert.equal(absentEvent.accepted, true);
+  engine.commitEvent('causality-world', command({
+    event_id: 'signal-now-exists',
+    idempotency_key: 'signal-now-exists',
+    turn_id: 'signal-now-exists',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'signal', predicate: 'state', value: 'present' }],
+  }));
 
   assert.throws(
     () => engine.commitEvent('causality-world', command({
       event_id: 'action-requiring-absence-after-signal',
       idempotency_key: 'action-requiring-absence-after-signal',
       turn_id: 'action-requiring-absence-after-signal',
-      expected_revision: 1,
+      expected_revision: 2,
       causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'fact_absent', fact_id: 'signal' } }],
     })),
     (error) => error.code === 'REQUIRED_PREDICATE_NOT_SATISFIED' && error.status === 409,
