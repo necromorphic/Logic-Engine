@@ -190,3 +190,19 @@ test('target identifiers and batch size are bounded', () => {
     code('INVALID_MECHANIC_EFFECT_INTENT'),
   );
 });
+
+test('fact identity strings are validated but preserved exactly by translation', () => {
+  const result = translateMechanicEffectIntents([intent({
+    kind: 'assert_fact',
+    target_ref: ' fact.example ',
+    payload: { predicate: ' is_known ', value: true, subject_ref: ' entity.example ' },
+  })]);
+  assert.deepEqual(result, [{
+    kind: 'fact.set',
+    fact_id: ' fact.example ',
+    predicate: ' is_known ',
+    value: true,
+    subject_ref: ' entity.example ',
+  }]);
+  assert.doesNotThrow(() => validateEffects(result));
+});
