@@ -83,6 +83,38 @@ Do not return the entire raw entity attribute object by default. A generic attri
 - If the existing store cannot supply a consistent snapshot through its current interface, document that limitation and add a narrow read method rather than issuing unrelated reads and implying atomicity.
 - A projection is disposable and rebuildable. Stage 1 should not add a persistent cache. If a cache is proposed later, its key must include world/entity scope, source revision, projection/schema version, and access-policy context; policy changes must invalidate or revalidate cached output.
 
+### 5.1 Snapshot boundary contract to settle before storage changes
+
+The current `SQLiteStore.state(worldId)` reads the world, entities, and facts in separate statements without an explicit read transaction around the complete read. Therefore, it must not be passed off as an atomic card snapshot.
+
+**Sequencing constraint:** settle this contract and its test cases first. Do not change `src/storage/sqlite-store.js`, `src/api/server.js`, or existing API response shapes until the core 1.3 semantics/review explicitly authorize that step. This Stage 1 card work must not pre-empt the core causal-semantics workstream.
+
+When storage implementation is authorized, the narrow read boundary should satisfy:
+
+1. **One world, one read view:** world metadata, the selected entity, and any explicitly requested source records are read from one SQLite-consistent snapshot. Never compose a projection from independently observed revisions.
+2. **Read-only:** the operation must not create events, update rows, advance `world_revision` or `commit_sequence`, or write idempotency/audit records.
+3. **World scoping:** entity and source-record lookup must be scoped to the requested world. An entity ID found in another world must not satisfy the request.
+4. **Bounded result:** return only the records requested by the internal read contract; do not expose the entire world state as a convenience.
+5. **Stable cursor:** return the revision/cursor actually observed inside the same read view. Do not sample the revision before or after the read and label it as the snapshot's revision.
+6. **Transaction discipline:** use the SQLite driver's supported read-transaction semantics; do not assume that opening a transaction in the caller automatically makes every driver/read path consistent. Document the chosen isolation mechanism.
+7. **Failure behavior:** if the snapshot cannot be obtained, fail the whole read. Do not silently fall back to several uncoordinated reads.
+8. **No route yet:** the first boundary is an internal store/application operation, not a new HTTP endpoint. API exposure requires a separate authorization and response-shape review.
+
+### 5.2 Snapshot acceptance tests (contract-first)
+
+Before implementing the storage method, reviewers should agree on these observable tests:
+
+- **Consistent revision:** the returned snapshot marker and entity/source values belong to the same read view even if a concurrent writer commits while the read is in progress.
+- **No writes:** capture `world_revision`, `commit_sequence`, event count, and relevant row values before/after; a successful read changes none of them.
+- **Failure atomicity:** injected read/transaction failure yields an error and no partial snapshot object.
+- **World isolation:** same entity ID in two worlds cannot cause cross-world data to appear in the requested snapshot.
+- **Missing entity:** return the established typed not-found outcome for the requested world; do not return an entity from another world.
+- **Deterministic ordering:** if more than one source record is explicitly requested, results use a documented stable order.
+- **No API regression:** existing `GET .../state` response shape and authorization behavior remain unchanged in this slice.
+- **No hidden-data expansion:** the method returns only the requested internal records, and the pure projector continues to omit arbitrary attributes and raw fact/event payloads unless a later reviewed field mapping explicitly authorizes them.
+
+A test using only sequential reads cannot prove concurrency consistency. The test harness must coordinate a concurrent writer/read interleaving or use a deterministic storage hook/fault-injection seam. Do not claim the race is tested if the test only checks the returned object in a single-threaded happy path.
+
 ## 6. Access and caller boundary
 
 The current general world-state endpoint is not, by itself, a player-safe character-card API. Stage 1 must not expose this projection to an untrusted player or to a model context until a separate server-side audience/access filter exists.
