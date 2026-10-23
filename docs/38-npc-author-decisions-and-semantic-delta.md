@@ -204,3 +204,16 @@ Author-confirmed requirements:
 - Consequential canonical discoveries and document changes must use existing core validation/event boundaries.
 
 Implementation remains deferred: the current character-card architecture is a planning outline, and no actual editor/social-identity runtime was verified. This addition is a semantic/editor proposal only; no API, schema, SQLite, runtime, prompts, vectorization, or SillyTavern changes are authorized. No tests were run for this documentation update.
+
+
+### Author-confirmed social-identity lifecycle clarification — 2026-10-24
+
+The author additionally confirmed:
+- NPCs choose a social identity autonomously according to goals and circumstances, while established events and practical constraints can limit available choices.
+- An NPC may create a new social identity during play only when a concrete need and plausible means justify it.
+- Runtime-created identities persist as additional cards linked to the same underlying NPC and must be distinguishable by origin from author-authored identities.
+- When no longer used, a card becomes inactive rather than being deleted; it may be reactivated when circumstances permit.
+- NPCs may revise existing identity cards when justified, but revisions must not retroactively rewrite prior dialogue/actions, committed events, canonical facts, or other NPCs' knowledge.
+- Reuse existing core history/revision mechanisms; do not add identity-specific revision counters or parallel event logs.
+
+The corresponding proposed acceptance scenarios are NPC-SEM-029–032 in `docs/32-npc-semantic-acceptance-matrix.md`. These decisions close the author-facing semantic questions for identity selection, need-based creation, inactive retention, and justified edits. Profile/card projection, persistence, runtime execution, actor-relative knowledge, evidence validation, World Pack procedures, and test boundaries still require design against actual production interfaces. No runtime or test execution is implied.
