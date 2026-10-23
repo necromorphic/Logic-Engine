@@ -237,7 +237,7 @@ test('internal commit replay is idempotent, approval is adapter-independent, and
     method: 'POST', headers: internalHeaders, body: json({ proposal_id: proposal.proposal_id }),
   });
   assert.equal(firstCommit.status, 200);
-  assert.equal((await firstCommit.json()).commit_result.idempotent_replay, undefined);
+  assert.equal((await firstCommit.json()).commit_result.idempotent_replay, false);
   const stateAfterFirstCommit = (await (await fetch(base + '/v1/worlds/internal-route-world/state', { headers })).json()).state;
   const eventsAfterFirstCommit = (await (await fetch(base + '/v1/worlds/internal-route-world/events', { headers })).json()).events;
 
