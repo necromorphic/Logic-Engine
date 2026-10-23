@@ -52,11 +52,11 @@ export class ProposalService {
     const hasEffects = Object.hasOwn(body.event, 'effects');
     const hasEffectIntents = Object.hasOwn(body.event, 'effect_intents');
     assert(!(hasEffects && hasEffectIntents), 'MUTUALLY_EXCLUSIVE_EFFECT_FIELDS', 'Provide either event.effects or event.effect_intents, not both.');
-    let translatedEffects;
-    if (hasEffectIntents) translatedEffects = translateMechanicEffectIntents(body.event.effect_intents);
     assert(typeof body.event.turn_id === 'string' && body.event.turn_id.trim(), 'TURN_ID_REQUIRED', 'event.turn_id is required.');
     assert(typeof body.event.event_type === 'string' && body.event.event_type.trim(), 'EVENT_TYPE_REQUIRED', 'event.event_type is required.');
     assert(Array.isArray(body.event.effects ?? []), 'INVALID_EFFECTS', 'event.effects must be an array.');
+    let translatedEffects;
+    if (hasEffectIntents) translatedEffects = translateMechanicEffectIntents(body.event.effect_intents);
     if ((body.event.effects ?? []).some((effect) => typeof effect?.kind === 'string' && effect.kind.startsWith('mechanic.instance.'))) {
       throw new EngineError('MECHANIC_CONFIGURATION_REQUIRES_ADMIN', 'Mechanic lifecycle operations require the separate administrative credential and cannot be submitted through adapter proposals.', 403);
     }
