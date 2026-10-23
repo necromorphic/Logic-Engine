@@ -61,7 +61,7 @@
         {
           "if": {"properties": {"op": {"const": "exists"}}, "required": ["op"]},
           "then": {"required": ["path"]}
-        },
+        }
       ]
     },
     "effectIntent": {
