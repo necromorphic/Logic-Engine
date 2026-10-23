@@ -12,9 +12,9 @@ The subsystem must remain usable across different settings. Setting-specific fac
 
 The following boundaries are mandatory:
 
-- The core owns canonical world state, game time, event identity, causal provenance, validation, revisions, transactions, and rollback.
+- The core owns canonical world state, game time, event identity, causal provenance, validation, revisions, transactions, rollback, and—per the repository's architecture baseline—the authoritative knowledge records and delivery statuses when those capabilities are implemented.
 - An NPC profile supplies relatively stable characterization and author constraints: temperament, values, habits, capabilities, boundaries, and known exceptions.
-- NPC runtime state supplies changing goals, plans, tasks, relationships, needs, intentions, current condition, knowledge, beliefs, suspicions, and commitments.
+- NPC-domain state defines changing goals, plans, tasks, relationships, needs, intentions, current condition, beliefs, suspicions, and commitments. Authoritative knowledge/acquisition and delivery records follow the core architecture contract; until those records and interfaces exist, the NPC subsystem must treat unavailable fields as deferred rather than create a competing store.
 - The World Pack defines setting-specific rules and available mechanics.
 - A model may propose an intention, plan, interpretation, dialogue, or action. A proposal is not a committed event and does not itself change canonical state.
 - Narrative text is a presentation of approved results. It is not proof that an event occurred or that an NPC learned something.
