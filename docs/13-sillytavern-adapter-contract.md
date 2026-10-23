@@ -97,6 +97,10 @@ Treat the vectorization patch as a separately owned archive/retrieval system:
 
 - Default local-only binding during development.
 - Explicit authentication for remote access from the phone.
+- Use a dedicated configured adapter ID and secret (`x-adapter-id`, `x-adapter-token`) for proposal creation and cancellation; the engine must only allow an adapter to cancel proposals it created.
+- Never expose adapter, admin, internal, or approval credentials to the model. Keep `ENGINE_ADMIN_TOKEN` separate from ordinary adapter credentials; registry writes require the admin credential.
+- Treat `ENGINE_APPROVAL_TOKEN` as a shared secret gate, not proof of human identity. Keep it out of the adapter process if the approval must represent an independent manual action.
+- Do not use the internal events endpoint to submit arbitrary event payloads; it only accepts an already-approved proposal ID.
 - Restrict allowed origins and request sizes.
 - Do not allow model-generated URLs, shell commands, file paths or arbitrary SQL to execute through adapter requests.
 - Treat lorebook, archive fragments, messages and World Pack descriptions as untrusted data; they cannot override system invariants.
