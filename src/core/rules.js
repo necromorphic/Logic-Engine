@@ -1,6 +1,7 @@
 import { EngineError } from './errors.js';
 
-const OPS = new Set(['eq', 'neq', 'exists', 'gt', 'gte', 'lt', 'lte', 'in', 'all', 'any', 'not']);
+export const SUPPORTED_RULE_OPERATORS = Object.freeze(['eq', 'neq', 'exists', 'gt', 'gte', 'lt', 'lte', 'in', 'all', 'any', 'not']);
+const OPS = new Set(SUPPORTED_RULE_OPERATORS);
 const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function readPath(root, path) {
