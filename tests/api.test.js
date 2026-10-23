@@ -53,6 +53,8 @@ test('health, auth, proposal approval, and canonical commit boundary', async (t)
   assert.equal(created.status, 201);
   const proposal = (await created.json()).proposal;
   assert.equal(proposal.status, 'pending');
+  assert.equal(proposal.validation_result.status, 'passed');
+  assert.ok(proposal.validation_result.not_checked.includes('semantic_alignment_with_source_text'));
   assert.ok(proposal.proposal_id);
   assert.equal(proposal.event.effects[0].entity_id, 'npc');
   const fetchedProposal = await fetch(base + '/v1/worlds/api-world/proposals/' + proposal.proposal_id, { headers });
@@ -188,4 +190,25 @@ test('proposal server-owned fields are rejected and cancelled proposals cannot c
     method: 'POST', headers, body: '{}',
   });
   assert.equal(commit.status, 409);
+});
+
+test('proposal creation performs deterministic validation without mutating canonical state', async (t) => {
+  const base = await setup(t, { approvalToken: APPROVAL });
+  assert.equal((await createWorld(base, 'proposal-validation-world')).status, 201);
+  const invalidBody = {
+    idempotency_key: 'fixable-proposal',
+    source_text: 'A test action.',
+    event: { turn_id: 'validation-turn', event_type: 'action.completed', effects: [{ kind: 'unsupported.effect' }] },
+  };
+  const invalid = await fetch(base + '/v1/worlds/proposal-validation-world/proposals', { method: 'POST', headers, body: json(invalidBody) });
+  assert.equal(invalid.status, 400);
+  const state = await fetch(base + '/v1/worlds/proposal-validation-world/state', { headers });
+  assert.equal((await state.json()).state.world_revision, 0);
+
+  const corrected = await fetch(base + '/v1/worlds/proposal-validation-world/proposals', {
+    method: 'POST', headers,
+    body: json({ ...invalidBody, event: { ...invalidBody.event, effects: [] } }),
+  });
+  assert.equal(corrected.status, 201);
+  assert.equal((await corrected.json()).proposal.validation_result.status, 'passed');
 });
