@@ -82,7 +82,11 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           if (Object.keys(body).length) throw new EngineError('UNSUPPORTED_APPROVAL_FIELD', 'Approval body must be empty; approver identity is derived from the approval credential.');
           return send(res, 200, { proposal: proposals.approve(worldId, proposalId) });
         }
-        if (operation === 'commit') {\n          const result = proposals.commit(worldId, proposalId);\n          const { commit_result: commitResult, ...proposal } = result;\n          return send(res, 200, { proposal, commit_result: commitResult });\n        }
+        if (operation === 'commit') {
+          const result = proposals.commit(worldId, proposalId);
+          const { commit_result: commitResult, ...proposal } = result;
+          return send(res, 200, { proposal, commit_result: commitResult });
+        }
         if (operation === 'cancel') {
           const body = await readBody(req);
           const allowed = ['reason'];
