@@ -569,8 +569,7 @@ test('rolling back a later state change does not invalidate an earlier satisfied
     idempotency_key: 'actor-ready',
     effects: [{ kind: 'entity.upsert', entity_id: 'actor', entity_type: 'character', attributes: { stage: 'ready' } }],
   }));
-  engine.commitEvent('action-when-ready',
-    command({
+  engine.commitEvent('causality-world', command({
       event_id: 'action-when-ready',
       idempotency_key: 'action-when-ready',
       turn_id: 'action-when-ready',
