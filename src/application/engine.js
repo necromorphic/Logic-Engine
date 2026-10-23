@@ -13,7 +13,7 @@ const strings = (x, name) => {
 const causalLinks = (value) => {
   value = value ?? [];
   assert(Array.isArray(value) && value.length <= 500, 'INVALID_CAUSAL_LINKS', 'causal_links must be an array of at most 500 links.');
-  const supported = new Set(['CAUSES', 'READS_SOURCE', 'READS_ENTITY', 'READS_CLAIM']);
+  const supported = new Set(['READS_SOURCE', 'READS_ENTITY', 'READS_CLAIM']);
   const seen = new Set();
   const links = value.map((link) => {
     assert(obj(link), 'INVALID_CAUSAL_LINK', 'Each causal link must be an object.');
