@@ -471,3 +471,51 @@ The detailed authoring and integration proposal is in `docs/40-npc-social-identi
 - Canonical exposure, registration, document issuance, and related consequences use the existing approved core validation/event path.
 - The NPC subsystem adds no parallel identity truth store, knowledge store, event journal, revision counter, access-control subsystem, or rollback mechanism.
 - If the required production boundary is absent, the scenario remains blocked rather than being simulated by prompt text or mocks.
+
+
+### NPC-SEM-029 — Need-based identity creation by an NPC
+
+**Given** an NPC has a concrete in-world need for a new social cover and sufficient plausible means.
+
+**When** the NPC creates the identity during play.
+
+**Then**
+- The new identity is retained as an additional card linked to the same underlying NPC, not as a new NPC/entity.
+- Its origin is distinguishable from an author-authored identity.
+- Unsupported biography, documents, contacts, and past events are not invented merely to complete the cover.
+- The act of creating the card does not by itself establish canonical documents or disclose the identity to observers.
+
+### NPC-SEM-030 — Inactive identities are retained, not erased
+
+**Given** an NPC stops using a social identity.
+
+**When** that identity becomes inactive.
+
+**Then**
+- Its card remains available as history and may be reactivated if circumstances permit.
+- Inactive status does not mean forgotten, deleted, or unknown to observers who already learned about it.
+- Deactivation does not undo past statements, events, evidence, or observer knowledge.
+
+### NPC-SEM-031 — Identity edits preserve event history
+
+**Given** an NPC has an existing social-identity card and a concrete reason to adapt its cover.
+
+**When** the NPC revises the identity.
+
+**Then**
+- The revision is justified by current circumstances and available means.
+- Previously spoken claims and committed events are not retroactively rewritten.
+- Existing core history/revision mechanisms are reused; no identity-specific revision counter or parallel event log is added.
+- Changed claims do not automatically rewrite canonical facts or other NPCs' knowledge.
+
+### NPC-SEM-032 — Identity choice is autonomous but context-constrained
+
+**Given** an NPC has multiple available social identities.
+
+**When** it decides how to present itself in a scene.
+
+**Then**
+- It chooses based on its goals, character, knowledge, relationships, resources, and circumstances.
+- Coercion, exposure, unavailable evidence, or other established events may constrain its options.
+- Suspicion alone does not equal exposure, and reactivation does not erase an already compromised cover.
+- The behavior remains a semantic requirement until a real runtime decision boundary exists.
