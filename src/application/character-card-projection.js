@@ -50,6 +50,12 @@ export function projectCharacterCard(worldSnapshot, entityId, options = {}) {
     status: entity.status,
   };
 
+  // Preserve a stable source reference when the entity snapshot provides one.
+  // Do not copy the event payload or any arbitrary entity attributes.
+  if (typeof entity.created_by_event_id === 'string' && entity.created_by_event_id.trim()) {
+    projection.source_refs = [{ kind: 'event', event_id: entity.created_by_event_id }];
+  }
+
   if (Number.isSafeInteger(worldSnapshot.world_revision) && worldSnapshot.world_revision >= 0) {
     projection.source_revision = worldSnapshot.world_revision;
   }
