@@ -17,7 +17,7 @@ Set `ENGINE_API_TOKEN`, `ENGINE_APPROVAL_TOKEN`, and `ENGINE_INTERNAL_TOKEN` to 
 
 ## Lifecycle and fail-closed behavior
 
-1. Proposal creation stores a server-generated ID, hash, base world revision, base commit sequence, exact event payload, source text, and timestamps. It does not mutate canonical world state.
+1. Proposal creation runs the existing deterministic event schema, effect, causal-reference, revision, and REQUIRES checks inside a rollback-only transaction preview. It then stores a server-generated proposal ID and event ID, hash, base world revision, base commit sequence, exact event payload, source text, validation report, and timestamps. The preview is fully rolled back and does not mutate canonical world state.
 2. All proposals start in `pending`; this first slice intentionally requires explicit approval for every event because no trustworthy per-effect auto-approval policy exists yet.
 3. Approval is permitted only for a pending proposal whose base revision is still current. Approval does not rewrite the proposal payload.
 4. Commit is permitted only for `approved` proposals. It rejects changed revision/sequence as `409 STALE_PROPOSAL`, injects a server-owned expected revision and proposal-scoped idempotency key, then runs the existing `commitEvent` validation/commit path.
