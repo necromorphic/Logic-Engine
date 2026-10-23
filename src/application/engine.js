@@ -20,7 +20,7 @@ const causalLinks = (value) => {
     assert(typeof link.relation === 'string' && supported.has(link.relation), 'UNSUPPORTED_CAUSAL_RELATION', 'Unsupported causal relationship: ' + String(link.relation));
     assert(typeof link.target_id === 'string' && link.target_id.trim() && link.target_id.trim().length <= 200, 'INVALID_CAUSAL_LINK', 'causal link target_id must be a non-empty string of at most 200 characters.');
     const normalized = { relation: link.relation, target_id: link.target_id.trim() };
-    const key = normalized.relation + '\\u0000' + normalized.target_id;
+    const key = JSON.stringify([normalized.relation, normalized.target_id]);
     assert(!seen.has(key), 'DUPLICATE_CAUSAL_LINK', 'Duplicate causal link: ' + normalized.relation + ' ' + normalized.target_id);
     seen.add(key);
     return normalized;
