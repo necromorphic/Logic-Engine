@@ -46,8 +46,10 @@ export class ProposalService {
     assert(typeof body.event.event_type === 'string' && body.event.event_type.trim(), 'EVENT_TYPE_REQUIRED', 'event.event_type is required.');
     assert(Array.isArray(body.event.effects ?? []), 'INVALID_EFFECTS', 'event.effects must be an array.');
 
-    const world = this.engine.getState(worldId);
-    const sequence = this.engine.getEvents(worldId, true).reduce((max, event) => Math.max(max, event.commit_sequence || 0), 0);
+    return this.engine.store.tx(() => {
+    const world = this.engine.store.world(worldId);
+    if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    const sequence = this.engine.store.currentCommitSequence(worldId);
     const eventPayload = { ...body.event };
     const request = { source_text: body.source_text, event: eventPayload };
     const requestHash = hashRequest(request);
@@ -78,6 +80,7 @@ export class ProposalService {
     this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
       .run(worldId, world.world_revision, 'proposal.created', proposalId, enc({ proposal_hash: proposalHash, base_world_revision: world.world_revision, base_commit_sequence: sequence }), createdAt);
     return this.publicProposal(this.db.prepare('SELECT * FROM event_proposals WHERE proposal_id=?').get(proposalId), false);
+    });
   }
 
   get(worldId, proposalId) {
