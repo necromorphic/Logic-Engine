@@ -37,7 +37,7 @@ Expected under the recommended reconstructed-history policy:
 Setup:
 1. At cursor 1, event S establishes `character:X.status = "alive"`.
 2. At cursor 2, event A changes X to `status = "destroyed"`.
-3. At cursor 3, independent event D also establishes `character:X.status = "destroyed"` and does not depend on A.
+3. At cursor 3, event D also establishes `character:X.status = "destroyed"`. D declares no direct or transitive causal dependency on A, and remains valid when A is rolled back.
 4. At cursor 4, event B records that `character:X.status = "alive"` was false.
 5. Roll back A.
 
@@ -46,6 +46,18 @@ Expected:
 - The alive predicate remains false at cursor 4 in reconstructed canonical history.
 - B's negative observation remains consistent and B is not invalidated by this observation alone.
 - The result depends on D being genuinely independent and valid at B's cursor; merely existing later is insufficient.
+
+### T-03R-B2 — apparent independent support is itself dependent on A
+
+Setup:
+1. Use the same S, A, and B setup as T-03R-B.
+2. D establishes `character:X.status = "destroyed"`, but declares a causal dependency on A (directly or through a declared dependency chain).
+3. Roll back A.
+
+Expected:
+- D is invalidated by the declared dependency.
+- With both A and D removed from reconstructed canonical history, X is alive at B's observation point.
+- B's negative observation is inconsistent and becomes an invalidation candidate.
 
 These scenarios test canonical-history reconstruction, not whether the model's reported basis is complete. The manifest proves availability, not causal use.
 
@@ -66,6 +78,21 @@ Expected:
 
 Note: C's own entity reference must satisfy the commit-time precondition rule. A mutation against a nonexistent entity must not be silently accepted as a valid state transition.
 
+### T-04R-1b — independent source survives invalidation of C
+
+Setup:
+1. A creates entity X.
+2. C requires `entity_exists(X)` and produces `X.status = "destroyed"`.
+3. Independent event D also establishes `X.status = "destroyed"` with a causal basis that does not depend directly or transitively on A or C.
+4. B requires `X.status = "destroyed"` at B's commit point.
+5. Roll back A.
+
+Expected:
+- C is invalidated and its produced claim is removed.
+- D remains valid and continues to support `X.status = "destroyed"` at B's commit point.
+- B remains valid, assuming D's claim satisfies the exact required predicate under the defined conflict-resolution rules.
+- The projection retains D as a source; it is not deleted merely because C was invalidated.
+
 ## T-04R-3 — independent source preserves a required predicate
 
 Setup:
@@ -78,6 +105,19 @@ Expected:
 - If D remains valid and still supports the predicate at B's commit point, B remains valid.
 - The destroyed claim/projection remains supported by D.
 - If D is also invalidated by a separately declared dependency, the expected result must be recalculated; do not hardcode survival merely because D once existed.
+
+### T-04R-3b — the apparent independent source depends on A
+
+Setup:
+1. A establishes `X.status = "active"`.
+2. D establishes `X.status = "destroyed"` but declares `READS_SOURCE(A)` or a `REQUIRES` predicate whose only support is A.
+3. B commits with `REQUIRES(X.status = "destroyed")` at B's commit point.
+4. Roll back A.
+
+Expected:
+- D is invalidated because its declared dependency on A no longer holds.
+- If no other valid source supports `X.status = "destroyed"` at B's commit point, B is invalidated.
+- This differs from T-04R-3: apparent multiplicity of claims is not independence if the source's own causal basis is invalidated.
 
 ## T-05R — manifest contains every declared read
 
@@ -162,4 +202,5 @@ Before turning a scenario into a normative executable test:
 - [ ] Define projection recomputation and how multiple independent sources are represented.
 - [ ] Define whether rollback can leave an operation partially resolved without partially committing its state changes.
 - [ ] Define transactional atomicity for event status, projections, audit rows, and world revision.
+- [ ] Formalize character-card/management invariants before implementation: cards cannot become a duplicate writable source of canonical truth; management exposes validated engine operations rather than direct storage updates.
 - [ ] Verify compatibility/migration for existing string-based metadata.
