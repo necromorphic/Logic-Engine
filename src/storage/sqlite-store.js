@@ -640,6 +640,21 @@ export class SQLiteStore {
     }
   }
 
+  validateCommit(id, x) {
+    let result;
+    try {
+      this.tx(() => {
+        result = this.commit(id, x);
+        const rollbackOnly = new Error('validation preview rollback');
+        rollbackOnly.validationPreviewRollback = true;
+        throw rollbackOnly;
+      });
+    } catch (error) {
+      if (error?.validationPreviewRollback) return result;
+      throw error;
+    }
+  }
+
   commit(id, x) {
     return this.tx(() => {
       const old = this.replay(id, x.idempotency_key, x.request_hash);

@@ -28,9 +28,14 @@ export class ProposalService {
         approved_at TEXT,
         committed_at TEXT,
         commit_result_json TEXT,
+        validation_result_json TEXT NOT NULL DEFAULT '{}',
         UNIQUE(world_id, idempotency_key)
       );
     `);
+    const columns = this.db.prepare('PRAGMA table_info(event_proposals)').all();
+    if (!columns.some((column) => column.name === 'validation_result_json')) {
+      this.db.exec("ALTER TABLE event_proposals ADD COLUMN validation_result_json TEXT NOT NULL DEFAULT '{}'");
+    }
   }
 
   create(worldId, body) {
@@ -40,7 +45,7 @@ export class ProposalService {
     assert(typeof body.idempotency_key === 'string' && body.idempotency_key.trim() && body.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key is required.');
     assert(typeof body.source_text === 'string' && body.source_text.length <= 50000, 'INVALID_SOURCE_TEXT', 'source_text must be a string of at most 50000 characters.');
     assert(object(body.event), 'INVALID_EVENT_PROPOSAL', 'event must be an object containing the proposed event payload.');
-    const allowedEventFields = ['turn_id', 'event_type', 'event_id', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
+    const allowedEventFields = ['turn_id', 'event_type', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
     assert(Object.keys(body.event).every((key) => allowedEventFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event payload contains an unsupported or server-owned field.');
     assert(typeof body.event.turn_id === 'string' && body.event.turn_id.trim(), 'TURN_ID_REQUIRED', 'event.turn_id is required.');
     assert(typeof body.event.event_type === 'string' && body.event.event_type.trim(), 'EVENT_TYPE_REQUIRED', 'event.event_type is required.');
@@ -50,8 +55,7 @@ export class ProposalService {
     const world = this.engine.store.world(worldId);
     if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
     const sequence = this.engine.store.currentCommitSequence(worldId);
-    const eventPayload = { ...body.event };
-    const request = { source_text: body.source_text, event: eventPayload };
+    const request = { source_text: body.source_text, event: body.event };
     const requestHash = hashRequest(request);
     const existing = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND idempotency_key=?').get(worldId, body.idempotency_key.trim());
     if (existing) {
@@ -61,6 +65,20 @@ export class ProposalService {
 
     const proposalId = randomUUID();
     const createdAt = now();
+    const eventPayload = { ...body.event, event_id: randomUUID() };
+    const validation = this.engine.validateEvent(worldId, {
+      ...eventPayload,
+      idempotency_key: 'proposal-validation:' + randomUUID(),
+      expected_revision: world.world_revision,
+    });
+    const validationResult = {
+      status: 'passed',
+      checked_at: createdAt,
+      world_revision: world.world_revision,
+      checks: ['payload_schema', 'supported_effects', 'causal_references', 'requires_preconditions', 'revision_consistency'],
+      not_checked: ['semantic_alignment_with_source_text', 'causal_completeness', 'actor_authorization', 'player_agency_policy'],
+      preview_event_id: validation.event_id,
+    };
     const proposalHash = hashRequest({
       proposal_id: proposalId, world_id: worldId, base_world_revision: world.world_revision,
       base_commit_sequence: sequence, event: eventPayload, source_text: body.source_text,
@@ -68,10 +86,10 @@ export class ProposalService {
     try {
       this.db.prepare(`INSERT INTO event_proposals(
         proposal_id,world_id,idempotency_key,request_hash,proposal_hash,status,base_world_revision,base_commit_sequence,
-        event_payload_json,source_text,created_at
-      ) VALUES(?,?,?,?,?,'pending',?,?,?,?,?)`).run(
+        event_payload_json,source_text,created_at,validation_result_json
+      ) VALUES(?,?,?,?,?,'pending',?,?,?,?,?,?)`).run(
         proposalId, worldId, body.idempotency_key.trim(), requestHash, proposalHash, world.world_revision,
-        sequence, enc(eventPayload), body.source_text, createdAt,
+        sequence, enc(eventPayload), body.source_text, createdAt, enc(validationResult),
       );
     } catch (error) {
       if (String(error.message).includes('UNIQUE')) throw new EngineError('PROPOSAL_IDEMPOTENCY_CONFLICT', 'Proposal idempotency key conflicts with an existing proposal.', 409);
@@ -157,6 +175,7 @@ export class ProposalService {
       proposal_hash: row.proposal_hash, base_world_revision: row.base_world_revision,
       base_commit_sequence: row.base_commit_sequence, source_text: row.source_text, event: dec(row.event_payload_json),
       created_at: row.created_at, approved_at: row.approved_at, committed_at: row.committed_at,
+      validation_result: dec(row.validation_result_json || '{}'),
       idempotent_replay: replay,
     };
   }
