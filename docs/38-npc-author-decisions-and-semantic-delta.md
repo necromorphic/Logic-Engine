@@ -185,3 +185,22 @@ This is a source/document consistency pass, not a full independent review by Dee
 `docs/39-npc-core-knowledge-contract-proposal.md` records the next design step after the core owner's ownership decision. It proposes a minimum semantic boundary for acquisition/provenance, mutable beliefs, delivery evidence, actor-specific context retrieval, and source invalidation/rollback reconciliation.
 
 The proposal does not declare an existing knowledge API, settle belief-state ownership, choose storage, or authorize runtime changes. Those are explicitly listed as decisions for the core owner before implementation. Until then, acquisition persistence, belief updates, delivery confirmation, and end-to-end integration remain deferred. The core ownership decision is treated as settled; the exact executable contract remains open.
+
+
+## 8. Author-requested optional social identities — 2026-10-24
+
+The author requested a separate character-editor capability for additional social identities, including cover identities, aliases with claimed biographies, false identities, double-agent covers, and impersonation. This is **one underlying character presenting different social identities**, not multiple psychological personalities.
+
+The request is captured in `docs/40-npc-social-identities-editor-contract.md` and cross-referenced from the NPC contract, semantic acceptance matrix, test-boundary map, and readiness gate.
+
+Author-confirmed requirements:
+- Additional social identities are optional; an ordinary character can have none.
+- Each identity can record claimed name/presentation, biography, appearance differences, document/evidence references, rationale, weak points/contradictions, and free notes. Fields are optional and can be grouped/collapsed.
+- The underlying character owns shared stable traits and actual physical properties. An identity defines only differences; absent appearance overrides inherit the primary appearance.
+- Claimed relatives, biographies, ages, credentials, and documents do not become canonical facts just because they are entered in the editor.
+- A cover does not create another NPC, a real sibling, or a separate history by implication.
+- Missing documents or contradictions may cause context-dependent checks or suspicion, but do not automatically expose the underlying identity.
+- Creating an identity does not disclose it to other characters or change their knowledge.
+- Consequential canonical discoveries and document changes must use existing core validation/event boundaries.
+
+Implementation remains deferred: the current character-card architecture is a planning outline, and no actual editor/social-identity runtime was verified. This addition is a semantic/editor proposal only; no API, schema, SQLite, runtime, prompts, vectorization, or SillyTavern changes are authorized. No tests were run for this documentation update.
