@@ -78,6 +78,18 @@ test('returns a typed not-found error for an entity absent from this snapshot', 
   );
 });
 
+test('rejects malformed projected entity metadata instead of emitting undefined fields', () => {
+  const source = snapshot();
+  source.entities[0].status = undefined;
+
+  assert.throws(
+    () => projectCharacterCard(source, 'entity-1', {
+      supportedEntityTypes: ['character'],
+    }),
+    (error) => error.code === 'INVALID_PROJECTION_ENTITY',
+  );
+});
+
 test('does not copy arbitrary attributes, raw facts, or source event payloads', () => {
   const result = projectCharacterCard(snapshot(), 'entity-1', {
     supportedEntityTypes: ['character'],
