@@ -57,7 +57,7 @@
 - `tests/` — начальные контрактные тесты.
 - `docs/20-minimal-runtime.md` — запуск, endpoints и ограничения текущей реализации.
 
-Запуск требует Node.js 22.13+ и `ENGINE_API_TOKEN` (не менее 16 символов). `npm test` запускает текущие тесты. Встроенный `node:sqlite` в используемых версиях Node может помечаться как experimental.
+Запуск требует Node.js 22.13+ и `ENGINE_API_TOKEN` (не менее 16 символов). Для создания proposals настрой `ENGINE_ADAPTER_TOKENS` как JSON-объект идентификаторов адаптеров и отдельных секретов; для регистрации механик/модулей задай отдельный `ENGINE_ADMIN_TOKEN`. `ENGINE_APPROVAL_TOKEN` включает отдельный gate подтверждения. Пример переменных находится в `.env.example`. `npm test` запускает текущие тесты. Встроенный `node:sqlite` в используемых версиях Node может помечаться как experimental.
 
 ### Решения и схемы
 - `docs/decisions/ADR-0006-rollback-semantics.md` — предлагаемая семантика отката.
