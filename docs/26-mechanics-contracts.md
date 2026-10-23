@@ -1,6 +1,6 @@
 # Universal mechanics contracts and safe defaults
 
-Status: implementation contract for the first mechanics runtime slice. This document narrows the open points in `docs/25-universal-mechanics-system.md`; it does not add genre-specific behavior or a World Pack example.
+Status: accepted implementation contract; immutable template/module registries are implemented, while world instances and execution remain future work. This document narrows the open points in `docs/25-universal-mechanics-system.md`; it does not add genre-specific behavior or a World Pack example.
 
 ## 1. Contract artifacts
 
@@ -46,11 +46,13 @@ The initial runtime slice may implement immutable template/module registration a
 
 ## 7. Runtime implementation order
 
-1. Add immutable, versioned template and module registries with persistence and duplicate-content checks.
-2. Add read-only registry routes and tests for empty registries, exact-version lookup, duplicate registration, and immutability.
-3. Define trusted host actor/authorization before exposing instance mutation routes.
+1. **Implemented:** immutable, versioned template and module-manifest registries, content hashes, exact-version lookup, and append-only registry audit. The current authenticated API client is recorded as the registration principal; this does not identify a human author.
+2. **Implemented:** authenticated registry list/register/read routes and tests for empty registries, exact-version lookup, duplicate registration, immutability, and audit.
+3. Define a trusted host actor/authorization contract before exposing instance mutation routes. The current bearer token does not distinguish individual roles.
 4. Add world-scoped instance storage and event-backed activation/deactivation, including rollback behavior and process lifecycle handling.
 5. Add conflict evaluation/adjudication and structured `mark_unknown` responses.
 6. Only then connect a World Pack, model proposal flow, or SillyTavern adapter.
+
+The runtime contract validator is a dedicated bounded validator, not a general JSON Schema 2020-12 implementation. Schema files are structurally checked by tests, but full JSON Schema conformance testing remains open.
 
 This sequence deliberately separates safe immutable registration from mutable world operations. It does not claim that mechanics execution or rollback integration is complete.
