@@ -14,7 +14,7 @@ The current runtime supports **partial rollback over declared metadata**. It doe
 - A context manifest records what was available to a model, not what materially influenced its output.
 - A `read_set` records caller-declared reads; it is not proof that the declaration is complete.
 - Current `caused_by`, `depends_on`, and `read_set` strings are not equivalent to the proposed typed relationships below.
-- No new API fields, SQLite tables, or runtime behavior are introduced by this document.
+- The generation-bound manifest subset described in `docs/21-stage1-causality-contract.md` is implemented. It does not establish causal completeness or model attention.
 
 ## 2. Three distinct evidence layers
 
@@ -35,9 +35,9 @@ Proposed basis statuses:
 
 **Precedence rule:** if the manifest is absent/unbound, status is `unbound`, even when `read_set` is empty. With a trusted manifest, an empty read set is `undeclared`. A manifest that is present but untrusted is not sufficient for `all_verified`.
 
-These are proposed semantic labels, not current runtime output fields.
+These labels describe the intended basis semantics; the current API does not yet expose a general basis-status field. The implemented manifest check rejects a declared read that is absent from a supplied trusted-boundary manifest.
 
-**Proposed commit policy for `invalid_declared`:** reject the event commit with HTTP `400` and a stable validation error; do not persist it as an executable event. A future authoring workflow may preserve rejected input in a separate non-executable review record, but that is outside the Stage 1 committed event contract. This is the recommended default for the API proposal and must be confirmed before implementation. A rejected validation attempt does not create a committed event, a successful idempotency result, or a state-changing audit row. Operational/security logs may record the rejected request separately from the canonical world audit. Because the idempotency key is not consumed by a rejected pre-commit validation, a corrected request may retry with that key; once a request is committed, existing request-hash/idempotency rules apply. This behavior must be reconciled with the final API contract before implementation.
+**Proposed commit policy for `invalid_declared`:** reject the event commit with HTTP `400` and a stable validation error; do not persist it as an executable event. A future authoring workflow may preserve rejected input in a separate non-executable review record, but that is outside the Stage 1 committed event contract. This is the recommended default for the API proposal and must be confirmed before implementation. A rejected validation attempt does not create a committed event, a successful idempotency result, or a state-changing audit row. Operational/security logs may record the rejected request separately from the canonical world audit. Because the idempotency key is not consumed by a rejected pre-commit validation, a corrected request may retry with that key; once a request is committed, existing request-hash/idempotency rules apply. This behavior is implemented for rejected declared reads against a supplied context manifest.
 
 ## 3. Proposed relationship types
 
