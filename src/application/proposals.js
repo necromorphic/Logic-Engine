@@ -40,16 +40,15 @@ export class ProposalService {
     assert(typeof body.idempotency_key === 'string' && body.idempotency_key.trim() && body.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key is required.');
     assert(typeof body.source_text === 'string' && body.source_text.length <= 50000, 'INVALID_SOURCE_TEXT', 'source_text must be a string of at most 50000 characters.');
     assert(object(body.event), 'INVALID_EVENT_PROPOSAL', 'event must be an object containing the proposed event payload.');
+    const allowedEventFields = ['turn_id', 'event_type', 'event_id', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
+    assert(Object.keys(body.event).every((key) => allowedEventFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event payload contains an unsupported or server-owned field.');
     assert(typeof body.event.turn_id === 'string' && body.event.turn_id.trim(), 'TURN_ID_REQUIRED', 'event.turn_id is required.');
     assert(typeof body.event.event_type === 'string' && body.event.event_type.trim(), 'EVENT_TYPE_REQUIRED', 'event.event_type is required.');
     assert(Array.isArray(body.event.effects ?? []), 'INVALID_EFFECTS', 'event.effects must be an array.');
-    assert(!Object.hasOwn(body.event, 'proposal_id') && !Object.hasOwn(body.event, 'status') && !Object.hasOwn(body.event, 'proposal_hash'), 'INVALID_EVENT_PROPOSAL', 'Proposal metadata is server-owned.');
 
     const world = this.engine.getState(worldId);
     const sequence = this.engine.getEvents(worldId, true).reduce((max, event) => Math.max(max, event.commit_sequence || 0), 0);
     const eventPayload = { ...body.event };
-    delete eventPayload.idempotency_key;
-    delete eventPayload.expected_revision;
     const request = { source_text: body.source_text, event: eventPayload };
     const requestHash = hashRequest(request);
     const existing = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND idempotency_key=?').get(worldId, body.idempotency_key.trim());
