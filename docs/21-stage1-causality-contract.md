@@ -35,14 +35,14 @@ References to existing entity/fact identities that the caller claims materially 
 The runtime now accepts an additive, typed subset of causal relationships while retaining the legacy fields above for backward compatibility. Each item is `{ relation, target_id }`; duplicate relation/target pairs are rejected, and links are normalized before request hashing.
 
 Supported relations in this increment:
-- `CAUSES`: target is a prior valid event; rollback invalidates the linked event when the target is invalidated.
+- `READS_SOURCE`: target is a prior valid event used as a source; rollback invalidates the reader when that source is invalidated.
 - `READS_SOURCE`: target is a prior valid event used as a source; rollback invalidates the reader when that source is invalidated.
 - `READS_ENTITY`: target is an entity identity in this world; rollback invalidates the reader when an invalidated event changes/removes that entity's canonical projection.
 - `READS_CLAIM`: target is a fact/claim identity with at least one current valid source in this world; rollback invalidates the reader when the claim loses support through invalidation of its source event(s).
 
 Unknown relationship types are rejected with HTTP 400 before a committed event or successful idempotency result is written. Corrected input may retry the same key because pre-commit validation did not consume it. The model cannot use these links to activate mechanics or bypass engine validation.
 
-This is intentionally a partial graph contract: it does not yet implement historical `REQUIRES` predicates, manifests/basis verification, negative reads, `PRODUCES`/evidence/conflict edges, `commit_sequence`, or proof of causal completeness. `READS_ENTITY` and `READS_CLAIM` currently identify projection identities, not versioned historical values. The engine continues to report only declared-metadata rollback semantics.
+This is intentionally a partial graph contract: it does not yet implement historical `REQUIRES` predicates, manifests/basis verification, negative reads, `PRODUCES`/evidence/conflict edges, `commit_sequence`, or proof of causal completeness. `READS_ENTITY` and `READS_CLAIM` currently identify projection identities, not versioned historical values. `READS_CLAIM` preserves its reader when at least one valid source remains; it invalidates the reader only when the claim loses all valid support. Direct event causation remains represented by the backward-compatible `caused_by[]` field in this increment. The engine continues to report only declared-metadata rollback semantics.
 
 ### Effects and projection rebuild
 
