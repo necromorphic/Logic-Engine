@@ -162,3 +162,16 @@ The responsibilities must remain separate:
 - The NPC decision step may reason over that supplied context but cannot create authoritative knowledge by retrieval, prompt inclusion, or generated prose.
 
 Do not describe the trusted caller as the canonical knowledge owner, and do not create an NPC-side substitute store. Before implementation, the core owner must confirm how the documented ownership target maps to current or planned core APIs and which capabilities remain deferred.
+
+
+## 12. Knowledge and delivery contract proposal — 2026-10-24
+
+`docs/39-npc-core-knowledge-contract-proposal.md` now proposes a minimum semantic contract for future core-owned acquisition records, provenance, belief-state boundaries, delivery evidence, actor-specific context queries, and reconciliation after source invalidation.
+
+This is a proposal for core-owner review, not an implementation or an approved public API. It explicitly:
+- reuses existing core identities and causal/rollback mechanisms rather than adding parallel ones;
+- treats canonical events, context manifests, and proposal records as useful but insufficient infrastructure;
+- keeps belief ownership open for explicit core decision while prohibiting an NPC-owned substitute authority;
+- defers API, schema, SQLite, runtime, host-delivery, and end-to-end test work until the contract is approved and mapped to real code.
+
+The current evidence status is unchanged: no complete actor-specific acquisition/query contract has been verified in the inspected runtime. The proposal's acceptance criteria are future test targets, not test results.
