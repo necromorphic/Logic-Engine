@@ -550,7 +550,8 @@ export class SQLiteStore {
       if (!root) throw new EngineError('EVENT_NOT_FOUND', 'Event not found.', 404);
       if (root.validity !== 'valid') {
         const result = {
-          accepted: true, rollback_id: null, root_event_id: rootId, invalidated_event_ids: [], requires_review_event_ids: [],
+          accepted: true, rollback_id: null, root_event_id: rootId, invalidated_event_ids: [],
+          requires_review_event_ids: [], requires_review_items: [], rollback_outcome: 'resolved',
           world_revision: w.world_revision, no_op: true, idempotent_replay: false,
         };
         this.saveReplay(id, key, requestHash, result);
@@ -584,15 +585,55 @@ export class SQLiteStore {
           }
         }
       }
-      const requiresReviewEventIds = all
+
+      // Unknown predicates only block a rollback when the uncertain historical
+      // projection is itself touched by this rollback. An unrelated legacy
+      // ambiguity must not prevent an otherwise independent rollback.
+      const requiresReviewItems = all
         .filter((event) => event.validity === 'valid' && !invalid.has(event.event_id))
-        .filter((event) => (event.causal_links ?? []).some((link) => {
-          if (link.relation !== 'REQUIRES') return false;
-          const entities = this.entityProjectionAtCursor(id, event.commit_sequence, invalid);
-          const facts = this.factProjectionAtCursor(id, event.commit_sequence, invalid);
-          return predicateResult(entities, link.predicate, facts) === 'unknown';
-        }))
-        .map((event) => event.event_id);
+        .flatMap((event) => (event.causal_links ?? [])
+          .filter((link) => link.relation === 'REQUIRES')
+          .flatMap((link) => {
+            const entities = this.entityProjectionAtCursor(id, event.commit_sequence, invalid);
+            const facts = this.factProjectionAtCursor(id, event.commit_sequence, invalid);
+            if (predicateResult(entities, link.predicate, facts) !== 'unknown') return [];
+            const targetRef = ['fact_value', 'fact_absent'].includes(link.predicate?.kind)
+              ? 'fact:' + link.predicate.fact_id
+              : ['entity_exists', 'entity_absent', 'entity_attribute'].includes(link.predicate?.kind)
+                ? 'entity:' + link.predicate.entity_id
+                : null;
+            if (!targetRef || !affected.has(targetRef)) return [];
+            return [{
+              event_id: event.event_id,
+              reason_code: 'historical_predicate_unknown',
+              pre_rollback_status: event.validity,
+              predicate: link.predicate,
+              evaluated_as: 'unknown',
+              affected_dependencies: [{ kind: 'projection', target_ref: targetRef }],
+            }];
+          }));
+
+      if (requiresReviewItems.length > 0) {
+        const reviewEventIds = [...new Set(requiresReviewItems.map((item) => item.event_id))];
+        const result = {
+          accepted: true,
+          rollback_id: null,
+          root_event_id: rootId,
+          invalidated_event_ids: [],
+          proposed_invalidated_event_ids: [...invalid],
+          requires_review_event_ids: reviewEventIds,
+          requires_review_items: requiresReviewItems,
+          rollback_outcome: 'requires_review',
+          world_revision: w.world_revision,
+          no_op: true,
+          idempotent_replay: false,
+        };
+        // Persist the diagnostic response for exact idempotent replay, but do
+        // not write a canonical-state audit row or increment world_revision:
+        // no semantic rollback was applied.
+        this.saveReplay(id, key, requestHash, result);
+        return result;
+      }
 
       const rollbackId = randomUUID();
       const revision = w.world_revision + 1;
@@ -605,11 +646,15 @@ export class SQLiteStore {
         .run(rollbackId, id, rootId, enc(ids), revision, createdAt, key);
       this.rebuild(id, revision);
       const result = {
-        accepted: true, rollback_id: rollbackId, root_event_id: rootId, invalidated_event_ids: ids, requires_review_event_ids: requiresReviewEventIds,
+        accepted: true, rollback_id: rollbackId, root_event_id: rootId, invalidated_event_ids: ids,
+        requires_review_event_ids: [], requires_review_items: [], rollback_outcome: 'resolved',
         world_revision: revision, no_op: false, idempotent_replay: false,
       };
       this.db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,\'rollback.applied\',?,?,?)")
-        .run(id, revision, rollbackId, enc({ root_event_id: rootId, invalidated_event_ids: ids, requires_review_event_ids: requiresReviewEventIds }), createdAt);
+        .run(id, revision, rollbackId, enc({
+          root_event_id: rootId, invalidated_event_ids: ids, rollback_outcome: 'resolved',
+          requires_review_event_ids: [], requires_review_items: [],
+        }), createdAt);
       this.saveReplay(id, key, requestHash, result);
       return result;
     });
