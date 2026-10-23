@@ -79,9 +79,11 @@ When evidence changes or a source is invalidated, reconcile the affected knowled
 
 ## 7. Relationships and reactions
 
-Relationships are mutable state, not a single universal score. Where a setting needs them, represent the relevant dimensions separately (for example, trust, fear, affection, hostility, obligation, respect, suspicion, or debt) rather than treating them as interchangeable.
+Relationships are mutable, multi-dimensional state, not a single universal score. Where a setting needs them, represent relevant dimensions separately (for example, trust, fear, affection, attraction, hostility, obligation, respect, suspicion, rivalry, debt, and cooperation) rather than treating them as interchangeable.
 
-A reaction should be based on what the NPC plausibly knows, their characterization, current state, relationship context, and the significance of the event. Do not make all NPCs react identically to the same event. Do not infer a relationship change merely because two characters appeared in the same scene.
+Different dimensions may coexist and change independently. Romantic tension may coexist with rivalry or a reluctant alliance; one character's attraction does not establish reciprocal attraction or consent. A change in trust does not automatically remove hostility, attraction, rivalry, obligation, or suspicion. Concrete interactions and their history are the primary evidence for relationship development; a numeric measure cannot replace the reasons behind the state.
+
+A reaction should be based on what the NPC plausibly knows, their characterization, current state, relationship context, and the significance of the event. Minor events usually have limited or gradual effects; major betrayal, rescue, or revelation may cause a sharp change. Different NPCs may interpret the same event differently. Do not infer a relationship change merely because two characters appeared in the same scene.
 
 An event may motivate a reaction, but causation must be supported by the actual simulation history or explicit adjudication; narrative coincidence alone is not proof.
 
@@ -112,14 +114,18 @@ The NPC subsystem does not require a specific interface such as SillyTavern. Any
 
 ## 10. Conflicts, uncertainty, and author control
 
-When information is missing, rules conflict, or several outcomes remain plausible:
+When information is missing, rules conflict, or several outcomes remain plausible, distinguish an ordinary NPC-generated choice from an explicit author-mandated outcome.
 
-1. apply an explicit, valid rule if one exists;
-2. otherwise preserve the uncertainty and request adjudication where it materially affects the world;
-3. do not silently choose an outcome just to keep the prose flowing;
-4. record the reason for any author override when the surrounding system supports such records.
+1. Apply higher-priority system constraints, world rules, and player-agency boundaries.
+2. If the author has directly required a specific action or outcome that is compatible with those boundaries, preserve it as a mandatory target. Do not silently cancel it merely because the NPC would ordinarily refuse or prefer another course.
+3. First seek a plausible route using established motives, relationships, evidence, goals, pressures, commitments, and circumstances.
+4. If established circumstances are insufficient, the system may prepare plausible new future circumstances or actions that could lead to the required outcome. These are prospective proposals until they occur through the approved world/event path.
+5. Do not rewrite established history, fabricate past evidence, or present an invented prior motive or event as canon to justify the target. If a credible route cannot yet be grounded, keep the author-mandated outcome explicit and identify the missing rationale instead of silently cancelling it or fabricating a cause.
+6. The author specifies only the outcome unless they also specify intermediate actions. NPC autonomy remains in choosing the unspecified path, subject to the required outcome and higher-priority constraints.
+7. If no author-mandated outcome exists, preserve material uncertainty and request adjudication rather than silently choosing an unsupported consequential outcome.
+8. Record the reason for an author override when the surrounding system supports such records.
 
-A model's confidence or fluent explanation is not evidence. An inference must not be represented as a directly observed fact.
+A model's confidence or fluent explanation is not evidence. An inference must not be represented as a directly observed fact. An author-mandated target does not authorize inventing the player's voluntary actions, dialogue, thoughts, feelings, intentions, consent, or unprovided reactions.
 
 ## 11. Rollback and causal consistency
 
@@ -146,7 +152,7 @@ The contract is not considered implementation-ready until tests cover at least t
 11. The system does not author the player's voluntary action, dialogue, or internal state.
 12. Advancing chat turns without advancing game time does not itself progress an NPC's time-dependent process.
 
-These are semantic acceptance scenarios, not a declaration that tests or runtime features already exist.
+These are semantic acceptance scenarios, not a declaration that tests or runtime features already exist. The expanded author-confirmed scenarios NPC-SEM-013–020 in `docs/32-npc-semantic-acceptance-matrix.md` supplement this baseline, especially for mandatory author outcomes, prospective causal preparation, reserved secrets, multidimensional relationships, and report/awareness boundaries.
 
 ## 13. Explicitly out of scope for this stage
 
