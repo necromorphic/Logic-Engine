@@ -306,7 +306,7 @@ Before turning a scenario into a normative executable test:
 
 ### T-18A — affected historical predicate is unknown
 
-The fixture creates conflicting historical fact claims, then mutates a committed event's typed metadata to simulate a legacy/inconsistent record with a `REQUIRES(fact_value)` predicate that evaluates to `unknown`. Rolling back a source that affects that fact must return `rollback_outcome = "requires_review"`, a structured `requires_review_items` entry with stable reason code `historical_predicate_unknown`, and `proposed_invalidated_event_ids`. It must not change event statuses, projections, `world_revision), or write a canonical rollback audit row. Retrying with the same idempotency key returns the same review result and does not increment revision.
+The fixture creates conflicting historical fact claims, then mutates a committed event's typed metadata to simulate a legacy/inconsistent record with a `REQUIRES(fact_value)` predicate that evaluates to `unknown`. Rolling back a source that affects that fact must return `rollback_outcome = "requires_review"`, a structured `requires_review_items` entry with stable reason code `historical_predicate_unknown`, and `proposed_invalidated_event_ids`. It must not change event statuses, projections, `world_revision`, or write a canonical rollback audit row. Retrying with the same idempotency key returns the same review result and does not increment revision.
 
 ### T-18B — unrelated historical unknown does not block rollback
 
