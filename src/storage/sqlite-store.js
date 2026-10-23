@@ -262,7 +262,7 @@ export class SQLiteStore {
     if (!this.world(id)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
     const rows = this.db.prepare('SELECT * FROM world_events WHERE world_id=? ' + (includeInvalid ? '' : "AND validity='valid' ") + 'ORDER BY commit_sequence').all(id);
     return rows.map((r) => ({
-      event_id: r.event_id, turn_id: r.turn_id, generation_id: r.generation_id, event_type: r.event_type,
+      event_id: r.event_id, turn_id: r.turn_id, generation_id: r.generation_id, context_manifest_id: r.context_manifest_id ?? null, event_type: r.event_type,
       game_time: r.game_time, committed_revision: r.committed_revision, commit_sequence: r.commit_sequence, validity: r.validity,
       caused_by: dec(r.caused_by_json), depends_on: dec(r.depends_on_json), read_set: dec(r.read_set_json),
       causal_links: dec(r.causal_links_json ?? '[]'), effects: dec(r.effects_json), time_advance_seconds: r.time_advance_seconds,
@@ -303,6 +303,82 @@ export class SQLiteStore {
     if (row.committed_revision >= nextRevision) throw new EngineError('INVALID_CAUSAL_REFERENCE', fieldName + ' must reference a prior event.', 400, { field: fieldName, reference: eventId });
   }
 
+
+  currentCommitSequence(worldId) {
+    return this.db.prepare('SELECT COALESCE(MAX(commit_sequence),0) AS value FROM world_events WHERE world_id=?').get(worldId).value;
+  }
+
+  registerContextManifest(worldId, manifest) {
+    return this.tx(() => {
+      if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const existing = this.db.prepare('SELECT * FROM context_manifests WHERE world_id=? AND generation_id=?').get(worldId, manifest.generation_id);
+      if (existing) {
+        if (existing.manifest_hash === manifest.manifest_hash) {
+          return {
+            manifest_id: existing.manifest_id, world_id: existing.world_id, generation_id: existing.generation_id,
+            base_commit_sequence: existing.base_commit_sequence, items: dec(existing.items_json),
+            manifest_hash: existing.manifest_hash, idempotent_replay: true,
+          };
+        }
+        throw new EngineError('GENERATION_MANIFEST_EXISTS', 'A different immutable context manifest is already registered for this generation.', 409, { generation_id: manifest.generation_id });
+      }
+      const currentCursor = this.currentCommitSequence(worldId);
+      if (manifest.base_commit_sequence !== currentCursor) {
+        throw new EngineError('CONTEXT_CURSOR_CONFLICT', 'Context manifest cursor must equal the current committed event cursor when the manifest is registered.', 409, { expected: currentCursor, received: manifest.base_commit_sequence });
+      }
+      for (const item of manifest.items) {
+        if (item.kind === 'entity' && !this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, item.target_id)) {
+          throw new EngineError('INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest references an entity absent from the current projection: ' + item.target_id, 400, { item });
+        }
+        if (item.kind === 'fact' && !this.db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, item.target_id)) {
+          throw new EngineError('INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest references a fact absent from the current projection: ' + item.target_id, 400, { item });
+        }
+        if (item.kind === 'event') {
+          const event = this.db.prepare("SELECT 1 FROM world_events WHERE world_id=? AND event_id=? AND validity='valid' AND commit_sequence<=?").get(worldId, item.target_id, manifest.base_commit_sequence);
+          if (!event) throw new EngineError('INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest event must be valid and present at the manifest cursor: ' + item.target_id, 400, { item });
+        }
+      }
+      const manifestId = randomUUID();
+      const createdAt = now();
+      this.db.prepare('INSERT INTO context_manifests(manifest_id,world_id,generation_id,base_commit_sequence,items_json,manifest_hash,created_at) VALUES(?,?,?,?,?,?,?)')
+        .run(manifestId, worldId, manifest.generation_id, manifest.base_commit_sequence, enc(manifest.items), manifest.manifest_hash, createdAt);
+      const revision = this.world(worldId).world_revision;
+      this.db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?, 'context_manifest.registered',?,?,?)")
+        .run(worldId, revision, manifestId, enc({ generation_id: manifest.generation_id, base_commit_sequence: manifest.base_commit_sequence, item_count: manifest.items.length, manifest_hash: manifest.manifest_hash }), createdAt);
+      return {
+        manifest_id: manifestId, world_id: worldId, generation_id: manifest.generation_id,
+        base_commit_sequence: manifest.base_commit_sequence, items: manifest.items,
+        manifest_hash: manifest.manifest_hash, idempotent_replay: false,
+      };
+    });
+  }
+
+  validateContextManifest(worldId, event) {
+    if (!event.context_manifest_id) return;
+    const manifest = this.db.prepare('SELECT * FROM context_manifests WHERE world_id=? AND manifest_id=?').get(worldId, event.context_manifest_id);
+    if (!manifest) throw new EngineError('CONTEXT_MANIFEST_NOT_FOUND', 'context_manifest_id must reference a registered manifest in this world.', 400, { context_manifest_id: event.context_manifest_id });
+    if (!event.generation_id || event.generation_id !== manifest.generation_id) {
+      throw new EngineError('CONTEXT_GENERATION_MISMATCH', 'Event generation_id must match the context manifest generation_id.', 400, { event_generation_id: event.generation_id ?? null, manifest_generation_id: manifest.generation_id });
+    }
+    if (manifest.base_commit_sequence > this.currentCommitSequence(worldId)) {
+      throw new EngineError('INVALID_CONTEXT_CURSOR', 'Context manifest cursor cannot be ahead of the current world history.', 409);
+    }
+    const available = new Set(dec(manifest.items_json).map((item) => item.kind + ':' + item.target_id));
+    const declared = new Set();
+    for (const ref of event.read_set) declared.add(ref);
+    for (const link of event.causal_links ?? []) {
+      if (link.relation === 'READS_SOURCE') declared.add('event:' + link.target_id);
+      if (link.relation === 'READS_ENTITY') declared.add('entity:' + link.target_id);
+      if (link.relation === 'READS_CLAIM') declared.add('fact:' + link.target_id);
+      if (link.relation === 'REQUIRES') {
+        if (link.predicate.kind === 'fact_value') declared.add('fact:' + link.predicate.fact_id);
+        else declared.add('entity:' + link.predicate.entity_id);
+      }
+    }
+    const missing = [...declared].filter((key) => !available.has(key));
+    if (missing.length) throw new EngineError('INVALID_DECLARED_READ', 'Every declared read must be present in the generation-bound context manifest.', 400, { missing, context_manifest_id: event.context_manifest_id });
+  }
+
   currentEntityProjection(worldId) {
     const rows = this.db.prepare('SELECT entity_id,entity_type,status,attributes_json FROM entities WHERE world_id=?').all(worldId);
     return new Map(rows.map((row) => [row.entity_id, {
@@ -341,6 +417,7 @@ export class SQLiteStore {
   }
 
   validateCausalMetadata(worldId, event, nextRevision) {
+    this.validateContextManifest(worldId, event);
     for (const eventId of event.caused_by) this.validateEventReference(worldId, eventId, nextRevision, 'caused_by');
     for (const ref of event.depends_on) {
       if (ref.startsWith('entity:')) {
@@ -417,10 +494,10 @@ export class SQLiteStore {
       const time = new Date(Date.parse(w.game_time) + x.time_advance_seconds * 1000).toISOString();
       const createdAt = now();
       this.db.prepare(`INSERT INTO world_events(
-        event_id,world_id,turn_id,generation_id,event_type,game_time,committed_revision,commit_sequence,validity,
+        event_id,world_id,turn_id,generation_id,context_manifest_id,event_type,game_time,committed_revision,commit_sequence,validity,
         caused_by_json,depends_on_json,read_set_json,causal_links_json,effects_json,time_advance_seconds,source_message_id,created_at
-      ) VALUES(?,?,?,?,?,?,?,?,'valid',?,?,?,?,?,?,?,?)`).run(
-        eventId, id, x.turn_id, x.generation_id || null, x.event_type, time, revision, commitSequence,
+      ) VALUES(?,?,?,?,?,?,?,?,?,'valid',?,?,?,?,?,?,?,?)`).run(
+        eventId, id, x.turn_id, x.generation_id || null, x.context_manifest_id || null, x.event_type, time, revision, commitSequence,
         enc(x.caused_by), enc(x.depends_on), enc(x.read_set), enc(x.causal_links ?? []), enc(x.effects), x.time_advance_seconds,
         x.source_message_id || null, createdAt,
       );
@@ -432,7 +509,7 @@ export class SQLiteStore {
       };
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,\'event.committed\',?,?,?)')
         .run(id, revision, eventId, enc({
-          turn_id: x.turn_id, caused_by: x.caused_by, depends_on: x.depends_on,
+          turn_id: x.turn_id, context_manifest_id: x.context_manifest_id || null, caused_by: x.caused_by, depends_on: x.depends_on,
           read_set: x.read_set, effects: x.effects, time_advance_seconds: x.time_advance_seconds,
         }), createdAt);
       this.saveReplay(id, x.idempotency_key, x.request_hash, result);
