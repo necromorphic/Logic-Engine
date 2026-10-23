@@ -1,6 +1,6 @@
 # Causality semantics — Stage 1 proposal
 
-Status: **architecture proposal; not yet a runtime/API contract**. This document records the current agreement and recommended resolutions for the remaining semantic ambiguities. It does not change current runtime guarantees.
+Status: **mixed proposal and implementation boundary**. The typed-link subset documented in `docs/21-stage1-causality-contract.md` is implemented; the broader semantics below remain proposals and are not implied by the current runtime.
 
 Related: [Stage 1 causality contract](21-stage1-causality-contract.md) and [Stage 1 causality test matrix](24-causality-test-matrix.md).
 
@@ -55,7 +55,7 @@ These are proposed semantic labels, not current runtime output fields.
 
 `READS_CLAIM` must reference a canonical `claim_id` present in the claim projection and supported by at least one valid source at the relevant historical evaluation point. Arbitrary labels or an unresolvable claim reference are invalid relationship data, not a claim dependency. Claim identity, source-event identity, and whether that claim is supported at a particular historical cursor are separate concepts; a later rollback can change support without changing the claim's identity.
 
-These names are a design vocabulary, not accepted API values. Stage 1 must not silently interpret an unknown relationship as a supported one.
+These names are a design vocabulary, not all accepted API values. The current runtime supports only `READS_SOURCE`, `READS_ENTITY`, and `READS_CLAIM` as additive `causal_links[]` entries. Direct event causation remains in the legacy `caused_by[]` field; the typed `CAUSES` graph edge is not yet part of this additive link shape. `REQUIRES`, `PRODUCES`, `OBSERVES`, `EVIDENCE_FOR`, `CONFLICTS_WITH`, and `MAINTAINS` remain unsupported by the executable typed-link contract. Stage 1 must reject unknown relationships rather than silently interpret them as supported.
 
 ### 3.1 Commit-time preconditions versus invariants
 
@@ -151,4 +151,4 @@ The scenario matrix in [docs/24-causality-test-matrix.md](24-causality-test-matr
 
 ## 9. Compatibility boundary
 
-This proposal does not change the current runtime contract documented in `docs/21-stage1-causality-contract.md`. Existing string-based metadata remains legacy input until a separately reviewed runtime/API proposal defines migration, validation, and backward compatibility.
+The broader proposals in this document do not change runtime behavior unless explicitly identified in `docs/21-stage1-causality-contract.md`. Existing string-based `caused_by`, `depends_on`, and `read_set` metadata remains supported for backward compatibility; `causal_links[]` is an additive typed subset, not proof of causal completeness.

@@ -10,6 +10,24 @@ const strings = (x, name) => {
   return [...new Set(x.map((v) => v.trim()))];
 };
 
+const causalLinks = (value) => {
+  value = value ?? [];
+  assert(Array.isArray(value) && value.length <= 500, 'INVALID_CAUSAL_LINKS', 'causal_links must be an array of at most 500 links.');
+  const supported = new Set(['READS_SOURCE', 'READS_ENTITY', 'READS_CLAIM']);
+  const seen = new Set();
+  const links = value.map((link) => {
+    assert(obj(link), 'INVALID_CAUSAL_LINK', 'Each causal link must be an object.');
+    assert(typeof link.relation === 'string' && supported.has(link.relation), 'UNSUPPORTED_CAUSAL_RELATION', 'Unsupported causal relationship: ' + String(link.relation));
+    assert(typeof link.target_id === 'string' && link.target_id.trim() && link.target_id.trim().length <= 200, 'INVALID_CAUSAL_LINK', 'causal link target_id must be a non-empty string of at most 200 characters.');
+    const normalized = { relation: link.relation, target_id: link.target_id.trim() };
+    const key = JSON.stringify([normalized.relation, normalized.target_id]);
+    assert(!seen.has(key), 'DUPLICATE_CAUSAL_LINK', 'Duplicate causal link: ' + normalized.relation + ' ' + normalized.target_id);
+    seen.add(key);
+    return normalized;
+  });
+  return links.sort((a, b) => a.relation.localeCompare(b.relation) || a.target_id.localeCompare(b.target_id));
+};
+
 export class LogicEngine {
   constructor(store) {
     this.store = store;
@@ -68,6 +86,7 @@ export class LogicEngine {
       caused_by: strings(x.caused_by, 'caused_by'),
       depends_on: strings(x.depends_on, 'depends_on'),
       read_set: strings(x.read_set, 'read_set'),
+      causal_links: causalLinks(x.causal_links),
       effects,
     };
     return this.store.commit(id, {

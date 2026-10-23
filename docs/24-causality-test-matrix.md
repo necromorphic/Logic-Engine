@@ -1,6 +1,6 @@
 # Stage 1 causality test matrix — proposal
 
-Status: **test specification proposal**. These scenarios do not claim that the current runtime supports typed causal relationships, historical cursors, manifests, or per-event rollback classification. They define expected behavior for implementation planning and should be promoted to executable tests only after the corresponding API/storage contract is approved.
+Status: **mixed executable coverage and test specification**. The current runtime supports a limited `causal_links[]` subset (`READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`) with declared-edge rollback. Direct event causation remains in `caused_by[]`. Historical cursors, manifests, predicate-based `REQUIRES`, and per-event rollback classification remain proposals. Scenarios below must not be read as claims that those deferred capabilities are implemented.
 
 Related: [Stage 1 causality contract](21-stage1-causality-contract.md), [Causality semantics proposal](22-causality-semantics.md).
 
@@ -188,6 +188,16 @@ Expected:
 - The rollback operation is `partially_resolved` or `requires_review` because D remains unresolved.
 - The per-event reason for D is distinct from the operation-level outcome.
 - `causal_completeness = unknown` alone does not force review for B or C.
+
+## T-12 — typed source and claim links (implemented subset)
+
+Executable coverage in `tests/causality-contract.test.js` verifies:
+- `READS_SOURCE` points to a prior valid event and makes the reader a rollback candidate when that source is retracted.
+- `READS_CLAIM` preserves the reader when another valid source still supports the same fact/claim projection.
+- `READS_CLAIM` points to a fact/claim identity with current valid support and makes the reader a rollback candidate when that claim loses its only source.
+- unsupported typed relationships (including deferred `MAINTAINS`) are rejected before an idempotency key is consumed; corrected input can retry the same key.
+
+Limit: these links currently refer to event or projection identities, not historical versions. They do not establish manifest verification, causal completeness, or tri-state predicate evaluation.
 
 ## T-09 — causal diamond and independent branch (existing regression)
 
