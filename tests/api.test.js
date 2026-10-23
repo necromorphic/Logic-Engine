@@ -699,3 +699,60 @@ test('mechanic intent translation rejects ambiguous or invalid batches without c
   assert.equal(store.world('intent-db-world').world_revision, 0);
   assert.deepEqual(store.events('intent-db-world', true), []);
 });
+
+
+test('translated fact intents use the same canonical fact-identity guard as direct effects', async (t) => {
+  const base = await setup(t, { approvalToken: APPROVAL });
+  assert.equal((await createWorld(base, 'intent-fact-identity-world')).status, 201);
+
+  const createProposal = await fetch(base + '/v1/worlds/intent-fact-identity-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'canonical-fact-seed',
+      source_text: 'Mira is alive.',
+      event: {
+        turn_id: 'canonical-fact-seed-turn',
+        event_type: 'action.completed',
+        effects: [{ kind: 'fact.set', fact_id: 'mira-status', predicate: 'status', subject_ref: 'mira', value: 'alive' }],
+      },
+    }),
+  });
+  assert.equal(createProposal.status, 201);
+  const canonical = (await createProposal.json()).proposal;
+  const approved = await fetch(base + '/v1/worlds/intent-fact-identity-world/proposals/' + canonical.proposal_id + '/approve', {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  });
+  assert.equal(approved.status, 200);
+  assert.equal((await fetch(base + '/v1/worlds/intent-fact-identity-world/proposals/' + canonical.proposal_id + '/commit', {
+    method: 'POST', headers, body: '{}',
+  })).status, 200);
+
+  const auditBefore = (await (await fetch(base + '/v1/worlds/intent-fact-identity-world/audit', { headers })).json()).audit;
+  const eventsBefore = (await (await fetch(base + '/v1/worlds/intent-fact-identity-world/events', { headers })).json()).events;
+  const rejected = await fetch(base + '/v1/worlds/intent-fact-identity-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'translated-fact-identity-mismatch',
+      source_text: 'Mira lives in Kamurocho.',
+      event: {
+        turn_id: 'translated-fact-identity-turn',
+        event_type: 'action.completed',
+        effect_intents: [{
+          effect_id: 'assert-location',
+          kind: 'assert_fact',
+          target_ref: 'mira-status',
+          payload: { predicate: 'location', subject_ref: 'mira', value: 'Kamurocho' },
+        }],
+      },
+    }),
+  });
+  assert.equal(rejected.status, 409);
+  assert.equal((await rejected.json()).error.code, 'FACT_IDENTITY_MISMATCH');
+
+  const state = (await (await fetch(base + '/v1/worlds/intent-fact-identity-world/state', { headers })).json()).state;
+  const eventsAfter = (await (await fetch(base + '/v1/worlds/intent-fact-identity-world/events', { headers })).json()).events;
+  const auditAfter = (await (await fetch(base + '/v1/worlds/intent-fact-identity-world/audit', { headers })).json()).audit;
+  assert.equal(state.world_revision, 1);
+  assert.deepEqual(eventsAfter, eventsBefore);
+  assert.equal(auditAfter.length, auditBefore.length);
+});
