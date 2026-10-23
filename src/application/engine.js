@@ -164,7 +164,7 @@ export class LogicEngine {
     return this.store.mechanicRegistryAudit();
   }
 
-  commitEvent(id, x) {
+  prepareEvent(x) {
     assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
     const allowedFields = ['idempotency_key', 'turn_id', 'event_type', 'event_id', 'expected_revision', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
     assert(Object.keys(x).every((key) => allowedFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event proposal contains an unsupported top-level field.');
@@ -176,7 +176,6 @@ export class LogicEngine {
       assert(!x.event_id.trim().startsWith('entity:') && !x.event_id.trim().startsWith('fact:'), 'INVALID_EVENT_ID', 'event_id cannot use the reserved entity: or fact: reference prefixes.');
     }
     if (x.expected_revision !== undefined) assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision must be non-negative.');
-
     if (x.context_manifest_id !== undefined) assert(typeof x.context_manifest_id === 'string' && x.context_manifest_id.trim() && x.context_manifest_id.length <= 200, 'INVALID_CONTEXT_MANIFEST_ID', 'context_manifest_id must be a non-empty string of at most 200 characters.');
     if (x.generation_id !== undefined && x.generation_id !== null) assert(typeof x.generation_id === 'string' && x.generation_id.trim() && x.generation_id.length <= 200, 'INVALID_GENERATION_ID', 'generation_id must be a non-empty string of at most 200 characters.');
 
@@ -206,11 +205,25 @@ export class LogicEngine {
       causal_links: causalLinks(x.causal_links),
       effects,
     };
-    return this.store.commit(id, {
+    return {
       ...request,
       request_hash: hashRequest(request),
       idempotency_key: x.idempotency_key.trim(),
+    };
+  }
+
+  commitEvent(id, x) {
+    return this.store.commit(id, this.prepareEvent(x));
+  }
+
+  validateEvent(id, x) {
+    const prepared = this.prepareEvent({ ...x, idempotency_key: 'validation:' + randomUUID() });
+    prepared.request_hash = hashRequest({
+      operation: 'event.validate',
+      request_hash: prepared.request_hash,
+      idempotency_key: prepared.idempotency_key,
     });
+    return this.store.validateCommit(id, prepared);
   }
 
   rollbackEvent(id, x) {
