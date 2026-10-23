@@ -95,6 +95,22 @@ Producing a proposal must not:
 
 A proposal may be rejected, superseded, or sent for adjudication. It becomes an action only after the existing core path validates and commits the relevant effect. If no supported effect mapping exists, return `needs_review` rather than inventing a mapping.
 
+### 4.2 Existing core infrastructure to reuse, not duplicate
+
+The current core already has two relevant primitives:
+
+- `LogicEngine.registerContextManifest(...)` records a generation reference, base world revision, base commit sequence, and a normalized list of referenced world items (entities, facts, events, and explicit absences).
+- `ProposalService.create(...)` stages a pending event proposal, records its base revision/commit sequence, runs supported payload/effect/reference validation, and writes proposal/audit records. It does not immediately commit the canonical event; approval and a separate commit operation are required.
+
+These primitives are **not sufficient on their own** for an NPC decision context. The manifest does not prove actor-specific knowledge or permission. The proposal service explicitly leaves semantic alignment with source text, causal completeness, actor authorization, and player-agency policy unchecked. Its proposal/audit rows are persistent workflow records, but they are not the same as a canonical world event.
+
+Therefore:
+
+- evaluate these existing services as the preferred integration boundary before proposing any new API or storage;
+- do not duplicate proposal persistence, world-revision cursors, or context-manifest storage in the NPC subsystem;
+- keep a proposal in manual review if the NPC-specific authorization and narrative/player-agency checks cannot be proven;
+- do not interpret successful payload validation as approval of the proposed meaning or as permission for the actor to perform it.
+
 ## 5. Validation and fail-closed behavior
 
 Before a proposal can be considered for commitment, the caller/core must be able to check:
@@ -199,6 +215,7 @@ This slice does not implement:
 Runtime implementation should not begin until all of the following are evidenced:
 
 - a real, trusted source for actor identity and permitted context is identified;
+- the existing context-manifest and generic proposal services have been checked as candidate infrastructure, without duplicating their persistence/cursors;
 - snapshot/time identity can be supplied or its absence is handled explicitly;
 - completeness/access status can distinguish known false from unknown and withheld;
 - the proposal action vocabulary is mapped to existing core operations, with unsupported cases listed;
