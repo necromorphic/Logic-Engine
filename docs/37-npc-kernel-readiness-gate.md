@@ -108,6 +108,32 @@ This is a time-bounded branch snapshot, not a statement that any listed change i
 4. Keep open questions—especially provenance mapping, canonical fact identity/replacement semantics, actor authorization, and the general meaning of unknown/incomplete context—open until the relevant core owner resolves them.
 5. This branch inventory is evidence for coordination only. It does not authorize merges, rebases, API/storage changes, or runtime implementation.
 
-## 8. Non-authority statement
+
+## 8. NPC dependency decision: mechanic-intent PR stack
+
+This section classifies the current mechanic-intent stack by whether it is a prerequisite for the NPC subsystem. It does not approve or request merging those PRs.
+
+| PR / work | What it contributes | NPC dependency decision |
+|---|---|---|
+| #36 — translator contract | Proposed narrow, pure mapping from a small set of mechanic intents to canonical effects; explicit unsupported-intent and provenance behavior | Relevant contract if NPC/mechanics will submit high-level intents. Not a prerequisite for defining NPC context, goals, knowledge, or behavior semantics. Review the mapping contract before any consumer depends on it. |
+| #37 — translator implementation | Pure bounded translator with batch validation; current candidate kinds are `create_entity`, `update_attribute`, and `assert_fact` | Shared core candidate, not NPC-owned code. Its support set does not cover NPC goals, plans, knowledge, beliefs, relations, or player-agency policy. Do not expand the translator from the NPC branch. |
+| #39 — integration boundary | Proposed `effects` versus `effect_intents` request boundary and non-mutation requirements | Relevant if the NPC adapter submits intent batches through the existing proposal service. Preserve the existing proposal/approval/commit lifecycle; no separate NPC commit route. |
+| #40 — proposal lifecycle integration | Integrates translation into `ProposalService.create`; described tests cover translation failures, lifecycle, idempotency, and non-mutation | Potential integration dependency for an NPC action-proposal path, but not proof of actor-specific authorization or semantic validity. Re-check the PR's current head, base, dependency status, and checks before relying on it. |
+
+### Specific unresolved boundary found in source review
+
+The candidate translator maps `assert_fact` to canonical `fact.set` using the intent's `target_ref` as `fact_id`. The contract explicitly leaves canonical fact identity/replacement semantics unresolved. Therefore NPC work must not assume that an asserted fact creates a new fact, replaces an old one, retracts a previous value, or establishes provenance. Non-empty intent-level `source_refs` and `caused_by` are rejected until an approved mapping exists. Keep both limitations visible to any future NPC adapter.
+
+The proposed integration still does not provide the first NPC vertical slice's missing trusted actor-relative context builder. It does not establish which information a specific NPC knows or may access, distinguish canonical truth from an NPC's false belief, or enforce player-agency rules. A valid translated proposal is only a candidate for the ordinary proposal lifecycle, not authorization to commit a narrative action.
+
+### Recommended order of work
+
+1. Continue the NPC semantic contract and context requirements without waiting for the translator stack to settle.
+2. Track #36–#40 as a shared-core dependency only for the future intent-to-proposal handoff; do not duplicate their code or add NPC-only effect kinds.
+3. Before integrating, confirm the stack's actual merge order and latest CI/review state, then verify the final API contract against the approved core implementation.
+4. Separately define the actor-relative context preparation boundary and its failure behavior. Keep executable NPC integration tests deferred until that real boundary and its semantics exist.
+5. Revisit fact identity/provenance only through the core decision process, not by silently filling the gaps in NPC code.
+
+## 9. Non-authority statement
 
 This document does not amend the kernel contract, freeze its architecture, require a new knowledge/access-control subsystem, or authorize changes to runtime code, API, schemas, storage, event semantics, rollback, prompts, or SillyTavern. It exists to keep the NPC branch aligned with the evolving core.
