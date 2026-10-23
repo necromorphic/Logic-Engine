@@ -60,7 +60,7 @@ function boundedArray(value, label, max = 128) {
 function validateRule(rule, label, depth = 0) {
   if (depth > 24) fail('INVALID_MECHANIC_CONTRACT', label + ' exceeds the maximum rule nesting depth.');
   assertObject(rule, label);
-  checkKeys(rule, new Set(['op', 'path', 'value', 'values', 'rules', 'ref', 'reason']), label);
+  checkKeys(rule, new Set(['op', 'path', 'value', 'values', 'rules']), label);
   if (!ruleOps.has(rule.op)) fail('INVALID_MECHANIC_CONTRACT', label + ' uses an unsupported rule operator.');
   const need = (...keys) => required(rule, keys, label);
   if (['eq', 'neq', 'gt', 'gte', 'lt', 'lte'].includes(rule.op)) {
