@@ -68,6 +68,7 @@ Output uses `kind: "fact.set"`, `fact_id: target_ref`, and copies `predicate`, `
 
 ## 4. Batch atomicity, identity, and provenance
 
+- Require a non-empty batch of 1–128 intents. An explicitly empty batch is invalid and must fail with `INVALID_MECHANIC_EFFECT_INTENT`.
 - Validate the complete batch before returning any output. If one intent is invalid or unsupported, reject the whole batch; never return a translated prefix.
 - Require unique, non-empty `effect_id` values within a batch. Preserve input order in the translated output; do not deduplicate intents by guessing semantic equivalence.
 - Preserve deterministic mapping: identical validated inputs produce byte-equivalent canonical effect arrays.
@@ -90,12 +91,13 @@ Failure must be all-or-nothing and side-effect free. The caller may turn a failu
 
 1. Golden mapping tests for each of the three supported intent kinds, including optional fields omitted versus supplied.
 2. Rejection tests for all 15 other declared intent kinds, including review/result kinds.
-3. Unknown payload fields, missing required fields, invalid status, invalid JSON/object shapes, empty update patches, overlapping patch/removal keys, duplicate removal keys, and duplicate `effect_id` values fail closed.
-4. Non-empty `source_refs` or `caused_by` fail with the provenance-specific reason; the translator must never drop them.
-5. A batch with one valid intent followed by an invalid/unsupported intent yields no partial output.
-6. Output is deterministic and input is unchanged after both success and failure.
-7. Feed successful output through `validateEffects`; every supported mapping is accepted by the canonical validator.
-8. Translator failures do not change world revision, commit sequence, events, entities, facts, proposals, or audit entries. This must be checked at the integration boundary, not merely asserted from the purity of the translator.
+3. Unknown payload fields, missing required fields, invalid status, invalid JSON/object shapes, empty update patches, overlapping patch/removal keys, duplicate removal keys, duplicate `effect_id` values, and an empty batch fail closed.
+4. Unsafe object keys (`__proto__`, `constructor`, `prototype`) are rejected recursively in nested JSON payloads.
+5. Non-empty `source_refs` or `caused_by` fail with the provenance-specific reason; the translator must never drop them.
+6. A batch with one valid intent followed by an invalid/unsupported intent yields no partial output.
+7. Output is deterministic and input is unchanged after both success and failure.
+8. Feed successful output through `validateEffects`; every supported mapping is accepted by the canonical validator.
+9. Translator failures do not change world revision, commit sequence, events, entities, facts, proposals, or audit entries. This must be checked at the integration boundary, not merely asserted from the purity of the translator.
 
 ## 7. Explicit non-goals
 
