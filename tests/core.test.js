@@ -224,6 +224,20 @@ test('rule evaluator rejects unknown fields and read_set references must exist l
   );
 });
 
+
+test('effect fields that are not part of the executable contract are rejected', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  assert.throws(
+    () => h.engine.commitEvent('w', cmd({
+      effects: [{ kind: 'entity.upsert', entity_id: 'guard', entity_type: 'character', observed_version: 4 }],
+    })),
+    (error) => error.code === 'UNSUPPORTED_EFFECT_FIELD' && error.status === 400,
+  );
+  assert.equal(h.engine.getState('w').world_revision, 0);
+  assert.equal(h.engine.getEvents('w', true).length, 0);
+});
+
 test('a failed audit write rolls back the entire event transaction', (t) => {
   const h = setup();
   t.after(() => h.store.close());
