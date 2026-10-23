@@ -102,11 +102,13 @@ export class LogicEngine {
     assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
     assert(typeof x.generation_id === 'string' && x.generation_id.trim() && x.generation_id.length <= 200, 'GENERATION_ID_REQUIRED', 'generation_id must be a non-empty string of at most 200 characters.');
     assert(Number.isSafeInteger(x.base_commit_sequence) && x.base_commit_sequence >= 0, 'INVALID_CONTEXT_CURSOR', 'base_commit_sequence must be a non-negative integer.');
+    assert(Number.isSafeInteger(x.base_world_revision) && x.base_world_revision >= 0, 'INVALID_CONTEXT_REVISION', 'base_world_revision must be a non-negative integer.');
     const items = contextItems(x.items);
     const request = {
       world_id: id,
       generation_id: x.generation_id.trim(),
       base_commit_sequence: x.base_commit_sequence,
+      base_world_revision: x.base_world_revision,
       items,
     };
     return this.store.registerContextManifest(id, {
@@ -129,6 +131,8 @@ export class LogicEngine {
       assert(!x.event_id.trim().startsWith('entity:') && !x.event_id.trim().startsWith('fact:'), 'INVALID_EVENT_ID', 'event_id cannot use the reserved entity: or fact: reference prefixes.');
     }
     if (x.expected_revision !== undefined) assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision must be non-negative.');
+
+    if (x.context_manifest_id !== undefined) assert(typeof x.context_manifest_id === 'string' && x.context_manifest_id.trim() && x.context_manifest_id.length <= 200, 'INVALID_CONTEXT_MANIFEST_ID', 'context_manifest_id must be a non-empty string of at most 200 characters.');
 
     const seconds = x.time_advance_seconds ?? 0;
     const skip = x.time_mode === 'explicit_skip';
