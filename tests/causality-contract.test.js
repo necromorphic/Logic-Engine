@@ -526,6 +526,35 @@ test('REQUIRES survives rollback when an independent event still satisfies the h
     idempotency_key: 'actor-source-to-rollback',
     effects: [{ kind: 'entity.upsert', entity_id: 'actor', entity_type: 'character', attributes: { stage: 'ready' } }],
   }));
-  engine.commitEvent('independent-world-fact',
-    command({ idempotency_key: 'placeholder' }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'independent-actor-source',
+    idempotency_key: 'independent-actor-source',
+    turn_id: 'independent-actor-source',
+    expected_revision: 1,
+    effects: [{ kind: 'entity.upsert', entity_id: 'actor', entity_type: 'character', attributes: { stage: 'ready' } }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'action-with-independent-precondition-support',
+    idempotency_key: 'action-with-independent-precondition-support',
+    turn_id: 'action-with-independent-precondition-support',
+    expected_revision: 2,
+    causal_links: [{
+      relation: 'REQUIRES',
+      predicate: { kind: 'entity_attribute', entity_id: 'actor', attribute: 'stage', value: 'ready' },
+    }],
+    effects: [{ kind: 'fact.set', fact_id: 'action-result', predicate: 'completed', value: true }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'actor-source-to-rollback',
+    idempotency_key: 'rollback-one-actor-source',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+  const state = engine.getState('causality-world');
+
+  assert.deepEqual(rollback.invalidated_event_ids, ['actor-source-to-rollback']);
+  assert.equal(events.get('independent-actor-source').validity, 'valid');
+  assert.equal(events.get('action-with-independent-precondition-support').validity, 'valid');
+  assert.equal(state.entities.find((entity) => entity.entity_id === 'actor').attributes.stage, 'ready');
+  assert.equal(state.facts.find((fact) => fact.fact_id === 'action-result').value, true);
 });
