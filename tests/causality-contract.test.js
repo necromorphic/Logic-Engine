@@ -558,3 +558,45 @@ test('REQUIRES survives rollback when an independent event still satisfies the h
   assert.equal(state.entities.find((entity) => entity.entity_id === 'actor').attributes.stage, 'ready');
   assert.equal(state.facts.find((fact) => fact.fact_id === 'action-result').value, true);
 });
+
+
+test('rolling back a later state change does not invalidate an earlier satisfied REQUIRES predicate', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'actor-ready',
+    idempotency_key: 'actor-ready',
+    effects: [{ kind: 'entity.upsert', entity_id: 'actor', entity_type: 'character', attributes: { stage: 'ready' } }],
+  }));
+  engine.commitEvent('action-when-ready',
+    command({
+      event_id: 'action-when-ready',
+      idempotency_key: 'action-when-ready',
+      turn_id: 'action-when-ready',
+      expected_revision: 1,
+      causal_links: [{
+        relation: 'REQUIRES',
+        predicate: { kind: 'entity_attribute', entity_id: 'actor', attribute: 'stage', value: 'ready' },
+      }],
+      effects: [{ kind: 'fact.set', fact_id: 'action-result', predicate: 'completed', value: true }],
+    }));
+  engine.commitEvent('actor-became-busy', command({
+    event_id: 'actor-became-busy',
+    idempotency_key: 'actor-became-busy',
+    turn_id: 'actor-became-busy',
+    expected_revision: 2,
+    effects: [{ kind: 'entity.upsert', entity_id: 'actor', entity_type: 'character', attributes: { stage: 'busy' } }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'actor-became-busy',
+    idempotency_key: 'rollback-later-state-change',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+
+  assert.deepEqual(rollback.invalidated_event_ids, ['actor-became-busy']);
+  assert.equal(events.get('action-when-ready').validity, 'valid');
+  assert.equal(engine.getState('causality-world').facts.find((fact) => fact.fact_id === 'action-result').value, true);
+  assert.equal(engine.getState('causality-world').entities.find((entity) => entity.entity_id === 'actor').attributes.stage, 'ready');
+});
