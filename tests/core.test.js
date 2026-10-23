@@ -337,7 +337,7 @@ test('proposal commit rolls back canonical event if proposal finalization fails'
     idempotency_key: 'proposal-atomicity',
     source_text: 'A harmless action.',
     event: { turn_id: 'turn-atomicity', event_type: 'action.completed', effects: [] },
-  });
+  }, 'unit-test-adapter');
   proposals.approve('w', proposal.proposal_id);
   h.store.db.exec(`CREATE TRIGGER fail_proposal_finalization BEFORE INSERT ON audit_entries
     WHEN NEW.action='proposal.committed'
