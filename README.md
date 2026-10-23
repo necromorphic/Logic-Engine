@@ -26,14 +26,35 @@
 
 ## Документы
 
-- docs/00-architecture-baseline.md — краткая карта архитектуры и границ ответственности.
-- docs/10-open-decisions.md — блокирующие и отложенные решения.
-- docs/17-world-agnostic-design-stage1.3.md — критерий универсальности и граница World Pack.
-- docs/18-rollback-and-causality.md — семантика отката, причинности и пересчёта зависимых состояний.
-- docs/19-reuse-audit-existing-projects.md — аудит уже существующих проектов и карта решений, которые стоит адаптировать.
-- docs/decisions/ADR-0006-rollback-semantics.md — предлагаемое решение об откате.
-- docs/decisions/ADR-0007-world-pack-boundary.md — предлагаемая граница общего ядра и профиля мира.
-- AI_REVIEW_BRIEF.md — задание для независимого аудита Gemini и DeepSeek.
+### Архитектурные контракты
+- `docs/00-architecture-baseline.md` — карта архитектуры и границы ответственности.
+- `docs/01-core-domain-model.md` — универсальные типы канонического состояния.
+- `docs/02-turn-event-delivery-lifecycle.md` — жизненные циклы Turn, WorldEvent и Delivery, идемпотентность и границы коммита.
+- `docs/03-storage-and-persistence-contract.md` — канонические данные, производные индексы, транзакции, изоляция и восстановление.
+- `docs/04-world-pack-format.md` — формат и правила декларативного World Pack.
+- `docs/05-causal-rollback-algorithm.md` — алгоритм построения RollbackPlan и тесты RB-001–RB-014.
+- `docs/06-npc-autonomy-and-process-manager.md` — автономные цели/планы/задачи и параллельные процессы.
+- `docs/07-knowledge-and-narrative-boundaries.md` — знания, приватность, повествование и подтверждение доставки.
+- `docs/08-stage1-acceptance-plan.md` — критерии завершения Stage 1, профили миров и матрица тестирования.
+- `docs/09-reuse-and-attribution-register.md` — реестр внешних проектов, лицензий и правил переноса кода.
+- `docs/10-open-decisions.md` — блокирующие и отложенные решения.
+- `docs/11-operations-and-recovery.md` — локальный runtime, безопасность, резервное копирование и восстановление.
+- `docs/17-world-agnostic-design-stage1.3.md` — критерий универсальности и граница World Pack.
+- `docs/18-rollback-and-causality.md` — требуемая семантика причинного отката.
+- `docs/19-reuse-audit-existing-projects.md` — анализ готовых проектов и карта адаптации.
+
+### Решения и схемы
+- `docs/decisions/ADR-0006-rollback-semantics.md` — предлагаемая семантика отката.
+- `docs/decisions/ADR-0007-world-pack-boundary.md` — предлагаемая граница ядра и World Pack.
+- `schemas/world-pack-manifest.schema.json` — начальная JSON Schema манифеста World Pack.
+- `schemas/declarative-rule.schema.json` — ограниченный формат условий и эффектов.
+- `schemas/rollback-plan.schema.json` — структурный контракт плана отката.
+
+### Примеры и независимое ревью
+- `examples/world-packs/biological-world.json` — тестовый профиль с биологическими сущностями.
+- `examples/world-packs/magic-world.json` — тестовый профиль с неизвестными магическими механиками.
+- `examples/world-packs/digital-world.json` — цифровой мир без обязательных биологических полей.
+- `AI_REVIEW_BRIEF.md` — задание для независимого архитектурного аудита Gemini и DeepSeek.
 
 ## Статус и порядок работы
 
