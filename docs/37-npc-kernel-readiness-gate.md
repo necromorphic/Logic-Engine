@@ -137,3 +137,16 @@ The proposed integration still does not provide the first NPC vertical slice's m
 ## 9. Non-authority statement
 
 This document does not amend the kernel contract, freeze its architecture, require a new knowledge/access-control subsystem, or authorize changes to runtime code, API, schemas, storage, event semantics, rollback, prompts, or SillyTavern. It exists to keep the NPC branch aligned with the evolving core.
+
+
+## 10. Author-directed outcomes do not override kernel safety
+
+The author-confirmed NPC decision record and acceptance matrix now distinguish three separate things:
+
+1. **Required story outcome** — an explicit author instruction that must not be silently cancelled merely because an NPC would ordinarily choose differently, provided it does not conflict with higher-priority constraints or player agency.
+2. **Prospective causal path** — plausible future circumstances/actions that may be proposed when existing circumstances do not yet justify the outcome. These remain prospective, not canonical history.
+3. **Committed world event** — an effect accepted through the core's existing validation, approval, and commit path.
+
+A missing rationale must remain visible; it must not be replaced by fabricated past evidence or used as a silent reason to discard the required outcome. If a credible path cannot yet be grounded, preserve the required target and mark the causal gap for review. None of this authorizes bypassing core validation or inventing player-controlled actions.
+
+This is an NPC semantic requirement, not a new kernel guarantee. It does not resolve the open core questions around actor-relative context, intent/effect mapping, causal completeness, or rollback ownership. See `docs/31-npc-subsystem-contract.md` section 10, `docs/34-npc-decision-context-and-proposal.md` section 10.6, and NPC-SEM-013–014 in `docs/32-npc-semantic-acceptance-matrix.md`.
