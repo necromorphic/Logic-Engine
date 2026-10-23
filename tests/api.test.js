@@ -54,6 +54,10 @@ test('health, auth, proposal approval, and canonical commit boundary', async (t)
   const proposal = (await created.json()).proposal;
   assert.equal(proposal.status, 'pending');
   assert.ok(proposal.proposal_id);
+  assert.equal(proposal.event.effects[0].entity_id, 'npc');
+  const fetchedProposal = await fetch(base + '/v1/worlds/api-world/proposals/' + proposal.proposal_id, { headers });
+  assert.equal(fetchedProposal.status, 200);
+  assert.equal((await fetchedProposal.json()).proposal.proposal_hash, proposal.proposal_hash);
   assert.equal((await (await fetch(base + '/v1/worlds/api-world/state', { headers })).json()).state.world_revision, 0);
 
   const duplicate = await fetch(base + '/v1/worlds/api-world/proposals', { method: 'POST', headers, body: json(proposalBody) });
