@@ -211,9 +211,10 @@ export class SQLiteStore {
       }
     }
     for (const ref of event.read_set) {
-      const separator = ref.indexOf(':');
-      if (separator < 1 || separator === ref.length - 1) {
-        throw new EngineError('INVALID_READ_SET_REFERENCE', 'read_set references must use a non-empty typed reference such as entity:id or fact:id.', 400, { reference: ref });
+      const isEntity = ref.startsWith('entity:') && ref.length > 'entity:'.length;
+      const isFact = ref.startsWith('fact:') && ref.length > 'fact:'.length;
+      if (!isEntity && !isFact) {
+        throw new EngineError('INVALID_READ_SET_REFERENCE', 'This runtime supports read_set references of the form entity:id or fact:id.', 400, { reference: ref });
       }
     }
   }
