@@ -1,6 +1,6 @@
 # Universal mechanics contracts and safe defaults
 
-Status: accepted implementation contract; immutable template/module registries are implemented, while world instances and execution remain future work. This document narrows the open points in `docs/25-universal-mechanics-system.md`; it does not add genre-specific behavior or a World Pack example.
+Status: accepted implementation contract. Immutable template/module registries and the world-scoped MechanicInstance lifecycle slice are implemented; mechanic execution, conflict evaluation/adjudication, template-defined parameter/state validation, and active-process lifecycle policy execution remain future work. This document narrows the open points in `docs/25-universal-mechanics-system.md`; it does not add genre-specific behavior or a World Pack example.
 
 ## 1. Contract artifacts
 
