@@ -37,7 +37,7 @@ Expected under the recommended reconstructed-history policy:
 Setup:
 1. At cursor 1, event S establishes `character:X.status = "alive"`.
 2. At cursor 2, event A changes X to `status = "destroyed"`.
-3. At cursor 3, event D also establishes `character:X.status = "destroyed"`. D declares no direct or transitive causal dependency on A, and remains valid when A is rolled back.
+3. At cursor 3, event D also establishes `character:X.status = "destroyed"`. D requires only `entity_exists(X)` established by S; it has no `READS_SOURCE(A)` edge and does not read a state/claim produced by A. Thus D has no direct or transitive dependency on A and remains valid when A is rolled back.
 4. At cursor 4, event B records that `character:X.status = "alive"` was false.
 5. Roll back A.
 
@@ -133,7 +133,7 @@ Setup:
 - Trusted manifest contains `F1, F2`.
 - Event declares `read_set = [F1, F6]`.
 
-Expected: basis status is `invalid_declared`; commit behavior (reject versus preserve as review-only) must be decided by the runtime/API contract before implementation.
+Expected: basis status is `invalid_declared`; the proposed API policy rejects the event commit with HTTP `400` before a committed event, successful idempotency result, or state-changing world-audit row is created. A corrected retry may reuse the key, subject to the final request-hash/idempotency contract. Operational rejection logging is separate.
 
 ## T-06R — empty read set with a bound manifest
 
@@ -161,6 +161,18 @@ Expected:
 - The system must not collapse `READS_SOURCE` and `READS_CLAIM` into one relationship.
 
 If B1 also has an independent valid basis sufficient for its outcome, that must be represented explicitly; the engine must not infer it from D's support for F.
+
+### T-07R-b — claim loses its remaining support through a separate rollback
+
+Setup:
+1. D is the only valid source for claim F.
+2. B2 commits with `READS_CLAIM(F)` and the claim is supported at B2's commit point.
+3. In a later, separate rollback operation, D is invalidated for a reason independent of B2.
+
+Expected:
+- Recompute F's support after rolling back D.
+- If F has no remaining valid source and no independent support satisfying the declared dependency, B2 becomes an invalidation candidate even though D was not the root of an earlier unrelated rollback.
+- Claim identity remains `F`; its support status changes. Do not confuse stable `claim_id` with current historical support.
 
 ## T-08 — operation outcome is distinct from event status
 
@@ -193,14 +205,35 @@ Setup: submit a causal relationship with type `MAINTAINS` to a Stage 1 endpoint 
 
 Expected: the executable causal contract rejects the unsupported relationship (or rejects the entire event transaction); it must not commit it as an enforced invariant. If an authoring tool preserves the proposal for review, that record must be explicitly non-executable and outside the committed causal graph.
 
+## T-11 — unresolved dependency blocks a derived partial update
+
+**Purpose:** ensure a rollback does not commit a derived event/projection update when an unresolved event can still change the dependency evaluation, even if another branch has already been classified.
+
+Setup:
+1. A creates entity X at cursor 1.
+2. B at cursor 2 produces claim F from X and is invalidated when A is rolled back.
+3. D at cursor 3 is an unresolved source for the same claim F (for example, its source/manifest binding cannot be evaluated). D's status cannot yet be classified.
+4. C at cursor 4 declares `READS_CLAIM(F)` and its result depends on the recomputed support for F, not on a direct `READS_SOURCE(B)` edge alone.
+5. Roll back A.
+
+Expected:
+- B is classified `invalidated`.
+- D retains its prior status because its classification is unresolved.
+- F's support projection remains unresolved because D may or may not be a valid source after reconstruction.
+- C retains its prior status and no derived projection change for C is committed while F's support cannot be resolved.
+- The operation may return `partially_resolved` only if the B classification can be committed without exposing an inconsistent F/C projection; otherwise it returns `requires_review` with no semantic state changes.
+- Audit/revision behavior follows the atomicity rule in `docs/22-causality-semantics.md` §5.
+
+This case is intentionally conservative: a direct dependency that independently and conclusively invalidates C may be classified without waiting for D, but a derived claim read whose validity depends on unresolved support must not be guessed.
+
 ## Promotion checklist
 
 Before turning a scenario into a normative executable test:
 - [ ] Define the event and context-generation cursor fields in the API.
-- [ ] Define whether invalid manifest/read declarations reject commit or are stored as review-only metadata.
+- [ ] Confirm the proposed invalid manifest/read policy and define rejected-request audit/idempotency behavior, including corrected retries with the same key.
 - [ ] Define predicate evaluation and three-valued unknown handling.
 - [ ] Define projection recomputation and how multiple independent sources are represented.
-- [ ] Define whether rollback can leave an operation partially resolved without partially committing its state changes.
-- [ ] Define transactional atomicity for event status, projections, audit rows, and world revision.
+- [ ] Define whether rollback can leave an operation partially resolved without partially committing its state changes; include T-11's transitive unresolved-dependency case.
+- [ ] Define transactional atomicity for event status, projections, audit rows, and world revision, including transitive unresolved dependencies and no-op `requires_review` outcomes.
 - [ ] Formalize character-card/management invariants before implementation: cards cannot become a duplicate writable source of canonical truth; management exposes validated engine operations rather than direct storage updates.
 - [ ] Verify compatibility/migration for existing string-based metadata.
