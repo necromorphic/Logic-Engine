@@ -49,7 +49,6 @@ These are proposed semantic labels, not current runtime output fields.
 | `REQUIRES` | Event B was committed on the precondition that P held at B's commit point | Invalidate B only when recomputation establishes that the required precondition did not hold at that point |
 | `READS_SOURCE` | B used a particular source event | Rolling back that source makes B a candidate for invalidation |
 | `READS_CLAIM` | B used a claim supported by one or more sources | Invalidate B only if the claim no longer satisfies the dependency after recomputation |
-
 | `EVIDENCE_FOR` | A source supports a claim | Recompute claim support after source changes |
 | `CONFLICTS_WITH` | Two claims or sources are incompatible under a defined predicate | Recompute the claim's conflict/dispute state |
 | `MAINTAINS` | B requires P to remain true throughout an interval | Deferred; not supported by the Stage 1 runtime contract |
