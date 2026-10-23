@@ -45,7 +45,7 @@ test('mechanics schemas are valid JSON and local schema references resolve', () 
       assert.ok(targetSchema, path + ' references an unavailable schema file: ' + file);
       let target = targetSchema;
       if (pointer) {
-        for (const segment of pointer.slice(2).split('/')) target = target?.[segment.replace(/~1/g, '/').replace(/~0/g, '~')];
+        for (const segment of pointer.slice(1).split('/')) target = target?.[segment.replace(/~1/g, '/').replace(/~0/g, '~')];
       }
       assert.notEqual(target, undefined, path + ' has unresolved reference ' + ref);
     }
