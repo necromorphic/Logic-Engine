@@ -1,0 +1,82 @@
+{
+  "world_pack_id": "fixture.digital-world",
+  "version": "0.1.0",
+  "schema_version": "core-1",
+  "display_name": "Distributed Digital World Fixture",
+  "description": "Test profile with nodes, services and messages; no biological fields are required.",
+  "capabilities": ["entities", "relations", "processes", "knowledge", "permissions"],
+  "entity_types": [
+    {
+      "type_id": "service_node",
+      "attributes_schema": {
+        "type": "object",
+        "properties": {
+          "availability": {"type": "string", "enum": ["online", "degraded", "offline"]},
+          "permission_set": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["availability", "permission_set"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "type_id": "message",
+      "attributes_schema": {
+        "type": "object",
+        "properties": {
+          "payload_ref": {"type": "string"},
+          "integrity": {"type": "string", "enum": ["verified", "unknown", "invalid"]}
+        },
+        "required": ["integrity"],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "relation_types": [
+    {
+      "type_id": "can_access",
+      "attributes_schema": {
+        "type": "object",
+        "properties": {"scope": {"type": "string"}},
+        "additionalProperties": false
+      }
+    }
+  ],
+  "action_types": [
+    {
+      "action_id": "transmit_message",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "message_ref": {"type": "string"},
+          "destination_ref": {"type": "string"}
+        },
+        "required": ["message_ref", "destination_ref"],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        {"op": "ref_exists", "ref": "input.message_ref"},
+        {"op": "ref_exists", "ref": "input.destination_ref"}
+      ],
+      "effects": [
+        {
+          "effect_id": "request_transmission",
+          "kind": "emit_event",
+          "target_ref": "input.destination_ref",
+          "payload": {"event_type": "transmission_requested"}
+        }
+      ],
+      "ambiguity_policy": "model_proposal_then_validate",
+      "rollback_policy": "recompute"
+    }
+  ],
+  "process_types": [],
+  "knowledge_channels": [
+    {
+      "channel_id": "verified_message",
+      "source_kind": "message",
+      "validation_policy": "require_document"
+    }
+  ],
+  "unknown_mechanics_policy": "needs_review",
+  "conformance_tests": ["CORE-001", "CORE-002", "KNOW-002", "RB-014"]
+}
