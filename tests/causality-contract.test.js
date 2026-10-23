@@ -20,6 +20,7 @@ function command(overrides = {}) {
     idempotency_key: 'key',
     turn_id: 'turn',
     event_type: 'action.completed',
+    expected_revision: 0,
     effects: [],
     caused_by: [],
     depends_on: [],
