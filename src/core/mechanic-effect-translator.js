@@ -72,7 +72,7 @@ function cloneJson(value, label, active = new Set()) {
     object(value, label);
     result = {};
     for (const [key, item] of Object.entries(value)) {
-      result[key] = cloneJson(item, label + '.' + key, active);
+      Object.defineProperty(result, key, { value: cloneJson(item, label + '.' + key, active), enumerable: true, writable: true, configurable: true });
     }
   }
   active.delete(value);
