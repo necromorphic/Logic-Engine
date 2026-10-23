@@ -55,7 +55,7 @@ These are proposed semantic labels, not current runtime output fields.
 
 `READS_CLAIM` must reference a canonical `claim_id` present in the claim projection and supported by at least one valid source at the relevant historical evaluation point. Arbitrary labels or an unresolvable claim reference are invalid relationship data, not a claim dependency. Claim identity, source-event identity, and whether that claim is supported at a particular historical cursor are separate concepts; a later rollback can change support without changing the claim's identity.
 
-These names are a design vocabulary, not all accepted API values. The current runtime supports only `CAUSES`, `READS_SOURCE`, `READS_ENTITY`, and `READS_CLAIM` as additive `causal_links[]` entries. `REQUIRES`, `PRODUCES`, `OBSERVES`, `EVIDENCE_FOR`, `CONFLICTS_WITH`, and `MAINTAINS` remain unsupported by the executable typed-link contract. Stage 1 must reject unknown relationships rather than silently interpret them as supported.
+These names are a design vocabulary, not all accepted API values. The current runtime supports only `READS_SOURCE`, `READS_ENTITY`, and `READS_CLAIM` as additive `causal_links[]` entries. Direct event causation remains in the legacy `caused_by[]` field; the typed `CAUSES` graph edge is not yet part of this additive link shape. `REQUIRES`, `PRODUCES`, `OBSERVES`, `EVIDENCE_FOR`, `CONFLICTS_WITH`, and `MAINTAINS` remain unsupported by the executable typed-link contract. Stage 1 must reject unknown relationships rather than silently interpret them as supported.
 
 ### 3.1 Commit-time preconditions versus invariants
 
