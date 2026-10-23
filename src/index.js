@@ -8,12 +8,12 @@ const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
 const approvalToken = process.env.ENGINE_APPROVAL_TOKEN || null;
 if (!token || token.length < 16) {
-  process.stderr.write('ENGINE_API_TOKEN must be set and at least 16 characters long.\\n');
+  process.stderr.write('ENGINE_API_TOKEN must be set and at least 16 characters long.\n');
   process.exit(1);
 }
 for (const [name, value] of [['ENGINE_INTERNAL_TOKEN', internalToken], ['ENGINE_APPROVAL_TOKEN', approvalToken]]) {
   if (value !== null && value.length < 16) {
-    process.stderr.write(name + ' must be at least 16 characters long when set.\\n');
+    process.stderr.write(name + ' must be at least 16 characters long when set.\n');
     process.exit(1);
   }
 }
@@ -29,9 +29,9 @@ if (!['127.0.0.1', '::1', 'localhost'].includes(host) && process.env.ENGINE_ALLO
 const store = new SQLiteStore(dbPath);
 const server = createApiServer({ engine: new LogicEngine(store), token, internalToken, approvalToken });
 server.listen(port, host, () => process.stdout.write(
-  'Logic-Engine API listening on http://' + host + ':' + port + '\\nDatabase: ' + dbPath +
-  '\\nDirect commit: ' + (internalToken ? 'enabled for internal credential' : 'disabled') +
-  '\\nProposal approval: ' + (approvalToken ? 'enabled' : 'disabled') + '\\n',
+  'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +
+  '\nDirect commit: ' + (internalToken ? 'enabled for internal credential' : 'disabled') +
+  '\nProposal approval: ' + (approvalToken ? 'enabled' : 'disabled') + '\n',
 ));
 function stop() { server.close(() => { store.close(); process.exit(0); }); }
 process.on('SIGINT', stop);
