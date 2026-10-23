@@ -24,6 +24,8 @@ for (const [name, value] of [['ENGINE_INTERNAL_TOKEN', internalToken], ['ENGINE_
 if (internalToken && internalToken === token) throw new Error('ENGINE_INTERNAL_TOKEN must differ from ENGINE_API_TOKEN.');
 if (approvalToken && (approvalToken === token || approvalToken === internalToken || approvalToken === adminToken)) throw new Error('ENGINE_APPROVAL_TOKEN must differ from other configured tokens.');
 if (adminToken && [token, internalToken, approvalToken].includes(adminToken)) throw new Error('ENGINE_ADMIN_TOKEN must differ from other configured tokens.');
+const configuredAdapterSecrets = Object.values(adapterTokens);
+if (new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) throw new Error('ENGINE_ADAPTER_TOKENS secrets must be unique per adapter.');
 for (const [id, secret] of Object.entries(adapterTokens)) {
   if (!id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) throw new Error('Each ENGINE_ADAPTER_TOKENS entry must have a non-empty ID and a distinct secret of at least 16 characters.');
 }
