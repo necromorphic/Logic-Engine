@@ -88,3 +88,30 @@ Do not implement these until an authoritative NPC state model and causal ownersh
 **Go** for test authoring only when the relevant production boundary exists and can be called by the test. **No-go** for NPC runtime persistence, scheduler, autonomous background execution, new API, or SQLite changes until the semantic contract, context authorization, action mapping, and causal/rollback requirements are independently reviewed.
 
 This document does not claim any test has passed. It records which existing core guarantees can be reused and exactly what remains unproven for the NPC subsystem.
+
+
+## 7. Additional author-decision coverage map
+
+The following rows map NPC-SEM-013–020 from `docs/32-npc-semantic-acceptance-matrix.md` to the required production boundary. They are not executable-test claims. Implement a test only when it can invoke the real boundary and assert the relevant result; do not replace a missing subsystem with a mock that merely repeats the intended rule.
+
+| Scenario | Existing adjacent support | Missing production boundary / acceptance assertion | Status |
+|---|---|---|---|
+| NPC-SEM-013 — Author-mandated outcome | Existing proposal lifecycle can stage a proposed world change; it does not establish author-priority semantics | Test that an explicit author target is retained despite ordinary NPC refusal, while higher-priority constraints and player agency still hold; unprescribed intermediate actions remain open | Blocked: author-intent arbitration is not verified in runtime |
+| NPC-SEM-014 — Future causal preparation | Core event/proposal path can represent supported proposed changes; it does not prove a causal planner exists | Verify proposed future causes are prospective and non-canonical until approved/committed; reject fabricated prior history and preserve an explicit unresolved rationale when no route exists | Blocked: causal-planning boundary not verified |
+| NPC-SEM-015 — Author-reserved secret | Existing manifests can reference world items; references are not disclosure guards | Verify reserved secret is withheld before model input and cannot be autonomously disclosed; ordinary unrelated NPC actions remain possible | Blocked: author-secret policy/context guard not verified |
+| NPC-SEM-016 — Coexisting relationship dimensions | No verified persistent multi-dimensional NPC relationship model in the inspected path | Assert attraction and rivalry/reluctant alliance can coexist, and one actor's attraction does not create reciprocal attraction or consent | Blocked: relationship state and history boundary not verified |
+| NPC-SEM-017 — Proportionate relationship change | Existing event causality may record a world occurrence but not actor-specific relationship interpretation | Test separate dimension changes grounded in event importance, prior history, and character-specific response; do not require every NPC to react identically | Blocked: relationship evaluation/persistence not verified |
+| NPC-SEM-018 — Off-screen event and player awareness | Canonical event commit can establish an occurrence | Assert event occurrence does not grant player awareness; a later visible consequence or delivered communication may surface it through an authorized channel | Partially adjacent only: awareness/channel contract missing |
+| NPC-SEM-019 — Report lifecycle | Generic events/proposals are not a verified report-delivery service | Distinguish pending, sent, received, understood, and player-aware states; each transition needs trusted evidence, and absent primitives must fail closed | Blocked: delivery/receipt ownership not verified |
+| NPC-SEM-020 — Acquisition memory versus current belief | Canonical truth and manifest references exist, but actor-specific acquisition/belief persistence is not verified | Assert acquisition history can persist while belief changes, and omitted context does not imply never-acquired information | Blocked: actor-relative memory/belief representation not verified |
+
+## 8. Test-authoring gate after the author-decision update
+
+Before writing end-to-end tests for these scenarios, record for each test:
+1. The exact production function or API boundary being called.
+2. Which inputs are trusted and how the actor identity is bound to the in-world NPC.
+3. The observable canonical state, proposal/event/revision data, actor-relative knowledge or relationship state, and player-awareness state expected before and after.
+4. Which assertion is an existing kernel guarantee versus a future NPC requirement.
+5. Whether the scenario is still blocked because the required production boundary is absent.
+
+The additional acceptance scenarios do not authorize a new event store, knowledge store, scheduler, revision counter, causal graph, rollback engine, or access-control subsystem. Resolve semantics and ownership first; then implement tests against the agreed boundary, followed by API/storage work only if separately approved. No tests were run as part of this documentation update.
