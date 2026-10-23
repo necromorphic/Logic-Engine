@@ -239,7 +239,26 @@ export class SQLiteStore {
   close() { this.db.close(); }
 
   tx(fn) {
+    if (this.txDepth > 0) {
+      const savepoint = 'logic_engine_nested_' + this.txDepth;
+      this.db.exec('SAVEPOINT ' + savepoint);
+      this.txDepth += 1;
+      try {
+        const result = fn();
+        this.db.exec('RELEASE SAVEPOINT ' + savepoint);
+        return result;
+      } catch (error) {
+        try {
+          this.db.exec('ROLLBACK TO SAVEPOINT ' + savepoint);
+          this.db.exec('RELEASE SAVEPOINT ' + savepoint);
+        } catch {}
+        throw error;
+      } finally {
+        this.txDepth -= 1;
+      }
+    }
     this.db.exec('BEGIN IMMEDIATE');
+    this.txDepth = 1;
     try {
       const result = fn();
       this.db.exec('COMMIT');
@@ -247,6 +266,8 @@ export class SQLiteStore {
     } catch (error) {
       try { this.db.exec('ROLLBACK'); } catch {}
       throw error;
+    } finally {
+      this.txDepth = 0;
     }
   }
 
