@@ -30,6 +30,7 @@ const applyEntityEffects = (entities, effects) => {
 };
 
 const predicateResult = (entities, predicate, facts = new Map()) => {
+  if (predicate.kind === 'fact_absent') return facts.has(predicate.fact_id) ? 'false' : 'true';
   if (predicate.kind === 'fact_value') {
     const fact = facts.get(predicate.fact_id);
     if (!fact) return 'false';
@@ -39,6 +40,7 @@ const predicateResult = (entities, predicate, facts = new Map()) => {
   }
   const entity = entities.get(predicate.entity_id);
   if (predicate.kind === 'entity_exists') return entity ? 'true' : 'false';
+  if (predicate.kind === 'entity_absent') return !entity || entity.status === 'destroyed' ? 'true' : 'false';
   if (predicate.kind === 'entity_attribute') {
     if (!entity) return 'false';
     const actual = predicate.attribute === 'status' ? entity.status : entity.attributes[predicate.attribute];
@@ -383,7 +385,7 @@ export class SQLiteStore {
       if (link.relation === 'READS_ENTITY') declared.add('entity:' + link.target_id);
       if (link.relation === 'READS_CLAIM') declared.add('fact:' + link.target_id);
       if (link.relation === 'REQUIRES') {
-        if (link.predicate.kind === 'fact_value') declared.add('fact:' + link.predicate.fact_id);
+        if (link.predicate.kind === 'fact_value' || link.predicate.kind === 'fact_absent') declared.add('fact:' + link.predicate.fact_id);
         else declared.add('entity:' + link.predicate.entity_id);
       }
     }
