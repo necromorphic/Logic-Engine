@@ -115,3 +115,21 @@ Before writing end-to-end tests for these scenarios, record for each test:
 5. Whether the scenario is still blocked because the required production boundary is absent.
 
 The additional acceptance scenarios do not authorize a new event store, knowledge store, scheduler, revision counter, causal graph, rollback engine, or access-control subsystem. Resolve semantics and ownership first; then implement tests against the agreed boundary, followed by API/storage work only if separately approved. No tests were run as part of this documentation update.
+
+
+## 9. Social identity editor test-boundary map
+
+See `docs/40-npc-social-identities-editor-contract.md` for the full optional editor proposal. The following scenarios are requirements only; current editor/runtime support has not been verified.
+
+| Scenario | Existing adjacent support | Missing production boundary / acceptance assertion | Status |
+|---|---|---|---|
+| NPC-SEM-021 — Optional additional identities | `docs/23-character-and-control-architecture.md` describes a provisional character identity/profile view; no social-identity editor implementation verified | Verify zero-or-many identities link to one underlying entity without duplicate writable profile state or extra NPC creation | Blocked: editor/profile model not verified |
+| NPC-SEM-022 — Claimed data versus canon | Core distinguishes authored/profile concepts from canonical state at architecture level | Verify claims do not create canonical facts/relations and absent fields remain unknown | Blocked: social identity representation and validation boundary absent |
+| NPC-SEM-023 — Inherited appearance/disguise | No verified social identity inheritance/projection path | Verify unspecified fields inherit and disguise changes presentation, not actual stable properties | Blocked: editor/projection behavior absent |
+| NPC-SEM-024 — Document declaration versus world record | Core has canonical event/entity mechanisms, but profile text is not a document-issuance operation | Verify editor references/declarations do not create canonical documents; real issuance goes through an approved core operation | Blocked: document/profile reference contract not verified |
+| NPC-SEM-025 — No automatic disclosure | Existing context-manifest mechanism records references, not actor-relative access | Verify identity/private notes are withheld before model input unless permitted and that editor creation does not grant awareness | Blocked: trusted actor-relative context boundary missing |
+| NPC-SEM-026 — Risk without automatic exposure | Core event path can represent committed world events, but no verified cover-investigation logic | Verify consequences require observer-accessible evidence and applicable World Pack procedure; no automatic reveal | Blocked: observer knowledge and investigation semantics absent |
+| NPC-SEM-027 — Impersonated entity remains distinct | Canonical entities have identities, but no verified social identity-to-entity link contract | Verify aliases/claims do not merge entities or create relatives; explicit references are required | Blocked: social identity relation semantics absent |
+| NPC-SEM-028 — Consequences use core path | Existing canonical event/proposal path can stage and commit supported effects | Verify consequential exposure/document/world changes use existing validated core path, not editor metadata or local state | Partially adjacent: exact effect mapping and editor integration unverified |
+
+Do not create end-to-end tests against a fabricated editor, access filter, document service, or social-identity runtime. First identify the real profile/editor boundary and canonical references. No new event/knowledge store, revision counter, access-control subsystem, or rollback mechanism is authorized.
