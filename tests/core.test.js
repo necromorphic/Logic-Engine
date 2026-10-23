@@ -5,7 +5,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
-import { LogicEngine } from '../src/application/engine.js';\nimport { ProposalService } from '../src/application/proposals.js';
+import { LogicEngine } from '../src/application/engine.js';
+import { ProposalService } from '../src/application/proposals.js';
 import { evaluateCondition } from '../src/core/rules.js';
 
 function setup() {
