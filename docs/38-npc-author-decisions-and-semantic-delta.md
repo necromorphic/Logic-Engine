@@ -178,3 +178,10 @@ The following documentation-only alignment was made on `feat/npc-subsystem`:
 The key semantic distinction is now explicit across the contract and first-slice design: **a required story outcome is not the same as an already-justified action or a committed world event**. The target remains mandatory within higher-priority constraints; unsupported causal steps remain prospective or under review; only the existing core path can commit world effects.
 
 This is a source/document consistency pass, not a full independent review by DeepSeek and not an execution of tests. The first-slice blockers remain: trusted actor-relative context preparation, authoritative acquisition/belief source, exact input/snapshot binding, supported action mapping, and real tests at those boundaries. No runtime, API, schema, storage, vectorization, prompt, or SillyTavern changes were made.
+
+
+## 7. Core knowledge contract proposal — 2026-10-24
+
+`docs/39-npc-core-knowledge-contract-proposal.md` records the next design step after the core owner's ownership decision. It proposes a minimum semantic boundary for acquisition/provenance, mutable beliefs, delivery evidence, actor-specific context retrieval, and source invalidation/rollback reconciliation.
+
+The proposal does not declare an existing knowledge API, settle belief-state ownership, choose storage, or authorize runtime changes. Those are explicitly listed as decisions for the core owner before implementation. Until then, acquisition persistence, belief updates, delivery confirmation, and end-to-end integration remain deferred. The core ownership decision is treated as settled; the exact executable contract remains open.
