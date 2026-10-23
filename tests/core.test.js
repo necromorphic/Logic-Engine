@@ -63,6 +63,10 @@ test('causal references must resolve to valid prior events in the same world', (
     () => h.engine.commitEvent('w', cmd({ idempotency_key: 'bad-dependency', depends_on: ['missing-event'] })),
     (error) => error.code === 'INVALID_CAUSAL_REFERENCE',
   );
+  assert.throws(
+    () => h.engine.commitEvent('w', cmd({ idempotency_key: 'bad-read-set', read_set: ['untyped-reference'] })),
+    (error) => error.code === 'INVALID_READ_SET_REFERENCE',
+  );
 
   h.engine.createWorld({ world_id: 'other-world', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2005-12-29T10:00:00Z' });
   const foreign = h.engine.commitEvent('other-world', cmd({ event_id: 'foreign-event', idempotency_key: 'foreign-key' }));
