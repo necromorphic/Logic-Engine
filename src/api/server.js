@@ -83,6 +83,14 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           return send(res, 200, { proposal: proposals.approve(worldId, proposalId) });
         }
         if (operation === 'commit') return send(res, 200, { ...proposals.commit(worldId, proposalId) });
+        if (operation === 'cancel') {
+          const body = await readBody(req);
+          const allowed = ['reason'];
+          if (Object.keys(body).some((key) => !allowed.includes(key))) throw new EngineError('UNSUPPORTED_CANCELLATION_FIELD', 'Cancellation accepts only an optional reason.');
+          const reason = body.reason ?? 'adapter_cancelled';
+          if (typeof reason !== 'string' || !reason.trim() || reason.length > 200) throw new EngineError('INVALID_CANCELLATION_REASON', 'reason must be a non-empty string of at most 200 characters.');
+          return send(res, 200, { proposal: proposals.cancel(worldId, proposalId, reason.trim()) });
+        }
       }
 
       if (req.method === 'POST' && action === 'context-manifests') return send(res, 201, { context_manifest: engine.registerContextManifest(worldId, await readBody(req)) });
