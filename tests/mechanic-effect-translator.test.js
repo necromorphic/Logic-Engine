@@ -60,6 +60,23 @@ test('assert_fact maps fact identity, predicate, JSON value, and optional subjec
   assert.doesNotThrow(() => validateEffects(result));
 });
 
+
+test('fact identity strings are validated but preserved exactly by translation', () => {
+  const result = translateMechanicEffectIntents([intent({
+    kind: 'assert_fact',
+    target_ref: ' fact.example ',
+    payload: { predicate: ' is_known ', value: true, subject_ref: ' entity.example ' },
+  })]);
+  assert.deepEqual(result, [{
+    kind: 'fact.set',
+    fact_id: ' fact.example ',
+    predicate: ' is_known ',
+    value: true,
+    subject_ref: ' entity.example ',
+  }]);
+  assert.doesNotThrow(() => validateEffects(result));
+});
+
 test('all other declared mechanic intent kinds are rejected explicitly', () => {
   const unsupported = [
     'create_relation', 'retract_relation', 'retract_fact', 'propose_knowledge',
