@@ -83,8 +83,8 @@ This list is a candidate boundary, not a commitment to build an admin UI now.
 
 - Management tools must not directly mutate canonical storage or bypass validation.
 - Manual correction should be represented as an explicit, attributed, auditable engine operation.
-- A character-card view must not introduce a writable canonical field that has no corresponding authoritative engine record or validated operation.
-- The management API must not expose a direct storage `UPDATE` path; state changes go through validated, attributed engine operations.
+- **Card-view invariant:** a character-card view must not expose a writable canonical field unless that field maps to an authoritative engine record and a validated operation; view-only/derived fields are read-only.
+- **Management-write invariant:** the management API must not expose a direct storage `UPDATE` path; all canonical state changes go through validated, attributed engine operations. These are design invariants to turn into API/architecture tests before implementing the character or management subsystems.
 - Read-only inspection should be distinguishable from state-changing operations.
 - Authorization roles and multi-user security requirements are not yet specified and must be decided before exposing remote management operations.
 
