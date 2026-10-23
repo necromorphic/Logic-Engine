@@ -304,3 +304,42 @@ test('unsupported typed causal relationships are rejected before consuming the i
   assert.equal(accepted.event_id, 'corrected-event');
   assert.equal(engine.getState('causality-world').world_revision, 1);
 });
+
+
+test('typed READS_CLAIM reader survives rollback while another valid source still supports the claim', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'claim-source-a',
+    idempotency_key: 'claim-source-a',
+    effects: [{ kind: 'fact.set', fact_id: 'door-state', predicate: 'open', value: true }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'claim-source-b',
+    idempotency_key: 'claim-source-b',
+    turn_id: 'claim-source-b',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'door-state', predicate: 'open', value: true }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'claim-reader-independent-support',
+    idempotency_key: 'claim-reader-independent-support',
+    turn_id: 'claim-reader-independent-support',
+    expected_revision: 2,
+    causal_links: [{ relation: 'READS_CLAIM', target_id: 'door-state' }],
+    effects: [{ kind: 'fact.set', fact_id: 'door-report', predicate: 'reported', value: true }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'claim-source-a',
+    idempotency_key: 'rollback-one-claim-source',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+  const fact = engine.getState('causality-world').facts.find((item) => item.fact_id === 'door-state');
+
+  assert.equal(events.get('claim-reader-independent-support').validity, 'valid');
+  assert.deepEqual(new Set(rollback.invalidated_event_ids), new Set(['claim-source-a']));
+  assert.deepEqual(fact.source_event_ids, ['claim-source-b']);
+  assert.equal(fact.status, 'active');
+});
