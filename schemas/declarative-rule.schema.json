@@ -60,7 +60,10 @@
         },
         {
           "if": {"properties": {"op": {"const": "exists"}}, "required": ["op"]},
-          "then": {"required": ["path"]}
+          "then": {
+            "required": ["path"],
+            "properties": {"value": {"type": "boolean"}}
+          }
         }
       ]
     },
