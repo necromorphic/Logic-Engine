@@ -37,8 +37,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (adminToken !== null && (typeof adminToken !== 'string' || adminToken.length < 16 || [token, internalToken, approvalToken].includes(adminToken))) {
     throw new TypeError('Admin token must be at least 16 characters and differ from other tokens');
   }
-  if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret))) {
-    throw new TypeError('Adapter tokens must map non-empty adapter IDs to distinct secrets of at least 16 characters');
+  const configuredAdapterSecrets = Object.values(adapterTokens || {});
+  if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) || new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) {
+    throw new TypeError('Adapter tokens must map non-empty adapter IDs to unique, distinct secrets of at least 16 characters');
   }
   const adapterIdFor = (req) => {
     const id = req.headers['x-adapter-id'];
