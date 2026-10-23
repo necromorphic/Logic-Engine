@@ -81,16 +81,17 @@ Note: C's own entity reference must satisfy the commit-time precondition rule. A
 ### T-04R-1b — independent source survives invalidation of C
 
 Setup:
-1. A creates entity X.
-2. C requires `entity_exists(X)` and produces `X.status = "destroyed"`.
-3. Independent event D also establishes `X.status = "destroyed"` with a causal basis that does not depend directly or transitively on A or C.
-4. B requires `X.status = "destroyed"` at B's commit point.
-5. Roll back A.
+1. S creates entity X.
+2. A establishes `X.status = "active"`.
+3. C commits with `REQUIRES(X.status = "active")` and changes the status to `destroyed`.
+4. D independently establishes `X.status = "destroyed"`; D requires only `entity_exists(X)` from S and declares no dependency on A or C.
+5. B requires `X.status = "destroyed"` at B's commit point.
+6. Roll back A.
 
 Expected:
-- C is invalidated and its produced claim is removed.
-- D remains valid and continues to support `X.status = "destroyed"` at B's commit point.
-- B remains valid, assuming D's claim satisfies the exact required predicate under the defined conflict-resolution rules.
+- C is invalidated because its required `active` predicate loses its only support; its produced claim is removed.
+- D remains valid because X's existence is independently supported by S and D does not depend on A or C.
+- B remains valid if D still supports the exact required predicate at B's commit point.
 - The projection retains D as a source; it is not deleted merely because C was invalidated.
 
 ## T-04R-3 — independent source preserves a required predicate
