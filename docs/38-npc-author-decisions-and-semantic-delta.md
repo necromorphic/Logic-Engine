@@ -168,7 +168,7 @@ No tests were run as part of this consolidation. This document is a requirements
 
 The following documentation-only alignment was made on `feat/npc-subsystem`:
 
-- `docs/31-npc-subsystem-contract.md`: expanded relationship dimensions and updated the uncertainty/author-control rules so an explicit compatible author-mandated outcome is preserved, while causal gaps remain explicit and future causes remain prospective until committed.
+- `docs/31-npc-subsystem-contract.md`: expanded relationship dimensions, codified the pre-model-input protection for author-reserved secrets, and updated uncertainty/author-control rules so an explicit compatible author-mandated outcome is preserved while causal gaps remain explicit and future causes remain prospective until committed.
 - `docs/32-npc-semantic-acceptance-matrix.md`: added NPC-SEM-013–020 covering those author decisions and their blocked runtime status.
 - `docs/34-npc-decision-context-and-proposal.md`: clarified that fail-closed execution does not silently erase a mandatory author target; it may return `needs_review` while preserving the target and missing rationale. Added the explicit distinction between required outcome, prospective causal path, and committed event.
 - `docs/35-npc-test-boundary-map.md`: mapped NPC-SEM-013–020 to the production boundaries and required test evidence.
