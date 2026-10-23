@@ -8,12 +8,15 @@ import { createApiServer } from '../src/api/server.js';
 const TOKEN = 'test-token-long-enough-123456';
 const INTERNAL = 'internal-token-long-enough-123456';
 const APPROVAL = 'approval-token-long-enough-123456';
-const headers = { authorization: 'Bearer ' + TOKEN, 'content-type': 'application/json' };
+const ADMIN = 'admin-token-long-enough-123456';
+const ADAPTER_A = 'adapter-a-token-long-enough-123456';
+const ADAPTER_B = 'adapter-b-token-long-enough-123456';
+const headers = { authorization: 'Bearer ' + TOKEN, 'content-type': 'application/json', 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER_A };
 const json = (body) => JSON.stringify(body);
 
 async function setup(t, options = {}) {
   const store = new SQLiteStore(':memory:');
-  const server = createApiServer({ engine: new LogicEngine(store), token: TOKEN, ...options });
+  const server = createApiServer({ engine: new LogicEngine(store), token: TOKEN, adapterTokens: { 'adapter-a': ADAPTER_A, 'adapter-b': ADAPTER_B }, ...options });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => { server.close(); store.close(); });
@@ -27,7 +30,7 @@ async function createWorld(base, worldId, extraHeaders = headers) {
 }
 
 test('health, auth, proposal approval, and canonical commit boundary', async (t) => {
-  const base = await setup(t, { approvalToken: APPROVAL });
+  const base = await setup(t, { approvalToken: APPROVAL, internalToken: INTERNAL });
   assert.equal((await fetch(base + '/health')).status, 200);
   assert.equal((await fetch(base + '/v1/worlds')).status, 401);
   assert.equal((await createWorld(base, 'api-world')).status, 201);
@@ -40,6 +43,9 @@ test('health, auth, proposal approval, and canonical commit boundary', async (t)
   });
   assert.equal(direct.status, 403);
   assert.equal((await direct.json()).error.code, 'DIRECT_COMMIT_DISABLED');
+  const directWithInternal = await fetch(base + '/v1/worlds/api-world/events', { method: 'POST', headers: { ...headers, 'x-engine-internal-token': INTERNAL }, body: json({ idempotency_key: 'raw-direct', turn_id: 'raw', event_type: 'action.completed', effects: [] }) });
+  assert.equal(directWithInternal.status, 400);
+  assert.equal((await directWithInternal.json()).error.code, 'PROPOSAL_REQUIRED');
 
   const proposalBody = {
     idempotency_key: 'proposal-key-1',
@@ -53,7 +59,8 @@ test('health, auth, proposal approval, and canonical commit boundary', async (t)
   assert.equal(created.status, 201);
   const proposal = (await created.json()).proposal;
   assert.equal(proposal.status, 'pending');
-  assert.equal(proposal.validation_result.status, 'passed');
+  assert.equal(proposal.validation_result.status, 'needs_review');
+  assert.equal(proposal.validation_result.requires_manual_semantic_review, true);
   assert.ok(proposal.validation_result.not_checked.includes('semantic_alignment_with_source_text'));
   assert.ok(proposal.proposal_id);
   assert.equal(proposal.event.effects[0].entity_id, 'npc');
@@ -106,10 +113,11 @@ test('proposal must be approved and cannot commit against a stale snapshot', asy
   assert.equal(approved.status, 200);
 
   const directHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
-  const intervening = await fetch(base + '/v1/worlds/proposal-stale-world/events', {
-    method: 'POST', headers: directHeaders,
-    body: json({ idempotency_key: 'internal-1', turn_id: 'internal-turn', event_type: 'action.completed', expected_revision: 0, effects: [] }),
-  });
+  const interveningCreated = await fetch(base + '/v1/worlds/proposal-stale-world/proposals', { method: 'POST', headers, body: json({ idempotency_key: 'intervening', source_text: '', event: { turn_id: 'internal-turn', event_type: 'action.completed', effects: [] } }) });
+  const interveningProposal = (await interveningCreated.json()).proposal;
+  const interveningApproved = await fetch(base + '/v1/worlds/proposal-stale-world/proposals/' + interveningProposal.proposal_id + '/approve', { method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}' });
+  assert.equal(interveningApproved.status, 200);
+  const intervening = await fetch(base + '/v1/worlds/proposal-stale-world/proposals/' + interveningProposal.proposal_id + '/commit', { method: 'POST', headers, body: '{}' });
   assert.equal(intervening.status, 200);
   const staleCommit = await fetch(base + '/v1/worlds/proposal-stale-world/proposals/' + proposal.proposal_id + '/commit', { method: 'POST', headers, body: '{}' });
   assert.equal(staleCommit.status, 409);
@@ -127,19 +135,17 @@ test('API registers a generation-bound context manifest and commits against it t
   const manifest = (await registered.json()).context_manifest;
   assert.ok(manifest.manifest_id);
 
-  const committed = await fetch(base + '/v1/worlds/manifest-api-world/events', {
-    method: 'POST', headers: { ...headers, 'x-engine-internal-token': INTERNAL },
-    body: json({
-      idempotency_key: 'api-manifest-event', turn_id: 'api-manifest-turn', event_type: 'action.completed',
-      expected_revision: 0, generation_id: 'api-generation-1', context_manifest_id: manifest.manifest_id, effects: [],
-    }),
-  });
+  const proposed = await fetch(base + '/v1/worlds/manifest-api-world/proposals', { method: 'POST', headers, body: json({ idempotency_key: 'api-manifest-event', source_text: '', event: { turn_id: 'api-manifest-turn', event_type: 'action.completed', generation_id: 'api-generation-1', context_manifest_id: manifest.manifest_id, effects: [] } }) });
+  const proposal = (await proposed.json()).proposal;
+  const approved = await fetch(base + '/v1/worlds/manifest-api-world/proposals/' + proposal.proposal_id + '/approve', { method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}' });
+  assert.equal(approved.status, 200);
+  const committed = await fetch(base + '/v1/worlds/manifest-api-world/proposals/' + proposal.proposal_id + '/commit', { method: 'POST', headers, body: '{}' });
   assert.equal(committed.status, 200);
-  assert.equal((await committed.json()).commit_sequence, 1);
+  assert.equal((await committed.json()).commit_result.commit_sequence, 1);
 });
 
 test('API exposes authenticated immutable mechanics registry endpoints', async (t) => {
-  const base = await setup(t);
+  const base = await setup(t, { adminToken: ADMIN });
   const empty = await fetch(base + '/v1/mechanic-templates', { headers });
   assert.equal(empty.status, 200);
   assert.deepEqual((await empty.json()).templates, []);
@@ -149,13 +155,18 @@ test('API exposes authenticated immutable mechanics registry endpoints', async (
     display_name: 'API mechanic contract', required_capabilities: [], applicability: [], actions: [],
     conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'pause_blocked' }, unknown_policy: 'mark_unknown',
   };
-  const registered = await fetch(base + '/v1/mechanic-templates', { method: 'POST', headers, body: json(body) });
+  const denied = await fetch(base + '/v1/mechanic-templates', { method: 'POST', headers, body: json(body) });
+  assert.equal(denied.status, 403);
+  assert.equal((await denied.json()).error.code, 'ADMIN_REQUIRED');
+  const registered = await fetch(base + '/v1/mechanic-templates', { method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN }, body: json(body) });
   assert.equal(registered.status, 201);
   assert.equal((await registered.json()).template.template_id, 'api.mechanic');
   const fetched = await fetch(base + '/v1/mechanic-templates/api.mechanic/1.0.0', { headers });
   assert.equal(fetched.status, 200);
   assert.equal((await fetched.json()).template.version, '1.0.0');
   assert.equal((await fetch(base + '/v1/rule-modules')).status, 401);
+  const deniedModule = await fetch(base + '/v1/rule-modules', { method: 'POST', headers, body: json({ module_id: 'test.module', version: '1.0.0' }) });
+  assert.equal(deniedModule.status, 403);
 });
 
 test('proposal server-owned fields are rejected and cancelled proposals cannot commit', async (t) => {
@@ -176,6 +187,8 @@ test('proposal server-owned fields are rejected and cancelled proposals cannot c
     body: json({ idempotency_key: 'cancel-me', source_text: 'text', event: { turn_id: 't2', event_type: 'action.completed', effects: [] } }),
   });
   const proposal = (await created.json()).proposal;
+  const wrongAdapterCancel = await fetch(base + '/v1/worlds/proposal-cancel-world/proposals/' + proposal.proposal_id + '/cancel', { method: 'POST', headers: { ...headers, 'x-adapter-id': 'adapter-b', 'x-adapter-token': ADAPTER_B }, body: json({ reason: 'generation_superseded' }) });
+  assert.equal(wrongAdapterCancel.status, 403);
   const cancelled = await fetch(base + '/v1/worlds/proposal-cancel-world/proposals/' + proposal.proposal_id + '/cancel', {
     method: 'POST', headers, body: json({ reason: 'generation_superseded' }),
   });
