@@ -39,6 +39,8 @@
 - `docs/09-reuse-and-attribution-register.md` — реестр внешних проектов, лицензий и правил переноса кода.
 - `docs/10-open-decisions.md` — блокирующие и отложенные решения.
 - `docs/11-operations-and-recovery.md` — локальный runtime, безопасность, резервное копирование и восстановление.
+- `docs/12-stage-roadmap.md` — этапы реализации и критерии перехода между ними.
+- `docs/13-sillytavern-adapter-contract.md` — контракт адаптера SillyTavern и граница векторизации.
 - `docs/17-world-agnostic-design-stage1.3.md` — критерий универсальности и граница World Pack.
 - `docs/18-rollback-and-causality.md` — требуемая семантика причинного отката.
 - `docs/19-reuse-audit-existing-projects.md` — анализ готовых проектов и карта адаптации.
@@ -49,6 +51,7 @@
 - `schemas/world-pack-manifest.schema.json` — начальная JSON Schema манифеста World Pack.
 - `schemas/declarative-rule.schema.json` — ограниченный формат условий и эффектов.
 - `schemas/rollback-plan.schema.json` — структурный контракт плана отката.
+- `schemas/effect-proposal.schema.json` — контракт предложения изменений до валидации и коммита.
 
 ### Примеры и независимое ревью
 - `examples/world-packs/biological-world.json` — тестовый профиль с биологическими сущностями.
