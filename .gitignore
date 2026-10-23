@@ -147,3 +147,30 @@ vite.config.ts.timestamp-*
 
 # Turbo Repo
 .turbo
+
+# Engine runtime state and private user data
+data/
+worlds/
+backups/
+snapshots/
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
+chat-archives/
+embeddings/
+vector-store/
+secrets/
+credentials/
+cookies.txt
+*.pem
+*.key
+*.p12
+*.pfx
+
+# Local editor settings
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
