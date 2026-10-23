@@ -153,11 +153,11 @@ Implementation order:
 1. Reconcile `src/core/mechanics.js`, `src/core/rules.js`, `schemas/declarative-rule.schema.json`, effect kinds, and existing tests into one explicit operator/effect support matrix.
 2. Decide and test missing-path semantics: distinguish a known absent field from context that was not retrieved or is not authorized. Return `unknown` when the engine cannot prove the predicate either way.
 3. Resolve discrepancies between supported declarative operators, effect kinds, and the result contract before writing execution code.
-3. Implement pure/read-only evaluation and result validation.
-4. Add the acceptance tests above, including failure injection and cross-world isolation.
-5. Connect validated results to the existing proposal API without introducing a second commit path.
-6. Implement explicit lifecycle policy handling for active processes only after the core process contract is executable.
-7. Run the full test suite and inspect the exact commit/PR diff. Do not merge if the tests fail or if docs claim guarantees not supported by code.
+4. Implement pure/read-only evaluation and result validation.
+5. Add the acceptance tests above, including failure injection and cross-world isolation.
+6. Connect validated results to the existing proposal API without introducing a second commit path.
+7. Implement explicit lifecycle policy handling for active processes only after the core process contract is executable.
+8. Run the full test suite and inspect the exact commit/PR diff. Do not merge if the tests fail or if docs claim guarantees not supported by code.
 
 Exit gate: evaluation is deterministic and read-only; all proposed effects use the canonical event path; unsupported behavior fails closed; cross-world isolation, audit, staleness, idempotency, and rollback interactions have tests. NPC autonomy and the SillyTavern adapter remain later stages.
 
