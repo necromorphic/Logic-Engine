@@ -115,6 +115,17 @@ Before implementing the storage method, reviewers should agree on these observab
 
 A test using only sequential reads cannot prove concurrency consistency. The test harness must coordinate a concurrent writer/read interleaving or use a deterministic storage hook/fault-injection seam. Do not claim the race is tested if the test only checks the returned object in a single-threaded happy path.
 
+
+### 5.3 Cross-contract review against PR #29 and current core
+
+The current draft has been checked against the Character Cards Contract v1.2.1 in PR #29, the Stage 1 causal contracts (docs/21 and docs/22), and the Stage 1.3 mechanic-execution boundary now merged into main as docs/30-stage1.3-mechanic-execution-boundary.md.
+
+- **Consistent with PR #29:** the projection remains a disposable view over authoritative records; it does not become a second source of truth, infer canon, grant protagonist knowledge, or expose unrestricted author data. The empty initial profile allowlist and omission of profile / known_state are intentional, not missing defaults.
+- **Consistent with the causal boundary:** the projection may reflect the current accepted state, but must not claim that declared provenance proves causal completeness. Rollback and source validity remain core responsibilities; the card layer adds no causal edges or rollback rules.
+- **Consistent with Stage 1.3 snapshot discipline:** any future storage read must bind its data to one immutable read view and report the actual world_revision and commit_sequence observed there. A read marker sampled before or after the data queries is not sufficient. This is a read-consistency requirement, not permission to add a new revision counter or bypass the canonical core pipeline.
+- **Scope remains limited:** merging the Stage 1.3 documentation does not by itself authorize a SQLite/API implementation. The current storage read is still not proven atomic, and the core semantics/test review must authorize the implementation step before those files are changed.
+- **Review status:** no cross-contract contradiction was identified in this pass. Runtime support, concurrency behavior, and causal completeness are not thereby proven; the acceptance tests in Section 5.2 remain required.
+
 ## 6. Access and caller boundary
 
 The current general world-state endpoint is not, by itself, a player-safe character-card API. Stage 1 must not expose this projection to an untrusted player or to a model context until a separate server-side audience/access filter exists.
