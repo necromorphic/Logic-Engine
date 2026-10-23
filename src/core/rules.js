@@ -136,6 +136,9 @@ export function validateEffects(effects) {
       'entity.upsert': ['kind', 'entity_id', 'entity_type', 'status', 'attributes'],
       'entity.delete': ['kind', 'entity_id'],
       'fact.set': ['kind', 'fact_id', 'subject_ref', 'predicate', 'value'],
+      'mechanic.instance.create': ['kind', 'instance_id', 'template_id', 'template_version', 'parameters', 'state'],
+      'mechanic.instance.enable': ['kind', 'instance_id'],
+      'mechanic.instance.disable': ['kind', 'instance_id'],
     }[effect.kind];
     if (allowedFields && Object.keys(effect).some((key) => !allowedFields.includes(key))) {
       throw new EngineError('UNSUPPORTED_EFFECT_FIELD', 'Effect contains a field not supported by its kind: ' + effect.kind, 400, { kind: effect.kind });
@@ -190,6 +193,14 @@ export function validateEffects(effects) {
       if (effect.subject_ref !== undefined && effect.subject_ref !== null && typeof effect.subject_ref !== 'string') {
         throw new EngineError('INVALID_EFFECT', 'subject_ref must be a string or null.');
       }
+    } else if (effect.kind === 'mechanic.instance.create') {
+      for (const key of ['instance_id', 'template_id', 'template_version']) {
+        if (typeof effect[key] !== 'string' || !effect[key].trim() || effect[key].length > 200) throw new EngineError('INVALID_MECHANIC_INSTANCE_EFFECT', 'mechanic.instance.create requires non-empty ' + key + ' of at most 200 characters.');
+        if (key === 'instance_id' && /^(entity:|fact:)/.test(effect[key])) throw new EngineError('INVALID_MECHANIC_INSTANCE_EFFECT', 'instance_id must not use the reserved entity: or fact: namespace.');
+      }
+      for (const key of ['parameters', 'state']) if (effect[key] !== undefined && (!effect[key] || typeof effect[key] !== 'object' || Array.isArray(effect[key]))) throw new EngineError('INVALID_MECHANIC_INSTANCE_EFFECT', key + ' must be a JSON object.');
+    } else if (effect.kind === 'mechanic.instance.enable' || effect.kind === 'mechanic.instance.disable') {
+      if (typeof effect.instance_id !== 'string' || !effect.instance_id.trim() || effect.instance_id.length > 200) throw new EngineError('INVALID_MECHANIC_INSTANCE_EFFECT', effect.kind + ' requires a non-empty instance_id of at most 200 characters.');
     } else {
       throw new EngineError('UNSUPPORTED_EFFECT', 'Unsupported effect kind: ' + String(effect.kind));
     }

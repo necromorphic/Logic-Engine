@@ -146,6 +146,145 @@ test('rolling back entity.update restores the exact prior canonical attributes',
   assert.equal(engine.getState('causality-world').world_revision, 3);
 });
 
+test('rolling back a later entity change preserves an earlier event that read the entity', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'witness-created-before-observation',
+    idempotency_key: 'witness-created-before-observation',
+    effects: [{ kind: 'entity.upsert', entity_id: 'witness', entity_type: 'character', attributes: { present: true } }],
+  }));
+  engine.commitEvent('causality-world',
+    command({
+      event_id: 'observation-before-change',
+      idempotency_key: 'observation-before-change',
+      turn_id: 'observation-before-change',
+      expected_revision: 1,
+      read_set: ['entity:witness'],
+      depends_on: ['entity:witness'],
+      causal_links: [{ relation: 'READS_ENTITY', target_id: 'witness' }],
+      effects: [{ kind: 'fact.set', fact_id: 'witness-observed', predicate: 'observed', value: true }],
+    }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'later-witness-change',
+    idempotency_key: 'later-witness-change',
+    turn_id: 'later-witness-change',
+    expected_revision: 2,
+    effects: [{ kind: 'entity.upsert', entity_id: 'witness', entity_type: 'character', attributes: { present: false } }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'later-witness-change',
+    idempotency_key: 'rollback-later-witness-change',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+  const state = engine.getState('causality-world');
+
+  assert.deepEqual(rollback.invalidated_event_ids, ['later-witness-change']);
+  assert.equal(events.get('observation-before-change').validity, 'valid');
+  assert.equal(state.facts.some((fact) => fact.fact_id === 'witness-observed' && fact.value === true), true);
+  assert.equal(state.entities.find((entity) => entity.entity_id === 'witness').attributes.present, true);
+});
+
+test('READS_ENTITY reader survives rollback when a later valid write preserves the same projection', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'initial-witness',
+    idempotency_key: 'initial-witness',
+    effects: [{ kind: 'entity.upsert', entity_id: 'witness', entity_type: 'person', status: 'active', attributes: { role: 'guard' } }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'independent-witness-restatement',
+    idempotency_key: 'independent-witness-restatement',
+    turn_id: 'independent-witness-restatement',
+    expected_revision: 1,
+    effects: [{ kind: 'entity.upsert', entity_id: 'witness', entity_type: 'person', status: 'active', attributes: { role: 'guard' } }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'reader-of-preserved-witness',
+    idempotency_key: 'reader-of-preserved-witness',
+    turn_id: 'reader-of-preserved-witness',
+    expected_revision: 2,
+    read_set: ['entity:witness'],
+    depends_on: ['entity:witness'],
+    causal_links: [{ relation: 'READS_ENTITY', target_id: 'witness' }],
+    effects: [{ kind: 'fact.set', fact_id: 'witness-report', predicate: 'exists', value: true }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'initial-witness',
+    idempotency_key: 'rollback-initial-witness',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+  const witness = engine.getState('causality-world').entities.find((item) => item.entity_id === 'witness');
+
+  assert.deepEqual(rollback.invalidated_event_ids, ['initial-witness']);
+  assert.equal(events.get('reader-of-preserved-witness').validity, 'valid');
+  assert.deepEqual({
+    entity_id: witness.entity_id,
+    entity_type: witness.entity_type,
+    status: witness.status,
+    attributes: witness.attributes,
+  }, {
+    entity_id: 'witness',
+    entity_type: 'person',
+    status: 'active',
+    attributes: { role: 'guard' },
+  });
+});
+
+
+test('rollback of a causal chain preserves a reader when an independent branch restores the same projection', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'chain-root-entity',
+    idempotency_key: 'chain-root-entity',
+    effects: [{ kind: 'entity.upsert', entity_id: 'witness', entity_type: 'person', status: 'active', attributes: { role: 'guard' } }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'chain-dependent-write',
+    idempotency_key: 'chain-dependent-write',
+    turn_id: 'chain-dependent-write',
+    expected_revision: 1,
+    caused_by: ['chain-root-entity'],
+    effects: [{ kind: 'entity.upsert', entity_id: 'witness', entity_type: 'person', status: 'active', attributes: { role: 'guard' } }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'independent-restoring-write',
+    idempotency_key: 'independent-restoring-write',
+    turn_id: 'independent-restoring-write',
+    expected_revision: 2,
+    effects: [{ kind: 'entity.upsert', entity_id: 'witness', entity_type: 'person', status: 'active', attributes: { role: 'guard' } }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'reader-after-causal-chain',
+    idempotency_key: 'reader-after-causal-chain',
+    turn_id: 'reader-after-causal-chain',
+    expected_revision: 3,
+    read_set: ['entity:witness'],
+    depends_on: ['entity:witness'],
+    causal_links: [{ relation: 'READS_ENTITY', target_id: 'witness' }],
+    effects: [{ kind: 'fact.set', fact_id: 'witness-report', predicate: 'exists', value: true }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'chain-root-entity',
+    idempotency_key: 'rollback-causal-chain',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+
+  assert.deepEqual(new Set(rollback.invalidated_event_ids), new Set(['chain-root-entity', 'chain-dependent-write']));
+  assert.equal(events.get('independent-restoring-write').validity, 'valid');
+  assert.equal(events.get('reader-after-causal-chain').validity, 'valid');
+  assert.equal(engine.getState('causality-world').entities.find((item) => item.entity_id === 'witness').attributes.role, 'guard');
+});
+
+
 test('rollback follows declared entity dependencies but preserves independent later events', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
@@ -476,6 +615,45 @@ test('typed READS_CLAIM reader survives rollback while another valid source stil
   assert.deepEqual(new Set(rollback.invalidated_event_ids), new Set(['claim-source-a']));
   assert.deepEqual(fact.source_event_ids, ['claim-source-b']);
   assert.equal(fact.status, 'active');
+});
+
+
+test('READS_CLAIM reader is invalidated when rollback changes a conflict into a single claim', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'claim-open',
+    idempotency_key: 'claim-open',
+    effects: [{ kind: 'fact.set', fact_id: 'door-state', predicate: 'state', value: 'open' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'claim-closed',
+    idempotency_key: 'claim-closed',
+    turn_id: 'claim-closed',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'door-state', predicate: 'state', value: 'closed' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'reader-observes-conflict',
+    idempotency_key: 'reader-observes-conflict',
+    turn_id: 'reader-observes-conflict',
+    expected_revision: 2,
+    causal_links: [{ relation: 'READS_CLAIM', target_id: 'door-state' }],
+    effects: [{ kind: 'fact.set', fact_id: 'report', predicate: 'recorded', value: true }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'claim-closed',
+    idempotency_key: 'rollback-conflicting-claim',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+  const fact = engine.getState('causality-world').facts.find((item) => item.fact_id === 'door-state');
+
+  assert.deepEqual(new Set(rollback.invalidated_event_ids), new Set(['claim-closed', 'reader-observes-conflict']));
+  assert.equal(events.get('reader-observes-conflict').validity, 'invalidated');
+  assert.equal(fact.status, 'active');
+  assert.equal(fact.value, 'open');
 });
 
 
@@ -1123,6 +1301,57 @@ test('rollback returns a structured review result and makes no semantic changes 
   assert.equal(engine.getState('causality-world').world_revision, before.world_revision);
 });
 
+test('rollback does not require review when removing a duplicate source leaves an unknown fact projection unchanged', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'same-claim-source-a',
+    idempotency_key: 'same-claim-source-a',
+    effects: [{ kind: 'fact.set', fact_id: 'contested-fact', predicate: 'state', value: 'open' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'same-claim-source-b',
+    idempotency_key: 'same-claim-source-b',
+    turn_id: 'same-claim-source-b',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'contested-fact', predicate: 'state', value: 'open' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'different-claim-source',
+    idempotency_key: 'different-claim-source',
+    turn_id: 'different-claim-source',
+    expected_revision: 2,
+    effects: [{ kind: 'fact.set', fact_id: 'contested-fact', predicate: 'state', value: 'closed' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'legacy-unknown-reader',
+    idempotency_key: 'legacy-unknown-reader',
+    turn_id: 'legacy-unknown-reader',
+    expected_revision: 3,
+    effects: [{ kind: 'fact.set', fact_id: 'legacy-output', predicate: 'recorded', value: true }],
+  }));
+  store.db.prepare('UPDATE world_events SET causal_links_json=? WHERE event_id=?').run(
+    JSON.stringify([{ relation: 'REQUIRES', predicate: { kind: 'fact_value', fact_id: 'contested-fact', value: 'open' } }]),
+    'legacy-unknown-reader',
+  );
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'same-claim-source-a',
+    idempotency_key: 'rollback-duplicate-conflict-source',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+  const fact = engine.getState('causality-world').facts.find((item) => item.fact_id === 'contested-fact');
+
+  assert.equal(rollback.rollback_outcome, 'resolved');
+  assert.deepEqual(rollback.invalidated_event_ids, ['same-claim-source-a']);
+  assert.deepEqual(rollback.requires_review_event_ids, []);
+  assert.equal(events.get('legacy-unknown-reader').validity, 'valid');
+  assert.equal(fact.status, 'conflicted');
+  assert.deepEqual(fact.candidates, ['open', 'closed']);
+});
+
+
 test('an unrelated unknown historical predicate does not block an independent rollback', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
@@ -1171,6 +1400,53 @@ test('an unrelated unknown historical predicate does not block an independent ro
 });
 
 
+test('rolling back a later fact source does not require review for an earlier unknown historical predicate', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  for (const [eventId, value, revision] of [
+    ['same-fact-conflict-a', 'a', 0],
+    ['same-fact-conflict-b', 'b', 1],
+  ]) {
+    engine.commitEvent('causality-world', command({
+      event_id: eventId,
+      idempotency_key: eventId,
+      turn_id: eventId,
+      expected_revision: revision,
+      effects: [{ kind: 'fact.set', fact_id: 'same-fact', predicate: 'state', value }],
+    }));
+  }
+  engine.commitEvent('causality-world', command({
+    event_id: 'earlier-unknown-requirement',
+    idempotency_key: 'earlier-unknown-requirement',
+    turn_id: 'earlier-unknown-requirement',
+    expected_revision: 2,
+    effects: [{ kind: 'fact.set', fact_id: 'legacy-output', predicate: 'created', value: true }],
+  }));
+  store.db.prepare('UPDATE world_events SET causal_links_json=? WHERE event_id=?').run(
+    JSON.stringify([{ relation: 'REQUIRES', predicate: { kind: 'fact_value', fact_id: 'same-fact', value: 'a' } }]),
+    'earlier-unknown-requirement',
+  );
+  engine.commitEvent('causality-world', command({
+    event_id: 'later-same-fact-source',
+    idempotency_key: 'later-same-fact-source',
+    turn_id: 'later-same-fact-source',
+    expected_revision: 3,
+    effects: [{ kind: 'fact.set', fact_id: 'same-fact', predicate: 'state', value: 'c' }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'later-same-fact-source',
+    idempotency_key: 'rollback-later-same-fact-source',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+
+  assert.equal(rollback.rollback_outcome, 'resolved');
+  assert.deepEqual(rollback.invalidated_event_ids, ['later-same-fact-source']);
+  assert.deepEqual(rollback.requires_review_event_ids, []);
+  assert.equal(events.get('earlier-unknown-requirement').validity, 'valid');
+});
+
 test('READS_CLAIM cannot use a later source to retroactively support an earlier reader', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
@@ -1208,4 +1484,112 @@ test('READS_CLAIM cannot use a later source to retroactively support an earlier 
   assert.equal(events.get('late-claim-source').validity, 'valid');
   assert.equal(state.facts.find((fact) => fact.fact_id === 'door-state').value, true);
   assert.equal(state.facts.some((fact) => fact.fact_id === 'derived-door-report'), false);
+});
+
+
+test('sequential rollbacks preserve prior invalidations and independently retract the next root', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'sequential-root-a',
+    idempotency_key: 'sequential-root-a',
+    effects: [{ kind: 'entity.create', entity_id: 'guard-a', entity_type: 'character', attributes: { role: 'guard' } }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'sequential-root-b',
+    idempotency_key: 'sequential-root-b',
+    turn_id: 'sequential-root-b',
+    expected_revision: 1,
+    effects: [{ kind: 'entity.create', entity_id: 'guard-b', entity_type: 'character', attributes: { role: 'guard' } }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'sequential-dependent-update-a',
+    idempotency_key: 'sequential-dependent-update-a',
+    turn_id: 'sequential-dependent-update-a',
+    expected_revision: 2,
+    caused_by: ['sequential-root-a'],
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'guard-a' } }],
+    effects: [{ kind: 'entity.update', entity_id: 'guard-a', attributes: { role: 'captain' } }],
+  }));
+
+  const first = engine.rollbackEvent('causality-world', {
+    root_event_id: 'sequential-root-a',
+    idempotency_key: 'sequential-rollback-a',
+  });
+  assert.deepEqual(new Set(first.invalidated_event_ids), new Set([
+    'sequential-root-a',
+    'sequential-dependent-update-a',
+  ]));
+  assert.equal(engine.getState('causality-world').world_revision, 4);
+
+  const second = engine.rollbackEvent('causality-world', {
+    root_event_id: 'sequential-root-b',
+    idempotency_key: 'sequential-rollback-b',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+  const state = engine.getState('causality-world');
+
+  assert.deepEqual(second.invalidated_event_ids, ['sequential-root-b']);
+  assert.equal(second.world_revision, 5);
+  assert.equal(state.world_revision, 5);
+  assert.equal(events.get('sequential-root-a').validity, 'retracted');
+  assert.equal(events.get('sequential-dependent-update-a').validity, 'invalidated');
+  assert.equal(events.get('sequential-root-b').validity, 'retracted');
+  assert.equal(state.entities.some((entity) => entity.entity_id === 'guard-a'), false);
+  assert.equal(state.entities.some((entity) => entity.entity_id === 'guard-b'), false);
+});
+
+test('rollback idempotency replays its original result after history changes and a new key is a no-op', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'idempotent-rollback-target',
+    idempotency_key: 'idempotent-rollback-target',
+    effects: [{ kind: 'entity.create', entity_id: 'guard', entity_type: 'character', attributes: { role: 'guard' } }],
+  }));
+
+  const first = engine.rollbackEvent('causality-world', {
+    root_event_id: 'idempotent-rollback-target',
+    idempotency_key: 'idempotent-rollback-key',
+  });
+  assert.equal(first.world_revision, 2);
+  assert.equal(first.no_op, false);
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'event-after-rollback',
+    idempotency_key: 'event-after-rollback',
+    turn_id: 'event-after-rollback',
+    expected_revision: 2,
+    effects: [{ kind: 'fact.set', fact_id: 'unrelated-fact', predicate: 'exists', value: true }],
+  }));
+  assert.equal(engine.getState('causality-world').world_revision, 3);
+
+  const replay = engine.rollbackEvent('causality-world', {
+    root_event_id: 'idempotent-rollback-target',
+    idempotency_key: 'idempotent-rollback-key',
+  });
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(replay.rollback_id, first.rollback_id);
+  assert.deepEqual(replay.invalidated_event_ids, first.invalidated_event_ids);
+  assert.equal(replay.world_revision, first.world_revision);
+  assert.equal(engine.getState('causality-world').world_revision, 3);
+  assert.equal(engine.getState('causality-world').facts.some((fact) => fact.fact_id === 'unrelated-fact'), true);
+
+  assert.throws(() => engine.rollbackEvent('causality-world', {
+    root_event_id: 'event-after-rollback',
+    idempotency_key: 'idempotent-rollback-key',
+  }), (error) => error.code === 'IDEMPOTENCY_KEY_CONFLICT' && error.status === 409);
+
+  const newKeyRetry = engine.rollbackEvent('causality-world', {
+    root_event_id: 'idempotent-rollback-target',
+    idempotency_key: 'idempotent-rollback-new-key',
+  });
+  assert.equal(newKeyRetry.idempotent_replay, false);
+  assert.equal(newKeyRetry.no_op, true);
+  assert.equal(newKeyRetry.rollback_id, null);
+  assert.deepEqual(newKeyRetry.invalidated_event_ids, []);
+  assert.equal(newKeyRetry.world_revision, 3);
+  assert.equal(engine.getState('causality-world').world_revision, 3);
 });

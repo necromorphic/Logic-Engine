@@ -1,5 +1,6 @@
 import { createServer } from 'node:http';
 import { EngineError } from '../core/errors.js';
+import { hashRequest } from '../core/request-hash.js';
 import { ProposalService } from '../application/proposals.js';
 
 const MAX = 1048576;
@@ -86,6 +87,76 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       const worldId = decodeURIComponent(parts[2]);
       const action = parts[3] || 'state';
 
+      if (parts.length === 4 && action === 'mechanic-instances') {
+        if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
+        if (req.method === 'GET') return send(res, 200, { instances: engine.listMechanicInstances(worldId) });
+        if (req.method === 'POST') {
+          const body = await readBody(req);
+          if (!body || typeof body !== 'object' || Array.isArray(body)) throw new EngineError('INVALID_MECHANIC_INSTANCE_REQUEST', 'Request body must be a JSON object.');
+          const allowed = ['instance_id', 'template_id', 'template_version', 'parameters', 'state', 'expected_revision', 'idempotency_key'];
+          if (Object.keys(body).some((key) => !allowed.includes(key))) throw new EngineError('UNSUPPORTED_MECHANIC_INSTANCE_FIELD', 'Create accepts only instance/template identity, parameters, state, expected_revision and idempotency_key.');
+          for (const key of ['instance_id', 'template_id', 'template_version', 'idempotency_key']) if (typeof body[key] !== 'string' || !body[key].trim() || body[key].length > 200) throw new EngineError('INVALID_MECHANIC_INSTANCE_REQUEST', key + ' must be a non-empty string of at most 200 characters.');
+          if (!Number.isSafeInteger(body.expected_revision) || body.expected_revision < 0) throw new EngineError('INVALID_REVISION', 'expected_revision must be a non-negative integer.');
+          for (const key of ['parameters', 'state']) if (body[key] !== undefined && (!body[key] || typeof body[key] !== 'object' || Array.isArray(body[key]))) throw new EngineError('INVALID_MECHANIC_INSTANCE_REQUEST', key + ' must be a JSON object.');
+          const operationKey = body.idempotency_key.trim();
+          const storageKey = 'mechanic-instance:' + hashRequest({ idempotency_key: operationKey });
+          const turnId = 'mechanic-instance:' + hashRequest({ idempotency_key: operationKey }).slice(0, 32);
+          const stableRequest = { operation: 'mechanic.instance.create', world_id: worldId, instance_id: body.instance_id, template_id: body.template_id, template_version: body.template_version, parameters: body.parameters || {}, state: body.state || {}, expected_revision: body.expected_revision, idempotency_key: operationKey };
+          const prepared = engine.prepareEvent({ idempotency_key: storageKey, turn_id: turnId, event_type: 'mechanic.instance.create', expected_revision: body.expected_revision, effects: [{ kind: 'mechanic.instance.create', instance_id: body.instance_id, template_id: body.template_id, template_version: body.template_version, parameters: body.parameters || {}, state: body.state || {} }] });
+          prepared.request_hash = hashRequest(stableRequest);
+          const commit_result = engine.store.commit(worldId, prepared);
+          let currentInstance;
+          try {
+            currentInstance = engine.getMechanicInstance(worldId, body.instance_id);
+          } catch (error) {
+            if (!commit_result.idempotent_replay || error.code !== 'MECHANIC_INSTANCE_NOT_FOUND') throw error;
+            currentInstance = null;
+          }
+          return send(res, commit_result.idempotent_replay ? 200 : 201, {
+            commit_result, instance: currentInstance,
+            ...(currentInstance ? {} : { instance_current: false }),
+          });
+        }
+        return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported method for route.' } });
+      }
+      if (parts.length === 6 && action === 'mechanic-instances' && (parts[5] === 'enable' || parts[5] === 'disable') && req.method === 'POST') {
+        if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
+        const instanceId = decodeURIComponent(parts[4]);
+        const body = await readBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)) throw new EngineError('INVALID_MECHANIC_INSTANCE_REQUEST', 'Request body must be a JSON object.');
+        if (Object.keys(body).some((key) => !['expected_revision', 'idempotency_key'].includes(key))) throw new EngineError('UNSUPPORTED_MECHANIC_INSTANCE_FIELD', 'Lifecycle transition accepts only expected_revision and idempotency_key.');
+        if (!Number.isSafeInteger(body.expected_revision) || body.expected_revision < 0) throw new EngineError('INVALID_REVISION', 'expected_revision must be a non-negative integer.');
+        if (typeof body.idempotency_key !== 'string' || !body.idempotency_key.trim() || body.idempotency_key.length > 200) throw new EngineError('IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key must be a non-empty string of at most 200 characters.');
+        const operation = parts[5];
+        const operationKey = body.idempotency_key.trim();
+        const storageKey = 'mechanic-instance:' + hashRequest({ idempotency_key: operationKey });
+        const turnId = 'mechanic-instance:' + hashRequest({ idempotency_key: operationKey }).slice(0, 32);
+        const stableRequest = { operation: 'mechanic.instance.' + operation, world_id: worldId, instance_id: instanceId, expected_revision: body.expected_revision, idempotency_key: operationKey };
+        let instanceBefore;
+        try {
+          instanceBefore = engine.getMechanicInstance(worldId, instanceId);
+        } catch (error) {
+          if (error.code !== 'MECHANIC_INSTANCE_NOT_FOUND') throw error;
+          // A previously committed lifecycle request must remain replayable even
+          // if a later rollback removed its instance from the current projection.
+          instanceBefore = null;
+        }
+        const effectKind = 'mechanic.instance.' + operation;
+        const prepared = engine.prepareEvent({ idempotency_key: storageKey, turn_id: turnId, event_type: effectKind, expected_revision: body.expected_revision, caused_by: instanceBefore ? [instanceBefore.last_event_id] : [], effects: [{ kind: effectKind, instance_id: instanceId }] });
+        prepared.request_hash = hashRequest(stableRequest);
+        const commit_result = engine.store.commit(worldId, prepared);
+        let currentInstance;
+        try {
+          currentInstance = engine.getMechanicInstance(worldId, instanceId);
+        } catch (error) {
+          if (!commit_result.idempotent_replay || error.code !== 'MECHANIC_INSTANCE_NOT_FOUND') throw error;
+          currentInstance = null;
+        }
+        return send(res, 200, {
+          commit_result, instance: currentInstance,
+          ...(currentInstance ? {} : { instance_current: false }),
+        });
+      }
       if (parts.length === 4 && action === 'proposals' && req.method === 'POST') {
         const adapterId = adapterIdFor(req);
         if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required to create proposals.' } });
@@ -145,7 +216,19 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         const { commit_result: commitResult, ...publicProposal } = result;
         return send(res, 200, { proposal: publicProposal, commit_result: commitResult });
       }
-      if (req.method === 'POST' && action === 'rollback') return send(res, 200, engine.rollbackEvent(worldId, await readBody(req)));
+      if (req.method === 'POST' && action === 'rollback') {
+        const body = await readBody(req);
+        const rootEventId = typeof body?.root_event_id === 'string' ? body.root_event_id.trim() : '';
+        if (rootEventId) {
+          const rootEvent = engine.getEvents(worldId, true).find((event) => event.event_id === rootEventId);
+          if (rootEvent?.effects?.some((effect) => typeof effect?.kind === 'string' && effect.kind.startsWith('mechanic.instance.'))) {
+            if (!adminToken || req.headers['x-admin-token'] !== adminToken) {
+              return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required to roll back mechanic lifecycle events.' } });
+            }
+          }
+        }
+        return send(res, 200, engine.rollbackEvent(worldId, body));
+      }
       return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported method for route.' } });
     } catch (error) {
       if (res.headersSent) return res.destroy(error);

@@ -40,19 +40,18 @@ Activation/deactivation and conflict adjudication must be represented in event h
 
 ## 6. Authorization boundary
 
-The current API has a single bearer token and does not yet distinguish model proposals from trusted author/operator actions. Therefore a public activation/deactivation or manual-adjudication route must not be exposed until the trusted caller identity/role is supplied by the host boundary. A role field supplied by an LLM or included only in the request body is not authentication.
+The API uses the normal bearer token plus a separate `ENGINE_ADMIN_TOKEN` for mechanic template registration and world-instance lifecycle operations. The admin credential is withheld from model/adapter proposal requests; ordinary adapter proposals are explicitly rejected if they contain mechanic lifecycle effects. A role or actor ID supplied by an LLM or included only in a request body is not authentication.
 
-The initial runtime slice may implement immutable template/module registration and read-only retrieval. World-instance creation and status transitions remain gated on a trusted actor contract; they must not be implemented by trusting model-authored identity fields.
+This is a coarse shared-credential boundary, not proof of a named human identity or a fine-grained per-user role system. Audit records show the committed event and credential-gated route, not an inferred human identity. Manual adjudication and richer host actor/role attribution remain out of scope.
 
 ## 7. Runtime implementation order
 
-1. **Implemented:** immutable, versioned template and module-manifest registries, content hashes, exact-version lookup, and append-only registry audit. The current authenticated API client is recorded as the registration principal; this does not identify a human author.
+1. **Implemented:** immutable, versioned template and module-manifest registries, content hashes, exact-version lookup, and append-only registry audit. The authenticated API client is recorded as the registration principal; this does not identify a human author.
 2. **Implemented:** authenticated registry list/register/read routes and tests for empty registries, exact-version lookup, duplicate registration, immutability, and audit.
-3. Define a trusted host actor/authorization contract before exposing instance mutation routes. The current bearer token does not distinguish individual roles.
-4. Add world-scoped instance storage and event-backed activation/deactivation, including rollback behavior and process lifecycle handling.
-5. Add conflict evaluation/adjudication and structured `mark_unknown` responses.
-6. Only then connect a World Pack, model proposal flow, or SillyTavern adapter.
+3. **Implemented — lifecycle slice:** world-scoped `MechanicInstance` projection pinned to an exact template version; admin-only create/list/enable/disable routes; expected-revision and idempotency checks; lifecycle predecessor causality; rebuild from valid event history; rollback dependency tracking; adapter-proposal rejection.
+4. **Not implemented:** mechanic execution, parameter/state schema validation against template-defined schemas, process lifecycle policy execution, conflict evaluation/adjudication, and structured `mark_unknown` behavior. These must be designed and tested before connecting a World Pack or SillyTavern adapter.
+5. Define a richer trusted host actor/authorization contract if the deployment needs per-user attribution or roles beyond the shared admin credential.
 
 The runtime contract validator is a dedicated bounded validator, not a general JSON Schema 2020-12 implementation. Schema files are structurally checked by tests, but full JSON Schema conformance testing remains open.
 
-This sequence deliberately separates safe immutable registration from mutable world operations. It does not claim that mechanics execution or rollback integration is complete.
+The lifecycle slice does not claim that mechanic execution or process rollback semantics are complete.

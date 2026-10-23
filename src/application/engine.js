@@ -163,6 +163,8 @@ export class LogicEngine {
   getMechanicRegistryAudit() {
     return this.store.mechanicRegistryAudit();
   }
+  getMechanicInstance(worldId, instanceId) { return this.store.getMechanicInstance(worldId, instanceId); }
+  listMechanicInstances(worldId) { return this.store.listMechanicInstances(worldId); }
 
   prepareEvent(x) {
     assert(obj(x), 'INVALID_BODY', 'Body must be an object.');

@@ -30,27 +30,27 @@ Direct event-parent references asserted by the caller. The runtime validates tha
 
 References to event IDs or to current projection identities using `entity:id` / `fact:id`. These references are used by the current rollback traversal to identify events affected by a retracted event or affected record.
 
-For entity/fact references, the current implementation checks that the identity exists in the current world's projection. It does **not** prove that the referenced entity is alive/active, that a fact is undisputed, or that the record had the same value at the event's historical revision. Do not use this field as a substitute for a typed state predicate or version precondition.
+For entity/fact references, the current implementation checks that the identity exists in the current world's projection. During rollback, these identity references invalidate a reader only if excluding invalidated events changes that entity/fact projection at the reader's historical commit point; a surviving source that preserves the same projection is sufficient. This does **not** prove that the referenced entity is alive/active, that a fact is undisputed, or that the record had the same value at the event's historical revision. Do not use this field as a substitute for a typed state predicate or version precondition.
 
 A destroyed entity can remain in the projection as a historical identity. Its existence alone does not mean it is usable or alive.
 
 ### `read_set[]`
 
-References to existing entity/fact identities that the caller claims materially influenced the event. The runtime checks reference shape and current-world existence. It does not receive a complete context manifest and therefore cannot verify whether this list is complete or whether every listed record materially changed the decision.
+References to existing entity/fact identities that the caller claims materially influenced the event. The runtime checks reference shape and current-world existence. During rollback, the engine compares the historical projection with and without invalidated events rather than invalidating a reader merely because some event touched the same identity. It does not receive a complete context manifest and therefore cannot verify whether this list is complete or whether every listed record materially changed the decision.
 
 ### `causal_links[]`
 
 The runtime now accepts an additive, typed subset of causal relationships while retaining the legacy fields above for backward compatibility. Read links use `{ relation, target_id }`; `REQUIRES` uses `{ relation: "REQUIRES", predicate }`. Duplicate normalized links are rejected, and links are normalized before request hashing.
 
 Supported relations in this increment:
-- `REQUIRES`: a precondition expressed as `entity_exists`, `entity_absent`, `entity_attribute`, `fact_value`, or `fact_absent`; it must evaluate true before the event commits. During rollback, the engine reconstructs entity/fact state before the event's `commit_sequence` while excluding events already classified for invalidation. A false predicate makes the event a rollback candidate. `entity_absent` is true when the entity has no projection entry or its status is `destroyed`; the destroyed tombstone remains an identity. `fact_absent` is true when the fact has no current valid claim. A conflicted fact-value predicate evaluates to unknown: commit is rejected, and if rollback recomputation remains unknown for a still-valid event, that event is preserved and listed in `requires_review_event_ids`.
+- `REQUIRES`: a precondition expressed as `entity_exists`, `entity_absent`, `entity_attribute`, `fact_value`, or `fact_absent`; it must evaluate true before the event commits. During rollback, the engine reconstructs entity/fact state before the event's `commit_sequence` while excluding events already classified for invalidation. A false predicate makes the event a rollback candidate. `entity_absent` is true when the entity has no projection entry or its status is `destroyed`; the destroyed tombstone remains an identity. `fact_absent` is true when the fact has no current valid claim. A conflicted fact-value predicate evaluates to unknown: commit is rejected. During rollback, a still-valid legacy event is preserved and listed in `requires_review_event_ids` only when removing invalidated events changes the historical projection on which that unknown predicate depends; removing a duplicate source without changing the conflict projection does not require review.
 - `READS_SOURCE`: target is a prior valid event used as a source; rollback invalidates the reader when that source is invalidated.
-- `READS_ENTITY`: target is an entity identity in this world; rollback invalidates the reader when an invalidated event changes/removes that entity's canonical projection.
-- `READS_CLAIM`: target is a fact/claim identity with at least one current valid source in this world; rollback invalidates the reader only when no valid source remains for that claim projection.
+- `READS_ENTITY`: target is an entity identity in this world; rollback invalidates the reader only when excluding invalidated events changes the historical entity projection at the reader's commit point. A later valid write that preserves the same projection keeps the reader valid.
+- `READS_CLAIM`: target is a fact/claim identity; rollback invalidates the reader when removing affected events changes the historical claim projection (including active ↔ conflicted or a changed set of candidate values). Removing one of multiple identical sources preserves the reader if the projection itself is unchanged.
 
 Unknown relationship types are rejected with HTTP 400 before a committed event or successful idempotency result is written. Corrected input may retry the same key because pre-commit validation did not consume it. The model cannot use these links to activate mechanics or bypass engine validation.
 
-This is intentionally a partial graph contract: `REQUIRES` currently supports `entity_exists(entity_id)`, `entity_absent(entity_id)`, `entity_attribute(entity_id, attribute, value)`, `fact_value(fact_id, value)`, and `fact_absent(fact_id)` against reconstructed history. Conflicted fact values evaluate to `unknown`, which rejects new commits and is surfaced as `requires_review_event_ids` if encountered during rollback. It does not yet support arbitrary negative-read forms, `PRODUCES`/evidence/conflict edges, general predicate composition, or proof of causal completeness. The generation-bound manifest subset validates explicit entity/fact absence entries as well as present references. A stable per-world `commit_sequence` is implemented and reconstructs historical entity/fact state for these predicates. `READS_ENTITY` and `READS_CLAIM` currently identify projection identities, not versioned historical values. `READS_CLAIM` preserves its reader when at least one valid source remains; it invalidates the reader only when the claim loses all valid support. Direct event causation remains represented by the backward-compatible `caused_by[]` field in this increment. The engine continues to report only declared-metadata rollback semantics.
+This is intentionally a partial graph contract: `REQUIRES` currently supports `entity_exists(entity_id)`, `entity_absent(entity_id)`, `entity_attribute(entity_id, attribute, value)`, `fact_value(fact_id, value)`, and `fact_absent(fact_id)` against reconstructed history. Conflicted fact values evaluate to `unknown`, which rejects new commits and is surfaced as `requires_review_event_ids` if encountered during rollback. It does not yet support arbitrary negative-read forms, `PRODUCES`/evidence/conflict edges, general predicate composition, or proof of causal completeness. The generation-bound manifest subset validates explicit entity/fact absence entries as well as present references. A stable per-world `commit_sequence` is implemented and reconstructs historical entity/fact state for these predicates. `READS_ENTITY` and `READS_CLAIM` currently identify projection identities, not versioned historical values. `READS_CLAIM` compares the historical projection before and after proposed invalidation, so a surviving but materially different claim does not incorrectly preserve a reader. Direct event causation remains represented by the backward-compatible `caused_by[]` field in this increment. The engine continues to report only declared-metadata rollback semantics.
 
 ### Effects and projection rebuild
 
@@ -71,6 +71,19 @@ Consequently:
 3. If an integration cannot provide reliable source IDs or dependency metadata, surface that limitation; do not guess which message caused an event.
 4. The current runtime has no NPC knowledge, process, timer, or StoryBeat records to recompute. Those subsystems must not be described as rollback-supported yet.
 5. `game_time` is not rewound by rollback; `world_revision` increases monotonically.
+
+### Event-root rollback and idempotency semantics
+
+The current rollback operation is scoped to one `root_event_id` per request; it is not yet a host-message/generation rollback planner. The request fingerprint covers `operation: "event.rollback"` and the normalized `root_event_id`; the idempotency key is supplied separately.
+
+- First successful rollback retracts the root, invalidates declared dependent events as determined by the current causal algorithm, rebuilds projections from valid events, and increments `world_revision` once.
+- Repeating the same request with the same idempotency key returns the stored result with `idempotent_replay: true`. This is a historical operation result: its `world_revision` is the revision at which that operation completed, and may be lower than the world's current revision after later commits or rollbacks. A replay does not mutate state or increment revision.
+- Reusing the same key for a different root/request is rejected with `IDEMPOTENCY_KEY_CONFLICT` (HTTP 409).
+- A new key targeting a root that is already retracted/invalidated returns `no_op: true`, an empty `invalidated_event_ids` list, and the current `world_revision`; it does not create a second rollback or increment revision.
+- A rollback that returns `requires_review` stores the diagnostic result for exact idempotent replay but does not apply a state mutation or increment revision.
+- Sequential rollback considers only events still marked valid. Previously retracted/invalidated events are not reactivated by later rollback operations. The current runtime has regression tests for sequential roots and idempotency replay after intervening history changes.
+
+These semantics describe the current event-root endpoint. They do not implement the broader stable message/generation resolver or rollback-plan workflow described in docs/18.
 
 ### Idempotency compatibility boundary
 
@@ -115,10 +128,13 @@ The current runtime rebuilds fact claims from valid events and marks conflicting
 Current runtime tests should verify:
 - rollback invalidates an event whose declared `depends_on` points to an affected entity;
 - rollback traverses a causal diamond and preserves a truly independent later branch;
+- rolling back a later entity/fact change preserves earlier events that read the same identity, because later changes cannot cause earlier events;
 - removing one of two identical fact claims leaves the other claim active;
 - removing one of two conflicting claims leaves the surviving claim as canonical;
 - cross-world entity/fact references are rejected;
-- typed `READS_SOURCE` and `READS_CLAIM` links invalidate dependent events when their source/claim support is removed;
+- typed `READS_SOURCE` links invalidate readers of a removed source;
+- typed `READS_ENTITY` preserves readers when a later valid write leaves the historical entity projection unchanged after rollback;
+- typed `READS_CLAIM` preserves a reader when one of two identical sources is removed, but invalidates it when removing one side of a conflict changes the historical projection;
 - unsupported typed relationships are rejected before consuming an idempotency key;
 - oversized HTTP request bodies receive `413 BODY_TOO_LARGE`;
 - legacy idempotency rows without request hashes fail closed rather than fabricating request identity.

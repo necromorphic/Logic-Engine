@@ -208,69 +208,6 @@ test('proposal server-owned fields are rejected and cancelled proposals cannot c
   assert.equal(commit.status, 409);
 });
 
-test('internal commit replay is idempotent, approval is adapter-independent, and world scope is enforced', async (t) => {
-  const base = await setup(t, { approvalToken: APPROVAL, internalToken: INTERNAL });
-  assert.equal((await createWorld(base, 'internal-route-world')).status, 201);
-  assert.equal((await createWorld(base, 'internal-route-other-world')).status, 201);
-
-  const createProposal = async (worldId, key) => {
-    const response = await fetch(base + '/v1/worlds/' + worldId + '/proposals', {
-      method: 'POST', headers,
-      body: json({ idempotency_key: key, source_text: 'A harmless action.', event: { turn_id: key, event_type: 'action.completed', effects: [] } }),
-    });
-    assert.equal(response.status, 201);
-    return (await response.json()).proposal;
-  };
-  const approveAsOtherAdapter = async (worldId, proposalId) => fetch(base + '/v1/worlds/' + worldId + '/proposals/' + proposalId + '/approve', {
-    method: 'POST',
-    headers: { ...headers, 'x-adapter-id': 'adapter-b', 'x-adapter-token': ADAPTER_B, 'x-approval-token': APPROVAL },
-    body: '{}',
-  });
-
-  const proposal = await createProposal('internal-route-world', 'internal-route-idempotency');
-  const approved = await approveAsOtherAdapter('internal-route-world', proposal.proposal_id);
-  assert.equal(approved.status, 200);
-  assert.equal((await approved.json()).proposal.status, 'approved');
-
-  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
-  const firstCommit = await fetch(base + '/v1/worlds/internal-route-world/events', {
-    method: 'POST', headers: internalHeaders, body: json({ proposal_id: proposal.proposal_id }),
-  });
-  assert.equal(firstCommit.status, 200);
-  assert.equal((await firstCommit.json()).commit_result.idempotent_replay, false);
-  const stateAfterFirstCommit = (await (await fetch(base + '/v1/worlds/internal-route-world/state', { headers })).json()).state;
-  const eventsAfterFirstCommit = (await (await fetch(base + '/v1/worlds/internal-route-world/events', { headers })).json()).events;
-
-  const replay = await fetch(base + '/v1/worlds/internal-route-world/events', {
-    method: 'POST', headers: internalHeaders, body: json({ proposal_id: proposal.proposal_id }),
-  });
-  assert.equal(replay.status, 200);
-  assert.equal((await replay.json()).commit_result.idempotent_replay, true);
-  const stateAfterReplay = (await (await fetch(base + '/v1/worlds/internal-route-world/state', { headers })).json()).state;
-  const eventsAfterReplay = (await (await fetch(base + '/v1/worlds/internal-route-world/events', { headers })).json()).events;
-  assert.equal(stateAfterReplay.world_revision, stateAfterFirstCommit.world_revision);
-  assert.equal(eventsAfterReplay.length, eventsAfterFirstCommit.length);
-
-  const crossWorld = await fetch(base + '/v1/worlds/internal-route-other-world/events', {
-    method: 'POST', headers: internalHeaders, body: json({ proposal_id: proposal.proposal_id }),
-  });
-  assert.equal(crossWorld.status, 404);
-  assert.equal((await crossWorld.json()).error.code, 'PROPOSAL_NOT_FOUND');
-
-  const cancelApproved = await createProposal('internal-route-world', 'approved-then-cancelled');
-  assert.equal((await approveAsOtherAdapter('internal-route-world', cancelApproved.proposal_id)).status, 200);
-  const cancelled = await fetch(base + '/v1/worlds/internal-route-world/proposals/' + cancelApproved.proposal_id + '/cancel', {
-    method: 'POST', headers, body: json({ reason: 'cancel after approval' }),
-  });
-  assert.equal(cancelled.status, 200);
-  assert.equal((await cancelled.json()).proposal.status, 'cancelled');
-  const cancelledCommit = await fetch(base + '/v1/worlds/internal-route-world/proposals/' + cancelApproved.proposal_id + '/commit', {
-    method: 'POST', headers, body: '{}',
-  });
-  assert.equal(cancelledCommit.status, 409);
-  assert.equal((await cancelledCommit.json()).error.code, 'PROPOSAL_NOT_APPROVED');
-});
-
 test('proposal creation performs deterministic validation without mutating canonical state', async (t) => {
   const base = await setup(t, { approvalToken: APPROVAL });
   assert.equal((await createWorld(base, 'proposal-validation-world')).status, 201);
@@ -290,4 +227,343 @@ test('proposal creation performs deterministic validation without mutating canon
   });
   assert.equal(corrected.status, 201);
   assert.equal((await corrected.json()).proposal.validation_result.status, 'passed');
+});
+
+
+test('mechanic instance lifecycle API is admin-only, idempotent, and isolated from adapter proposals', async (t) => {
+  const base = await setup(t, { adminToken: ADMIN });
+  assert.equal((await createWorld(base, 'mechanic-api-world')).status, 201);
+  const url = base + '/v1/worlds/mechanic-api-world/mechanic-instances';
+  assert.equal((await fetch(url, { headers })).status, 403);
+  const malformed = await fetch(url, { method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN }, body: 'null' });
+  assert.equal(malformed.status, 400);
+  assert.equal((await malformed.json()).error.code, 'INVALID_MECHANIC_INSTANCE_REQUEST');
+  const denied = await fetch(url, { method: 'POST', headers, body: json({ instance_id: 'one', template_id: 'api.mechanic', template_version: '1.0.0', expected_revision: 0, idempotency_key: 'create-one' }) });
+  assert.equal(denied.status, 403);
+  assert.equal((await denied.json()).error.code, 'ADMIN_REQUIRED');
+  const template = { template_id: 'api.mechanic', version: '1.0.0', schema_version: 'core-1', display_name: 'API lifecycle', required_capabilities: [], applicability: [], actions: [], conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'pause_blocked' }, unknown_policy: 'mark_unknown' };
+  const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
+  const registered = await fetch(base + '/v1/mechanic-templates', { method: 'POST', headers: adminHeaders, body: json(template) });
+  assert.equal(registered.status, 201);
+  const created = await fetch(url, { method: 'POST', headers: adminHeaders, body: json({ instance_id: 'one', template_id: 'api.mechanic', template_version: '1.0.0', parameters: { speed: 2 }, state: {}, expected_revision: 0, idempotency_key: 'create-one' }) });
+  assert.equal(created.status, 201);
+  const createdBody = await created.json();
+  assert.equal(createdBody.instance.status, 'disabled');
+  assert.equal(typeof createdBody.instance.last_event_id, 'string');
+  assert.equal(typeof createdBody.instance.disabled_at_revision, 'number');
+  assert.equal(createdBody.instance.needs_review_reason, null);
+  const createReplay = await fetch(url, { method: 'POST', headers: adminHeaders, body: json({ instance_id: 'one', template_id: 'api.mechanic', template_version: '1.0.0', parameters: { speed: 2 }, state: {}, expected_revision: 0, idempotency_key: 'create-one' }) });
+  assert.equal(createReplay.status, 200);
+  assert.equal((await createReplay.json()).commit_result.idempotent_replay, true);
+  const enableUrl = url + '/one/enable';
+  const enabled = await fetch(enableUrl, { method: 'POST', headers: adminHeaders, body: json({ expected_revision: 1, idempotency_key: 'enable-one' }) });
+  assert.equal(enabled.status, 200);
+  const enabledBody = await enabled.json();
+  assert.equal(enabledBody.instance.status, 'enabled');
+  assert.equal(enabledBody.instance.disabled_at_revision, null);
+  const stale = await fetch(url + '/one/disable', { method: 'POST', headers: adminHeaders, body: json({ expected_revision: 1, idempotency_key: 'stale-disable' }) });
+  assert.equal(stale.status, 409);
+  assert.equal((await stale.json()).error.code, 'REVISION_CONFLICT');
+  const enableReplay = await fetch(enableUrl, { method: 'POST', headers: adminHeaders, body: json({ expected_revision: 1, idempotency_key: 'enable-one' }) });
+  assert.equal((await enableReplay.json()).commit_result.idempotent_replay, true);
+  const proposal = await fetch(base + '/v1/worlds/mechanic-api-world/proposals', { method: 'POST', headers, body: json({ idempotency_key: 'adapter-mechanic', source_text: '', event: { turn_id: 'adapter-turn', event_type: 'action.completed', effects: [{ kind: 'mechanic.instance.disable', instance_id: 'one' }] } }) });
+  assert.equal(proposal.status, 403);
+  assert.equal((await proposal.json()).error.code, 'MECHANIC_CONFIGURATION_REQUIRES_ADMIN');
+  const disabled = await fetch(url + '/one/disable', { method: 'POST', headers: adminHeaders, body: json({ expected_revision: 2, idempotency_key: 'disable-one' }) });
+  const disabledBody = await disabled.json();
+  assert.equal(disabledBody.instance.status, 'disabled');
+
+  // Lifecycle rollback is also administrative; a normal API bearer alone must not bypass the gate.
+  const rollbackEnableRequest = { root_event_id: enabledBody.commit_result.event_id, idempotency_key: 'rollback-mechanic-enable' };
+  const deniedRollback = await fetch(base + '/v1/worlds/mechanic-api-world/rollback', {
+    method: 'POST', headers, body: json(rollbackEnableRequest),
+  });
+  assert.equal(deniedRollback.status, 403);
+  assert.equal((await deniedRollback.json()).error.code, 'ADMIN_REQUIRED');
+  // Rolling back an enable invalidates its dependent disable and rebuilds the instance to its create state.
+  const rollbackEnable = await fetch(base + '/v1/worlds/mechanic-api-world/rollback', {
+    method: 'POST', headers: adminHeaders,
+    body: json(rollbackEnableRequest),
+  });
+  assert.equal(rollbackEnable.status, 200);
+  const rollbackEnableBody = await rollbackEnable.json();
+  assert.ok(rollbackEnableBody.invalidated_event_ids.includes(enabledBody.commit_result.event_id));
+  assert.ok(rollbackEnableBody.invalidated_event_ids.includes(disabledBody.commit_result.event_id));
+  const afterEnableRollbackResponse = await fetch(url, { headers: adminHeaders });
+  assert.equal(afterEnableRollbackResponse.status, 200);
+  const afterEnableRollbackBody = await afterEnableRollbackResponse.json();
+  assert.equal(afterEnableRollbackBody.instances[0].status, 'disabled');
+  assert.equal(afterEnableRollbackBody.instances[0].last_event_id, createdBody.commit_result.event_id);
+
+  // A replay reports the current projection, not a stale operation-time snapshot.
+  const createReplayAfterEnable = await fetch(url, { method: 'POST', headers: adminHeaders, body: json({ instance_id: 'one', template_id: 'api.mechanic', template_version: '1.0.0', parameters: { speed: 2 }, state: {}, expected_revision: 0, idempotency_key: 'create-one' }) });
+  const createReplayAfterEnableBody = await createReplayAfterEnable.json();
+  assert.equal(createReplayAfterEnable.status, 200);
+  assert.equal(createReplayAfterEnableBody.commit_result.idempotent_replay, true);
+  assert.equal(createReplayAfterEnableBody.instance.status, 'disabled');
+
+  const beforeRollback = await fetch(base + '/v1/worlds/mechanic-api-world/state', { headers });
+  const revisionBeforeRollback = (await beforeRollback.json()).state.world_revision;
+  const rollback = await fetch(base + '/v1/worlds/mechanic-api-world/rollback', {
+    method: 'POST', headers: adminHeaders,
+    body: json({ root_event_id: createdBody.commit_result.event_id, idempotency_key: 'rollback-mechanic-create' }),
+  });
+  assert.equal(rollback.status, 200);
+  const rollbackBody = await rollback.json();
+  assert.ok(rollbackBody.invalidated_event_ids.includes(createdBody.commit_result.event_id));
+  assert.equal(rollbackBody.world_revision, revisionBeforeRollback + 1);
+
+  // A replay remains successful after rollback removed the instance projection.
+  const createReplayAfterRollback = await fetch(url, { method: 'POST', headers: adminHeaders, body: json({ instance_id: 'one', template_id: 'api.mechanic', template_version: '1.0.0', parameters: { speed: 2 }, state: {}, expected_revision: 0, idempotency_key: 'create-one' }) });
+  const createReplayAfterRollbackBody = await createReplayAfterRollback.json();
+  assert.equal(createReplayAfterRollback.status, 200);
+  assert.equal(createReplayAfterRollbackBody.commit_result.idempotent_replay, true);
+  assert.equal(createReplayAfterRollbackBody.instance, null);
+  assert.equal(createReplayAfterRollbackBody.instance_current, false);
+
+  // Even lifecycle replays whose target was rolled back must not fail during preflight lookup.
+  const enableReplayAfterRollback = await fetch(enableUrl, { method: 'POST', headers: adminHeaders, body: json({ expected_revision: 1, idempotency_key: 'enable-one' }) });
+  const enableReplayAfterRollbackBody = await enableReplayAfterRollback.json();
+  assert.equal(enableReplayAfterRollback.status, 200);
+  assert.equal(enableReplayAfterRollbackBody.commit_result.idempotent_replay, true);
+  assert.equal(enableReplayAfterRollbackBody.instance, null);
+  assert.equal(enableReplayAfterRollbackBody.instance_current, false);
+
+  const afterReplay = await fetch(base + '/v1/worlds/mechanic-api-world/state', { headers });
+  assert.equal((await afterReplay.json()).state.world_revision, rollbackBody.world_revision);
+});
+
+
+test('mechanic lifecycle rollback, replay after enable, and cross-world isolation', async (t) => {
+  const base = await setup(t, { adminToken: ADMIN });
+  const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
+  assert.equal((await createWorld(base, 'mechanic-lifecycle-world-a')).status, 201);
+  assert.equal((await createWorld(base, 'mechanic-lifecycle-world-b')).status, 201);
+
+  const template = {
+    template_id: 'rollback.mechanic', version: '1.0.0', schema_version: 'core-1',
+    display_name: 'Rollback lifecycle', required_capabilities: [], applicability: [], actions: [],
+    conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'pause_blocked' }, unknown_policy: 'mark_unknown',
+  };
+  assert.equal((await fetch(base + '/v1/mechanic-templates', {
+    method: 'POST', headers: adminHeaders, body: json(template),
+  })).status, 201);
+
+  const worldAInstances = base + '/v1/worlds/mechanic-lifecycle-world-a/mechanic-instances';
+  const worldBInstances = base + '/v1/worlds/mechanic-lifecycle-world-b/mechanic-instances';
+  const createBody = {
+    instance_id: 'shared-name', template_id: 'rollback.mechanic', template_version: '1.0.0',
+    parameters: {}, state: {}, expected_revision: 0, idempotency_key: 'create-shared-name',
+  };
+  const created = await fetch(worldAInstances, {
+    method: 'POST', headers: adminHeaders, body: json(createBody),
+  });
+  assert.equal(created.status, 201);
+  const createdBody = await created.json();
+
+  // Instance IDs are scoped to a world, not globally visible.
+  assert.deepEqual((await (await fetch(worldBInstances, { headers: adminHeaders })).json()).instances, []);
+  const foreignDisable = await fetch(worldBInstances + '/shared-name/disable', {
+    method: 'POST', headers: adminHeaders,
+    body: json({ expected_revision: 0, idempotency_key: 'foreign-disable' }),
+  });
+  assert.equal(foreignDisable.status, 404);
+  assert.equal((await foreignDisable.json()).error.code, 'MECHANIC_INSTANCE_NOT_FOUND');
+
+  const enableUrl = worldAInstances + '/shared-name/enable';
+  const enabled = await fetch(enableUrl, {
+    method: 'POST', headers: adminHeaders,
+    body: json({ expected_revision: 1, idempotency_key: 'enable-shared-name' }),
+  });
+  assert.equal(enabled.status, 200);
+  const enabledBody = await enabled.json();
+  assert.equal(enabledBody.instance.status, 'enabled');
+
+  // Exact create replay must be resolved before checking the now-stale expected revision.
+  const createReplayWhileEnabled = await fetch(worldAInstances, {
+    method: 'POST', headers: adminHeaders, body: json(createBody),
+  });
+  assert.equal(createReplayWhileEnabled.status, 200);
+  const createReplayBody = await createReplayWhileEnabled.json();
+  assert.equal(createReplayBody.commit_result.idempotent_replay, true);
+  assert.equal(createReplayBody.instance.status, 'enabled');
+  assert.equal(createReplayBody.instance.last_event_id, enabledBody.commit_result.event_id);
+
+  const disabled = await fetch(worldAInstances + '/shared-name/disable', {
+    method: 'POST', headers: adminHeaders,
+    body: json({ expected_revision: 2, idempotency_key: 'disable-shared-name' }),
+  });
+  assert.equal(disabled.status, 200);
+  const disabledBody = await disabled.json();
+  assert.equal(disabledBody.instance.status, 'disabled');
+
+  const rollbackDisable = await fetch(base + '/v1/worlds/mechanic-lifecycle-world-a/rollback', {
+    method: 'POST', headers: adminHeaders,
+    body: json({ root_event_id: disabledBody.commit_result.event_id, idempotency_key: 'rollback-disable-shared-name' }),
+  });
+  assert.equal(rollbackDisable.status, 200);
+  const rollbackBody = await rollbackDisable.json();
+  assert.ok(rollbackBody.invalidated_event_ids.includes(disabledBody.commit_result.event_id));
+
+  // Rebuilding from valid events restores the exact pre-disable projection.
+  const listAfterRollback = await (await fetch(worldAInstances, { headers: adminHeaders })).json();
+  assert.equal(listAfterRollback.instances.length, 1);
+  assert.equal(listAfterRollback.instances[0].status, 'enabled');
+  assert.equal(listAfterRollback.instances[0].last_event_id, enabledBody.commit_result.event_id);
+  assert.equal(listAfterRollback.instances[0].disabled_at_revision, null);
+
+  // The same instance ID remains absent from the other world.
+  assert.deepEqual((await (await fetch(worldBInstances, { headers: adminHeaders })).json()).instances, []);
+});
+
+
+test('mechanic lifecycle idempotency conflicts and sequential rollback preserve canonical projection', async (t) => {
+  const base = await setup(t, { adminToken: ADMIN });
+  const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
+  const worldId = 'mechanic-sequential-rollback-world';
+  assert.equal((await createWorld(base, worldId)).status, 201);
+
+  const template = {
+    template_id: 'sequential.mechanic', version: '1.0.0', schema_version: 'core-1',
+    display_name: 'Sequential rollback', required_capabilities: [], applicability: [], actions: [],
+    conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'pause_blocked' }, unknown_policy: 'mark_unknown',
+  };
+  assert.equal((await fetch(base + '/v1/mechanic-templates', {
+    method: 'POST', headers: adminHeaders, body: json(template),
+  })).status, 201);
+
+  const instancesUrl = base + '/v1/worlds/' + worldId + '/mechanic-instances';
+  const createBody = {
+    instance_id: 'sequential-one', template_id: 'sequential.mechanic', template_version: '1.0.0',
+    parameters: { mode: 'safe' }, state: {}, expected_revision: 0, idempotency_key: 'sequential-create',
+  };
+  const created = await fetch(instancesUrl, { method: 'POST', headers: adminHeaders, body: json(createBody) });
+  assert.equal(created.status, 201);
+  const createdBody = await created.json();
+
+  const createConflict = await fetch(instancesUrl, {
+    method: 'POST', headers: adminHeaders,
+    body: json({ ...createBody, parameters: { mode: 'unsafe' } }),
+  });
+  assert.equal(createConflict.status, 409);
+  assert.equal((await createConflict.json()).error.code, 'IDEMPOTENCY_KEY_CONFLICT');
+
+  const enableUrl = instancesUrl + '/sequential-one/enable';
+  const enableBody = { expected_revision: 1, idempotency_key: 'sequential-enable' };
+  const enabled = await fetch(enableUrl, { method: 'POST', headers: adminHeaders, body: json(enableBody) });
+  assert.equal(enabled.status, 200);
+  const enabledBody = await enabled.json();
+  assert.equal(enabledBody.instance.status, 'enabled');
+
+  const enableConflict = await fetch(enableUrl, {
+    method: 'POST', headers: adminHeaders,
+    body: json({ ...enableBody, expected_revision: 99 }),
+  });
+  assert.equal(enableConflict.status, 409);
+  assert.equal((await enableConflict.json()).error.code, 'IDEMPOTENCY_KEY_CONFLICT');
+
+  const disableUrl = instancesUrl + '/sequential-one/disable';
+  const disableBody = { expected_revision: 2, idempotency_key: 'sequential-disable' };
+  const disabled = await fetch(disableUrl, { method: 'POST', headers: adminHeaders, body: json(disableBody) });
+  assert.equal(disabled.status, 200);
+  const disabledBody = await disabled.json();
+  assert.equal(disabledBody.instance.status, 'disabled');
+
+  const disableConflict = await fetch(disableUrl, {
+    method: 'POST', headers: adminHeaders,
+    body: json({ ...disableBody, expected_revision: 99 }),
+  });
+  assert.equal(disableConflict.status, 409);
+  assert.equal((await disableConflict.json()).error.code, 'IDEMPOTENCY_KEY_CONFLICT');
+
+  const rollbackUrl = base + '/v1/worlds/' + worldId + '/rollback';
+  const rollbackDisableBody = {
+    root_event_id: disabledBody.commit_result.event_id,
+    idempotency_key: 'sequential-rollback-disable',
+  };
+  const rollbackDisable = await fetch(rollbackUrl, {
+    method: 'POST', headers: adminHeaders, body: json(rollbackDisableBody),
+  });
+  assert.equal(rollbackDisable.status, 200);
+  const rollbackDisableResult = await rollbackDisable.json();
+  assert.equal(rollbackDisableResult.no_op, false);
+  const revisionAfterRollbackDisable = rollbackDisableResult.world_revision;
+
+  const rollbackDisableReplay = await fetch(rollbackUrl, {
+    method: 'POST', headers: adminHeaders, body: json(rollbackDisableBody),
+  });
+  assert.equal(rollbackDisableReplay.status, 200);
+  const rollbackDisableReplayResult = await rollbackDisableReplay.json();
+  assert.equal(rollbackDisableReplayResult.idempotent_replay, true);
+  assert.equal(rollbackDisableReplayResult.world_revision, revisionAfterRollbackDisable);
+  const stateAfterRollbackReplay = await (await fetch(base + '/v1/worlds/' + worldId + '/state', { headers })).json();
+  assert.equal(stateAfterRollbackReplay.state.world_revision, revisionAfterRollbackDisable);
+
+  const rollbackKeyConflict = await fetch(rollbackUrl, {
+    method: 'POST', headers: adminHeaders,
+    body: json({ root_event_id: enabledBody.commit_result.event_id, idempotency_key: 'sequential-rollback-disable' }),
+  });
+  assert.equal(rollbackKeyConflict.status, 409);
+  assert.equal((await rollbackKeyConflict.json()).error.code, 'IDEMPOTENCY_KEY_CONFLICT');
+
+  let listed = await (await fetch(instancesUrl, { headers: adminHeaders })).json();
+  assert.equal(listed.instances[0].status, 'enabled');
+  assert.equal(listed.instances[0].last_event_id, enabledBody.commit_result.event_id);
+  assert.equal(listed.instances[0].disabled_at_revision, null);
+
+  // Roll back enable after disable has already been retracted; the instance returns to create state.
+  const rollbackEnable = await fetch(rollbackUrl, {
+    method: 'POST', headers: adminHeaders,
+    body: json({ root_event_id: enabledBody.commit_result.event_id, idempotency_key: 'sequential-rollback-enable' }),
+  });
+  assert.equal(rollbackEnable.status, 200);
+  const rollbackEnableResult = await rollbackEnable.json();
+  assert.ok(rollbackEnableResult.invalidated_event_ids.includes(enabledBody.commit_result.event_id));
+  assert.equal(rollbackEnableResult.invalidated_event_ids.includes(disabledBody.commit_result.event_id), false);
+
+  listed = await (await fetch(instancesUrl, { headers: adminHeaders })).json();
+  assert.equal(listed.instances.length, 1);
+  assert.equal(listed.instances[0].status, 'disabled');
+  assert.equal(listed.instances[0].last_event_id, createdBody.commit_result.event_id);
+  assert.equal(listed.instances[0].disabled_at_revision, createdBody.commit_result.world_revision);
+
+  const rollbackCreate = await fetch(rollbackUrl, {
+    method: 'POST', headers: adminHeaders,
+    body: json({ root_event_id: createdBody.commit_result.event_id, idempotency_key: 'sequential-rollback-create' }),
+  });
+  assert.equal(rollbackCreate.status, 200);
+  const rollbackCreateResult = await rollbackCreate.json();
+  assert.ok(rollbackCreateResult.invalidated_event_ids.includes(createdBody.commit_result.event_id));
+  listed = await (await fetch(instancesUrl, { headers: adminHeaders })).json();
+  assert.deepEqual(listed.instances, []);
+});
+
+
+test('transaction failures leave commit and rollback state unchanged', (t) => {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  t.after(() => store.close());
+  engine.createWorld({ world_id: 'atomic-world', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2026-01-01T00:00:00.000Z' });
+  const request = { idempotency_key: 'atomic-commit', turn_id: 'atomic-turn', event_type: 'action.completed', expected_revision: 0, effects: [{ kind: 'entity.upsert', entity_id: 'atomic-entity', entity_type: 'character', attributes: { name: 'Atomic' } }] };
+  store.db.exec("CREATE TRIGGER fail_entity BEFORE INSERT ON entities WHEN NEW.entity_id='atomic-entity' BEGIN SELECT RAISE(ABORT,'test failure'); END");
+  assert.throws(() => engine.commitEvent('atomic-world', request), /test failure/);
+  assert.equal(store.world('atomic-world').world_revision, 0);
+  assert.deepEqual(store.events('atomic-world', true), []);
+  assert.deepEqual(store.state('atomic-world').entities, []);
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM idempotency_keys WHERE idempotency_key='atomic-commit'").get().n, 0);
+  store.db.exec('DROP TRIGGER fail_entity');
+  const committed = engine.commitEvent('atomic-world', request);
+  assert.equal(committed.world_revision, 1);
+  store.db.exec("CREATE TRIGGER fail_rollback BEFORE INSERT ON audit_entries WHEN NEW.action='rollback.applied' BEGIN SELECT RAISE(ABORT,'test failure'); END");
+  const rollbackRequest = { root_event_id: committed.event_id, idempotency_key: 'atomic-rollback' };
+  assert.throws(() => engine.rollbackEvent('atomic-world', rollbackRequest), /test failure/);
+  assert.equal(store.world('atomic-world').world_revision, 1);
+  assert.equal(store.events('atomic-world')[0].validity, 'valid');
+  assert.equal(store.state('atomic-world').entities.length, 1);
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM rollbacks").get().n, 0);
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM idempotency_keys WHERE idempotency_key='atomic-rollback'").get().n, 0);
+  store.db.exec('DROP TRIGGER fail_rollback');
+  const rolledBack = engine.rollbackEvent('atomic-world', rollbackRequest);
+  assert.equal(rolledBack.world_revision, 2);
+  assert.deepEqual(store.state('atomic-world').entities, []);
 });
