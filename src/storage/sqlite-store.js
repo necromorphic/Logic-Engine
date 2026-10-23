@@ -11,13 +11,20 @@ const dec = (x) => x == null ? null : JSON.parse(x);
 const refs = (effects) => effects.map((e) => e.kind.startsWith('entity.') ? 'entity:' + e.entity_id : 'fact:' + e.fact_id);
 const applyEntityEffects = (entities, effects) => {
   for (const effect of effects) {
-    if (effect.kind === 'entity.upsert') {
+    if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
       entities.set(effect.entity_id, {
         entity_id: effect.entity_id,
         entity_type: effect.entity_type,
         status: effect.status || 'active',
         attributes: effect.attributes || {},
       });
+    } else if (effect.kind === 'entity.update') {
+      const current = entities.get(effect.entity_id);
+      if (current) {
+        const attributes = { ...current.attributes, ...(effect.attributes || {}) };
+        for (const key of effect.remove_attributes || []) delete attributes[key];
+        entities.set(effect.entity_id, { ...current, status: effect.status ?? current.status, attributes });
+      }
     } else if (effect.kind === 'entity.delete') {
       entities.set(effect.entity_id, {
         entity_id: effect.entity_id,
@@ -629,6 +636,29 @@ export class SQLiteStore {
       }
       const revision = w.world_revision + 1;
       this.validateCausalMetadata(id, x, revision);
+      const currentEntities = this.currentEntityProjection(id);
+      const entityEffectIds = new Set();
+      for (const effect of x.effects) {
+        if (!effect.kind.startsWith('entity.')) continue;
+        if (entityEffectIds.has(effect.entity_id)) {
+          throw new EngineError('DUPLICATE_ENTITY_EFFECT', 'An event may contain at most one effect for a given entity_id.', 400, { entity_id: effect.entity_id });
+        }
+        entityEffectIds.add(effect.entity_id);
+        const current = currentEntities.get(effect.entity_id);
+        if (effect.kind === 'entity.create' && current) {
+          throw new EngineError('ENTITY_ALREADY_EXISTS', 'entity.create cannot reuse an existing entity identity, including a destroyed tombstone.', 409, { entity_id: effect.entity_id });
+        }
+        if (effect.kind === 'entity.update') {
+          if (!current || current.status === 'destroyed') {
+            throw new EngineError('ENTITY_NOT_UPDATABLE', 'entity.update requires an existing non-destroyed entity.', 409, { entity_id: effect.entity_id });
+          }
+          const hasExistencePrecondition = (x.causal_links ?? []).some((link) => link.relation === 'REQUIRES'
+            && link.predicate.kind === 'entity_exists' && link.predicate.entity_id === effect.entity_id);
+          if (!hasExistencePrecondition) {
+            throw new EngineError('ENTITY_UPDATE_PRECONDITION_REQUIRED', 'entity.update requires an explicit REQUIRES(entity_exists) precondition.', 400, { entity_id: effect.entity_id });
+          }
+        }
+      }
       const commitSequence = this.db.prepare('SELECT COALESCE(MAX(commit_sequence),0)+1 AS next FROM world_events WHERE world_id=?').get(id).next;
       const time = new Date(Date.parse(w.game_time) + x.time_advance_seconds * 1000).toISOString();
       const createdAt = now();
@@ -789,8 +819,17 @@ export class SQLiteStore {
     const insertClaim = this.db.prepare('INSERT INTO fact_claims(world_id,fact_id,event_id,subject_ref,predicate,value_json,committed_revision) VALUES(?,?,?,?,?,?,?)');
     for (const event of events) {
       for (const effect of dec(event.effects_json)) {
-        if (effect.kind === 'entity.upsert') {
+        if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
           upsertEntity.run(id, effect.entity_id, effect.entity_type, effect.status || 'active', enc(effect.attributes || {}), event.event_id, event.committed_revision);
+        } else if (effect.kind === 'entity.update') {
+          const current = this.db.prepare('SELECT entity_type,status,attributes_json,created_by_event_id FROM entities WHERE world_id=? AND entity_id=?').get(id, effect.entity_id);
+          if (current) {
+            const attributes = dec(current.attributes_json);
+            Object.assign(attributes, effect.attributes || {});
+            for (const key of effect.remove_attributes || []) delete attributes[key];
+            this.db.prepare('UPDATE entities SET status=?,attributes_json=?,updated_revision=? WHERE world_id=? AND entity_id=?')
+              .run(effect.status ?? current.status, enc(attributes), event.committed_revision, id, effect.entity_id);
+          }
         } else if (effect.kind === 'entity.delete') {
           upsertEntity.run(id, effect.entity_id, 'unknown', 'destroyed', '{}', event.event_id, event.committed_revision);
         } else if (effect.kind === 'fact.set') {
