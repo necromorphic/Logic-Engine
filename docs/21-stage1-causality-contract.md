@@ -30,13 +30,27 @@ A destroyed entity can remain in the projection as a historical identity. Its ex
 
 References to existing entity/fact identities that the caller claims materially influenced the event. The runtime checks reference shape and current-world existence. It does not receive a complete context manifest and therefore cannot verify whether this list is complete or whether every listed record materially changed the decision.
 
+### `causal_links[]`
+
+The runtime now accepts an additive, typed subset of causal relationships while retaining the legacy fields above for backward compatibility. Each item is `{ relation, target_id }`; duplicate relation/target pairs are rejected, and links are normalized before request hashing.
+
+Supported relations in this increment:
+- `CAUSES`: target is a prior valid event; rollback invalidates the linked event when the target is invalidated.
+- `READS_SOURCE`: target is a prior valid event used as a source; rollback invalidates the reader when that source is invalidated.
+- `READS_ENTITY`: target is an entity identity in this world; rollback invalidates the reader when an invalidated event changes/removes that entity's canonical projection.
+- `READS_CLAIM`: target is a fact/claim identity with at least one current valid source in this world; rollback invalidates the reader when the claim loses support through invalidation of its source event(s).
+
+Unknown relationship types are rejected with HTTP 400 before a committed event or successful idempotency result is written. Corrected input may retry the same key because pre-commit validation did not consume it. The model cannot use these links to activate mechanics or bypass engine validation.
+
+This is intentionally a partial graph contract: it does not yet implement historical `REQUIRES` predicates, manifests/basis verification, negative reads, `PRODUCES`/evidence/conflict edges, `commit_sequence`, or proof of causal completeness. `READS_ENTITY` and `READS_CLAIM` currently identify projection identities, not versioned historical values. The engine continues to report only declared-metadata rollback semantics.
+
 ### Effects and projection rebuild
 
 The current projection is rebuilt from valid events. This restores entity/fact projections after event invalidation and retains independent claims. Conflicting valid claims are marked `conflicted`; the runtime does not yet implement a general source-priority or epistemic-confidence policy.
 
 ## 3. Rollback guarantees and limits
 
-The current rollback algorithm repeatedly traverses declared `caused_by`, `depends_on`, and `read_set` links, together with records touched by invalidated effects, until no additional event is reached. A causal-diamond acceptance test verifies that both branches and their join are invalidated when they depend on the removed root, while a truly independent later branch survives.
+The current rollback algorithm repeatedly traverses declared `caused_by`, `depends_on`, `read_set`, and supported `causal_links` relationships, together with records touched by invalidated effects, until no additional event is reached. A causal-diamond acceptance test verifies that both branches and their join are invalidated when they depend on the removed root, while a truly independent later branch survives.
 
 This is deterministic for well-formed declared metadata, but it cannot guarantee correct classification when caller-supplied metadata omits a real dependency. A graph traversal algorithm cannot recover edges that were never recorded.
 
@@ -94,6 +108,8 @@ Current runtime tests should verify:
 - removing one of two identical fact claims leaves the other claim active;
 - removing one of two conflicting claims leaves the surviving claim as canonical;
 - cross-world entity/fact references are rejected;
+- typed `READS_SOURCE` and `READS_CLAIM` links invalidate dependent events when their source/claim support is removed;
+- unsupported typed relationships are rejected before consuming an idempotency key;
 - oversized HTTP request bodies receive `413 BODY_TOO_LARGE`;
 - legacy idempotency rows without request hashes fail closed rather than fabricating request identity.
 
