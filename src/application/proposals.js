@@ -152,7 +152,7 @@ export class ProposalService {
     return {
       proposal_id: row.proposal_id, world_id: row.world_id, status: row.status,
       proposal_hash: row.proposal_hash, base_world_revision: row.base_world_revision,
-      base_commit_sequence: row.base_commit_sequence, source_text: row.source_text,
+      base_commit_sequence: row.base_commit_sequence, source_text: row.source_text, event: dec(row.event_payload_json),
       created_at: row.created_at, approved_at: row.approved_at, committed_at: row.committed_at,
       idempotent_replay: replay,
     };
