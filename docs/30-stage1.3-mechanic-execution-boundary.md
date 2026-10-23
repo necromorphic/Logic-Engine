@@ -134,13 +134,25 @@ Implement contract tests before connecting a World Pack or SillyTavern adapter:
 - **MECH-EVAL-016:** a repeated request with the same evaluation identity is stable and cannot duplicate canonical effects.
 - **MECH-EVAL-017:** missing/incomplete provenance is not upgraded to complete merely because a model supplies a rationale.
 - **MECH-EVAL-018:** evaluation fingerprints change when any relevant snapshot, rule, module, or policy version changes.
+- **MECH-EVAL-019:** schema, mechanic-contract validator, and runtime evaluator expose the same supported-operator matrix; a schema-valid but unsupported operator cannot be registered as executable.
+- **MECH-EVAL-020:** missing or inaccessible context produces `unknown` unless the snapshot proves that the field is genuinely absent; it is not silently coerced to `false`.
 
 Test profiles should include (a) no body/money/faction fields, (b) a fictional-rule profile, and (c) a distributed/digital profile. Use synthetic contract fixtures only; do not add genre-specific mechanics or a demonstration World Pack.
 
-## 9. Implementation order and exit gate
+## 9. Current code audit and implementation order
 
-1. Review this contract against the current `src/core/mechanics.js`, engine application service, store effects, schemas, and existing tests.
-2. Resolve discrepancies between supported declarative operators, effect kinds, and the result contract before writing execution code.
+The initial code audit found a concrete contract mismatch that must be resolved before mechanic execution is connected:
+
+- `src/core/mechanics.js` validates a rule-operator set that includes `contains`, `status_is`, `ref_exists`, `time_before`, `time_after`, and `needs_review` in addition to the basic comparisons and boolean combinators.
+- `src/core/rules.js` currently evaluates only `eq`, `neq`, `exists`, `gt`, `gte`, `lt`, `lte`, `in`, `all`, `any`, and `not`. The wider validator allowlist is therefore not equivalent to executable evaluator support.
+- `evaluateCondition` returns a boolean and treats a missing path as `false` (except for `exists`). It does not currently express a tri-state `true` / `false` / `unknown` result. Mechanic evaluation must not interpret missing required context as a proven false predicate or as proof that a rule is inapplicable. Add context-completeness preflight or a tri-state evaluation contract before using this evaluator for mechanics.
+- The declarative schema, runtime contract validator, and evaluator must share a tested support matrix. A schema-valid rule is not necessarily executable by the current runtime.
+
+Implementation order:
+
+1. Reconcile `src/core/mechanics.js`, `src/core/rules.js`, `schemas/declarative-rule.schema.json`, effect kinds, and existing tests into one explicit operator/effect support matrix.
+2. Decide and test missing-path semantics: distinguish a known absent field from context that was not retrieved or is not authorized. Return `unknown` when the engine cannot prove the predicate either way.
+3. Resolve discrepancies between supported declarative operators, effect kinds, and the result contract before writing execution code.
 3. Implement pure/read-only evaluation and result validation.
 4. Add the acceptance tests above, including failure injection and cross-world isolation.
 5. Connect validated results to the existing proposal API without introducing a second commit path.
