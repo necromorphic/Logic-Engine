@@ -3,7 +3,8 @@ import { EngineError } from './errors.js';
 const obj = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$/;
 const versionPattern = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/;
-const capabilityPattern = /^[a-z][a-z0-9_.-]{0,63}$/;\nconst typeIdPattern = /^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/;
+const capabilityPattern = /^[a-z][a-z0-9_.-]{0,63}$/;
+const typeIdPattern = /^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/;
 const ruleOps = new Set([
   'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'contains', 'exists',
   'all', 'any', 'not', 'ref_exists', 'status_is', 'time_before', 'time_after', 'needs_review',
