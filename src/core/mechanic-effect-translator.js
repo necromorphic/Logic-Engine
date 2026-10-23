@@ -96,7 +96,7 @@ function translateOne(effect, index) {
   }
   text(effect.effect_id, label + '.effect_id', 128);
   const kind = text(effect.kind, label + '.kind', 128);
-  const targetRef = text(effect.target_ref, label + '.target_ref', 256);
+  const targetRef = text(effect.target_ref, label + '.target_ref', MAX_ID);
 
   if (!KNOWN_INTENTS.has(kind)) {
     fail('INVALID_MECHANIC_EFFECT_INTENT', label + '.kind is not a declared mechanic intent kind.');
@@ -133,6 +133,11 @@ function translateOne(effect, index) {
     const hasStatus = Object.hasOwn(payload, 'status');
     if (!hasAttributes && !hasRemovals && !hasStatus) {
       fail('INVALID_MECHANIC_EFFECT_INTENT', label + '.payload must contain attributes, remove_attributes, or status.');
+    }
+    if (!hasStatus
+      && (!hasAttributes || Object.keys(payload.attributes ?? {}).length === 0)
+      && (!hasRemovals || (Array.isArray(payload.remove_attributes) && payload.remove_attributes.length === 0))) {
+      fail('INVALID_MECHANIC_EFFECT_INTENT', label + '.payload must not be an empty update patch.');
     }
     translated = { kind: 'entity.update', entity_id: targetRef };
     if (hasAttributes) {
