@@ -687,7 +687,7 @@ export class SQLiteStore {
             || (event.causal_links ?? []).some((link) => {
               if (link.relation === 'READS_SOURCE') return invalid.has(link.target_id);
               if (link.relation === 'READS_ENTITY') return affected.has('entity:' + link.target_id);
-              if (link.relation === 'READS_CLAIM') return affected.has('fact:' + link.target_id) && !all.some((sourceEvent) => sourceEvent.validity === 'valid' && sourceEvent.event_id !== event.event_id && !invalid.has(sourceEvent.event_id) && sourceEvent.effects.some((effect) => effect.kind === 'fact.set' && effect.fact_id === link.target_id));
+              if (link.relation === 'READS_CLAIM') return affected.has('fact:' + link.target_id) && !all.some((sourceEvent) => sourceEvent.validity === 'valid' && sourceEvent.commit_sequence < event.commit_sequence && !invalid.has(sourceEvent.event_id) && sourceEvent.effects.some((effect) => effect.kind === 'fact.set' && effect.fact_id === link.target_id));
               if (link.relation === 'REQUIRES') {
                 const entities = this.entityProjectionAtCursor(id, event.commit_sequence, invalid);
                 const facts = this.factProjectionAtCursor(id, event.commit_sequence, invalid);
