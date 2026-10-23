@@ -1,0 +1,86 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logic-engine.invalid/schemas/rollback-plan.schema.json",
+  "title": "Rollback Plan",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "rollback_id",
+    "world_id",
+    "target",
+    "base_revision",
+    "root_event_ids",
+    "classifications",
+    "status"
+  ],
+  "properties": {
+    "rollback_id": {"type": "string", "minLength": 1},
+    "world_id": {"type": "string", "minLength": 1},
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["turn_id"],
+      "properties": {
+        "turn_id": {"type": "string", "minLength": 1},
+        "generation_id": {"type": ["string", "null"]},
+        "source_message_id": {"type": ["string", "null"]}
+      }
+    },
+    "base_revision": {"type": "integer", "minimum": 0},
+    "root_event_ids": {
+      "type": "array",
+      "uniqueItems": true,
+      "items": {"type": "string", "minLength": 1}
+    },
+    "affected_record_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["record_type", "record_id", "classification", "reason"],
+        "properties": {
+          "record_type": {"type": "string", "minLength": 1},
+          "record_id": {"type": "string", "minLength": 1},
+          "classification": {
+            "enum": ["invalidate", "preserve", "recompute", "conflict", "review"]
+          },
+          "reason": {"type": "string", "minLength": 1, "maxLength": 2000},
+          "valid_source_refs": {
+            "type": "array",
+            "items": {"type": "string"}
+          }
+        }
+      }
+    },
+    "classifications": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["invalidate", "preserve", "recompute", "conflict", "review"],
+      "properties": {
+        "invalidate": {"type": "array", "items": {"type": "string"}},
+        "preserve": {"type": "array", "items": {"type": "string"}},
+        "recompute": {"type": "array", "items": {"type": "string"}},
+        "conflict": {"type": "array", "items": {"type": "string"}},
+        "review": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["conflict_id", "description", "involved_refs"],
+        "properties": {
+          "conflict_id": {"type": "string"},
+          "description": {"type": "string"},
+          "involved_refs": {"type": "array", "items": {"type": "string"}},
+          "suggested_resolution": {"type": "string"}
+        }
+      }
+    },
+    "status": {
+      "enum": ["planned", "validated", "committed", "needs_review", "rejected"]
+    },
+    "result_revision": {"type": ["integer", "null"], "minimum": 0}
+  }
+}
