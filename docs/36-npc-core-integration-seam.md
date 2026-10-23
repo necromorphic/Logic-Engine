@@ -173,3 +173,16 @@ Do not answer these by adding a second event store, knowledge store, revision co
 - Any canonical document creation, registration, discovery, or exposure must use the existing approved core event/validation path. The social identity proposal adds no new event, knowledge, permission, or rollback subsystem.
 
 No editor, API, schema, SQLite, runtime, or test implementation is authorized by this documentation addition.
+
+
+## 10. Core-owner knowledge decision and next integration boundary — 2026-10-24
+
+The core owner has confirmed the semantic ownership split recorded in `docs/39-npc-core-knowledge-contract-proposal.md`:
+
+- The core owns authoritative acquisition/provenance, delivery-attempt/receipt status, source-validity reconciliation, and persistent subject-relative belief state.
+- Canonical truth, acquisition history, and current belief are distinct. Context inclusion or retrieval does not prove acquisition, delivery, comprehension, or belief.
+- The first vertical slice is limited to explicitly authorized author-initial/imported initial knowledge, marked as authored/imported rather than in-world discovery.
+- Reuse existing world/entity/event/fact identifiers and the existing snapshot pair `(world_revision, commit_sequence)`; do not add parallel identity, revision, event-log, causal-graph, or rollback mechanisms.
+- Host injection without a verified rendering signal remains `injected_unconfirmed`; `shown` is unsupported until an actual host signal is identified.
+
+The remaining design task is to identify the exact internal core-owned actor/purpose/snapshot-scoped read/filter interface, how authorized initial knowledge is represented at a real production boundary, and which tests can exercise that boundary. The current context-manifest registration remains only a reference manifest; it is not this query interface. No public endpoint or runtime/schema/storage change is authorized by the semantic decision alone.
