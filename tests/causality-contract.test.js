@@ -93,6 +93,59 @@ test('rollback of an entity creator invalidates a later explicit update that req
   assert.equal(state.entities.some((item) => item.entity_id === 'guard'), false);
 });
 
+
+test('duplicate entity.create is atomic and a corrected retry can reuse the idempotency key', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.commitEvent('causality-world', command({
+    event_id: 'initial-entity-create', idempotency_key: 'initial-entity-create',
+    effects: [{ kind: 'entity.create', entity_id: 'guard', entity_type: 'character', attributes: { role: 'guard' } }],
+  }));
+
+  assert.throws(() => engine.commitEvent('causality-world', command({
+    idempotency_key: 'duplicate-create-key', turn_id: 'duplicate-create', expected_revision: 1,
+    effects: [{ kind: 'entity.create', entity_id: 'guard', entity_type: 'character', attributes: { role: 'impostor' } }],
+  })), (error) => error.code === 'ENTITY_ALREADY_EXISTS' && error.status === 409);
+
+  const afterRejection = engine.getState('causality-world');
+  assert.equal(afterRejection.world_revision, 1);
+  assert.deepEqual(afterRejection.entities[0].attributes, { role: 'guard' });
+  assert.equal(engine.getEvents('causality-world', true).length, 1);
+
+  const corrected = engine.commitEvent('causality-world', command({
+    event_id: 'corrected-entity-create', idempotency_key: 'duplicate-create-key',
+    turn_id: 'corrected-create', expected_revision: 1,
+    effects: [{ kind: 'entity.create', entity_id: 'witness', entity_type: 'character' }],
+  }));
+  assert.equal(corrected.accepted, true);
+  assert.equal(engine.getState('causality-world').world_revision, 2);
+  assert.equal(engine.getState('causality-world').entities.length, 2);
+});
+
+test('rolling back entity.update restores the exact prior canonical attributes', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.commitEvent('causality-world', command({
+    event_id: 'entity-before-update', idempotency_key: 'entity-before-update',
+    effects: [{ kind: 'entity.create', entity_id: 'guard', entity_type: 'character', attributes: { role: 'guard', district: 'west' } }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'entity-update-to-rollback', idempotency_key: 'entity-update-to-rollback',
+    turn_id: 'entity-update-to-rollback', expected_revision: 1,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'guard' } }],
+    effects: [{ kind: 'entity.update', entity_id: 'guard', attributes: { role: 'captain', badge: true }, remove_attributes: ['district'] }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'entity-update-to-rollback', idempotency_key: 'rollback-entity-update',
+  });
+  const entity = engine.getState('causality-world').entities.find((item) => item.entity_id === 'guard');
+  assert.deepEqual(new Set(rollback.invalidated_event_ids), new Set(['entity-update-to-rollback']));
+  assert.deepEqual(entity.attributes, { role: 'guard', district: 'west' });
+  assert.equal(entity.created_by_event_id, 'entity-before-update');
+  assert.equal(engine.getState('causality-world').world_revision, 3);
+});
+
 test('rollback follows declared entity dependencies but preserves independent later events', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
