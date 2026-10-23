@@ -118,7 +118,15 @@ Per-event diagnostics must use a separate classification/reason field rather tha
 
 `causal_completeness = unknown` is a system-wide Stage 1 limitation. It does not, by itself, force every rollback to be `requires_review`; otherwise `resolved` would have no useful meaning. A review reason should identify a concrete unresolved case, such as an unbound manifest, ambiguous legacy predicate, unresolved source conflict, or deferred invariant. A system that cannot determine whether a particular event is affected should not silently label that event definitively valid or invalid.
 
-### 5.1 Deferred `MAINTAINS`
+### 5.1 Conservative runtime behavior for unresolved rollback predicates
+
+The runtime returns structured `requires_review_items` when a valid event's historical `REQUIRES` predicate evaluates to `unknown` and the predicate's target projection is affected by the proposed rollback. Each item includes `event_id`, `reason_code` (`historical_predicate_unknown`), `pre_rollback_status`, the predicate, its tri-state evaluation, and the affected projection reference.
+
+For this case, the runtime applies **no semantic rollback changes**: the root and candidate events retain their statuses, projections and `world_revision` remain unchanged, and no canonical-state rollback audit row is written. The diagnostic response is saved with the idempotency key so an identical retry returns the same review result. `proposed_invalidated_event_ids` reports the candidate set without claiming those events were invalidated. The caller can retry with a new idempotency key after the underlying ambiguity is corrected.
+
+Unknown predicates whose target projections are unrelated to the rollback do not block it. This is a conservative Stage 1 boundary, not a general partial-rollback algorithm: the runtime does not yet compute a dependency-closed partial subset. The ordinary commit path rejects unknown `REQUIRES` predicates, so runtime review tests construct explicitly marked legacy/inconsistent event metadata to exercise this defensive path. Do not interpret those fixtures as normal API-reachable histories.
+
+### 5.2 Deferred `MAINTAINS`
 
 Stage 1 does not accept `MAINTAINS` as a supported causal relationship. The API contract must reject an unsupported relationship rather than silently commit it as though its invariant had been enforced. If a future authoring/analysis layer needs to preserve such a proposal, it may store it as a non-executable review item outside the committed causal contract. It must not be represented as an enforced relationship on a committed event.
 
