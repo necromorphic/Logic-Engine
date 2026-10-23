@@ -36,7 +36,7 @@ export class SQLiteStore {
         generation_id TEXT, event_type TEXT NOT NULL, game_time TEXT NOT NULL, committed_revision INTEGER NOT NULL,
         validity TEXT NOT NULL CHECK(validity IN ('valid','retracted','invalidated')),
         caused_by_json TEXT NOT NULL, depends_on_json TEXT NOT NULL, read_set_json TEXT NOT NULL,
-        effects_json TEXT NOT NULL, time_advance_seconds INTEGER NOT NULL DEFAULT 0, source_message_id TEXT,
+        causal_links_json TEXT NOT NULL DEFAULT '[]', effects_json TEXT NOT NULL, time_advance_seconds INTEGER NOT NULL DEFAULT 0, source_message_id TEXT,
         created_at TEXT NOT NULL, rollback_id TEXT
       );
       CREATE INDEX IF NOT EXISTS events_revision ON world_events(world_id,committed_revision);
@@ -85,6 +85,15 @@ export class SQLiteStore {
           const columns = this.db.prepare('PRAGMA table_info(idempotency_keys)').all();
           if (!columns.some((column) => column.name === 'request_hash')) {
             this.db.exec('ALTER TABLE idempotency_keys ADD COLUMN request_hash TEXT');
+          }
+        },
+      },
+      {
+        version: 2,
+        apply: () => {
+          const columns = this.db.prepare('PRAGMA table_info(world_events)').all();
+          if (!columns.some((column) => column.name === 'causal_links_json')) {
+            this.db.exec("ALTER TABLE world_events ADD COLUMN causal_links_json TEXT NOT NULL DEFAULT '[]'");
           }
         },
       },
@@ -155,7 +164,7 @@ export class SQLiteStore {
       event_id: r.event_id, turn_id: r.turn_id, generation_id: r.generation_id, event_type: r.event_type,
       game_time: r.game_time, committed_revision: r.committed_revision, validity: r.validity,
       caused_by: dec(r.caused_by_json), depends_on: dec(r.depends_on_json), read_set: dec(r.read_set_json),
-      effects: dec(r.effects_json), time_advance_seconds: r.time_advance_seconds,
+      causal_links: dec(r.causal_links_json ?? '[]'), effects: dec(r.effects_json), time_advance_seconds: r.time_advance_seconds,
       source_message_id: r.source_message_id, created_at: r.created_at, rollback_id: r.rollback_id,
     }));
   }
