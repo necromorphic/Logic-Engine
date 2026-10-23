@@ -31,7 +31,7 @@ Set `ENGINE_API_TOKEN`, `ENGINE_APPROVAL_TOKEN`, and `ENGINE_INTERNAL_TOKEN` to 
 - Source text is retained for audit only. There is no semantic judge proving that effects match the source text.
 - Existing context-manifest checks validate declared reads against the manifest but do not prove causal completeness.
 - No protected-field/player-agency policy, general actor authorization, or generation registry is implemented. The adapter must call `cancel` when it authoritatively detects a cancelled or superseded generation; a forged or omitted cancellation signal cannot be detected by this service alone.
-- Canonical event commit and proposal status/audit update are two transactions. The canonical event is idempotent under a server-generated proposal key, so retry after a process interruption can recover the committed result, but this is not a single atomic transaction across both records. A later hardening step should move proposal finalization into the same storage transaction as canonical commit.
+- Canonical event commit, proposal status transition, and proposal commit audit are enclosed in one SQLite transaction. The storage transaction helper uses nested savepoints so the existing event commit logic can be reused without opening an independent transaction. A failure in proposal finalization rolls back the canonical event as well.
 - The direct internal route still requires the regular API token plus the distinct internal token. Its intended use is trusted server-side maintenance/adapters only.
 
 ## Acceptance coverage
