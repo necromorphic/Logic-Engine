@@ -208,6 +208,69 @@ test('proposal server-owned fields are rejected and cancelled proposals cannot c
   assert.equal(commit.status, 409);
 });
 
+test('internal commit replay is idempotent, approval is adapter-independent, and world scope is enforced', async (t) => {
+  const base = await setup(t, { approvalToken: APPROVAL, internalToken: INTERNAL });
+  assert.equal((await createWorld(base, 'internal-route-world')).status, 201);
+  assert.equal((await createWorld(base, 'internal-route-other-world')).status, 201);
+
+  const createProposal = async (worldId, key) => {
+    const response = await fetch(base + '/v1/worlds/' + worldId + '/proposals', {
+      method: 'POST', headers,
+      body: json({ idempotency_key: key, source_text: 'A harmless action.', event: { turn_id: key, event_type: 'action.completed', effects: [] } }),
+    });
+    assert.equal(response.status, 201);
+    return (await response.json()).proposal;
+  };
+  const approveAsOtherAdapter = async (worldId, proposalId) => fetch(base + '/v1/worlds/' + worldId + '/proposals/' + proposalId + '/approve', {
+    method: 'POST',
+    headers: { ...headers, 'x-adapter-id': 'adapter-b', 'x-adapter-token': ADAPTER_B, 'x-approval-token': APPROVAL },
+    body: '{}',
+  });
+
+  const proposal = await createProposal('internal-route-world', 'internal-route-idempotency');
+  const approved = await approveAsOtherAdapter('internal-route-world', proposal.proposal_id);
+  assert.equal(approved.status, 200);
+  assert.equal((await approved.json()).proposal.status, 'approved');
+
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  const firstCommit = await fetch(base + '/v1/worlds/internal-route-world/events', {
+    method: 'POST', headers: internalHeaders, body: json({ proposal_id: proposal.proposal_id }),
+  });
+  assert.equal(firstCommit.status, 200);
+  assert.equal((await firstCommit.json()).commit_result.idempotent_replay, undefined);
+  const stateAfterFirstCommit = (await (await fetch(base + '/v1/worlds/internal-route-world/state', { headers })).json()).state;
+  const eventsAfterFirstCommit = (await (await fetch(base + '/v1/worlds/internal-route-world/events', { headers })).json()).events;
+
+  const replay = await fetch(base + '/v1/worlds/internal-route-world/events', {
+    method: 'POST', headers: internalHeaders, body: json({ proposal_id: proposal.proposal_id }),
+  });
+  assert.equal(replay.status, 200);
+  assert.equal((await replay.json()).commit_result.idempotent_replay, true);
+  const stateAfterReplay = (await (await fetch(base + '/v1/worlds/internal-route-world/state', { headers })).json()).state;
+  const eventsAfterReplay = (await (await fetch(base + '/v1/worlds/internal-route-world/events', { headers })).json()).events;
+  assert.equal(stateAfterReplay.world_revision, stateAfterFirstCommit.world_revision);
+  assert.equal(eventsAfterReplay.length, eventsAfterFirstCommit.length);
+
+  const crossWorld = await fetch(base + '/v1/worlds/internal-route-other-world/events', {
+    method: 'POST', headers: internalHeaders, body: json({ proposal_id: proposal.proposal_id }),
+  });
+  assert.equal(crossWorld.status, 404);
+  assert.equal((await crossWorld.json()).error.code, 'PROPOSAL_NOT_FOUND');
+
+  const cancelApproved = await createProposal('internal-route-world', 'approved-then-cancelled');
+  assert.equal((await approveAsOtherAdapter('internal-route-world', cancelApproved.proposal_id)).status, 200);
+  const cancelled = await fetch(base + '/v1/worlds/internal-route-world/proposals/' + cancelApproved.proposal_id + '/cancel', {
+    method: 'POST', headers, body: json({ reason: 'cancel after approval' }),
+  });
+  assert.equal(cancelled.status, 200);
+  assert.equal((await cancelled.json()).proposal.status, 'cancelled');
+  const cancelledCommit = await fetch(base + '/v1/worlds/internal-route-world/proposals/' + cancelApproved.proposal_id + '/commit', {
+    method: 'POST', headers, body: '{}',
+  });
+  assert.equal(cancelledCommit.status, 409);
+  assert.equal((await cancelledCommit.json()).error.code, 'PROPOSAL_NOT_APPROVED');
+});
+
 test('proposal creation performs deterministic validation without mutating canonical state', async (t) => {
   const base = await setup(t, { approvalToken: APPROVAL });
   assert.equal((await createWorld(base, 'proposal-validation-world')).status, 201);
