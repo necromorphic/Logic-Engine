@@ -34,7 +34,7 @@ export class SQLiteStore {
       CREATE TABLE IF NOT EXISTS world_events(
         event_id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(world_id), turn_id TEXT NOT NULL,
         generation_id TEXT, event_type TEXT NOT NULL, game_time TEXT NOT NULL, committed_revision INTEGER NOT NULL,
-        validity TEXT NOT NULL CHECK(validity IN ('valid','retracted','invalidated')),
+        commit_sequence INTEGER NOT NULL, validity TEXT NOT NULL CHECK(validity IN ('valid','retracted','invalidated')),
         caused_by_json TEXT NOT NULL, depends_on_json TEXT NOT NULL, read_set_json TEXT NOT NULL,
         causal_links_json TEXT NOT NULL DEFAULT '[]', effects_json TEXT NOT NULL, time_advance_seconds INTEGER NOT NULL DEFAULT 0, source_message_id TEXT,
         created_at TEXT NOT NULL, rollback_id TEXT
@@ -95,6 +95,24 @@ export class SQLiteStore {
           if (!columns.some((column) => column.name === 'causal_links_json')) {
             this.db.exec("ALTER TABLE world_events ADD COLUMN causal_links_json TEXT NOT NULL DEFAULT '[]'");
           }
+        },
+      },
+      {
+        version: 3,
+        apply: () => {
+          const columns = this.db.prepare('PRAGMA table_info(world_events)').all();
+          if (!columns.some((column) => column.name === 'commit_sequence')) {
+            this.db.exec('ALTER TABLE world_events ADD COLUMN commit_sequence INTEGER');
+          }
+          const worldRows = this.db.prepare('SELECT world_id FROM worlds ORDER BY world_id').all();
+          const events = this.db.prepare('SELECT event_id FROM world_events WHERE world_id=? AND commit_sequence IS NULL ORDER BY committed_revision,event_id');
+          const setSequence = this.db.prepare('UPDATE world_events SET commit_sequence=? WHERE world_id=? AND event_id=?');
+          const nextSequence = this.db.prepare('SELECT COALESCE(MAX(commit_sequence),0)+1 AS next FROM world_events WHERE world_id=?');
+          for (const { world_id: worldId } of worldRows) {
+            let sequence = nextSequence.get(worldId).next;
+            for (const { event_id: eventId } of events.all(worldId)) setSequence.run(sequence++, worldId, eventId);
+          }
+          this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS events_world_commit_sequence ON world_events(world_id,commit_sequence)');
         },
       },
     ];
@@ -159,10 +177,10 @@ export class SQLiteStore {
 
   events(id, includeInvalid = false) {
     if (!this.world(id)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-    const rows = this.db.prepare('SELECT * FROM world_events WHERE world_id=? ' + (includeInvalid ? '' : "AND validity='valid' ") + 'ORDER BY committed_revision,event_id').all(id);
+    const rows = this.db.prepare('SELECT * FROM world_events WHERE world_id=? ' + (includeInvalid ? '' : "AND validity='valid' ") + 'ORDER BY commit_sequence').all(id);
     return rows.map((r) => ({
       event_id: r.event_id, turn_id: r.turn_id, generation_id: r.generation_id, event_type: r.event_type,
-      game_time: r.game_time, committed_revision: r.committed_revision, validity: r.validity,
+      game_time: r.game_time, committed_revision: r.committed_revision, commit_sequence: r.commit_sequence, validity: r.validity,
       caused_by: dec(r.caused_by_json), depends_on: dec(r.depends_on_json), read_set: dec(r.read_set_json),
       causal_links: dec(r.causal_links_json ?? '[]'), effects: dec(r.effects_json), time_advance_seconds: r.time_advance_seconds,
       source_message_id: r.source_message_id, created_at: r.created_at, rollback_id: r.rollback_id,
@@ -267,20 +285,21 @@ export class SQLiteStore {
       }
       const revision = w.world_revision + 1;
       this.validateCausalMetadata(id, x, revision);
+      const commitSequence = this.db.prepare('SELECT COALESCE(MAX(commit_sequence),0)+1 AS next FROM world_events WHERE world_id=?').get(id).next;
       const time = new Date(Date.parse(w.game_time) + x.time_advance_seconds * 1000).toISOString();
       const createdAt = now();
       this.db.prepare(`INSERT INTO world_events(
-        event_id,world_id,turn_id,generation_id,event_type,game_time,committed_revision,validity,
+        event_id,world_id,turn_id,generation_id,event_type,game_time,committed_revision,commit_sequence,validity,
         caused_by_json,depends_on_json,read_set_json,causal_links_json,effects_json,time_advance_seconds,source_message_id,created_at
-      ) VALUES(?,?,?,?,?,?,?,'valid',?,?,?,?,?,?,?,?)`).run(
-        eventId, id, x.turn_id, x.generation_id || null, x.event_type, time, revision,
+      ) VALUES(?,?,?,?,?,?,?,?,'valid',?,?,?,?,?,?,?,?)`).run(
+        eventId, id, x.turn_id, x.generation_id || null, x.event_type, time, revision, commitSequence,
         enc(x.caused_by), enc(x.depends_on), enc(x.read_set), enc(x.causal_links ?? []), enc(x.effects), x.time_advance_seconds,
         x.source_message_id || null, createdAt,
       );
       this.db.prepare('UPDATE worlds SET world_revision=?,game_time=? WHERE world_id=?').run(revision, time, id);
       this.rebuild(id, revision);
       const result = {
-        accepted: true, event_id: eventId, world_id: id, world_revision: revision,
+        accepted: true, event_id: eventId, world_id: id, world_revision: revision, commit_sequence: commitSequence,
         game_time: this.world(id).game_time, effect_count: x.effects.length, idempotent_replay: false,
       };
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,\'event.committed\',?,?,?)')
