@@ -75,6 +75,8 @@ A claim used as knowledge must have a plausible, traceable acquisition path, suc
 
 Before exposing information to an NPC decision, apply the applicable scope, access, secrecy, source-validity, time, and epistemic-status rules. Similarity search is never authorization to reveal information.
 
+A secret explicitly reserved by the author must not be disclosed autonomously, intentionally or accidentally, merely to create drama. This restriction must be applied before model input or narrative generation; do not expose the secret and rely on the model to self-censor. A disclosure is allowed only when an applicable explicit author instruction authorizes it and no higher-priority constraint forbids it. Information spreads to other characters or the player only through plausible, supported channels.
+
 When evidence changes or a source is invalidated, reconcile the affected knowledge. Preserve knowledge if another valid acquisition path still supports it. A character may retain a false belief until they receive and accept sufficient correction; changing canonical truth does not automatically update every mind.
 
 ## 7. Relationships and reactions
