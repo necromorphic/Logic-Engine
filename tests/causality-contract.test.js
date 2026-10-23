@@ -708,3 +708,127 @@ test('fact_value REQUIRES is invalidated when rollback removes its only historic
   assert.equal(events.get('action-requiring-only-signal').validity, 'invalidated');
   assert.equal(engine.getState('causality-world').facts.some((fact) => fact.fact_id === 'action-result'), false);
 });
+
+
+test('generation-bound context manifest rejects undeclared reads before consuming idempotency key', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'manifest-seed',
+    idempotency_key: 'manifest-seed',
+    effects: [
+      { kind: 'entity.upsert', entity_id: 'visible-entity', entity_type: 'object' },
+      { kind: 'entity.upsert', entity_id: 'hidden-entity', entity_type: 'object' },
+    ],
+  }));
+  const manifest = engine.registerContextManifest('causality-world', {
+    generation_id: 'generation-manifest-1',
+    base_commit_sequence: 1,
+    base_world_revision: 1,
+    items: [{ kind: 'entity', target_id: 'visible-entity' }],
+  });
+  assert.equal(manifest.idempotent_replay, false);
+  assert.equal(engine.registerContextManifest('causality-world', {
+    generation_id: 'generation-manifest-1',
+    base_commit_sequence: 1,
+    base_world_revision: 1,
+    items: [{ kind: 'entity', target_id: 'visible-entity' }],
+  }).manifest_id, manifest.manifest_id);
+
+  assert.throws(
+    () => engine.commitEvent('causality-world', command({
+      event_id: 'manifest-invalid-read',
+      idempotency_key: 'manifest-read-key',
+      turn_id: 'manifest-invalid-read',
+      expected_revision: 1,
+      generation_id: 'generation-manifest-1',
+      context_manifest_id: manifest.manifest_id,
+      read_set: ['entity:hidden-entity'],
+    })),
+    (error) => error.code === 'INVALID_DECLARED_READ' && error.status === 400,
+  );
+
+  const accepted = engine.commitEvent('causality-world', command({
+    event_id: 'manifest-corrected-read',
+    idempotency_key: 'manifest-read-key',
+    turn_id: 'manifest-corrected-read',
+    expected_revision: 1,
+    generation_id: 'generation-manifest-1',
+    context_manifest_id: manifest.manifest_id,
+    read_set: ['entity:visible-entity'],
+  }));
+  assert.equal(accepted.accepted, true);
+  assert.equal(accepted.commit_sequence, 2);
+  assert.equal(engine.getEvents('causality-world', true).find((event) => event.event_id === 'manifest-corrected-read').context_manifest_id, manifest.manifest_id);
+});
+
+test('context manifest is rejected when the world revision changes after snapshot registration', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'manifest-stale-seed',
+    idempotency_key: 'manifest-stale-seed',
+    effects: [{ kind: 'entity.upsert', entity_id: 'visible-entity', entity_type: 'object' }],
+  }));
+  const manifest = engine.registerContextManifest('causality-world', {
+    generation_id: 'generation-stale',
+    base_commit_sequence: 1,
+    base_world_revision: 1,
+    items: [{ kind: 'entity', target_id: 'visible-entity' }],
+  });
+  engine.commitEvent('causality-world', command({
+    event_id: 'world-changed-after-context',
+    idempotency_key: 'world-changed-after-context',
+    turn_id: 'world-changed-after-context',
+    expected_revision: 1,
+    effects: [],
+  }));
+
+  assert.throws(
+    () => engine.commitEvent('causality-world', command({
+      event_id: 'stale-context-event',
+      idempotency_key: 'stale-context-event',
+      turn_id: 'stale-context-event',
+      expected_revision: 2,
+      generation_id: 'generation-stale',
+      context_manifest_id: manifest.manifest_id,
+    })),
+    (error) => error.code === 'CONTEXT_SNAPSHOT_STALE' && error.status === 409,
+  );
+});
+
+test('context manifest rejects a generation mismatch and a manifest from another world', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.createWorld({
+    world_id: 'other-manifest-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00Z',
+  });
+  const manifest = engine.registerContextManifest('causality-world', {
+    generation_id: 'generation-bound',
+    base_commit_sequence: 0,
+    base_world_revision: 0,
+    items: [],
+  });
+
+  assert.throws(
+    () => engine.commitEvent('causality-world', command({
+      idempotency_key: 'wrong-generation',
+      generation_id: 'another-generation',
+      context_manifest_id: manifest.manifest_id,
+    })),
+    (error) => error.code === 'CONTEXT_GENERATION_MISMATCH' && error.status === 400,
+  );
+  assert.throws(
+    () => engine.commitEvent('other-manifest-world', command({
+      idempotency_key: 'cross-world-manifest',
+      generation_id: 'generation-bound',
+      context_manifest_id: manifest.manifest_id,
+    })),
+    (error) => error.code === 'CONTEXT_MANIFEST_NOT_FOUND' && error.status === 400,
+  );
+});
