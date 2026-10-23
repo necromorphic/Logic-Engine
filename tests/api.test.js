@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { createApiServer } from '../src/api/server.js';
+import { ProposalService } from '../src/application/proposals.js';
 
 const TOKEN = 'test-token-long-enough-123456';
 const INTERNAL = 'internal-token-long-enough-123456';
@@ -566,4 +567,134 @@ test('transaction failures leave commit and rollback state unchanged', (t) => {
   const rolledBack = engine.rollbackEvent('atomic-world', rollbackRequest);
   assert.equal(rolledBack.world_revision, 2);
   assert.deepEqual(store.state('atomic-world').entities, []);
+});
+
+
+test('mechanic effect intents translate into canonical effects inside the proposal lifecycle', async (t) => {
+  const base = await setup(t, { approvalToken: APPROVAL });
+  assert.equal((await createWorld(base, 'intent-world')).status, 201);
+  const body = {
+    idempotency_key: 'intent-proposal-1',
+    source_text: 'Create Mira as a character.',
+    event: {
+      turn_id: 'intent-turn-1',
+      event_type: 'action.completed',
+      effect_intents: [{
+        effect_id: 'effect-1',
+        kind: 'create_entity',
+        target_ref: 'mira',
+        payload: { entity_type: 'character', attributes: { name: 'Mira' } },
+      }],
+    },
+  };
+  const createUrl = base + '/v1/worlds/intent-world/proposals';
+  const response = await fetch(createUrl, { method: 'POST', headers, body: json(body) });
+  assert.equal(response.status, 201);
+  const proposal = (await response.json()).proposal;
+  assert.equal(proposal.status, 'pending');
+  assert.deepEqual(proposal.event.effects, [{
+    kind: 'entity.create',
+    entity_id: 'mira',
+    entity_type: 'character',
+    attributes: { name: 'Mira' },
+  }]);
+  assert.equal(Object.hasOwn(proposal.event, 'effect_intents'), false);
+  assert.equal((await (await fetch(base + '/v1/worlds/intent-world/state', { headers })).json()).state.world_revision, 0);
+  assert.equal((await (await fetch(base + '/v1/worlds/intent-world/events', { headers })).json()).events.length, 0);
+
+  const replay = await fetch(createUrl, { method: 'POST', headers, body: json(body) });
+  assert.equal(replay.status, 201);
+  assert.equal((await replay.json()).proposal.proposal_id, proposal.proposal_id);
+  const changedIntent = structuredClone(body);
+  changedIntent.event.effect_intents[0].payload.attributes.name = 'Different';
+  const conflict = await fetch(createUrl, { method: 'POST', headers, body: json(changedIntent) });
+  assert.equal(conflict.status, 409);
+  assert.equal((await conflict.json()).error.code, 'IDEMPOTENCY_KEY_CONFLICT');
+
+  const approvalUrl = base + '/v1/worlds/intent-world/proposals/' + proposal.proposal_id + '/approve';
+  const approved = await fetch(approvalUrl, {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  });
+  assert.equal(approved.status, 200);
+  assert.equal((await approved.json()).proposal.status, 'approved');
+  const committed = await fetch(base + '/v1/worlds/intent-world/proposals/' + proposal.proposal_id + '/commit', {
+    method: 'POST', headers, body: '{}',
+  });
+  assert.equal(committed.status, 200);
+  const result = await committed.json();
+  assert.equal(result.proposal.status, 'committed');
+  assert.equal(result.commit_result.world_revision, 1);
+  const state = (await (await fetch(base + '/v1/worlds/intent-world/state', { headers })).json()).state;
+  assert.equal(state.entities.find((entity) => entity.entity_id === 'mira').attributes.name, 'Mira');
+});
+
+test('mechanic intent translation rejects ambiguous or invalid batches without creating proposal or audit side effects', async (t) => {
+  const base = await setup(t);
+  assert.equal((await createWorld(base, 'intent-reject-world')).status, 201);
+  const common = {
+    idempotency_key: 'intent-reject-1',
+    source_text: 'Attempt a change.',
+    event: { turn_id: 'intent-reject-turn', event_type: 'action.completed' },
+  };
+  const post = (event) => fetch(base + '/v1/worlds/intent-reject-world/proposals', {
+    method: 'POST', headers, body: json({ ...common, event: { ...common.event, ...event } }),
+  });
+  const both = await post({
+    effects: [],
+    effect_intents: [{ effect_id: 'x', kind: 'create_entity', target_ref: 'x', payload: { entity_type: 'character' } }],
+  });
+  assert.equal(both.status, 400);
+  assert.equal((await both.json()).error.code, 'MUTUALLY_EXCLUSIVE_EFFECT_FIELDS');
+
+  const unsupported = await post({
+    effect_intents: [{ effect_id: 'x', kind: 'create_relation', target_ref: 'x', payload: {} }],
+  });
+  assert.equal(unsupported.status, 400);
+  assert.equal((await unsupported.json()).error.code, 'UNSUPPORTED_MECHANIC_EFFECT_INTENT');
+
+  const provenance = await post({
+    effect_intents: [{ effect_id: 'x', kind: 'create_entity', target_ref: 'x', source_refs: ['source-1'], payload: { entity_type: 'character' } }],
+  });
+  assert.equal(provenance.status, 400);
+  assert.equal((await provenance.json()).error.code, 'TRANSLATION_REQUIRES_PROVENANCE_MAPPING');
+
+  const partial = await post({
+    effect_intents: [
+      { effect_id: 'good', kind: 'create_entity', target_ref: 'x', payload: { entity_type: 'character' } },
+      { effect_id: 'bad', kind: 'update_attribute', target_ref: 'x', payload: {} },
+    ],
+  });
+  assert.equal(partial.status, 400);
+  assert.equal((await partial.json()).error.code, 'INVALID_MECHANIC_EFFECT_INTENT');
+
+  const state = (await (await fetch(base + '/v1/worlds/intent-reject-world/state', { headers })).json()).state;
+  const events = (await (await fetch(base + '/v1/worlds/intent-reject-world/events', { headers })).json()).events;
+  const audit = (await (await fetch(base + '/v1/worlds/intent-reject-world/audit', { headers })).json()).audit;
+  assert.equal(state.world_revision, 0);
+  assert.deepEqual(state.entities, []);
+  assert.deepEqual(events, []);
+  assert.deepEqual(audit, []);
+
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  t.after(() => store.close());
+  engine.createWorld({ world_id: 'intent-db-world', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2026-01-01T00:00:00Z' });
+  const proposals = new ProposalService(engine);
+  const beforeProposals = store.db.prepare('SELECT COUNT(*) AS n FROM event_proposals').get().n;
+  const beforeAudit = store.db.prepare('SELECT COUNT(*) AS n FROM audit_entries').get().n;
+  assert.throws(() => proposals.create('intent-db-world', {
+    ...common,
+    event: {
+      turn_id: 'intent-db-turn',
+      event_type: 'action.completed',
+      effect_intents: [
+        { effect_id: 'good', kind: 'create_entity', target_ref: 'x', payload: { entity_type: 'character' } },
+        { effect_id: 'bad', kind: 'create_relation', target_ref: 'x', payload: {} },
+      ],
+    },
+  }, 'adapter-a'), (error) => error.code === 'UNSUPPORTED_MECHANIC_EFFECT_INTENT');
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM event_proposals').get().n, beforeProposals);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM audit_entries').get().n, beforeAudit);
+  assert.equal(store.world('intent-db-world').world_revision, 0);
+  assert.deepEqual(store.events('intent-db-world', true), []);
 });
