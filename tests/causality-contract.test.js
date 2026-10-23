@@ -599,3 +599,112 @@ test('rolling back a later state change does not invalidate an earlier satisfied
   assert.equal(engine.getState('causality-world').facts.find((fact) => fact.fact_id === 'action-result').value, true);
   assert.equal(engine.getState('causality-world').entities.find((entity) => entity.entity_id === 'actor').attributes.stage, 'ready');
 });
+
+
+test('fact_value REQUIRES rejects unknown conflicted claims without consuming the idempotency key', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'fact-claim-red',
+    idempotency_key: 'fact-claim-red',
+    effects: [{ kind: 'fact.set', fact_id: 'signal', predicate: 'color', value: 'red' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'fact-claim-blue',
+    idempotency_key: 'fact-claim-blue',
+    turn_id: 'fact-claim-blue',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'signal', predicate: 'color', value: 'blue' }],
+  }));
+
+  assert.throws(
+    () => engine.commitEvent('causality-world', command({
+      idempotency_key: 'requires-signal',
+      turn_id: 'requires-signal',
+      expected_revision: 2,
+      causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'fact_value', fact_id: 'signal', value: 'red' } }],
+    })),
+    (error) => error.code === 'REQUIRED_PREDICATE_UNKNOWN' && error.status === 409,
+  );
+
+  engine.rollbackEvent('causality-world', { root_event_id: 'fact-claim-blue', idempotency_key: 'rollback-blue-claim' });
+  const accepted = engine.commitEvent('causality-world', command({
+    event_id: 'requires-red-signal',
+    idempotency_key: 'requires-signal',
+    turn_id: 'requires-red-signal',
+    expected_revision: 3,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'fact_value', fact_id: 'signal', value: 'red' } }],
+  }));
+
+  assert.equal(accepted.accepted, true);
+  assert.equal(accepted.commit_sequence, 4);
+});
+
+test('fact_value REQUIRES is evaluated against the requiring event historical cursor during rollback', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'signal-source-one',
+    idempotency_key: 'signal-source-one',
+    effects: [{ kind: 'fact.set', fact_id: 'signal', predicate: 'state', value: 'ready' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'signal-source-two',
+    idempotency_key: 'signal-source-two',
+    turn_id: 'signal-source-two',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'signal', predicate: 'state', value: 'ready' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'action-requiring-ready-signal',
+    idempotency_key: 'action-requiring-ready-signal',
+    turn_id: 'action-requiring-ready-signal',
+    expected_revision: 2,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'fact_value', fact_id: 'signal', value: 'ready' } }],
+    effects: [{ kind: 'fact.set', fact_id: 'action-result', predicate: 'completed', value: true }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'signal-source-one',
+    idempotency_key: 'rollback-one-signal-source',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+
+  assert.deepEqual(rollback.invalidated_event_ids, ['signal-source-one']);
+  assert.deepEqual(rollback.requires_review_event_ids, []);
+  assert.equal(events.get('signal-source-two').validity, 'valid');
+  assert.equal(events.get('action-requiring-ready-signal').validity, 'valid');
+  assert.equal(engine.getState('causality-world').facts.find((fact) => fact.fact_id === 'action-result').value, true);
+});
+
+test('fact_value REQUIRES is invalidated when rollback removes its only historical support', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'only-signal-source',
+    idempotency_key: 'only-signal-source',
+    effects: [{ kind: 'fact.set', fact_id: 'signal', predicate: 'state', value: 'ready' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'action-requiring-only-signal',
+    idempotency_key: 'action-requiring-only-signal',
+    turn_id: 'action-requiring-only-signal',
+    expected_revision: 1,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'fact_value', fact_id: 'signal', value: 'ready' } }],
+    effects: [{ kind: 'fact.set', fact_id: 'action-result', predicate: 'completed', value: true }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'only-signal-source',
+    idempotency_key: 'rollback-only-signal-source',
+  });
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+
+  assert.deepEqual(new Set(rollback.invalidated_event_ids), new Set(['only-signal-source', 'action-requiring-only-signal']));
+  assert.equal(rollback.requires_review_event_ids.length, 0);
+  assert.equal(events.get('action-requiring-only-signal').validity, 'invalidated');
+  assert.equal(engine.getState('causality-world').facts.some((fact) => fact.fact_id === 'action-result'), false);
+});
