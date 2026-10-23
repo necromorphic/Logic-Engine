@@ -1,6 +1,6 @@
 # Stage 1 causality test matrix — proposal
 
-Status: **mixed executable coverage and test specification**. The current runtime supports a limited `causal_links[]` subset (`READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`) with declared-edge rollback. Direct event causation remains in `caused_by[]`. The per-world `commit_sequence` cursor is implemented; context manifests, predicate-based `REQUIRES`, and per-event rollback classification remain proposals. Scenarios below must not be read as claims that those deferred capabilities are implemented.
+Status: **mixed executable coverage and test specification**. The current runtime supports a limited `causal_links[]` subset (`READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`, and entity-only `REQUIRES`) with declared-edge rollback. Direct event causation remains in `caused_by[]`. The per-world `commit_sequence` cursor and a restricted entity-only `REQUIRES` evaluator are implemented; context manifests, broader predicate forms, tri-state unknown handling, and per-event rollback classification remain proposals. Scenarios below must not be read as claims that those deferred capabilities are implemented.
 
 Related: [Stage 1 causality contract](21-stage1-causality-contract.md), [Causality semantics proposal](22-causality-semantics.md).
 
@@ -189,6 +189,15 @@ Expected:
 - The per-event reason for D is distinct from the operation-level outcome.
 - `causal_completeness = unknown` alone does not force review for B or C.
 
+## T-14 — historical `REQUIRES` entity predicates (implemented subset)
+
+Executable coverage verifies:
+- a `REQUIRES` predicate must be true against the current canonical entity projection before an event commits;
+- if rollback removes the only support for an entity predicate at the requiring event's historical commit point, the requiring event is invalidated and its effects are removed;
+- if an independent surviving event still makes the predicate true at that historical point, the requiring event remains valid.
+
+Supported predicates are `entity_exists(entity_id)` and `entity_attribute(entity_id, attribute, value)`; `attribute: "status"` reads the entity's status field. Missing entities/attributes or mismatched values evaluate false. Fact predicates, negative reads, and tri-state unknown handling remain deferred.
+
 ## T-13 — stable per-world event-history cursor (implemented)
 
 Executable coverage verifies that:
@@ -252,7 +261,7 @@ This case is intentionally conservative: a direct dependency that independently 
 Before turning a scenario into a normative executable test:
 - [x] Define the committed-event `commit_sequence` cursor; [ ] define context-manifest/generation binding fields in the API.
 - [ ] Confirm the proposed invalid manifest/read policy and define rejected-request audit/idempotency behavior, including corrected retries with the same key.
-- [ ] Define predicate evaluation and three-valued unknown handling.
+- [x] Define and test the initial boolean entity-predicate evaluator; [ ] define the full predicate vocabulary and three-valued unknown handling.
 - [ ] Define projection recomputation and how multiple independent sources are represented.
 - [ ] Define whether rollback can leave an operation partially resolved without partially committing its state changes; include T-11's transitive unresolved-dependency case.
 - [ ] Define transactional atomicity for event status, projections, audit rows, and world revision, including transitive unresolved dependencies and no-op `requires_review` outcomes.

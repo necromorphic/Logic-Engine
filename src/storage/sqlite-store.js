@@ -2,12 +2,44 @@ import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
+import { isDeepStrictEqual } from 'node:util';
 import { EngineError } from '../core/errors.js';
 
 const now = () => new Date().toISOString();
 const enc = (x) => JSON.stringify(x);
 const dec = (x) => x == null ? null : JSON.parse(x);
 const refs = (effects) => effects.map((e) => e.kind.startsWith('entity.') ? 'entity:' + e.entity_id : 'fact:' + e.fact_id);
+const applyEntityEffects = (entities, effects) => {
+  for (const effect of effects) {
+    if (effect.kind === 'entity.upsert') {
+      entities.set(effect.entity_id, {
+        entity_id: effect.entity_id,
+        entity_type: effect.entity_type,
+        status: effect.status || 'active',
+        attributes: effect.attributes || {},
+      });
+    } else if (effect.kind === 'entity.delete') {
+      entities.set(effect.entity_id, {
+        entity_id: effect.entity_id,
+        entity_type: 'unknown',
+        status: 'destroyed',
+        attributes: {},
+      });
+    }
+  }
+};
+
+const predicateHolds = (entities, predicate) => {
+  const entity = entities.get(predicate.entity_id);
+  if (predicate.kind === 'entity_exists') return Boolean(entity);
+  if (predicate.kind === 'entity_attribute') {
+    if (!entity) return false;
+    const actual = predicate.attribute === 'status' ? entity.status : entity.attributes[predicate.attribute];
+    return isDeepStrictEqual(actual, predicate.value);
+  }
+  return false;
+};
+
 const world = (r) => r && ({
   world_id: r.world_id,
   world_pack_id: r.world_pack_id,
@@ -220,6 +252,26 @@ export class SQLiteStore {
     if (row.committed_revision >= nextRevision) throw new EngineError('INVALID_CAUSAL_REFERENCE', fieldName + ' must reference a prior event.', 400, { field: fieldName, reference: eventId });
   }
 
+  currentEntityProjection(worldId) {
+    const rows = this.db.prepare('SELECT entity_id,entity_type,status,attributes_json FROM entities WHERE world_id=?').all(worldId);
+    return new Map(rows.map((row) => [row.entity_id, {
+      entity_id: row.entity_id,
+      entity_type: row.entity_type,
+      status: row.status,
+      attributes: dec(row.attributes_json),
+    }]));
+  }
+
+  entityProjectionAtCursor(worldId, beforeSequence, invalidEventIds = new Set()) {
+    const rows = this.db.prepare("SELECT event_id,effects_json FROM world_events WHERE world_id=? AND validity='valid' AND commit_sequence<? ORDER BY commit_sequence").all(worldId, beforeSequence);
+    const entities = new Map();
+    for (const row of rows) {
+      if (invalidEventIds.has(row.event_id)) continue;
+      applyEntityEffects(entities, dec(row.effects_json));
+    }
+    return entities;
+  }
+
   validateCausalMetadata(worldId, event, nextRevision) {
     for (const eventId of event.caused_by) this.validateEventReference(worldId, eventId, nextRevision, 'caused_by');
     for (const ref of event.depends_on) {
@@ -261,6 +313,10 @@ export class SQLiteStore {
         const claim = this.db.prepare('SELECT source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?').get(worldId, link.target_id);
         if (!claim || dec(claim.source_event_ids_json).length === 0) {
           throw new EngineError('INVALID_CAUSAL_LINK', 'READS_CLAIM must reference a claim with at least one valid source in this world: ' + link.target_id, 400, { relation: link.relation, target_id: link.target_id });
+        }
+      } else if (link.relation === 'REQUIRES') {
+        if (!predicateHolds(this.currentEntityProjection(worldId), link.predicate)) {
+          throw new EngineError('REQUIRED_PREDICATE_NOT_SATISFIED', 'REQUIRES predicate is not satisfied at commit time.', 409, { predicate: link.predicate });
         }
       } else {
         throw new EngineError('UNSUPPORTED_CAUSAL_RELATION', 'Unsupported causal relationship: ' + String(link.relation), 400, { relation: link.relation });
@@ -343,6 +399,7 @@ export class SQLiteStore {
               if (link.relation === 'READS_SOURCE') return invalid.has(link.target_id);
               if (link.relation === 'READS_ENTITY') return affected.has('entity:' + link.target_id);
               if (link.relation === 'READS_CLAIM') return affected.has('fact:' + link.target_id) && !all.some((sourceEvent) => sourceEvent.validity === 'valid' && sourceEvent.event_id !== event.event_id && !invalid.has(sourceEvent.event_id) && sourceEvent.effects.some((effect) => effect.kind === 'fact.set' && effect.fact_id === link.target_id));
+              if (link.relation === 'REQUIRES') return !predicateHolds(this.entityProjectionAtCursor(id, event.commit_sequence, invalid), link.predicate);
               return false;
             })) {
             invalid.add(event.event_id);
@@ -376,7 +433,7 @@ export class SQLiteStore {
     this.db.prepare('DELETE FROM entities WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM facts WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM fact_claims WHERE world_id=?').run(id);
-    const events = this.db.prepare("SELECT * FROM world_events WHERE world_id=? AND validity='valid' ORDER BY committed_revision,event_id").all(id);
+    const events = this.db.prepare("SELECT * FROM world_events WHERE world_id=? AND validity='valid' ORDER BY commit_sequence").all(id);
     const upsertEntity = this.db.prepare(`INSERT INTO entities(
       world_id,entity_id,entity_type,status,attributes_json,created_by_event_id,updated_revision
     ) VALUES(?,?,?,?,?,?,?) ON CONFLICT(world_id,entity_id) DO UPDATE SET

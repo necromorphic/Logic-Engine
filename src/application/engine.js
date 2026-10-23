@@ -13,19 +13,37 @@ const strings = (x, name) => {
 const causalLinks = (value) => {
   value = value ?? [];
   assert(Array.isArray(value) && value.length <= 500, 'INVALID_CAUSAL_LINKS', 'causal_links must be an array of at most 500 links.');
-  const supported = new Set(['READS_SOURCE', 'READS_ENTITY', 'READS_CLAIM']);
+  const supported = new Set(['READS_SOURCE', 'READS_ENTITY', 'READS_CLAIM', 'REQUIRES']);
   const seen = new Set();
   const links = value.map((link) => {
     assert(obj(link), 'INVALID_CAUSAL_LINK', 'Each causal link must be an object.');
     assert(typeof link.relation === 'string' && supported.has(link.relation), 'UNSUPPORTED_CAUSAL_RELATION', 'Unsupported causal relationship: ' + String(link.relation));
-    assert(typeof link.target_id === 'string' && link.target_id.trim() && link.target_id.trim().length <= 200, 'INVALID_CAUSAL_LINK', 'causal link target_id must be a non-empty string of at most 200 characters.');
-    const normalized = { relation: link.relation, target_id: link.target_id.trim() };
-    const key = JSON.stringify([normalized.relation, normalized.target_id]);
-    assert(!seen.has(key), 'DUPLICATE_CAUSAL_LINK', 'Duplicate causal link: ' + normalized.relation + ' ' + normalized.target_id);
+    let normalized;
+    if (link.relation === 'REQUIRES') {
+      assert(obj(link.predicate), 'INVALID_CAUSAL_PREDICATE', 'REQUIRES must contain a predicate object.');
+      const predicate = link.predicate;
+      assert(['entity_exists', 'entity_attribute'].includes(predicate.kind), 'UNSUPPORTED_CAUSAL_PREDICATE', 'Unsupported REQUIRES predicate kind: ' + String(predicate.kind));
+      assert(typeof predicate.entity_id === 'string' && predicate.entity_id.trim() && predicate.entity_id.trim().length <= 200, 'INVALID_CAUSAL_PREDICATE', 'Predicate entity_id must be a non-empty string of at most 200 characters.');
+      if (predicate.kind === 'entity_exists') {
+        normalized = { relation: link.relation, predicate: { kind: predicate.kind, entity_id: predicate.entity_id.trim() } };
+      } else {
+        assert(typeof predicate.attribute === 'string' && predicate.attribute.trim() && predicate.attribute.trim().length <= 200, 'INVALID_CAUSAL_PREDICATE', 'Predicate attribute must be a non-empty string of at most 200 characters.');
+        assert(Object.hasOwn(predicate, 'value'), 'INVALID_CAUSAL_PREDICATE', 'entity_attribute predicates must include value.');
+        let encoded;
+        try { encoded = JSON.stringify(predicate.value); } catch {}
+        assert(encoded !== undefined, 'INVALID_CAUSAL_PREDICATE', 'Predicate value must be JSON-serializable.');
+        normalized = { relation: link.relation, predicate: { kind: predicate.kind, entity_id: predicate.entity_id.trim(), attribute: predicate.attribute.trim(), value: predicate.value } };
+      }
+    } else {
+      assert(typeof link.target_id === 'string' && link.target_id.trim() && link.target_id.trim().length <= 200, 'INVALID_CAUSAL_LINK', 'causal link target_id must be a non-empty string of at most 200 characters.');
+      normalized = { relation: link.relation, target_id: link.target_id.trim() };
+    }
+    const key = JSON.stringify(normalized);
+    assert(!seen.has(key), 'DUPLICATE_CAUSAL_LINK', 'Duplicate causal link: ' + key);
     seen.add(key);
     return normalized;
   });
-  return links.sort((a, b) => a.relation.localeCompare(b.relation) || a.target_id.localeCompare(b.target_id));
+  return links.sort((a, b) => a.relation.localeCompare(b.relation) || JSON.stringify(a).localeCompare(JSON.stringify(b)));
 };
 
 export class LogicEngine {
