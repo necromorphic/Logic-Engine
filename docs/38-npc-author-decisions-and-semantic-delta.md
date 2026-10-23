@@ -126,7 +126,7 @@ The following areas in `docs/31-npc-subsystem-contract.md` already align substan
 - sections 10 and 11: uncertainty, author overrides, and causal rollback.
 
 The author decisions clarify or strengthen the following points:
-1. A direct author request for a specific outcome is mandatory; the engine should find a plausible path rather than silently cancel it. Existing section 10 should explicitly distinguish an author-mandated outcome from an unresolved NPC-generated choice.
+1. A direct author request for a specific outcome is mandatory; the engine should find a plausible path rather than silently cancel it. Section 10 of `docs/31-npc-subsystem-contract.md` has now been amended to distinguish an author-mandated outcome from an unresolved NPC-generated choice.
 2. When established circumstances are not enough, the engine may prepare new future circumstances to motivate the required outcome, but must not rewrite established history or present invented prior causes as facts.
 3. Relationship state must support simultaneous, partly independent dimensions and ambiguity; one score or one label cannot settle the relationship.
 4. Author-reserved secrets are an explicit boundary on NPC autonomy.
@@ -154,7 +154,7 @@ The NPC branch and core PR stack remain separate, unmerged development work. Do 
 ## 5. Recommended next work
 
 1. Treat this file as the consolidated author decision record.
-2. Update the existing semantic acceptance matrix only after reviewing each scenario against these decisions; add focused cases for mandatory author outcomes, plausible causal preparation without rewriting history, multi-dimensional relationship tension, author-reserved secrets, and off-screen reports/help requests.
+2. The semantic acceptance matrix now includes NPC-SEM-013–020 for mandatory author outcomes, prospective causal preparation without rewriting history, multi-dimensional relationship tension, author-reserved secrets, off-screen channels, report lifecycle, and acquisition memory versus changing belief. The test-boundary map now records which real production boundaries remain missing.
 3. Keep those cases as documented requirements while the real trusted context boundary and relevant core semantics are absent.
 4. Define the first vertical slice around trusted actor-relative context preparation plus a bounded non-committing proposal, reusing the existing manifest/proposal path only where its verified guarantees suffice.
 5. Resolve ownership and evidence for actor identity, acquisition, access, epistemic status, exact generation/input binding, and rollback reconciliation before runtime/API/storage changes.
@@ -162,3 +162,17 @@ The NPC branch and core PR stack remain separate, unmerged development work. Do 
 7. Do not implement a parallel event log, knowledge store, revision counter, causal graph, rollback engine, or access-control subsystem. Do not change runtime, API, SQLite/storage, schemas, vectorization, prompts, or SillyTavern from this record.
 
 No tests were run as part of this consolidation. This document is a requirements record, not proof of implementation.
+
+
+## 6. Cross-document consistency pass — 2026-10-24
+
+The following documentation-only alignment was made on `feat/npc-subsystem`:
+
+- `docs/31-npc-subsystem-contract.md`: expanded relationship dimensions and updated the uncertainty/author-control rules so an explicit compatible author-mandated outcome is preserved, while causal gaps remain explicit and future causes remain prospective until committed.
+- `docs/32-npc-semantic-acceptance-matrix.md`: added NPC-SEM-013–020 covering those author decisions and their blocked runtime status.
+- `docs/34-npc-decision-context-and-proposal.md`: clarified that fail-closed execution does not silently erase a mandatory author target; it may return `needs_review` while preserving the target and missing rationale. Added the explicit distinction between required outcome, prospective causal path, and committed event.
+- `docs/35-npc-test-boundary-map.md`: mapped NPC-SEM-013–020 to the production boundaries and required test evidence.
+
+The key semantic distinction is now explicit across the contract and first-slice design: **a required story outcome is not the same as an already-justified action or a committed world event**. The target remains mandatory within higher-priority constraints; unsupported causal steps remain prospective or under review; only the existing core path can commit world effects.
+
+This is a source/document consistency pass, not a full independent review by DeepSeek and not an execution of tests. The first-slice blockers remain: trusted actor-relative context preparation, authoritative acquisition/belief source, exact input/snapshot binding, supported action mapping, and real tests at those boundaries. No runtime, API, schema, storage, vectorization, prompt, or SillyTavern changes were made.
