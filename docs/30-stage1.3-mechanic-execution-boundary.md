@@ -6,7 +6,7 @@ Related contracts:
 - `docs/25-universal-mechanics-system.md` — architecture decision and universal concepts.
 - `docs/26-mechanics-contracts.md` — template, instance, module, lifecycle, and conflict contracts.
 - `docs/28-proposal-api-stage1.md` — implemented proposal/approval/commit API and limitations.
-- `docs/18-rollback-and-causality.md` — causal history and rollback semantics (use the repository's current canonical rollback document if its filename is updated).
+- `docs/18-rollback-and-causality.md` — target contract for causal history and rollback; current limited event rollback is separately described in `docs/21-stage1-causality-contract.md`.
 
 ## 1. Scope and non-goals
 
