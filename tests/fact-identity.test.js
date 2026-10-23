@@ -282,3 +282,39 @@ test('fact.set identity guard detects inconsistent historical claims, not only t
   })), (error) => error.code === 'FACT_IDENTITY_MISMATCH' && error.status === 409);
   assert.equal(engine.getState('fact-identity-world').world_revision, 1);
 });
+
+
+test('fact identity guard checks historical claims hidden by the current projection', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('fact-identity-world', command({
+    event_id: 'legacy-identity-a', idempotency_key: 'legacy-identity-a',
+    effects: [{ kind: 'fact.set', fact_id: 'door', subject_ref: 'room-1', predicate: 'window_state', value: 'open' }],
+  }));
+  engine.commitEvent('fact-identity-world', command({
+    event_id: 'legacy-identity-b', idempotency_key: 'legacy-identity-b', turn_id: 'turn-b', expected_revision: 1,
+    effects: [{ kind: 'entity.create', entity_id: 'temporary-entity', entity_type: 'test' }],
+  }));
+
+  // Simulate legacy event history created before the identity guard existed:
+  // the later claim restores the visible projection's identity, hiding the
+  // earlier inconsistent identity unless the commit guard reads all claims.
+  store.db.prepare('UPDATE world_events SET effects_json=? WHERE world_id=? AND event_id=?').run(
+    JSON.stringify([{ kind: 'fact.set', fact_id: 'door', subject_ref: 'room-1', predicate: 'door_state', value: 'open' }]),
+    'fact-identity-world',
+    'legacy-identity-b',
+  );
+  store.rebuild('fact-identity-world', 2);
+
+  const visible = engine.getState('fact-identity-world').facts.find((item) => item.fact_id === 'door');
+  assert.equal(visible.predicate, 'door_state');
+
+  assert.throws(() => engine.commitEvent('fact-identity-world', command({
+    event_id: 'legacy-identity-c', idempotency_key: 'legacy-identity-c', turn_id: 'turn-c', expected_revision: 2,
+    effects: [{ kind: 'fact.set', fact_id: 'door', subject_ref: 'room-1', predicate: 'door_state', value: 'open' }],
+  })), (error) => error.code === 'FACT_IDENTITY_MISMATCH' && error.status === 409);
+
+  assert.equal(engine.getState('fact-identity-world').world_revision, 2);
+  assert.equal(store.events('fact-identity-world', true).length, 2);
+});
