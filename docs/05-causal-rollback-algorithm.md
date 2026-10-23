@@ -1,6 +1,6 @@
 # 05. Causal rollback algorithm and acceptance model
 
-Status: companion to docs/18; proposed before implementation.
+Status: target architecture and acceptance model. The current runtime implements only the bounded event-root rollback subset documented in docs/21; this document is not a claim that message/generation rollback, NPC knowledge, process, task, delivery, or StoryBeat recomputation is implemented.
 
 ## 1. Goal
 
@@ -78,7 +78,7 @@ This does not weaken the user-facing requirement: consequences that exist only b
 - RB-006: knowledge with conflicting sources becomes disputed where policy requires.
 - RB-007: process progress caused only by invalidated prerequisites is recalculated; independent progress survives.
 - RB-008: a StoryBeat whose current postcondition is false is no longer currently complete, while audit retains its earlier completion.
-- RB-009: repeated rollback request with same rollback_id is idempotent.
+- RB-009: repeating a rollback request with the same idempotency key and identical request returns the stored result; reusing that key with a different request is rejected. A new key for an already retracted root is a no-op and does not increment world_revision.
 - RB-010: delivery retry does not reapply a world effect.
 - RB-011: unavailable host message identity causes explicit review, not guessed rollback.
 - RB-012: world_revision increases; game_time does not rewind.

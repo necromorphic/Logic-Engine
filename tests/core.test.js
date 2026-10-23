@@ -347,3 +347,121 @@ test('proposal commit rolls back canonical event if proposal finalization fails'
   assert.equal(h.engine.getEvents('w', true).length, 0);
   assert.equal(proposals.get('w', proposal.proposal_id).status, 'approved');
 });
+
+
+test('mechanic instances are world-scoped, event-backed, and rebuild/rollback consistently', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  const template = { template_id: 'test.lifecycle', version: '1.0.0', schema_version: 'core-1', display_name: 'Lifecycle test', required_capabilities: [], applicability: [], actions: [], conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'pause_blocked' }, unknown_policy: 'mark_unknown' };
+  h.engine.registerMechanicTemplate(template);
+  assert.throws(() => h.engine.commitEvent('w', cmd({ idempotency_key: 'unknown-template-version', effects: [{ kind: 'mechanic.instance.create', instance_id: 'unknown', template_id: 'test.lifecycle', template_version: '9.9.9' }] })), (error) => error.code === 'MECHANIC_TEMPLATE_NOT_FOUND');
+  assert.equal(h.engine.getState('w').world_revision, 0);
+  h.engine.createWorld({ world_id: 'w2', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2005-12-29T10:00:00Z' });
+  const create = (world, key, revision = 0) => h.engine.commitEvent(world, cmd({ idempotency_key: key, turn_id: key, expected_revision: revision, event_type: 'mechanic.instance.create', effects: [{ kind: 'mechanic.instance.create', instance_id: 'shared-id', template_id: 'test.lifecycle', template_version: '1.0.0', parameters: { rate: 2 }, state: { count: 0 } }] }));
+  const first = create('w', 'm-create');
+  assert.equal(h.engine.getMechanicInstance('w', 'shared-id').status, 'disabled');
+  assert.equal(h.engine.getMechanicInstance('w', 'shared-id').template_version, '1.0.0');
+  assert.equal(typeof h.engine.getMechanicInstance('w', 'shared-id').last_event_id, 'string');
+  assert.throws(() => h.engine.commitEvent('w', cmd({ idempotency_key: 'reserved-instance-id', effects: [{ kind: 'mechanic.instance.create', instance_id: 'entity:reserved', template_id: 'test.lifecycle', template_version: '1.0.0' }] })), (error) => error.code === 'INVALID_MECHANIC_INSTANCE_EFFECT');
+  create('w2', 'm-create-w2');
+  assert.equal(h.engine.listMechanicInstances('w2').length, 1);
+  assert.throws(() => create('w', 'm-create-duplicate', 1), (error) => error.code === 'MECHANIC_INSTANCE_ALREADY_EXISTS');
+  const enabled = h.engine.commitEvent('w', cmd({ idempotency_key: 'm-enable', turn_id: 'm-enable', expected_revision: 1, event_type: 'mechanic.instance.enable', caused_by: [first.event_id], effects: [{ kind: 'mechanic.instance.enable', instance_id: 'shared-id' }] }));
+  assert.equal(h.engine.getMechanicInstance('w', 'shared-id').status, 'enabled');
+  assert.throws(() => h.engine.commitEvent('w', cmd({ idempotency_key: 'm-enable-again', turn_id: 'm-enable-again', expected_revision: 2, effects: [{ kind: 'mechanic.instance.enable', instance_id: 'shared-id' }], caused_by: [enabled.event_id] })), (error) => error.code === 'INVALID_MECHANIC_INSTANCE_TRANSITION');
+  const disabled = h.engine.commitEvent('w', cmd({ idempotency_key: 'm-disable', turn_id: 'm-disable', expected_revision: 2, event_type: 'mechanic.instance.disable', caused_by: [enabled.event_id], effects: [{ kind: 'mechanic.instance.disable', instance_id: 'shared-id' }] }));
+  assert.equal(h.engine.getMechanicInstance('w', 'shared-id').status, 'disabled');
+  h.store.rebuild('w', 3);
+  assert.equal(h.engine.getMechanicInstance('w', 'shared-id').status, 'disabled');
+  const rollback = h.engine.rollbackEvent('w', { root_event_id: first.event_id, idempotency_key: 'm-rollback-create' });
+  assert.deepEqual(new Set(rollback.invalidated_event_ids), new Set([first.event_id, enabled.event_id, disabled.event_id]));
+  assert.equal(h.engine.listMechanicInstances('w').length, 0);
+  create('w', 'm-reuse-after-rollback', 4);
+  assert.equal(h.engine.getMechanicInstance('w', 'shared-id').status, 'disabled');
+  assert.equal(h.engine.listMechanicInstances('w2').length, 1);
+});
+
+
+test('rolling back mechanic enable restores disabled state without touching an independent instance', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  h.engine.registerMechanicTemplate({ template_id: 'test.lifecycle', version: '1.0.0', schema_version: 'core-1', display_name: 'Lifecycle test', required_capabilities: [], applicability: [], actions: [], conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'pause_blocked' }, unknown_policy: 'mark_unknown' });
+  const create = (id, key, revision) => h.engine.commitEvent('w', cmd({ idempotency_key: key, turn_id: key, expected_revision: revision, effects: [{ kind: 'mechanic.instance.create', instance_id: id, template_id: 'test.lifecycle', template_version: '1.0.0' }] }));
+  const a = create('instance-a', 'create-a', 0);
+  create('instance-b', 'create-b', 1);
+  const enabled = h.engine.commitEvent('w', cmd({ idempotency_key: 'enable-a', turn_id: 'enable-a', expected_revision: 2, caused_by: [a.event_id], effects: [{ kind: 'mechanic.instance.enable', instance_id: 'instance-a' }] }));
+  assert.equal(h.engine.getMechanicInstance('w', 'instance-a').status, 'enabled');
+  const result = h.engine.rollbackEvent('w', { root_event_id: enabled.event_id, idempotency_key: 'rollback-enable-a' });
+  assert.deepEqual(result.invalidated_event_ids, [enabled.event_id]);
+  assert.equal(h.engine.getMechanicInstance('w', 'instance-a').status, 'disabled');
+  assert.equal(h.engine.getMechanicInstance('w', 'instance-b').status, 'disabled');
+});
+
+
+test('mechanic instance creation fails closed on missing or incompatible pinned rule modules', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  h.engine.registerMechanicTemplate({
+    template_id: 'test.module-boundary', version: '1.0.0', schema_version: 'core-1',
+    display_name: 'Module boundary', required_capabilities: [], applicability: [], actions: [],
+    conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'pause_blocked' },
+    unknown_policy: 'mark_unknown',
+    rule_modules: [{ module_id: 'test.module', version: '1.0.0', required_capabilities: ['mechanic.test'] }],
+  });
+  const create = () => h.engine.commitEvent('w', cmd({
+    idempotency_key: 'module-boundary-create', turn_id: 'module-boundary-create',
+    expected_revision: 0, event_type: 'mechanic.instance.create',
+    effects: [{ kind: 'mechanic.instance.create', instance_id: 'module-instance', template_id: 'test.module-boundary', template_version: '1.0.0' }],
+  }));
+  assert.throws(() => create(), (error) => error.code === 'MECHANIC_INSTANCE_UNSUPPORTED_MODULE');
+  assert.equal(h.engine.getState('w').world_revision, 0);
+  h.engine.registerRuleModuleManifest({
+    module_id: 'test.module', version: '1.0.0', contract_version: 'core-1',
+    capabilities: [], operations: ['evaluate_predicate'], input_schema: { type: 'object' },
+    output_schema: { type: 'object' }, failure_policy: 'fail_closed',
+    compatibility: { core_contract_versions: ['core-1'] },
+  });
+  assert.throws(() => create(), (error) => error.code === 'MECHANIC_INSTANCE_MODULE_CAPABILITY_MISMATCH');
+  assert.equal(h.engine.getState('w').world_revision, 0);
+  h.engine.registerRuleModuleManifest({
+    module_id: 'test.module', version: '1.0.1', contract_version: 'core-1',
+    capabilities: ['mechanic.test'], operations: ['evaluate_predicate'], input_schema: { type: 'object' },
+    output_schema: { type: 'object' }, failure_policy: 'fail_closed',
+    compatibility: { core_contract_versions: ['core-1'] },
+  });
+  assert.throws(() => create(), (error) => error.code === 'MECHANIC_INSTANCE_MODULE_CAPABILITY_MISMATCH');
+  assert.equal(h.engine.getState('w').world_revision, 0);
+  h.engine.registerRuleModuleManifest({
+    module_id: 'test.module', version: '1.0.2', contract_version: 'core-1',
+    capabilities: ['mechanic.test'], operations: ['evaluate_predicate'], input_schema: { type: 'object' },
+    output_schema: { type: 'object' }, failure_policy: 'fail_closed',
+    compatibility: { core_contract_versions: ['core-2'] },
+  });
+  h.engine.registerMechanicTemplate({
+    template_id: 'test.module-boundary-incompatible', version: '1.0.0', schema_version: 'core-1',
+    display_name: 'Incompatible module boundary', required_capabilities: [], applicability: [], actions: [],
+    conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'pause_blocked' },
+    unknown_policy: 'mark_unknown',
+    rule_modules: [{ module_id: 'test.module', version: '1.0.2', required_capabilities: ['mechanic.test'] }],
+  });
+  assert.throws(() => h.engine.commitEvent('w', cmd({
+    idempotency_key: 'module-boundary-incompatible-create', turn_id: 'module-boundary-incompatible-create',
+    expected_revision: 0, event_type: 'mechanic.instance.create',
+    effects: [{ kind: 'mechanic.instance.create', instance_id: 'module-instance-incompatible', template_id: 'test.module-boundary-incompatible', template_version: '1.0.0' }],
+  })), (error) => error.code === 'MECHANIC_INSTANCE_MODULE_COMPATIBILITY_MISMATCH');
+  assert.equal(h.engine.getState('w').world_revision, 0);
+  h.engine.registerMechanicTemplate({
+    template_id: 'test.module-boundary-good', version: '1.0.0', schema_version: 'core-1',
+    display_name: 'Compatible module boundary', required_capabilities: [], applicability: [], actions: [],
+    conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'pause_blocked' },
+    unknown_policy: 'mark_unknown',
+    rule_modules: [{ module_id: 'test.module', version: '1.0.1', required_capabilities: ['mechanic.test'] }],
+  });
+  const good = h.engine.commitEvent('w', cmd({
+    idempotency_key: 'module-boundary-good-create', turn_id: 'module-boundary-good-create',
+    expected_revision: 0, event_type: 'mechanic.instance.create',
+    effects: [{ kind: 'mechanic.instance.create', instance_id: 'module-instance-good', template_id: 'test.module-boundary-good', template_version: '1.0.0' }],
+  }));
+  assert.equal(good.accepted, true);
+  assert.equal(h.engine.getMechanicInstance('w', 'module-instance-good').status, 'disabled');
+});

@@ -8,7 +8,7 @@ import { EngineError } from '../core/errors.js';
 const now = () => new Date().toISOString();
 const enc = (x) => JSON.stringify(x);
 const dec = (x) => x == null ? null : JSON.parse(x);
-const refs = (effects) => effects.map((e) => e.kind.startsWith('entity.') ? 'entity:' + e.entity_id : 'fact:' + e.fact_id);
+const refs = (effects) => effects.map((e) => e.kind.startsWith('entity.') ? 'entity:' + e.entity_id : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id);
 const applyEntityEffects = (entities, effects) => {
   for (const effect of effects) {
     if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
@@ -77,6 +77,16 @@ const factProjection = (claimsById) => {
       : { status: 'active', value: unique[0], values: unique });
   }
   return facts;
+};
+
+const sameFactProjection = (left, right) => {
+  if (!left || !right) return left === right;
+  if (left.status !== right.status) return false;
+  const leftValues = left.values ?? (left.value === undefined ? [] : [left.value]);
+  const rightValues = right.values ?? (right.value === undefined ? [] : [right.value]);
+  return leftValues.length === rightValues.length
+    && leftValues.every((value) => rightValues.some((candidate) => isDeepStrictEqual(candidate, value)))
+    && rightValues.every((value) => leftValues.some((candidate) => isDeepStrictEqual(candidate, value)));
 };
 
 const world = (r) => r && ({
@@ -223,6 +233,25 @@ export class SQLiteStore {
           if (!manifestColumns.some((column) => column.name === 'base_world_revision')) {
             this.db.exec('ALTER TABLE context_manifests ADD COLUMN base_world_revision INTEGER NOT NULL DEFAULT 0');
           }
+        },
+      },
+      {
+        version: 5,
+        apply: () => {
+          this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS events_world_event_id ON world_events(world_id,event_id);
+            CREATE TABLE IF NOT EXISTS mechanic_instances(
+              world_id TEXT NOT NULL REFERENCES worlds(world_id), instance_id TEXT NOT NULL,
+              template_id TEXT NOT NULL, template_version TEXT NOT NULL,
+              status TEXT NOT NULL CHECK(status IN ('disabled','enabled')),
+              parameters_json TEXT NOT NULL, state_json TEXT NOT NULL,
+              created_by_event_id TEXT NOT NULL, created_revision INTEGER NOT NULL,
+              updated_revision INTEGER NOT NULL, disabled_at_revision INTEGER,
+              needs_review_reason TEXT, last_event_id TEXT NOT NULL,
+              PRIMARY KEY(world_id,instance_id),
+              FOREIGN KEY(template_id,template_version) REFERENCES mechanic_templates(template_id,version),
+              FOREIGN KEY(world_id,created_by_event_id) REFERENCES world_events(world_id,event_id),
+              FOREIGN KEY(world_id,last_event_id) REFERENCES world_events(world_id,event_id)
+            );`);
         },
       },
     ];
@@ -674,7 +703,43 @@ export class SQLiteStore {
       this.validateCausalMetadata(id, x, revision);
       const currentEntities = this.currentEntityProjection(id);
       const entityEffectIds = new Set();
+      const mechanicEffectIds = new Set();
       for (const effect of x.effects) {
+        if (effect.kind.startsWith('mechanic.instance.')) {
+          if (mechanicEffectIds.has(effect.instance_id)) throw new EngineError('DUPLICATE_MECHANIC_INSTANCE_EFFECT', 'An event may contain at most one lifecycle effect for a given mechanic instance.', 400, { instance_id: effect.instance_id });
+          mechanicEffectIds.add(effect.instance_id);
+          if (effect.kind === 'mechanic.instance.create') {
+            const templateRow = this.db.prepare('SELECT template_json FROM mechanic_templates WHERE template_id=? AND version=?').get(effect.template_id, effect.template_version);
+            if (!templateRow) throw new EngineError('MECHANIC_TEMPLATE_NOT_FOUND', 'The exact mechanic template version is not registered.', 404, { template_id: effect.template_id, template_version: effect.template_version });
+            const template = dec(templateRow.template_json);
+            const moduleRefs = [...(template.rule_modules || [])];
+            if (template.conflict_policy?.mode === 'automatic') {
+              const resolver = { module_id: template.conflict_policy.resolver_module_id, version: template.conflict_policy.resolver_module_version, required_capabilities: template.conflict_policy.requires_capabilities || [], required_operation: 'resolve_conflict' };
+              const existingRef = moduleRefs.find((item) => item.module_id === resolver.module_id && item.version === resolver.version);
+              if (existingRef) {
+                existingRef.required_capabilities = [...new Set([...resolver.required_capabilities, ...(existingRef.required_capabilities || [])])];
+                existingRef.required_operation = 'resolve_conflict';
+              } else moduleRefs.push(resolver);
+            }
+            for (const moduleRef of moduleRefs) {
+              const moduleRow = this.db.prepare('SELECT manifest_json FROM rule_module_manifests WHERE module_id=? AND version=?').get(moduleRef.module_id, moduleRef.version);
+              if (!moduleRow) throw new EngineError('MECHANIC_INSTANCE_UNSUPPORTED_MODULE', 'The pinned template references a rule-module version that is not registered.', 409, { template_id: effect.template_id, template_version: effect.template_version, module_id: moduleRef.module_id, module_version: moduleRef.version });
+              const manifest = dec(moduleRow.manifest_json);
+              if (!manifest.compatibility.core_contract_versions.includes(template.schema_version)) throw new EngineError('MECHANIC_INSTANCE_MODULE_COMPATIBILITY_MISMATCH', 'A referenced rule module does not declare compatibility with the pinned template contract version.', 409, { module_id: moduleRef.module_id, module_version: moduleRef.version, template_schema_version: template.schema_version });
+              const missingCapabilities = (moduleRef.required_capabilities || []).filter((capability) => !manifest.capabilities.includes(capability));
+              if (missingCapabilities.length) throw new EngineError('MECHANIC_INSTANCE_MODULE_CAPABILITY_MISMATCH', 'A referenced rule module does not declare all required capabilities.', 409, { module_id: moduleRef.module_id, module_version: moduleRef.version, missing_capabilities: missingCapabilities });
+              if (moduleRef.required_operation && !manifest.operations.includes(moduleRef.required_operation)) throw new EngineError('MECHANIC_INSTANCE_MODULE_OPERATION_MISMATCH', 'The automatic conflict resolver does not declare resolve_conflict.', 409, { module_id: moduleRef.module_id, module_version: moduleRef.version });
+            }
+            if (this.db.prepare('SELECT 1 FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(id, effect.instance_id)) throw new EngineError('MECHANIC_INSTANCE_ALREADY_EXISTS', 'Mechanic instance identity already exists in this world.', 409, { instance_id: effect.instance_id });
+          } else {
+            const instance = this.db.prepare('SELECT status,last_event_id FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(id, effect.instance_id);
+            if (!instance) throw new EngineError('MECHANIC_INSTANCE_NOT_FOUND', 'Mechanic instance does not exist in this world.', 404, { instance_id: effect.instance_id });
+            const expectedStatus = effect.kind === 'mechanic.instance.enable' ? 'disabled' : 'enabled';
+            if (instance.status !== expectedStatus) throw new EngineError('INVALID_MECHANIC_INSTANCE_TRANSITION', 'Lifecycle transition is not valid from the current status.', 409, { instance_id: effect.instance_id, current_status: instance.status, requested_effect: effect.kind });
+            if (!x.caused_by.includes(instance.last_event_id)) throw new EngineError('MECHANIC_INSTANCE_CAUSAL_PREDECESSOR_REQUIRED', 'Lifecycle changes must be caused by the instance latest lifecycle event.', 400, { instance_id: effect.instance_id, required_event_id: instance.last_event_id });
+          }
+          continue;
+        }
         if (!effect.kind.startsWith('entity.')) continue;
         if (entityEffectIds.has(effect.entity_id)) {
           throw new EngineError('DUPLICATE_ENTITY_EFFECT', 'An event may contain at most one effect for a given entity_id.', 400, { entity_id: effect.entity_id });
@@ -741,19 +806,51 @@ export class SQLiteStore {
       }
       const all = this.events(id, true);
       const invalid = new Set([rootId]);
-      const affected = new Set(refs(dec(root.effects_json)));
+      // A changed projection can only affect events committed after the
+      // invalidated event that changed it. Keep the earliest invalidated
+      // writer sequence per reference so rollback never invalidates a reader
+      // because of a later change to the same identity.
+      const affectedAt = new Map(refs(dec(root.effects_json)).map((ref) => [ref, root.commit_sequence]));
+      const markAffected = (event) => {
+        for (const ref of refs(event.effects)) {
+          const previous = affectedAt.get(ref);
+          if (previous === undefined || event.commit_sequence < previous) affectedAt.set(ref, event.commit_sequence);
+        }
+      };
+      const projectionChanged = (ref, event) => {
+        if (!affectedAt.has(ref) || affectedAt.get(ref) >= event.commit_sequence) return false;
+        if (ref.startsWith('entity:')) {
+          const entityId = ref.slice('entity:'.length);
+          const before = this.entityProjectionAtCursor(id, event.commit_sequence).get(entityId);
+          const after = this.entityProjectionAtCursor(id, event.commit_sequence, invalid).get(entityId);
+          return !isDeepStrictEqual(before, after);
+        }
+        if (ref.startsWith('fact:')) {
+          const factId = ref.slice('fact:'.length);
+          const before = this.factProjectionAtCursor(id, event.commit_sequence).get(factId);
+          const after = this.factProjectionAtCursor(id, event.commit_sequence, invalid).get(factId);
+          return !sameFactProjection(before, after);
+        }
+        return false;
+      };
       let changed = true;
       while (changed) {
         changed = false;
         for (const event of all) {
           if (event.validity !== 'valid' || invalid.has(event.event_id)) continue;
           if (event.caused_by.some((value) => invalid.has(value))
-            || event.depends_on.some((value) => invalid.has(value) || affected.has(value))
-            || event.read_set.some((value) => affected.has(value))
+            || event.depends_on.some((value) => invalid.has(value) || projectionChanged(value, event))
+            || event.read_set.some((value) => projectionChanged(value, event))
             || (event.causal_links ?? []).some((link) => {
               if (link.relation === 'READS_SOURCE') return invalid.has(link.target_id);
-              if (link.relation === 'READS_ENTITY') return affected.has('entity:' + link.target_id);
-              if (link.relation === 'READS_CLAIM') return affected.has('fact:' + link.target_id) && !all.some((sourceEvent) => sourceEvent.validity === 'valid' && sourceEvent.commit_sequence < event.commit_sequence && !invalid.has(sourceEvent.event_id) && sourceEvent.effects.some((effect) => effect.kind === 'fact.set' && effect.fact_id === link.target_id));
+              if (link.relation === 'READS_ENTITY') {
+                // Identity-level reads depend on the historical entity projection.
+                return projectionChanged('entity:' + link.target_id, event);
+              }
+              if (link.relation === 'READS_CLAIM') {
+                // Compare the fact projection, not merely the presence of a source.
+                return projectionChanged('fact:' + link.target_id, event);
+              }
               if (link.relation === 'REQUIRES') {
                 const entities = this.entityProjectionAtCursor(id, event.commit_sequence, invalid);
                 const facts = this.factProjectionAtCursor(id, event.commit_sequence, invalid);
@@ -762,7 +859,7 @@ export class SQLiteStore {
               return false;
             })) {
             invalid.add(event.event_id);
-            refs(event.effects).forEach((value) => affected.add(value));
+            markAffected(event);
             changed = true;
           }
         }
@@ -784,7 +881,7 @@ export class SQLiteStore {
               : ['entity_exists', 'entity_absent', 'entity_attribute'].includes(link.predicate?.kind)
                 ? 'entity:' + link.predicate.entity_id
                 : null;
-            if (!targetRef || !affected.has(targetRef)) return [];
+            if (!targetRef || !projectionChanged(targetRef, event)) return [];
             return [{
               event_id: event.event_id,
               reason_code: 'historical_predicate_unknown',
@@ -842,7 +939,25 @@ export class SQLiteStore {
     });
   }
 
+  getMechanicInstance(worldId, instanceId) {
+    if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    const row = this.db.prepare('SELECT * FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(worldId, instanceId);
+    if (!row) throw new EngineError('MECHANIC_INSTANCE_NOT_FOUND', 'Mechanic instance not found in this world.', 404);
+    return this.publicMechanicInstance(row);
+  }
+  listMechanicInstances(worldId) {
+    if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    return this.db.prepare('SELECT * FROM mechanic_instances WHERE world_id=? ORDER BY instance_id').all(worldId).map((row) => this.publicMechanicInstance(row));
+  }
+  publicMechanicInstance(row) {
+    return { world_id: row.world_id, instance_id: row.instance_id, template_id: row.template_id, template_version: row.template_version,
+      status: row.status, parameters: dec(row.parameters_json), state: dec(row.state_json), created_by_event_id: row.created_by_event_id,
+      created_revision: row.created_revision, updated_revision: row.updated_revision, disabled_at_revision: row.disabled_at_revision,
+      needs_review_reason: row.needs_review_reason, last_event_id: row.last_event_id };
+  }
+
   rebuild(id, revision) {
+    this.db.prepare('DELETE FROM mechanic_instances WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM entities WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM facts WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM fact_claims WHERE world_id=?').run(id);
@@ -853,9 +968,20 @@ export class SQLiteStore {
       entity_type=excluded.entity_type,status=excluded.status,attributes_json=excluded.attributes_json,
       created_by_event_id=excluded.created_by_event_id,updated_revision=excluded.updated_revision`);
     const insertClaim = this.db.prepare('INSERT INTO fact_claims(world_id,fact_id,event_id,subject_ref,predicate,value_json,committed_revision) VALUES(?,?,?,?,?,?,?)');
+    const insertMechanic = this.db.prepare(`INSERT INTO mechanic_instances(
+      world_id,instance_id,template_id,template_version,status,parameters_json,state_json,created_by_event_id,created_revision,updated_revision,disabled_at_revision,needs_review_reason,last_event_id
+    ) VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL,?)`);
     for (const event of events) {
       for (const effect of dec(event.effects_json)) {
-        if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
+        if (effect.kind === 'mechanic.instance.create') {
+          insertMechanic.run(id, effect.instance_id, effect.template_id, effect.template_version, 'disabled', enc(effect.parameters || {}), enc(effect.state || {}), event.event_id, event.committed_revision, event.committed_revision, event.committed_revision, event.event_id);
+        } else if (effect.kind === 'mechanic.instance.enable' || effect.kind === 'mechanic.instance.disable') {
+          const current = this.db.prepare('SELECT status FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(id, effect.instance_id);
+          if (!current) throw new EngineError('MECHANIC_PROJECTION_REBUILD_FAILED', 'Lifecycle event has no valid create event in the rebuilt projection.', 500, { instance_id: effect.instance_id, event_id: event.event_id });
+          const status = effect.kind === 'mechanic.instance.enable' ? 'enabled' : 'disabled';
+          this.db.prepare('UPDATE mechanic_instances SET status=?,updated_revision=?,disabled_at_revision=?,last_event_id=? WHERE world_id=? AND instance_id=?')
+            .run(status, event.committed_revision, status === 'disabled' ? event.committed_revision : null, event.event_id, id, effect.instance_id);
+        } else if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
           upsertEntity.run(id, effect.entity_id, effect.entity_type, effect.status || 'active', enc(effect.attributes || {}), event.event_id, event.committed_revision);
         } else if (effect.kind === 'entity.update') {
           const current = this.db.prepare('SELECT entity_type,status,attributes_json,created_by_event_id FROM entities WHERE world_id=? AND entity_id=?').get(id, effect.entity_id);
