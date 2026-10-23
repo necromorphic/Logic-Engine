@@ -71,6 +71,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       if (parts.length === 4 && action === 'proposals' && req.method === 'POST') {
         return send(res, 201, { proposal: proposals.create(worldId, await readBody(req)) });
       }
+      if (parts.length === 5 && action === 'proposals' && req.method === 'GET') {
+        return send(res, 200, { proposal: proposals.get(worldId, decodeURIComponent(parts[4])) });
+      }
       if (parts.length === 6 && action === 'proposals' && req.method === 'POST') {
         const proposalId = decodeURIComponent(parts[4]);
         const operation = parts[5];
