@@ -13,7 +13,7 @@ The current SQLite projection treats `fact.set` as an append-only claim:
 - Rollback rebuilds fact projections from the remaining valid events.
 
 There are two gaps in the current implementation that should not be mistaken for approved semantics:
-- The projection takes `subject_ref` and `predicate` from the last claim for a `fact_id`, without checking that all claims share the same fact identity.
+- The projection takes `subject_ref` and `predicate` from the last claim for a `fact_id`, without checking that all claims share the same fact identity. Consequently, checking only the current `facts` projection would be insufficient for the new guard: a previously inconsistent history may already have had its earlier identity hidden by the projection. The commit guard must inspect all remaining valid claims for that `fact_id` (or derive the identity from valid event history), not trust the projected row alone.
 - The `fact_claims` table is keyed by `(world_id, fact_id, event_id)`. Two `fact.set` effects for the same `fact_id` in a single event cannot both be stored under that key; the current path can therefore fail with a storage constraint error instead of a stable domain error.
 - `validateEffects` currently accepts an empty-string `subject_ref`, but persistence uses `effect.subject_ref || null`, so an empty string is silently collapsed to SQL `NULL`. That is inconsistent with a rule where only an absent or explicit `null` subject means “no subject”. The canonical validation contract should reject empty or whitespace-only `subject_ref` values rather than silently normalizing them.
 
@@ -50,7 +50,7 @@ Different events may still make competing claims for the same fact identity; tha
 ## 3. Canonical commit-boundary requirements
 
 The canonical commit boundary, not the mechanic translator, must enforce these rules for every caller of canonical effects:
-1. Validate identity consistency against existing valid claims for the world and against other `fact.set` effects in the pending event.
+1. Validate identity consistency against all existing valid claims for the same `fact_id` in this world and against other `fact.set` effects in the pending event. Do not use the `facts` projection as the sole source for historical identity because it currently retains only the last claim's `subject_ref` and `predicate`.
 2. Reject identity mismatch and duplicate same-event fact IDs before inserting the event or rebuilding projections.
 3. Keep all checks and the commit inside the existing transaction, with no event, revision, projection, idempotency, or audit residue after rejection.
 4. Preserve the existing proposal → approval → commit lifecycle. Translation is not a substitute for canonical validation.
@@ -69,7 +69,7 @@ Until an explicit provenance mapping is approved, non-empty intent `source_refs`
 1. First claim for a new `fact_id` creates an active fact.
 2. Same `fact_id`, same identity and same value across separate events remains active with one distinct candidate and preserves all valid source event IDs.
 3. Same `fact_id`, same identity but a different value across separate events produces a conflicted fact, not last-write-wins.
-4. Same `fact_id` with a different predicate is rejected with `FACT_IDENTITY_MISMATCH`.
+4. Same `fact_id` with a different predicate is rejected with `FACT_IDENTITY_MISMATCH`, including when an earlier inconsistent claim is no longer visible in the current projection.
 5. Same `fact_id` with a different normalized `subject_ref` is rejected with `FACT_IDENTITY_MISMATCH`; absent and explicit `null` are equivalent, but a non-empty string differs from `null`.
 6. Empty and whitespace-only `subject_ref` values are rejected as `INVALID_EFFECT` before writes; they are not normalized to `null`.
 7. Two `fact.set` effects for the same `fact_id` in one event are rejected with `DUPLICATE_FACT_EFFECT`, before durable writes.
