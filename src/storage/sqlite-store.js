@@ -134,7 +134,7 @@ export class SQLiteStore {
       );
       CREATE TABLE IF NOT EXISTS context_manifests(
         manifest_id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(world_id),
-        generation_id TEXT NOT NULL, base_commit_sequence INTEGER NOT NULL,
+        generation_id TEXT NOT NULL, base_commit_sequence INTEGER NOT NULL, base_world_revision INTEGER NOT NULL DEFAULT 0,
         items_json TEXT NOT NULL, manifest_hash TEXT NOT NULL, created_at TEXT NOT NULL,
         UNIQUE(world_id,generation_id)
       );
@@ -192,10 +192,14 @@ export class SQLiteStore {
           }
           this.db.exec(`CREATE TABLE IF NOT EXISTS context_manifests(
             manifest_id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(world_id),
-            generation_id TEXT NOT NULL, base_commit_sequence INTEGER NOT NULL,
+            generation_id TEXT NOT NULL, base_commit_sequence INTEGER NOT NULL, base_world_revision INTEGER NOT NULL DEFAULT 0,
             items_json TEXT NOT NULL, manifest_hash TEXT NOT NULL, created_at TEXT NOT NULL,
             UNIQUE(world_id,generation_id)
           )`);
+          const manifestColumns = this.db.prepare('PRAGMA table_info(context_manifests)').all();
+          if (!manifestColumns.some((column) => column.name === 'base_world_revision')) {
+            this.db.exec('ALTER TABLE context_manifests ADD COLUMN base_world_revision INTEGER NOT NULL DEFAULT 0');
+          }
         },
       },
     ];
@@ -316,13 +320,17 @@ export class SQLiteStore {
         if (existing.manifest_hash === manifest.manifest_hash) {
           return {
             manifest_id: existing.manifest_id, world_id: existing.world_id, generation_id: existing.generation_id,
-            base_commit_sequence: existing.base_commit_sequence, items: dec(existing.items_json),
+            base_commit_sequence: existing.base_commit_sequence, base_world_revision: existing.base_world_revision, items: dec(existing.items_json),
             manifest_hash: existing.manifest_hash, idempotent_replay: true,
           };
         }
         throw new EngineError('GENERATION_MANIFEST_EXISTS', 'A different immutable context manifest is already registered for this generation.', 409, { generation_id: manifest.generation_id });
       }
+      const currentWorld = this.world(worldId);
       const currentCursor = this.currentCommitSequence(worldId);
+      if (manifest.base_world_revision !== currentWorld.world_revision) {
+        throw new EngineError('CONTEXT_REVISION_CONFLICT', 'Context manifest revision must equal the current world revision when the manifest is registered.', 409, { expected: currentWorld.world_revision, received: manifest.base_world_revision });
+      }
       if (manifest.base_commit_sequence !== currentCursor) {
         throw new EngineError('CONTEXT_CURSOR_CONFLICT', 'Context manifest cursor must equal the current committed event cursor when the manifest is registered.', 409, { expected: currentCursor, received: manifest.base_commit_sequence });
       }
@@ -340,14 +348,14 @@ export class SQLiteStore {
       }
       const manifestId = randomUUID();
       const createdAt = now();
-      this.db.prepare('INSERT INTO context_manifests(manifest_id,world_id,generation_id,base_commit_sequence,items_json,manifest_hash,created_at) VALUES(?,?,?,?,?,?,?)')
-        .run(manifestId, worldId, manifest.generation_id, manifest.base_commit_sequence, enc(manifest.items), manifest.manifest_hash, createdAt);
+      this.db.prepare('INSERT INTO context_manifests(manifest_id,world_id,generation_id,base_commit_sequence,base_world_revision,items_json,manifest_hash,created_at) VALUES(?,?,?,?,?,?,?,?)')
+        .run(manifestId, worldId, manifest.generation_id, manifest.base_commit_sequence, manifest.base_world_revision, enc(manifest.items), manifest.manifest_hash, createdAt);
       const revision = this.world(worldId).world_revision;
       this.db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?, 'context_manifest.registered',?,?,?)")
-        .run(worldId, revision, manifestId, enc({ generation_id: manifest.generation_id, base_commit_sequence: manifest.base_commit_sequence, item_count: manifest.items.length, manifest_hash: manifest.manifest_hash }), createdAt);
+        .run(worldId, revision, manifestId, enc({ generation_id: manifest.generation_id, base_commit_sequence: manifest.base_commit_sequence, base_world_revision: manifest.base_world_revision, item_count: manifest.items.length, manifest_hash: manifest.manifest_hash }), createdAt);
       return {
         manifest_id: manifestId, world_id: worldId, generation_id: manifest.generation_id,
-        base_commit_sequence: manifest.base_commit_sequence, items: manifest.items,
+        base_commit_sequence: manifest.base_commit_sequence, base_world_revision: manifest.base_world_revision, items: manifest.items,
         manifest_hash: manifest.manifest_hash, idempotent_replay: false,
       };
     });
@@ -360,8 +368,12 @@ export class SQLiteStore {
     if (!event.generation_id || event.generation_id !== manifest.generation_id) {
       throw new EngineError('CONTEXT_GENERATION_MISMATCH', 'Event generation_id must match the context manifest generation_id.', 400, { event_generation_id: event.generation_id ?? null, manifest_generation_id: manifest.generation_id });
     }
+    const currentWorld = this.world(worldId);
     if (manifest.base_commit_sequence > this.currentCommitSequence(worldId)) {
       throw new EngineError('INVALID_CONTEXT_CURSOR', 'Context manifest cursor cannot be ahead of the current world history.', 409);
+    }
+    if (manifest.base_world_revision !== currentWorld.world_revision) {
+      throw new EngineError('CONTEXT_SNAPSHOT_STALE', 'The world changed after this context snapshot was registered; regenerate against a fresh manifest.', 409, { manifest_world_revision: manifest.base_world_revision, current_world_revision: currentWorld.world_revision });
     }
     const available = new Set(dec(manifest.items_json).map((item) => item.kind + ':' + item.target_id));
     const declared = new Set();
