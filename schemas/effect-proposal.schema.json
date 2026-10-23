@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logic-engine.invalid/schemas/effect-proposal.schema.json",
+  "title": "Effect Proposal",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "proposal_id",
+    "world_id",
+    "turn_id",
+    "base_revision",
+    "actor_ref",
+    "action_type",
+    "read_set",
+    "effect_intents"
+  ],
+  "properties": {
+    "proposal_id": {"type": "string", "minLength": 1},
+    "world_id": {"type": "string", "minLength": 1},
+    "turn_id": {"type": "string", "minLength": 1},
+    "generation_id": {"type": ["string", "null"]},
+    "base_revision": {"type": "integer", "minimum": 0},
+    "actor_ref": {"type": "string", "minLength": 1},
+    "action_type": {"type": "string", "minLength": 1},
+    "input": {"type": "object"},
+    "read_set": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["record_ref", "observed_version"],
+        "properties": {
+          "record_ref": {"type": "string", "minLength": 1},
+          "observed_version": {"type": ["string", "integer"]},
+          "value_digest": {"type": ["string", "null"]}
+        }
+      }
+    },
+    "effect_intents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["effect_id", "kind", "target_ref"],
+        "properties": {
+          "effect_id": {"type": "string", "minLength": 1},
+          "kind": {"type": "string", "minLength": 1},
+          "target_ref": {"type": "string", "minLength": 1},
+          "payload": {"type": "object"},
+          "caused_by": {"type": "array", "items": {"type": "string"}},
+          "source_refs": {"type": "array", "items": {"type": "string"}}
+        }
+      }
+    },
+    "ambiguities": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["question", "resolution_policy"],
+        "properties": {
+          "question": {"type": "string", "minLength": 1},
+          "resolution_policy": {
+            "enum": ["deterministic", "model_adjudication", "author_adjudication", "block"]
+          },
+          "candidate_outcomes": {"type": "array", "items": {"type": "object"}}
+        }
+      }
+    },
+    "proposed_by": {
+      "enum": ["deterministic_rule", "npc_model", "author", "scheduled_process", "adapter"]
+    }
+  }
+}
