@@ -1,0 +1,136 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logic-engine.invalid/schemas/declarative-rule.schema.json",
+  "title": "Declarative Rule",
+  "$defs": {
+    "rule": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["op"],
+      "properties": {
+        "op": {
+          "enum": [
+            "eq",
+            "neq",
+            "gt",
+            "gte",
+            "lt",
+            "lte",
+            "in",
+            "contains",
+            "exists",
+            "all",
+            "any",
+            "not",
+            "ref_exists",
+            "status_is",
+            "time_before",
+            "time_after",
+            "needs_review"
+          ]
+        },
+        "path": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "value": {},
+        "values": {
+          "type": "array",
+          "maxItems": 128
+        },
+        "rules": {
+          "type": "array",
+          "maxItems": 64,
+          "items": {"$ref": "#/$defs/rule"}
+        },
+        "ref": {
+          "type": "string",
+          "maxLength": 256
+        },
+        "reason": {
+          "type": "string",
+          "maxLength": 1000
+        }
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"op": {"enum": ["all", "any"]}}, "required": ["op"]},
+          "then": {"required": ["rules"]}
+        },
+        {
+          "if": {"properties": {"op": {"const": "not"}}, "required": ["op"]},
+          "then": {
+            "required": ["rules"],
+            "properties": {"rules": {"minItems": 1, "maxItems": 1}}
+          }
+        },
+        {
+          "if": {"properties": {"op": {"enum": ["eq", "neq", "gt", "gte", "lt", "lte", "contains", "status_is"]}}, "required": ["op"]},
+          "then": {"required": ["path", "value"]}
+        },
+        {
+          "if": {"properties": {"op": {"const": "in"}}, "required": ["op"]},
+          "then": {"required": ["path", "values"]}
+        },
+        {
+          "if": {"properties": {"op": {"const": "exists"}}, "required": ["op"]},
+          "then": {"required": ["path"]}
+        },
+        {
+          "if": {"properties": {"op": {"const": "ref_exists"}}, "required": ["op"]},
+          "then": {"required": ["ref"]}
+        },
+        {
+          "if": {"properties": {"op": {"enum": ["time_before", "time_after"]}}, "required": ["op"]},
+          "then": {"required": ["value"]}
+        },
+        {
+          "if": {"properties": {"op": {"const": "needs_review"}}, "required": ["op"]},
+          "then": {"required": ["reason"]}
+        }
+      ]
+    },
+    "effectIntent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["effect_id", "kind", "target_ref"],
+      "properties": {
+        "effect_id": {"type": "string", "minLength": 1, "maxLength": 128},
+        "kind": {
+          "enum": [
+            "create_entity",
+            "update_attribute",
+            "create_relation",
+            "retract_relation",
+            "assert_fact",
+            "retract_fact",
+            "propose_knowledge",
+            "reconcile_knowledge",
+            "start_process",
+            "advance_process",
+            "cancel_process",
+            "create_task",
+            "update_task",
+            "create_goal",
+            "update_goal",
+            "emit_event",
+            "request_adjudication",
+            "needs_review"
+          ]
+        },
+        "target_ref": {"type": "string", "minLength": 1, "maxLength": 256},
+        "payload": {"type": "object"},
+        "source_refs": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "maxItems": 128
+        },
+        "caused_by": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "maxItems": 128
+        }
+      }
+    }
+  }
+}
