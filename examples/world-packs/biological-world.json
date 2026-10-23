@@ -1,0 +1,73 @@
+{
+  "world_pack_id": "fixture.biological-world",
+  "version": "0.1.0",
+  "schema_version": "core-1",
+  "display_name": "Biological World Fixture",
+  "description": "Test profile only; biology is defined by this pack, not the core.",
+  "capabilities": ["entities", "relations", "resources", "processes", "knowledge"],
+  "entity_types": [
+    {
+      "type_id": "person",
+      "attributes_schema": {
+        "type": "object",
+        "properties": {
+          "alive": {"type": "boolean"},
+          "health_state": {"type": "string", "enum": ["stable", "injured", "critical", "dead"]}
+        },
+        "required": ["alive"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "type_id": "place",
+      "attributes_schema": {
+        "type": "object",
+        "properties": {"name": {"type": "string"}},
+        "required": ["name"],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "relation_types": [
+    {
+      "type_id": "located_at",
+      "attributes_schema": {
+        "type": "object",
+        "properties": {"since": {"type": "string"}},
+        "additionalProperties": false
+      }
+    }
+  ],
+  "action_types": [
+    {
+      "action_id": "observe",
+      "input_schema": {
+        "type": "object",
+        "properties": {"target_ref": {"type": "string"}},
+        "required": ["target_ref"],
+        "additionalProperties": false
+      },
+      "preconditions": [{"op": "ref_exists", "ref": "input.target_ref"}],
+      "effects": [
+        {
+          "effect_id": "record_observation",
+          "kind": "propose_knowledge",
+          "target_ref": "actor_ref",
+          "payload": {"source_kind": "direct_observation"}
+        }
+      ],
+      "ambiguity_policy": "model_proposal_then_validate",
+      "rollback_policy": "recompute"
+    }
+  ],
+  "process_types": [],
+  "knowledge_channels": [
+    {
+      "channel_id": "direct_observation",
+      "source_kind": "observation",
+      "validation_policy": "require_observation"
+    }
+  ],
+  "unknown_mechanics_policy": "needs_review",
+  "conformance_tests": ["CORE-001", "KNOW-001", "RB-004", "RB-005"]
+}
