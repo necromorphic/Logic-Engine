@@ -580,7 +580,7 @@ test('rolling back a later state change does not invalidate an earlier satisfied
       }],
       effects: [{ kind: 'fact.set', fact_id: 'action-result', predicate: 'completed', value: true }],
     }));
-  engine.commitEvent('actor-became-busy', command({
+  engine.commitEvent('causality-world', command({
     event_id: 'actor-became-busy',
     idempotency_key: 'actor-became-busy',
     turn_id: 'actor-became-busy',
