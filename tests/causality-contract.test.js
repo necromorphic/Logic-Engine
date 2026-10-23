@@ -92,7 +92,8 @@ test('rollback of an entity creator invalidates a later explicit update that req
   assert.equal(events.get('updater').validity, 'invalidated');
   assert.equal(state.entities.some((item) => item.entity_id === 'guard'), false);
 });
-\ntest('rollback follows declared entity dependencies but preserves independent later events', (t) => {
+
+test('rollback follows declared entity dependencies but preserves independent later events', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
 
