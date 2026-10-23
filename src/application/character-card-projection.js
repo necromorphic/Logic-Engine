@@ -31,6 +31,11 @@ export function projectCharacterCard(worldSnapshot, entityId, options = {}) {
     throw new EngineError('ENTITY_NOT_FOUND', 'Entity not found in the requested world snapshot.', 404);
   }
 
+  assert(typeof entity.entity_id === 'string' && entity.entity_id.trim()
+    && typeof entity.entity_type === 'string' && entity.entity_type.trim()
+    && typeof entity.status === 'string' && entity.status.trim(),
+  'INVALID_PROJECTION_ENTITY', 'Projected entity must contain stable identity, type, and status fields.');
+
   if (!supportedEntityTypes.includes(entity.entity_type)) {
     throw new EngineError('UNSUPPORTED_CHARACTER_ENTITY_TYPE', 'Entity type is not enabled for character-card projection.', 422);
   }
