@@ -319,7 +319,13 @@ export class SQLiteStore {
           if (event.validity !== 'valid' || invalid.has(event.event_id)) continue;
           if (event.caused_by.some((value) => invalid.has(value))
             || event.depends_on.some((value) => invalid.has(value) || affected.has(value))
-            || event.read_set.some((value) => affected.has(value))) {
+            || event.read_set.some((value) => affected.has(value))
+            || (event.causal_links ?? []).some((link) => {
+              if (link.relation === 'CAUSES' || link.relation === 'READS_SOURCE') return invalid.has(link.target_id);
+              if (link.relation === 'READS_ENTITY') return affected.has('entity:' + link.target_id);
+              if (link.relation === 'READS_CLAIM') return affected.has('fact:' + link.target_id);
+              return false;
+            })) {
             invalid.add(event.event_id);
             refs(event.effects).forEach((value) => affected.add(value));
             changed = true;
