@@ -130,6 +130,17 @@ export function validateEffects(effects) {
       throw new EngineError('INVALID_EFFECT', 'Each effect must be an object.');
     }
 
+    const allowedFields = {
+      'entity.create': ['kind', 'entity_id', 'entity_type', 'status', 'attributes'],
+      'entity.update': ['kind', 'entity_id', 'status', 'attributes', 'remove_attributes'],
+      'entity.upsert': ['kind', 'entity_id', 'entity_type', 'status', 'attributes'],
+      'entity.delete': ['kind', 'entity_id'],
+      'fact.set': ['kind', 'fact_id', 'subject_ref', 'predicate', 'value'],
+    }[effect.kind];
+    if (allowedFields && Object.keys(effect).some((key) => !allowedFields.includes(key))) {
+      throw new EngineError('UNSUPPORTED_EFFECT_FIELD', 'Effect contains a field not supported by its kind: ' + effect.kind, 400, { kind: effect.kind });
+    }
+
     if (effect.kind === 'entity.create') {
       if (typeof effect.entity_id !== 'string' || !effect.entity_id.trim() || effect.entity_id.length > 200
         || typeof effect.entity_type !== 'string' || !effect.entity_type.trim()) {
