@@ -181,3 +181,60 @@ This proposal was prepared against the current inspected versions of:
 - the existing NPC contract and readiness/audit documents on `feat/npc-subsystem`.
 
 The inspected `engine.js` exposes canonical event preparation/commit/rollback and context-manifest registration; the inspected `ProposalService` handles proposal lifecycle. Neither inspection establishes a complete persistent actor-specific knowledge/acquisition API. No tests were run for this documentation change, and no runtime/API/schema/storage behavior was changed.
+
+
+## 13. Candidate internal read/filter contract for core review
+
+This is a deliberately narrow design candidate responding to the core owner's open item 6. It is not an API specification and must be reconciled with the actual entity/fact read interfaces before implementation.
+
+### 13.1 Request intent
+
+A trusted internal caller requests a decision-time context for:
+- one existing world;
+- one actor identified by an existing canonical `entity_id` (only if the current world model can represent that actor as an entity);
+- one declared purpose, such as an NPC decision;
+- one consistent snapshot identified by the existing `(world_revision, commit_sequence)` pair;
+- an optional bounded set of proposition/source references, where the current core can validate them.
+
+The request must not accept a model-supplied assertion that the actor is authorized, knows a proposition, or has received a message. Caller trust and actor identity are separate: adapter identity authenticates the integration caller; it does not automatically establish the in-world actor.
+
+If the existing code cannot resolve the actor, purpose, snapshot, or initial-knowledge source under a real production contract, the operation must return an explicit unsupported/unknown result or fail closed. It must not fall back to dumping the world state.
+
+### 13.2 Result semantics
+
+The result should keep separate, where supported:
+- snapshot identity and actor identity actually resolved;
+- canonical propositions/references that are valid at that snapshot;
+- authorized author-initial/imported knowledge assigned to this actor, explicitly labeled as authored/imported initial state;
+- current core-owned belief stance, if the real interface can read it;
+- source/provenance references supporting each returned acquisition;
+- withheld, unknown/incomplete, invalid, and unsupported portions as explicit status, never as a fabricated negative fact;
+- reserved-secret exclusion and any incompleteness that affects safe decision-making.
+
+A record being canonical does not imply it belongs in the actor's returned knowledge. A record being in the actor's initial knowledge does not imply the actor believes it. A belief result must not be fabricated when belief persistence is not available.
+
+### 13.3 Fail-closed rules
+
+1. Do not return arbitrary canonical world state just because a caller names an actor.
+2. Do not infer authorization from adapter identity, manifest membership, retrieval, prompt inclusion, or proposal metadata.
+3. Do not record acquisition as a side effect of reading/filtering context.
+4. Do not report delivery, receipt, acknowledgement, comprehension, or `shown` without a supported signal.
+5. Do not silently treat absent source data as false or as proof that the actor lacks the knowledge.
+6. Bind the result to one consistent existing snapshot; reject or explicitly report a stale/mismatched snapshot rather than mixing revisions.
+7. The first slice supports only explicitly authorized `author_initial`/imported initial knowledge. Other acquisition kinds must return unsupported until their evidence paths are implemented and tested.
+8. If the real character/entity representation or initial-knowledge source contract is absent, keep this as a design proposal and do not simulate it with mocks.
+
+### 13.4 First-slice acceptance tests
+
+Before implementation, map each test to the real production boundary and existing test harness:
+- two actors receive only their separately authorized initial knowledge;
+- one actor's initial knowledge is not exposed to another actor by shared prompt/context inclusion;
+- initial knowledge carries authored/imported provenance and is not mislabeled as in-world discovery;
+- canonical truth, acquisition history, and belief stance remain distinct;
+- reserved secrets are excluded before model input;
+- unknown, withheld, and unsupported are not collapsed into false;
+- a context read does not create acquisition or delivery records;
+- a stale or inconsistent snapshot is rejected or explicitly surfaced;
+- proposal creation remains non-mutating for canonical world and knowledge state.
+
+These tests remain proposed until the actor representation, initial-source representation, and internal read/filter boundary exist in real code. No mocks may stand in for absent production semantics.
