@@ -206,3 +206,11 @@ test('fact identity strings are validated but preserved exactly by translation',
   }]);
   assert.doesNotThrow(() => validateEffects(result));
 });
+
+
+test('empty mechanic intent batches are rejected explicitly', () => {
+  assert.throws(
+    () => translateMechanicEffectIntents([]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+});
