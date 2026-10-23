@@ -17,7 +17,7 @@ This is deliberately smaller than a persistent autonomous NPC process. It does n
 | Canonical world facts and current world state | Core | Read-only input; never inferred from generated prose |
 | World time, event identity, revisions, causality and rollback | Core | No parallel implementation in the NPC subsystem |
 | Stable character profile and author constraints | Character/profile layer | Inputs only; never silently overwritten by a proposal |
-| NPC-specific knowledge and beliefs | NPC domain contract / future runtime | Must be distinguished from canonical truth; this slice does not invent a store |
+| Authoritative knowledge/acquisition and delivery records | Core architecture contract; runtime support must be verified | The NPC contract defines actor-relative semantics; the trusted caller selects a permitted decision-time subset from authoritative sources. If the core record/source is not implemented, the field is deferred—not recreated in an NPC-owned store |
 | Information access and source validity | Existing trusted access/visibility boundary, once verified | Retrieval alone is never authorization |
 | Decision context preparation | Trusted caller/adapter, under a separately defined contract | Must declare what was included, excluded, inaccessible, or incomplete |
 | Decision reasoning and candidate action | NPC decision step | May return a proposal only |
@@ -313,3 +313,14 @@ The author-confirmed rule in `docs/31-npc-subsystem-contract.md` applies to this
 - The author-mandated outcome fixes the required destination, not unspecified intermediate actions. NPC autonomy remains for the path between the current state and that destination. No step may author the player's voluntary action, dialogue, internal state, consent, or unprovided reaction.
 
 This remains a semantic requirement, not a feature claim. The current first slice has no verified causal planner or author-intent arbitration implementation. Acceptance coverage is in NPC-SEM-013 and NPC-SEM-014; both remain blocked until a real production boundary can be tested.
+
+
+### 10.7 Knowledge ownership versus context preparation
+
+The repository's architecture baseline assigns authoritative knowledge records and delivery statuses to the core. This NPC contract does not transfer that ownership to a prompt adapter or create an NPC-side substitute. The responsibilities are distinct:
+
+- **Core (target architecture):** owns authoritative world/knowledge/delivery records, their provenance, and supported validation/causal semantics. The current runtime audit has not verified a complete NPC knowledge/acquisition API or persistent belief model.
+- **Trusted context-preparation caller:** selects and filters the information that may enter this particular decision input, using verified source/access rules. It does not turn retrieval into acquisition, invent a missing authoritative record, or become the canonical owner of knowledge.
+- **NPC decision step:** reasons over the supplied bounded context and may propose a belief-dependent action; it does not persist beliefs or grant itself knowledge merely by generating text.
+
+Until the core exposes the required authoritative source and a trusted context boundary is agreed, acquisition-sensitive decisions remain blocked or review-only. Do not introduce a parallel knowledge store or change the core ownership contract from the NPC branch.
