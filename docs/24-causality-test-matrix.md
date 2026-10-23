@@ -1,6 +1,6 @@
 # Stage 1 causality test matrix — proposal
 
-Status: **mixed executable coverage and test specification**. The current runtime supports a limited `causal_links[]` subset (`READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`) with declared-edge rollback. Direct event causation remains in `caused_by[]`. Historical cursors, manifests, predicate-based `REQUIRES`, and per-event rollback classification remain proposals. Scenarios below must not be read as claims that those deferred capabilities are implemented.
+Status: **mixed executable coverage and test specification**. The current runtime supports a limited `causal_links[]` subset (`READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`) with declared-edge rollback. Direct event causation remains in `caused_by[]`. The per-world `commit_sequence` cursor is implemented; context manifests, predicate-based `REQUIRES`, and per-event rollback classification remain proposals. Scenarios below must not be read as claims that those deferred capabilities are implemented.
 
 Related: [Stage 1 causality contract](21-stage1-causality-contract.md), [Causality semantics proposal](22-causality-semantics.md).
 
@@ -189,6 +189,16 @@ Expected:
 - The per-event reason for D is distinct from the operation-level outcome.
 - `causal_completeness = unknown` alone does not force review for B or C.
 
+## T-13 — stable per-world event-history cursor (implemented)
+
+Executable coverage verifies that:
+- committed events receive per-world `commit_sequence` values starting at 1 and increasing in commit order;
+- rollback advances `world_revision` but does not consume or rewind `commit_sequence`;
+- each world has an independent sequence;
+- legacy event rows are backfilled deterministically and new events continue from the next value.
+
+`commit_sequence` is a history cursor, not a predicate evaluator. It does not by itself implement historical `REQUIRES` or negative-read reconstruction.
+
 ## T-12 — typed source and claim links (implemented subset)
 
 Executable coverage in `tests/causality-contract.test.js` verifies:
@@ -197,7 +207,7 @@ Executable coverage in `tests/causality-contract.test.js` verifies:
 - `READS_CLAIM` points to a fact/claim identity with current valid support and makes the reader a rollback candidate when that claim loses its only source.
 - unsupported typed relationships (including deferred `MAINTAINS`) are rejected before an idempotency key is consumed; corrected input can retry the same key.
 
-Limit: these links currently refer to event or projection identities, not historical versions. They do not establish manifest verification, causal completeness, or tri-state predicate evaluation.
+Limit: these links currently refer to event or projection identities, not historical versions. They do not establish historical predicate evaluation, manifest verification, causal completeness, or tri-state predicate evaluation. The separate `commit_sequence` cursor is tested for monotonic committed history and legacy migration.
 
 ## T-09 — causal diamond and independent branch (existing regression)
 
@@ -240,7 +250,7 @@ This case is intentionally conservative: a direct dependency that independently 
 ## Promotion checklist
 
 Before turning a scenario into a normative executable test:
-- [ ] Define the event and context-generation cursor fields in the API.
+- [x] Define the committed-event `commit_sequence` cursor; [ ] define context-manifest/generation binding fields in the API.
 - [ ] Confirm the proposed invalid manifest/read policy and define rejected-request audit/idempotency behavior, including corrected retries with the same key.
 - [ ] Define predicate evaluation and three-valued unknown handling.
 - [ ] Define projection recomputation and how multiple independent sources are represented.
