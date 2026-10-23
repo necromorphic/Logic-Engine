@@ -30,6 +30,7 @@
 - docs/10-open-decisions.md — блокирующие и отложенные решения.
 - docs/17-world-agnostic-design-stage1.3.md — критерий универсальности и граница World Pack.
 - docs/18-rollback-and-causality.md — семантика отката, причинности и пересчёта зависимых состояний.
+- docs/19-reuse-audit-existing-projects.md — аудит уже существующих проектов и карта решений, которые стоит адаптировать.
 - docs/decisions/ADR-0006-rollback-semantics.md — предлагаемое решение об откате.
 - docs/decisions/ADR-0007-world-pack-boundary.md — предлагаемая граница общего ядра и профиля мира.
 - AI_REVIEW_BRIEF.md — задание для независимого аудита Gemini и DeepSeek.
