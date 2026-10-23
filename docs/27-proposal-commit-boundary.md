@@ -1,8 +1,8 @@
 # 27. Proposal-to-commit boundary: runtime status and implementation contract
 
-Status: design note. The proposal resource and approval lifecycle described below are not implemented by this document.
+Status: historical design note, written before the proposal API was implemented. The current Stage 1 runtime contract is in `docs/28-proposal-api-stage1.md`; the proposal lifecycle and direct-commit isolation were implemented in PR #24, and deterministic rollback-only proposal validation in PR #25. The sections below retain the original reasoning and unresolved policy questions; statements about absent runtime functionality describe the pre-implementation state.
 
-## 1. Verified runtime behavior
+## 1. Pre-implementation runtime snapshot
 
 - `POST /v1/worlds/:id/events` in `src/api/server.js` calls `engine.commitEvent(id, body)` directly.
 - `LogicEngine.commitEvent` in `src/application/engine.js` normalizes and validates the event payload, effects, supported causal links, and related fields before delegating to the store.
@@ -10,7 +10,7 @@ Status: design note. The proposal resource and approval lifecycle described belo
 - There is no proposal resource, proposal status machine, approval endpoint, or generation-cancellation registry in the current runtime.
 - `docs/02-turn-event-delivery-lifecycle.md` defines a desired lifecycle, but explicitly labels itself a proposed contract to reconcile with implementation.
 
-This means the runtime does not yet enforce a separate proposal-to-commit transition. It does **not**, by itself, prove that an untrusted model can call the endpoint: that depends on which components receive the bearer token. The API currently has no separate adapter/public-token versus internal-commit-token distinction.
+At the time this snapshot was written, the runtime did not enforce a separate proposal-to-commit transition. The current API now has proposal creation, retrieval, approval, cancellation, and commit routes. Direct `POST /events` is disabled unless a distinct internal token is configured. See `docs/28-proposal-api-stage1.md` for the current behavior and remaining limitations.
 
 ## 2. Keep the trust boundaries distinct
 
@@ -25,7 +25,7 @@ These are different checks and must not be represented by one generic “validat
 
 The current engine implements parts of (1) and (2), plus structural and existence checks for some causal metadata. A context manifest can verify that declared reads were present in that manifest; it cannot prove that the proposal omitted no relevant reads. The runtime does not currently establish general actor authorization, human approval, causal completeness, or semantic alignment.
 
-## 3. Security invariants for a future proposal API
+## 3. Security invariants and remaining hardening
 
 - Treat model-produced structured output as untrusted input.
 - The model must not receive the engine bearer token or direct database access.
@@ -38,7 +38,7 @@ The current engine implements parts of (1) and (2), plus structural and existenc
 - Preserve source text or a stable source-message reference and rationale for audit, but do not treat those fields as proof of semantic correctness.
 - Protected fields and player-agency policy must be server/world configuration, not client-supplied `protected_fields`.
 
-## 4. Candidate minimal vertical slice
+## 4. Original minimal vertical-slice proposal
 
 A first implementation can add a durable proposal resource with these operations:
 

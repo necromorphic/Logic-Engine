@@ -1,6 +1,6 @@
 # 02. Turn, event and delivery lifecycle
 
-Status: proposed contract to reconcile with the eventual adapter implementation.
+Status: target lifecycle contract. The core proposal-to-commit API is partially implemented; see `docs/28-proposal-api-stage1.md` for implemented routes, approval gating, rollback-only deterministic validation, and explicit limits. This document still specifies broader adapter, World Pack, authorization, and delivery behavior that is not yet implemented.
 
 ## 1. Three independent lifecycles
 
@@ -87,4 +87,4 @@ Short database transactions should cover the final validation against the latest
 
 ## 6. Open implementation verification
 
-The exact SillyTavern hook names, timing and stable identifiers are not assumed by this contract. Verify against the user's installed Android/Termux version and extension lifecycle before implementing the adapter. The contract defines required semantics, not a claim that the host currently exposes every signal.
+The exact SillyTavern hook names, timing and stable identifiers are not assumed by this contract. Verify against the target host and extension lifecycle before implementing the adapter. The current core API exposes a cancellation endpoint, but it cannot independently verify that a host generation was cancelled or superseded. The contract defines required semantics, not a claim that the host currently exposes every signal.
