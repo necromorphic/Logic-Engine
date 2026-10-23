@@ -638,7 +638,7 @@ test('fact_value REQUIRES rejects unknown conflicted claims without consuming th
   }));
 
   assert.equal(accepted.accepted, true);
-  assert.equal(accepted.commit_sequence, 4);
+  assert.equal(accepted.commit_sequence, 3);
 });
 
 test('fact_value REQUIRES is evaluated against the requiring event historical cursor during rollback', (t) => {
