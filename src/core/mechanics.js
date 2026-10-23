@@ -3,7 +3,7 @@ import { EngineError } from './errors.js';
 const obj = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$/;
 const versionPattern = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/;
-const capabilityPattern = /^[a-z][a-z0-9_.-]{0,63}$/;
+const capabilityPattern = /^[a-z][a-z0-9_.-]{0,63}$/;\nconst typeIdPattern = /^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/;
 const ruleOps = new Set([
   'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'contains', 'exists',
   'all', 'any', 'not', 'ref_exists', 'status_is', 'time_before', 'time_after', 'needs_review',
@@ -118,7 +118,7 @@ export function validateMechanicTemplate(value) {
       assertObject(item, label);
       checkKeys(item, new Set(['role_id', 'description', 'constraints']), label);
       required(item, ['role_id'], label);
-      text(item.role_id, label + '.role_id', 96);
+      if (typeof item.role_id !== 'string' || !typeIdPattern.test(item.role_id)) fail('INVALID_MECHANIC_CONTRACT', label + '.role_id is invalid.');
       if (item.description !== undefined && (typeof item.description !== 'string' || item.description.length > 1000)) fail('INVALID_MECHANIC_CONTRACT', label + '.description is too long.');
       if (item.constraints !== undefined) validateRuleArray(item.constraints, label + '.constraints');
     });
@@ -130,7 +130,7 @@ export function validateMechanicTemplate(value) {
     assertObject(action, label);
     checkKeys(action, new Set(['action_id', 'input_schema', 'preconditions', 'constraints', 'effects', 'ambiguity_policy']), label);
     required(action, ['action_id', 'input_schema', 'preconditions', 'effects', 'ambiguity_policy'], label);
-    text(action.action_id, label + '.action_id', 96);
+    if (typeof action.action_id !== 'string' || !typeIdPattern.test(action.action_id)) fail('INVALID_MECHANIC_CONTRACT', label + '.action_id is invalid.');
     if (actionIds.has(action.action_id)) fail('INVALID_MECHANIC_CONTRACT', 'action_id values must be unique.');
     actionIds.add(action.action_id);
     assertObject(action.input_schema, label + '.input_schema');
@@ -147,7 +147,7 @@ export function validateMechanicTemplate(value) {
       assertObject(item, label);
       checkKeys(item, new Set(['interaction_id', 'other_template_id', 'other_version', 'policy', 'conditions']), label);
       required(item, ['interaction_id', 'other_template_id', 'policy'], label);
-      text(item.interaction_id, label + '.interaction_id', 96);
+      if (typeof item.interaction_id !== 'string' || !typeIdPattern.test(item.interaction_id)) fail('INVALID_MECHANIC_CONTRACT', label + '.interaction_id is invalid.');
       id(item.other_template_id, label + '.other_template_id');
       if (item.other_version !== undefined) version(item.other_version, label + '.other_version');
       if (!['compatible', 'conflicts', 'requires', 'excludes', 'manual_review'].includes(item.policy)) fail('INVALID_MECHANIC_CONTRACT', label + '.policy is invalid.');
