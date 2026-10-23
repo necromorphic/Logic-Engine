@@ -232,6 +232,22 @@ export class SQLiteStore {
         throw new EngineError('INVALID_READ_SET_REFERENCE', 'read_set fact must exist in the current world at commit time: ' + ref, 400, { reference: ref });
       }
     }
+    for (const link of event.causal_links ?? []) {
+      if (link.relation === 'CAUSES' || link.relation === 'READS_SOURCE') {
+        this.validateEventReference(worldId, link.target_id, nextRevision, 'causal_links');
+      } else if (link.relation === 'READS_ENTITY') {
+        if (!this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, link.target_id)) {
+          throw new EngineError('INVALID_CAUSAL_LINK', 'READS_ENTITY must reference an entity in this world: ' + link.target_id, 400, { relation: link.relation, target_id: link.target_id });
+        }
+      } else if (link.relation === 'READS_CLAIM') {
+        const claim = this.db.prepare('SELECT source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?').get(worldId, link.target_id);
+        if (!claim || dec(claim.source_event_ids_json).length === 0) {
+          throw new EngineError('INVALID_CAUSAL_LINK', 'READS_CLAIM must reference a claim with at least one valid source in this world: ' + link.target_id, 400, { relation: link.relation, target_id: link.target_id });
+        }
+      } else {
+        throw new EngineError('UNSUPPORTED_CAUSAL_RELATION', 'Unsupported causal relationship: ' + String(link.relation), 400, { relation: link.relation });
+      }
+    }
   }
 
   commit(id, x) {
@@ -255,10 +271,10 @@ export class SQLiteStore {
       const createdAt = now();
       this.db.prepare(`INSERT INTO world_events(
         event_id,world_id,turn_id,generation_id,event_type,game_time,committed_revision,validity,
-        caused_by_json,depends_on_json,read_set_json,effects_json,time_advance_seconds,source_message_id,created_at
-      ) VALUES(?,?,?,?,?,?,?,'valid',?,?,?,?,?,?,?)`).run(
+        caused_by_json,depends_on_json,read_set_json,causal_links_json,effects_json,time_advance_seconds,source_message_id,created_at
+      ) VALUES(?,?,?,?,?,?,?,'valid',?,?,?,?,?,?,?,?)`).run(
         eventId, id, x.turn_id, x.generation_id || null, x.event_type, time, revision,
-        enc(x.caused_by), enc(x.depends_on), enc(x.read_set), enc(x.effects), x.time_advance_seconds,
+        enc(x.caused_by), enc(x.depends_on), enc(x.read_set), enc(x.causal_links ?? []), enc(x.effects), x.time_advance_seconds,
         x.source_message_id || null, createdAt,
       );
       this.db.prepare('UPDATE worlds SET world_revision=?,game_time=? WHERE world_id=?').run(revision, time, id);
