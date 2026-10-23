@@ -37,7 +37,7 @@ Significant acquired information should persist over time. The trusted mediator 
 
 A correction to canonical truth does not automatically erase an NPC's earlier acquisition or correct the NPC's belief. If a false rumor is later disproved, the NPC may still remember having heard it while no longer believing it.
 
-The exact persistence owner and representation are deferred. Do not create a second event log, knowledge store, revision counter, or access-control subsystem in this branch.
+The core owner has since confirmed that persistent subject-relative belief state is core-owned simulation state, logically separate from acquisition history and canonical truth. Its exact executable representation and reconciliation interface remain to be designed against current production code. Do not create a second event log, knowledge store, revision counter, or access-control subsystem in this branch.
 
 ### 2.4 Contradictory evidence and individual beliefs — Author-confirmed
 
@@ -217,3 +217,10 @@ The author additionally confirmed:
 - Reuse existing core history/revision mechanisms; do not add identity-specific revision counters or parallel event logs.
 
 The corresponding proposed acceptance scenarios are NPC-SEM-029–032 in `docs/32-npc-semantic-acceptance-matrix.md`. These decisions close the author-facing semantic questions for identity selection, need-based creation, inactive retention, and justified edits. Profile/card projection, persistence, runtime execution, actor-relative knowledge, evidence validation, World Pack procedures, and test boundaries still require design against actual production interfaces. No runtime or test execution is implied.
+
+
+## 9. Core-owner response on knowledge contract — 2026-10-24
+
+The core owner answered all eight questions in `docs/39-npc-core-knowledge-contract-proposal.md`. Acquisition/provenance, delivery status, source reconciliation, and persistent belief state are core-owned; canonical truth, acquisition history, and current belief remain separate. The first supported acquisition slice is limited to explicitly authorized author-initial/imported knowledge. Existing IDs and snapshot cursors are to be reused. Host delivery remains unconfirmed absent a verified rendering signal.
+
+The internal actor/purpose/snapshot-scoped read/filter interface and its real test boundary remain to be designed. This is a confirmed semantic direction, not a claim of existing implementation. Details are in `docs/39-npc-core-knowledge-contract-proposal.md` section 10 and `docs/37-npc-kernel-readiness-gate.md` section 14.
