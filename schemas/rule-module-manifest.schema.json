@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logic-engine.invalid/schemas/rule-module-manifest.schema.json",
+  "title": "Rule Module Manifest",
+  "description": "Declarative contract for an allowlisted implementation; this manifest is not executable code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["module_id", "version", "contract_version", "capabilities", "operations", "input_schema", "output_schema", "failure_policy", "compatibility"],
+  "properties": {
+    "module_id": {"type": "string", "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$"},
+    "version": {"type": "string", "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"},
+    "contract_version": {"type": "string", "minLength": 1, "maxLength": 64},
+    "capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 128,
+      "items": {"type": "string", "pattern": "^[a-z][a-z0-9_.-]{0,63}$"}
+    },
+    "operations": {
+      "type": "array",
+      "uniqueItems": true,
+      "minItems": 1,
+      "items": {"enum": ["propose_effects", "evaluate_predicate", "resolve_conflict", "validate_transition"]}
+    },
+    "input_schema": {"type": "object"},
+    "output_schema": {"type": "object"},
+    "failure_policy": {"enum": ["fail_closed", "mark_unknown", "needs_review"]},
+    "compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["core_contract_versions"],
+      "properties": {
+        "core_contract_versions": {
+          "type": "array",
+          "uniqueItems": true,
+          "minItems": 1,
+          "items": {"type": "string", "minLength": 1, "maxLength": 64}
+        },
+        "required_capabilities": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {"type": "string"}
+        }
+      }
+    },
+    "metadata": {"type": "object", "description": "Non-authoritative descriptive metadata only."}
+  }
+}
