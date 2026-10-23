@@ -10,6 +10,28 @@ const strings = (x, name) => {
   return [...new Set(x.map((v) => v.trim()))];
 };
 
+const contextItems = (value) => {
+  value = value ?? [];
+  assert(Array.isArray(value) && value.length <= 2000, 'INVALID_CONTEXT_MANIFEST', 'items must be an array of at most 2000 entries.');
+  const seen = new Set();
+  const items = value.map((item) => {
+    assert(obj(item), 'INVALID_CONTEXT_MANIFEST_ITEM', 'Each manifest item must be an object.');
+    assert(['entity', 'fact', 'event'].includes(item.kind), 'INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest item kind must be entity, fact, or event.');
+    assert(typeof item.target_id === 'string' && item.target_id.trim() && item.target_id.trim().length <= 200, 'INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest target_id must be a non-empty string of at most 200 characters.');
+    const normalized = { kind: item.kind, target_id: item.target_id.trim() };
+    if (item.content_hash !== undefined) {
+      assert(typeof item.content_hash === 'string' && /^[a-f0-9]{64}$/i.test(item.content_hash), 'INVALID_CONTEXT_MANIFEST_ITEM', 'content_hash must be a 64-character hexadecimal SHA-256 digest.');
+      normalized.content_hash = item.content_hash.toLowerCase();
+    }
+    const key = itemKey(normalized);
+    assert(!seen.has(key), 'DUPLICATE_CONTEXT_MANIFEST_ITEM', 'Duplicate manifest item: ' + key);
+    seen.add(key);
+    return normalized;
+  });
+  return items.sort((a, b) => a.kind.localeCompare(b.kind) || a.target_id.localeCompare(b.target_id));
+};
+const itemKey = (item) => item.kind + ':' + item.target_id;
+
 const causalLinks = (value) => {
   value = value ?? [];
   assert(Array.isArray(value) && value.length <= 500, 'INVALID_CAUSAL_LINKS', 'causal_links must be an array of at most 500 links.');
@@ -76,6 +98,23 @@ export class LogicEngine {
     });
   }
 
+  registerContextManifest(id, x) {
+    assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
+    assert(typeof x.generation_id === 'string' && x.generation_id.trim() && x.generation_id.length <= 200, 'GENERATION_ID_REQUIRED', 'generation_id must be a non-empty string of at most 200 characters.');
+    assert(Number.isSafeInteger(x.base_commit_sequence) && x.base_commit_sequence >= 0, 'INVALID_CONTEXT_CURSOR', 'base_commit_sequence must be a non-negative integer.');
+    const items = contextItems(x.items);
+    const request = {
+      world_id: id,
+      generation_id: x.generation_id.trim(),
+      base_commit_sequence: x.base_commit_sequence,
+      items,
+    };
+    return this.store.registerContextManifest(id, {
+      ...request,
+      manifest_hash: hashRequest(request),
+    });
+  }
+
   getState(id) { return this.store.state(id); }
   getEvents(id, includeInvalid = false) { return this.store.events(id, includeInvalid); }
   getAudit(id) { return this.store.audit(id); }
@@ -105,6 +144,7 @@ export class LogicEngine {
       event_id: x.event_id ?? null,
       turn_id: x.turn_id.trim(),
       generation_id: x.generation_id ?? null,
+      context_manifest_id: x.context_manifest_id ?? null,
       source_message_id: x.source_message_id ?? null,
       event_type: x.event_type.trim(),
       expected_revision: x.expected_revision ?? null,
