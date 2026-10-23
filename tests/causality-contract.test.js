@@ -1039,3 +1039,43 @@ test('an unrelated unknown historical predicate does not block an independent ro
   assert.deepEqual(result.invalidated_event_ids, ['unrelated-root']);
   assert.equal(engine.getState('causality-world').entities.some((entity) => entity.entity_id === 'independent-entity'), false);
 });
+
+
+test('READS_CLAIM cannot use a later source to retroactively support an earlier reader', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'early-claim-source',
+    idempotency_key: 'early-claim-source',
+    effects: [{ kind: 'fact.set', fact_id: 'door-state', predicate: 'open', value: true }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'historical-claim-reader',
+    idempotency_key: 'historical-claim-reader',
+    turn_id: 'historical-claim-reader',
+    expected_revision: 1,
+    causal_links: [{ relation: 'READS_CLAIM', target_id: 'door-state' }],
+    effects: [{ kind: 'fact.set', fact_id: 'derived-door-report', predicate: 'reported', value: true }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'late-claim-source',
+    idempotency_key: 'late-claim-source',
+    turn_id: 'late-claim-source',
+    expected_revision: 2,
+    effects: [{ kind: 'fact.set', fact_id: 'door-state', predicate: 'open', value: true }],
+  }));
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'early-claim-source',
+    idempotency_key: 'rollback-early-claim-source',
+  });
+  const state = engine.getState('causality-world');
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+
+  assert.deepEqual(new Set(rollback.invalidated_event_ids), new Set(['early-claim-source', 'historical-claim-reader']));
+  assert.equal(events.get('historical-claim-reader').validity, 'invalidated');
+  assert.equal(events.get('late-claim-source').validity, 'valid');
+  assert.equal(state.facts.find((fact) => fact.fact_id === 'door-state').value, true);
+  assert.equal(state.facts.some((fact) => fact.fact_id === 'derived-door-report'), false);
+});
