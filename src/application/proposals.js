@@ -106,7 +106,7 @@ export class ProposalService {
   commit(worldId, proposalId) {
     const row = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND proposal_id=?').get(worldId, proposalId);
     if (!row) throw new EngineError('PROPOSAL_NOT_FOUND', 'Proposal not found.', 404);
-    if (row.status === 'committed') return { ...this.publicProposal(row, true), commit_result: dec(row.commit_result_json) };
+    if (row.status === 'committed') return { ...this.publicProposal(row, true), commit_result: { ...dec(row.commit_result_json), idempotent_replay: true } };
     if (row.status !== 'approved') throw new EngineError('PROPOSAL_NOT_APPROVED', 'Proposal must be approved before commit.', 409, { status: row.status });
     const world = this.engine.store.world(worldId);
     if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
@@ -134,6 +134,21 @@ export class ProposalService {
         .run(worldId, result.world_revision, 'proposal.committed', proposalId, enc({ proposal_hash: row.proposal_hash, event_id: result.event_id }), committedAt);
       const updated = this.db.prepare('SELECT * FROM event_proposals WHERE proposal_id=?').get(proposalId);
       return { ...this.publicProposal(updated, false), commit_result: result };
+    });
+  }
+
+
+  cancel(worldId, proposalId, reason = 'adapter_cancelled') {
+    return this.engine.store.tx(() => {
+      const row = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND proposal_id=?').get(worldId, proposalId);
+      if (!row) throw new EngineError('PROPOSAL_NOT_FOUND', 'Proposal not found.', 404);
+      if (row.status === 'committed') throw new EngineError('PROPOSAL_STATE_CONFLICT', 'A committed proposal cannot be cancelled.', 409, { status: row.status });
+      if (row.status === 'cancelled') return this.publicProposal(row, true);
+      const cancelledAt = now();
+      this.db.prepare("UPDATE event_proposals SET status='cancelled' WHERE proposal_id=? AND status IN ('pending','approved')").run(proposalId);
+      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run(worldId, this.engine.store.world(worldId).world_revision, 'proposal.cancelled', proposalId, enc({ proposal_hash: row.proposal_hash, reason }), cancelledAt);
+      return this.publicProposal(this.db.prepare('SELECT * FROM event_proposals WHERE proposal_id=?').get(proposalId), false);
     });
   }
 
