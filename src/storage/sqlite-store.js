@@ -343,6 +343,13 @@ export class SQLiteStore {
         if (item.kind === 'fact' && !this.db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, item.target_id)) {
           throw new EngineError('INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest references a fact absent from the current projection: ' + item.target_id, 400, { item });
         }
+        if (item.kind === 'entity_absence') {
+          const entity = this.db.prepare('SELECT status FROM entities WHERE world_id=? AND entity_id=?').get(worldId, item.target_id);
+          if (entity && entity.status !== 'destroyed') throw new EngineError('INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest entity_absence must be true at the snapshot: ' + item.target_id, 400, { item });
+        }
+        if (item.kind === 'fact_absence' && this.db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, item.target_id)) {
+          throw new EngineError('INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest fact_absence must be true at the snapshot: ' + item.target_id, 400, { item });
+        }
         if (item.kind === 'event') {
           const event = this.db.prepare("SELECT 1 FROM world_events WHERE world_id=? AND event_id=? AND validity='valid' AND commit_sequence<=?").get(worldId, item.target_id, manifest.base_commit_sequence);
           if (!event) throw new EngineError('INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest event must be valid and present at the manifest cursor: ' + item.target_id, 400, { item });
@@ -385,7 +392,9 @@ export class SQLiteStore {
       if (link.relation === 'READS_ENTITY') declared.add('entity:' + link.target_id);
       if (link.relation === 'READS_CLAIM') declared.add('fact:' + link.target_id);
       if (link.relation === 'REQUIRES') {
-        if (link.predicate.kind === 'fact_value' || link.predicate.kind === 'fact_absent') declared.add('fact:' + link.predicate.fact_id);
+        if (link.predicate.kind === 'fact_value') declared.add('fact:' + link.predicate.fact_id);
+        else if (link.predicate.kind === 'fact_absent') declared.add('fact_absence:' + link.predicate.fact_id);
+        else if (link.predicate.kind === 'entity_absent') declared.add('entity_absence:' + link.predicate.entity_id);
         else declared.add('entity:' + link.predicate.entity_id);
       }
     }
