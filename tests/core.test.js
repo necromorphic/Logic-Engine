@@ -241,23 +241,74 @@ test('a failed audit write rolls back the entire event transaction', (t) => {
   assert.equal(h.engine.getAudit('w').length, 1);
 });
 
-test('legacy SQLite schema is upgraded with an idempotency migration', (t) => {
+test('legacy SQLite migration preserves existing world and idempotency rows', (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'logic-engine-migration-'));
   const path = join(dir, 'legacy.sqlite');
   const legacy = new DatabaseSync(path);
   legacy.exec(`
-    CREATE TABLE idempotency_keys(
-      world_id TEXT NOT NULL, idempotency_key TEXT NOT NULL, response_json TEXT NOT NULL,
-      created_at TEXT NOT NULL, PRIMARY KEY(world_id,idempotency_key)
+    CREATE TABLE worlds(
+      world_id TEXT PRIMARY KEY, world_pack_id TEXT NOT NULL, world_pack_version TEXT NOT NULL,
+      initial_game_time TEXT NOT NULL, game_time TEXT NOT NULL, world_revision INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active', created_at TEXT NOT NULL
     );
+    CREATE TABLE idempotency_keys(
+      world_id TEXT NOT NULL REFERENCES worlds(world_id), idempotency_key TEXT NOT NULL,
+      response_json TEXT NOT NULL, created_at TEXT NOT NULL,
+      PRIMARY KEY(world_id,idempotency_key)
+    );
+    INSERT INTO worlds(world_id,world_pack_id,world_pack_version,initial_game_time,game_time,world_revision,status,created_at)
+      VALUES('legacy-world','test.world','1.0.0','2005-12-29T10:00:00.000Z','2005-12-29T10:05:00.000Z',1,'active','2005-12-29T10:00:00.000Z');
+    INSERT INTO idempotency_keys(world_id,idempotency_key,response_json,created_at)
+      VALUES('legacy-world','legacy-key','{"accepted":true}','2005-12-29T10:05:00.000Z');
   `);
   legacy.close();
+
   const store = new SQLiteStore(path);
+  const engine = new LogicEngine(store);
   t.after(() => {
     store.close();
     rmSync(dir, { recursive: true, force: true });
   });
+
   const columns = store.db.prepare('PRAGMA table_info(idempotency_keys)').all();
   assert.equal(columns.some((column) => column.name === 'request_hash'), true);
   assert.equal(store.db.prepare('SELECT version FROM schema_migrations WHERE version=1').get().version, 1);
+  assert.equal(engine.getState('legacy-world').world_revision, 1);
+  assert.equal(engine.getState('legacy-world').game_time, '2005-12-29T10:05:00.000Z');
+  assert.equal(store.db.prepare('SELECT response_json FROM idempotency_keys WHERE world_id=? AND idempotency_key=?').get('legacy-world','legacy-key').response_json, '{"accepted":true}');
+  assert.throws(
+    () => engine.commitEvent('legacy-world', cmd({ idempotency_key: 'legacy-key', expected_revision: 1 })),
+    (error) => error.code === 'IDEMPOTENCY_KEY_UNVERIFIABLE',
+  );
+});
+
+test('a failed rollback audit write leaves the world and rollback metadata unchanged', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  h.engine.commitEvent('w', cmd({
+    event_id: 'rollback-root',
+    idempotency_key: 'rollback-root-key',
+    effects: [{ kind: 'entity.upsert', entity_id: 'target', entity_type: 'object' }],
+  }));
+  h.store.db.exec(`
+    CREATE TRIGGER fail_rollback_audit BEFORE INSERT ON audit_entries
+    WHEN NEW.action='rollback.applied'
+    BEGIN SELECT RAISE(ABORT, 'forced rollback audit failure'); END;
+  `);
+
+  assert.throws(
+    () => h.engine.rollbackEvent('w', { root_event_id: 'rollback-root', idempotency_key: 'rollback-key' }),
+  );
+  assert.equal(h.engine.getState('w').world_revision, 1);
+  assert.equal(h.engine.getState('w').entities.some((entity) => entity.entity_id === 'target'), true);
+  assert.equal(h.engine.getEvents('w', true).find((event) => event.event_id === 'rollback-root').validity, 'valid');
+  assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 0);
+  assert.equal(h.engine.getAudit('w').length, 2);
+
+  h.store.db.exec('DROP TRIGGER fail_rollback_audit');
+  const result = h.engine.rollbackEvent('w', { root_event_id: 'rollback-root', idempotency_key: 'rollback-key' });
+  assert.equal(result.accepted, true);
+  assert.equal(h.engine.getState('w').world_revision, 2);
+  assert.equal(h.engine.getState('w').entities.length, 0);
+  assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 1);
 });
