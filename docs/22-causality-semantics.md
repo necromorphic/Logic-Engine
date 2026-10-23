@@ -24,6 +24,8 @@ The current runtime supports **partial rollback over declared metadata**. It doe
 
 The intended validation direction is one-way: each declared read should be verifiable against a trusted, generation-bound manifest. Extra manifest entries do not by themselves show that the read set is incomplete.
 
+For this proposal, a **trusted manifest** must be immutable, bound to the specific generation that produced the event, and integrity-verifiable (for example, by a content hash recorded with the generation metadata). Merely having a manifest-shaped payload is not sufficient to make it trusted.
+
 Proposed basis statuses:
 
 - `all_verified`: every declared read is present in the trusted manifest.
@@ -35,6 +37,8 @@ Proposed basis statuses:
 
 These are proposed semantic labels, not current runtime output fields.
 
+**Proposed commit policy for `invalid_declared`:** reject the event commit with HTTP `400` and a stable validation error; do not persist it as an executable event. A future authoring workflow may preserve rejected input in a separate non-executable review record, but that is outside the Stage 1 committed event contract. This is the recommended default for the API proposal and must be confirmed before implementation.
+
 ## 3. Proposed relationship types
 
 | Relationship | Proposed meaning | Rollback implication |
@@ -45,6 +49,8 @@ These are proposed semantic labels, not current runtime output fields.
 | `REQUIRES` | Event B was committed on the precondition that P held at B's commit point | Invalidate B only when recomputation establishes that the required precondition did not hold at that point |
 | `READS_SOURCE` | B used a particular source event | Rolling back that source makes B a candidate for invalidation |
 | `READS_CLAIM` | B used a claim supported by one or more sources | Invalidate B only if the claim no longer satisfies the dependency after recomputation |
+
+`READS_CLAIM` must reference a canonical `claim_id` present in the claim projection and supported by at least one currently valid source at the relevant evaluation point. Arbitrary labels or an unresolvable claim reference are invalid relationship data, not a claim dependency.
 | `EVIDENCE_FOR` | A source supports a claim | Recompute claim support after source changes |
 | `CONFLICTS_WITH` | Two claims or sources are incompatible under a defined predicate | Recompute the claim's conflict/dispute state |
 | `MAINTAINS` | B requires P to remain true throughout an interval | Deferred; not supported by the Stage 1 runtime contract |
@@ -88,6 +94,8 @@ This model must be adopted explicitly before implementation. If the product inst
 
 The observation point must be addressable even when several events share the same `game_time`. Do not use game time alone as the history cursor.
 
+**Storage proposal:** each committed event record carries a `commit_sequence`, monotonically increasing and unique within its `world_id`. This is the event-history cursor used to reconstruct state at a commit point; it is distinct from `world_revision`, `game_time`, and `event_id`. The allocation and event write must be atomic. This is a proposed schema/API requirement, not a field in the current runtime.
+
 ## 5. Event status versus rollback outcome
 
 These are separate axes.
@@ -105,6 +113,8 @@ Proposed rollback outcomes apply to the **rollback operation**:
 - `requires_review`: a specific ambiguity requires an explicit decision.
 
 Per-event diagnostics must use a separate classification/reason field rather than attaching the operation-level `rollback_outcome` to each event.
+
+**Proposed atomicity rule for `partially_resolved`:** the rollback operation is one database transaction. It may commit classifications and projection recomputations only for the fully classified, dependency-closed portion of the affected graph. Events whose classification is unresolved retain their prior event status; projections whose correct value depends on unresolved events are not changed. Status changes, eligible projection updates, audit rows, and the single `world_revision` increment commit together or all roll back together. The operation is `partially_resolved` only if that internally consistent partial result commits successfully; it is not permission to expose half-written database state. If no safe dependency-closed subset can be applied, commit no semantic changes and return `requires_review` without incrementing the revision. This rule is a proposal and must be tested before runtime implementation.
 
 `causal_completeness = unknown` is a system-wide Stage 1 limitation. It does not, by itself, force every rollback to be `requires_review`; otherwise `resolved` would have no useful meaning. A review reason should identify a concrete unresolved case, such as an unbound manifest, ambiguous legacy predicate, unresolved source conflict, or deferred invariant. A system that cannot determine whether a particular event is affected should not silently label that event definitively valid or invalid.
 
