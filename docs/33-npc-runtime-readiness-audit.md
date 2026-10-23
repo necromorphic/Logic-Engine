@@ -4,11 +4,11 @@ Status: source-level audit performed against `main` as inspected on 2026-10-24. 
 
 ## 1. Executive finding
 
-The repository already documents the intended NPC/autonomy and knowledge boundaries, and the core has a declarative rule evaluator plus a mechanic contract validator. However, the repository is not yet ready to execute NPC autonomy safely as a runtime subsystem.
+The repository documents the intended NPC/autonomy and knowledge boundaries and has a declarative rule evaluator, context manifests, a generic event-proposal service, and a mechanic contract validator. These are useful existing building blocks, but they do not constitute a safe NPC decision pipeline.
 
-The critical gap is not a missing prompt. The runtime needs a reliable way to distinguish a known-false condition from unavailable or inaccessible context, and NPC proposals need a supported canonical effect path. The present rule evaluator returns booleans and maps a missing path to false (except for `exists`). This is not enough to prove that an NPC is not applicable or lacks a fact; the context might simply be incomplete.
+The critical gap is not a missing prompt. The rule evaluator returns booleans and maps a missing path to false (except for `exists`), while the context manifest records referenced world items and a snapshot cursor but does not itself prove that an NPC is authorized to know those items. The generic `ProposalService` can stage and validate an event proposal without immediately committing the canonical event, but its own validation metadata explicitly leaves actor authorization, semantic alignment, causal completeness, and player-agency policy unchecked. Therefore it is a candidate core boundary to reuse—not proof that NPC proposals are safe to commit.
 
-No NPC-specific runtime record model or end-to-end autonomous decision cycle was verified in this audit. This agrees with the repository's own Stage 1.3 boundary, which explicitly excludes NPC goals/plans/autonomy/knowledge records.
+No NPC-specific runtime record model, actor-knowledge/access filter, or end-to-end autonomous decision cycle was verified in this audit. This agrees with the repository's Stage 1.3 boundary, which explicitly excludes NPC goals/plans/autonomy/knowledge records.
 
 ## 2. Sources inspected
 
@@ -19,10 +19,12 @@ No NPC-specific runtime record model or end-to-end autonomous decision cycle was
 - `docs/18-rollback-and-causality.md` and `docs/21-stage1-causality-contract.md`: distinguish the target causal rollback architecture from the currently limited runtime guarantees.
 - `src/core/rules.js`: current rule operator set, boolean evaluation, path handling, and effect validation.
 - `src/core/mechanics.js`: mechanic contract validation and its declared effect-kind vocabulary.
+- `src/application/engine.js`: context-manifest registration and event preparation/validation.
+- `src/application/proposals.js`: generic persisted proposal lifecycle and the validation checks explicitly not performed.
 - `schemas/declarative-rule.schema.json`: declarative rule schema.
 - `package.json`: test command is `node --test`; Node engine requirement is `>=22.13.0`.
 
-This audit inspected source files through the GitHub connector. It did not execute the repository test suite or inspect every runtime module.
+This audit inspected source files through the GitHub connector, including the application proposal service and core tests. It did not execute the repository test suite or inspect every runtime module.
 
 ## 3. Findings and risk
 
@@ -66,6 +68,14 @@ This audit inspected source files through the GitHub connector. It did not execu
 
 **Required before integration:** every context item must carry source identity and declared access/visibility metadata, or be withheld. The existing vectorization configuration remains untouched by this branch.
 
+### NPC-AUDIT-006 — Existing generic proposal service is not an NPC authorization boundary
+
+**Observed:** `src/application/proposals.js` persists a pending proposal and audit entry, validates its event payload, and requires approval before commit. Its validation result explicitly lists `actor_authorization` and `player_agency_policy` as not checked, alongside semantic alignment with source text and causal completeness. `src/application/engine.js` supports registering context manifests with world revision and commit-sequence cursors plus references to entities, facts, events, and explicit absences.
+
+**Risk:** Reusing the generic proposal service as if it had already checked what an NPC is permitted to know or do would overstate its guarantees. A context manifest is a reference/cursor contract, not a complete NPC knowledge ledger or access-control decision.
+
+**Required before integration:** treat the existing proposal lifecycle and context manifest as candidate infrastructure. Define and test the NPC-specific preflight around them, and preserve manual review where semantic alignment, actor authorization, player agency, or causal completeness is not verified. Do not duplicate proposal persistence or snapshot cursors in the NPC subsystem.
+
 ## 4. Readiness matrix
 
 | Capability | Evidence in inspected sources | Readiness |
@@ -75,6 +85,8 @@ This audit inspected source files through the GitHub connector. It did not execu
 | NPC knowledge/beliefs | Proposed architecture docs; no end-to-end runtime verified | Not ready |
 | Access filtering before model context | Required by docs; no complete integration verified | Not ready |
 | Unknown vs false for rule context | Current rule evaluator is boolean | Blocking gap |
+| Generic proposal lifecycle | `ProposalService` stages/validates/approves/commits events; several semantic checks are explicitly not performed | Candidate infrastructure, not NPC-safe by itself |
+| Context manifest | Snapshot cursor and world-item references exist; actor access is not proven by the manifest | Partial primitive, access filtering missing |
 | Validated NPC action effects | Core effect validator exists but domain mapping is incomplete | Not ready |
 | Durable off-screen autonomy | Proposed process-manager contract | Not verified in runtime |
 | NPC-aware rollback/reconciliation | Target docs; current rollback explicitly limited | Not ready |
