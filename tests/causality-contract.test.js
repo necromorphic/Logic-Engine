@@ -399,6 +399,24 @@ test('typed READS_CLAIM link invalidates a reader when the claim loses its only 
   assert.equal(state.facts.some((fact) => fact.fact_id === 'derived-door-report'), false);
 });
 
+
+test('unknown event and causal-predicate fields fail closed instead of being silently ignored', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  assert.throws(
+    () => engine.commitEvent('causality-world', command({ observed_version: 3 })),
+    (error) => error.code === 'UNSUPPORTED_EVENT_FIELD' && error.status === 400,
+  );
+  assert.throws(
+    () => engine.commitEvent('causality-world', command({
+      causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'guard', version: 3 } }],
+    })),
+    (error) => error.code === 'INVALID_CAUSAL_PREDICATE' && error.status === 400,
+  );
+  assert.equal(engine.getState('causality-world').world_revision, 0);
+  assert.equal(engine.getEvents('causality-world', true).length, 0);
+});
+
 test('unsupported typed causal relationships are rejected before consuming the idempotency key', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
