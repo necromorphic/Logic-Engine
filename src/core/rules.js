@@ -130,7 +130,31 @@ export function validateEffects(effects) {
       throw new EngineError('INVALID_EFFECT', 'Each effect must be an object.');
     }
 
-    if (effect.kind === 'entity.upsert') {
+    if (effect.kind === 'entity.create') {
+      if (typeof effect.entity_id !== 'string' || !effect.entity_id.trim() || effect.entity_id.length > 200
+        || typeof effect.entity_type !== 'string' || !effect.entity_type.trim()) {
+        throw new EngineError('INVALID_EFFECT', 'entity.create requires entity_id and entity_type.');
+      }
+      if (effect.status !== undefined && !['active', 'inactive', 'destroyed', 'unknown'].includes(effect.status)) {
+        throw new EngineError('INVALID_EFFECT', 'Unsupported entity status.');
+      }
+      if (effect.attributes !== undefined && (!effect.attributes || typeof effect.attributes !== 'object' || Array.isArray(effect.attributes))) {
+        throw new EngineError('INVALID_EFFECT', 'attributes must be an object.');
+      }
+    } else if (effect.kind === 'entity.update') {
+      if (typeof effect.entity_id !== 'string' || !effect.entity_id.trim() || effect.entity_id.length > 200) {
+        throw new EngineError('INVALID_EFFECT', 'entity.update requires entity_id.');
+      }
+      if (effect.status !== undefined && !['active', 'inactive', 'destroyed', 'unknown'].includes(effect.status)) {
+        throw new EngineError('INVALID_EFFECT', 'Unsupported entity status.');
+      }
+      if (effect.attributes !== undefined && (!effect.attributes || typeof effect.attributes !== 'object' || Array.isArray(effect.attributes))) {
+        throw new EngineError('INVALID_EFFECT', 'attributes must be an object patch.');
+      }
+      if (effect.remove_attributes !== undefined && (!Array.isArray(effect.remove_attributes) || effect.remove_attributes.length > 200 || !effect.remove_attributes.every((key) => typeof key === 'string' && key.trim() && key.length <= 200))) {
+        throw new EngineError('INVALID_EFFECT', 'remove_attributes must be an array of non-empty attribute names.');
+      }
+    } else if (effect.kind === 'entity.upsert') {
       if (typeof effect.entity_id !== 'string' || !effect.entity_id.trim() || effect.entity_id.length > 200
         || typeof effect.entity_type !== 'string' || !effect.entity_type.trim()) {
         throw new EngineError('INVALID_EFFECT', 'entity.upsert requires entity_id and entity_type.');

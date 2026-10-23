@@ -34,6 +34,65 @@ function command(overrides = {}) {
   };
 }
 
+
+test('entity.create is explicit and entity.update applies an attribute patch with removal semantics', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'explicit-create', idempotency_key: 'explicit-create',
+    effects: [{ kind: 'entity.create', entity_id: 'guard', entity_type: 'character', attributes: { name: 'A', role: 'guard' } }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'explicit-update', idempotency_key: 'explicit-update', turn_id: 'explicit-update', expected_revision: 1,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'guard' } }],
+    effects: [{ kind: 'entity.update', entity_id: 'guard', attributes: { role: 'captain', active: true }, remove_attributes: ['name'] }],
+  }));
+
+  const entity = engine.getState('causality-world').entities.find((item) => item.entity_id === 'guard');
+  assert.deepEqual(entity.attributes, { role: 'captain', active: true });
+  assert.equal(entity.status, 'active');
+});
+
+test('entity.update requires an explicit existence precondition and does not consume idempotency key on rejection', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.commitEvent('causality-world', command({
+    event_id: 'create-guard-for-update', idempotency_key: 'create-guard-for-update',
+    effects: [{ kind: 'entity.create', entity_id: 'guard', entity_type: 'character' }],
+  }));
+  assert.throws(() => engine.commitEvent('causality-world', command({
+    idempotency_key: 'missing-update-precondition', turn_id: 'bad-update', expected_revision: 1,
+    effects: [{ kind: 'entity.update', entity_id: 'guard', attributes: { role: 'captain' } }],
+  })), (error) => error.code === 'ENTITY_UPDATE_PRECONDITION_REQUIRED' && error.status === 400);
+  const accepted = engine.commitEvent('causality-world', command({
+    event_id: 'good-update', idempotency_key: 'missing-update-precondition', turn_id: 'good-update', expected_revision: 1,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'guard' } }],
+    effects: [{ kind: 'entity.update', entity_id: 'guard', attributes: { role: 'captain' } }],
+  }));
+  assert.equal(accepted.accepted, true);
+});
+
+test('rollback of an entity creator invalidates a later explicit update that requires the entity', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.commitEvent('causality-world', command({
+    event_id: 'creator', idempotency_key: 'creator',
+    effects: [{ kind: 'entity.create', entity_id: 'guard', entity_type: 'character', attributes: { role: 'guard' } }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'updater', idempotency_key: 'updater', turn_id: 'updater', expected_revision: 1,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'guard' } }],
+    effects: [{ kind: 'entity.update', entity_id: 'guard', attributes: { role: 'captain' } }],
+  }));
+  const rollback = engine.rollbackEvent('causality-world', { root_event_id: 'creator', idempotency_key: 'rollback-creator' });
+  const state = engine.getState('causality-world');
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+  assert.deepEqual(new Set(rollback.invalidated_event_ids), new Set(['creator', 'updater']));
+  assert.equal(events.get('updater').validity, 'invalidated');
+  assert.equal(state.entities.some((item) => item.entity_id === 'guard'), false);
+});
+
 test('rollback follows declared entity dependencies but preserves independent later events', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());

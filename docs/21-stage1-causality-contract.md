@@ -54,6 +54,8 @@ This is intentionally a partial graph contract: `REQUIRES` currently supports `e
 
 ### Effects and projection rebuild
 
+The legacy `entity.upsert` effect remains a full replacement for compatibility. New integrations should prefer `entity.create` and `entity.update`: `entity.create` rejects an identity already present in the projection (including a destroyed tombstone); `entity.update` patches attributes, can remove attributes through `remove_attributes`, preserves unspecified attributes and entity type, and requires an explicit `REQUIRES(entity_exists)` link plus an existing non-destroyed entity at commit. An event may not contain multiple entity effects for the same `entity_id`. These operations do not prove that all state reads were declared: callers must add stronger `entity_attribute` preconditions where an outcome depends on specific values. Rollback reconstructs these effects in history order; an update whose required creator is removed is invalidated through its historical existence precondition. Identity reuse/resurrection and version-based preconditions remain deferred.
+
 The current projection is rebuilt from valid events. This restores entity/fact projections after event invalidation and retains independent claims. Conflicting valid claims are marked `conflicted`; the runtime does not yet implement a general source-priority or epistemic-confidence policy.
 
 ## 3. Rollback guarantees and limits
