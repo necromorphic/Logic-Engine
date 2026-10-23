@@ -22,7 +22,7 @@ Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in su
 - Reusing an idempotency key with a different normalized request returns `IDEMPOTENCY_KEY_CONFLICT`. Legacy keys without a stored fingerprint are rejected as unverifiable rather than replayed silently.
 - Schema migration tracking in `schema_migrations`; migration 1 adds the request fingerprint column to older databases.
 - `entity.upsert`, `entity.delete`, and `fact.set` effects.
-- Bounded declarative condition evaluator; arbitrary code execution is not supported. Rule paths and numeric comparisons are checked deterministically.
+- Bounded declarative condition evaluator; arbitrary code execution is not supported. The current runtime subset is `eq`, `neq`, `exists`, numeric comparisons, `in`, `all`, `any`, and `not`. Nested rules use the schema's canonical `rules` array (`not` requires exactly one child); legacy `conditions`/`condition` aliases remain accepted. Rule paths, nesting/list sizes, and numeric comparisons are checked deterministically. Other operators in the broader declarative schema are not yet implemented by this runtime.
 - Causal references are validated at commit: `caused_by` must refer to a valid prior event in the same world; `depends_on` must refer to a valid prior event or an existing entity/fact in that world; `read_set` entries must be typed references.
 - Rollback follows explicit `caused_by`, `depends_on`, and affected-entity/fact `read_set` references. Independent events remain under the current prototype algorithm.
 - Event timestamps are recorded when the event is committed. Rollback increments `world_revision` and rebuilds projections without rewinding global `game_time`.
