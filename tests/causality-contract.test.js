@@ -927,3 +927,113 @@ test('context manifests can explicitly represent an absent entity or fact', (t) 
   }));
   assert.equal(accepted.accepted, true);
 });
+
+
+test('rollback returns a structured review result and makes no semantic changes when an affected historical predicate is unknown', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  for (const [eventId, value, revision] of [
+    ['conflict-root', true, 0],
+    ['conflict-source-b', false, 1],
+    ['conflict-source-c', 'uncertain', 2],
+  ]) {
+    engine.commitEvent('causality-world', command({
+      event_id: eventId,
+      idempotency_key: eventId,
+      turn_id: eventId,
+      expected_revision: revision,
+      effects: [{ kind: 'fact.set', fact_id: 'contested-fact', predicate: 'state', value }],
+    }));
+  }
+  engine.commitEvent('causality-world', command({
+    event_id: 'legacy-requiring-event',
+    idempotency_key: 'legacy-requiring-event',
+    turn_id: 'legacy-requiring-event',
+    expected_revision: 3,
+    effects: [{ kind: 'fact.set', fact_id: 'legacy-output', predicate: 'created', value: true }],
+  }));
+
+  // Simulate a legacy/inconsistent record: a normal commit would reject this
+  // REQUIRES predicate because contested-fact is already conflicted.
+  store.db.prepare('UPDATE world_events SET causal_links_json=? WHERE event_id=?').run(
+    JSON.stringify([{ relation: 'REQUIRES', predicate: { kind: 'fact_value', fact_id: 'contested-fact', value: true } }]),
+    'legacy-requiring-event',
+  );
+
+  const before = engine.getState('causality-world');
+  const first = engine.rollbackEvent('causality-world', {
+    root_event_id: 'conflict-root',
+    idempotency_key: 'review-contested-root',
+  });
+  const after = engine.getState('causality-world');
+
+  assert.equal(first.rollback_outcome, 'requires_review');
+  assert.equal(first.no_op, true);
+  assert.equal(first.rollback_id, null);
+  assert.deepEqual(first.invalidated_event_ids, []);
+  assert.deepEqual(first.proposed_invalidated_event_ids, ['conflict-root']);
+  assert.deepEqual(first.requires_review_event_ids, ['legacy-requiring-event']);
+  assert.equal(first.requires_review_items[0].reason_code, 'historical_predicate_unknown');
+  assert.deepEqual(first.requires_review_items[0].affected_dependencies, [
+    { kind: 'projection', target_ref: 'fact:contested-fact' },
+  ]);
+  assert.equal(after.world_revision, before.world_revision);
+  assert.equal(after.facts.find((fact) => fact.fact_id === 'contested-fact').status, 'conflicted');
+  assert.equal(new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event])).get('conflict-root').validity, 'valid');
+
+  const replay = engine.rollbackEvent('causality-world', {
+    root_event_id: 'conflict-root',
+    idempotency_key: 'review-contested-root',
+  });
+  assert.equal(replay.idempotent_replay, true);
+  assert.deepEqual(replay.requires_review_items, first.requires_review_items);
+  assert.equal(engine.getState('causality-world').world_revision, before.world_revision);
+});
+
+test('an unrelated unknown historical predicate does not block an independent rollback', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'unrelated-root',
+    idempotency_key: 'unrelated-root',
+    effects: [{ kind: 'entity.upsert', entity_id: 'independent-entity', entity_type: 'object' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'unrelated-conflict-a',
+    idempotency_key: 'unrelated-conflict-a',
+    turn_id: 'unrelated-conflict-a',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'unrelated-conflict', predicate: 'state', value: 'a' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'unrelated-conflict-b',
+    idempotency_key: 'unrelated-conflict-b',
+    turn_id: 'unrelated-conflict-b',
+    expected_revision: 2,
+    effects: [{ kind: 'fact.set', fact_id: 'unrelated-conflict', predicate: 'state', value: 'b' }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'unrelated-legacy-event',
+    idempotency_key: 'unrelated-legacy-event',
+    turn_id: 'unrelated-legacy-event',
+    expected_revision: 3,
+    effects: [],
+  }));
+  store.db.prepare('UPDATE world_events SET causal_links_json=? WHERE event_id=?').run(
+    JSON.stringify([{ relation: 'REQUIRES', predicate: { kind: 'fact_value', fact_id: 'unrelated-conflict', value: 'a' } }]),
+    'unrelated-legacy-event',
+  );
+
+  const result = engine.rollbackEvent('causality-world', {
+    root_event_id: 'unrelated-root',
+    idempotency_key: 'rollback-independent-root',
+  });
+
+  assert.equal(result.rollback_outcome, 'resolved');
+  assert.equal(result.no_op, false);
+  assert.deepEqual(result.requires_review_items, []);
+  assert.deepEqual(result.invalidated_event_ids, ['unrelated-root']);
+  assert.equal(engine.getState('causality-world').entities.some((entity) => entity.entity_id === 'independent-entity'), false);
+});
