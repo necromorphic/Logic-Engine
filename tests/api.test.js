@@ -59,6 +59,9 @@ test('health, auth, proposal approval, and canonical commit boundary', async (t)
   assert.equal(created.status, 201);
   const proposal = (await created.json()).proposal;
   assert.equal(proposal.status, 'pending');
+  const internalPending = await fetch(base + '/v1/worlds/api-world/events', { method: 'POST', headers: { ...headers, 'x-engine-internal-token': INTERNAL }, body: json({ proposal_id: proposal.proposal_id }) });
+  assert.equal(internalPending.status, 409);
+  assert.equal((await internalPending.json()).error.code, 'PROPOSAL_NOT_APPROVED');
   assert.equal(proposal.validation_result.status, 'needs_review');
   assert.equal(proposal.validation_result.requires_manual_semantic_review, true);
   assert.ok(proposal.validation_result.not_checked.includes('semantic_alignment_with_source_text'));
