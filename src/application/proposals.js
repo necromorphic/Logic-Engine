@@ -29,16 +29,17 @@ export class ProposalService {
         committed_at TEXT,
         commit_result_json TEXT,
         validation_result_json TEXT NOT NULL DEFAULT '{}',
+        created_by_adapter_id TEXT,
         UNIQUE(world_id, idempotency_key)
       );
     `);
     const columns = this.db.prepare('PRAGMA table_info(event_proposals)').all();
-    if (!columns.some((column) => column.name === 'validation_result_json')) {
-      this.db.exec("ALTER TABLE event_proposals ADD COLUMN validation_result_json TEXT NOT NULL DEFAULT '{}'");
-    }
+    if (!columns.some((column) => column.name === 'validation_result_json')) this.db.exec("ALTER TABLE event_proposals ADD COLUMN validation_result_json TEXT NOT NULL DEFAULT '{}'");
+    if (!columns.some((column) => column.name === 'created_by_adapter_id')) this.db.exec('ALTER TABLE event_proposals ADD COLUMN created_by_adapter_id TEXT');
   }
 
-  create(worldId, body) {
+  create(worldId, body, adapterId) {
+    assert(typeof adapterId === 'string' && adapterId.trim(), 'ADAPTER_REQUIRED', 'A trusted adapter identity is required.', 403);
     assert(object(body), 'INVALID_BODY', 'Proposal body must be an object.');
     const allowed = ['idempotency_key', 'source_text', 'event'];
     assert(Object.keys(body).every((key) => allowed.includes(key)), 'UNSUPPORTED_PROPOSAL_FIELD', 'Proposal contains a server-owned or unsupported field.');
@@ -59,6 +60,7 @@ export class ProposalService {
     const requestHash = hashRequest(request);
     const existing = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND idempotency_key=?').get(worldId, body.idempotency_key.trim());
     if (existing) {
+      if (existing.created_by_adapter_id !== adapterId) throw new EngineError('PROPOSAL_ADAPTER_MISMATCH', 'Proposal idempotency key belongs to another adapter.', 403);
       if (existing.request_hash !== requestHash) throw new EngineError('IDEMPOTENCY_KEY_CONFLICT', 'Proposal idempotency key was reused with different content.', 409);
       return this.publicProposal(existing, true);
     }
@@ -72,7 +74,8 @@ export class ProposalService {
       expected_revision: world.world_revision,
     });
     const validationResult = {
-      status: 'passed',
+      status: ((eventPayload.effects ?? []).length > 0 && body.source_text.trim().length > 0) ? 'needs_review' : 'passed',
+      requires_manual_semantic_review: ((eventPayload.effects ?? []).length > 0 && body.source_text.trim().length > 0),
       checked_at: createdAt,
       world_revision: world.world_revision,
       checks: ['payload_schema', 'supported_effects', 'causal_references', 'requires_preconditions', 'revision_consistency'],
@@ -86,10 +89,10 @@ export class ProposalService {
     try {
       this.db.prepare(`INSERT INTO event_proposals(
         proposal_id,world_id,idempotency_key,request_hash,proposal_hash,status,base_world_revision,base_commit_sequence,
-        event_payload_json,source_text,created_at,validation_result_json
-      ) VALUES(?,?,?,?,?,'pending',?,?,?,?,?,?)`).run(
+        event_payload_json,source_text,created_at,validation_result_json,created_by_adapter_id
+      ) VALUES(?,?,?,?,?,'pending',?,?,?,?,?,?,?)`).run(
         proposalId, worldId, body.idempotency_key.trim(), requestHash, proposalHash, world.world_revision,
-        sequence, enc(eventPayload), body.source_text, createdAt, enc(validationResult),
+        sequence, enc(eventPayload), body.source_text, createdAt, enc(validationResult), adapterId,
       );
     } catch (error) {
       if (String(error.message).includes('UNIQUE')) throw new EngineError('PROPOSAL_IDEMPOTENCY_CONFLICT', 'Proposal idempotency key conflicts with an existing proposal.', 409);
@@ -114,7 +117,8 @@ export class ProposalService {
       if (row.status !== 'pending') throw new EngineError('PROPOSAL_STATE_CONFLICT', 'Only pending proposals can be approved.', 409, { status: row.status });
       const world = this.engine.store.world(worldId);
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-      if (world.world_revision !== row.base_world_revision) throw new EngineError('STALE_PROPOSAL', 'World changed after this proposal was created.', 409, { base_world_revision: row.base_world_revision, current_world_revision: world.world_revision });
+      const sequence = this.engine.store.currentCommitSequence(worldId);
+      if (world.world_revision !== row.base_world_revision || sequence !== row.base_commit_sequence) throw new EngineError('STALE_PROPOSAL', 'World history changed after this proposal was created.', 409, { base_world_revision: row.base_world_revision, current_world_revision: world.world_revision, base_commit_sequence: row.base_commit_sequence, current_commit_sequence: sequence });
       const approvedAt = now();
       this.db.prepare("UPDATE event_proposals SET status='approved',approved_at=? WHERE proposal_id=? AND status='pending'").run(approvedAt, proposalId);
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
@@ -155,10 +159,11 @@ export class ProposalService {
     });
   }
 
-  cancel(worldId, proposalId, reason = 'adapter_cancelled') {
+  cancel(worldId, proposalId, reason = 'adapter_cancelled', adapterId) {
     return this.engine.store.tx(() => {
       const row = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND proposal_id=?').get(worldId, proposalId);
       if (!row) throw new EngineError('PROPOSAL_NOT_FOUND', 'Proposal not found.', 404);
+      if (!adapterId || row.created_by_adapter_id !== adapterId) throw new EngineError('PROPOSAL_ADAPTER_MISMATCH', 'Only the adapter that created this proposal may cancel it.', 403);
       if (row.status === 'committed') throw new EngineError('PROPOSAL_STATE_CONFLICT', 'A committed proposal cannot be cancelled.', 409, { status: row.status });
       if (row.status === 'cancelled') return this.publicProposal(row, true);
       const cancelledAt = now();
