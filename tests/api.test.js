@@ -151,3 +151,37 @@ test('API exposes authenticated immutable mechanics registry endpoints', async (
   assert.equal((await fetched.json()).template.version, '1.0.0');
   assert.equal((await fetch(base + '/v1/rule-modules')).status, 401);
 });
+
+test('proposal server-owned fields are rejected and cancelled proposals cannot commit', async (t) => {
+  const base = await setup(t, { approvalToken: APPROVAL });
+  assert.equal((await createWorld(base, 'proposal-cancel-world')).status, 201);
+  const invalid = await fetch(base + '/v1/worlds/proposal-cancel-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'invalid-proposal', source_text: 'text', base_world_revision: 999,
+      event: { turn_id: 't1', event_type: 'action.completed', effects: [] },
+    }),
+  });
+  assert.equal(invalid.status, 400);
+  assert.equal((await invalid.json()).error.code, 'UNSUPPORTED_PROPOSAL_FIELD');
+
+  const created = await fetch(base + '/v1/worlds/proposal-cancel-world/proposals', {
+    method: 'POST', headers,
+    body: json({ idempotency_key: 'cancel-me', source_text: 'text', event: { turn_id: 't2', event_type: 'action.completed', effects: [] } }),
+  });
+  const proposal = (await created.json()).proposal;
+  const cancelled = await fetch(base + '/v1/worlds/proposal-cancel-world/proposals/' + proposal.proposal_id + '/cancel', {
+    method: 'POST', headers, body: json({ reason: 'generation_superseded' }),
+  });
+  assert.equal(cancelled.status, 200);
+  assert.equal((await cancelled.json()).proposal.status, 'cancelled');
+
+  const approval = await fetch(base + '/v1/worlds/proposal-cancel-world/proposals/' + proposal.proposal_id + '/approve', {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  });
+  assert.equal(approval.status, 409);
+  const commit = await fetch(base + '/v1/worlds/proposal-cancel-world/proposals/' + proposal.proposal_id + '/commit', {
+    method: 'POST', headers, body: '{}',
+  });
+  assert.equal(commit.status, 409);
+});
