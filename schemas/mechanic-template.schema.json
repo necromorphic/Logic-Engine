@@ -1,0 +1,252 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logic-engine.invalid/schemas/mechanic-template.schema.json",
+  "title": "Mechanic Template",
+  "description": "Immutable, versioned, world-independent definition. Contains no executable source code.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "template_id",
+    "version",
+    "schema_version",
+    "display_name",
+    "required_capabilities",
+    "applicability",
+    "actions",
+    "conflict_policy",
+    "lifecycle_policy",
+    "unknown_policy"
+  ],
+  "properties": {
+    "template_id": {
+      "type": "string",
+      "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+    },
+    "schema_version": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "display_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160
+    },
+    "description": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "required_capabilities": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 128,
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_.-]{0,63}$"
+      }
+    },
+    "applicability": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "$ref": "declarative-rule.schema.json#/$defs/rule"
+      }
+    },
+    "eligible_participants": {
+      "type": "array",
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["role_id"],
+        "properties": {
+          "role_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$"
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "constraints": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "$ref": "declarative-rule.schema.json#/$defs/rule"
+            }
+          }
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "action_id",
+          "input_schema",
+          "preconditions",
+          "effects",
+          "ambiguity_policy"
+        ],
+        "properties": {
+          "action_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$"
+          },
+          "input_schema": {
+            "type": "object"
+          },
+          "preconditions": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "$ref": "declarative-rule.schema.json#/$defs/rule"
+            }
+          },
+          "constraints": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "$ref": "declarative-rule.schema.json#/$defs/rule"
+            }
+          },
+          "effects": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "$ref": "declarative-rule.schema.json#/$defs/effectIntent"
+            }
+          },
+          "ambiguity_policy": {
+            "enum": [
+              "deterministic_only",
+              "model_proposal_then_validate",
+              "author_adjudication",
+              "unsupported"
+            ]
+          }
+        }
+      }
+    },
+    "interactions": {
+      "type": "array",
+      "maxItems": 256,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["interaction_id", "other_template_id", "policy"],
+        "properties": {
+          "interaction_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$"
+          },
+          "other_template_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$"
+          },
+          "other_version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+          },
+          "policy": {
+            "enum": ["compatible", "conflicts", "requires", "excludes", "manual_review"]
+          },
+          "conditions": {
+            "type": "array",
+            "maxItems": 128,
+            "items": {
+              "$ref": "declarative-rule.schema.json#/$defs/rule"
+            }
+          }
+        }
+      }
+    },
+    "conflict_policy": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode", "resolver_module_id", "resolver_module_version"],
+          "properties": {
+            "mode": {"const": "automatic"},
+            "resolver_module_id": {
+              "type": "string",
+              "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$"
+            },
+            "resolver_module_version": {
+              "type": "string",
+              "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+            },
+            "requires_capabilities": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {"type": "string"}
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["mode"],
+          "properties": {
+            "mode": {"const": "manual"}
+          }
+        }
+      ]
+    },
+    "lifecycle_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["on_disable"],
+      "properties": {
+        "on_disable": {
+          "enum": [
+            "continue_pinned_version",
+            "pause_blocked",
+            "archive",
+            "require_author_decision"
+          ]
+        }
+      }
+    },
+    "unknown_policy": {
+      "enum": ["mark_unknown", "block", "needs_review", "author_adjudication"]
+    },
+    "rule_modules": {
+      "type": "array",
+      "uniqueItems": true,
+      "maxItems": 128,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["module_id", "version", "required_capabilities"],
+        "properties": {
+          "module_id": {
+            "type": "string",
+            "pattern": "^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$"
+          },
+          "version": {
+            "type": "string",
+            "pattern": "^[0-9]+\\.[0-9]+\\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$"
+          },
+          "required_capabilities": {
+            "type": "array",
+            "uniqueItems": true,
+            "items": {"type": "string"}
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Non-authoritative descriptive metadata only."
+    }
+  }
+}
