@@ -1,0 +1,67 @@
+{
+  "world_pack_id": "fixture.magic-world",
+  "version": "0.1.0",
+  "schema_version": "core-1",
+  "display_name": "Magic World Fixture",
+  "description": "Test profile demonstrating that magic rules are pack-specific and unknown effects are not canonized.",
+  "capabilities": ["entities", "relations", "processes", "knowledge", "magic"],
+  "entity_types": [
+    {
+      "type_id": "caster",
+      "attributes_schema": {
+        "type": "object",
+        "properties": {
+          "focus": {"type": "integer", "minimum": 0},
+          "known_spell_ids": {"type": "array", "items": {"type": "string"}}
+        },
+        "required": ["focus", "known_spell_ids"],
+        "additionalProperties": false
+      }
+    },
+    {
+      "type_id": "ward",
+      "attributes_schema": {
+        "type": "object",
+        "properties": {
+          "active": {"type": "boolean"},
+          "protected_ref": {"type": "string"}
+        },
+        "required": ["active", "protected_ref"],
+        "additionalProperties": false
+      }
+    }
+  ],
+  "relation_types": [],
+  "action_types": [
+    {
+      "action_id": "invoke_known_spell",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "spell_id": {"type": "string"},
+          "target_ref": {"type": "string"}
+        },
+        "required": ["spell_id", "target_ref"],
+        "additionalProperties": false
+      },
+      "preconditions": [
+        {"op": "ref_exists", "ref": "input.target_ref"},
+        {"op": "exists", "path": "actor.attributes.known_spell_ids"}
+      ],
+      "effects": [
+        {
+          "effect_id": "request_spell_resolution",
+          "kind": "request_adjudication",
+          "target_ref": "input.target_ref",
+          "payload": {"reason": "Spell-specific effects must be defined by this pack."}
+        }
+      ],
+      "ambiguity_policy": "author_adjudication",
+      "rollback_policy": "conflict_on_ambiguity"
+    }
+  ],
+  "process_types": [],
+  "knowledge_channels": [],
+  "unknown_mechanics_policy": "author_adjudication",
+  "conformance_tests": ["CORE-003", "CORE-004", "RB-002", "RB-011"]
+}
