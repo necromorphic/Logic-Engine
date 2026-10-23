@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
+import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const strings = (x, name) => {
@@ -124,6 +125,32 @@ export class LogicEngine {
   getState(id) { return this.store.state(id); }
   getEvents(id, includeInvalid = false) { return this.store.events(id, includeInvalid); }
   getAudit(id) { return this.store.audit(id); }
+
+  registerMechanicTemplate(value) {
+    const template = validateMechanicTemplate(value);
+    return this.store.registerMechanicTemplate(template, hashRequest(template));
+  }
+
+  getMechanicTemplate(templateId, version) {
+    return this.store.getMechanicTemplate(templateId, version);
+  }
+
+  listMechanicTemplates(templateId = null) {
+    return this.store.listMechanicTemplates(templateId);
+  }
+
+  registerRuleModuleManifest(value) {
+    const manifest = validateRuleModuleManifest(value);
+    return this.store.registerRuleModuleManifest(manifest, hashRequest(manifest));
+  }
+
+  getRuleModuleManifest(moduleId, version) {
+    return this.store.getRuleModuleManifest(moduleId, version);
+  }
+
+  listRuleModuleManifests(moduleId = null) {
+    return this.store.listRuleModuleManifests(moduleId);
+  }
 
   commitEvent(id, x) {
     assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
