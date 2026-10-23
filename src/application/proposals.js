@@ -103,29 +103,27 @@ export class ProposalService {
   }
 
   commit(worldId, proposalId) {
-    const row = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND proposal_id=?').get(worldId, proposalId);
-    if (!row) throw new EngineError('PROPOSAL_NOT_FOUND', 'Proposal not found.', 404);
-    if (row.status === 'committed') return { ...this.publicProposal(row, true), commit_result: { ...dec(row.commit_result_json), idempotent_replay: true } };
-    if (row.status !== 'approved') throw new EngineError('PROPOSAL_NOT_APPROVED', 'Proposal must be approved before commit.', 409, { status: row.status });
-    const world = this.engine.store.world(worldId);
-    if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-    const sequence = this.engine.store.currentCommitSequence(worldId);
-    if (world.world_revision !== row.base_world_revision || sequence !== row.base_commit_sequence) {
-      throw new EngineError('STALE_PROPOSAL', 'World history changed after this proposal was created; create a fresh proposal.', 409, {
-        base_world_revision: row.base_world_revision, current_world_revision: world.world_revision,
-        base_commit_sequence: row.base_commit_sequence, current_commit_sequence: sequence,
-      });
-    }
-
-    const payload = dec(row.event_payload_json);
-    const result = this.engine.commitEvent(worldId, {
-      ...payload,
-      idempotency_key: 'proposal:' + row.proposal_id,
-      expected_revision: row.base_world_revision,
-    });
     return this.engine.store.tx(() => {
-      const current = this.db.prepare('SELECT * FROM event_proposals WHERE proposal_id=?').get(proposalId);
-      if (current.status === 'committed') return { ...this.publicProposal(current, true), commit_result: dec(current.commit_result_json) };
+      const row = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND proposal_id=?').get(worldId, proposalId);
+      if (!row) throw new EngineError('PROPOSAL_NOT_FOUND', 'Proposal not found.', 404);
+      if (row.status === 'committed') return { ...this.publicProposal(row, true), commit_result: { ...dec(row.commit_result_json), idempotent_replay: true } };
+      if (row.status !== 'approved') throw new EngineError('PROPOSAL_NOT_APPROVED', 'Proposal must be approved before commit.', 409, { status: row.status });
+      const world = this.engine.store.world(worldId);
+      if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const sequence = this.engine.store.currentCommitSequence(worldId);
+      if (world.world_revision !== row.base_world_revision || sequence !== row.base_commit_sequence) {
+        throw new EngineError('STALE_PROPOSAL', 'World history changed after this proposal was created; create a fresh proposal.', 409, {
+          base_world_revision: row.base_world_revision, current_world_revision: world.world_revision,
+          base_commit_sequence: row.base_commit_sequence, current_commit_sequence: sequence,
+        });
+      }
+
+      const payload = dec(row.event_payload_json);
+      const result = this.engine.commitEvent(worldId, {
+        ...payload,
+        idempotency_key: 'proposal:' + row.proposal_id,
+        expected_revision: row.base_world_revision,
+      });
       const committedAt = now();
       this.db.prepare("UPDATE event_proposals SET status='committed',committed_at=?,commit_result_json=? WHERE proposal_id=? AND status='approved'")
         .run(committedAt, enc(result), proposalId);
@@ -135,7 +133,6 @@ export class ProposalService {
       return { ...this.publicProposal(updated, false), commit_result: result };
     });
   }
-
 
   cancel(worldId, proposalId, reason = 'adapter_cancelled') {
     return this.engine.store.tx(() => {
