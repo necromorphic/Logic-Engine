@@ -29,15 +29,45 @@ const applyEntityEffects = (entities, effects) => {
   }
 };
 
-const predicateHolds = (entities, predicate) => {
-  const entity = entities.get(predicate.entity_id);
-  if (predicate.kind === 'entity_exists') return Boolean(entity);
-  if (predicate.kind === 'entity_attribute') {
-    if (!entity) return false;
-    const actual = predicate.attribute === 'status' ? entity.status : entity.attributes[predicate.attribute];
-    return isDeepStrictEqual(actual, predicate.value);
+const predicateResult = (entities, predicate, facts = new Map()) => {
+  if (predicate.kind === 'fact_value') {
+    const fact = facts.get(predicate.fact_id);
+    if (!fact) return 'false';
+    if (fact.status === 'conflicted' || fact.values?.length > 1) return 'unknown';
+    const actual = fact.status === 'active' ? fact.value : fact.values?.[0];
+    return isDeepStrictEqual(actual, predicate.value) ? 'true' : 'false';
   }
-  return false;
+  const entity = entities.get(predicate.entity_id);
+  if (predicate.kind === 'entity_exists') return entity ? 'true' : 'false';
+  if (predicate.kind === 'entity_attribute') {
+    if (!entity) return 'false';
+    const actual = predicate.attribute === 'status' ? entity.status : entity.attributes[predicate.attribute];
+    return isDeepStrictEqual(actual, predicate.value) ? 'true' : 'false';
+  }
+  return 'unknown';
+};
+
+const applyFactEffects = (facts, effects) => {
+  for (const effect of effects) {
+    if (effect.kind !== 'fact.set') continue;
+    const claims = facts.get(effect.fact_id) || [];
+    claims.push(effect.value);
+    facts.set(effect.fact_id, claims);
+  }
+};
+
+const factProjection = (claimsById) => {
+  const facts = new Map();
+  for (const [factId, claims] of claimsById) {
+    const unique = [];
+    for (const value of claims) {
+      if (!unique.some((candidate) => isDeepStrictEqual(candidate, value))) unique.push(value);
+    }
+    facts.set(factId, unique.length > 1
+      ? { status: 'conflicted', values: unique }
+      : { status: 'active', value: unique[0], values: unique });
+  }
+  return facts;
 };
 
 const world = (r) => r && ({
@@ -272,6 +302,23 @@ export class SQLiteStore {
     return entities;
   }
 
+  factProjectionAtCursor(worldId, beforeSequence, invalidEventIds = new Set()) {
+    const rows = this.db.prepare("SELECT event_id,effects_json FROM world_events WHERE world_id=? AND validity='valid' AND commit_sequence<? ORDER BY commit_sequence").all(worldId, beforeSequence);
+    const claims = new Map();
+    for (const row of rows) {
+      if (invalidEventIds.has(row.event_id)) continue;
+      applyFactEffects(claims, dec(row.effects_json));
+    }
+    return factProjection(claims);
+  }
+
+  currentFactProjection(worldId) {
+    const rows = this.db.prepare('SELECT fact_id,status,value_json,candidates_json FROM facts WHERE world_id=?').all(worldId);
+    return new Map(rows.map((row) => [row.fact_id, row.status === 'conflicted'
+      ? { status: 'conflicted', values: dec(row.candidates_json) }
+      : { status: row.status, value: dec(row.value_json), values: [dec(row.value_json)] }]));
+  }
+
   validateCausalMetadata(worldId, event, nextRevision) {
     for (const eventId of event.caused_by) this.validateEventReference(worldId, eventId, nextRevision, 'caused_by');
     for (const ref of event.depends_on) {
@@ -315,8 +362,12 @@ export class SQLiteStore {
           throw new EngineError('INVALID_CAUSAL_LINK', 'READS_CLAIM must reference a claim with at least one valid source in this world: ' + link.target_id, 400, { relation: link.relation, target_id: link.target_id });
         }
       } else if (link.relation === 'REQUIRES') {
-        if (!predicateHolds(this.currentEntityProjection(worldId), link.predicate)) {
-          throw new EngineError('REQUIRED_PREDICATE_NOT_SATISFIED', 'REQUIRES predicate is not satisfied at commit time.', 409, { predicate: link.predicate });
+        const result = predicateResult(this.currentEntityProjection(worldId), link.predicate, this.currentFactProjection(worldId));
+        if (result !== 'true') {
+          const code = result === 'unknown' ? 'REQUIRED_PREDICATE_UNKNOWN' : 'REQUIRED_PREDICATE_NOT_SATISFIED';
+          throw new EngineError(code, result === 'unknown'
+            ? 'REQUIRES predicate is unknown because its fact has conflicting valid claims.'
+            : 'REQUIRES predicate is not satisfied at commit time.', 409, { predicate: link.predicate, evaluation: result });
         }
       } else {
         throw new EngineError('UNSUPPORTED_CAUSAL_RELATION', 'Unsupported causal relationship: ' + String(link.relation), 400, { relation: link.relation });
@@ -378,7 +429,7 @@ export class SQLiteStore {
       if (!root) throw new EngineError('EVENT_NOT_FOUND', 'Event not found.', 404);
       if (root.validity !== 'valid') {
         const result = {
-          accepted: true, rollback_id: null, root_event_id: rootId, invalidated_event_ids: [],
+          accepted: true, rollback_id: null, root_event_id: rootId, invalidated_event_ids: [], requires_review_event_ids: [],
           world_revision: w.world_revision, no_op: true, idempotent_replay: false,
         };
         this.saveReplay(id, key, requestHash, result);
@@ -399,7 +450,11 @@ export class SQLiteStore {
               if (link.relation === 'READS_SOURCE') return invalid.has(link.target_id);
               if (link.relation === 'READS_ENTITY') return affected.has('entity:' + link.target_id);
               if (link.relation === 'READS_CLAIM') return affected.has('fact:' + link.target_id) && !all.some((sourceEvent) => sourceEvent.validity === 'valid' && sourceEvent.event_id !== event.event_id && !invalid.has(sourceEvent.event_id) && sourceEvent.effects.some((effect) => effect.kind === 'fact.set' && effect.fact_id === link.target_id));
-              if (link.relation === 'REQUIRES') return !predicateHolds(this.entityProjectionAtCursor(id, event.commit_sequence, invalid), link.predicate);
+              if (link.relation === 'REQUIRES') {
+                const entities = this.entityProjectionAtCursor(id, event.commit_sequence, invalid);
+                const facts = this.factProjectionAtCursor(id, event.commit_sequence, invalid);
+                return predicateResult(entities, link.predicate, facts) === 'false';
+              }
               return false;
             })) {
             invalid.add(event.event_id);
@@ -408,6 +463,16 @@ export class SQLiteStore {
           }
         }
       }
+      const requiresReviewEventIds = all
+        .filter((event) => event.validity === 'valid' && !invalid.has(event.event_id))
+        .filter((event) => (event.causal_links ?? []).some((link) => {
+          if (link.relation !== 'REQUIRES') return false;
+          const entities = this.entityProjectionAtCursor(id, event.commit_sequence, invalid);
+          const facts = this.factProjectionAtCursor(id, event.commit_sequence, invalid);
+          return predicateResult(entities, link.predicate, facts) === 'unknown';
+        }))
+        .map((event) => event.event_id);
+
       const rollbackId = randomUUID();
       const revision = w.world_revision + 1;
       const createdAt = now();
@@ -419,11 +484,11 @@ export class SQLiteStore {
         .run(rollbackId, id, rootId, enc(ids), revision, createdAt, key);
       this.rebuild(id, revision);
       const result = {
-        accepted: true, rollback_id: rollbackId, root_event_id: rootId, invalidated_event_ids: ids,
+        accepted: true, rollback_id: rollbackId, root_event_id: rootId, invalidated_event_ids: ids, requires_review_event_ids: requiresReviewEventIds,
         world_revision: revision, no_op: false, idempotent_replay: false,
       };
       this.db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,\'rollback.applied\',?,?,?)")
-        .run(id, revision, rollbackId, enc({ root_event_id: rootId, invalidated_event_ids: ids }), createdAt);
+        .run(id, revision, rollbackId, enc({ root_event_id: rootId, invalidated_event_ids: ids, requires_review_event_ids: requiresReviewEventIds }), createdAt);
       this.saveReplay(id, key, requestHash, result);
       return result;
     });

@@ -1,6 +1,6 @@
 # Stage 1 causality test matrix — proposal
 
-Status: **mixed executable coverage and test specification**. The current runtime supports a limited `causal_links[]` subset (`READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`, and entity-only `REQUIRES`) with declared-edge rollback. Direct event causation remains in `caused_by[]`. The per-world `commit_sequence` cursor and a restricted entity-only `REQUIRES` evaluator are implemented; context manifests, broader predicate forms, tri-state unknown handling, and per-event rollback classification remain proposals. Scenarios below must not be read as claims that those deferred capabilities are implemented.
+Status: **mixed executable coverage and test specification**. The current runtime supports a limited `causal_links[]` subset (`READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`, and `REQUIRES` for entity existence/attributes and fact values) with declared-edge rollback. Direct event causation remains in `caused_by[]`. The per-world `commit_sequence` cursor and tri-state fact-value precondition handling are implemented; context manifests, general predicate composition, and proof of causal completeness remain proposals. Scenarios below must not be read as claims that those deferred capabilities are implemented.
 
 Related: [Stage 1 causality contract](21-stage1-causality-contract.md), [Causality semantics proposal](22-causality-semantics.md).
 
@@ -188,6 +188,16 @@ Expected:
 - The rollback operation is `partially_resolved` or `requires_review` because D remains unresolved.
 - The per-event reason for D is distinct from the operation-level outcome.
 - `causal_completeness = unknown` alone does not force review for B or C.
+
+## T-15 — historical `REQUIRES` fact-value predicates (implemented subset)
+
+Executable coverage verifies:
+- a fact-value precondition accepts a single active matching value;
+- a conflicted fact evaluates to `unknown` and rejects a new event with `REQUIRED_PREDICATE_UNKNOWN` before consuming the idempotency key;
+- rollback reconstructs the fact projection before the requiring event's `commit_sequence`;
+- removing one of multiple same-value sources preserves the requiring event, while removing its only historical support invalidates it.
+
+If rollback recomputation remains unknown for an otherwise still-valid requiring event, the event is preserved and returned in `requires_review_event_ids`. This is a review disposition, not a new event-validity status. General predicate composition and negative reads remain deferred.
 
 ## T-14 — historical `REQUIRES` entity predicates (implemented subset)
 
