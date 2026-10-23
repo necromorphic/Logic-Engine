@@ -40,7 +40,8 @@ test('mechanics schemas are valid JSON and local schema references resolve', () 
         continue;
       }
       const [file, pointer] = ref.split('#');
-      const targetSchema = schemas.get(resolve(dirname(resolve(root, path)), file));
+      const targetPath = file.startsWith('schemas/') ? file : 'schemas/' + file;
+      const targetSchema = schemas.get(targetPath);
       assert.ok(targetSchema, path + ' references an unavailable schema file: ' + file);
       let target = targetSchema;
       if (pointer) {
