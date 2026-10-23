@@ -140,6 +140,20 @@ export class SQLiteStore {
         items_json TEXT NOT NULL, manifest_hash TEXT NOT NULL, created_at TEXT NOT NULL,
         UNIQUE(world_id,generation_id)
       );
+      CREATE TABLE IF NOT EXISTS mechanic_templates(
+        template_id TEXT NOT NULL, version TEXT NOT NULL, template_hash TEXT NOT NULL,
+        template_json TEXT NOT NULL, registered_by TEXT NOT NULL, registered_at TEXT NOT NULL,
+        PRIMARY KEY(template_id,version)
+      );
+      CREATE TABLE IF NOT EXISTS rule_module_manifests(
+        module_id TEXT NOT NULL, version TEXT NOT NULL, manifest_hash TEXT NOT NULL,
+        manifest_json TEXT NOT NULL, registered_by TEXT NOT NULL, registered_at TEXT NOT NULL,
+        PRIMARY KEY(module_id,version)
+      );
+      CREATE TABLE IF NOT EXISTS mechanic_registry_audit(
+        audit_id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, target_id TEXT NOT NULL,
+        version TEXT NOT NULL, payload_json TEXT NOT NULL, registered_by TEXT NOT NULL, occurred_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS schema_migrations(
         version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL
       );
@@ -247,6 +261,108 @@ export class SQLiteStore {
         .run(w.world_id, 'world.created', w.world_id, enc({ world_pack_id: w.world_pack_id, world_pack_version: w.world_pack_version }), t);
       return this.world(w.world_id);
     });
+  }
+
+  registerMechanicTemplate(template, templateHash) {
+    return this.tx(() => {
+      const registeredBy = 'authenticated_api_client';
+      const existing = this.db.prepare('SELECT * FROM mechanic_templates WHERE template_id=? AND version=?')
+        .get(template.template_id, template.version);
+      if (existing) {
+        if (existing.template_hash !== templateHash) {
+          throw new EngineError('MECHANIC_TEMPLATE_VERSION_IMMUTABLE', 'This mechanic template version is already registered with different content.', 409);
+        }
+        return {
+          template: dec(existing.template_json),
+          template_hash: existing.template_hash,
+          registered_by: existing.registered_by,
+          registered_at: existing.registered_at,
+          already_registered: true,
+        };
+      }
+      const registeredAt = now();
+      this.db.prepare('INSERT INTO mechanic_templates(template_id,version,template_hash,template_json,registered_by,registered_at) VALUES(?,?,?,?,?,?)')
+        .run(template.template_id, template.version, templateHash, enc(template), registeredBy, registeredAt);
+      this.db.prepare('INSERT INTO mechanic_registry_audit(action,target_id,version,payload_json,registered_by,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run('mechanic_template.registered', template.template_id, template.version, enc({ template_hash: templateHash }), registeredBy, registeredAt);
+      return { template, template_hash: templateHash, registered_by: registeredBy, registered_at: registeredAt, already_registered: false };
+    });
+  }
+
+  getMechanicTemplate(templateId, version) {
+    const row = this.db.prepare('SELECT * FROM mechanic_templates WHERE template_id=? AND version=?').get(templateId, version);
+    if (!row) throw new EngineError('MECHANIC_TEMPLATE_NOT_FOUND', 'Mechanic template version not found.', 404);
+    return {
+      template: dec(row.template_json), template_hash: row.template_hash,
+      registered_by: row.registered_by, registered_at: row.registered_at,
+    };
+  }
+
+  listMechanicTemplates(templateId = null) {
+    const rows = templateId === null
+      ? this.db.prepare('SELECT * FROM mechanic_templates ORDER BY template_id,version').all()
+      : this.db.prepare('SELECT * FROM mechanic_templates WHERE template_id=? ORDER BY version').all(templateId);
+    return rows.map((row) => ({
+      template: dec(row.template_json), template_hash: row.template_hash,
+      registered_by: row.registered_by, registered_at: row.registered_at,
+    }));
+  }
+
+  registerRuleModuleManifest(manifest, manifestHash) {
+    return this.tx(() => {
+      const registeredBy = 'authenticated_api_client';
+      const existing = this.db.prepare('SELECT * FROM rule_module_manifests WHERE module_id=? AND version=?')
+        .get(manifest.module_id, manifest.version);
+      if (existing) {
+        if (existing.manifest_hash !== manifestHash) {
+          throw new EngineError('RULE_MODULE_VERSION_IMMUTABLE', 'This rule module version is already registered with different content.', 409);
+        }
+        return {
+          manifest: dec(existing.manifest_json),
+          manifest_hash: existing.manifest_hash,
+          registered_by: existing.registered_by,
+          registered_at: existing.registered_at,
+          already_registered: true,
+        };
+      }
+      const registeredAt = now();
+      this.db.prepare('INSERT INTO rule_module_manifests(module_id,version,manifest_hash,manifest_json,registered_by,registered_at) VALUES(?,?,?,?,?,?)')
+        .run(manifest.module_id, manifest.version, manifestHash, enc(manifest), registeredBy, registeredAt);
+      this.db.prepare('INSERT INTO mechanic_registry_audit(action,target_id,version,payload_json,registered_by,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run('rule_module.registered', manifest.module_id, manifest.version, enc({ manifest_hash: manifestHash }), registeredBy, registeredAt);
+      return { manifest, manifest_hash: manifestHash, registered_by: registeredBy, registered_at: registeredAt, already_registered: false };
+    });
+  }
+
+  getRuleModuleManifest(moduleId, version) {
+    const row = this.db.prepare('SELECT * FROM rule_module_manifests WHERE module_id=? AND version=?').get(moduleId, version);
+    if (!row) throw new EngineError('RULE_MODULE_NOT_FOUND', 'Rule module version not found.', 404);
+    return {
+      manifest: dec(row.manifest_json), manifest_hash: row.manifest_hash,
+      registered_by: row.registered_by, registered_at: row.registered_at,
+    };
+  }
+
+  listRuleModuleManifests(moduleId = null) {
+    const rows = moduleId === null
+      ? this.db.prepare('SELECT * FROM rule_module_manifests ORDER BY module_id,version').all()
+      : this.db.prepare('SELECT * FROM rule_module_manifests WHERE module_id=? ORDER BY version').all(moduleId);
+    return rows.map((row) => ({
+      manifest: dec(row.manifest_json), manifest_hash: row.manifest_hash,
+      registered_by: row.registered_by, registered_at: row.registered_at,
+    }));
+  }
+
+  mechanicRegistryAudit() {
+    return this.db.prepare('SELECT * FROM mechanic_registry_audit ORDER BY audit_id').all().map((row) => ({
+      audit_id: row.audit_id,
+      action: row.action,
+      target_id: row.target_id,
+      version: row.version,
+      payload: dec(row.payload_json),
+      registered_by: row.registered_by,
+      occurred_at: row.occurred_at,
+    }));
   }
 
   state(id) {

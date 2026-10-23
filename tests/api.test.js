@@ -39,3 +39,43 @@ test('API registers a generation-bound context manifest and commits against it',
   assert.equal(committed.status, 200);
   assert.equal((await committed.json()).commit_sequence, 1);
 });
+
+
+test('API exposes authenticated immutable mechanics registry endpoints', async (t) => {
+  const store = new SQLiteStore(':memory:');
+  const server = createApiServer({ engine: new LogicEngine(store), token: 'test-token-long-enough-123456' });
+  server.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const base = 'http://127.0.0.1:' + server.address().port;
+  const headers = { authorization: 'Bearer test-token-long-enough-123456', 'content-type': 'application/json' };
+  t.after(() => { server.close(); store.close(); });
+
+  const empty = await fetch(base + '/v1/mechanic-templates', { headers });
+  assert.equal(empty.status, 200);
+  assert.deepEqual((await empty.json()).templates, []);
+
+  const body = {
+    template_id: 'api.mechanic',
+    version: '1.0.0',
+    schema_version: 'core-1',
+    display_name: 'API mechanic contract',
+    required_capabilities: [],
+    applicability: [],
+    actions: [],
+    conflict_policy: { mode: 'manual' },
+    lifecycle_policy: { on_disable: 'pause_blocked' },
+    unknown_policy: 'mark_unknown',
+  };
+  const registered = await fetch(base + '/v1/mechanic-templates', {
+    method: 'POST', headers, body: JSON.stringify(body),
+  });
+  assert.equal(registered.status, 201);
+  assert.equal((await registered.json()).template.template_id, 'api.mechanic');
+
+  const fetched = await fetch(base + '/v1/mechanic-templates/api.mechanic/1.0.0', { headers });
+  assert.equal(fetched.status, 200);
+  assert.equal((await fetched.json()).template.version, '1.0.0');
+
+  const unauthorized = await fetch(base + '/v1/rule-modules');
+  assert.equal(unauthorized.status, 401);
+});
