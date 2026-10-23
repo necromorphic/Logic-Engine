@@ -1,14 +1,12 @@
 import { EngineError } from './errors.js';
+import { SUPPORTED_RULE_OPERATORS } from './rules.js';
 
 const obj = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$/;
 const versionPattern = /^[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.-]+)?$/;
 const capabilityPattern = /^[a-z][a-z0-9_.-]{0,63}$/;
 const typeIdPattern = /^[a-zA-Z][a-zA-Z0-9_.-]{0,95}$/;
-const ruleOps = new Set([
-  'eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'in', 'contains', 'exists',
-  'all', 'any', 'not', 'ref_exists', 'status_is', 'time_before', 'time_after', 'needs_review',
-]);
+const ruleOps = new Set(SUPPORTED_RULE_OPERATORS);
 const effectKinds = new Set([
   'create_entity', 'update_attribute', 'create_relation', 'retract_relation',
   'assert_fact', 'retract_fact', 'propose_knowledge', 'reconcile_knowledge',
@@ -65,7 +63,7 @@ function validateRule(rule, label, depth = 0) {
   checkKeys(rule, new Set(['op', 'path', 'value', 'values', 'rules', 'ref', 'reason']), label);
   if (!ruleOps.has(rule.op)) fail('INVALID_MECHANIC_CONTRACT', label + ' uses an unsupported rule operator.');
   const need = (...keys) => required(rule, keys, label);
-  if (['eq', 'neq', 'gt', 'gte', 'lt', 'lte', 'contains', 'status_is'].includes(rule.op)) {
+  if (['eq', 'neq', 'gt', 'gte', 'lt', 'lte'].includes(rule.op)) {
     need('path', 'value'); text(rule.path, label + '.path', 256);
     if (['gt', 'gte', 'lt', 'lte'].includes(rule.op) && (typeof rule.value !== 'number' || !Number.isFinite(rule.value))) fail('INVALID_MECHANIC_CONTRACT', label + ' numeric comparison requires a finite number.');
   } else if (rule.op === 'in') {
@@ -73,12 +71,7 @@ function validateRule(rule, label, depth = 0) {
     if (!Array.isArray(rule.values) || rule.values.length > 128) fail('INVALID_MECHANIC_CONTRACT', label + '.values must be an array of at most 128 items.');
   } else if (rule.op === 'exists') {
     need('path'); text(rule.path, label + '.path', 256);
-  } else if (rule.op === 'ref_exists') {
-    need('ref'); text(rule.ref, label + '.ref', 256);
-  } else if (rule.op === 'time_before' || rule.op === 'time_after') {
-    need('value'); text(rule.value, label + '.value', 256);
-  } else if (rule.op === 'needs_review') {
-    need('reason'); text(rule.reason, label + '.reason', 1000);
+    if (rule.value !== undefined && typeof rule.value !== 'boolean') fail('INVALID_MECHANIC_CONTRACT', label + '.value must be boolean when provided for exists.');
   } else if (rule.op === 'all' || rule.op === 'any' || rule.op === 'not') {
     need('rules');
     const max = rule.op === 'not' ? 1 : 64;
