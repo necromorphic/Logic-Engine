@@ -346,6 +346,18 @@ test("does not silently apply a transition absent from the World Pack rules", ()
   assert.equal(result.reason, "transition_not_allowed");
 });
 
+test("preserves the exact caller-supplied rule version label on a candidate", () => {
+  const ruleVersion = "world-pack:test@1.2.3";
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    ruleVersion,
+  });
+
+  assert.equal(result.status, "candidate");
+  assert.equal(result.ruleVersion, ruleVersion);
+  assert.equal(Object.isFrozen(result), true);
+});
+
 test("requires a pinned rule version", () => {
   const result = evaluateRelationshipCandidate({
     ...base,
