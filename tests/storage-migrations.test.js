@@ -69,9 +69,9 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   assert.ok(idempotencyColumns.includes('request_hash'));
   assert.ok(manifestColumns.includes('base_world_revision'));
   const migratedWorld = store.db.prepare('SELECT initial_game_time_coordinate,game_time_coordinate FROM worlds WHERE world_id=?').get('legacy-world');
-  assert.deepEqual(migratedWorld, { initial_game_time_coordinate: 0, game_time_coordinate: 300000 });
+  assert.deepEqual({ ...migratedWorld }, { initial_game_time_coordinate: 0, game_time_coordinate: 300000 });
   assert.deepEqual(
-    store.db.prepare('SELECT event_id,game_time_coordinate,time_advance_ms FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world'),
+    store.db.prepare('SELECT event_id,game_time_coordinate,time_advance_ms FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world').map((row) => ({ ...row })),
     [
       { event_id: 'legacy-event-1', game_time_coordinate: 60000, time_advance_ms: 0 },
       { event_id: 'legacy-event-2', game_time_coordinate: 300000, time_advance_ms: 0 },
