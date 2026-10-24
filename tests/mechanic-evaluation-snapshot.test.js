@@ -117,6 +117,48 @@ test('mechanic evaluation snapshot is opt-in and world-scoped', (t) => {
     .mechanic_evaluation_snapshot.instances.map((instance) => instance.instance_id), ['instance.b']);
 });
 
+test('canonical snapshot includes exact world-scoped context manifests and distinguishes missing IDs', (t) => {
+  const { engine, worldId } = setup(t, 'manifest-world-a');
+  engine.createWorld({
+    world_id: 'manifest-world-b',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00Z',
+  });
+  const registered = engine.registerContextManifest(worldId, {
+    generation_id: 'generation-a',
+    base_commit_sequence: 0,
+    base_world_revision: 0,
+    items: [],
+  });
+  const snapshot = engine.getSnapshot(worldId, {
+    contextManifestIds: [registered.manifest_id, 'missing-manifest'],
+  });
+  assert.equal(snapshot.context_manifests.length, 1);
+  assert.equal(snapshot.context_manifests[0].manifest_id, registered.manifest_id);
+  assert.equal(snapshot.context_manifests[0].world_id, worldId);
+  assert.equal(snapshot.context_manifests[0].generation_id, 'generation-a');
+  assert.equal(snapshot.context_manifests[0].base_commit_sequence, 0);
+  assert.equal(snapshot.context_manifests[0].base_world_revision, 0);
+  assert.deepEqual(snapshot.context_manifests[0].items, []);
+  assert.deepEqual(snapshot.missing_context_manifest_ids, ['missing-manifest']);
+
+  const isolated = engine.getSnapshot('manifest-world-b', {
+    contextManifestIds: [registered.manifest_id],
+  });
+  assert.deepEqual(isolated.context_manifests, []);
+  assert.deepEqual(isolated.missing_context_manifest_ids, [registered.manifest_id]);
+
+  assert.throws(
+    () => engine.getSnapshot(worldId, { contextManifestIds: ['same', 'same'] }),
+    (error) => error.code === 'INVALID_SNAPSHOT_REQUEST',
+  );
+  assert.throws(
+    () => engine.getSnapshot(worldId, { contextManifestIds: 'not-an-array' }),
+    (error) => error.code === 'INVALID_SNAPSHOT_REQUEST',
+  );
+});
+
 test('mechanic evaluation snapshot rejects malformed options and refuses a truncated active set', (t) => {
   const { engine, worldId } = setup(t);
   assert.throws(
