@@ -16,6 +16,7 @@ Related documents:
 - [Stable trait lifecycle](./06-stable-trait-lifecycle.md) — separation of stable traits, temporary conditions, goals, beliefs, behavior, and inference.
 - [Cross-block readiness and core handoff](./07-cross-block-readiness-and-handoff.md) — ownership matrix, current integration evidence, and remaining blockers.
 - [Semantic traceability and review workflow](./08-semantic-traceability-and-review-workflow.md) — requirement-to-acceptance mapping, status vocabulary, and documentation review checklist.
+- [Per-case acceptance traceability](./09-per-case-acceptance-traceability.md) — individual ownership and runtime-status mapping for every PERS-SEM case and PERS-TRAIT criterion.
 
 ## 2. Responsibility boundary
 
