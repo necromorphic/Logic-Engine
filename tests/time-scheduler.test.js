@@ -72,11 +72,11 @@ test('missing, cancelled, or not-yet-due dependencies block the plan without a p
 
   const notDue = planDueWork({
     world_id: 'world-a',
-    from_coordinate: 0,
-    to_coordinate: 5,
+    from_coordinate: 7,
+    to_coordinate: 10,
     triggers: [
-      trigger('later-prerequisite', 8),
-      trigger('dependent', 5, { dependencies: ['later-prerequisite'] }),
+      trigger('past-uncompleted-prerequisite', 6),
+      trigger('dependent', 8, { dependencies: ['past-uncompleted-prerequisite'] }),
     ],
   });
   assert.equal(notDue.status, 'blocked');
