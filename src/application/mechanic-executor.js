@@ -11,40 +11,29 @@ function isCanonicalJsonValue(value, active = new WeakSet()) {
   if (typeof value === 'number') return Number.isFinite(value);
   if (typeof value !== 'object' || active.has(value)) return false;
   active.add(value);
-  let valid = false;
+  let valid = true;
   if (Array.isArray(value)) {
     const keys = Object.keys(value);
-    valid = Object.getPrototypeOf(value) === Array.prototype
-      && Object.getOwnPropertySymbols(value).length === 0
-      && keys.length === value.length
-      && Object.getOwnPropertyNames(value).length === value.length + 1;
-    if (valid) {
-      for (let index = 0; index < value.length; index += 1) {
-        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-        if (!descriptor || !Object.hasOwn(descriptor, 'value')
-          || !isCanonicalJsonValue(descriptor.value, active)) {
-          valid = false;
-          break;
-        }
-      }
-    }
+    valid = keys.length === value.length
+      && Object.getOwnPropertyNames(value).length === value.length + 1
+      && keys.every((key) => {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        return /^\\d+$/.test(key) && Number(key) < value.length
+          && descriptor?.enumerable === true && Object.hasOwn(descriptor, 'value')
+          && isCanonicalJsonValue(descriptor.value, active);
+      });
   } else {
     const prototype = Object.getPrototypeOf(value);
     const keys = Object.keys(value);
     valid = (prototype === Object.prototype || prototype === null)
       && Object.getOwnPropertySymbols(value).length === 0
-      && Object.getOwnPropertyNames(value).length === keys.length;
-    if (valid) {
-      for (const key of keys) {
+      && Object.getOwnPropertyNames(value).length === keys.length
+      && keys.every((key) => {
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
-        if (['__proto__', 'constructor', 'prototype'].includes(key)
-          || !descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')
-          || !isCanonicalJsonValue(descriptor.value, active)) {
-          valid = false;
-          break;
-        }
-      }
-    }
+        return !['__proto__', 'constructor', 'prototype'].includes(key)
+          && descriptor?.enumerable === true && Object.hasOwn(descriptor, 'value')
+          && isCanonicalJsonValue(descriptor.value, active);
+      });
   }
   active.delete(value);
   return valid;
