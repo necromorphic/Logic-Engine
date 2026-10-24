@@ -73,15 +73,6 @@ export function evaluateRelationshipCandidate(input) {
   if (!isNonEmptyString(subjectId) || !isNonEmptyString(targetId)) {
     return result("invalid_candidate", { reason: "participant_reference_required" });
   }
-  if (subjectId === targetId) {
-    const selfAllowed = isRecord(dimensionRules)
-      && Object.values(dimensionRules).some((rule) =>
-        isRecord(rule) && rule.allowSelfRelation === true
-      );
-    if (!selfAllowed) {
-      return result("invalid_candidate", { reason: "self_relation_not_enabled" });
-    }
-  }
   if (!isNonEmptyString(ruleVersion)) {
     return result("unsupported", { reason: "rule_version_required" });
   }
@@ -124,6 +115,13 @@ export function evaluateRelationshipCandidate(input) {
         || !rule.values.every((value) => typeof value === "string")) {
       return result("unsupported", {
         reason: "dimension_rule_incomplete",
+        dimension,
+      });
+    }
+
+    if (subjectId === targetId && rule.allowSelfRelation !== true) {
+      return result("invalid_candidate", {
+        reason: "self_relation_not_enabled",
         dimension,
       });
     }
