@@ -198,3 +198,8 @@ The core owner has confirmed the semantic ownership split recorded in `docs/39-n
 - Host injection without a verified rendering signal remains `injected_unconfirmed`; `shown` is unsupported until an actual host signal is identified.
 
 The remaining design task is to identify the exact internal core-owned actor/purpose/snapshot-scoped read/filter interface, how authorized initial knowledge is represented at a real production boundary, and which tests can exercise that boundary. The current context-manifest registration remains only a reference manifest; it is not this query interface. No public endpoint or runtime/schema/storage change is authorized by the semantic decision alone.
+
+
+## 7. Relationship integration follow-up
+
+Relationship-specific ownership and the provisional typed-operation direction are tracked in `docs/42-npc-relationship-state-contract-proposal.md` and `docs/43-npc-relationship-core-integration-decision.md`. These are documentation-only proposals. Do not infer that a relationship effect, canonical relationship record, actor-authorized snapshot filter, or card projection has been implemented. Reconcile the open interfaces with the active core and character-card branches before runtime work.
