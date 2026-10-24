@@ -278,4 +278,8 @@ Until the core owner approves and implements a compatible result contract, a fir
 4. Prove that existing non-NPC rule callers preserve their current intended behavior or are explicitly migrated under core review.
 5. Keep the source-level observation, the proposed semantics, and test evidence labelled separately; a design note or mocked test is not implementation proof.
 
+### Cross-check against the current core execution contract
+
+The current `main` also contains `docs/30-stage1.3-mechanic-execution-boundary.md` (reviewed at `cb4ad189f12484ca5458c30b1d176cbd9f7d4ccc`). Its target contract requires missing/inaccessible context to produce `unknown` rather than silently treating it as false, and requires rule support to be reconciled across schema, validator, and evaluator. This aligns with the NPC gate above, but it is a design/implementation contract for a future mechanic-evaluation slice—not evidence that the generic `evaluateCondition(...)` function already returns tri-state results. The inspected `src/core/rules.js` still returns booleans for the operators and nested combinators described above. Keep the NPC first slice blocked unless the actual production path used by that slice can prove complete, authorized inputs or return a safe unknown/review result.
+
 This is a source-backed integration blocker, not an authorization to change `src/core/rules.js` from the NPC branch.
