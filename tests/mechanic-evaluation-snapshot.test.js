@@ -1,0 +1,141 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { SQLiteStore } from '../src/storage/sqlite-store.js';
+import { LogicEngine } from '../src/application/engine.js';
+
+function setup(t, worldId = 'mechanic-snapshot-world') {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00Z',
+  });
+  t.after(() => store.close());
+  return { store, engine, worldId };
+}
+
+function template(templateId = 'test.mechanic', overrides = {}) {
+  return {
+    template_id: templateId,
+    version: '1.0.0',
+    schema_version: 'core-1',
+    display_name: 'Snapshot fixture',
+    required_capabilities: [],
+    applicability: [],
+    actions: [],
+    conflict_policy: { mode: 'manual' },
+    lifecycle_policy: { on_disable: 'require_author_decision' },
+    unknown_policy: 'mark_unknown',
+    ...overrides,
+  };
+}
+
+function moduleManifest() {
+  return {
+    module_id: 'test.reader',
+    version: '1.0.0',
+    contract_version: 'core-1',
+    capabilities: ['facts.read'],
+    operations: ['evaluate_predicate'],
+    input_schema: { type: 'object' },
+    output_schema: { type: 'object' },
+    failure_policy: 'fail_closed',
+    compatibility: { core_contract_versions: ['core-1'] },
+  };
+}
+
+function commit(engine, worldId, eventId, expectedRevision, effects, causedBy = []) {
+  return engine.commitEvent(worldId, {
+    event_id: eventId,
+    idempotency_key: eventId,
+    turn_id: eventId + '-turn',
+    event_type: 'action.completed',
+    expected_revision: expectedRevision,
+    effects,
+    caused_by: causedBy,
+    depends_on: [],
+    read_set: [],
+    causal_links: [],
+  });
+}
+
+test('mechanic evaluation snapshot captures instances and exact pinned definitions in the same result', (t) => {
+  const { engine, worldId } = setup(t);
+  engine.registerRuleModuleManifest(moduleManifest());
+  engine.registerMechanicTemplate(template('test.enabled', {
+    rule_modules: [{ module_id: 'test.reader', version: '1.0.0', required_capabilities: ['facts.read'] }],
+  }));
+  engine.registerMechanicTemplate(template('test.disabled'));
+
+  commit(engine, worldId, 'create-enabled', 0, [
+    { kind: 'mechanic.instance.create', instance_id: 'instance.enabled', template_id: 'test.enabled', template_version: '1.0.0' },
+  ]);
+  commit(engine, worldId, 'enable-enabled', 1, [
+    { kind: 'mechanic.instance.enable', instance_id: 'instance.enabled' },
+  ], ['create-enabled']);
+  commit(engine, worldId, 'create-disabled', 2, [
+    { kind: 'mechanic.instance.create', instance_id: 'instance.disabled', template_id: 'test.disabled', template_version: '1.0.0' },
+  ]);
+
+  const snapshot = engine.getSnapshot(worldId, { includeMechanicEvaluationState: true });
+  assert.equal(snapshot.world_revision, 3);
+  assert.equal(snapshot.commit_sequence, 3);
+  assert.deepEqual(snapshot.mechanic_evaluation_snapshot.instances.map((instance) => [instance.instance_id, instance.status]), [
+    ['instance.disabled', 'disabled'],
+    ['instance.enabled', 'enabled'],
+  ]);
+  assert.deepEqual(snapshot.mechanic_evaluation_snapshot.templates.map(({ template: value }) => value.template_id), ['test.enabled']);
+  assert.deepEqual(snapshot.mechanic_evaluation_snapshot.modules.map(({ manifest }) => manifest.module_id), ['test.reader']);
+  assert.equal(snapshot.mechanic_evaluation_snapshot.templates[0].template.version, '1.0.0');
+  assert.equal(snapshot.mechanic_evaluation_snapshot.modules[0].manifest.version, '1.0.0');
+  assert.equal(Object.hasOwn(snapshot, 'mechanic_evaluation_snapshot'), true);
+});
+
+test('mechanic evaluation snapshot is opt-in and world-scoped', (t) => {
+  const { engine, worldId } = setup(t, 'world-a');
+  engine.createWorld({
+    world_id: 'world-b',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00Z',
+  });
+  engine.registerMechanicTemplate(template());
+  commit(engine, 'world-a', 'create-a', 0, [
+    { kind: 'mechanic.instance.create', instance_id: 'instance.a', template_id: 'test.mechanic', template_version: '1.0.0' },
+  ]);
+  commit(engine, 'world-b', 'create-b', 0, [
+    { kind: 'mechanic.instance.create', instance_id: 'instance.b', template_id: 'test.mechanic', template_version: '1.0.0' },
+  ]);
+
+  const ordinary = engine.getSnapshot(worldId);
+  assert.equal(Object.hasOwn(ordinary, 'mechanic_evaluation_snapshot'), false);
+  assert.deepEqual(engine.getSnapshot(worldId, { includeMechanicEvaluationState: true })
+    .mechanic_evaluation_snapshot.instances.map((instance) => instance.instance_id), ['instance.a']);
+  assert.deepEqual(engine.getSnapshot('world-b', { includeMechanicEvaluationState: true })
+    .mechanic_evaluation_snapshot.instances.map((instance) => instance.instance_id), ['instance.b']);
+});
+
+test('mechanic evaluation snapshot rejects malformed options and refuses a truncated active set', (t) => {
+  const { engine, worldId } = setup(t);
+  assert.throws(
+    () => engine.getSnapshot(worldId, { includeMechanicEvaluationState: 'yes' }),
+    (error) => error.code === 'INVALID_SNAPSHOT_REQUEST',
+  );
+  engine.registerMechanicTemplate(template());
+  const firstBatch = Array.from({ length: 200 }, (_, index) => ({
+    kind: 'mechanic.instance.create',
+    instance_id: 'instance.' + String(index).padStart(3, '0'),
+    template_id: 'test.mechanic',
+    template_version: '1.0.0',
+  }));
+  commit(engine, worldId, 'create-batch', 0, firstBatch);
+  commit(engine, worldId, 'create-overflow', 1, [
+    { kind: 'mechanic.instance.create', instance_id: 'instance.200', template_id: 'test.mechanic', template_version: '1.0.0' },
+  ]);
+  assert.throws(
+    () => engine.getSnapshot(worldId, { includeMechanicEvaluationState: true }),
+    (error) => error.code === 'MECHANIC_SNAPSHOT_TOO_LARGE' && error.status === 409,
+  );
+});
