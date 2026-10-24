@@ -6,7 +6,7 @@ Status: proposed plan; runtime implementation is gated on repository and cross-b
 
 - Inspect SQLite schema/transactions, event and fact storage, source IDs, world revision and commit-sequence semantics, rollback implementation, and current tests.
 - Inspect the open Core authorized-read/trusted-origin PRs and identify what is actually in `main`.
-- Review NPC knowledge/acquisition contracts, Relations and Personality boundaries, and the existing vectorization patch.
+- Review NPC knowledge/acquisition contracts, Relations and Personality boundaries, and the existing vectorization patch. In particular, reconcile the Core-owned acquisition/delivery/belief semantics recorded by `feat/npc-subsystem:docs/39-npc-core-knowledge-contract-proposal.md` before choosing record ownership or schema.
 - Record exact file/test/PR evidence and decide document numbering with concurrent block owners.
 
 **Exit:** no invented storage/API assumptions; open decisions and dependency versions are recorded.
