@@ -17,7 +17,7 @@ No NPC-specific runtime record model, actor-knowledge/access filter, or end-to-e
 - `docs/00-architecture-baseline.md`: separates intent, simulation, and narration; assigns world state, time, event identity, validation, causality, knowledge, and delivery status to the engine.
 - `docs/06-npc-autonomy-and-process-manager.md`: proposed durable autonomy, decision inputs, goals/plans/tasks, off-screen progression, and rollback requirements.
 - `docs/07-knowledge-and-narrative-boundaries.md`: separates canonical facts, actor knowledge/beliefs, narrative delivery, and search retrieval; requires provenance and access filtering.
-- `docs/30-stage1.3-mechanic-execution-boundary.md`: explicitly excludes NPC autonomy and NPC domain records from the core mechanic execution slice.
+- [`docs/30-stage1.3-mechanic-execution-boundary.md` on main](https://github.com/necromorphic/Logic-Engine/blob/main/docs/30-stage1.3-mechanic-execution-boundary.md): explicitly excludes NPC autonomy and NPC domain records from the core mechanic execution slice.
 - `docs/18-rollback-and-causality.md` and `docs/21-stage1-causality-contract.md`: distinguish the target causal rollback architecture from the currently limited runtime guarantees.
 - `src/core/rules.js`: current rule operator set, boolean evaluation, path handling, and effect validation.
 - `src/core/mechanics.js`: mechanic contract validation and its declared effect-kind vocabulary.
@@ -56,7 +56,7 @@ This audit inspected source files through the GitHub connector, including the ap
 
 ### NPC-AUDIT-004 — No verified NPC runtime contract was found in this audit
 
-**Observed:** the architecture docs specify desired goals, plans, tasks, knowledge, beliefs, reports, and autonomy, while `docs/30-stage1.3-mechanic-execution-boundary.md` explicitly says those domain records and behavior are outside its scope.
+**Observed:** the architecture docs specify desired goals, plans, tasks, knowledge, beliefs, reports, and autonomy, while [`docs/30-stage1.3-mechanic-execution-boundary.md` on main](https://github.com/necromorphic/Logic-Engine/blob/main/docs/30-stage1.3-mechanic-execution-boundary.md) explicitly says those domain records and behavior are outside its scope.
 
 **Risk:** Adding only prompt instructions would create apparent autonomy without durable state, validated effects, or off-screen continuity.
 
