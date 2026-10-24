@@ -462,6 +462,8 @@ export class LogicEngine {
       'TIME_TRIGGER_SUBSECOND_UNSUPPORTED', 'Time-trigger execution currently requires whole-second coordinates.', 400);
     const proposal = trigger.payload?.event;
     assert(obj(proposal), 'TRIGGER_EVENT_PROPOSAL_REQUIRED', 'A persisted time trigger payload must contain an event proposal.');
+    assert(proposal.event_type !== 'time.advance',
+      'INVALID_TRIGGER_EVENT_TYPE', 'A scheduled trigger cannot itself be a canonical time-advance event.');
     assert(proposal.expected_revision === undefined && proposal.expected_commit_sequence === undefined,
       'INVALID_TRIGGER_EVENT_CURSOR', 'A persisted trigger cannot choose its own revision or commit cursor.');
     assert(proposal.duration_proposal === undefined || proposal.duration_proposal === null,
@@ -577,8 +579,11 @@ export class LogicEngine {
     }
     const activeTimeConfig = this.store.getTimeConfiguration(id);
     const maxSkipMs = activeTimeConfig
-      ? Math.min(activeTimeConfig.time_policy.max_skip_duration_ms, 604800000)
+      ? activeTimeConfig.time_policy.max_skip_duration_ms
       : 604800000;
+    // The policy bounds the whole requested operation. Individual synthetic
+    // time.advance events remain capped at seven days for legacy event compatibility.
+    const segmentSkipMs = Math.min(maxSkipMs, 604800000);
     if (requestedAdvanceMs > maxSkipMs) {
       throw new EngineError('TIME_ADVANCE_TOO_LARGE', 'Requested time-advance interval exceeds the active world skip limit.', 400, {
         requested_duration_ms: requestedAdvanceMs,
@@ -665,7 +670,7 @@ export class LogicEngine {
     if (plan.status !== 'blocked') {
       for (const plannedSegment of plan.segments) {
         const coordinate = plannedSegment.due_coordinate;
-        while (coordinate - cursor > maxSkipMs) {
+        while (coordinate - cursor > segmentSkipMs) {
           cursor += maxSkipMs;
           appendSegment(cursor, [makeAdvanceEvent(maxSkipMs, segments.length)]);
         }
@@ -706,7 +711,7 @@ export class LogicEngine {
           offset += chunk.length;
         }
       }
-      while (effectiveTarget - cursor > maxSkipMs) {
+      while (effectiveTarget - cursor > segmentSkipMs) {
         cursor += maxSkipMs;
         appendSegment(cursor, [makeAdvanceEvent(maxSkipMs, segments.length)]);
       }
