@@ -109,28 +109,35 @@ test("missing identity, version, or epistemic kind fails closed", () => {
   }
 });
 
-test("missing producer provenance fails closed", () => {
-  const result = evaluateMemoryCandidateAdmission(request, completeResult([
-    candidate({ producer: undefined }),
-  ]));
-  assert.equal(result.status, "non_ready");
-  assert.deepEqual(result.admitted, []);
-  assert.deepEqual(result.rejected, [{ reason: "producer_provenance_incomplete" }]);
+test("missing or empty producer provenance fails closed", () => {
+  for (const producer of [undefined, {}, { kind: "" }]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ producer }),
+    ]));
+    assert.equal(result.status, "non_ready");
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.rejected, [{ reason: "producer_provenance_incomplete" }]);
+  }
 });
 
-test("missing lifecycle dimensions fail closed without freezing owner-defined values", () => {
-  const incomplete = candidate({
-    lifecycle: {
-      content_disposition: "usable",
-      source_reconciliation: "current",
-      evidence_assessment: "unverified",
-      access_outcome: "allow",
-    },
-  });
-  const result = evaluateMemoryCandidateAdmission(request, completeResult([incomplete]));
-  assert.equal(result.status, "non_ready");
-  assert.deepEqual(result.admitted, []);
-  assert.deepEqual(result.rejected, [{ reason: "lifecycle_dimensions_incomplete" }]);
+test("every missing lifecycle dimension fails closed", () => {
+  const validLifecycle = candidate().lifecycle;
+  for (const field of [
+    "content_disposition",
+    "source_reconciliation",
+    "evidence_assessment",
+    "access_outcome",
+    "index_health",
+  ]) {
+    const lifecycle = { ...validLifecycle };
+    delete lifecycle[field];
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ lifecycle }),
+    ]));
+    assert.equal(result.status, "non_ready");
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.rejected, [{ reason: "lifecycle_dimensions_incomplete" }]);
+  }
 
   const unknownLifecycleValues = candidate({
     lifecycle: {
