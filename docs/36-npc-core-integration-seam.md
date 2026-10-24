@@ -138,7 +138,7 @@ This section answers a narrow ownership question from the currently inspected `f
 
 **No existing component in the inspected source can currently be named the authoritative NPC information-acquisition owner.** The safest existing seam is a trusted caller/context-preparation boundary *before* the model input is assembled, with the existing context manifest retained as an audit/reference record and the existing proposal lifecycle retained for proposed world changes.
 
-This is an ownership finding, not an instruction to implement a new context service. Until the core owner approves the contract, the trusted caller must not be presumed to exist, and the NPC subsystem must fail closed for acquisition-sensitive information: omit the content from model-visible context or route the case to review when source, actor-relative access, or acquisition evidence is missing.
+This is an ownership finding, not an instruction to implement a new context service. The core owner has approved the semantic ownership contract, but the production interface is not yet verified. The trusted caller must not be presumed to exist until implemented and inspected, and the NPC subsystem must fail closed for acquisition-sensitive information: omit content from model-visible context or route the case to review when source, actor-relative access, or acquisition evidence is missing.
 
 ### 8.3 Minimum duties a future owner would need to demonstrate
 
