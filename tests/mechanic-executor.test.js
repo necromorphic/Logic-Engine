@@ -1263,3 +1263,48 @@ test('committed mechanic execution provenance survives SQLite close and reopen',
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('mechanic proposal rejects stale world history at approval without changing proposal or canonical state', (t) => {
+  const { engine, worldId } = setup(t, 'executor-stale-approval-world');
+  enableFixture(engine, worldId);
+  const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(evaluation.status, 'ready');
+
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
+  const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: 'mechanic-stale-approval',
+    turnId: 'turn-mechanic-stale-approval',
+    sourceText: 'Approval must reject a proposal after the canonical world changes.',
+    adapterId: 'test-adapter',
+  });
+  assert.equal(proposal.status, 'pending');
+  const auditBeforeInterveningCommit = proposals.db.prepare(
+    "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.approved'",
+  ).get(worldId).count;
+  const eventsBeforeInterveningCommit = engine.getEvents(worldId).length;
+
+  commit(engine, worldId, 'stale-before-approval-change', 2, [{
+    kind: 'entity.create',
+    entity_id: 'entity.intervening',
+    entity_type: 'object',
+  }]);
+  const stateAfterInterveningCommit = engine.getState(worldId);
+  const eventsAfterInterveningCommit = engine.getEvents(worldId).length;
+
+  assert.throws(
+    () => proposals.approve(worldId, proposal.proposal_id),
+    (error) => error.code === 'STALE_PROPOSAL' && error.status === 409,
+  );
+
+  assert.equal(proposals.get(worldId, proposal.proposal_id).status, 'pending');
+  assert.equal(engine.getState(worldId).world_revision, stateAfterInterveningCommit.world_revision);
+  assert.equal(engine.getState(worldId).commit_sequence, stateAfterInterveningCommit.commit_sequence);
+  assert.equal(engine.getEvents(worldId).length, eventsAfterInterveningCommit);
+  assert.equal(engine.getEvents(worldId).length, eventsBeforeInterveningCommit + 1);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.intervening'), true);
+  assert.equal(proposals.db.prepare(
+    "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.approved'",
+  ).get(worldId).count, auditBeforeInterveningCommit);
+});
