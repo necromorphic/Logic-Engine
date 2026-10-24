@@ -434,7 +434,7 @@ export class SQLiteStore {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request must be an object.', 400);
     }
-    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'includeMechanicEvaluationState']);
+    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'includeMechanicEvaluationState']);
     if (Object.keys(request).some((key) => !allowedKeys.has(key))) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request contains an unsupported field.', 400);
     }
@@ -455,6 +455,7 @@ export class SQLiteStore {
     const entityIds = normalizeIds(request.entityIds, 'entityIds');
     const factIds = normalizeIds(request.factIds, 'factIds');
     const eventIds = normalizeIds(request.eventIds, 'eventIds');
+    const contextManifestIds = normalizeIds(request.contextManifestIds, 'contextManifestIds');
 
     const read = () => {
       const w = this.world(id);
@@ -490,6 +491,21 @@ export class SQLiteStore {
         }))
         : [];
       const missingEventIds = eventIds.filter((eventId) => !events.some((event) => event.event_id === eventId));
+
+      const contextManifests = contextManifestIds.length
+        ? this.db.prepare('SELECT manifest_id,world_id,generation_id,base_commit_sequence,base_world_revision,items_json,manifest_hash,created_at FROM context_manifests WHERE world_id=? AND manifest_id IN (' + contextManifestIds.map(() => '?').join(',') + ') ORDER BY manifest_id')
+          .all(id, ...contextManifestIds).map((row) => ({
+            manifest_id: row.manifest_id,
+            world_id: row.world_id,
+            generation_id: row.generation_id,
+            base_commit_sequence: row.base_commit_sequence,
+            base_world_revision: row.base_world_revision,
+            items: dec(row.items_json),
+            manifest_hash: row.manifest_hash,
+            created_at: row.created_at,
+          }))
+        : [];
+      const missingContextManifestIds = contextManifestIds.filter((manifestId) => !contextManifests.some((manifest) => manifest.manifest_id === manifestId));
 
       let mechanicEvaluationSnapshot;
       if (request.includeMechanicEvaluationState === true) {
@@ -570,8 +586,10 @@ export class SQLiteStore {
         entities,
         facts,
         events,
+        context_manifests: contextManifests,
         missing_fact_ids: missingFactIds,
         missing_event_ids: missingEventIds,
+        missing_context_manifest_ids: missingContextManifestIds,
         ...(mechanicEvaluationSnapshot ? { mechanic_evaluation_snapshot: mechanicEvaluationSnapshot } : {}),
       };
     };
