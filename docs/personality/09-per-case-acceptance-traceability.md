@@ -221,3 +221,12 @@ The existing `PERS-REL-*` identifiers remain unchanged. `PERS-REL-001` has pure 
 - **Specified only:** acceptance behavior is documented, but no direct executable test was found for that boundary.
 - **Blocked integration test:** test must exercise the approved Core/NPC/Personality runtime path; name the missing contract/owner rather than treating a mock or prose scenario as a pass.
 - **Not proven:** a pure evaluator result does not prove canonical write, authorized read, idempotency, audit, or rollback/replay.
+
+
+## Current Issue #73 branch verification (2026-10-24)
+
+- Current PR branch head at this verification: `5f589068fddab7c402e8909551b288e122c2295f`; Runtime tests run [#715](https://github.com/necromorphic/Logic-Engine/actions/runs/40064237250) completed successfully on that head. This is repository CI evidence only; it does not establish Core/NPC integration.
+- Current pure evaluator source of truth: `main:tests/relationship-evaluate-candidate.test.js`, blob `06b1f94fa26a70726b9d2d39739b05c321793971` (59 tests).
+- A source-level consistency check compared the exact test names quoted in the traceability and evidence-audit documents with the current-main test file; all 30 distinct names in the audited test-name set were found. This was a source comparison, not a separate execution of those individual tests.
+- The canonical acceptance matrix contains all `PERS-SEM-001–029` IDs; both Issue #73 documents contain individual dispositions for all 29 semantic IDs and all 16 legacy `PERS-REL-001–016` IDs.
+- `PERS-SEM-024` remains limited to deterministic evaluation/replay under identical pinned inputs and a version where replay is supported. `PERS-SEM-029` remains responsible for meaning-changing World Pack versions, explicit migration, or declared incompatibility. Neither is evidence that historical version selection/migration is implemented.
