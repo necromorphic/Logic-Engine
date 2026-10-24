@@ -10,6 +10,7 @@ Related:
 - `docs/50-core-trusted-mutation-origin-contract.md`
 - `docs/52-core-authorized-read-runtime-slice.md` (candidate implementation in PR #65; not merged)
 - `docs/54-core-proposal-execution-authority-contract.md` (schema-neutral execution-authority proposal; pending Core owner review)
+- `docs/55-core-context-manifest-trust-contract.md` (schema-neutral trusted producer/generation binding proposal; current route remains untrusted)
 - PR #66, canonical rollback admin boundary (not merged)
 
 ## 1. Authentication model observed
@@ -91,7 +92,7 @@ Do not claim the authorized-read system complete until this inventory and its en
 1. Reconcile and validate PR #65 on its final head; it closes F-01 and F-03 at the HTTP layer and supplies the narrow first authorized-read route.
 2. Rebase/reconcile PR #66 after the authorized-read change; validate F-02 without assuming the two server patches combine cleanly.
 3. Resolve the policy gate in `docs/54-core-proposal-execution-authority-contract.md`; if approved, implement and test F-04 proposal commit actor policy. This is not closed by read scoping.
-4. Implement and test F-05 trusted context-manifest producer/generation binding, or explicitly keep the route internal-only until the generation registry exists.
+4. Resolve the trust-chain gates in `docs/55-core-context-manifest-trust-contract.md`; implement and test trusted context-manifest producer/generation binding, or explicitly keep the route internal-only until the generation registry exists.
 5. Resolve F-06 as a deployment capability policy; avoid unnecessary privilege expansion.
 6. Audit all external host serializers and direct in-process callers before declaring authorized reads or causal rollback safe for NPC integration.
 7. Run tests against exact final heads. A green run on an earlier commit is not validation of later changes.
