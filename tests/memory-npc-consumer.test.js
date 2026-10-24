@@ -287,3 +287,18 @@ test('missing or non-object host request fails closed without throwing or callin
   }
   assert.equal(queryCalled, false);
 });
+
+
+test('Memory record authorization failure is non-ready, not a complete-empty result', async (t) => {
+  const { consumer, provider } = setup(t);
+  provider.authorizeCandidate = async () => {
+    throw new Error('memory authorization backend unavailable');
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('memory authorization backend unavailable'), false);
+});
