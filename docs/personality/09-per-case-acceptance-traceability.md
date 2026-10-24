@@ -235,3 +235,19 @@ The existing `PERS-REL-*` identifiers remain unchanged. `PERS-REL-001` has pure 
 ## Core runtime status refresh (2026-10-24)
 
 The historical per-case rows above remain useful for separating pure evaluator evidence from Core-boundary evidence. Since this audit was first written, Core PRs #94–#96 added an admin-only typed Relationship write/replay path. The exact real-path test names now include `admin-gated typed transition commits directed state, event, revision and audit atomically`, `source rollback invalidates a Relationship transition that cites the source`, and `rollback invalidates later transition dependent on the same directed pair and rebuilds surviving state`. These tests do not establish actor-authorized Relationship reads, non-admin/NPC writes, or safe card disclosure.
+
+### Exact Core test mapping (current main)
+
+Source: `tests/relationship-transition-core.test.js` at blob `086cfb0db38c3398979d9609a368c8642f19b680` (12 named tests).
+
+| Boundary | Exact executable Core evidence | Limit |
+|---|---|---|
+| Directed transition, event, revision, audit, atomic commit | `admin-gated typed transition commits directed state, event, revision and audit atomically`; `admin route commits through the canonical event lifecycle and returns the current directed projection` | Admin-credential slice only; not NPC/model authority or general reads. |
+| Mutation authorization and no generic-effect smuggling | `API rejects ordinary bearer without the separate admin credential and does not mutate state`; `generic event preparation cannot smuggle a Relationship effect`; `stale composite cursor and spoofed executor are rejected without mutation` | No trusted NPC/player writer. |
+| Mixed-patch rejection and idempotent retry | `invalid mixed patch commits nothing and idempotent retry does not duplicate a transition` | No alternative-support ledger. |
+| Source, world, participant and immutable rule-version validation | `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation` | No generic import/correction or historical migration policy. |
+| Rollback dependencies and surviving projection | `source rollback invalidates a Relationship transition that cites the source`; `rollback invalidates later transition dependent on the same directed pair and rebuilds surviving state` | Not proof of every causal or independent-support scenario. |
+| Clear distinct from unset | `clear remains distinct from unset and rollback restores the previous surviving value` | Downstream authorized visibility remains blocked. |
+| Transaction failure atomicity | `event insert and audit failures roll back the entire Relationship transition`; `projection and idempotency persistence failures roll back Relationship event, state, revision and audit` | Failure injection covers these transaction points only. |
+
+Core exact-head Runtime CI passed on PR #94 head `1aa59e6d4b7921646ed44727de21ba610eb6da39` ([run #705](https://github.com/necromorphic/Logic-Engine/actions/runs/40063961970)), PR #95 head `6b8c4e6fade8d01d15039e8d278d57e4b2c78aa8` ([run #707](https://github.com/necromorphic/Logic-Engine/actions/runs/40064048816)), and PR #96 head `79deb588e1f6321826dc3316085aaab6fdb010b7` ([run #717](https://github.com/necromorphic/Logic-Engine/actions/runs/40064276520)). PR #96 also tests rejection of unsupported alternative-support metadata and caller-supplied evidence status.
