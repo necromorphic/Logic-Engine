@@ -874,3 +874,22 @@ test("clearing one dimension leaves every other dimension outside the candidate 
   assert.deepEqual(currentValues, { trust: "low", affection: "warm" });
   assert.deepEqual(patch, { trust: { operation: "clear" } });
 });
+
+test("rejects a mixed valid/invalid patch without exposing partial output or mutating inputs", () => {
+  const currentValues = { trust: "low", affection: "warm" };
+  const patch = { trust: "guarded", attraction: "high" };
+  const dimensionRules = { ...rules };
+  const beforeCurrentValues = structuredClone(currentValues);
+  const beforePatch = structuredClone(patch);
+  const input = { ...base, currentValues, patch, dimensionRules };
+
+  const result = evaluateRelationshipCandidate(input);
+
+  assert.equal(result.status, "invalid_candidate");
+  assert.equal(result.reason, "unsupported_dimension");
+  assert.equal(Object.hasOwn(result, "patch"), false);
+  assert.equal(Object.hasOwn(result, "changedDimensions"), false);
+  assert.deepEqual(currentValues, beforeCurrentValues);
+  assert.deepEqual(patch, beforePatch);
+  assert.deepEqual(dimensionRules, rules);
+});
