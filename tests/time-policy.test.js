@@ -46,3 +46,21 @@ test('invalid policy limits, duplicate rules, and over-limit durations fail clos
     { event_type: 'travel.completed', rule: { kind: 'fixed', duration_ms: 50000000 } },
   ] })), (error) => error.code === 'INVALID_TIME_POLICY');
 });
+
+
+test('TimePolicy rejects unknown fields instead of silently accepting a different declaration', () => {
+  assert.throws(() => createTimePolicy(policy({
+    duration_rules: [{ event_type: 'travel.completed', extra: true, rule: { kind: 'fixed', duration_ms: 1000 } }],
+  })), (error) => error.code === 'INVALID_TIME_POLICY');
+
+  assert.throws(() => createTimePolicy(policy({
+    duration_rules: [{ event_type: 'travel.completed', rule: { kind: 'fixed', duration_ms: 1000, extra: true } }],
+  })), (error) => error.code === 'INVALID_TIME_POLICY');
+
+  assert.throws(() => createTimePolicy(policy({
+    duration_rules: [{ event_type: 'craft.completed', rule: {
+      kind: 'category_map',
+      categories: [{ category: 'simple', duration_ms: 1000, extra: true }],
+    } }],
+  })), (error) => error.code === 'INVALID_TIME_POLICY');
+});
