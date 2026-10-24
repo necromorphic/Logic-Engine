@@ -477,6 +477,7 @@ export class SQLiteStore {
           }))
         : [];
       const missingContextManifestIds = contextManifestIds.filter((manifestId) => !contextManifests.some((manifest) => manifest.manifest_id === manifestId));
+      // Expand only manifests anchored to this exact snapshot marker; stale manifests remain visible for the caller to reject.
       const currentContextManifests = contextManifests.filter((manifest) =>
         manifest.base_world_revision === w.world_revision && manifest.base_commit_sequence === commitSequence);
       const derivedEntityIds = [];
