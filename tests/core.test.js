@@ -512,6 +512,9 @@ test('a failed rollback projection rebuild leaves canonical state and rollback m
   assert.equal(h.engine.getState('w').entities.length, 1);
   assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 1);
   assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key='projection-rollback-key'").get().count, 1);
+  const replay = h.engine.rollbackEvent('w', { root_event_id: 'projection-rollback-root', idempotency_key: 'projection-rollback-key' });
+  assert.equal(replay.world_revision, 3);
+  assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 1);
 });
 
 
@@ -549,6 +552,9 @@ test('a failed rollback replay-record write rolls back the canonical rollback', 
   assert.equal(h.engine.getState('w').entities.length, 0);
   assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 1);
   assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key='replay-rollback-key'").get().count, 1);
+  const replay = h.engine.rollbackEvent('w', { root_event_id: 'replay-rollback-root', idempotency_key: 'replay-rollback-key' });
+  assert.equal(replay.world_revision, 2);
+  assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 1);
 });
 
 
@@ -589,6 +595,10 @@ test('a failed canonical commit replay-record write rolls back the event and pro
   assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM fact_claims WHERE fact_id='must-not-commit-fact'").get().count, 1);
   assert.equal(h.engine.getEvents('w', true).length, 1);
   assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key='commit-replay-key'").get().count, 1);
+  const replay = h.engine.commitEvent('w', request);
+  assert.equal(replay.world_revision, 1);
+  assert.equal(h.engine.getEvents('w', true).length, 1);
+  assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM fact_claims WHERE fact_id='must-not-commit-fact'").get().count, 1);
 });
 
 
