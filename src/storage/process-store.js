@@ -136,6 +136,17 @@ export class ProcessStore {
         worldId, process.process_id, process.definition_version, enc(process), idempotencyKey, requestHash,
         world.world_revision + 1, stamp, stamp,
       );
+      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run(worldId, world.world_revision + 1, 'process.created', process.process_id, enc({
+          definition_version: process.definition_version, milestone_count: process.milestones.length, request_hash: requestHash,
+        }), stamp);
+      return { process_id: process.process_id, idempotent_replay: false };
+    });
+  }
+
+  addMilestones(worldId, process) {
+    return this.store.tx(() => {
+      const stamp = now();
       for (const milestone of process.milestones) {
         this.db.prepare(`INSERT INTO world_process_milestones(
           world_id,process_id,milestone_id,trigger_id,due_coordinate,status,prerequisites_json,
@@ -145,11 +156,7 @@ export class ProcessStore {
           enc(milestone.prerequisites), enc(milestone), stamp, stamp,
         );
       }
-      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
-        .run(worldId, world.world_revision + 1, 'process.created', process.process_id, enc({
-          definition_version: process.definition_version, milestone_count: process.milestones.length, request_hash: requestHash,
-        }), stamp);
-      return { process: this.get(worldId, process.process_id), idempotent_replay: false };
+      return this.get(worldId, process.process_id);
     });
   }
 
@@ -252,7 +259,7 @@ export class ProcessStore {
         this.db.prepare('UPDATE world_process_milestones SET trigger_id=?,definition_json=?,checkpoint_version=checkpoint_version+1,updated_at=? WHERE world_id=? AND process_id=? AND milestone_id=? AND status='pending'')
           .run(update.trigger_id, enc({ ...definition.milestones.find((item) => item.milestone_id === update.milestone_id) }), stamp, worldId, processId, update.milestone_id);
       }
-      this.db.prepare('UPDATE world_processes SET definition_json=?,version=version+1,updated_at=? WHERE world_id=? AND process_id=?')
+      this.db.prepare('UPDATE world_processes SET definition_json=?,updated_at=? WHERE world_id=? AND process_id=?')
         .run(enc(definition), stamp, worldId, processId);
       return this.get(worldId, processId);
     });
