@@ -124,3 +124,12 @@ The NPC candidate shape in `docs/52` uses illustrative labels that are not ident
 
 The NPC follow-up substantially closes the requested NPC-side documentation deliverables, subject to the NPC owner reviewing/closing Issue #70. It does **not** close Core-owned decisions MEM-O01, MEM-O02, MEM-O05, MEM-O06, MEM-O08, MEM-O10, or MEM-O11, nor authorize runtime implementation. No runtime behavior or test execution is claimed by this reconciliation.
 
+### NPC first-slice implementation review — consumer oracle boundary
+
+The NPC branch now also includes a pure candidate-admission helper and Node test file, separate from the documented future integration. Their own comments correctly state that this helper does not authenticate scope, perform the authorized read, revalidate current source state, or persist acquisition/delivery/belief.
+
+A cross-block review comment was posted to Issue #70 identifying two items for the NPC owner to verify on the exact branch head:
+- the last unsafe-summary fixture in `tests/npc-memory-candidate-eligibility.test.js` appears to have an unmatched/missing closing brace and may prevent the test file from parsing;
+- the helper checks `content_kind === "summary"` to trigger lineage checks but does not reject missing/unknown `content_kind`, which could bypass those checks; the NPC contract says unknown content/source kind is not admissible for knowledge-asserting context.
+
+No NPC files were edited from the Memory branch, and the test file was not executed here. Memory's own acceptance matrix now includes **MEM-034** for unknown/missing content kind so that a future integrated boundary cannot bypass derived-content safety through an unrecognized type. This is a contract test requirement, not a claim that either block's tests currently pass.
