@@ -205,6 +205,87 @@ export class LogicEngine {
     return this.store.getTimeConfiguration(id, version);
   }
 
+  registerTimeTrigger(id, input) {
+    assert(obj(input), 'INVALID_TIME_TRIGGER', 'Time trigger must be an object.');
+    const allowed = ['trigger_id', 'due_coordinate', 'dependencies', 'read_set', 'write_set', 'processing_mode', 'interrupt_after_coordinate', 'payload'];
+    assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_TIME_TRIGGER_FIELD', 'Time trigger contains an unsupported field.');
+    assert(typeof input.trigger_id === 'string' && input.trigger_id.trim() && input.trigger_id.trim().length <= 200,
+      'INVALID_TIME_TRIGGER_ID', 'trigger_id must be a non-empty string of at most 200 characters.');
+    assert(Number.isSafeInteger(input.due_coordinate), 'INVALID_TIME_COORDINATE', 'due_coordinate must be a safe integer.');
+    const normalizeRefs = (value, name) => {
+      const refs = value ?? [];
+      assert(Array.isArray(refs) && refs.length <= 1000
+        && refs.every((ref) => typeof ref === 'string' && ref.trim() && ref.trim().length <= 300),
+      'INVALID_TIME_TRIGGER_REFERENCES', name + ' must be an array of at most 1,000 non-empty references.');
+      const normalized = refs.map((ref) => ref.trim());
+      assert(new Set(normalized).size === normalized.length, 'DUPLICATE_TIME_TRIGGER_REFERENCE', name + ' cannot contain duplicate references.');
+      return normalized.sort();
+    };
+    const dependencies = normalizeRefs(input.dependencies, 'dependencies');
+    const read_set = normalizeRefs(input.read_set, 'read_set');
+    const write_set = normalizeRefs(input.write_set, 'write_set');
+    const processing_mode = input.processing_mode ?? 'exact';
+    assert(['exact', 'batch'].includes(processing_mode), 'INVALID_PROCESSING_MODE', 'processing_mode must be exact or batch.');
+    const interrupt_after_coordinate = input.interrupt_after_coordinate ?? false;
+    assert(typeof interrupt_after_coordinate === 'boolean', 'INVALID_INTERRUPT_POLICY', 'interrupt_after_coordinate must be boolean.');
+    assert(obj(input.payload) && obj(input.payload.event), 'TRIGGER_EVENT_PROPOSAL_REQUIRED', 'payload must contain an event proposal object.');
+    let payload;
+    try {
+      const encoded = JSON.stringify(input.payload);
+      assert(typeof encoded === 'string' && Buffer.byteLength(encoded, 'utf8') <= 262144,
+        'INVALID_TIME_TRIGGER_PAYLOAD', 'Trigger payload must be JSON-serializable and no larger than 256 KiB.');
+      payload = JSON.parse(encoded);
+    } catch (error) {
+      if (error instanceof EngineError) throw error;
+      throw new EngineError('INVALID_TIME_TRIGGER_PAYLOAD', 'Trigger payload must be JSON-serializable.', 400);
+    }
+    const world = this.getState(id);
+    const normalized = {
+      trigger_id: input.trigger_id.trim(),
+      world_id: id,
+      due_coordinate: input.due_coordinate,
+      status: 'pending',
+      dependencies,
+      read_set,
+      write_set,
+      processing_mode,
+      interrupt_after_coordinate,
+      payload,
+    };
+    try {
+      planDueWork({
+        world_id: id,
+        from_coordinate: world.game_time_coordinate,
+        to_coordinate: input.due_coordinate,
+        triggers: [normalized],
+      });
+    } catch (error) {
+      throw new EngineError(error.code || 'INVALID_TIME_TRIGGER', error.message || 'Time trigger validation failed.', 400, error.details);
+    }
+    const trigger_hash = hashRequest({
+      world_id: id,
+      trigger_id: normalized.trigger_id,
+      due_coordinate: normalized.due_coordinate,
+      dependencies,
+      read_set,
+      write_set,
+      processing_mode,
+      interrupt_after_coordinate,
+      payload,
+    });
+    return this.store.registerTimeTrigger(id, { ...normalized, trigger_hash });
+  }
+
+  listTimeTriggers(id) {
+    return this.store.listTimeTriggers(id);
+  }
+
+  cancelTimeTrigger(id, triggerId) {
+    assert(typeof triggerId === 'string' && triggerId.trim() && triggerId.trim().length <= 200,
+      'INVALID_TIME_TRIGGER_ID', 'trigger_id must be a non-empty string of at most 200 characters.');
+    return this.store.cancelTimeTrigger(id, triggerId.trim());
+  }
+
   projectTime(id, coordinate = null) {
     const world = this.getState(id);
     const config = this.store.getTimeConfiguration(id);
@@ -455,14 +536,18 @@ export class LogicEngine {
     assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0,
       'INVALID_REVISION', 'Time-advance expected_revision must be a non-negative safe integer.');
     assert(Number.isSafeInteger(x.to_coordinate), 'INVALID_TIME_COORDINATE', 'to_coordinate must be a safe integer.');
+    const registryMode = x.triggers === undefined;
+    assert(!registryMode || x.completed_trigger_ids === undefined,
+      'INLINE_COMPLETED_TRIGGERS_UNSUPPORTED', 'completed_trigger_ids may only be supplied with an explicit inline trigger set.');
     const requestHash = hashRequest({
       operation: 'time.advance',
       world_id: id,
       idempotency_key: x.idempotency_key.trim(),
       expected_revision: x.expected_revision,
       to_coordinate: x.to_coordinate,
+      trigger_source: registryMode ? 'registry' : 'inline',
       triggers: x.triggers ?? [],
-      completed_trigger_ids: x.completed_trigger_ids ?? [],
+      completed_trigger_ids: registryMode ? [] : (x.completed_trigger_ids ?? []),
     });
     const existing = this.store.getTimeAdvanceOperationByKey(id, x.idempotency_key.trim());
     if (existing) {
@@ -497,14 +582,24 @@ export class LogicEngine {
     if (from % 1000 !== 0 || x.to_coordinate % 1000 !== 0) {
       throw new EngineError('TIME_ADVANCE_SUBSECOND_UNSUPPORTED', 'Time-advance execution currently requires whole-second boundaries.', 400);
     }
+    const triggers = registryMode ? this.store.listTimeTriggers(id) : x.triggers;
+    if (registryMode) {
+      const overdue = triggers.filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= from);
+      if (overdue.length) {
+        throw new EngineError('TIME_TRIGGER_OVERDUE', 'Pending registered triggers exist at or before the current coordinate; resolve them before advancing time.', 409, {
+          trigger_ids: overdue.map((trigger) => trigger.trigger_id),
+          current_coordinate: from,
+        });
+      }
+    }
     let plan;
     try {
       plan = planDueWork({
         world_id: id,
         from_coordinate: from,
         to_coordinate: x.to_coordinate,
-        triggers: x.triggers ?? [],
-        completed_trigger_ids: x.completed_trigger_ids ?? [],
+        triggers: triggers ?? [],
+        completed_trigger_ids: registryMode ? [] : (x.completed_trigger_ids ?? []),
       });
     } catch (error) {
       if (error instanceof EngineError) throw error;
@@ -515,7 +610,7 @@ export class LogicEngine {
     const effectiveTarget = plan.status === 'blocked' ? from : plan.planned_until_coordinate;
     const segments = [];
     let cursor = from;
-    const appendSegment = (coordinate, events) => {
+    const appendSegment = (coordinate, events, registryTriggerIds = []) => {
       const index = segments.length;
       const segmentKey = 'time-segment:' + operationId + ':' + index;
       segments.push({
@@ -523,6 +618,7 @@ export class LogicEngine {
         idempotency_key: segmentKey,
         request_hash: hashRequest({ operation_id: operationId, segment_index: index, coordinate, events }),
         events,
+        registry_trigger_ids: registryTriggerIds,
       });
     };
     const makeAdvanceEvent = (deltaMs, index) => {
@@ -578,7 +674,8 @@ export class LogicEngine {
           const events = [];
           if (needsAdvance) events.push(makeAdvanceEvent(coordinate - cursor, segments.length));
           events.push(...chunk);
-          appendSegment(coordinate, events);
+          const chunkTriggerIds = plannedSegment.trigger_ids.slice(offset, offset + chunk.length);
+          appendSegment(coordinate, events, registryMode ? chunkTriggerIds : []);
           cursor = coordinate;
           offset += chunk.length;
         }
@@ -609,6 +706,7 @@ export class LogicEngine {
       status: initialStatus,
       segments,
       plan,
+      registered_trigger_ids: registryMode ? completedTriggerIds : [],
       result: initialStatus === 'blocked' ? { status: 'blocked', blocked: plan.blocked, confirmed_coordinate: from } : null,
     });
     if (operation.status !== 'running') return operation;
