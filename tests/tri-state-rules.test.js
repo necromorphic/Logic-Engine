@@ -64,6 +64,18 @@ test('explicitly proven absence is distinct from unavailable context', () => {
     status: 'true',
     unknown_paths: [],
   });
+  assert.deepEqual(evaluateConditionResult({
+    op: 'neq', path: 'actor.cover_identity', value: 'public',
+  }, {}, { knownAbsentPaths: ['actor.cover_identity'] }), {
+    status: 'true',
+    unknown_paths: [],
+  });
+  assert.throws(
+    () => evaluateConditionResult(rule, { actor: { cover_identity: 'public' } }, {
+      knownAbsentPaths: ['actor.cover_identity'],
+    }),
+    (error) => error.code === 'CONTRADICTORY_KNOWN_ABSENCE',
+  );
 });
 
 test('result API rejects malformed options and unsafe absence paths', () => {
