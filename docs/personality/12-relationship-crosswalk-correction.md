@@ -19,7 +19,7 @@ Status: documentation correction to the Issue #73 crosswalk. This document expli
 
 ## Test status and ownership
 
-The second scenario is a test-design requirement only; it has not been executed as a production NPC/Core test and remains blocked. A future test must exercise the approved acquisition/re-evaluation and canonical event identity/deduplication boundary, not just repeat the pure evaluator call. Ownership of that boundary remains with the relevant NPC/Core contract owners.
+The second scenario remains a test-design requirement only; no production NPC/Core acquisition/event-identity test was found in the current-main evidence reviewed for this update. A future test must exercise the approved acquisition/re-evaluation and canonical event identity/deduplication boundary, not just repeat the pure evaluator call. The privileged Core transition writer's idempotency tests do not establish knowledge-acquisition deduplication. Ownership remains with the relevant NPC/Memory/Core contract owners.
 
 The prior row in `09-per-case-acceptance-traceability.md` must be read narrowly for the no-automatic-drift scenario only; its mention of knowledge acquisition is superseded by this correction. This correction adds no `PERS-SEM-*` IDs and makes no runtime pass claim.
 
@@ -28,4 +28,9 @@ The prior row in `09-per-case-acceptance-traceability.md` must be read narrowly 
 - [Per-case acceptance traceability](./09-per-case-acceptance-traceability.md)
 - [Executable-evidence audit](./10-issue-73-executable-evidence-audit.md)
 - [Relationship → Personality cross-block update](./11-relationship-to-personality-cross-block-update.md)
-- [Relationship test traceability](https://github.com/necromorphic/Logic-Engine/blob/feat/relationship-domain-module/docs/47-relationship-module-test-traceability.md)
+- [Relationship test traceability](https://github.com/necromorphic/Logic-Engine/blob/main/docs/47-relationship-module-test-traceability.md)
+
+
+## Current-main link/status correction (2026-10-24)
+
+Relationship test traceability is now available at `../47-relationship-module-test-traceability.md` on `main` (ported through PR #80); the old feature-branch URL is historical. Core Issue #77 is closed for the privileged write/replay first slice, but that does not resolve old-event knowledge acquisition: a new actor knowledge acquisition is not necessarily the same logical request as an idempotent retry of a canonical transition. No new PERS-SEM ID is introduced, and `PERS-SEM-024`/`029` remain non-mappings for acquisition-event identity semantics.

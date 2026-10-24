@@ -1,6 +1,6 @@
 # Personality Block — Semantic Acceptance Matrix
 
-Status: semantic specification, not an executable runtime test suite. These cases define what the Personality block considers correct; they do not claim that the core write/read/rollback path currently implements them.
+Status: semantic specification, not an executable runtime test suite. These cases define what the Personality block considers correct; the current Core admin-authored typed Relationship write/replay slice is implemented and tested, but this does not establish general actor-authorized reads or Personality/NPC consumer integration.
 
 ## 1. Test boundary
 
@@ -72,12 +72,11 @@ These scenarios reuse the existing PERS-SEM IDs; they do not create new criterio
 
 ### Blocked on core contracts and production tests
 
-- Atomic canonical typed writes and dimension patch semantics.
-- Canonical participant identity enforcement.
-- Authorized actor/purpose-filtered reads.
-- Authorization and audit for initialization/import/correction.
-- Deterministic projection rebuild after rollback.
-- Required-dependency versus independent-support reconciliation.
+- General actor/recipient/purpose/field-authorized Relationship reads and withheld-value non-disclosure.
+- Trusted initial/imported state and author-correction operations with approved authority and history-preserving audit.
+- NPC/model-facing mutation authority and production Personality/NPC consumer behavior.
+- Required-dependency replay is implemented for the privileged first slice; independent-support reconciliation remains deferred.
+- Historical World Pack version selection/migration beyond the pinned first-slice rule version.
 - Any end-to-end claim about character-card data being safe or current.
 
 ## 4. First-stage causal limit
@@ -111,3 +110,8 @@ The acceptance cases are supported by two authoring contracts:
 - [Per-case acceptance traceability](./09-per-case-acceptance-traceability.md) maps each PERS-SEM case and PERS-TRAIT criterion to its primary reference, closure owner, and evidence status.
 
 These templates improve semantic readiness only. They do not remove the core integration blockers listed above or claim that the production runtime implements the required operations.
+
+
+## Current-main implementation evidence refresh (2026-10-24)
+
+The Core privileged `relationship.transition` first slice is no longer a future typed-write target: `tests/relationship-transition-core.test.js` on `main` contains real-path tests for directed commit, participant/world/rule/evidence validation, atomic partial/mixed patches, idempotent retry, clear/unset/neutral replay, persistence-failure atomicity, restart/rebuild, and dependency rollback. This changes the implementation status of PERS-SEM-001–004, 006–007, 009–010, 021, and the replayable subset of 024 only at the privileged canonical write/replay boundary. It does not close PERS-SEM-025–026 authorized-read visibility, 011–013 trusted initial/import/correction, 022 alternative support, 027 safe card projection, 028 production player-agency, or 029 historical migration/version-selection. Exact test names and source blob are recorded in `09-per-case-acceptance-traceability.md` and `10-issue-73-executable-evidence-audit.md`. The Relationships domain handoff is tracked separately in Issue #130; Core first-slice implementation is tracked by completed Issue #77. This addendum does not assert the full Personality/NPC integration is ready.

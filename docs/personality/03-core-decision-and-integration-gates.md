@@ -14,7 +14,7 @@ The ownership split is approved:
 
 This split has no identified ownership conflict. Relationship semantics remain outside the generic core; the core must enforce their approved contract.
 
-## 2. Typed relationship operation: required, not implemented
+## 2. Typed relationship operation: privileged first slice implemented; broader access remains blocked
 
 The relationship state must not be implemented through generic entity attributes or repurposed `fact.set` claims. A separate typed canonical operation is required.
 
@@ -29,7 +29,7 @@ The approved semantic direction is:
 - successful changes use the canonical event, audit, and revision lifecycle;
 - changing one dimension does not implicitly change trust, attraction, consent, knowledge, reciprocity, or another dimension.
 
-**Current status:** no typed relationship effect/operation is exposed by the inspected runtime. The exact effect payload/name, public API, storage representation, and implementation are not approved. Core structural validation is responsible for participant existence, world scope, operation integrity, safe references, and atomic commit. The active World Pack/domain validator owns allowed dimension keys, types/ranges, neutral values, and domain transition rules.
+**Current status (2026-10-24):** the privileged admin-gated typed `relationship.transition` operation, canonical directed projection, immutable rule-version pinning, atomic commit/audit/revision/idempotency, and first-slice rollback/rebuild are implemented and covered by `tests/relationship-transition-core.test.js` on `main`. The exact public/runtime contract is the shipped Core implementation, not a Personality-owned API. Core validates canonical participant/world scope, trusted executor, evidence/rule availability, freshness, and atomic commit; the active World Pack/domain evaluator owns allowed dimensions, values, and transition semantics. This does not authorize non-admin/NPC writes or general consumer reads.
 
 A rejected operation must not mutate canonical projection, world revision, commit sequence, committed events, or commit audit, except for a separately documented rejection diagnostic. An accepted operation must have a replayable canonical event/effect identity and share the existing atomic commit boundary with projection, audit, and idempotency outcome.
 
@@ -37,7 +37,7 @@ A rejected operation must not mutate canonical projection, world revision, commi
 
 ## 3. Causality: first-slice Core decision — replayable transitions only
 
-**Decision for the first supported relationship slice:** use deterministic replay of surviving valid, typed relationship-transition events. This is a bounded Core integration decision, not a claim that typed relationship writes or relationship-specific replay are implemented today.
+**Decision and status for the first supported relationship slice:** deterministic replay of surviving valid typed relationship-transition events is implemented and tested for the privileged path. It does not cover independent alternative support, historical rule-version migration, general actor-authorized reads, or NPC/Personality consumer behavior.
 
 The first slice is limited to state whose intended value can be reconstructed from the ordered set of accepted, valid transition events and the active World Pack's deterministic transition rules. Each accepted transition must have its own canonical event identity and trusted provenance. Rebuilding the projection must be deterministic for the same surviving history and World Pack version/configuration.
 
@@ -68,7 +68,7 @@ These excluded cases must be rejected, deferred, or returned as an explicit unsu
 5. Rollback removes the effects of invalidated transitions and recomputes from surviving valid history; it does not preserve a value merely because another source ID exists.
 6. `caused_by` and `depends_on` retain their existing causal/dependency meaning. They are not alternative-support lists.
 
-This decision does **not** approve a universal alternative-cause store (Option B), define a public API/schema, or establish that the current runtime already meets these guarantees. Relationship-specific runtime tests are still required. If later requirements genuinely need independently sufficient evidence, that capability requires a separate typed support/reconciliation contract and tests; it is not part of this first slice.
+This decision does **not** approve a universal alternative-cause store (Option B) or define a public API/schema. The privileged typed-write/replay first slice is implemented and has production-path tests on current `main`; those tests do not establish all guarantees listed here. Additional tests remain required for general actor-authorized reads, trusted initial/import/correction, NPC/Personality consumer behavior, historical World Pack migration, and independent-support reconciliation. If later requirements genuinely need independently sufficient evidence, that capability requires a separate typed support/reconciliation contract and tests; it is not part of this first slice.
 
 ## 4. Authorized reads remain a blocking dependency
 
@@ -103,9 +103,9 @@ Origin and attribution are provenance, not values the caller can freely assert. 
 
 ## 6. Causality and rollback: implemented baseline versus missing relationship guarantees
 
-**Implemented for the existing event/effect model:** the canonical event path records `caused_by`, `depends_on`, `read_set`, causal links, and effects; rollback invalidates dependent events using recorded relationships and rebuilds projections by replaying valid events. This is not a typed relationship implementation and is not a separate NPC-memory rollback system.
+**Implemented for the existing event/effect model and privileged Relationship first slice:** the canonical event path records `caused_by`, `depends_on`, `read_set`, causal links, and effects; the typed Relationship path commits through that lifecycle and rollback invalidates dependent transitions and rebuilds the directed projection from surviving valid events. This is not a separate NPC-memory rollback system.
 
-**Not implemented/established:** typed relationship effects, relationship-specific rollback behavior, and OR/alternative-support reconciliation.
+**Not implemented/established:** general actor/recipient/purpose/field-authorized Relationship reads; non-admin/NPC mutation authority; trusted initial/import/author-correction operations; historical World Pack version migration/selection; and OR/alternative-support reconciliation.
 
 The first-slice target may use deterministic replay only where it is semantically correct. If a required cause is invalidated, dependent state must be recomputed without unsupported state. If multiple sources are claimed to be independently sufficient, their sufficiency must be explicit rather than inferred from multiple IDs. If remaining support is conflicting or insufficient, use a declared domain rule or expose conflict/unknown rather than guessing.
 
@@ -125,7 +125,7 @@ Required tests before relationship integration is considered ready:
 | Conflict/insufficiency | The system applies an explicit rule or reports a conflict/insufficient-support reconciliation result; it does not invent an outcome or conflate that result with unset. |
 | Character card | The view reflects authorized canonical state and cannot mutate it independently. |
 
-These are required future tests, not claims that the current runtime already passes them.
+These are the full integration acceptance areas, not a claim that every area is unimplemented. The privileged admin-gated first slice already has production-path evidence for directed writes, supported validation, mixed-patch atomicity, idempotency, clear/unset/neutral replay, transaction-failure atomicity, restart/rebuild, and required-dependency rollback. General actor/NPC authority, trusted authoring/import/correction, authorized reads, safe projection, historical version migration, and independent-support behavior remain unproven or blocked.
 
 ## 7. Work sequence and gates
 
@@ -135,7 +135,7 @@ These are required future tests, not claims that the current runtime already pas
 4. **Core architecture:** specify the typed relationship operation against existing effect conventions and prove atomicity, provenance, and replay/rollback on the real canonical path.
 5. **Implementation discussion:** only after the contracts and production tests are agreed, decide runtime changes.
 
-Integration remains blocked until typed write, provenance, authorized read, and the applicable replay/rollback guarantees are specified and tested. This record is a contract/design boundary, not permission to implement.
+The privileged typed write/replay first slice is implemented and tested. Full Personality integration remains blocked on authorized reads, trusted initial/import/correction, consumer/card projection, and deferred alternative-support/historical migration requirements. This record is a contract/design boundary, not permission to invent additional runtime interfaces.
 
 ## 8. Exact remaining questions for Core
 
@@ -165,3 +165,8 @@ Until these closure criteria are met, the Personality block must not claim end-t
 - `docs/18-rollback-and-causality.md` — target rollback architecture, not proof of current runtime support.
 - `docs/23-character-and-control-architecture.md` — character cards as derived views.
 - NPC branch relationship contracts remain relevant as adjacent integration dependencies; they are not duplicated as canonical runtime state here.
+
+
+## Current-main evidence reconciliation (2026-10-24)
+
+Issue #77 is closed for the privileged first slice. The current `main:tests/relationship-transition-core.test.js` (blob `9cf9020c554028f89dc8d8f97d6f7422f357fba1`) contains 21 named production-path tests. Exact case mappings and test names are in `docs/personality/09-per-case-acceptance-traceability.md` and `10-issue-73-executable-evidence-audit.md`. Remaining blockers are general actor/recipient/purpose/field-authorized reads and withheld non-disclosure, non-admin/NPC mutation authority, trusted initial/import/correction, safe consumer/card projection, historical World Pack version selection/migration, and independent alternative-support semantics. Relationships owns the domain-side handoff in Issue #130. Do not treat closure of #77 as closure of these separate gates.
