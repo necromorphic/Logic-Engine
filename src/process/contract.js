@@ -142,6 +142,7 @@ export function normalizeProcessDefinition(input) {
     return item;
   });
 
+  const milestoneById = new Map(process.milestones.map((milestone) => [milestone.milestone_id, milestone]));
   for (const milestone of process.milestones) {
     if (milestone.prerequisites.includes(milestone.milestone_id)) {
       fail('PROCESS_MILESTONE_CYCLE', 'A milestone cannot depend on itself.', { milestone_id: milestone.milestone_id });
@@ -150,6 +151,12 @@ export function normalizeProcessDefinition(input) {
     if (missing.length) {
       fail('PROCESS_MILESTONE_PREREQUISITE_MISSING', 'Every prerequisite must reference a milestone in the same process.', {
         milestone_id: milestone.milestone_id, missing_milestone_ids: missing,
+      });
+    }
+    const laterPrerequisites = milestone.prerequisites.filter((id) => milestoneById.get(id).due_coordinate > milestone.due_coordinate);
+    if (laterPrerequisites.length) {
+      fail('PROCESS_MILESTONE_CAUSAL_TIME_ORDER', 'A milestone cannot depend on a prerequisite scheduled later in game time.', {
+        milestone_id: milestone.milestone_id, later_prerequisite_ids: laterPrerequisites,
       });
     }
   }
