@@ -15,7 +15,7 @@ Status: proposed plan; runtime implementation is gated on repository and cross-b
 
 - Finalize record envelope, provenance classes, lifecycle transitions, query/result/error shapes.
 - Add schema-level validation helpers only if they can be isolated without changing runtime behavior.
-- Turn MEM-001 through MEM-028 into test fixtures and test-oracle specifications, identifying which cases require authorization, Core rollback, or NPC integration.
+- Turn MEM-001 through MEM-033 into test fixtures and test-oracle specifications, identifying which cases require authorization, Core rollback, or NPC integration.
 
 **Exit:** contracts and acceptance tests are internally consistent; sibling owners have reviewed integration fields.
 
