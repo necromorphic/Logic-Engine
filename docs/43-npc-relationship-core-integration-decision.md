@@ -121,3 +121,25 @@ The current proposals narrow the design options:
 5. Tests prove that private/unknown relationship information is not exposed and that the projection does not mutate canonical state.
 
 This is a dependency order, not a claim that the teams must stop parallel work. Core and NPC can develop their respective contracts concurrently as long as neither assumes the other's proposed interface is already integrated.
+
+
+## 10. Acceptance-test dependency map
+
+The REL scenarios in document 42 are semantic requirements, not current executable coverage. Their implementation dependencies are:
+
+| Scenario | Required boundary | Current disposition |
+|---|---|---|
+| REL-001 asymmetric state | Typed directional write plus actor-specific read | Blocked on relationship record/effect and read contract |
+| REL-002 unknown vs neutral | Explicit unset/unknown representation and projection rule | Blocked on state schema |
+| REL-003 independent dimensions | Validated partial transition that changes only named dimensions | Blocked on transition semantics |
+| REL-004 scene presence alone | NPC decision/transition policy distinguishes co-presence from supported cause | NPC semantic tests can be specified now; runtime proof awaits decision pipeline |
+| REL-005 knowledge boundary | Actor-specific knowledge/access filter separate from relationship context | Blocked on knowledge/read integration; trust alone must never bypass it |
+| REL-006 no automatic NPC creation | Participant-reference policy plus projector purity | Projection purity can be tested independently; unresolved references need a decision |
+| REL-007 read-only summary | Bounded relationship summary input and pure card projector | Existing projector proposal is read-only but has no relationship summary input yet |
+| REL-008 dependent rollback | Relationship transition committed through canonical event/effect path | Blocked on typed state operation and explicit mapping to current rollback guarantees |
+| REL-009 independent support survives | Defined support/conflict/reconciliation semantics for multiple causes | Blocked; current generic rollback does not define relationship-specific support reconciliation |
+| REL-010 no invented explanation | NPC generation/context contract excludes unsupported causal rationales | Can be covered as a semantic NPC output test; it is not a substitute for runtime provenance |
+| REL-011 no reciprocal inference | Direction-preserving write/read and projection | Blocked on relationship state/read contract |
+| REL-012 attributed author edit | Authorized authoring operation with distinct audit attribution | Blocked on authoring permission and audit-source contract |
+
+This matrix suggests a parallelizable path: NPC can write semantic tests for REL-004 and REL-010 and refine prompt/context acceptance rules; core can independently settle typed state mutation and rollback/read guarantees; card projection can keep its current minimal contract while specifying an optional relationship-summary input. Do not mark any scenario fully passed until executable tests exercise the integrated implementation, not only isolated pure helpers or documentation examples.
