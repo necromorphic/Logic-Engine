@@ -146,7 +146,6 @@ export class ProposalService {
     const expectedEvaluationFingerprint = hashRequest({
       snapshot_identity: identity,
       action_id: evaluation.action_id,
-      condition_result: evaluation.condition_result,
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
       authorization_scope: evaluation.authorization_scope,
@@ -220,6 +219,7 @@ export class ProposalService {
     const mechanicExecution = {
       snapshot_identity: identity,
       action_id: evaluation.action_id,
+      condition_result: evaluation.condition_result,
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
       authorization_scope: evaluation.authorization_scope,
