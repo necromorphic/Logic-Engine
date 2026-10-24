@@ -110,6 +110,11 @@ export class ProcessStore {
     return row ? this.get(worldId, row.process_id) : null;
   }
 
+  findMilestoneByTrigger(worldId, triggerId) {
+    return this.db.prepare('SELECT process_id,milestone_id,status FROM world_process_milestones WHERE world_id=? AND trigger_id=?')
+      .get(worldId, triggerId) ?? null;
+  }
+
   createRecord({ worldId, process, idempotencyKey, requestHash, expectedRevision }) {
     return this.store.tx(() => {
       const world = this.store.world(worldId);
