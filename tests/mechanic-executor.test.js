@@ -4,6 +4,7 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { MechanicExecutor } from '../src/application/mechanic-executor.js';
 import { ProposalService } from '../src/application/proposals.js';
+import { hashRequest } from '../src/core/request-hash.js';
 
 function setup(t, worldId = 'executor-world') {
   const store = new SQLiteStore(':memory:');
@@ -243,11 +244,18 @@ test('mechanic proposal handoff rejects incomplete or mismatched effect provenan
   const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   const proposals = new ProposalService(engine);
+  const tampered = { ...evaluation, effect_provenance: [] };
+  tampered.evaluation_fingerprint = hashRequest({
+    snapshot_identity: tampered.snapshot_identity,
+    action_id: tampered.action_id,
+    context_fingerprint: tampered.context_fingerprint,
+    context_policy_version: tampered.context_policy_version,
+    condition_result: tampered.condition_result,
+    effects: tampered.effects,
+    effect_provenance: tampered.effect_provenance,
+  });
   assert.throws(
-    () => proposals.createFromMechanicEvaluation(worldId, {
-      ...evaluation,
-      effect_provenance: [],
-    }, {
+    () => proposals.createFromMechanicEvaluation(worldId, tampered, {
       idempotencyKey: 'bad-provenance',
       turnId: 'turn-bad-provenance',
       sourceText: 'Invalid provenance must not create a proposal.',
