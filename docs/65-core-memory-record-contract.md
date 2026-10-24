@@ -13,7 +13,11 @@ A durable record should carry the following logical fields. Physical representat
 - `payload`: bounded structured content. Avoid treating arbitrary prose as a canonical fact.
 - `epistemic_kind`: typed value such as `canonical_reference`, `observed`, `asserted`, `reported`, `hypothesis`, or `derived_summary`. Values must not be silently upgraded.
 - `source_refs[]`: typed references to source records, canonical event/fact IDs, messages, or artifacts; each reference includes its namespace and expected world scope.
-- `provenance`: trusted acquisition route/producer identity, source identity, and verification state assigned by the trusted boundary. Caller-declared authorship may be retained as a claim but not as verified provenance.
+- `record_production`: trusted identity of the service/actor that created or transformed this record, the operation/method used, and its verification status.
+- `content_lineage`: typed references to the source material that supports the content, with source identity/version and the role each source played. This describes the evidence base, not who created this Memory record.
+- `source_claims`: optional source/author attribution asserted by the content or caller. Keep these visibly unverified unless a trusted adapter binds them to an actual source.
+
+These may be represented in one physical envelope, but the contract must preserve the distinction between **who/what produced this record** and **what evidence its claims derive from**. A summary producer is not thereby the originator or verifier of every claim in the summary.
 - `created_at`: service timestamp; distinct from when the represented content occurred.
 - `valid_time`: optional event/time interval to which content refers, with explicit timezone/precision where known. Unknown time remains unknown.
 - `source_revision` / `source_commit_sequence`: optional Core cursor when content was derived from a canonical snapshot. Never imply these are equivalent to a full causal proof.
@@ -44,16 +48,15 @@ If provenance is required for a record type and cannot be validated, reject the 
 
 ## 6. Lifecycle semantics
 
-At minimum, distinguish:
-- `active`: available subject to normal authorization and source freshness;
-- `stale`: a known source/version changed or an index/source check is pending;
-- `disputed`: material conflict remains unresolved;
-- `retracted`: record is no longer to be treated as valid support, but the audit trail remains;
-- `superseded`: a replacement is linked; old content remains historical;
-- `unavailable`: hidden or quarantined from ordinary retrieval;
-- `deleted`: logical deletion/tombstone or retention-compliant removal, with physical erasure defined separately.
+Do not treat the following as one mutually exclusive enum. They describe different dimensions and may coexist:
 
-These are not necessarily one exclusive enum in storage: deletion, visibility, and source freshness may be orthogonal dimensions. Decide the representation based on concrete transition tests. A summary with an invalidated source becomes stale or disputed pending recomputation; it must not remain silently active.
+- **Content disposition:** `active`, `superseded`, `retracted`, `deleted` (logical tombstone or retention-compliant removal; physical erasure is a separate policy).
+- **Source reconciliation:** `current`, `stale`, `pending_reconciliation`, `source_unavailable`.
+- **Evidence assessment:** `unassessed`, `supported`, `disputed`, `insufficient` — only where a separate typed policy defines what these assessments mean.
+- **Retrieval/access decision:** computed for each request (`allowed`, `withheld`, `denied`, or `not_found` as safely exposed). It is not a durable property of the record and must not be cached as universally true.
+- **Index state:** `current`, `lagging`, `unavailable`, or `rebuilding`, reported as retrieval diagnostics rather than canonical record truth.
+
+This is a proposed logical decomposition, not a frozen enum or database schema. Before implementation, define a transition table with trigger, owner, persisted change, allowed retrieval behavior, and recovery path. In particular, source retraction does not erase historical audit; it invalidates the source as current support. A derived record with any changed/unavailable source becomes non-current and must be withheld from ordinary retrieval until revalidated or recomputed under the approved derivation/access policy. A `disputed` assessment must not silently override a separate `retracted` disposition.
 
 ## 7. Errors
 
