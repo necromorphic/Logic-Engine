@@ -2,6 +2,7 @@ import { EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { evaluateMechanicActionConditions, translateMechanicEffectIntents } from '../core/mechanics.js';
 import { collectConditionDependencies } from '../core/rules.js';
+import { attestMechanicEvaluation } from './mechanic-evaluation-attestation.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -333,7 +334,7 @@ export class MechanicExecutor {
       read_set: normalizedReadSet,
       causal_links: normalizedCausalLinks,
     };
-    return {
+    const readyEvaluation = {
       status: 'ready',
       reason_code: null,
       ...evaluationIdentity,
@@ -349,5 +350,6 @@ export class MechanicExecutor {
         canonical_state_mutated: false,
       },
     };
+    return attestMechanicEvaluation(deepFreezeSnapshot(readyEvaluation));
   }
 }
