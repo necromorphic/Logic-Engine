@@ -167,6 +167,36 @@ test("does not silently treat a withheld current relationship value as unset", (
   assert.equal(result.reason, "relationship_value_withheld");
 });
 
+test("preserves each non-value relationship state instead of treating it as unset", () => {
+  const cases = [
+    ["conflict", "conflict_review_required", "relationship_state_conflict"],
+    ["insufficient_support", "insufficient_evidence", "relationship_state_insufficiently_supported"],
+    ["unsupported", "unsupported", "relationship_state_unsupported"],
+    ["incomplete", "unsupported", "relationship_state_incomplete"],
+  ];
+
+  for (const [state, expectedStatus, expectedReason] of cases) {
+    const result = evaluateRelationshipCandidate({
+      ...base,
+      currentValues: { trust: { status: state } },
+      patch: { trust: "guarded" },
+    });
+    assert.equal(result.status, expectedStatus, state);
+    assert.equal(result.reason, expectedReason, state);
+  }
+});
+
+test("rejects tagged value states with undeclared extra fields", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: { trust: { status: "value", value: "low", source: "legacy" } },
+    patch: { trust: "guarded" },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "relationship_state_shape_unsupported");
+});
+
 test("clearing an already cleared or unset dimension is a no-change", () => {
   const cleared = evaluateRelationshipCandidate({
     ...base,
