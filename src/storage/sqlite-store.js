@@ -10,6 +10,25 @@ import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidat
 const now = () => new Date().toISOString();
 const enc = (x) => JSON.stringify(x);
 const dec = (x) => x == null ? null : JSON.parse(x);
+const timeTrigger = (row) => row && ({
+  world_id: row.world_id,
+  trigger_id: row.trigger_id,
+  due_coordinate: row.due_coordinate,
+  status: row.status,
+  dependencies: dec(row.dependencies_json),
+  read_set: dec(row.read_set_json),
+  write_set: dec(row.write_set_json),
+  processing_mode: row.processing_mode,
+  interrupt_after_coordinate: Boolean(row.interrupt_after_coordinate),
+  payload: dec(row.payload_json),
+  content_hash: row.content_hash,
+  completed_by_operation_id: row.completed_by_operation_id,
+  completed_coordinate: row.completed_coordinate,
+  cancellation_reason: row.cancellation_reason,
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+});
+
 const timeAdvanceOperation = (row) => row && ({
   operation_id: row.operation_id,
   world_id: row.world_id,
@@ -403,6 +422,36 @@ export class SQLiteStore {
           );
           CREATE INDEX IF NOT EXISTS world_time_configurations_pack
             ON world_time_configurations(world_pack_id,world_pack_version,version);`);
+        },
+      },
+      {
+        version: 9,
+        apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS world_time_triggers(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            trigger_id TEXT NOT NULL,
+            due_coordinate INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending','completed','cancelled')),
+            dependencies_json TEXT NOT NULL,
+            read_set_json TEXT NOT NULL,
+            write_set_json TEXT NOT NULL,
+            processing_mode TEXT NOT NULL CHECK(processing_mode IN ('exact','batch')),
+            interrupt_after_coordinate INTEGER NOT NULL CHECK(interrupt_after_coordinate IN (0,1)),
+            payload_json TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            completed_by_operation_id TEXT,
+            completed_coordinate INTEGER,
+            cancellation_reason TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,trigger_id),
+            CHECK((status='completed' AND completed_by_operation_id IS NOT NULL AND completed_coordinate IS NOT NULL)
+              OR (status<>'completed' AND completed_by_operation_id IS NULL AND completed_coordinate IS NULL))
+          );
+          CREATE INDEX IF NOT EXISTS world_time_triggers_due
+            ON world_time_triggers(world_id,status,due_coordinate,trigger_id);
+          CREATE INDEX IF NOT EXISTS world_time_triggers_completed_operation
+            ON world_time_triggers(world_id,completed_by_operation_id,status);`);
         },
       },
     ];
