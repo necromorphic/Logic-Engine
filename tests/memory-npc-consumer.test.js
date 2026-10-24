@@ -171,6 +171,28 @@ test('malformed records in a complete Memory result are non-ready, not authorize
   assert.deepEqual(wrongScope.candidates, []);
 });
 
+test('authorized candidate with missing or unknown semantic metadata is non-ready, not authorized-empty', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
+
+  setCandidates([candidate({ producer: undefined })]);
+  const missingProducer = await consumer.retrieveForNpc(request());
+  assert.equal(missingProducer.status, 'non_ready');
+  assert.equal(missingProducer.reason, 'memory_candidate_metadata_incomplete');
+  assert.deepEqual(missingProducer.candidates, []);
+
+  setCandidates([candidate({ epistemic_kind: 'unrecognized-kind' })]);
+  const unknownEpistemicKind = await consumer.retrieveForNpc(request());
+  assert.equal(unknownEpistemicKind.status, 'non_ready');
+  assert.equal(unknownEpistemicKind.reason, 'memory_candidate_metadata_incomplete');
+  assert.deepEqual(unknownEpistemicKind.candidates, []);
+
+  setCandidates([candidate({ lifecycle: { source_reconciliation: 'current', index_health: 'ready' } })]);
+  const missingLifecycle = await consumer.retrieveForNpc(request());
+  assert.equal(missingLifecycle.status, 'non_ready');
+  assert.equal(missingLifecycle.reason, 'memory_candidate_metadata_incomplete');
+  assert.deepEqual(missingLifecycle.candidates, []);
+});
+
 test('Memory record denial is indistinguishable from an authorized empty candidate set, including stale hidden records', async (t) => {
   const denied = setup(t, { authorizeCandidate: false });
   const result = await denied.consumer.retrieveForNpc(request());
