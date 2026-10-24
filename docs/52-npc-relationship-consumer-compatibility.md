@@ -107,6 +107,7 @@ The consumer cases above are traceability labels, not a second semantic acceptan
 | NPC-REL-CONS-004 — No knowledge from state | REL-SEM-013; REL-MOD-002 | No secret/cause enters the NPC context without a valid acquisition path |
 | NPC-REL-CONS-005 — Same event, different interpretation | REL-MOD-001 | Different candidates remain tied to explicit subject-specific inputs |
 | NPC-REL-CONS-006 — Co-presence is not a cause | REL-SEM-004; REL-MOD-005 | No consumer-side drift from scene count or turns |
+| Observed conduct is not internal relationship state | REL-MOD-004; REL-SEM-014 where an explanation is attempted | Public cooperation, hostility, or concealment is not proof of an unobserved dimension or its cause |
 | NPC-REL-CONS-007 — Duplicate evaluation | REL-MOD-005 for no automatic drift; REL-MOD-001 only where different interpretations are in scope | Same explicit input/version yields the same pure candidate; commit idempotency remains a Core test |
 | NPC-REL-CONS-008 — New acquisition about old event | NPC-CAUSE-007; NPC-CAUSE-008; acquisition contract in docs/50–51 | A new acquisition is not silently treated as a new event or an implicit rewrite |
 | NPC-REL-CONS-009 — No invented causal explanation | REL-SEM-014; REL-MOD-010 only for the narrower alternative-support rule | Rationale text is not evidence and cannot create a causal link |
@@ -149,7 +150,7 @@ For each future production-path test, record the exact Core commit, interfaces a
 At the time of this review:
 
 - Relationship PR #60 is a documentation-only module proposal; it is not runtime integration.
-- Relationship PR #62 describes a separate isolated pure evaluator and explicitly says its tests were not executed in the authoring session. Its internal shape is not a Core API and it does not authorize writes or reads.
+- Relationship PR #62 describes a separate isolated pure evaluator. Its head commit `e42a115e607c5d16c4084a82a2bc623e347db677` has a successful GitHub Actions `Runtime tests` run (`npm test`); this verifies that PR's isolated test suite only. The evaluator's internal shape is not a Core API and it does not authorize writes or reads.
 - Core's first-slice relationship replay boundary is documented separately; it does not establish that typed relationship writes, actor-authorized reads, trusted provenance, or relationship projection/replay are implemented.
 - NPC relationship documents define consumer and rollback gates but do not supply the missing Core-owned capabilities.
 
