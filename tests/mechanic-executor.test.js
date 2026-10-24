@@ -442,3 +442,34 @@ test('application executor rejects fact subjects that are absent from the same w
   assert.equal(result.reason_code, 'MECHANIC_EFFECT_SUBJECT_NOT_FOUND');
   assert.deepEqual(result.effects, []);
 });
+
+
+test('application executor treats an empty effect set as no match and never creates a proposal', (t) => {
+  const { engine, worldId } = setup(t, 'executor-empty-effect-world');
+  const value = template({
+    actions: [{
+      action_id: 'wait',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'no_match');
+  assert.equal(result.reason_code, 'MECHANIC_ACTION_HAS_NO_EFFECTS');
+  assert.deepEqual(result.effects, []);
+  const proposals = new ProposalService(engine);
+  assert.throws(
+    () => proposals.createFromMechanicEvaluation(worldId, result, {
+      idempotencyKey: 'empty-effect-proposal',
+      turnId: 'turn-empty-effect',
+      sourceText: 'An empty effect set cannot become a proposal.',
+      adapterId: 'test-adapter',
+    }),
+    (error) => error.code === 'INVALID_MECHANIC_EVALUATION',
+  );
+  assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
+});
