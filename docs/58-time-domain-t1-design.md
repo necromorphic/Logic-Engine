@@ -1,6 +1,6 @@
 # Time Domain T1 — canonical coordinate and calendar projection
 
-**Status:** T1 implementation slice on a feature branch; not merged.  
+**Status:** T1 pure temporal model is merged in main. The runtime coordinate migration is tracked separately in T2.  
 **Scope:** pure temporal functions and their tests only. No database migration, HTTP endpoint, scheduler, Core mutation path, or SillyTavern integration.
 
 ## Decisions captured

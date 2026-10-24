@@ -66,6 +66,53 @@ test('time-advance API is internal-only and exposes durable start/status/replay'
   assert.equal((await fetch(base + '/v1/worlds/api-time-world/events', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } })).status, 200);
 });
 
+test('time configuration authoring requires admin and calendar projection requires a trusted reader', async (t) => {
+  const base = await setup(t, { adminToken: ADMIN });
+  assert.equal((await createWorld(base, 'api-time-config-world')).status, 201);
+  const configuration = {
+    version: 'config-1',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    calendar_definition: {
+      calendar_id: 'api.calendar',
+      version: '1.0.0',
+      day_length_ms: 86400000,
+      weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      year_cycle: [{ id: 'standard', name: 'Standard', months: [{ id: 'jan', name: 'January', days: 31 }] }],
+      epoch: { coordinate: 0, year_number: 2000, year_cycle_index: 0, month_id: 'jan', day_of_month: 1, weekday_index: 0, time_of_day_ms: 0 },
+      holidays: [],
+    },
+    time_policy: {
+      policy_id: 'api.policy',
+      version: '1.0.0',
+      max_action_duration_ms: 43200000,
+      max_skip_duration_ms: 604800000,
+      duration_rules: [{ event_type: 'travel.completed', rule: { kind: 'fixed', duration_ms: 60000 } }],
+    },
+  };
+  const denied = await fetch(base + '/v1/worlds/api-time-config-world/time-configurations', {
+    method: 'POST', headers, body: json(configuration),
+  });
+  assert.equal(denied.status, 403);
+
+  const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
+  const registered = await fetch(base + '/v1/worlds/api-time-config-world/time-configurations', {
+    method: 'POST', headers: adminHeaders, body: json(configuration),
+  });
+  assert.equal(registered.status, 200);
+  assert.equal((await registered.json()).configuration.active, true);
+
+  const current = await fetch(base + '/v1/worlds/api-time-config-world/time-configurations/current', {
+    headers: adminHeaders,
+  });
+  assert.equal(current.status, 200);
+  assert.equal((await current.json()).configuration.version, 'config-1');
+
+  const projected = await fetch(base + '/v1/worlds/api-time-config-world/time', { headers: adminHeaders });
+  assert.equal(projected.status, 200);
+  assert.equal((await projected.json()).time.calendar.year_number, 2000);
+});
+
 test('health, auth, proposal approval, and canonical commit boundary', async (t) => {
   const base = await setup(t, { approvalToken: APPROVAL, internalToken: INTERNAL });
   assert.equal((await fetch(base + '/health')).status, 200);

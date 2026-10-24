@@ -132,6 +132,7 @@ const world = (r) => r && ({
   game_time: r.game_time,
   initial_game_time_coordinate: r.initial_game_time_coordinate,
   game_time_coordinate: r.game_time_coordinate,
+  time_config_version: r.time_config_version ?? null,
   world_revision: r.world_revision,
   status: r.status,
   created_at: r.created_at,
@@ -380,6 +381,30 @@ export class SQLiteStore {
             ON time_advance_operations(world_id,status,updated_at);`);
         },
       },
+      {
+        version: 8,
+        apply: () => {
+          const worldColumns = this.db.prepare('PRAGMA table_info(worlds)').all();
+          if (!worldColumns.some((column) => column.name === 'time_config_version')) {
+            this.db.exec('ALTER TABLE worlds ADD COLUMN time_config_version TEXT');
+          }
+          this.db.exec(`CREATE TABLE IF NOT EXISTS world_time_configurations(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            version TEXT NOT NULL,
+            world_pack_id TEXT NOT NULL,
+            world_pack_version TEXT NOT NULL,
+            calendar_definition_json TEXT NOT NULL,
+            time_policy_json TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            created_revision INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,version)
+          );
+          CREATE INDEX IF NOT EXISTS world_time_configurations_pack
+            ON world_time_configurations(world_pack_id,world_pack_version,version);`);
+        },
+      },
     ];
     for (const migration of migrations) {
       const applied = this.db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
@@ -587,7 +612,6 @@ export class SQLiteStore {
     const read = () => {
       const w = this.world(id);
       if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-
       const commitSequence = this.currentCommitSequence(id);
       const contextManifests = contextManifestIds.length
         ? this.db.prepare('SELECT manifest_id,world_id,generation_id,base_commit_sequence,base_world_revision,items_json,manifest_hash,created_at FROM context_manifests WHERE world_id=? AND manifest_id IN (' + contextManifestIds.map(() => '?').join(',') + ') ORDER BY manifest_id')
@@ -1098,6 +1122,13 @@ export class SQLiteStore {
       if (old) return { ...old, idempotent_replay: true };
       const w = this.world(id);
       if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (x.duration_decision?.time_config_version
+        && w.time_config_version !== x.duration_decision.time_config_version) {
+        throw new EngineError('TIME_CONFIG_STALE', 'Active time configuration changed after duration resolution.', 409, {
+          resolved_config_version: x.duration_decision.time_config_version,
+          active_config_version: w.time_config_version ?? null,
+        });
+      }
       if (x.expected_revision !== undefined && x.expected_revision !== w.world_revision) {
         throw new EngineError('REVISION_CONFLICT', 'World changed after proposal preparation.', 409, {
           expected_revision: x.expected_revision, current_revision: w.world_revision,
@@ -1279,6 +1310,7 @@ export class SQLiteStore {
           turn_id: x.turn_id, context_manifest_id: x.context_manifest_id || null, caused_by: x.caused_by, depends_on: x.depends_on,
           read_set: x.read_set, effects: x.effects, time_advance_seconds: x.time_advance_seconds,
           time_advance_ms: durationMs, game_time_coordinate: gameTimeCoordinate,
+          ...(x.duration_decision ? { duration_decision: x.duration_decision } : {}),
         }), createdAt);
       this.saveReplay(id, x.idempotency_key, x.request_hash, result);
       return result;
@@ -1495,6 +1527,99 @@ export class SQLiteStore {
         });
       }
     }
+  }
+
+  registerTimeConfiguration(worldId, config) {
+    return this.tx(() => {
+      const worldAtStart = this.world(worldId);
+      if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (config.world_pack_id !== worldAtStart.world_pack_id
+        || config.world_pack_version !== worldAtStart.world_pack_version) {
+        throw new EngineError('TIME_CONFIG_WORLD_PACK_MISMATCH', 'Time configuration must match the world\'s pinned World Pack ID and version.', 409);
+      }
+      const existing = this.db.prepare('SELECT * FROM world_time_configurations WHERE world_id=? AND version=?')
+        .get(worldId, config.version);
+      const activeConfig = worldAtStart.time_config_version
+        ? this.getTimeConfiguration(worldId, worldAtStart.time_config_version)
+        : null;
+      const eventCount = this.db.prepare('SELECT COUNT(*) AS count FROM world_events WHERE world_id=?').get(worldId).count;
+      if (!activeConfig && eventCount > 0) {
+        throw new EngineError('TIME_CONFIG_INITIALIZATION_REQUIRES_AUTHOR_POLICY', 'Initializing a calendar after world history exists requires an explicit author rebase policy.', 409);
+      }
+      if (activeConfig && activeConfig.version !== config.version) {
+        const mapping = (calendar) => ({
+          calendar_id: calendar.calendar_id,
+          day_length_ms: calendar.day_length_ms,
+          weekdays: calendar.weekdays,
+          year_cycle: calendar.year_cycle,
+          epoch: calendar.epoch,
+        });
+        const oldMapping = hashRequest(mapping(activeConfig.calendar_definition));
+        const newMapping = hashRequest(mapping(config.calendar_definition));
+        if (oldMapping !== newMapping && eventCount > 0) {
+          throw new EngineError('CALENDAR_REBASE_REQUIRES_AUTHOR_POLICY', 'Changing the calendar coordinate mapping after world history exists requires an explicit author rebase policy.', 409);
+        }
+      }
+      if (existing && existing.content_hash !== config.content_hash) {
+        throw new EngineError('TIME_CONFIG_VERSION_IMMUTABLE', 'A time configuration version cannot be overwritten with different content.', 409);
+      }
+      if (existing && worldAtStart.time_config_version === config.version) {
+        return this.publicTimeConfiguration(existing, true);
+      }
+      const nextRevision = worldAtStart.world_revision + 1;
+      const stamp = now();
+      if (!existing) {
+        this.db.prepare(`INSERT INTO world_time_configurations(
+          world_id,version,world_pack_id,world_pack_version,calendar_definition_json,time_policy_json,
+          content_hash,created_by,created_revision,created_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?)`).run(
+          worldId, config.version, config.world_pack_id, config.world_pack_version,
+          enc(config.calendar_definition), enc(config.time_policy), config.content_hash,
+          config.created_by, nextRevision, stamp,
+        );
+      }
+      this.db.prepare('UPDATE worlds SET time_config_version=?,world_revision=? WHERE world_id=?')
+        .run(config.version, nextRevision, worldId);
+      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run(worldId, nextRevision, 'time.configuration.activated', config.version, enc({
+          world_pack_id: config.world_pack_id,
+          world_pack_version: config.world_pack_version,
+          calendar_id: config.calendar_definition.calendar_id,
+          calendar_version: config.calendar_definition.version,
+          policy_id: config.time_policy.policy_id,
+          policy_version: config.time_policy.version,
+          content_hash: config.content_hash,
+          created_by: config.created_by,
+        }), stamp);
+      return this.getTimeConfiguration(worldId, config.version);
+    });
+  }
+
+  getTimeConfiguration(worldId, version = null) {
+    const worldAtStart = this.world(worldId);
+    if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    const selectedVersion = version ?? worldAtStart.time_config_version;
+    if (selectedVersion === null || selectedVersion === undefined) return null;
+    const row = this.db.prepare('SELECT * FROM world_time_configurations WHERE world_id=? AND version=?')
+      .get(worldId, selectedVersion);
+    if (!row) throw new EngineError('TIME_CONFIG_NOT_FOUND', 'Time configuration version not found for this world.', 404);
+    return this.publicTimeConfiguration(row, worldAtStart.time_config_version === row.version);
+  }
+
+  publicTimeConfiguration(row, active = false) {
+    return {
+      world_id: row.world_id,
+      version: row.version,
+      world_pack_id: row.world_pack_id,
+      world_pack_version: row.world_pack_version,
+      calendar_definition: dec(row.calendar_definition_json),
+      time_policy: dec(row.time_policy_json),
+      content_hash: row.content_hash,
+      created_by: row.created_by,
+      created_revision: row.created_revision,
+      created_at: row.created_at,
+      active,
+    };
   }
 
   rollback(id, rootId, key, requestHash) {

@@ -1,6 +1,6 @@
 # T3 — bounded atomic segment commit
 
-**Status:** implementation slice in PR; not merged.  
+**Status:** T3 bounded atomic segment commit is merged in main.  
 **Scope:** Core-internal bounded segment API for a set of provably independent events. No scheduler, long-operation cursor, or HTTP route.
 
 ## Contract

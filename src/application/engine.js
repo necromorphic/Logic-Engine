@@ -4,6 +4,8 @@ import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { planDueWork } from '../time/scheduler.js';
+import { createCalendarDefinition, projectCalendarDate } from '../time/model.js';
+import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const strings = (x, name) => {
@@ -163,6 +165,115 @@ export class LogicEngine {
     this.store = store;
   }
 
+  registerTimeConfiguration(id, input) {
+    assert(obj(input), 'INVALID_TIME_CONFIGURATION', 'Time configuration must be an object.');
+    const allowed = ['version', 'world_pack_id', 'world_pack_version', 'calendar_definition', 'time_policy'];
+    assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_TIME_CONFIGURATION_FIELD', 'Time configuration contains an unsupported field.');
+    for (const key of ['version', 'world_pack_id', 'world_pack_version']) {
+      assert(typeof input[key] === 'string' && input[key].trim() && input[key].length <= 200, 'INVALID_TIME_CONFIGURATION', key + ' must be a non-empty string.');
+    }
+    const world = this.getState(id);
+    if (input.world_pack_id !== world.world_pack_id || input.world_pack_version !== world.world_pack_version) {
+      throw new EngineError('TIME_CONFIG_WORLD_PACK_MISMATCH', 'Time configuration must match the world\'s pinned World Pack.', 409);
+    }
+    let calendar;
+    let policy;
+    try {
+      calendar = createCalendarDefinition(input.calendar_definition);
+      policy = createTimePolicy(input.time_policy);
+    } catch (error) {
+      throw new EngineError(error.code || 'INVALID_TIME_CONFIGURATION', error.message || 'Time configuration validation failed.', 400);
+    }
+    const config = {
+      version: input.version.trim(),
+      world_pack_id: world.world_pack_id,
+      world_pack_version: world.world_pack_version,
+      calendar_definition: calendar,
+      time_policy: policy,
+      content_hash: hashRequest({
+        world_pack_id: world.world_pack_id,
+        world_pack_version: world.world_pack_version,
+        calendar_definition: calendar,
+        time_policy: policy,
+      }),
+      created_by: 'trusted_admin',
+    };
+    return this.store.registerTimeConfiguration(id, config);
+  }
+
+  getTimeConfiguration(id, version = null) {
+    return this.store.getTimeConfiguration(id, version);
+  }
+
+  projectTime(id, coordinate = null) {
+    const world = this.getState(id);
+    const config = this.store.getTimeConfiguration(id);
+    if (!config) throw new EngineError('TIME_CONFIG_REQUIRED', 'This world has no active versioned calendar/time policy.', 409);
+    const at = coordinate ?? world.game_time_coordinate;
+    if (!Number.isSafeInteger(at)) throw new EngineError('INVALID_TIME_COORDINATE', 'Time projection coordinate must be a safe integer.', 400);
+    try {
+      return {
+        world_id: id,
+        coordinate: at,
+        calendar: projectCalendarDate(config.calendar_definition, at),
+        calendar_id: config.calendar_definition.calendar_id,
+        calendar_version: config.calendar_definition.version,
+        policy_id: config.time_policy.policy_id,
+        policy_version: config.time_policy.version,
+        time_config_version: config.version,
+      };
+    } catch (error) {
+      throw new EngineError(error.code || 'INVALID_TIME_COORDINATE', error.message || 'Calendar projection failed.', 400);
+    }
+  }
+
+  prepareEventForWorld(id, x, options = {}) {
+    const config = this.store.getTimeConfiguration(id);
+    if (!config) {
+      assert(x.duration_proposal === undefined || x.duration_proposal === null,
+        'TIME_POLICY_REQUIRED', 'Duration proposals require an active versioned TimePolicy.');
+      return this.prepareEvent(x, options);
+    }
+    const policy = config.time_policy;
+    if (x.time_mode === 'explicit_skip') {
+      assert(x.event_type === 'time.advance', 'INVALID_TIME_SKIP_EVENT_TYPE',
+        'Explicit skip must be represented by a time.advance event.');
+      assert(x.duration_proposal === undefined || x.duration_proposal === null,
+        'UNEXPECTED_DURATION_PROPOSAL', 'Explicit skip duration is governed by TimePolicy and cannot include an action duration proposal.');
+      const seconds = x.time_advance_seconds ?? 0;
+      assert(Number.isSafeInteger(seconds) && seconds >= 0, 'INVALID_TIME_ADVANCE', 'time_advance_seconds must be a non-negative integer.');
+      assert(seconds * 1000 <= policy.max_skip_duration_ms, 'TIME_ADVANCE_TOO_LARGE', 'Explicit skip exceeds the active World Pack TimePolicy.');
+      const decision = {
+        status: 'resolved', certainty: 'fixed', duration_ms: seconds * 1000,
+        source: 'explicit_skip_policy', policy_id: policy.policy_id, policy_version: policy.version,
+      };
+      return this.prepareEvent(x, { ...options, maxActionDurationSeconds: Math.floor(policy.max_action_duration_ms / 1000), maxSkipDurationSeconds: Math.floor(policy.max_skip_duration_ms / 1000), durationDecision: { ...decision, time_config_version: config.version } });
+    }
+    const requestedMs = (x.time_advance_seconds ?? 0) * 1000;
+    const decision = resolveDurationDecision(policy, x.event_type, x.duration_proposal ?? null, requestedMs);
+    if (decision.status === 'needs_author') {
+      throw new EngineError('DURATION_NEEDS_AUTHOR', 'The active TimePolicy requires an author decision before this event can be timed.', 409, decision);
+    }
+    if (decision.status !== 'resolved') {
+      throw new EngineError('DURATION_PROPOSAL_REJECTED', 'The proposed duration is not permitted by the active TimePolicy.', 400, decision);
+    }
+    if (decision.duration_ms % 1000 !== 0) {
+      throw new EngineError('DURATION_SUBSECOND_UNSUPPORTED', 'The active TimePolicy resolved a sub-second duration, but event commits currently require whole seconds.', 400, decision);
+    }
+    const seconds = decision.duration_ms / 1000;
+    if (x.time_advance_seconds !== undefined && x.time_advance_seconds !== seconds) {
+      throw new EngineError('DURATION_MISMATCH', 'Caller-supplied duration differs from the Core-resolved TimePolicy duration.', 400, {
+        supplied_seconds: x.time_advance_seconds, resolved_seconds: seconds,
+      });
+    }
+    return this.prepareEvent({ ...x, time_advance_seconds: seconds }, {
+      ...options,
+      maxActionDurationSeconds: Math.floor(policy.max_action_duration_ms / 1000),
+      maxSkipDurationSeconds: Math.floor(policy.max_skip_duration_ms / 1000),
+      durationDecision: { ...decision, time_config_version: config.version },
+    });
+  }
+
   createWorld(x) {
     assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
     for (const k of ['world_pack_id', 'world_pack_version']) {
@@ -237,7 +348,7 @@ export class LogicEngine {
 
   prepareEvent(x, options = {}) {
     assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
-    const allowedFields = ['idempotency_key', 'turn_id', 'event_type', 'event_id', 'expected_revision', 'expected_commit_sequence', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
+    const allowedFields = ['idempotency_key', 'turn_id', 'event_type', 'event_id', 'expected_revision', 'expected_commit_sequence', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'duration_proposal', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
     assert(Object.keys(x).every((key) => allowedFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event proposal contains an unsupported top-level field.');
     assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key required.');
     assert(typeof x.turn_id === 'string' && x.turn_id.trim() && x.turn_id.length <= 200, 'TURN_ID_REQUIRED', 'turn_id required.');
@@ -255,8 +366,9 @@ export class LogicEngine {
     const skip = x.time_mode === 'explicit_skip';
     assert(Number.isSafeInteger(seconds) && seconds >= 0, 'INVALID_TIME_ADVANCE', 'time_advance_seconds must be non-negative.');
     assert(x.time_mode === undefined || x.time_mode === 'action' || skip, 'INVALID_TIME_MODE', 'time_mode must be action or explicit_skip.');
-    assert(seconds <= (skip ? 604800 : 43200), 'TIME_ADVANCE_TOO_LARGE', 'Time advance exceeds limit.');
-    if (seconds > 0) assert(['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Invalid event type for time advance.');
+    const maxSeconds = skip ? (options.maxSkipDurationSeconds ?? 604800) : (options.maxActionDurationSeconds ?? 43200);
+    assert(seconds <= maxSeconds, 'TIME_ADVANCE_TOO_LARGE', 'Time advance exceeds the active duration limit.');
+    if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
 
     const effects = x.effects ?? [];
     validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
@@ -272,6 +384,8 @@ export class LogicEngine {
       expected_commit_sequence: x.expected_commit_sequence ?? null,
       time_advance_seconds: seconds,
       time_mode: x.time_mode ?? 'action',
+      ...(x.duration_proposal !== undefined ? { duration_proposal: x.duration_proposal } : {}),
+      ...(options.durationDecision ? { duration_decision: options.durationDecision } : {}),
       caused_by: strings(x.caused_by, 'caused_by'),
       depends_on: strings(x.depends_on, 'depends_on'),
       read_set: strings(x.read_set, 'read_set'),
@@ -286,7 +400,7 @@ export class LogicEngine {
   }
 
   commitEvent(id, x) {
-    return this.store.commit(id, this.prepareEvent(x));
+    return this.store.commit(id, this.prepareEventForWorld(id, x));
   }
 
   commitSegment(id, x, options = {}) {
@@ -304,7 +418,7 @@ export class LogicEngine {
       assert(obj(event), 'INVALID_SEGMENT_EVENT', 'Every segment event must be an object.');
       assert(event.expected_revision === undefined && event.expected_commit_sequence === undefined,
         'INVALID_SEGMENT_EVENT_CURSOR', 'Per-event revision/cursor fields are not allowed; the segment owns its base cursor.');
-      const prepared = this.prepareEvent(event, options);
+      const prepared = this.prepareEventForWorld(id, event, options);
       assert(typeof prepared.event_id === 'string' && prepared.event_id.trim(), 'SEGMENT_EVENT_ID_REQUIRED', 'Every segment event must have an explicit event_id.');
       assert(!['entity:', 'fact:', 'relationship:', 'mechanic:'].some((prefix) => prepared.event_id.startsWith(prefix)), 'INVALID_EVENT_ID', 'Segment event IDs cannot use reserved projection reference prefixes.');
       return prepared;
@@ -366,6 +480,20 @@ export class LogicEngine {
       });
     }
     const from = world.game_time_coordinate;
+    const requestedAdvanceMs = x.to_coordinate - from;
+    if (!Number.isSafeInteger(requestedAdvanceMs) || requestedAdvanceMs < 0) {
+      throw new EngineError('INVALID_TIME_INTERVAL', 'to_coordinate must not precede the current world coordinate and the interval must be a safe integer.', 400);
+    }
+    const activeTimeConfig = this.store.getTimeConfiguration(id);
+    const maxSkipMs = activeTimeConfig
+      ? Math.min(activeTimeConfig.time_policy.max_skip_duration_ms, 604800000)
+      : 604800000;
+    if (requestedAdvanceMs > maxSkipMs) {
+      throw new EngineError('TIME_ADVANCE_TOO_LARGE', 'Requested time-advance interval exceeds the active world skip limit.', 400, {
+        requested_duration_ms: requestedAdvanceMs,
+        maximum_duration_ms: maxSkipMs,
+      });
+    }
     if (from % 1000 !== 0 || x.to_coordinate % 1000 !== 0) {
       throw new EngineError('TIME_ADVANCE_SUBSECOND_UNSUPPORTED', 'Time-advance execution currently requires whole-second boundaries.', 400);
     }
@@ -387,7 +515,6 @@ export class LogicEngine {
     const effectiveTarget = plan.status === 'blocked' ? from : plan.planned_until_coordinate;
     const segments = [];
     let cursor = from;
-    const maxSkipMs = 604800000;
     const appendSegment = (coordinate, events) => {
       const index = segments.length;
       const segmentKey = 'time-segment:' + operationId + ':' + index;
@@ -403,7 +530,7 @@ export class LogicEngine {
       assert(Number.isSafeInteger(seconds) && seconds > 0 && seconds <= 604800,
         'INVALID_TIME_ADVANCE_SEGMENT', 'Synthetic time-advance segments must be whole seconds and no longer than seven days.');
       const suffix = operationId + ':' + index;
-      return this.prepareEvent({
+      return this.prepareEventForWorld(id, {
         event_id: 'time-advance-' + hashRequest({ operation_id: operationId, index }).slice(0, 32),
         idempotency_key: 'time-advance-event:' + hashRequest({ operation_id: operationId, index }).slice(0, 40),
         turn_id: 'time-advance:' + suffix,
@@ -511,7 +638,7 @@ export class LogicEngine {
     'INVALID_RELATIONSHIP_EVIDENCE_REFERENCE', 'evidence_refs must contain unique event:<event_id> references.');
     const operationKey = x.idempotency_key.trim();
     const requestIdentity = hashRequest({ operation: 'relationship.transition', world_id: id, idempotency_key: operationKey });
-    const prepared = this.prepareEvent({
+    const prepared = this.prepareEventForWorld(id, {
       idempotency_key: 'relationship-transition:' + requestIdentity,
       turn_id: 'relationship-transition:' + requestIdentity.slice(0, 32),
       event_type: 'relationship.transition',
@@ -546,7 +673,7 @@ export class LogicEngine {
   }
 
   validateEvent(id, x) {
-    const prepared = this.prepareEvent({ ...x, idempotency_key: 'validation:' + randomUUID() });
+    const prepared = this.prepareEventForWorld(id, { ...x, idempotency_key: 'validation:' + randomUUID() });
     prepared.request_hash = hashRequest({
       operation: 'event.validate',
       request_hash: prepared.request_hash,
