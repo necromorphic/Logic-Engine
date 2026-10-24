@@ -4,6 +4,7 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { MechanicExecutor } from '../src/application/mechanic-executor.js';
 import { ProposalService } from '../src/application/proposals.js';
+import { collectMechanicConditionDependencies } from '../src/core/mechanics.js';
 import { hashRequest } from '../src/core/request-hash.js';
 
 function setup(t, worldId = 'executor-world') {
@@ -58,24 +59,51 @@ function commit(engine, worldId, eventId, expectedRevision, effects, causedBy = 
 
 function enableFixture(engine, worldId, value = template()) {
   engine.registerMechanicTemplate(value);
-  commit(engine, worldId, 'create-instance', 0, [{
-    kind: 'mechanic.instance.create',
-    instance_id: 'instance.executor',
-    template_id: value.template_id,
-    template_version: value.version,
-  }]);
+  commit(engine, worldId, 'create-instance', 0, [
+    { kind: 'entity.create', entity_id: 'entity.world-context', entity_type: 'world_context', attributes: { weather: 'rain' } },
+    { kind: 'entity.create', entity_id: 'entity.actor-context', entity_type: 'character', attributes: { hp: 10 } },
+    {
+      kind: 'mechanic.instance.create',
+      instance_id: 'instance.executor',
+      template_id: value.template_id,
+      template_version: value.version,
+    },
+  ]);
   const created = engine.getMechanicInstance(worldId, 'instance.executor');
   commit(engine, worldId, 'enable-instance', 1, [{ kind: 'mechanic.instance.enable', instance_id: 'instance.executor' }], [created.last_event_id]);
 }
 
 function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10 } }) {
-  return ({ snapshot }) => ({
-    context,
-    knownAbsentPaths: [],
-    world_revision: snapshot.world_revision,
-    commit_sequence: snapshot.commit_sequence,
-    policy_version: 'test-visibility-policy-v1',
-  });
+  return ({ snapshot, template, action }) => {
+    const paths = [...new Set([
+      ...template.applicability,
+      ...action.preconditions,
+      ...(action.constraints ?? []),
+    ].flatMap((rule) => collectMechanicConditionDependencies({
+      template_id: template.template_id,
+      version: template.version,
+      schema_version: template.schema_version,
+      display_name: template.display_name,
+      required_capabilities: [],
+      applicability: [rule],
+      actions: [],
+      conflict_policy: { mode: 'manual' },
+      lifecycle_policy: { on_disable: 'require_author_decision' },
+      unknown_policy: 'mark_unknown',
+    }).condition_paths))].sort();
+    return {
+      context,
+      knownAbsentPaths: [],
+      dependencyEvidence: paths.flatMap((path) => {
+        if (path === 'world.weather') return [{ path, kind: 'entity_attribute', entity_id: 'entity.world-context', attribute: 'weather' }];
+        if (path === 'actor.hp') return [{ path, kind: 'entity_attribute', entity_id: 'entity.actor-context', attribute: 'hp' }];
+        return [];
+      }),
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+      policy_version: 'test-visibility-policy-v1',
+    };
+  };
 }
 
 test('application executor pins one enabled instance and exact template to a consistent snapshot', (t) => {
@@ -138,8 +166,14 @@ test('application executor preserves unknown conditions and emits no effects on 
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(unknown.status, 'unknown');
   assert.deepEqual(unknown.effects, []);
-  const failed = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider({ world: { weather: 'sun' }, actor: { hp: 10 } }) })
-    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  const falseTemplate = template({
+    applicability: [{ op: 'eq', path: 'world.weather', value: 'sun' }],
+  });
+  const falseWorld = 'executor-valid-false-world';
+  const falseSetup = setup(t, falseWorld);
+  enableFixture(falseSetup.engine, falseSetup.worldId, falseTemplate);
+  const failed = new MechanicExecutor(falseSetup.engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId: falseSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(failed.status, 'no_match');
   assert.deepEqual(failed.effects, []);
 });
@@ -391,7 +425,7 @@ test('application executor does not expose malformed-condition exception details
   const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'unknown');
-  assert.equal(result.reason_code, 'MECHANIC_CONDITION_EVALUATION_FAILED');
+  assert.equal(result.reason_code, 'MECHANIC_DEPENDENCY_ANALYSIS_FAILED');
   assert.equal(JSON.stringify(result).includes('Unsafe or empty rule path'), false);
   assert.deepEqual(result.effects, []);
 });
