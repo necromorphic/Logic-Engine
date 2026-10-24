@@ -9,8 +9,6 @@
 
 export const TIME_COORDINATE_UNIT = 'millisecond';
 
-const MAX_SAFE = Number.MAX_SAFE_INTEGER;
-
 export class TemporalModelError extends RangeError {
   constructor(code, message) {
     super(message);
@@ -36,11 +34,19 @@ function positiveSafeInteger(value, name) {
   return value;
 }
 
-function nonEmptyString(value, name) {
-  if (typeof value !== 'string' || !value.trim()) {
-    fail('INVALID_STRING', name + ' must be a non-empty string.');
+function nonEmptyString(value, name, maxLength = 200) {
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > maxLength) {
+    fail('INVALID_STRING', name + ' must be a non-empty string of at most ' + maxLength + ' characters.');
   }
   return value.trim();
+}
+
+function deepFreeze(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) deepFreeze(child);
+    Object.freeze(value);
+  }
+  return value;
 }
 
 function checkedAdd(a, b, name) {
@@ -114,7 +120,7 @@ export function createCalendarDefinition(input) {
   }
 
   const calendarId = nonEmptyString(input.calendar_id, 'calendar_id');
-  const version = nonEmptyString(input.version, 'version');
+  const version = nonEmptyString(input.version, 'version', 100);
   const dayLengthMs = positiveSafeInteger(input.day_length_ms, 'day_length_ms');
 
   if (!Array.isArray(input.weekdays) || input.weekdays.length < 1 || input.weekdays.length > 1000) {
@@ -144,6 +150,9 @@ export function createCalendarDefinition(input) {
     };
   });
 
+  if (new Set(yearCycle.map((year) => year.id)).size !== yearCycle.length) {
+    fail('DUPLICATE_YEAR_ID', 'Year-cycle ids must be unique.');
+  }
   const cycleDays = sumSafe(yearCycle.map((year) => year.days), 'Year-cycle length');
   if (!Number.isSafeInteger(cycleDays) || cycleDays <= 0) {
     fail('INVALID_YEAR_CYCLE_LENGTH', 'Total year-cycle length must be a positive safe integer.');
@@ -205,7 +214,7 @@ export function createCalendarDefinition(input) {
       normalized.year_number = safeInteger(holiday.year_number, 'holidays[' + i + '].year_number');
       const holidayYearOffset = normalized.year_number - epoch.year_number;
       safeInteger(holidayYearOffset, 'Holiday year offset');
-      const index = mod(epoch.year_cycle_index + holidayYearOffset, yearCycle.length);
+      const index = mod(epoch.year_cycle_index + mod(holidayYearOffset, yearCycle.length), yearCycle.length);
       const month = yearCycle[index].months.find((entry) => entry.id === monthId);
       if (!month || month.days < dayOfMonth) {
         fail('INVALID_ONE_OFF_HOLIDAY_DATE', 'One-off holiday date does not exist in its year.');
@@ -214,7 +223,7 @@ export function createCalendarDefinition(input) {
     return normalized;
   });
 
-  return Object.freeze({
+  return deepFreeze({
     calendar_id: calendarId,
     version,
     day_length_ms: dayLengthMs,
@@ -253,7 +262,7 @@ function dayIndexForDate(calendar, date) {
   let days = checkedMultiply(cycles, cycleDays, 'Calendar day offset');
   for (let i = 0; i < remainder; i++) days = checkedAdd(days, years[i].days, 'Calendar day offset');
 
-  const yearIndex = mod(calendar.epoch.year_cycle_index + yearOffset, cycleLength);
+  const yearIndex = mod(calendar.epoch.year_cycle_index + mod(yearOffset, cycleLength), cycleLength);
   const targetYear = calendar.year_cycle[yearIndex];
   const monthId = nonEmptyString(date.month_id, 'date.month_id');
   const monthIndex = targetYear.months.findIndex((month) => month.id === monthId);
@@ -325,7 +334,7 @@ export function projectCalendarDate(definition, coordinate) {
     calendar_version: calendar.version,
     coordinate,
     year_number: yearNumber,
-    year_cycle_index: mod(calendar.epoch.year_cycle_index + (yearNumber - calendar.epoch.year_number), calendar.year_cycle.length),
+    year_cycle_index: mod(calendar.epoch.year_cycle_index + mod(yearNumber - calendar.epoch.year_number, calendar.year_cycle.length), calendar.year_cycle.length),
     month_id: month.id,
     month_name: month.name,
     day_of_month: monthRemaining + 1,
