@@ -820,3 +820,48 @@ test('projection rebuild preserves the exact historical rule-version pin when it
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+
+test('Relationship HTTP response uses normalized participant IDs for the committed projection', async () => {
+  const { store, engine, seed } = await fixture();
+  const server = createApiServer({ engine, token, adminToken });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = 'http://127.0.0.1:' + server.address().port + '/v1/worlds/world-relationship-test/relationship-transitions';
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + token, 'x-admin-token': adminToken, 'content-type': 'application/json' },
+      body: JSON.stringify(transitionRequest(seed, { subject_id: ' A ', target_id: ' B ' })),
+    });
+    assert.equal(response.status, 201);
+    const payload = await response.json();
+    assert.equal(payload.relationship.dimensions.trust, 'low');
+    assert.equal(payload.relationship.subject_id, 'A');
+    assert.equal(payload.relationship.target_id, 'B');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+  }
+});
+
+
+test('Relationship pair read brackets dimensions and freshness cursor in a read transaction', async () => {
+  const { store } = await fixture();
+  const statements = [];
+  const originalExec = store.db.exec.bind(store.db);
+  store.db.exec = (sql) => {
+    statements.push(sql);
+    return originalExec(sql);
+  };
+  try {
+    const pair = store.getRelationshipPair('world-relationship-test', 'A', 'B');
+    assert.equal(pair.world_revision, 1);
+    assert.equal(pair.commit_sequence, 1);
+    assert.deepEqual(pair.dimensions, {});
+    assert.ok(statements.includes('BEGIN'));
+    assert.ok(statements.includes('COMMIT'));
+    assert.equal(statements.indexOf('BEGIN') < statements.indexOf('COMMIT'), true);
+  } finally {
+    store.close();
+  }
+});

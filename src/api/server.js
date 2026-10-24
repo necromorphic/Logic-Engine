@@ -246,6 +246,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
             return send(res, 403, { error: { code: 'APPROVAL_REQUIRED', message: 'A separate approval credential is required.' } });
           }
           const body = await readBody(req);
+          if (!body || typeof body !== 'object' || Array.isArray(body)) {
+            throw new EngineError('INVALID_APPROVAL_REQUEST', 'Approval body must be an empty JSON object.', 400);
+          }
           if (Object.keys(body).length) throw new EngineError('UNSUPPORTED_APPROVAL_FIELD', 'Approval body must be empty; approver identity is derived from the approval credential.');
           return send(res, 200, { proposal: proposals.approve(worldId, proposalId) });
         }
@@ -279,7 +282,10 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         }
         const body = await readBody(req);
         const commit_result = engine.commitRelationshipTransition(worldId, body);
-        const { subject_id, target_id } = body;
+        // The engine commits the canonical trimmed participant IDs. Use the same
+        // normalized IDs for the projection read so the response describes that commit.
+        const subject_id = body.subject_id.trim();
+        const target_id = body.target_id.trim();
         const relationship = engine.store.getRelationshipPair(worldId, subject_id, target_id);
         return send(res, commit_result.idempotent_replay ? 200 : 201, { commit_result, relationship });
       }

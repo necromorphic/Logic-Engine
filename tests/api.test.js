@@ -724,3 +724,29 @@ test('trusted context registration and proposal creator checks compose without u
   assert.equal(ownerCommit.status, 200);
   assert.equal((await ownerCommit.json()).proposal.status, 'committed');
 });
+
+
+test('approval endpoint rejects a JSON null body with a client error instead of an internal error', async (t) => {
+  const base = await setup(t, { approvalToken: APPROVAL });
+  assert.equal((await createWorld(base, 'null-approval-world')).status, 201);
+  const created = await fetch(base + '/v1/worlds/null-approval-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'null-approval-proposal',
+      source_text: 'A harmless proposed action.',
+      event: { turn_id: 'null-approval-turn', event_type: 'action.completed', effects: [] },
+    }),
+  });
+  assert.equal(created.status, 201);
+  const proposal = (await created.json()).proposal;
+  const response = await fetch(base + '/v1/worlds/null-approval-world/proposals/' + proposal.proposal_id + '/approve', {
+    method: 'POST',
+    headers: { ...headers, 'x-approval-token': APPROVAL },
+    body: 'null',
+  });
+  assert.equal(response.status, 400);
+  assert.equal((await response.json()).error.code, 'INVALID_APPROVAL_REQUEST');
+  const afterMalformedApproval = await fetch(base + '/v1/worlds/null-approval-world/proposals/' + proposal.proposal_id, { headers });
+  assert.equal(afterMalformedApproval.status, 200);
+  assert.equal((await afterMalformedApproval.json()).proposal.status, 'pending');
+});

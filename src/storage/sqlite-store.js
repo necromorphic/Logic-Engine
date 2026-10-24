@@ -1365,21 +1365,41 @@ export class SQLiteStore {
   }
 
   getRelationshipPair(worldId, subjectId, targetId) {
-    const w = this.world(worldId);
-    if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-    const rows = this.db.prepare('SELECT dimension,status,value_json,rule_module_id,rule_module_version,last_event_id,updated_revision FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? ORDER BY dimension')
-      .all(worldId, subjectId, targetId);
-    const dimensions = {};
-    for (const row of rows) {
-      Object.defineProperty(dimensions, row.dimension, {
-        value: row.status === 'cleared' ? { status: 'cleared' } : dec(row.value_json),
-        enumerable: true, configurable: true, writable: true,
-      });
-    }
-    return {
-      world_id: worldId, subject_id: subjectId, target_id: targetId, dimensions,
-      world_revision: w.world_revision, commit_sequence: this.currentCommitSequence(worldId),
+    const read = () => {
+      const w = this.world(worldId);
+      if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const rows = this.db.prepare('SELECT dimension,status,value_json,rule_module_id,rule_module_version,last_event_id,updated_revision FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? ORDER BY dimension')
+        .all(worldId, subjectId, targetId);
+      const dimensions = {};
+      for (const row of rows) {
+        Object.defineProperty(dimensions, row.dimension, {
+          value: row.status === 'cleared' ? { status: 'cleared' } : dec(row.value_json),
+          enumerable: true, configurable: true, writable: true,
+        });
+      }
+      return {
+        world_id: worldId, subject_id: subjectId, target_id: targetId, dimensions,
+        world_revision: w.world_revision, commit_sequence: this.currentCommitSequence(worldId),
+      };
     };
+    // Match state(): callers already inside the store's write transaction must
+    // see that transaction's projection. Otherwise pin all reads to one SQLite
+    // read snapshot so dimensions and the freshness cursor cannot disagree.
+    if (this.txDepth > 0) return read();
+    let began = false;
+    try {
+      this.db.exec('BEGIN');
+      began = true;
+      const pair = read();
+      this.db.exec('COMMIT');
+      began = false;
+      return pair;
+    } catch (error) {
+      if (began) {
+        try { this.db.exec('ROLLBACK'); } catch {}
+      }
+      throw error;
+    }
   }
 
   rebuild(id, revision) {
