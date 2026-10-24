@@ -166,3 +166,18 @@ This section records concrete repository evidence observed on the named branches
 ## Issue #73 exact test evidence and boundary verdict
 
 The companion [`10-issue-73-executable-evidence-audit.md`](./10-issue-73-executable-evidence-audit.md) supplements this canonical per-ID crosswalk with exact test names found in the isolated Relationship evaluator suite, an individual disposition for each required case family, and explicit Core/NPC blockers. The audit inspected source only; it did not execute tests. Contract prose and pure-evaluator tests are not production integration evidence.
+
+
+## Verified source links for Issue #73
+
+The following links pin the evidence to the branch/ref inspected during this audit; they are not claims that the branches have been merged into `main`.
+
+- [Pure evaluator test source at audited commit `b2697e77ac0e97b1f7022656c08da5776fa29685`](https://github.com/necromorphic/Logic-Engine/blob/b2697e77ac0e97b1f7022656c08da5776fa29685/tests/relationship-evaluate-candidate.test.js)
+- [Successful Runtime tests run #591 for that exact evaluator commit](https://github.com/necromorphic/Logic-Engine/actions/runs/40058497617)
+- [NPC consumer compatibility contract on `feat/npc-subsystem`](https://github.com/necromorphic/Logic-Engine/blob/feat/npc-subsystem/docs/52-npc-relationship-consumer-compatibility.md) — documentation-only contract, not an executable test.
+- [Relationship proposal test traceability on `feat/relationship-domain-module`](https://github.com/necromorphic/Logic-Engine/blob/feat/relationship-domain-module/docs/47-relationship-module-test-traceability.md)
+- [Relationship pure evaluation contract on `feat/relationship-domain-module`](https://github.com/necromorphic/Logic-Engine/blob/feat/relationship-domain-module/docs/48-relationship-pure-evaluation-contract.md)
+- [Personality Core integration gates in this PR branch](./03-core-decision-and-integration-gates.md)
+- [Issue #73 executable-evidence audit](./10-issue-73-executable-evidence-audit.md)
+
+Link scope note: the evaluator test and CI links are pinned to an exact commit; the NPC and Relationship proposal links intentionally identify branch-head documents and may evolve. Recheck these branch-head references when those branches change. The current audit does not claim that CI run #591 validates the current PR head.
