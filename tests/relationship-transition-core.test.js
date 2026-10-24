@@ -865,3 +865,33 @@ test('Relationship pair read brackets dimensions and freshness cursor in a read 
     store.close();
   }
 });
+
+
+test('rollback currently treats distinct dimensions on the same directed pair as pair-level dependent', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    const trustTransition = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+      patch: { trust: 'low' },
+      idempotency_key: 'pair-contract-trust',
+    }));
+    const affinityTransition = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+      patch: { affinity: 'low' },
+      expected_revision: 2,
+      expected_commit_sequence: 2,
+      idempotency_key: 'pair-contract-affinity',
+    }));
+    assert.equal(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
+    assert.equal(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.affinity, 'low');
+
+    const rollback = engine.rollbackEvent('world-relationship-test', {
+      root_event_id: trustTransition.event_id,
+      idempotency_key: 'rollback-pair-level-cross-dimension',
+    });
+    assert.ok(rollback.invalidated_event_ids.includes(trustTransition.event_id));
+    assert.ok(rollback.invalidated_event_ids.includes(affinityTransition.event_id));
+    assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+    assert.equal(engine.getState('world-relationship-test').world_revision, 4);
+  } finally {
+    store.close();
+  }
+});
