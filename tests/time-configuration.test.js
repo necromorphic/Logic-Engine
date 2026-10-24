@@ -166,4 +166,23 @@ test('activating a new config version preserves the old version and invalidates 
   assert.equal(engine.getTimeConfiguration('time-config-world', 'config-1').active, false);
   assert.equal(engine.getState('time-config-world').game_time_coordinate, 0);
   assert.equal(engine.getState('time-config-world').world_revision, 2);
+
+  engine.commitEvent('time-config-world', {
+    idempotency_key: 'history-event-key',
+    turn_id: 'history-event-turn',
+    event_type: 'relationship.transition',
+    expected_revision: 2,
+    effects: [],
+  });
+  const changedCalendar = calendar('3.0.0');
+  changedCalendar.year_cycle = [{ id: 'short', name: 'Short', months: [{ id: 'jan', name: 'January', days: 30 }] }];
+  assert.throws(
+    () => register(engine, {
+      version: 'config-3',
+      calendar_definition: changedCalendar,
+      time_policy: policy('3.0.0'),
+    }),
+    (error) => error.code === 'CALENDAR_REBASE_REQUIRES_AUTHOR_POLICY',
+  );
+  assert.equal(engine.getState('time-config-world').time_config_version, 'config-2');
 });
