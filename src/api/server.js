@@ -119,7 +119,12 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           return send(res, 403, { error: { code: 'INTERNAL_REQUIRED', message: 'Time advancement requires the separately configured internal credential.' } });
         }
         if (parts.length === 4 && req.method === 'POST') {
-          const operation = engine.startTimeAdvance(worldId, await readBody(req));
+          const body = await readBody(req);
+          if (body && typeof body === 'object' && !Array.isArray(body)
+            && (Object.hasOwn(body, 'triggers') || Object.hasOwn(body, 'completed_trigger_ids'))) {
+            return send(res, 400, { error: { code: 'INLINE_TIME_TRIGGERS_UNSUPPORTED', message: 'The runtime API advances time from the Core-owned durable trigger registry; register triggers through /time-triggers.' } });
+          }
+          const operation = engine.startTimeAdvance(worldId, body);
           return send(res, ['needs_review', 'blocked'].includes(operation.status) ? 409 : 200, { operation });
         }
         if (parts.length === 5 && req.method === 'GET') {
@@ -130,6 +135,22 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           return send(res, ['needs_review', 'blocked'].includes(operation.status) ? 409 : 200, { operation });
         }
         return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported time-advance operation.' } });
+      }
+
+      if (action === 'time-triggers') {
+        if (!secretMatches(req.headers['x-engine-internal-token'], internalToken)) {
+          return send(res, 403, { error: { code: 'INTERNAL_REQUIRED', message: 'Time-trigger lifecycle requires the separately configured internal credential.' } });
+        }
+        if (parts.length === 4 && req.method === 'POST') {
+          return send(res, 201, { trigger: engine.registerTimeTrigger(worldId, await readBody(req)) });
+        }
+        if (parts.length === 4 && req.method === 'GET') {
+          return send(res, 200, { triggers: engine.listTimeTriggers(worldId) });
+        }
+        if (parts.length === 6 && parts[5] === 'cancel' && req.method === 'POST') {
+          return send(res, 200, { trigger: engine.cancelTimeTrigger(worldId, decodeURIComponent(parts[4])) });
+        }
+        return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported time-trigger operation.' } });
       }
 
       if (action === 'time-configurations') {
