@@ -104,6 +104,7 @@ export class MemoryNpcConsumer {
     if (memoryResult.completeness !== 'complete'
       || !Array.isArray(memoryResult.candidates)
       || memoryResult.candidates.length > 50
+      || !validSnapshot(memoryResult.snapshot)
       || memoryResult.scope?.world_id !== scope.world_id
       || memoryResult.scope?.subject_id !== scope.subject_id
       || memoryResult.scope?.purpose !== scope.purpose) {
@@ -111,14 +112,44 @@ export class MemoryNpcConsumer {
     }
 
     if (memoryResult.candidates.length === 0) {
-      // Empty is meaningful only after the trusted provider explicitly
-      // authorized this query and confirmed a complete result.
+      // Empty is meaningful only when the provider's complete-result snapshot
+      // is tied to a current canonical Core read. Otherwise an old index can
+      // claim "nothing here" after a source mutation or rollback.
+      let emptySnapshotRead;
+      try {
+        emptySnapshotRead = this.authorizedReadService.readEntityFields({
+          worldId,
+          adapterId,
+          actorEntityId,
+          recipient: 'model',
+          purpose: 'npc_decision',
+          entityIds: [actorEntityId],
+          fields: ['entity_id'],
+        });
+      } catch {
+        return nonReady('authorized_source_read_unavailable');
+      }
+      if (!object(emptySnapshotRead)
+        || emptySnapshotRead.world_id !== worldId
+        || !validSnapshot({
+          world_revision: emptySnapshotRead.world_revision,
+          commit_sequence: emptySnapshotRead.commit_sequence,
+        })
+        || !sameSnapshot(memoryResult.snapshot, {
+          world_revision: emptySnapshotRead.world_revision,
+          commit_sequence: emptySnapshotRead.commit_sequence,
+        })) {
+        return nonReady('memory_snapshot_stale');
+      }
       return Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
         candidates: Object.freeze([]),
         reason: null,
-        snapshot: null,
+        snapshot: Object.freeze({
+          world_revision: emptySnapshotRead.world_revision,
+          commit_sequence: emptySnapshotRead.commit_sequence,
+        }),
       });
     }
 
@@ -230,6 +261,13 @@ export class MemoryNpcConsumer {
       || !validSnapshot({ world_revision: sourceRead.world_revision, commit_sequence: sourceRead.commit_sequence })
       || !Array.isArray(sourceRead.entities)) {
       return nonReady('authorized_source_read_invalid');
+    }
+
+    if (!sameSnapshot(memoryResult.snapshot, {
+      world_revision: sourceRead.world_revision,
+      commit_sequence: sourceRead.commit_sequence,
+    })) {
+      return nonReady('memory_snapshot_stale');
     }
 
     const sourceById = new Map();
