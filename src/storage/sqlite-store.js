@@ -1685,6 +1685,7 @@ export class SQLiteStore {
               .run(worldId, worldAfter.world_revision, 'time.trigger.completed', triggerId, enc({
                 operation_id: operationId, due_coordinate: segment.coordinate,
               }), triggerStamp);
+            this.completeProcessMilestone(worldId, triggerId, operationId, segment.coordinate);
           }
           const result = {
             operation_id: operationId, world_id: worldId, status,
