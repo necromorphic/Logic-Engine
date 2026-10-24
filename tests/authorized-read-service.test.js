@@ -162,12 +162,14 @@ test('internal mechanic attribute reads distinguish authorized absence from deni
   assert.equal(absent.world_revision, cursor.expectedWorldRevision);
   assert.equal(absent.commit_sequence, cursor.expectedCommitSequence);
 
-  const stale = service.readEntityAttributeForMechanic({
-    ...base,
-    attribute: 'name',
-    expectedWorldRevision: cursor.expectedWorldRevision - 1,
-  });
-  assert.equal(stale.present, undefined);
+  assert.throws(
+    () => service.readEntityAttributeForMechanic({
+      ...base,
+      attribute: 'name',
+      expectedWorldRevision: cursor.expectedWorldRevision - 1,
+    }),
+    (error) => error.code === 'STALE_AUTHORIZED_READ_SNAPSHOT' && error.status === 409,
+  );
 });
 
 test('unknown purpose and malformed target/field sets are rejected before reading', (t) => {
