@@ -265,7 +265,7 @@ export class ProcessStore {
       });
       const stamp = now();
       for (const update of updates) {
-        this.db.prepare(\`UPDATE world_process_milestones SET trigger_id=?,definition_json=?,checkpoint_version=checkpoint_version+1,updated_at=? WHERE world_id=? AND process_id=? AND milestone_id=? AND status='pending'\`)
+        this.db.prepare(`UPDATE world_process_milestones SET trigger_id=?,definition_json=?,checkpoint_version=checkpoint_version+1,updated_at=? WHERE world_id=? AND process_id=? AND milestone_id=? AND status='pending'`)
           .run(update.trigger_id, enc({ ...definition.milestones.find((item) => item.milestone_id === update.milestone_id) }), stamp, worldId, processId, update.milestone_id);
       }
       this.db.prepare('UPDATE world_processes SET definition_json=?,updated_at=? WHERE world_id=? AND process_id=?')
