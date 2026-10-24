@@ -16,6 +16,7 @@ test('normalizes a bounded process with future milestones and local dependencies
   const process = normalizeProcessDefinition({
     process_id: 'construction',
     idempotency_key: 'create-construction',
+    expected_revision: 0,
     source_event_ids: ['foundation-approved'],
     milestones: [
       milestone('foundation', 10),
@@ -30,7 +31,7 @@ test('normalizes a bounded process with future milestones and local dependencies
 
 test('rejects duplicate, past, unknown, cyclic, or causally reversed milestones', () => {
   assert.throws(() => normalizeProcessDefinition({
-    process_id: 'p', idempotency_key: 'k', milestones: [milestone('a', 1), milestone('a', 2)],
+    process_id: 'p', idempotency_key: 'k', expected_revision: 0, milestones: [milestone('a', 1), milestone('a', 2)],
   }, 'world-a', 0), (error) => error.code === 'DUPLICATE_PROCESS_MILESTONE');
 
   assert.throws(() => normalizeProcessDefinition({
@@ -56,9 +57,9 @@ test('rejects duplicate, past, unknown, cyclic, or causally reversed milestones'
 
 test('rejects unknown fields and invalid source references', () => {
   assert.throws(() => normalizeProcessDefinition({
-    process_id: 'p', idempotency_key: 'k', extra: true, milestones: [milestone('a', 1)],
+    process_id: 'p', idempotency_key: 'k', expected_revision: 0, extra: true, milestones: [milestone('a', 1)],
   }, 'world-a', 0), (error) => error.code === 'UNSUPPORTED_PROCESS_FIELD');
   assert.throws(() => normalizeProcessDefinition({
-    process_id: 'p', idempotency_key: 'k', source_event_ids: ['x', 'x'], milestones: [milestone('a', 1)],
+    process_id: 'p', idempotency_key: 'k', expected_revision: 0, source_event_ids: ['x', 'x'], milestones: [milestone('a', 1)],
   }, 'world-a', 0), (error) => error.code === 'INVALID_PROCESS');
 });
