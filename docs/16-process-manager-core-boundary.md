@@ -128,3 +128,24 @@ These are proposed tests; they are not represented as existing tests or executed
 This Core slice is ready for implementation only when the Time block returns its state/transition and milestone contract, existing Core transaction paths are confirmed to support the atomicity invariant, and the rollback policy is sufficiently precise to test. Then implement the smallest vertical slice against the existing store/transaction seam, add failure injection and restart tests, and report exact-head Runtime CI.
 
 Until then this file is an architectural proposal and test plan only. It does not claim that Process Manager runtime, schema, API, rollback integration, or production readiness exists.
+
+
+## Cross-block follow-up evidence (24 Oct 2026)
+
+The following are executable branch tests in the companion Process Manager runtime candidate (#248), not tests contained in this documentation-only PR:
+
+- **Stale canonical revision:** process creation with a stale `expected_revision` fails with `REVISION_CONFLICT`; no process, trigger, process-created audit record, or world-revision mutation is allowed.
+- **Competing process checkpoints:** two lifecycle commands target the same expected process version; one accepted transition increments the version and creates one lifecycle audit record; the competitor fails with `PROCESS_VERSION_CONFLICT` and no second transition.
+- **Rollback/rebuild boundary:** Core rollback returns the invalidated event closure; #248 tests the completed A→B→C chain, process/milestone `needs_review`, resume gating, audit affected IDs, and persistence after SQLite reopen. The existing Core rollback/rebuild path remains the canonical owner.
+- **Atomicity/recovery:** #248's injected process-checkpoint failure verifies the existing Core segment transaction does not leave a partial time advance or completed process milestone. Its interruption/restart test verifies continuation from the last committed segment.
+- **Idempotency/lifecycle:** #248 covers create/advance replay, pause/resume/cancel retries, key-content conflict, and stale competing lifecycle version.
+
+These tests are evidence only for the exact #248 branch head and do not become mainline guarantees until reviewed and merged. PR #247 remains proposal/boundary documentation, not an implementation of the Core transaction contract.
+
+### Causal scope decision for review
+
+The first slice's causal invalidation scope is **within one process definition only**, using the already-declared `prerequisites` edges. Cross-process causal dependencies are **out of scope for this slice**, because there is no explicit persisted cross-process dependency edge/identity contract. This is a scope boundary, not a claim that cross-process dependencies do not exist. If causal dependency is unknown or cannot be enumerated, do not infer independence: retain affected progress as `needs_review`. Full causal rebuild/recomputation is not complete.
+
+### Overdue replan contract
+
+Overdue resume remains fail-closed and must not shift `due_coordinate`. Time's #249 review specifies a separate explicit-replan acceptance contract but adds no API/schema: validate current process version and world revision, explicit proposed due-coordinate changes, prerequisite/conflict/interruption constraints through the existing scheduler, idempotency, and audit retaining old/new coordinates. Until Core and Process Manager approve the precise operation, overdue processes stay paused and no replan is implied.
