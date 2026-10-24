@@ -169,7 +169,7 @@ export class MechanicExecutor {
     } catch (error) {
       return unknown('AUTHORIZED_CONTEXT_RESOLUTION_FAILED', 'Trusted context resolution failed; details are withheld.', identity);
     }
-    const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'knownAbsentPaths', 'dependencyEvidence']);
+    const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'authorization_scope', 'knownAbsentPaths', 'dependencyEvidence']);
     let resolvedShapeValid = false;
     try {
       resolvedShapeValid = object(resolved)
@@ -185,6 +185,7 @@ export class MechanicExecutor {
     if (resolved.world_revision !== snapshot.world_revision
       || resolved.commit_sequence !== snapshot.commit_sequence
       || typeof resolved.policy_version !== 'string' || !resolved.policy_version.trim()
+      || typeof resolved.authorization_scope !== 'string' || !resolved.authorization_scope.trim()
       || !Array.isArray(resolved.knownAbsentPaths ?? [])
       || !(resolved.knownAbsentPaths ?? []).every((path) => typeof path === 'string' && path.trim())
       || !Array.isArray(resolved.dependencyEvidence)) {
@@ -365,6 +366,7 @@ export class MechanicExecutor {
         knownAbsentPaths,
         dependency_evidence: [...resolved.dependencyEvidence].sort((a, b) => a.path.localeCompare(b.path)),
         policy_version: resolved.policy_version,
+        authorization_scope: resolved.authorization_scope,
       });
     } catch {
       return unknown('AUTHORIZED_CONTEXT_NOT_FINGERPRINTABLE', 'Trusted context is not a canonical JSON value; evaluation failed closed.', identity);
@@ -374,6 +376,7 @@ export class MechanicExecutor {
       action_id: actionId,
       context_fingerprint: contextFingerprint,
       context_policy_version: resolved.policy_version,
+      authorization_scope: resolved.authorization_scope,
       condition_result: conditionResult,
       dependency_manifest: dependencyManifest,
       effects: translated.effects,
