@@ -43,6 +43,7 @@ Status: semantic specification, not an executable runtime test suite. These case
 | PERS-SEM-026 | Withheld versus unset | A caller cannot infer that a dimension is canonically unset merely because the read boundary withheld it. | Core authorized read |
 | PERS-SEM-027 | Character card is derived | A card summary reflects authorized canonical state and cannot independently mutate or become a duplicate source of truth. | Projection/card contract |
 | PERS-SEM-028 | Player agency | Personality rules do not authorize the model or engine to invent the player's voluntary actions, dialogue, or thoughts. | Player-control contract |
+| PERS-SEM-029 | Versioned relationship semantics | A meaning-changing World Pack rule update must not silently reinterpret historical transitions under the latest rules; it requires an explicit compatibility/migration policy or explicit incompatibility handling. Replay uses the applicable declared rule-set semantics. | World Pack version policy + Core version/replay boundary |
 
 ## 3. Readiness classification
 
@@ -52,6 +53,7 @@ Status: semantic specification, not an executable runtime test suite. These case
 - Specify stable traits versus mutable condition and behavior.
 - Define the difference between unset, explicit neutral, withheld, and cleared values; define conflict/insufficient-support as a separate reconciliation/read-result state.
 - Define the meaning of initial/imported state, in-world transition, and author correction.
+- Require explicit compatibility or migration handling for meaning-changing World Pack rule versions; do not silently reinterpret historical transitions under current rules.
 - Maintain semantic examples and pure acceptance rules without claiming runtime integration.
 
 ### Blocked on core contracts and production tests
@@ -76,7 +78,8 @@ The Personality block's semantic design is ready for core implementation review 
 2. omitted, unset (sometimes called unknown only when no canonical value exists), explicit neutral, inaccessible/withheld, cleared, and conflict/insufficient-support reconciliation states are not conflated;
 3. initialization/import, in-world transitions, and author correction have distinct semantic meanings;
 4. the acceptance cases above have an identified owner/boundary and are not misreported as passing integration tests;
-5. the core's exact write/read/provenance/rollback contracts are linked as dependencies rather than guessed or duplicated here.
+5. the core's exact write/read/provenance/rollback contracts are linked as dependencies rather than guessed or duplicated here;
+6. meaning-changing World Pack rule versions have explicit compatibility/migration or incompatibility handling, without assuming a Core version-pinning mechanism exists.
 
 Passing this exit criterion means the semantic specification is ready for review, not that runtime integration is unblocked.
 
