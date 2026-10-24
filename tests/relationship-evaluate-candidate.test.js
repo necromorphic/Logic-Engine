@@ -923,3 +923,28 @@ test("keeps explicit neutral distinct from unset and treats an existing neutral 
   assert.equal(alreadyNeutral.status, "no_change");
   assert.equal(alreadyNeutral.reason, "patch_matches_current_state");
 });
+
+test("accepts null-prototype data records without changing their prototype or contents", () => {
+  const currentValues = Object.assign(Object.create(null), { trust: "low" });
+  const patch = Object.assign(Object.create(null), { trust: "guarded" });
+  const trustRule = Object.assign(Object.create(null), {
+    values: ["low", "guarded", "high"],
+    allowClear: true,
+    transitions: [
+      { operation: "set", from: "low", to: "guarded" },
+    ],
+  });
+  const dimensionRules = Object.assign(Object.create(null), { trust: trustRule });
+  const input = { ...base, currentValues, patch, dimensionRules };
+
+  const result = evaluateRelationshipCandidate(input);
+
+  assert.equal(result.status, "candidate");
+  assert.deepEqual(result.patch, { trust: "guarded" });
+  assert.equal(Object.getPrototypeOf(currentValues), null);
+  assert.equal(Object.getPrototypeOf(patch), null);
+  assert.equal(Object.getPrototypeOf(dimensionRules), null);
+  assert.equal(Object.getPrototypeOf(trustRule), null);
+  assert.deepEqual(currentValues.trust, "low");
+  assert.deepEqual(patch.trust, "guarded");
+});
