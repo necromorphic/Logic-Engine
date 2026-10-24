@@ -102,6 +102,9 @@ As of this document's creation, the Personality-side semantic contracts are docu
 
 PR #45 (bounded consistent snapshot) and PR #46 (opt-in tri-state condition results) are merged into `main`; the snapshot/context extension was merged via PR #49. These primitives do not constitute an actor/purpose-authorized read/filter interface or establish NPC behavior. No new Core or NPC behavior is inferred from this status summary. Update this section only when evidence changes.
 
+
+Issue #73 executable-evidence audit: [`10-issue-73-executable-evidence-audit.md`](./10-issue-73-executable-evidence-audit.md) provides exact source-level test names and per-criterion evidence boundaries; it does not claim tests were executed.
+
 ## 8. Related documents
 
 - `01-personality-and-relationship-semantics.md`
