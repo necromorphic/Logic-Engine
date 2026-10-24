@@ -481,3 +481,23 @@ test("candidate admission does not mutate its request or result inputs", () => {
   assert.deepEqual(inputRequest, requestBefore);
   assert.deepEqual(inputResult, resultBefore);
 });
+
+
+test("rollback-only revision movement rejects a candidate even when commit_sequence is unchanged", () => {
+  // Core rollback can advance world_revision without advancing commit_sequence.
+  // A sequence-only comparison would incorrectly retain the old candidate.
+  const postRollbackRequest = {
+    ...request,
+    snapshot: { world_revision: 13, commit_sequence: 40 },
+  };
+  const preRollbackCandidate = candidate({
+    snapshot: { world_revision: 12, commit_sequence: 40 },
+  });
+  const result = evaluateMemoryCandidateAdmission(
+    postRollbackRequest,
+    completeResult([preRollbackCandidate]),
+  );
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, []);
+});
