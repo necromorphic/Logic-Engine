@@ -198,7 +198,7 @@ test('Core field denial removes the candidate content and does not disclose prot
 });
 
 test('stale snapshot candidates and derived summaries are never admitted', async (t) => {
-  const { consumer, setCandidates, candidate, snapshot } = setup(t);
+  const { consumer, provider, setCandidates, candidate, snapshot } = setup(t);
   setCandidates([
     candidate(),
     candidate({
@@ -214,6 +214,21 @@ test('stale snapshot candidates and derived summaries are never admitted', async
   assert.equal(stale.reason, 'memory_snapshot_stale');
   assert.deepEqual(stale.admitted, []);
   assert.deepEqual(stale.candidates, []);
+
+  // Result-level snapshot is authoritative for complete-empty and non-empty
+  // results alike; a fresh candidate cannot override a stale result marker.
+  setCandidates([candidate()]);
+  const originalRetrieve = provider.retrieveCandidates;
+  provider.retrieveCandidates = async () => ({
+    ...(await originalRetrieve()),
+    snapshot: { world_revision: snapshot.world_revision - 1, commit_sequence: snapshot.commit_sequence },
+  });
+  const staleResultSnapshot = await consumer.retrieveForNpc(request());
+  assert.equal(staleResultSnapshot.status, 'non_ready');
+  assert.equal(staleResultSnapshot.reason, 'memory_snapshot_stale');
+  assert.deepEqual(staleResultSnapshot.admitted, []);
+  assert.deepEqual(staleResultSnapshot.candidates, []);
+  provider.retrieveCandidates = originalRetrieve;
 
   setCandidates([candidate({
     content_kind: 'summary',
