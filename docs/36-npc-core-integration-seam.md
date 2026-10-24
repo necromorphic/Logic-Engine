@@ -219,3 +219,8 @@ Use the current core documents as the source for proposal and mechanic boundarie
 - `docs/45-npc-relationship-typed-operation-design.md` proposes a schema-neutral typed operation and carefully separates required dependencies from alternative causal support. It remains a proposal, not an approved schema/API or implemented capability.
 
 The integration seam remains a design boundary only. No actor/purpose/snapshot read filter, initial-knowledge provenance API, persistent NPC belief store, delivery receipt signal, typed relationship effect, or bounded relationship-card projection has been verified as integrated. Keep the fail-closed gate and wait for real production interfaces before writing integration tests that claim end-to-end coverage.
+
+
+## Current Core dependency note — 2026-10-24
+
+The live `main` ref has advanced to `37b05c38b15eda1743fb6fce08a8ccc2f1d2e672`, ten commits beyond the Core head cited in the earlier status note. The NPC branch has not incorporated these changes. In particular, current Core `main` now contains `ActorBindingService`, adapter-authenticated resolution routes, and actor-binding tests. This closes the source-level existence gap for identity binding on current `main`, but does not provide acquisition/provenance or the actor/purpose/snapshot pre-model filter. The branch must not implement a parallel NPC-local binding service; reconcile this dependency only through a deliberate reviewed integration.
