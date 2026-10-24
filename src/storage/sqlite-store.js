@@ -612,6 +612,13 @@ export class SQLiteStore {
     const read = () => {
       const w = this.world(id);
       if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (x.duration_decision?.time_config_version
+        && w.time_config_version !== x.duration_decision.time_config_version) {
+        throw new EngineError('TIME_CONFIG_STALE', 'Active time configuration changed after duration resolution.', 409, {
+          resolved_config_version: x.duration_decision.time_config_version,
+          active_config_version: w.time_config_version ?? null,
+        });
+      }
 
       const commitSequence = this.currentCommitSequence(id);
       const contextManifests = contextManifestIds.length
@@ -1304,6 +1311,7 @@ export class SQLiteStore {
           turn_id: x.turn_id, context_manifest_id: x.context_manifest_id || null, caused_by: x.caused_by, depends_on: x.depends_on,
           read_set: x.read_set, effects: x.effects, time_advance_seconds: x.time_advance_seconds,
           time_advance_ms: durationMs, game_time_coordinate: gameTimeCoordinate,
+          ...(x.duration_decision ? { duration_decision: x.duration_decision } : {}),
         }), createdAt);
       this.saveReplay(id, x.idempotency_key, x.request_hash, result);
       return result;
