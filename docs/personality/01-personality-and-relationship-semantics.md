@@ -62,7 +62,7 @@ A relationship is a directed, multidimensional relation between two existing can
 
 - Each dimension is independently meaningful. The World Pack declares supported dimensions, values, transitions, and world-specific interpretation; the core enforces the approved operation contract without absorbing all relationship semantics.
 - A partial update changes only explicitly supplied dimensions; omitted dimensions remain unchanged.
-- An unset/unknown dimension, an explicit neutral value, an inaccessible/withheld result, and an explicit clearing of a previously established value are distinct semantic cases. A clear removes the current effective value; it must still be distinguishable in the authorized canonical history/provenance from a dimension that was never established. This does not require every caller-facing projection to expose the clear history: disclosure remains subject to Core authorization and purpose. The exact wire/storage representation for clearing is not yet approved.
+- A dimension with no established canonical value (unset; sometimes described as unknown in this specific sense), an explicit neutral value, an inaccessible/withheld result, and an explicit clearing of a previously established value are distinct semantic cases. Here, “unknown” means only that no canonical value is established; it does not mean a conflict/insufficient-support reconciliation result such as the one described in PERS-SEM-023. A clear removes the current effective value; it must still be distinguishable in the authorized canonical history/provenance from a dimension that was never established. This does not require every caller-facing projection to expose the clear history: disclosure remains subject to Core authorization and purpose. The exact wire/storage representation for clearing is not yet approved.
 - Mere co-presence, shared scene participation, or narrative tone does not by itself change a canonical relationship.
 - A relationship does not imply knowledge, trustworthiness of a claim, consent, obligation, or any other dimension unless an explicit rule establishes that implication.
 - A relationship value does not prove why it has that value. Its origin and causal support are separate from its current meaning.
@@ -76,7 +76,7 @@ The semantic model must distinguish at least:
 - **author-initial/imported:** state supplied as part of the initial authored world;
 - **in-world transition:** state changed by a validated event in the simulated world;
 - **author correction:** an explicit correction of authored/canonical state, with attribution and audit;
-- **unset/unknown:** no established value, not equivalent to neutral.
+- **unset:** no canonical value has been established, not equivalent to neutral. “Unknown” in this narrow sense means unset; a conflict/insufficient-support `unknown` is a separate reconciliation/read-result state.
 
 These origins cannot be inferred from the value alone. A value such as “neutral” is not enough to tell whether it was authored, imported, or produced by an in-world event.
 
