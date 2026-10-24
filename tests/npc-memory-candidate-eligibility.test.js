@@ -87,6 +87,7 @@ test("candidate exclusions expose neither per-record reasons nor rejection count
   assert.equal(JSON.stringify(result).includes("restricted:"), false);
   assert.equal(JSON.stringify(result).includes("access_not_allowed"), false);
   assert.equal(JSON.stringify(result).includes("rejected"), false);
+  assert.deepEqual(result, evaluateMemoryCandidateAdmission(request, completeResult([])));
 });
 
 test("missing, denied, withheld, and ambiguous access are all non-admissible", () => {
