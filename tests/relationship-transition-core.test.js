@@ -820,3 +820,26 @@ test('projection rebuild preserves the exact historical rule-version pin when it
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+
+test('Relationship HTTP response uses normalized participant IDs for the committed projection', async () => {
+  const { store, engine, seed } = await fixture();
+  const server = createApiServer({ engine, token, adminToken });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = 'http://127.0.0.1:' + server.address().port + '/v1/worlds/world-relationship-test/relationship-transitions';
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + token, 'x-admin-token': adminToken, 'content-type': 'application/json' },
+      body: JSON.stringify(transitionRequest(seed, { subject_id: ' A ', target_id: ' B ' })),
+    });
+    assert.equal(response.status, 201);
+    const payload = await response.json();
+    assert.equal(payload.relationship.dimensions.trust, 'low');
+    assert.equal(payload.relationship.subject_id, 'A');
+    assert.equal(payload.relationship.target_id, 'B');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+  }
+});
