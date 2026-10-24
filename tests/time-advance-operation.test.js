@@ -45,7 +45,8 @@ test('time advance commits scheduled effects at due coordinates and reaches the 
     triggers: [trigger('at-ten', 10000, 'ten'), trigger('at-twenty', 20000, 'twenty')],
   });
 
-  assert.equal(result.status, 'completed', JSON.stringify(result.error));
+  if (result.status !== 'completed') assert.fail('operation result: ' + JSON.stringify(result));
+  assert.equal(result.status, 'completed');
   assert.equal(result.from_coordinate, 0);
   assert.equal(result.target_coordinate, 30000);
   assert.equal(result.confirmed_coordinate, 30000);
@@ -76,7 +77,8 @@ test('time advance idempotency replays the same operation after world revision c
   const replay = engine.startTimeAdvance('time-operation-world', request);
 
   assert.equal(first.operation_id, replay.operation_id);
-  assert.equal(replay.status, 'completed', JSON.stringify(replay.error));
+  if (replay.status !== 'completed') assert.fail('replay result: ' + JSON.stringify(replay));
+  assert.equal(replay.status, 'completed');
   assert.equal(engine.getState('time-operation-world').game_time_coordinate, 60000);
   assert.equal(engine.getEvents('time-operation-world').length, 1);
 });
