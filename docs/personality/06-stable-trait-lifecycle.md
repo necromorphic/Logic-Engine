@@ -100,6 +100,9 @@ The same trait can lead to different plausible actions depending on knowledge, s
 | PERS-TRAIT-008 | Player-controlled character | Traits do not authorize invented voluntary actions, thoughts, or dialogue. |
 | PERS-TRAIT-009 | Unauthorized read | Private/sensitive personality data is not passed to a caller without permission. |
 | PERS-TRAIT-010 | Rollback of development event | If a supported trait change is event-derived, the canonical projection follows the core's approved rollback/rebuild contract. |
+| PERS-TRAIT-011 | Category separation | Biography/identity facts, goals/intentions, beliefs/knowledge claims, temporary conditions, observed behavior, and stable traits are not silently treated as interchangeable categories. | Semantic classification; underlying record support may be unavailable |
+| PERS-TRAIT-012 | Mixed-category description | When one authored sentence mixes distinct claim categories, supported systems split the claims; otherwise the ambiguity is flagged for author review rather than silently resolved. | Authoring/review boundary |
+| PERS-TRAIT-013 | Unresolved contradiction | Contradictory behavior remains separate from the stable trait; possible motives remain hypotheses unless supported, and consequential unresolved conflicts are surfaced for author review. | Semantic review; no automatic canonical inference |
 
 These are semantic acceptance criteria, not claims of passing runtime tests. Criteria requiring authorization, persistence, audit, reads, or rollback must be exercised through real core interfaces once available.
 The PERS-TRAIT criteria are also summarized in the [per-case acceptance traceability crosswalk](./09-per-case-acceptance-traceability.md), which records ownership and runtime evidence status.
