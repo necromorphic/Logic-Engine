@@ -366,3 +366,10 @@ Before the first NPC runtime PR, the core workstream must identify actual source
 These are acceptance targets, not tests that can be satisfied by mocks of missing production interfaces. Keep runtime/API/schema/storage work in the core-owned branch or PR. The NPC branch must not implement a workaround that duplicates actor authorization, knowledge persistence, revisions, causality, rollback, or proposal lifecycle.
 
 **Decision for §15:** accepted as a schema-neutral candidate after the clarifications in this section. It is not yet an executable interface, and the NPC runtime remains blocked.
+
+
+## 17. Multi-step source invalidation and later acquisition test dependency
+
+The cross-cutting causal acceptance matrix is in `docs/47-npc-causal-rollback-reconciliation-test-matrix.md`, especially NPC-CAUSE-004 and NPC-CAUSE-007. For knowledge reconciliation, the critical sequence is not only “invalidate one of two sources”: it is also “complete rollback/reconciliation, then commit a new source, then reconcile again.” Tests must prove that the later source is evaluated against a fresh canonical marker, does not revive the invalid source, is idempotent under retry, and does not automatically restore downstream effects whose own dependencies remain invalid.
+
+This remains a test requirement, not an assertion that source reconciliation or persistent belief updates already exist. The core-owned acquisition/provenance and actor/purpose filter contracts remain prerequisites; the NPC branch must not implement substitute causal or knowledge persistence.
