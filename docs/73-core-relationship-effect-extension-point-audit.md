@@ -1,6 +1,6 @@
 # Core Relationship write path: extension-point audit
 
-Status: implementation gate / interface proposal. This document is not a runtime implementation and does not authorize a new storage schema or write API.
+Status: historical implementation-gate audit / interface proposal. This document describes the pre-runtime state and is superseded for current implementation status by `docs/55-core-relationship-transition-runtime-slice.md` and the current source. The admin-gated typed Relationship transition now exists in `main`; the remaining semantic and integration limits below must be interpreted against the newer runtime report. This document is not itself a runtime implementation and does not authorize a new storage schema or write API.
 
 ## Scope
 
