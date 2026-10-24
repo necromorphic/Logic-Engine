@@ -40,7 +40,7 @@ function template(overrides = {}) {
   };
 }
 
-function commit(engine, worldId, eventId, expectedRevision, effects) {
+function commit(engine, worldId, eventId, expectedRevision, effects, causedBy = []) {
   return engine.commitEvent(worldId, {
     event_id: eventId,
     idempotency_key: eventId,
@@ -48,7 +48,7 @@ function commit(engine, worldId, eventId, expectedRevision, effects) {
     event_type: 'action.completed',
     expected_revision: expectedRevision,
     effects,
-    caused_by: [],
+    caused_by: causedBy,
     depends_on: [],
     read_set: [],
     causal_links: [],
@@ -63,7 +63,7 @@ function enableFixture(engine, worldId, value = template()) {
     template_id: value.template_id,
     template_version: value.version,
   }]);
-  commit(engine, worldId, 'enable-instance', 1, [{ kind: 'mechanic.instance.enable', instance_id: 'instance.executor' }]);
+  commit(engine, worldId, 'enable-instance', 1, [{ kind: 'mechanic.instance.enable', instance_id: 'instance.executor' }], ['create-instance']);
 }
 
 function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10 } }) {
