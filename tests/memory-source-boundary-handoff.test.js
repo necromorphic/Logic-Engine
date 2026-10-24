@@ -75,7 +75,7 @@ test('Memory source-boundary handoff preserves fail-closed and owner-decision li
   }
 });
 
-test('Memory source-boundary handoff uses unique, increasing top-level section numbers', async () => {
+test('Memory result-status proposal distinguishes complete, incomplete, access, and index outcomes', async () => {\n  const doc = await readFile(handoffPath, 'utf8');\n\n  for (const outcome of [\n    'Complete / non-empty',\n    'Complete / empty',\n    'Partial / truncated',\n    'Stale',\n    'Denied / withheld',\n    'Timeout',\n    'Rebuilding',\n    'Index unavailable',\n    'Unavailable / unknown',\n    'Precedence proposal',\n    'must not be collapsed into complete-empty',\n  ]) {\n    assert.ok(doc.includes(outcome), `status proposal must define: ${outcome}`);\n  }\n});\n\ntest('Memory reconciliation proposal invalidates currentness on rollback-only revision movement and restart', async () => {\n  const doc = await readFile(handoffPath, 'utf8');\n\n  for (const rule of [\n    'world_revision` change with unchanged `commit_sequence`',\n    'complete, consistent authoritative source inventory',\n    'A sequence-only incremental scan is insufficient',\n    'no early completion marker',\n    'replay twice',\n  ]) {\n    assert.ok(doc.includes(rule), `reconciliation proposal must define: ${rule}`);\n  }\n});\ntest('Memory source-boundary handoff uses unique, increasing top-level section numbers', async () => {
   const doc = await readFile(handoffPath, 'utf8');
   const numbers = [...doc.matchAll(/^## (\d+)\. /gm)].map((match) => Number(match[1]));
 
