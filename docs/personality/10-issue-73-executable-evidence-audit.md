@@ -5,7 +5,7 @@ Status: repository-source audit; not a test-run report. Audited 2026-10-24 again
 ## Scope and evidence rules
 
 - Personality acceptance source: `docs/personality/04-semantic-acceptance-matrix.md`, `05-world-pack-relationship-dimension-template.md`, `08-semantic-traceability-and-review-workflow.md`, and `09-per-case-acceptance-traceability.md`.
-- Pure evaluator source: `feat/relationship-pure-evaluator:tests/relationship-evaluate-candidate.test.js`.
+- Pure evaluator source of truth: `main:tests/relationship-evaluate-candidate.test.js` at blob `06b1f94fa26a70726b9d2d39739b05c321793971`. Earlier branch-local references are historical only.
 - NPC consumer contract: `feat/npc-subsystem:docs/52-npc-relationship-consumer-compatibility.md`. This is a document on another branch, not an executable test and not modified by this audit.
 - Relationship references on current `main`: [`docs/47-relationship-module-test-traceability.md`](../47-relationship-module-test-traceability.md) and [`docs/48-relationship-pure-evaluation-contract.md`](../48-relationship-pure-evaluation-contract.md). The original source PR #60 was closed unmerged; these documents were ported to `main` through PR #80. These are documentation references, not runtime integration evidence.
 - Core integration: the pure evaluator is not a Core write/read/authorization/replay implementation. Where a production Core seam or contract is absent, the case remains an integration blocker; no mock or prose is promoted to a passing integration test.
@@ -36,7 +36,7 @@ Status: repository-source audit; not a test-run report. Audited 2026-10-24 again
 
 ## Complete PERS-SEM ID disposition
 
-This table closes the per-ID pass over the canonical matrix. “No executable test found” is an explicit disposition, not a claim that the behavior passed. Test names refer to `feat/relationship-pure-evaluator:tests/relationship-evaluate-candidate.test.js` at the audited evaluator ref unless otherwise stated.
+This table closes the per-ID pass over the canonical matrix. “No executable test found” is an explicit disposition, not a claim that the behavior passed. Test names refer to `main:tests/relationship-evaluate-candidate.test.js` (blob `06b1f94fa26a70726b9d2d39739b05c321793971`) at the audited evaluator ref unless otherwise stated.
 
 | ID | Executable evidence / explicit disposition | Boundary |
 |---|---|---|
