@@ -202,7 +202,7 @@ export function evaluateConditionResult(rule, context, options = {}) {
   };
 }
 
-export function validateEffects(effects) {
+export function validateEffects(effects, options = {}) {
   if (!Array.isArray(effects) || effects.length > 200) {
     throw new EngineError('INVALID_EFFECTS', 'effects must contain at most 200 entries.');
   }
@@ -221,7 +221,11 @@ export function validateEffects(effects) {
       'mechanic.instance.create': ['kind', 'instance_id', 'template_id', 'template_version', 'parameters', 'state'],
       'mechanic.instance.enable': ['kind', 'instance_id'],
       'mechanic.instance.disable': ['kind', 'instance_id'],
+      'relationship.transition': ['kind', 'subject_id', 'target_id', 'rule_module_id', 'rule_module_version', 'patch', 'evidence_refs', 'executor_type'],
     }[effect.kind];
+    if (effect.kind === 'relationship.transition' && options.allowRelationshipTransition !== true) {
+      throw new EngineError('UNSUPPORTED_EFFECT', 'Relationship transitions must use the trusted Core transition operation.', 403);
+    }
     if (allowedFields && Object.keys(effect).some((key) => !allowedFields.includes(key))) {
       throw new EngineError('UNSUPPORTED_EFFECT_FIELD', 'Effect contains a field not supported by its kind: ' + effect.kind, 400, { kind: effect.kind });
     }
@@ -274,6 +278,23 @@ export function validateEffects(effects) {
       }
       if (effect.subject_ref !== undefined && effect.subject_ref !== null && typeof effect.subject_ref !== 'string') {
         throw new EngineError('INVALID_EFFECT', 'subject_ref must be a string or null.');
+      }
+    } else if (effect.kind === 'relationship.transition') {
+      for (const key of ['subject_id', 'target_id', 'rule_module_id', 'rule_module_version']) {
+        if (typeof effect[key] !== 'string' || !effect[key].trim() || effect[key].length > 200) {
+          throw new EngineError('INVALID_RELATIONSHIP_TRANSITION', 'relationship.transition requires non-empty ' + key + '.', 400);
+        }
+      }
+      if (!effect.patch || typeof effect.patch !== 'object' || Array.isArray(effect.patch) || !Object.keys(effect.patch).length || Object.keys(effect.patch).length > 128) {
+        throw new EngineError('INVALID_RELATIONSHIP_TRANSITION', 'patch must be a non-empty object of at most 128 dimensions.', 400);
+      }
+      if (!Array.isArray(effect.evidence_refs) || !effect.evidence_refs.length || effect.evidence_refs.length > 128
+        || !effect.evidence_refs.every((value) => typeof value === 'string' && value.trim() && value.length <= 200)
+        || new Set(effect.evidence_refs).size !== effect.evidence_refs.length) {
+        throw new EngineError('INVALID_RELATIONSHIP_TRANSITION', 'evidence_refs must contain 1–128 unique non-empty references.', 400);
+      }
+      if (effect.executor_type !== 'admin_credential') {
+        throw new EngineError('INVALID_RELATIONSHIP_EXECUTOR', 'Relationship transition executor must be server-derived.', 403);
       }
     } else if (effect.kind === 'mechanic.instance.create') {
       for (const key of ['instance_id', 'template_id', 'template_version']) {
