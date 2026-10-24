@@ -28,6 +28,7 @@ function setup(t) {
   });
   bindings.bind('memory-bridge-world', 'adapter-a', 'actor-a');
   engine.commitEvent('memory-bridge-world', {
+    event_id: 'unrelated-memory-bridge',
     idempotency_key: 'unrelated-memory-bridge',
     turn_id: 'unrelated-memory-bridge',
     event_type: 'action.completed',
