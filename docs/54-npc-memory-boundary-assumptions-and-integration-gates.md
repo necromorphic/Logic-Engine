@@ -86,3 +86,10 @@ The previous readiness statement remains valid, but the HTTP security baseline h
 - The unresolved BND-01/BND-03/BND-06/BND-07 and related gates remain open: no general Memory retrieval authorization, race-free content-use revalidation, lineage permission propagation, durable rollback-aware source reconciliation, or NPC acquisition/delivery/belief persistence path is established by these PRs.
 
 Therefore the Core security changes reduce existing HTTP exposure but do not unblock production Memory→NPC integration. Keep the adapter and semantic persistence path blocked until the responsible owners approve the missing contracts and the real boundary tests exercise them.
+
+
+## Verification checkpoint — 2026-10-24
+
+At the time of this checkpoint, PR #76 source HEAD was `7afe7ebff95f7979ae37197981a456d352611bcd`. The available exact-SHA GitHub Actions lookup and combined-status lookup returned no run/check records for that SHA. This means **native CI is unverified**, not failed and not passed. The earlier successful run on `0106f6da30034ce414e1ab2ee377b6707a0ca48a` predates later branch changes and cannot validate the current source tree.
+
+The next evidence required is a repository-native `npm test` / Runtime tests run whose pull-request head SHA matches the then-current PR #76 source HEAD. Keep the PR Draft and unmerged until that evidence and the owner-approved integration gates above are satisfied.
