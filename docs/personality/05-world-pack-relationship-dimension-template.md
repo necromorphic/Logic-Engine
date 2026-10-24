@@ -39,10 +39,10 @@ These concepts must not be collapsed into one value:
 - **Unset/unknown:** no canonical value has been established.
 - **Explicit neutral:** the domain intentionally assigns its defined neutral value.
 - **Withheld/inaccessible:** the read boundary does not disclose the canonical value to this caller. This does not reveal whether a value exists.
-- **Cleared:** an authorized operation explicitly removes a previously established value, where clearing is supported by the domain and approved operation contract.
+- **Cleared:** an authorized operation explicitly removes a previously established value, where clearing is supported by the domain and approved operation contract. The current effective value is then absent; authorized canonical history/provenance must distinguish this explicit removal from a dimension that was never established. Whether a particular caller may see that history is a Core authorization/purpose decision.
 - **Conflict/insufficient support:** available valid evidence does not yield one justified result under the domain rules.
 
-The first four are not interchangeable. Conflict is an epistemic/reconciliation result, not a convenient extra relationship value unless the domain explicitly models it as such. The exact wire/storage representation remains a core contract decision.
+The first four are not interchangeable. In particular, “cleared” describes an explicit lifecycle event, not a requirement that the current value remain populated with a special sentinel. Conflict is an epistemic/reconciliation result, not a convenient extra relationship value unless the domain explicitly models it as such. The exact wire/storage representation remains a core contract decision.
 
 ## 4. Cross-dimension rules
 
