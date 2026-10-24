@@ -135,6 +135,23 @@ The following tests refine the RB-001–RB-010 target contract. Existing tests s
 4. Run the repository's documented test command on the exact proposed commit.
 5. Do not claim the broader RB-004 knowledge case is covered by fact-claim tests.
 
+
+### MS-012 — later support must not retroactively justify a historical read
+
+Setup:
+1. Event A commits a claim for fact F at cursor 1.
+2. Reader R commits at cursor 2 with a declared `READS_CLAIM(F)` relationship; at R's commit point, A is the only valid support.
+3. Independent event B commits the same claim at cursor 3. B has no causal or validity dependency on A and does not read A.
+4. Roll back A.
+
+Expected:
+- Reconstruct the projection relevant to R at R's historical commit cursor, excluding invalidated events and events committed after R.
+- B must not retroactively make R's historical read valid merely because B supports F in the present-day projection.
+- If removing A changes the relevant projection at R's cursor, classify R using the current rollback contract (invalidate when the declared read materially changes; otherwise use the contract's explicit review outcome).
+- The current projection after cursor 3 may still contain F supported by B; that does not alter what was available to R at cursor 2.
+
+Status boundary: this is a required regression test for historical-cursor semantics. Confirm existing implementation/tests already enforce it before claiming coverage; do not add a new runtime API or support table for the case.
+
 ## 5. Identity and migration guardrail
 
 Fact identity must be checked across all valid claims that contribute to the same canonical `fact_id`. A projection reconstructed from the last claim is not sufficient evidence that earlier claims share the same identity.
