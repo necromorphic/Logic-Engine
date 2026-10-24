@@ -458,8 +458,6 @@ export class LogicEngine {
     } catch (error) {
       throw new EngineError(error.code || 'INVALID_TIME_TRIGGER', error.message || 'Time-trigger validation failed.', 400, error.details);
     }
-    assert(trigger.due_coordinate > world.game_time_coordinate,
-      'TIME_TRIGGER_NOT_FUTURE', 'A new time trigger must be scheduled strictly after the current world coordinate.', 409);
     assert(trigger.due_coordinate % 1000 === 0,
       'TIME_TRIGGER_SUBSECOND_UNSUPPORTED', 'Time-trigger execution currently requires whole-second coordinates.', 400);
     const proposal = trigger.payload?.event;
