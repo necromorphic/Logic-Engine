@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
-function setup(t) {
+function setup(t, overrides = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-raw-archive-'));
   const path = join(directory, 'memory-provider.sqlite');
   const options = {
@@ -14,6 +14,7 @@ function setup(t) {
     getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
+    ...overrides,
   };
   let provider = new SQLiteMemoryProvider(options);
   t.after(() => {
@@ -185,4 +186,56 @@ test('raw archive keys are world-scoped and invalid lifecycle inputs fail closed
   assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_captures').get().count, 2);
   assert.throws(() => s.provider.captureRawMessage(capture({ content: null })), /Invalid raw Memory capture/);
   assert.throws(() => s.provider.markRawSourceDeleted({ ...sourceKey(), world_id: ' ' }), /Invalid raw Memory deletion target/);
+});
+
+test('raw archive reads default-deny and require the trusted host authorization callback', async (t) => {
+  const s = setup(t);
+  s.provider.captureRawMessage(capture());
+  await assert.rejects(
+    () => s.provider.readRawMessageVersion(sourceKey()),
+    /MEMORY_RAW_READ_DENIED/,
+  );
+  await assert.rejects(
+    () => s.provider.readActiveRawMessages({ world_id: 'world-a', conversation_id: 'chat-a' }),
+    /MEMORY_RAW_READ_DENIED/,
+  );
+});
+
+test('authorized raw reads expose only active versions and exclude source-deleted versions', async (t) => {
+  const s = setup(t, {
+    authorizeRawRead: async (request) => request.world_id === 'world-a'
+      && ['read_version', 'read_active'].includes(request.action),
+  });
+  s.provider.captureRawMessage(capture());
+  s.provider.captureRawMessage(capture({
+    version_id: 'generation-2',
+    content: 'Selected second generation.',
+  }));
+  s.provider.selectActiveRawVersion(sourceKey('generation-2'));
+
+  const active = await s.provider.readActiveRawMessages({ world_id: 'world-a', conversation_id: 'chat-a' });
+  assert.equal(active.length, 1);
+  assert.equal(active[0].version_id, 'generation-2');
+  assert.equal(active[0].content, 'Selected second generation.');
+
+  const historical = await s.provider.readRawMessageVersion(sourceKey());
+  assert.equal(historical.content, 'A raw assistant message, preserved byte-for-byte as UTF-8 text.');
+
+  s.provider.markRawSourceDeleted(sourceKey('generation-2'));
+  assert.deepEqual(await s.provider.readActiveRawMessages({ world_id: 'world-a', conversation_id: 'chat-a' }), []);
+  await assert.rejects(
+    () => s.provider.readRawMessageVersion(sourceKey('generation-2')),
+    /MEMORY_RAW_VERSION_UNAVAILABLE/,
+  );
+});
+
+test('raw archive authorization failure does not reveal whether a requested version exists', async (t) => {
+  const s = setup(t, { authorizeRawRead: async () => false });
+  s.provider.captureRawMessage(capture());
+  for (const target of [sourceKey(), sourceKey('nonexistent-version')]) {
+    await assert.rejects(
+      () => s.provider.readRawMessageVersion(target),
+      (error) => error.message === 'MEMORY_RAW_READ_DENIED',
+    );
+  }
 });
