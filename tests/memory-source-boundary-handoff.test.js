@@ -23,6 +23,12 @@ test('Memory source-boundary handoff records each required identity and lifecycl
     'Rollback with unchanged `commit_sequence`',
     'Restart during reconciliation/rebuild',
     'Persistence, audit, and transaction boundary',
+    'Cross-review against the NPC admission contract',
+    'healthy-but-stale index',
+    'revocation after indexing',
+    'world_revision` without increasing `commit_sequence',
+    'Restart test interrupts rebuild/reconciliation',
+    'production Memory→NPC remains disabled',
   ]) {
     assert.ok(doc.includes(required), `handoff must cover: ${required}`);
   }
