@@ -7,7 +7,7 @@
 - Provider implementation: `src/application/sqlite-memory-provider.js` in PR #182.
 - Provider tests: `tests/sqlite-memory-provider.test.js`.
 - Internal import seam: `src/application/memory-provider-import-internal.js`, tested by `tests/memory-provider-import-internal.test.js` in stacked PR #201.
-- Repository-native command: `npm test` (`node --test`). Exact-head Runtime CI [run #1094 passed](https://github.com/necromorphic/Logic-Engine/actions/runs/40089639168) at `39e8ef2646807e84e883c896a8c159bca5b081ce`: 263 passed, 0 failed, including the added cross-world, complete-empty/denied, partial-result, and interrupted-rebuild tests.
+- Repository-native command: `npm test` (`node --test`). Exact-head Runtime CI [run #1096 passed](https://github.com/necromorphic/Logic-Engine/actions/runs/40089709790) at `3a2ae89a77217c3e934cd1a3709303a2e76c222b`: 263 passed, 0 failed, including cross-world isolation, complete-empty/denied distinction, partial-result boundary, and interrupted-rebuild recovery.
 - Existing CI evidence is not end-to-end provider → Core authorization → NPC admission evidence.
 
 ## Acceptance traceability
@@ -19,10 +19,10 @@
 | Raw ingest survives derived-index failure | Injected index insert failure, raw row survives, rebuild restores readiness | Provider-local behavior covered |
 | Query denial and per-record revocation | Default-deny/revocation test; authorization rechecks grant after awaited source validation | Provider-local boundary covered; not a Core authorization decision |
 | Snapshot unavailable/stale and inventory incomplete | Tests assert fail-closed behavior | Covered as adapter-fixture behavior; snapshot pair is not a source change journal |
-| Cross-world record/grant isolation | Added test: same record ref/version in two worlds, separate subjects, independent retrieval | Added in this branch; pending exact-head CI |
+| Cross-world record/grant isolation | Added test: same record ref/version in two worlds, separate subjects, independent retrieval | Covered; exact-head CI passed |
 | Authorized complete-empty vs denied | Added test: ready empty result vs `MEMORY_QUERY_DENIED` | Added in this branch; pending exact-head CI |
-| Partial result semantics | Retrieval caps candidates at 50 and returns `partial` when a 51st exists | Existing code path; dedicated 51-record regression test still needed |
-| Restart during reconciliation | Restart after successful reconcile is covered; crash/restart mid-reconciliation is not | Missing test; readiness marker should fail closed after interrupted work |
+| Partial result semantics | Retrieval caps candidates at 50 and returns `partial` when a 51st exists | Covered by a 51-record regression test; exact-head CI passed |
+| Restart during reconciliation | Interrupted index rebuild + restart is tested and fails closed | Interrupted reconciliation itself remains untested; readiness marker should fail closed |
 | Rollback with unchanged `commit_sequence` | No approved source-specific rollback signal; snapshot revision comparison exists | **Blocked by Core #140**; needs approved source lifecycle signal and real-path test |
 | Source deletion/retraction and dependent invalidation | No raw content store, source deletion hook, dependent-copy graph, or purge operation | **Not implemented**; requires approved source identity/version/deletion contract |
 | Derived summary with revoked/missing/stale/cross-world lineage source | Summary records are rejected at ingest | Direct-source first slice deliberately excludes summaries; derived-summary behavior needs separate approved lineage/authorization contract and tests |
