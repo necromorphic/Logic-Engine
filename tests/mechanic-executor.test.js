@@ -999,3 +999,21 @@ test('authorization scope changes the mechanic context fingerprint', (t) => {
   assert.notEqual(first.context_fingerprint, second.context_fingerprint);
   assert.notEqual(first.evaluation_fingerprint, second.evaluation_fingerprint);
 });
+
+
+test('caller-controlled event payload cannot forge internal mechanic execution metadata', (t) => {
+  const { engine, worldId } = setup(t, 'executor-forged-event-metadata-world');
+  assert.throws(
+    () => engine.commitEvent(worldId, {
+      idempotency_key: 'forged-mechanic-metadata',
+      turn_id: 'forged-mechanic-metadata',
+      event_type: 'action.completed',
+      expected_revision: 0,
+      effects: [],
+      mechanic_execution: { action_id: 'forged', effect_provenance: [] },
+    }),
+    (error) => error.code === 'UNSUPPORTED_EVENT_FIELD',
+  );
+  assert.equal(engine.getState(worldId).world_revision, 0);
+  assert.deepEqual(engine.store.events(worldId), []);
+});
