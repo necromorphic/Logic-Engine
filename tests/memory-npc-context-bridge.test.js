@@ -127,3 +127,52 @@ test('partial retrieval is rejected by the existing NPC oracle even if host veri
   assert.equal(output.reason, 'result_incomplete_or_unavailable');
   assert.deepEqual(output.admitted, []);
 });
+
+
+test('retriever cannot mutate the trusted snapshot to make stale candidates appear current', async () => {
+  const mutableRequest = {
+    ...request,
+    snapshot: { world_revision: 12, commit_sequence: 40 },
+  };
+  const bridge = new MemoryNpcContextBridge({
+    ...allowAll,
+    retrieve: (scope) => {
+      scope.snapshot.world_revision = 13;
+      return result([candidate({ snapshot: { world_revision: 13, commit_sequence: 40 } })]);
+    },
+  });
+
+  const output = await bridge.read(mutableRequest);
+  assert.equal(output.status, 'non_ready');
+  assert.equal(output.reason, 'retrieval_unavailable');
+  assert.deepEqual(mutableRequest.snapshot, { world_revision: 12, commit_sequence: 40 });
+});
+
+test('trusted scope and snapshot are immutable for result and candidate verifiers too', async () => {
+  let candidateVerifierCalled = false;
+  const bridge = new MemoryNpcContextBridge({
+    ...allowAll,
+    verifyResult: (scope) => {
+      assert.equal(Object.isFrozen(scope), true);
+      assert.equal(Object.isFrozen(scope.snapshot), true);
+      assert.throws(() => { scope.snapshot.world_revision = 99; }, TypeError);
+      return true;
+    },
+    verifyCandidate: (scope) => {
+      candidateVerifierCalled = true;
+      assert.equal(Object.isFrozen(scope), true);
+      assert.equal(Object.isFrozen(scope.snapshot), true);
+      assert.throws(() => { scope.snapshot.commit_sequence = 99; }, TypeError);
+      return true;
+    },
+  });
+  const output = await bridge.read(request);
+  assert.equal(output.status, 'ready');
+  assert.equal(candidateVerifierCalled, true);
+  assert.deepEqual(output.admitted[0], {
+    record_ref: 'memory:claim-1',
+    record_version: 'v3',
+    epistemic_kind: 'acquired_report',
+    evidence_assessment: 'unassessed',
+  });
+});
