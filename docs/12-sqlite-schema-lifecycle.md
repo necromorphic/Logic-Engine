@@ -4,10 +4,10 @@ Status: adopted storage-maintenance contract for the current SQLite runtime.
 
 ## 1. Supported schema version
 
-The current numbered migration ledger is version **5**. The runtime supports opening:
-- a new empty database, which receives the inline bootstrap schema and then applies/records numbered migrations 1–5;
+The current numbered migration ledger is version **9**. The runtime supports opening:
+- a new empty database, which receives the inline bootstrap schema and then applies/records numbered migrations 1–9;
 - an older database with the historical columns/tables covered by the numbered migrations, which is upgraded on SQLiteStore construction;
-- a database already migrated through version 5, which is reopened without reapplying those migrations.
+- a database already migrated through version 9, which is reopened without reapplying those migrations.
 
 This contract applies to the schema states represented by the repository's fixtures and migration code. It does not promise compatibility with arbitrary hand-edited databases or undocumented pre-release layouts.
 
@@ -20,8 +20,12 @@ This contract applies to the schema states represented by the repository's fixtu
 | 3 | Add/backfill world_events.commit_sequence when missing; assign missing values in committed-revision/event-ID order after the existing per-world maximum; create the unique world/sequence index. |
 | 4 | Add world_events.context_manifest_id; ensure context_manifests exists and has base_world_revision. |
 | 5 | Create the world/event unique index and mechanic_instances table when missing. |
+| 6 | Add and backfill canonical world/event time coordinates. |
+| 7 | Persist durable time-advance operation segments and checkpoints. |
+| 8 | Persist immutable world-scoped calendar and TimePolicy versions. |
+| 9 | Persist world-scoped scheduled trigger definitions and lifecycle claims. |
 
-The migration fixture in tests/storage-migrations.test.js exercises a legacy schema with missing columns/indexes/tables, checks preservation of existing rows, verifies commit-sequence backfill, performs canonical write and projected read after migration, closes/reopens the database, and confirms the committed state remains readable. A separate failure-injection test verifies that migration DDL and its ledger entry roll back together and that opening succeeds after the injected failure is removed.
+Migrations 6–9 additionally backfill canonical time coordinates, add durable time-advance checkpoints, add immutable per-world time configurations, and create the durable world-scoped time-trigger lifecycle table.\n\nThe migration fixture in tests/storage-migrations.test.js exercises a legacy schema with missing columns/indexes/tables, checks preservation of existing rows, verifies commit-sequence backfill, performs canonical write and projected read after migration, closes/reopens the database, and confirms the committed state remains readable. A separate failure-injection test verifies that migration DDL and its ledger entry roll back together and that opening succeeds after the injected failure is removed.
 
 ## 3. Transaction and idempotency rules
 

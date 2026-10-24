@@ -29,6 +29,253 @@ async function createWorld(base, worldId, extraHeaders = headers) {
   });
 }
 
+test('time-advance API is internal-only and exposes durable start/status/replay', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL });
+  assert.equal((await createWorld(base, 'api-time-world')).status, 201);
+  const request = {
+    idempotency_key: 'api-time-advance-key',
+    expected_revision: 0,
+    to_coordinate: 60000,
+    triggers: [],
+  };
+  const denied = await fetch(base + '/v1/worlds/api-time-world/time-advances', {
+    method: 'POST', headers, body: json(request),
+  });
+  assert.equal(denied.status, 403);
+
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  const started = await fetch(base + '/v1/worlds/api-time-world/time-advances', {
+    method: 'POST', headers: internalHeaders, body: json(request),
+  });
+  assert.equal(started.status, 200);
+  const first = (await started.json()).operation;
+  assert.equal(first.status, 'completed');
+  assert.equal(first.confirmed_coordinate, 60000);
+
+  const status = await fetch(base + '/v1/worlds/api-time-world/time-advances/' + encodeURIComponent(first.operation_id), {
+    headers: internalHeaders,
+  });
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).operation.operation_id, first.operation_id);
+
+  const replay = await fetch(base + '/v1/worlds/api-time-world/time-advances', {
+    method: 'POST', headers: internalHeaders, body: json(request),
+  });
+  assert.equal(replay.status, 200);
+  assert.equal((await replay.json()).operation.operation_id, first.operation_id);
+  assert.equal((await fetch(base + '/v1/worlds/api-time-world/events', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } })).status, 200);
+});
+
+test('time-trigger lifecycle is internal-only and registered triggers drive durable advances', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL });
+  assert.equal((await createWorld(base, 'api-time-trigger-world')).status, 201);
+  const trigger = {
+    trigger_id: 'api-trigger',
+    due_coordinate: 10000,
+    dependencies: [],
+    read_set: [],
+    write_set: ['entity:api-trigger-entity'],
+    processing_mode: 'exact',
+    interrupt_after_coordinate: false,
+    payload: {
+      event: {
+        event_type: 'time.trigger',
+        effects: [{
+          kind: 'entity.upsert',
+          entity_id: 'api-trigger-entity',
+          entity_type: 'object',
+          attributes: { source: 'registered-trigger' },
+        }],
+      },
+    },
+  };
+  const denied = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', {
+    method: 'POST', headers, body: json(trigger),
+  });
+  assert.equal(denied.status, 403);
+
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  const registered = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', {
+    method: 'POST', headers: internalHeaders, body: json(trigger),
+  });
+  assert.equal(registered.status, 201);
+  assert.equal((await registered.json()).trigger.status, 'pending');
+
+  const listed = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', { headers: internalHeaders });
+  assert.equal(listed.status, 200);
+  const listedBody = await listed.json();
+  assert.equal(listedBody.triggers.length, 1);
+  assert.equal(Object.hasOwn(listedBody.triggers[0], 'payload'), false);
+
+  const started = await fetch(base + '/v1/worlds/api-time-trigger-world/time-advances', {
+    method: 'POST',
+    headers: internalHeaders,
+    body: json({ idempotency_key: 'api-registered-advance', expected_revision: 1, to_coordinate: 10000 }),
+  });
+  assert.equal(started.status, 200);
+  assert.equal((await started.json()).operation.status, 'completed');
+
+  const fetched = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger', { headers: internalHeaders });
+  assert.equal(fetched.status, 200);
+  assert.equal((await fetched.json()).trigger.status, 'completed');
+
+  const futureTrigger = {
+    ...trigger,
+    trigger_id: 'api-trigger-to-cancel',
+    due_coordinate: 20000,
+    write_set: ['entity:api-cancelled-entity'],
+    payload: {
+      event: {
+        event_type: 'time.trigger',
+        effects: [{
+          kind: 'entity.upsert',
+          entity_id: 'api-cancelled-entity',
+          entity_type: 'object',
+          attributes: { source: 'cancelled' },
+        }],
+      },
+    },
+  };
+  const futureRegistered = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', {
+    method: 'POST', headers: internalHeaders, body: json(futureTrigger),
+  });
+  assert.equal(futureRegistered.status, 201);
+  const cancelled = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger-to-cancel/cancel', {
+    method: 'POST', headers: internalHeaders, body: json({ reason: 'test_cancel' }),
+  });
+  assert.equal(cancelled.status, 200);
+  assert.equal((await cancelled.json()).trigger.status, 'cancelled');
+});
+
+test('timed-action API requires the internal capability and returns the durable action result', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL, adminToken: ADMIN });
+  assert.equal((await createWorld(base, 'api-timed-action-world')).status, 201);
+  const calendar_definition = {
+    calendar_id: 'api-timed-action.calendar',
+    version: '1.0.0',
+    day_length_ms: 86400000,
+    weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    year_cycle: [{ id: 'standard', name: 'Standard', months: [{ id: 'jan', name: 'January', days: 31 }] }],
+    epoch: { coordinate: 0, year_number: 2026, year_cycle_index: 0, month_id: 'jan', day_of_month: 1, weekday_index: 0, time_of_day_ms: 0 },
+    holidays: [],
+  };
+  const configuration = {
+    version: 'api-timed-action-policy',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    calendar_definition,
+    time_policy: {
+      policy_id: 'api-timed-action.policy',
+      version: '1.0.0',
+      max_action_duration_ms: 43200000,
+      max_skip_duration_ms: 604800000,
+      duration_rules: [{ event_type: 'travel.completed', rule: { kind: 'fixed', duration_ms: 30000 } }],
+    },
+  };
+  const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
+  assert.equal((await fetch(base + '/v1/worlds/api-timed-action-world/time-configurations', {
+    method: 'POST', headers: adminHeaders, body: json(configuration),
+  })).status, 200);
+
+  const triggerRequest = {
+    trigger_id: 'api-timed-action-trigger',
+    due_coordinate: 10000,
+    dependencies: [],
+    read_set: [],
+    write_set: ['entity:api-intermediate'],
+    processing_mode: 'exact',
+    interrupt_after_coordinate: false,
+    payload: { event: {
+      turn_id: 'api-timed-trigger-turn',
+      event_type: 'time.trigger',
+      effects: [{ kind: 'entity.upsert', entity_id: 'api-intermediate', entity_type: 'object', attributes: { reached: true } }],
+    } },
+  };
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  const registered = await fetch(base + '/v1/worlds/api-timed-action-world/time-triggers', {
+    method: 'POST', headers: internalHeaders, body: json(triggerRequest),
+  });
+  assert.equal(registered.status, 201);
+
+  const denied = await fetch(base + '/v1/worlds/api-timed-action-world/time-actions', {
+    method: 'POST', headers, body: json({
+      idempotency_key: 'api-timed-action-key', expected_revision: 2,
+      event: { turn_id: 'api-timed-action-turn', event_type: 'travel.completed', effects: [] },
+    }),
+  });
+  assert.equal(denied.status, 403);
+
+  const started = await fetch(base + '/v1/worlds/api-timed-action-world/time-actions', {
+    method: 'POST', headers: internalHeaders, body: json({
+      idempotency_key: 'api-timed-action-key',
+      expected_revision: 2,
+      event: {
+        turn_id: 'api-timed-action-turn',
+        event_type: 'travel.completed',
+        effects: [{ kind: 'entity.upsert', entity_id: 'api-traveller', entity_type: 'character', attributes: { arrived: true } }],
+      },
+    }),
+  });
+  assert.equal(started.status, 200);
+  const operation = (await started.json()).operation;
+  assert.equal(operation.status, 'completed');
+  assert.equal(operation.result.final_action_status, 'committed');
+  assert.deepEqual(operation.result.completed_trigger_ids, ['api-timed-action-trigger']);
+
+  const status = await fetch(base + '/v1/worlds/api-timed-action-world/time-actions/' + encodeURIComponent(operation.operation_id), {
+    headers: internalHeaders,
+  });
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).operation.operation_id, operation.operation_id);
+});
+
+test('time configuration authoring requires admin and calendar projection requires a trusted reader', async (t) => {
+  const base = await setup(t, { adminToken: ADMIN });
+  assert.equal((await createWorld(base, 'api-time-config-world')).status, 201);
+  const configuration = {
+    version: 'config-1',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    calendar_definition: {
+      calendar_id: 'api.calendar',
+      version: '1.0.0',
+      day_length_ms: 86400000,
+      weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      year_cycle: [{ id: 'standard', name: 'Standard', months: [{ id: 'jan', name: 'January', days: 31 }] }],
+      epoch: { coordinate: 0, year_number: 2000, year_cycle_index: 0, month_id: 'jan', day_of_month: 1, weekday_index: 0, time_of_day_ms: 0 },
+      holidays: [],
+    },
+    time_policy: {
+      policy_id: 'api.policy',
+      version: '1.0.0',
+      max_action_duration_ms: 43200000,
+      max_skip_duration_ms: 604800000,
+      duration_rules: [{ event_type: 'travel.completed', rule: { kind: 'fixed', duration_ms: 60000 } }],
+    },
+  };
+  const denied = await fetch(base + '/v1/worlds/api-time-config-world/time-configurations', {
+    method: 'POST', headers, body: json(configuration),
+  });
+  assert.equal(denied.status, 403);
+
+  const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
+  const registered = await fetch(base + '/v1/worlds/api-time-config-world/time-configurations', {
+    method: 'POST', headers: adminHeaders, body: json(configuration),
+  });
+  assert.equal(registered.status, 200);
+  assert.equal((await registered.json()).configuration.active, true);
+
+  const current = await fetch(base + '/v1/worlds/api-time-config-world/time-configurations/current', {
+    headers: adminHeaders,
+  });
+  assert.equal(current.status, 200);
+  assert.equal((await current.json()).configuration.version, 'config-1');
+
+  const projected = await fetch(base + '/v1/worlds/api-time-config-world/time', { headers: adminHeaders });
+  assert.equal(projected.status, 200);
+  assert.equal((await projected.json()).time.calendar.year_number, 2000);
+});
+
 test('health, auth, proposal approval, and canonical commit boundary', async (t) => {
   const base = await setup(t, { approvalToken: APPROVAL, internalToken: INTERNAL });
   assert.equal((await fetch(base + '/health')).status, 200);

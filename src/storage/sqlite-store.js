@@ -4,11 +4,50 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { EngineError } from '../core/errors.js';
+import { hashRequest } from '../core/request-hash.js';
 import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidate.js';
 
 const now = () => new Date().toISOString();
 const enc = (x) => JSON.stringify(x);
 const dec = (x) => x == null ? null : JSON.parse(x);
+const timeAdvanceOperation = (row) => row && ({
+  operation_id: row.operation_id,
+  world_id: row.world_id,
+  idempotency_key: row.idempotency_key,
+  request_hash: row.request_hash,
+  from_coordinate: row.from_coordinate,
+  target_coordinate: row.target_coordinate,
+  confirmed_coordinate: row.confirmed_coordinate,
+  starting_world_revision: row.starting_world_revision,
+  current_world_revision: row.current_world_revision,
+  status: row.status,
+  next_segment_index: row.next_segment_index,
+  segment_count: JSON.parse(row.segments_json).length,
+  plan: dec(row.plan_json),
+  result: dec(row.result_json),
+  error: dec(row.error_json),
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+});
+const timeTrigger = (row, includePayload = true) => row && ({
+  trigger_id: row.trigger_id,
+  world_id: row.world_id,
+  due_coordinate: row.due_coordinate,
+  status: row.status,
+  dependencies: dec(row.dependencies_json),
+  read_set: dec(row.read_set_json),
+  write_set: dec(row.write_set_json),
+  processing_mode: row.processing_mode,
+  interrupt_after_coordinate: row.interrupt_after_coordinate === 1,
+  ...(includePayload ? { payload: dec(row.payload_json) } : {}),
+  content_hash: row.content_hash,
+  claimed_by_operation_id: row.claimed_by_operation_id,
+  completed_operation_id: row.completed_operation_id,
+  cancellation_reason: row.cancellation_reason,
+  created_revision: row.created_revision,
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+});
 const relationshipRef = (subjectId, targetId) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId);
 const parseRelationshipRef = (value) => {
   if (typeof value !== 'string' || !value.startsWith('relationship:')) return null;
@@ -112,6 +151,7 @@ const world = (r) => r && ({
   game_time: r.game_time,
   initial_game_time_coordinate: r.initial_game_time_coordinate,
   game_time_coordinate: r.game_time_coordinate,
+  time_config_version: r.time_config_version ?? null,
   world_revision: r.world_revision,
   status: r.status,
   created_at: r.created_at,
@@ -335,6 +375,86 @@ export class SQLiteStore {
       {
         version: 7,
         apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS time_advance_operations(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            operation_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            request_hash TEXT NOT NULL,
+            from_coordinate INTEGER NOT NULL,
+            target_coordinate INTEGER NOT NULL,
+            confirmed_coordinate INTEGER NOT NULL,
+            starting_world_revision INTEGER NOT NULL,
+            current_world_revision INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('running','completed','interrupted','blocked','needs_review')),
+            next_segment_index INTEGER NOT NULL DEFAULT 0,
+            segments_json TEXT NOT NULL,
+            plan_json TEXT NOT NULL,
+            result_json TEXT,
+            error_json TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,operation_id),
+            UNIQUE(world_id,idempotency_key)
+          );
+          CREATE INDEX IF NOT EXISTS time_advance_operations_world_status
+            ON time_advance_operations(world_id,status,updated_at);`);
+        },
+      },
+      {
+        version: 8,
+        apply: () => {
+          const worldColumns = this.db.prepare('PRAGMA table_info(worlds)').all();
+          if (!worldColumns.some((column) => column.name === 'time_config_version')) {
+            this.db.exec('ALTER TABLE worlds ADD COLUMN time_config_version TEXT');
+          }
+          this.db.exec(`CREATE TABLE IF NOT EXISTS world_time_configurations(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            version TEXT NOT NULL,
+            world_pack_id TEXT NOT NULL,
+            world_pack_version TEXT NOT NULL,
+            calendar_definition_json TEXT NOT NULL,
+            time_policy_json TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            created_revision INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,version)
+          );
+          CREATE INDEX IF NOT EXISTS world_time_configurations_pack
+            ON world_time_configurations(world_pack_id,world_pack_version,version);`);
+        },
+      },
+      {
+        version: 9,
+        apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS world_time_triggers(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            trigger_id TEXT NOT NULL,
+            due_coordinate INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending','completed','cancelled')),
+            dependencies_json TEXT NOT NULL,
+            read_set_json TEXT NOT NULL,
+            write_set_json TEXT NOT NULL,
+            processing_mode TEXT NOT NULL CHECK(processing_mode IN ('exact','batch')),
+            interrupt_after_coordinate INTEGER NOT NULL CHECK(interrupt_after_coordinate IN (0,1)),
+            payload_json TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            claimed_by_operation_id TEXT,
+            completed_operation_id TEXT,
+            cancellation_reason TEXT,
+            created_revision INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,trigger_id),
+            FOREIGN KEY(world_id,claimed_by_operation_id) REFERENCES time_advance_operations(world_id,operation_id)
+          );
+          CREATE INDEX IF NOT EXISTS world_time_triggers_due
+            ON world_time_triggers(world_id,status,due_coordinate,trigger_id);`);
+        },
+      },
+      {
+        version: 10,
+        apply: () => {
           const columns = this.db.prepare('PRAGMA table_info(world_events)').all();
           if (!columns.some((column) => column.name === 'mechanic_execution_json')) {
             this.db.exec('ALTER TABLE world_events ADD COLUMN mechanic_execution_json TEXT');
@@ -548,7 +668,6 @@ export class SQLiteStore {
     const read = () => {
       const w = this.world(id);
       if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-
       const commitSequence = this.currentCommitSequence(id);
       const contextManifests = contextManifestIds.length
         ? this.db.prepare('SELECT manifest_id,world_id,generation_id,base_commit_sequence,base_world_revision,items_json,manifest_hash,created_at FROM context_manifests WHERE world_id=? AND manifest_id IN (' + contextManifestIds.map(() => '?').join(',') + ') ORDER BY manifest_id')
@@ -635,6 +754,7 @@ export class SQLiteStore {
           commit_sequence: r.commit_sequence, validity: r.validity, caused_by: dec(r.caused_by_json),
           depends_on: dec(r.depends_on_json), read_set: dec(r.read_set_json), causal_links: dec(r.causal_links_json ?? '[]'),
           source_message_id: r.source_message_id, created_at: r.created_at, rollback_id: r.rollback_id,
+      ...(r.mechanic_execution_json ? { mechanic_execution: dec(r.mechanic_execution_json) } : {}),
         }))
         : [];
       const missingEventIds = snapshotEventIds.filter((eventId) => !events.some((event) => event.event_id === eventId));
@@ -803,7 +923,6 @@ export class SQLiteStore {
       caused_by: dec(r.caused_by_json), depends_on: dec(r.depends_on_json), read_set: dec(r.read_set_json),
       causal_links: dec(r.causal_links_json ?? '[]'), effects: dec(r.effects_json), time_advance_seconds: r.time_advance_seconds, time_advance_ms: r.time_advance_ms,
       source_message_id: r.source_message_id, created_at: r.created_at, rollback_id: r.rollback_id,
-      ...(r.mechanic_execution_json ? { mechanic_execution: dec(r.mechanic_execution_json) } : {}),
     }));
   }
 
@@ -901,7 +1020,7 @@ export class SQLiteStore {
     });
   }
 
-  validateContextManifest(worldId, event) {
+  validateContextManifest(worldId, event, baseRevision = null) {
     if (!event.context_manifest_id) return;
     const manifest = this.db.prepare('SELECT * FROM context_manifests WHERE world_id=? AND manifest_id=?').get(worldId, event.context_manifest_id);
     if (!manifest) throw new EngineError('CONTEXT_MANIFEST_NOT_FOUND', 'context_manifest_id must reference a registered manifest in this world.', 400, { context_manifest_id: event.context_manifest_id });
@@ -912,8 +1031,9 @@ export class SQLiteStore {
     if (manifest.base_commit_sequence > this.currentCommitSequence(worldId)) {
       throw new EngineError('INVALID_CONTEXT_CURSOR', 'Context manifest cursor cannot be ahead of the current world history.', 409);
     }
-    if (manifest.base_world_revision !== currentWorld.world_revision) {
-      throw new EngineError('CONTEXT_SNAPSHOT_STALE', 'The world changed after this context snapshot was registered; regenerate against a fresh manifest.', 409, { manifest_world_revision: manifest.base_world_revision, current_world_revision: currentWorld.world_revision });
+    const expectedBaseRevision = baseRevision ?? currentWorld.world_revision;
+    if (manifest.base_world_revision !== expectedBaseRevision) {
+      throw new EngineError('CONTEXT_SNAPSHOT_STALE', 'The context manifest is not anchored to the segment or commit base revision.', 409, { manifest_world_revision: manifest.base_world_revision, expected_base_revision: expectedBaseRevision, current_world_revision: currentWorld.world_revision });
     }
     const available = new Set(dec(manifest.items_json).map((item) => item.kind + ':' + item.target_id));
     const declared = new Set();
@@ -970,8 +1090,8 @@ export class SQLiteStore {
       : { status: row.status, value: dec(row.value_json), values: [dec(row.value_json)] }]));
   }
 
-  validateCausalMetadata(worldId, event, nextRevision) {
-    this.validateContextManifest(worldId, event);
+  validateCausalMetadata(worldId, event, nextRevision, contextBaseRevision = null) {
+    this.validateContextManifest(worldId, event, contextBaseRevision);
     for (const eventId of event.caused_by) this.validateEventReference(worldId, eventId, nextRevision, 'caused_by');
     for (const ref of event.depends_on) {
       if (ref.startsWith('entity:')) {
@@ -1053,12 +1173,19 @@ export class SQLiteStore {
     }
   }
 
-  commit(id, x) {
+  commit(id, x, options = {}) {
     return this.tx(() => {
       const old = this.replay(id, x.idempotency_key, x.request_hash);
       if (old) return { ...old, idempotent_replay: true };
       const w = this.world(id);
       if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (x.duration_decision?.time_config_version
+        && w.time_config_version !== x.duration_decision.time_config_version) {
+        throw new EngineError('TIME_CONFIG_STALE', 'Active time configuration changed after duration resolution.', 409, {
+          resolved_config_version: x.duration_decision.time_config_version,
+          active_config_version: w.time_config_version ?? null,
+        });
+      }
       if (x.expected_revision !== undefined && x.expected_revision !== w.world_revision) {
         throw new EngineError('REVISION_CONFLICT', 'World changed after proposal preparation.', 409, {
           expected_revision: x.expected_revision, current_revision: w.world_revision,
@@ -1081,7 +1208,7 @@ export class SQLiteStore {
       if (relationshipEffects.length) {
         x.read_set = [...new Set([...(x.read_set || []), ...relationshipEffects.map((effect) => relationshipRef(effect.subject_id, effect.target_id))])];
       }
-      this.validateCausalMetadata(id, x, revision);
+      this.validateCausalMetadata(id, x, revision, options.contextBaseRevision ?? null);
       const currentEntities = this.currentEntityProjection(id);
       const relationshipPairs = new Set();
       const entityEffectIds = new Set();
@@ -1230,7 +1357,7 @@ export class SQLiteStore {
       );
       this.db.prepare('UPDATE worlds SET world_revision=?,game_time=?,game_time_coordinate=? WHERE world_id=?')
         .run(revision, time, gameTimeCoordinate, id);
-      this.rebuild(id, revision);
+      if (!options.deferRebuild) this.rebuild(id, revision);
       const result = {
         accepted: true, event_id: eventId, world_id: id, world_revision: revision, commit_sequence: commitSequence,
         game_time: this.world(id).game_time, game_time_coordinate: this.world(id).game_time_coordinate, effect_count: x.effects.length, idempotent_replay: false,
@@ -1240,10 +1367,480 @@ export class SQLiteStore {
           turn_id: x.turn_id, context_manifest_id: x.context_manifest_id || null, caused_by: x.caused_by, depends_on: x.depends_on,
           read_set: x.read_set, effects: x.effects, time_advance_seconds: x.time_advance_seconds,
           time_advance_ms: durationMs, game_time_coordinate: gameTimeCoordinate,
+          ...(x.duration_decision ? { duration_decision: x.duration_decision } : {}),
         }), createdAt);
       this.saveReplay(id, x.idempotency_key, x.request_hash, result);
       return result;
     });
+  }
+
+  commitSegment(id, events, key, requestHash, expectedRevision, expectedCommitSequence = null) {
+    return this.tx(() => {
+      const old = this.replay(id, key, requestHash);
+      if (old) return { ...old, idempotent_replay: true };
+      const worldAtStart = this.world(id);
+      if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (expectedRevision !== worldAtStart.world_revision) {
+        throw new EngineError('REVISION_CONFLICT', 'World changed after segment planning.', 409, {
+          expected_revision: expectedRevision, current_revision: worldAtStart.world_revision,
+        });
+      }
+      const startCommitSequence = this.currentCommitSequence(id);
+      if (expectedCommitSequence !== null && expectedCommitSequence !== startCommitSequence) {
+        throw new EngineError('COMMIT_SEQUENCE_CONFLICT', 'World event cursor changed after segment planning.', 409, {
+          expected_commit_sequence: expectedCommitSequence, current_commit_sequence: startCommitSequence,
+          current_world_revision: worldAtStart.world_revision,
+        });
+      }
+      if (!Array.isArray(events) || events.length < 1 || events.length > 32) {
+        throw new EngineError('INVALID_SEGMENT_SIZE', 'A segment must contain between 1 and 32 events.', 400);
+      }
+
+      const eventIds = new Set();
+      const eventKeys = new Set();
+      for (const event of events) {
+        if (!event || typeof event.event_id !== 'string' || !event.event_id.trim()
+          || typeof event.idempotency_key !== 'string' || !event.idempotency_key.trim()) {
+          throw new EngineError('INVALID_SEGMENT_EVENT', 'Every segment event must have an explicit event_id and idempotency_key.', 400);
+        }
+        if (eventIds.has(event.event_id)) throw new EngineError('DUPLICATE_SEGMENT_EVENT_ID', 'Segment event IDs must be unique.', 400);
+        if (eventKeys.has(event.idempotency_key)) throw new EngineError('DUPLICATE_SEGMENT_EVENT_KEY', 'Segment event idempotency keys must be unique.', 400);
+        if (event.idempotency_key === key) throw new EngineError('SEGMENT_KEY_COLLISION', 'The segment idempotency key must differ from every event key.', 400);
+        eventIds.add(event.event_id);
+        eventKeys.add(event.idempotency_key);
+      }
+      for (const eventKey of eventKeys) {
+        if (this.db.prepare('SELECT 1 FROM idempotency_keys WHERE world_id=? AND idempotency_key=?').get(id, eventKey)) {
+          throw new EngineError('SEGMENT_EVENT_KEY_ALREADY_USED', 'An event idempotency key in this segment has already been used outside this segment.', 409, { idempotency_key: eventKey });
+        }
+      }
+
+      const eventResults = [];
+      for (const event of events) {
+        const currentWorld = this.world(id);
+        const currentSequence = this.currentCommitSequence(id);
+        const adjusted = {
+          ...event,
+          expected_revision: currentWorld.world_revision,
+          expected_commit_sequence: currentSequence,
+        };
+        const { request_hash: _oldHash, idempotency_key: eventKey, ...requestPayload } = adjusted;
+        adjusted.request_hash = hashRequest(requestPayload);
+        const result = this.commit(id, adjusted, {
+          deferRebuild: true,
+          contextBaseRevision: worldAtStart.world_revision,
+        });
+        if (result.idempotent_replay) {
+          throw new EngineError('SEGMENT_EVENT_KEY_ALREADY_USED', 'A segment event unexpectedly replayed an earlier commit.', 409, { idempotency_key: eventKey });
+        }
+        eventResults.push(result);
+      }
+
+      const finalWorld = this.world(id);
+      this.rebuild(id, finalWorld.world_revision);
+      const result = {
+        accepted: true,
+        segment_id: randomUUID(),
+        world_id: id,
+        event_ids: eventResults.map((event) => event.event_id),
+        event_results: eventResults,
+        start_game_time_coordinate: worldAtStart.game_time_coordinate,
+        end_game_time_coordinate: finalWorld.game_time_coordinate,
+        start_world_revision: worldAtStart.world_revision,
+        world_revision: finalWorld.world_revision,
+        start_commit_sequence: startCommitSequence,
+        commit_sequence: this.currentCommitSequence(id),
+        idempotent_replay: false,
+      };
+      this.saveReplay(id, key, requestHash, result);
+      return result;
+    });
+  }
+
+  createTimeAdvanceOperation(input) {
+    return this.tx(() => {
+      const old = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND idempotency_key=?')
+        .get(input.world_id, input.idempotency_key);
+      if (old) {
+        if (old.request_hash !== input.request_hash) {
+          throw new EngineError('IDEMPOTENCY_CONFLICT', 'The time-advance idempotency key was already used with a different request.', 409);
+        }
+        return timeAdvanceOperation(old);
+      }
+      const worldAtStart = this.world(input.world_id);
+      if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (worldAtStart.game_time_coordinate !== input.from_coordinate
+        || worldAtStart.world_revision !== input.starting_world_revision) {
+        throw new EngineError('TIME_ADVANCE_START_STALE', 'World time or revision changed before the time-advance operation was recorded.', 409);
+      }
+      const triggerIds = input.claimed_trigger_ids ?? [];
+      if (!Array.isArray(triggerIds) || new Set(triggerIds).size !== triggerIds.length
+        || triggerIds.some((triggerId) => typeof triggerId !== 'string' || !triggerId.trim())) {
+        throw new EngineError('INVALID_TIME_TRIGGER_CLAIM', 'claimed_trigger_ids must be a unique list of non-empty trigger IDs.', 400);
+      }
+      for (const triggerId of triggerIds) {
+        const trigger = this.db.prepare('SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+          .get(input.world_id, triggerId);
+        if (!trigger) throw new EngineError('TIME_TRIGGER_NOT_FOUND', 'A planned trigger no longer exists.', 409, { trigger_id: triggerId });
+        if (trigger.status !== 'pending' || trigger.claimed_by_operation_id !== null) {
+          throw new EngineError('TIME_TRIGGER_CLAIM_CONFLICT', 'A planned trigger is no longer available for this operation.', 409, {
+            trigger_id: triggerId, status: trigger.status, claimed_by_operation_id: trigger.claimed_by_operation_id,
+          });
+        }
+      }
+      const stamp = now();
+      this.db.prepare(`INSERT INTO time_advance_operations(
+        world_id,operation_id,idempotency_key,request_hash,from_coordinate,target_coordinate,confirmed_coordinate,
+        starting_world_revision,current_world_revision,status,next_segment_index,segments_json,plan_json,result_json,error_json,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        input.world_id, input.operation_id, input.idempotency_key, input.request_hash,
+        input.from_coordinate, input.target_coordinate, input.from_coordinate,
+        input.starting_world_revision, input.starting_world_revision, input.status,
+        0, enc(input.segments), enc(input.plan), input.result ? enc(input.result) : null,
+        input.error ? enc(input.error) : null, stamp, stamp,
+      );
+      for (const triggerId of triggerIds) {
+        this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=?,updated_at=? WHERE world_id=? AND trigger_id=?')
+          .run(input.operation_id, stamp, input.world_id, triggerId);
+      }
+      return timeAdvanceOperation(this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+        .get(input.world_id, input.operation_id));
+    });
+  }
+
+  getTimeAdvanceOperation(worldId, operationId) {
+    const row = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+      .get(worldId, operationId);
+    if (!row) throw new EngineError('TIME_ADVANCE_OPERATION_NOT_FOUND', 'Time-advance operation not found.', 404);
+    return timeAdvanceOperation(row);
+  }
+
+  getTimeAdvanceOperationByKey(worldId, idempotencyKey) {
+    const row = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND idempotency_key=?')
+      .get(worldId, idempotencyKey);
+    return row ? timeAdvanceOperation(row) : null;
+  }
+
+  resumeTimeAdvanceOperation(worldId, operationId) {
+    while (true) {
+      const current = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+        .get(worldId, operationId);
+      if (!current) throw new EngineError('TIME_ADVANCE_OPERATION_NOT_FOUND', 'Time-advance operation not found.', 404);
+      if (current.status !== 'running') return timeAdvanceOperation(current);
+      const segments = dec(current.segments_json);
+      if (current.next_segment_index >= segments.length) {
+        this.tx(() => {
+          const fresh = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+            .get(worldId, operationId);
+          if (!fresh || fresh.status !== 'running') return;
+          const plan = dec(fresh.plan_json);
+          const finalStatus = plan.status === 'interrupted' ? 'interrupted' : 'completed';
+          const result = {
+            operation_id: operationId, world_id: worldId, status: finalStatus,
+            from_coordinate: fresh.from_coordinate, target_coordinate: fresh.target_coordinate,
+            confirmed_coordinate: fresh.confirmed_coordinate, world_revision: fresh.current_world_revision,
+            completed_trigger_ids: plan.completed_trigger_ids || [],
+            ...(plan.final_action_status ? {
+              final_action_status: plan.final_action_status === 'pending'
+                ? (finalStatus === 'completed' ? 'committed' : 'not_executed_interrupted')
+                : plan.final_action_status,
+            } : {}),
+          };
+          this.db.prepare('UPDATE time_advance_operations SET status=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?')
+            .run(finalStatus, enc(result), now(), worldId, operationId);
+        });
+        continue;
+      }
+      try {
+        this.tx(() => {
+          const fresh = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+            .get(worldId, operationId);
+          if (!fresh || fresh.status !== 'running') return;
+          const worldAtStart = this.world(worldId);
+          if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+          if (worldAtStart.game_time_coordinate !== fresh.confirmed_coordinate
+            || worldAtStart.world_revision !== fresh.current_world_revision) {
+            const errorBody = {
+              code: 'TIME_ADVANCE_CHECKPOINT_STALE',
+              message: 'World time or revision changed after the last confirmed operation segment.',
+              expected_coordinate: fresh.confirmed_coordinate,
+              current_coordinate: worldAtStart.game_time_coordinate,
+              expected_revision: fresh.current_world_revision,
+              current_revision: worldAtStart.world_revision,
+            };
+            this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
+              .run(enc(errorBody), now(), worldId, operationId);
+            return;
+          }
+          const segment = segments[fresh.next_segment_index];
+          if (!segment || !Array.isArray(segment.events) || segment.events.length < 1 || segment.events.length > 32) {
+            throw new EngineError('INVALID_TIME_ADVANCE_SEGMENT', 'Persisted time-advance segment is malformed.', 500);
+          }
+          const commitResult = this.commitSegment(
+            worldId, segment.events, segment.idempotency_key, segment.request_hash,
+            worldAtStart.world_revision, this.currentCommitSequence(worldId),
+          );
+          const worldAfter = this.world(worldId);
+          const nextIndex = fresh.next_segment_index + 1;
+          const terminal = nextIndex >= segments.length;
+          const plan = dec(fresh.plan_json);
+          const status = terminal ? (plan.status === 'interrupted' ? 'interrupted' : 'completed') : 'running';
+          const completedFromSegments = segments.slice(0, nextIndex)
+            .flatMap((item) => Array.isArray(item.trigger_ids) ? item.trigger_ids : []);
+          const hasSegmentTriggerMetadata = segments.some((item) => Array.isArray(item.trigger_ids));
+          const completedTriggerIds = terminal && !hasSegmentTriggerMetadata
+            ? (plan.completed_trigger_ids || [])
+            : completedFromSegments;
+          for (const triggerId of segment.registered_trigger_ids ?? []) {
+            const trigger = this.db.prepare('SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+              .get(worldId, triggerId);
+            if (!trigger || trigger.status !== 'pending' || trigger.claimed_by_operation_id !== operationId) {
+              throw new EngineError('TIME_TRIGGER_CHECKPOINT_CONFLICT', 'A trigger claim no longer matches the segment being committed.', 409, {
+                trigger_id: triggerId, status: trigger?.status ?? null,
+                claimed_by_operation_id: trigger?.claimed_by_operation_id ?? null,
+              });
+            }
+            const triggerStamp = now();
+            this.db.prepare(`UPDATE world_time_triggers SET status='completed',claimed_by_operation_id=NULL,
+              completed_operation_id=?,updated_at=? WHERE world_id=? AND trigger_id=?`)
+              .run(operationId, triggerStamp, worldId, triggerId);
+            this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+              .run(worldId, worldAfter.world_revision, 'time.trigger.completed', triggerId, enc({
+                operation_id: operationId, due_coordinate: segment.coordinate,
+              }), triggerStamp);
+          }
+          const result = {
+            operation_id: operationId, world_id: worldId, status,
+            from_coordinate: fresh.from_coordinate, target_coordinate: fresh.target_coordinate,
+            confirmed_coordinate: segment.coordinate, world_revision: worldAfter.world_revision,
+            last_segment: commitResult, completed_trigger_ids: completedTriggerIds,
+            ...(plan.final_action_status ? {
+              final_action_status: plan.final_action_status === 'pending'
+                ? (terminal && status === 'completed' ? 'committed' : 'pending')
+                : plan.final_action_status,
+            } : {}),
+          };
+          this.db.prepare(`UPDATE time_advance_operations SET
+            confirmed_coordinate=?,current_world_revision=?,next_segment_index=?,status=?,result_json=?,error_json=NULL,updated_at=?
+            WHERE world_id=? AND operation_id=?`).run(
+            segment.coordinate, worldAfter.world_revision, nextIndex, status, enc(result), now(), worldId, operationId,
+          );
+        });
+      } catch (error) {
+        this.tx(() => {
+          const fresh = this.db.prepare('SELECT status,plan_json,result_json FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+            .get(worldId, operationId);
+          if (!fresh || fresh.status !== 'running') return;
+          const errorBody = { code: error?.code || 'TIME_ADVANCE_SEGMENT_FAILED', message: error?.message || 'Time-advance segment failed and requires review.' };
+          let result = dec(fresh.result_json);
+          const plan = dec(fresh.plan_json);
+          if (plan.final_action_status === 'pending' && result) {
+            result = { ...result, final_action_status: 'not_committed_needs_review' };
+          }
+          this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
+            .run(enc(errorBody), result ? enc(result) : null, now(), worldId, operationId);
+        });
+      }
+    }
+  }
+
+  listTimeTriggers(worldId, includePayload = false) {
+    if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    const query = includePayload
+      ? 'SELECT * FROM world_time_triggers WHERE world_id=? ORDER BY due_coordinate,trigger_id'
+      : `SELECT world_id,trigger_id,due_coordinate,status,dependencies_json,read_set_json,write_set_json,
+          processing_mode,interrupt_after_coordinate,content_hash,claimed_by_operation_id,completed_operation_id,
+          cancellation_reason,created_revision,created_at,updated_at
+        FROM world_time_triggers WHERE world_id=? ORDER BY due_coordinate,trigger_id`;
+    return this.db.prepare(query).all(worldId).map((row) => timeTrigger(row, includePayload));
+  }
+
+  getTimeTrigger(worldId, triggerId) {
+    if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    const row = this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+      .get(worldId, triggerId);
+    if (!row) throw new EngineError('TIME_TRIGGER_NOT_FOUND', 'Time trigger not found.', 404);
+    return timeTrigger(row);
+  }
+
+  registerTimeTrigger(worldId, trigger) {
+    return this.tx(() => {
+      const world = this.world(worldId);
+      if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const existing = this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+        .get(worldId, trigger.trigger_id);
+      if (existing) {
+        if (existing.content_hash !== trigger.content_hash) {
+          throw new EngineError('TIME_TRIGGER_ID_IMMUTABLE', 'A trigger ID cannot be reused with different scheduling or effect content.', 409);
+        }
+        return { ...timeTrigger(existing), idempotent_replay: true };
+      }
+      if (trigger.due_coordinate <= world.game_time_coordinate) {
+        throw new EngineError('TIME_TRIGGER_NOT_FUTURE', 'A new time trigger must be scheduled strictly after the current world coordinate.', 409, {
+          current_coordinate: world.game_time_coordinate, due_coordinate: trigger.due_coordinate,
+        });
+      }
+      const count = this.db.prepare('SELECT COUNT(*) AS count FROM world_time_triggers WHERE world_id=?').get(worldId).count;
+      if (count >= 10000) {
+        throw new EngineError('TIME_TRIGGER_LIMIT', 'A world cannot register more than 10000 time triggers in this runtime slice.', 409);
+      }
+      const currentPayloadBytes = this.db.prepare('SELECT COALESCE(SUM(length(CAST(payload_json AS BLOB))),0) AS bytes FROM world_time_triggers WHERE world_id=?').get(worldId).bytes;
+      const incomingPayloadBytes = Buffer.byteLength(enc(trigger.payload), 'utf8');
+      if (currentPayloadBytes + incomingPayloadBytes > 33554432) {
+        throw new EngineError('TIME_TRIGGER_STORAGE_LIMIT', 'A world cannot store more than 32 MiB of durable trigger payloads in this runtime slice.', 409);
+      }
+      const nextRevision = world.world_revision + 1;
+      const stamp = now();
+      this.db.prepare(`INSERT INTO world_time_triggers(
+        world_id,trigger_id,due_coordinate,status,dependencies_json,read_set_json,write_set_json,
+        processing_mode,interrupt_after_coordinate,payload_json,content_hash,claimed_by_operation_id,
+        completed_operation_id,cancellation_reason,created_revision,created_at,updated_at
+      ) VALUES(?,?,?,'pending',?,?,?,?,?,?,?,NULL,NULL,NULL,?,?,?)`).run(
+        worldId, trigger.trigger_id, trigger.due_coordinate,
+        enc(trigger.dependencies), enc(trigger.read_set), enc(trigger.write_set),
+        trigger.processing_mode, trigger.interrupt_after_coordinate ? 1 : 0, enc(trigger.payload),
+        trigger.content_hash, nextRevision, stamp, stamp,
+      );
+      this.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(nextRevision, worldId);
+      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run(worldId, nextRevision, 'time.trigger.registered', trigger.trigger_id, enc({
+          due_coordinate: trigger.due_coordinate,
+          content_hash: trigger.content_hash,
+          processing_mode: trigger.processing_mode,
+          dependency_count: trigger.dependencies.length,
+          interrupt_after_coordinate: trigger.interrupt_after_coordinate,
+        }), stamp);
+      return { ...timeTrigger(this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+        .get(worldId, trigger.trigger_id)), idempotent_replay: false };
+    });
+  }
+
+  cancelTimeTrigger(worldId, triggerId, reason) {
+    return this.tx(() => {
+      const world = this.world(worldId);
+      if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const row = this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+        .get(worldId, triggerId);
+      if (!row) throw new EngineError('TIME_TRIGGER_NOT_FOUND', 'Time trigger not found.', 404);
+      if (row.status === 'cancelled') return { ...timeTrigger(row), idempotent_replay: true };
+      if (row.status === 'completed') {
+        throw new EngineError('TIME_TRIGGER_ALREADY_COMPLETED', 'A completed time trigger cannot be cancelled.', 409);
+      }
+      if (row.claimed_by_operation_id) {
+        const operation = this.db.prepare('SELECT status FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+          .get(worldId, row.claimed_by_operation_id);
+        if (operation?.status === 'running') {
+          throw new EngineError('TIME_TRIGGER_CLAIMED', 'A trigger claimed by a running time-advance operation cannot be cancelled.', 409, {
+            trigger_id: triggerId, operation_id: row.claimed_by_operation_id,
+          });
+        }
+      }
+      const nextRevision = world.world_revision + 1;
+      const stamp = now();
+      this.db.prepare(`UPDATE world_time_triggers SET status='cancelled',claimed_by_operation_id=NULL,
+        cancellation_reason=?,updated_at=? WHERE world_id=? AND trigger_id=?`)
+        .run(reason, stamp, worldId, triggerId);
+      this.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(nextRevision, worldId);
+      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run(worldId, nextRevision, 'time.trigger.cancelled', triggerId, enc({
+          reason, previous_claimed_by_operation_id: row.claimed_by_operation_id,
+        }), stamp);
+      return { ...timeTrigger(this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+        .get(worldId, triggerId)), idempotent_replay: false };
+    });
+  }
+
+  registerTimeConfiguration(worldId, config) {
+    return this.tx(() => {
+      const worldAtStart = this.world(worldId);
+      if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (config.world_pack_id !== worldAtStart.world_pack_id
+        || config.world_pack_version !== worldAtStart.world_pack_version) {
+        throw new EngineError('TIME_CONFIG_WORLD_PACK_MISMATCH', 'Time configuration must match the world\'s pinned World Pack ID and version.', 409);
+      }
+      const existing = this.db.prepare('SELECT * FROM world_time_configurations WHERE world_id=? AND version=?')
+        .get(worldId, config.version);
+      const activeConfig = worldAtStart.time_config_version
+        ? this.getTimeConfiguration(worldId, worldAtStart.time_config_version)
+        : null;
+      const eventCount = this.db.prepare('SELECT COUNT(*) AS count FROM world_events WHERE world_id=?').get(worldId).count;
+      if (!activeConfig && eventCount > 0) {
+        throw new EngineError('TIME_CONFIG_INITIALIZATION_REQUIRES_AUTHOR_POLICY', 'Initializing a calendar after world history exists requires an explicit author rebase policy.', 409);
+      }
+      if (activeConfig && activeConfig.version !== config.version) {
+        const mapping = (calendar) => ({
+          calendar_id: calendar.calendar_id,
+          day_length_ms: calendar.day_length_ms,
+          weekdays: calendar.weekdays,
+          year_cycle: calendar.year_cycle,
+          epoch: calendar.epoch,
+        });
+        const oldMapping = hashRequest(mapping(activeConfig.calendar_definition));
+        const newMapping = hashRequest(mapping(config.calendar_definition));
+        if (oldMapping !== newMapping && eventCount > 0) {
+          throw new EngineError('CALENDAR_REBASE_REQUIRES_AUTHOR_POLICY', 'Changing the calendar coordinate mapping after world history exists requires an explicit author rebase policy.', 409);
+        }
+      }
+      if (existing && existing.content_hash !== config.content_hash) {
+        throw new EngineError('TIME_CONFIG_VERSION_IMMUTABLE', 'A time configuration version cannot be overwritten with different content.', 409);
+      }
+      if (existing && worldAtStart.time_config_version === config.version) {
+        return this.publicTimeConfiguration(existing, true);
+      }
+      const nextRevision = worldAtStart.world_revision + 1;
+      const stamp = now();
+      if (!existing) {
+        this.db.prepare(`INSERT INTO world_time_configurations(
+          world_id,version,world_pack_id,world_pack_version,calendar_definition_json,time_policy_json,
+          content_hash,created_by,created_revision,created_at
+        ) VALUES(?,?,?,?,?,?,?,?,?,?)`).run(
+          worldId, config.version, config.world_pack_id, config.world_pack_version,
+          enc(config.calendar_definition), enc(config.time_policy), config.content_hash,
+          config.created_by, nextRevision, stamp,
+        );
+      }
+      this.db.prepare('UPDATE worlds SET time_config_version=?,world_revision=? WHERE world_id=?')
+        .run(config.version, nextRevision, worldId);
+      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run(worldId, nextRevision, 'time.configuration.activated', config.version, enc({
+          world_pack_id: config.world_pack_id,
+          world_pack_version: config.world_pack_version,
+          calendar_id: config.calendar_definition.calendar_id,
+          calendar_version: config.calendar_definition.version,
+          policy_id: config.time_policy.policy_id,
+          policy_version: config.time_policy.version,
+          content_hash: config.content_hash,
+          created_by: config.created_by,
+        }), stamp);
+      return this.getTimeConfiguration(worldId, config.version);
+    });
+  }
+
+  getTimeConfiguration(worldId, version = null) {
+    const worldAtStart = this.world(worldId);
+    if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    const selectedVersion = version ?? worldAtStart.time_config_version;
+    if (selectedVersion === null || selectedVersion === undefined) return null;
+    const row = this.db.prepare('SELECT * FROM world_time_configurations WHERE world_id=? AND version=?')
+      .get(worldId, selectedVersion);
+    if (!row) throw new EngineError('TIME_CONFIG_NOT_FOUND', 'Time configuration version not found for this world.', 404);
+    return this.publicTimeConfiguration(row, worldAtStart.time_config_version === row.version);
+  }
+
+  publicTimeConfiguration(row, active = false) {
+    return {
+      world_id: row.world_id,
+      version: row.version,
+      world_pack_id: row.world_pack_id,
+      world_pack_version: row.world_pack_version,
+      calendar_definition: dec(row.calendar_definition_json),
+      time_policy: dec(row.time_policy_json),
+      content_hash: row.content_hash,
+      created_by: row.created_by,
+      created_revision: row.created_revision,
+      created_at: row.created_at,
+      active,
+    };
   }
 
   rollback(id, rootId, key, requestHash) {

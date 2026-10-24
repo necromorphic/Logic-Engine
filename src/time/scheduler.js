@@ -1,0 +1,333 @@
+/**
+ * Pure due-work planner for Logic-Engine T4.
+ *
+ * This module plans work over canonical coordinates only. It does not read or
+ * write storage, advance time, execute effects, or grant NPC knowledge.
+ */
+
+import { TemporalModelError } from './model.js';
+
+function fail(code, message, details = undefined) {
+  const error = new TemporalModelError(code, message);
+  if (details !== undefined) error.details = details;
+  throw error;
+}
+
+function safeInteger(value, name) {
+  if (!Number.isSafeInteger(value)) fail('INVALID_INTEGER', name + ' must be a safe integer.');
+  return value;
+}
+
+function nonEmptyString(value, name) {
+  if (typeof value !== 'string' || !value.trim() || value.trim().length > 200) {
+    fail('INVALID_STRING', name + ' must be a non-empty string of at most 200 characters.');
+  }
+  return value.trim();
+}
+
+function stringSet(value, name, max = 1000) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value) || value.length > max) fail('INVALID_REFERENCE_LIST', name + ' must be an array with at most ' + max + ' entries.');
+  const normalized = value.map((item, index) => nonEmptyString(item, name + '[' + index + ']'));
+  if (new Set(normalized).size !== normalized.length) fail('DUPLICATE_REFERENCE', name + ' cannot contain duplicate entries.');
+  return normalized.sort();
+}
+
+function cloneJson(value, name) {
+  let encoded;
+  try { encoded = JSON.stringify(value); } catch {}
+  if (encoded === undefined) fail('INVALID_TRIGGER_PAYLOAD', name + ' must be JSON-serializable.');
+  try { return JSON.parse(encoded); } catch { fail('INVALID_TRIGGER_PAYLOAD', name + ' must be JSON-serializable.'); }
+}
+
+function validateReferenceKinds(values, name, allowMechanic) {
+  const supported = allowMechanic
+    ? ['entity:', 'fact:', 'relationship:', 'mechanic:']
+    : ['entity:', 'fact:', 'relationship:'];
+  for (const value of values) {
+    if (!supported.some((prefix) => value.startsWith(prefix) && value.length > prefix.length)) {
+      fail('INVALID_TRIGGER_REFERENCE', name + ' contains an unsupported projection reference: ' + value);
+    }
+  }
+  return values;
+}
+
+function intersects(left, right) {
+  for (const value of left) if (right.has(value)) return value;
+  return null;
+}
+
+function compareTriggers(a, b) {
+  return a.due_coordinate < b.due_coordinate ? -1
+    : a.due_coordinate > b.due_coordinate ? 1
+      : a.trigger_id < b.trigger_id ? -1 : a.trigger_id > b.trigger_id ? 1 : 0;
+}
+
+function heapPush(heap, value) {
+  let index = heap.length;
+  heap.push(value);
+  while (index > 0) {
+    const parent = Math.floor((index - 1) / 2);
+    if (compareTriggers(heap[parent], value) <= 0) break;
+    heap[index] = heap[parent];
+    index = parent;
+  }
+  heap[index] = value;
+}
+
+function heapPop(heap) {
+  const root = heap[0];
+  const last = heap.pop();
+  if (heap.length && last !== undefined) {
+    let index = 0;
+    while (true) {
+      const left = index * 2 + 1;
+      const right = left + 1;
+      if (left >= heap.length) break;
+      let child = left;
+      if (right < heap.length && compareTriggers(heap[right], heap[left]) < 0) child = right;
+      if (compareTriggers(last, heap[child]) <= 0) break;
+      heap[index] = heap[child];
+      index = child;
+    }
+    heap[index] = last;
+  }
+  return root;
+}
+
+export function normalizeTimeTrigger(input, worldId) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) fail('INVALID_TRIGGER', 'Every trigger must be an object.');
+  const trigger = {
+    trigger_id: nonEmptyString(input.trigger_id, 'trigger_id'),
+    world_id: nonEmptyString(input.world_id, 'world_id'),
+    due_coordinate: safeInteger(input.due_coordinate, 'due_coordinate'),
+    status: input.status ?? 'pending',
+    dependencies: stringSet(input.dependencies, 'dependencies'),
+    read_set: validateReferenceKinds(stringSet(input.read_set, 'read_set'), 'read_set', false),
+    write_set: validateReferenceKinds(stringSet(input.write_set, 'write_set'), 'write_set', true),
+    processing_mode: input.processing_mode ?? 'exact',
+    interrupt_after_coordinate: input.interrupt_after_coordinate ?? false,
+    payload: cloneJson(input.payload ?? null, 'payload'),
+  };
+  if (trigger.world_id !== worldId) fail('CROSS_WORLD_TRIGGER', 'A due-work plan cannot mix triggers from different worlds.', { trigger_id: trigger.trigger_id });
+  if (!['pending', 'completed', 'cancelled'].includes(trigger.status)) fail('INVALID_TRIGGER_STATUS', 'Trigger status must be pending, completed, or cancelled.');
+  if (!['exact', 'batch'].includes(trigger.processing_mode)) fail('INVALID_PROCESSING_MODE', 'processing_mode must be exact or batch.');
+  if (typeof trigger.interrupt_after_coordinate !== 'boolean') fail('INVALID_INTERRUPT_POLICY', 'interrupt_after_coordinate must be boolean.');
+  return trigger;
+}
+
+function buildDependencyOrder(due, allById, completedIds) {
+  const dueIds = new Set(due.map((trigger) => trigger.trigger_id));
+  const dependencies = new Map();
+  const dependents = new Map();
+  const blocked = [];
+
+  for (const trigger of due) {
+    const required = [];
+    for (const dependencyId of trigger.dependencies) {
+      if (completedIds.has(dependencyId)) continue;
+      const dependency = allById.get(dependencyId);
+      if (!dependency) {
+        blocked.push({ trigger_id: trigger.trigger_id, dependency_id: dependencyId, reason: 'missing_dependency' });
+        continue;
+      }
+      if (dependency.status === 'completed') continue;
+      if (dependency.status === 'cancelled') {
+        blocked.push({ trigger_id: trigger.trigger_id, dependency_id: dependencyId, reason: 'dependency_cancelled' });
+        continue;
+      }
+      if (dependency.due_coordinate > trigger.due_coordinate) {
+        fail('CAUSAL_TIME_ORDER_CONFLICT', 'A trigger cannot depend on work scheduled later in game time.', {
+          trigger_id: trigger.trigger_id, dependency_id: dependencyId,
+        });
+      }
+      if (!dueIds.has(dependencyId)) {
+        blocked.push({ trigger_id: trigger.trigger_id, dependency_id: dependencyId, reason: 'dependency_not_due_in_interval' });
+        continue;
+      }
+      required.push(dependencyId);
+      const children = dependents.get(dependencyId) || [];
+      children.push(trigger.trigger_id);
+      dependents.set(dependencyId, children);
+    }
+    dependencies.set(trigger.trigger_id, required);
+  }
+  if (blocked.length) return { blocked, ordered: [], dependencies };
+
+  const degree = new Map([...dependencies].map(([id, refs]) => [id, refs.length]));
+  const ready = [];
+  for (const trigger of due) if (degree.get(trigger.trigger_id) === 0) heapPush(ready, trigger);
+  const ordered = [];
+
+  while (ready.length) {
+    const next = heapPop(ready);
+    ordered.push(next);
+    for (const childId of dependents.get(next.trigger_id) || []) {
+      degree.set(childId, degree.get(childId) - 1);
+      if (degree.get(childId) === 0) heapPush(ready, allById.get(childId));
+    }
+  }
+  if (ordered.length !== due.length) fail('TRIGGER_DEPENDENCY_CYCLE', 'Due trigger dependencies contain a cycle.');
+  return { blocked: [], ordered, dependencies };
+}
+
+function segmentAtCoordinate(triggers, dependencies) {
+  const segments = [];
+  let current = [];
+  let currentIds = new Set();
+  let currentReads = new Set();
+  let currentWrites = new Set();
+  const priorWriters = new Map();
+  const priorReaders = new Map();
+
+  const close = () => {
+    if (current.length) {
+      segments.push({
+        due_coordinate: current[0].due_coordinate,
+        trigger_ids: current.map((trigger) => trigger.trigger_id),
+        triggers: current.map((trigger) => ({
+          trigger_id: trigger.trigger_id,
+          processing_mode: trigger.processing_mode,
+          payload: trigger.payload,
+          interrupt_after_coordinate: trigger.interrupt_after_coordinate,
+        })),
+      });
+    }
+    current = [];
+    currentIds = new Set();
+    currentReads = new Set();
+    currentWrites = new Set();
+  };
+
+  const directlyOrdered = (leftId, rightId) => (dependencies.get(leftId) || []).includes(rightId)
+    || (dependencies.get(rightId) || []).includes(leftId);
+  const assertNoUnorderedConflict = (trigger, reference, existingId) => {
+    if (!directlyOrdered(trigger.trigger_id, existingId)) {
+      fail('TRIGGER_CONFLICT_NEEDS_REVIEW', 'Same-coordinate triggers conflict without an explicit direct dependency order.', {
+        trigger_ids: [existingId, trigger.trigger_id], reference,
+      });
+    }
+  };
+
+  for (const trigger of triggers) {
+    for (const ref of trigger.write_set) {
+      for (const existingId of priorWriters.get(ref) || []) assertNoUnorderedConflict(trigger, ref, existingId);
+      for (const existingId of priorReaders.get(ref) || []) assertNoUnorderedConflict(trigger, ref, existingId);
+    }
+    for (const ref of trigger.read_set) {
+      for (const existingId of priorWriters.get(ref) || []) assertNoUnorderedConflict(trigger, ref, existingId);
+    }
+
+    const dependsOnCurrent = (dependencies.get(trigger.trigger_id) || []).some((dependencyId) => currentIds.has(dependencyId));
+    if (dependsOnCurrent) close();
+
+    const conflict = intersects(trigger.write_set, currentWrites)
+      || intersects(trigger.write_set, currentReads)
+      || intersects(trigger.read_set, currentWrites);
+    if (conflict) {
+      fail('TRIGGER_CONFLICT_NEEDS_REVIEW', 'Triggers at the same coordinate conflict without a declared dependency boundary.', {
+        trigger_ids: [...current.map((item) => item.trigger_id), trigger.trigger_id],
+        reference: conflict,
+      });
+    }
+
+    current.push(trigger);
+    currentIds.add(trigger.trigger_id);
+    for (const ref of trigger.read_set) {
+      currentReads.add(ref);
+      const readers = priorReaders.get(ref) || [];
+      readers.push(trigger.trigger_id);
+      priorReaders.set(ref, readers);
+    }
+    for (const ref of trigger.write_set) {
+      currentWrites.add(ref);
+      const writers = priorWriters.get(ref) || [];
+      writers.push(trigger.trigger_id);
+      priorWriters.set(ref, writers);
+    }
+  }
+  close();
+  return segments;
+}
+
+/**
+ * Plan due triggers on (from_coordinate, to_coordinate]. This is planning only:
+ * returned segments are proposals and must be committed through Core.
+ */
+export function planDueWork(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) fail('INVALID_DUE_WORK_REQUEST', 'Due-work request must be an object.');
+  const worldId = nonEmptyString(input.world_id, 'world_id');
+  const from = safeInteger(input.from_coordinate, 'from_coordinate');
+  const to = safeInteger(input.to_coordinate, 'to_coordinate');
+  if (to < from) fail('REVERSED_INTERVAL', 'Due-work interval end must not precede its start.');
+  if (!Array.isArray(input.triggers) || input.triggers.length > 10000) fail('INVALID_TRIGGER_LIST', 'triggers must be an array of at most 10000 entries.');
+  const completedIds = new Set(stringSet(input.completed_trigger_ids, 'completed_trigger_ids', 10000));
+  const triggers = input.triggers.map((trigger) => normalizeTimeTrigger(trigger, worldId));
+  const allById = new Map();
+  for (const trigger of triggers) {
+    if (allById.has(trigger.trigger_id)) fail('DUPLICATE_TRIGGER_ID', 'Trigger IDs must be unique.');
+    allById.set(trigger.trigger_id, trigger);
+    if (completedIds.has(trigger.trigger_id) && trigger.status !== 'completed') {
+      fail('CONFLICTING_TRIGGER_STATUS', 'A trigger cannot be listed as completed and also have a non-completed status.', { trigger_id: trigger.trigger_id, status: trigger.status });
+    }
+  }
+
+  const allDue = triggers.filter((trigger) => trigger.status === 'pending'
+    && trigger.due_coordinate > from && trigger.due_coordinate <= to);
+  const interruptCoordinates = allDue.filter((trigger) => trigger.interrupt_after_coordinate).map((trigger) => trigger.due_coordinate);
+  const firstInterruptCoordinate = interruptCoordinates.length ? Math.min(...interruptCoordinates) : null;
+  const due = firstInterruptCoordinate === null
+    ? allDue
+    : allDue.filter((trigger) => trigger.due_coordinate <= firstInterruptCoordinate);
+  const dependencyPlan = buildDependencyOrder(due, allById, completedIds);
+  if (dependencyPlan.blocked.length) {
+    return {
+      status: 'blocked',
+      world_id: worldId,
+      from_coordinate: from,
+      to_coordinate: to,
+      segments: [],
+      blocked: dependencyPlan.blocked,
+      planned_until_coordinate: from,
+      stop_coordinate: null,
+    };
+  }
+
+  const byCoordinate = new Map();
+  for (const trigger of dependencyPlan.ordered) {
+    const items = byCoordinate.get(trigger.due_coordinate) || [];
+    items.push(trigger);
+    byCoordinate.set(trigger.due_coordinate, items);
+  }
+
+  const segments = [];
+  const coordinates = [...byCoordinate.keys()].sort((a, b) => a - b);
+  let stopCoordinate = null;
+  for (const coordinate of coordinates) {
+    const atCoordinate = byCoordinate.get(coordinate);
+    segments.push(...segmentAtCoordinate(atCoordinate, dependencyPlan.dependencies));
+    if (atCoordinate.some((trigger) => trigger.interrupt_after_coordinate)) {
+      stopCoordinate = coordinate;
+      break;
+    }
+  }
+
+  const plannedUntil = stopCoordinate ?? to;
+  const plannedIds = new Set(segments.flatMap((segment) => segment.trigger_ids));
+  const remainingTriggerIds = allDue
+    .filter((trigger) => !plannedIds.has(trigger.trigger_id))
+    .map((trigger) => trigger.trigger_id)
+    .sort();
+
+  return {
+    status: stopCoordinate === null ? 'planned' : 'interrupted',
+    world_id: worldId,
+    from_coordinate: from,
+    to_coordinate: to,
+    segments,
+    blocked: [],
+    planned_until_coordinate: plannedUntil,
+    stop_coordinate: stopCoordinate,
+    remaining_trigger_ids: remainingTriggerIds,
+  };
+}
