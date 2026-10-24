@@ -378,3 +378,10 @@ It closes authoring-level specification gaps without claiming implementation:
 - an author-requested future outcome remains distinct from a committed event.
 
 The ten cases NPC-AUTH-001–010 are mapped in `docs/35-npc-test-boundary-map.md`. Cases needing an editor, actor-relative filter, core acquisition/belief records, approved card projection, or author-intent arbitration remain blocked until those real production boundaries exist. No mocks, runtime code, API/schema/storage changes, or core changes were added.
+
+
+## 22. Multi-step causal rollback/reconciliation gate — 2026-10-24
+
+`docs/47-npc-causal-rollback-reconciliation-test-matrix.md` defines NPC-CAUSE-001–008, including the important sequence where a new source is committed only after an earlier rollback and reconciliation have completed. This sequence must be tested as separate production operations with state and snapshot markers recorded between steps; a single batch test can conceal stale-state and resurrection defects.
+
+The test-boundary map in `docs/35-npc-test-boundary-map.md` marks these cases blocked. This is intentional: current `caused_by` / `depends_on` must not be assumed to express alternative-support sufficiency. Independent support, source deduplication, knowledge-source reconciliation, deterministic replay, and actual authorized consumer refresh need core-owned semantics and real production-path evidence. No NPC-local causal graph, rollback journal, or knowledge store may be introduced to bypass these gates.
