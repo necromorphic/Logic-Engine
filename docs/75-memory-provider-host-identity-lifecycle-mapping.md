@@ -110,3 +110,61 @@ The current draft raw archive uses the composite identity `(world_id, conversati
 - Production Memory→NPC: **DISABLED / FAIL-CLOSED**.
 
 This note deliberately does not introduce field names, APIs, routes, callbacks, schemas, stores, cursors, outboxes, or lifecycle hooks beyond the behavior already present in the draft Provider code. It is a reviewable mapping and decision request, not approval to wire production traffic.
+
+
+## 9. Joint Host + Provider mapping after Core decision (24 Oct 2026)
+
+**Decision source:** Core's conditional approval in [Host issue #258 comment 6388015762](https://github.com/necromorphic/Logic-Engine/issues/258#issuecomment-6388015762). This section is the shared semantic mapping addendum for review alongside the Host evidence in [PR #259](https://github.com/necromorphic/Logic-Engine/pull/259). It does not approve concrete runtime fields or production wiring.
+
+Status labels below are intentionally exact:
+- **APPROVED SEMANTIC MAPPING** — Core approved the meaning of the mapping, conditional on trusted Host identity/scope; this is not schema/API approval.
+- **PROPOSED CONTRACT** — minimum semantic contract Host + Provider propose for explicit Core review.
+- **BLOCKED** — current code/evidence cannot establish the guarantee.
+
+| ST source / event evidence | Provider operation and key | Consequence | Status / required decision |
+|---|---|---|---|
+| Logical message object; native array index is mutable | captureRawMessage key component message_id | One logical source groups its immutable versions; array position never becomes identity | **APPROVED SEMANTIC MAPPING** for meaning; **PROPOSED CONTRACT** for Host field creation, persistence, migration and collision behavior |
+| A swipe/version in swipes[]; native swipe_id is an array position | captureRawMessage key component version_id | Every immutable output has a distinct key; selecting a swipe does not create a new identity | **APPROVED SEMANTIC MAPPING** for meaning; **PROPOSED CONTRACT** for durable Host-owned ID placement/serialization |
+| Approved world + conversation scope | world_id, conversation_id in the existing composite Provider key | Prevent silent cross-world/chat rebind | **BLOCKED** until Core approves trusted world/session binding and Host supplies durable conversation identity; names supplied by a caller are not authority |
+| Select an existing swipe | selectActiveRawVersion for the exact approved tuple/version | Pointer changes only; alternatives remain retained | **APPROVED SEMANTIC MAPPING**; actual event-to-version handoff remains **BLOCKED** until stable IDs exist |
+| Edit an existing message | Candidate: capture a new immutable version_id under the same logical message_id | Preserve prior bytes; link new version to its predecessor | **PROPOSED CONTRACT**; Core + Host + Provider must approve edit-as-new-version and explicit parent-lineage representation. Metadata JSON alone is not lineage proof |
+| Delete one swipe/version, identity captured before ST array mutation | markRawSourceDeleted for that exact version | Reversible tombstone; invalidate registered Provider-local dependent copies | **APPROVED SEMANTIC MAPPING**; runtime target capture is **BLOCKED** until Host proves durable IDs and pre-mutation signal |
+| Delete whole logical message/chat | Repeated exact-version tombstones only if the complete affected set is authoritatively known | Must retract every retained historical version, not only currently visible swipes | **BLOCKED**: no current Provider method proves exhaustive raw-version enumeration or atomic whole-message deletion |
+| Permanent purge | purgeRawSource | Physical deletion only within its documented Provider scope | **APPROVED SEMANTIC DISTINCTION**: never map ordinary ST delete to permanent purge; retention/purge authorization remains separate and unapproved |
+| Duplicate event/replay | captureRawMessage with identical composite key/payload; existing tombstone operation for the same exact target | Identical capture is idempotent; same key/different payload conflicts; replay does not silently rebind identity | **APPROVED SEMANTIC MAPPING**, limited to Provider-local behavior and tests at the exact reviewed head; Host replay completeness remains unproven |
+| Branch/copy/import/restore and legacy records | No new Provider operation is implied; existing conflict checks apply to supplied keys | Preserve identity only for the same logical source; independent copies need approved remapping; no auto-trust for legacy records | **PROPOSED CONTRACT**; Core + Host approve preservation/remapping/backfill/ancestry rules before capture |
+| Restart/replay inventory and whole-source currentness | Existing Provider local enumeration/reconciliation only; reconcile(worldId) concerns canonical-entity records, not completeness of memory_raw_captures | Provider-local row count cannot prove Host-source completeness or missed-event absence | **BLOCKED**: no approved complete/current Host raw-source inventory boundary exists |
+| Source currentness, rollback and disclosure-time revocation | Existing Provider validation callbacks are dependency seams, not proof of Core authority | Stale/unknown source and uncertain revocation remain withheld | **BLOCKED** until Core approves a real source-specific revalidation and final disclosure boundary; fixture callbacks are not positive production evidence |
+
+### Minimum concrete contract delta required before implementation
+
+This is the smallest set of owner decisions/evidence needed to turn the semantic mapping into an implementable contract. No field names or APIs are prescribed here.
+
+1. **Host identity and persistence (Host + Core):** choose the persisted location and creation point for logical-message and immutable-version IDs; prove survival through save/load/replay; define migration for old chats and ID collision behavior for branch/copy/import/restore. Host must report the exact before-mutation identity for deletion.
+2. **Version lineage and generation completion (Host + Provider + Core):** decide whether edits create immutable new versions; define an explicit predecessor/ancestry representation; define when a generated version is complete versus cancelled/partial. Do not infer lineage from arbitrary metadata or infer completion from event presence alone.
+3. **World/conversation binding (Core + Host):** identify the existing authoritative evidence that binds captured data to a Core world/session and a durable conversation. If no verified evidence exists for a source class, classify it unverifiable and fail closed.
+4. **Complete inventory/reconciliation (Core + Host; Provider implements only after approval):** specify source domain, consistency boundary, proof of complete enumeration, detection of truncation/pagination/failure/concurrent mutation, and distinction between complete-empty and unavailable/partial. No currently inspected Provider operation proves this for raw ST captures.
+5. **Deletion/retraction completeness (Host + Provider + Core):** define exact-version tombstone and the authoritative full affected-version set for whole-message deletion. Repeated delivery must be idempotent; unknown or incomplete affected sets remain withheld. Permanent purge remains a separate retention decision.
+6. **Restart, rollback and final disclosure (Core + Provider + Host/disclosure owner):** define what invalidates prior reconciliation, how rollback is detected, and the final authorization/revocation boundary including in-flight disclosure semantics. Currentness flags and injected callbacks alone are insufficient.
+
+### Joint acceptance matrix and evidence classification
+
+| Case | Existing evidence | Acceptance required before production |
+|---|---|---|
+| Capture duplicate after Provider restart | **FIXTURE-TESTED / Provider-local** in draft tests; not Host-integrated | Real pinned ST event with durable IDs → approved handoff → Provider reopen; exact replay is duplicate |
+| Same tuple, different payload | **FIXTURE-TESTED / Provider-local** conflict test | Real adapter collision is rejected; no overwrite/rebind |
+| Create/select/delete swipe and reindex | **SOURCE-INSPECTED** in pinned ST; limited event families **RUNTIME-OBSERVED** in existing samples | **NOT TESTED**: persisted IDs before/after on Android/Termux, pre-mutation exact target, restart persistence |
+| Edit and parent lineage | **SOURCE-INSPECTED**; no durable prior/next revision relation established | **NOT TESTED**: approved immutable revision + predecessor survives reload and is validated |
+| Delete whole message/chat | **SOURCE-INSPECTED**: current event does not identify deleted object; Provider cannot prove complete version set | **NOT TESTED / BLOCKED** until complete affected-version inventory is available and all tombstones survive restart |
+| Cancel/stop/regenerate | Existing events are insufficient to prove final persisted version and lineage | **NOT TESTED**: incomplete output is excluded; completed regeneration has a distinct durable version and approved ancestry |
+| Branch/copy/import/restore/legacy | No complete collision/backfill proof | **NOT TESTED**: preservation vs remapping is explicit; ambiguous ancestry and legacy IDs fail closed |
+| Complete inventory/restart/replay/rollback | Provider local reconciliation only; no raw Host inventory authority | **NOT TESTED / BLOCKED** until approved source inventory boundary detects omitted events, partial enumeration, concurrent mutation and rollback |
+| Revocation at final disclosure | Provider/Core seams and tests narrow selected races but do not establish cross-store atomicity | **NOT TESTED / BLOCKED** until Core selects a realizable final-boundary guarantee and real-path race tests pass |
+
+Evidence labels mean: **SOURCE-INSPECTED** = code path read, not executed; **FIXTURE-TESTED** = test uses controlled/injected inputs and proves only that component; **RUNTIME-OBSERVED** = actual host event shape seen in the cited samples; **REAL-RUNTIME-TESTED** = persisted before/after behavior reproduced against the pinned Android/Termux install. No row above claims a new real-runtime test.
+
+### Current joint verdict
+
+Core has approved the **semantic direction**, not a concrete runtime contract. Existing Provider operations can implement immutable capture, active-version pointer changes, exact-version tombstones, duplicate replay and collision rejection once trusted IDs/scope are supplied. They cannot create Host identity, prove ancestry, identify a deleted object from a post-splice index, prove the complete set of historical versions, or establish a complete/current Host inventory.
+
+**Next step:** Host + Provider owners review this same mapping and resolve items 1–6 above, then ask Core to approve the concrete delta before any cross-boundary implementation. Continue Provider-local tests and Host source/runtime evidence gathering independently. Until then, production Memory→NPC remains **DISABLED / FAIL-CLOSED**; no vectorization changes.
