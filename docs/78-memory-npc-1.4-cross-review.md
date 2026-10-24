@@ -1,7 +1,7 @@
 # Memory ↔ NPC 1.4 cross-review addendum
 
 **Owner:** Memory  
-**Related:** Issue #142, NPC Issue #149, NPC PRs #150/#151, Core decision register PR #133, merged Core evaluator-contract proposal PR #153, merged Relationships PR #145.  
+**Related:** Issue #142, NPC Issue #149, NPC PRs #150/#151, merged Core decision register PR #154 (supersedes #133), merged Core evaluator-contract proposal PR #153, merged Relationships PR #145.  
 **Status:** Documentation-only handoff. This does not approve an API/schema or enable production Memory → NPC.
 
 ## Evidence reviewed
