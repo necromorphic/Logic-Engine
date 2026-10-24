@@ -302,7 +302,7 @@ test("duplicate record/version is admitted once without text-based identity", ()
   const duplicate = candidate({ content: "different wording" });
   const result = evaluateMemoryCandidateAdmission(request, completeResult([first, duplicate]));
 
-  assert.equal(result.status, "partial");
+  assert.equal(result.status, "ready_with_exclusions");
   assert.equal(result.admitted.length, 1);
   assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
 });
