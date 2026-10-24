@@ -133,6 +133,11 @@ function transitionFromToken(state) {
 /**
  * Evaluate a proposed partial patch against explicit World Pack rules.
  *
+ * Input-shape precondition: records are ordinary objects (or null-prototype
+ * records) with own data properties; arrays are dense standard arrays with data
+ * elements. Accessor-backed and subclassed inputs are rejected. Proxy objects
+ * are outside this in-process domain contract and must not be supplied.
+ *
  * Required input:
  * - subjectId / targetId: opaque references already resolved by the caller.
  * - currentValues: effective values for this directed pair; absent keys are
