@@ -202,3 +202,33 @@ test('time coordinate migration fails closed on an unsafe legacy time span and c
   assert.equal(store.world('range-world').game_time_coordinate, 0);
   store.close();
 });
+
+
+test('failed trigger-registry migration rolls back its table and can be retried', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-trigger-migration-failure-'));
+  const path = join(directory, 'state.sqlite');
+  const initial = new SQLiteStore(path);
+  initial.close();
+
+  const setup = new DatabaseSync(path);
+  setup.exec(`
+    DROP TABLE world_time_triggers;
+    DELETE FROM schema_migrations WHERE version=9;
+    CREATE TRIGGER reject_migration_nine BEFORE INSERT ON schema_migrations
+      WHEN NEW.version=9 BEGIN SELECT RAISE(ABORT, 'injected migration nine failure'); END;
+  `);
+  setup.close();
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+
+  assert.throws(() => new SQLiteStore(path), /injected migration nine failure/);
+  const inspect = new DatabaseSync(path);
+  assert.equal(inspect.prepare('SELECT COUNT(*) AS count FROM schema_migrations WHERE version=9').get().count, 0);
+  assert.equal(inspect.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='world_time_triggers'").get().count, 0);
+  inspect.exec('DROP TRIGGER reject_migration_nine');
+  inspect.close();
+
+  const recovered = new SQLiteStore(path);
+  assert.equal(recovered.db.prepare('SELECT COUNT(*) AS count FROM schema_migrations WHERE version=9').get().count, 1);
+  assert.equal(recovered.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='world_time_triggers'").get().count, 1);
+  recovered.close();
+});
