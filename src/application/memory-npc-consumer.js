@@ -198,6 +198,12 @@ export class MemoryNpcConsumer {
         || !validId(candidate.record?.version)) {
         return nonReady('memory_candidate_invalid_or_scope_mismatch');
       }
+      // Every row must belong to the same provider snapshot, even if its
+      // source kind will later be excluded from NPC admission. Otherwise an
+      // inconsistent stale row could be silently filtered into ready-empty.
+      if (!sameSnapshot(candidate.snapshot, memoryResult.snapshot)) {
+        return nonReady('memory_snapshot_stale');
+      }
       if (candidate.content_kind === 'summary'
         || candidate.source?.kind !== 'canonical_entity'
         || !validId(candidate.source?.entity_id)) {
