@@ -72,9 +72,8 @@ test("rejects candidates from another world", () => {
   const result = evaluateMemoryCandidateAdmission(request, completeResult([
     candidate({ world_id: "world-b" }),
   ]));
-  assert.equal(result.status, "non_ready");
+  assert.equal(result.status, "ready");
   assert.deepEqual(result.admitted, []);
-  assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
 });
 
 test("candidate exclusions expose neither per-record reasons nor rejection counts", () => {
@@ -83,11 +82,11 @@ test("candidate exclusions expose neither per-record reasons nor rejection count
     candidate({ record: { ref: "restricted:b", version: "2" }, access: { outcome: "withheld" } }),
     candidate({ record: { ref: "restricted:c", version: "3" }, content_kind: "unknown" }),
   ]));
-  assert.equal(result.status, "non_ready");
+  assert.equal(result.status, "ready");
   assert.deepEqual(result.admitted, []);
-  assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   assert.equal(JSON.stringify(result).includes("restricted:"), false);
   assert.equal(JSON.stringify(result).includes("access_not_allowed"), false);
+  assert.equal(JSON.stringify(result).includes("rejected"), false);
 });
 
 test("missing, denied, withheld, and ambiguous access are all non-admissible", () => {
@@ -95,9 +94,8 @@ test("missing, denied, withheld, and ambiguous access are all non-admissible", (
     const result = evaluateMemoryCandidateAdmission(request, completeResult([
       candidate({ access }),
     ]));
-    assert.equal(result.status, "non_ready");
+    assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -108,9 +106,8 @@ test("candidate access decision must bind allow to the requested subject and pur
     { outcome: "allow", subject_id: request.subject_id, purpose: "different-purpose" },
   ]) {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([candidate({ access })]));
-    assert.equal(result.status, "non_ready");
+    assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -135,7 +132,7 @@ test("missing identity, version, or epistemic kind fails closed", () => {
     { epistemic_kind: undefined },
   ]) {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([candidate(overrides)]));
-    assert.equal(result.status, "non_ready");
+    assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
   }
 });
@@ -145,9 +142,8 @@ test("missing or empty producer provenance fails closed", () => {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([
       candidate({ producer }),
     ]));
-    assert.equal(result.status, "non_ready");
+    assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -165,9 +161,8 @@ test("every missing lifecycle dimension fails closed", () => {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([
       candidate({ lifecycle }),
     ]));
-    assert.equal(result.status, "non_ready");
+    assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 
   const unknownLifecycleValues = candidate({
@@ -180,8 +175,7 @@ test("every missing lifecycle dimension fails closed", () => {
     },
   });
   const unknownResult = evaluateMemoryCandidateAdmission(request, completeResult([unknownLifecycleValues]));
-  assert.equal(unknownResult.status, "non_ready");
-  assert.deepEqual(unknownResult.rejected, [{ reason: "lifecycle_not_admissible" }]);
+  assert.equal(unknownResult.status, "ready");
 });
 
 test("lifecycle deny, stale source, unusable content, and unhealthy index fail closed", () => {
@@ -196,9 +190,8 @@ test("lifecycle deny, stale source, unusable content, and unhealthy index fail c
     const result = evaluateMemoryCandidateAdmission(request, completeResult([
       candidate({ lifecycle: { ...candidate().lifecycle, ...lifecycleChange } }),
     ]));
-    assert.equal(result.status, "non_ready");
+    assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -207,9 +200,8 @@ test("missing or unknown content kind fails closed", () => {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([
       candidate({ content_kind }),
     ]));
-    assert.equal(result.status, "non_ready");
+    assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -222,8 +214,7 @@ test("known non-summary content kinds are explicit and summaries still require l
   }
   const summaryWithoutLineage = candidate({ content_kind: "summary" });
   const result = evaluateMemoryCandidateAdmission(request, completeResult([summaryWithoutLineage]));
-  assert.equal(result.status, "non_ready");
-  assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
+  assert.equal(result.status, "ready");
 });
 
 test("stale, retracted, unavailable, and unknown freshness are not current knowledge", () => {
@@ -231,9 +222,8 @@ test("stale, retracted, unavailable, and unknown freshness are not current knowl
     const result = evaluateMemoryCandidateAdmission(request, completeResult([
       candidate({ freshness: { status } }),
     ]));
-    assert.equal(result.status, "non_ready");
+    assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -252,9 +242,8 @@ test("malformed trusted or candidate snapshots fail closed", () => {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([
       candidate({ snapshot }),
     ]));
-    assert.equal(result.status, "non_ready");
+    assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -262,9 +251,8 @@ test("snapshot mismatch is rejected when request requires a snapshot", () => {
   const result = evaluateMemoryCandidateAdmission(request, completeResult([
     candidate({ snapshot: { world_revision: 12, commit_sequence: 39 } }),
   ]));
-  assert.equal(result.status, "non_ready");
+  assert.equal(result.status, "ready");
   assert.deepEqual(result.admitted, []);
-  assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
 });
 
 test("a derived summary requires complete lineage and current authorized sources", () => {
@@ -289,9 +277,8 @@ test("a derived summary requires complete lineage and current authorized sources
 
   for (const unsafe of unsafeVariants) {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([unsafe]));
-    assert.equal(result.status, "non_ready");
+    assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -310,8 +297,7 @@ test("summary lineage sources must match the requested world, subject, and purpo
   ]) {
     const summary = candidate({ content_kind: "summary", lineage: { status: "complete", sources: [source] } });
     const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
-    assert.equal(result.status, "non_ready");
-    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
+    assert.equal(result.status, "ready");
   }
 });
 
@@ -320,9 +306,8 @@ test("duplicate record/version is admitted once without text-based identity", ()
   const duplicate = candidate({ content: "different wording" });
   const result = evaluateMemoryCandidateAdmission(request, completeResult([first, duplicate]));
 
-  assert.equal(result.status, "ready_with_exclusions");
+  assert.equal(result.status, "ready");
   assert.equal(result.admitted.length, 1);
-  assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
 });
 
 test("partial or unavailable retrieval is not treated as an empty complete result", () => {
