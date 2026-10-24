@@ -203,6 +203,111 @@ test('invalid mixed patch commits nothing and idempotent retry does not duplicat
   }
 });
 
+test('clear remains distinct from unset and rollback restores the previous surviving value', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    const first = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed));
+    const clear = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+      patch: { trust: { operation: 'clear' } },
+      expected_revision: 2,
+      expected_commit_sequence: 2,
+      idempotency_key: 'relationship-clear-1',
+    }));
+    assert.equal(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust.status, 'cleared');
+    const rollback = engine.rollbackEvent('world-relationship-test', {
+      root_event_id: clear.event_id,
+      idempotency_key: 'rollback-relationship-clear',
+    });
+    assert.deepEqual(rollback.invalidated_event_ids, [clear.event_id]);
+    assert.equal(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
+    assert.ok(first.event_id);
+  } finally {
+    store.close();
+  }
+});
+
+test('rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    assert.throws(
+      () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, { rule_module_version: '9.9.9' })),
+      (error) => error.code === 'RELATIONSHIP_RULE_VERSION_NOT_FOUND',
+    );
+
+    engine.createWorld({
+      world_id: 'world-relationship-other',
+      world_pack_id: 'test-pack',
+      world_pack_version: '1.0.0',
+      game_time: '2005-12-29T12:00:00.000Z',
+    });
+    engine.commitEvent('world-relationship-other', {
+      idempotency_key: 'other-world-entity',
+      turn_id: 'other-world-entity',
+      event_type: 'entity.create',
+      expected_revision: 0,
+      effects: [{ kind: 'entity.create', entity_id: 'C', entity_type: 'character' }],
+    });
+    assert.throws(
+      () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, { target_id: 'C' })),
+      (error) => error.code === 'RELATIONSHIP_PARTICIPANT_NOT_ELIGIBLE',
+    );
+
+    const evidence = engine.commitEvent('world-relationship-test', {
+      idempotency_key: 'relationship-evidence-event',
+      turn_id: 'relationship-evidence-event',
+      event_type: 'evidence.note',
+      expected_revision: 1,
+      effects: [],
+    });
+    engine.rollbackEvent('world-relationship-test', {
+      root_event_id: evidence.event_id,
+      idempotency_key: 'rollback-evidence-event',
+    });
+    assert.throws(
+      () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+        expected_revision: 3,
+        expected_commit_sequence: 2,
+        evidence_refs: ['event:' + evidence.event_id],
+      })),
+      (error) => error.code === 'RELATIONSHIP_EVIDENCE_NOT_ELIGIBLE',
+    );
+    assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+    assert.equal(engine.getState('world-relationship-test').world_revision, 3);
+  } finally {
+    store.close();
+  }
+});
+
+test('projection and idempotency persistence failures roll back Relationship event, state, revision and audit', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    const request = transitionRequest(seed);
+    const originalRebuild = store.rebuild;
+    store.rebuild = () => { throw new Error('injected relationship projection failure'); };
+    assert.throws(() => engine.commitRelationshipTransition('world-relationship-test', request), /injected relationship projection failure/);
+    store.rebuild = originalRebuild;
+    assert.equal(engine.getEvents('world-relationship-test').length, 1);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 1);
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+
+    const originalSaveReplay = store.saveReplay;
+    store.saveReplay = () => { throw new Error('injected relationship idempotency persistence failure'); };
+    assert.throws(() => engine.commitRelationshipTransition('world-relationship-test', request), /injected relationship idempotency persistence failure/);
+    store.saveReplay = originalSaveReplay;
+    assert.equal(engine.getEvents('world-relationship-test').length, 1);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 1);
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+
+    const result = engine.commitRelationshipTransition('world-relationship-test', request);
+    assert.equal(result.accepted, true);
+    assert.equal(engine.getEvents('world-relationship-test').length, 2);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 2);
+    assert.equal(engine.getAudit('world-relationship-test').filter((entry) => entry.target_id === result.event_id && entry.action === 'event.committed').length, 1);
+  } finally {
+    store.close();
+  }
+});
+
 test('rollback invalidates later transition dependent on the same directed pair and rebuilds surviving state', async () => {
   const { store, engine, seed } = await fixture();
   try {
