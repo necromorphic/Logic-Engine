@@ -86,6 +86,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7, 8, 9]);
   assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='index' AND name='events_world_commit_sequence'").get().count, 1);
   assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='mechanic_instances'").get().count, 1);
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='world_time_triggers'").get().count, 1);
 
   // A migrated database must support canonical writes and projected reads, not
   // merely pass schema introspection. Then close/reopen and verify durability.
