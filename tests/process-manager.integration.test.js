@@ -258,7 +258,7 @@ test('rollback invalidates the transitive completed prerequisite chain and survi
   const audit = engine.getAudit('world-a');
   assert.equal(audit.some((entry) => entry.action === 'process.rollback.needs_review'
     && entry.target_id === 'journey-1'
-    && JSON.parse(entry.payload_json).affected_milestone_ids?.length === 3), true);
+    && entry.payload.affected_milestone_ids?.length === 3), true);
 
   ({ engine } = reopen());
   process = engine.getProcess('world-a', 'journey-1');
