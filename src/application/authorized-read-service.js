@@ -1,7 +1,7 @@
 import { EngineError, assert } from '../core/errors.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-const validId = (value) => typeof value === 'string' && value.trim().length > 0 && value.trim().length <= 200;
+const validId = (value) => typeof value === 'string' && value === value.trim() && value.length > 0 && value.length <= 200;
 const PURPOSES = new Set(['npc_decision', 'character_card', 'narrative']);
 const RECIPIENTS = new Set(['model', 'player', 'adapter']);
 
