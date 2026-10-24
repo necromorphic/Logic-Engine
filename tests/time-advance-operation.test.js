@@ -83,6 +83,33 @@ test('time advance idempotency replays the same operation after world revision c
   assert.equal(engine.getEvents('time-operation-world').length, 1);
 });
 
+test('time advance rejects idempotency-key reuse when request content changes', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  const first = engine.startTimeAdvance('time-operation-world', {
+    idempotency_key: 'same-key-different-request',
+    expected_revision: 0,
+    to_coordinate: 10000,
+    triggers: [],
+  });
+  assert.equal(first.status, 'completed');
+  assert.equal(first.confirmed_coordinate, 10000);
+
+  assert.throws(
+    () => engine.startTimeAdvance('time-operation-world', {
+      idempotency_key: 'same-key-different-request',
+      expected_revision: 0,
+      to_coordinate: 20000,
+      triggers: [],
+    }),
+    (error) => error.code === 'IDEMPOTENCY_CONFLICT' && error.status === 409,
+  );
+  assert.equal(engine.getState('time-operation-world').game_time_coordinate, 10000);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM time_advance_operations WHERE world_id=?')
+    .get('time-operation-world').count, 1);
+  assert.equal(engine.getEvents('time-operation-world').length, 1);
+});
+
 test('blocked due work creates an explicit blocked operation without advancing time', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
