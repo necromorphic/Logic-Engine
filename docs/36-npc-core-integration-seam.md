@@ -208,7 +208,7 @@ Relationship-specific ownership and the provisional typed-operation direction ar
 
 ## 12. Refreshed core dependency note — 2026-10-24
 
-The current core-main comparison and its limits are recorded in `docs/37-npc-kernel-readiness-gate.md` §15. The NPC branch is three core commits behind the current main line; no rebase or merge was performed in this update.
+The current core-main comparison and its limits are recorded in `docs/37-npc-kernel-readiness-gate.md` §19. The NPC branch has seven main-side commits not yet incorporated; no rebase or merge was performed in this update.
 
 Use the current core documents as the source for proposal and mechanic boundaries:
 
