@@ -187,7 +187,7 @@ test('API registers a generation-bound context manifest and commits against it t
 });
 
 test('API rejects an event whose generation label does not match the registered context manifest', async (t) => {
-  const base = await setup(t, { internalToken: INTERNAL, approvalToken: APPROVAL });
+  const base = await setup(t, { internalToken: INTERNAL });
   assert.equal((await createWorld(base, 'manifest-mismatch-world')).status, 201);
   const registered = await fetch(base + '/v1/worlds/manifest-mismatch-world/context-manifests', {
     method: 'POST',
@@ -203,18 +203,8 @@ test('API rejects an event whose generation label does not match the registered 
       generation_id: 'caller-chosen-other-generation', context_manifest_id: manifest.manifest_id, effects: [],
     } }),
   });
-  assert.equal(proposed.status, 201);
-  const proposal = (await proposed.json()).proposal;
-  const approved = await fetch(base + '/v1/worlds/manifest-mismatch-world/proposals/' + proposal.proposal_id + '/approve', {
-    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
-  });
-  assert.equal(approved.status, 200);
-  const committed = await fetch(base + '/v1/worlds/manifest-mismatch-world/events', {
-    method: 'POST', headers: { ...headers, 'x-engine-internal-token': INTERNAL },
-    body: json({ proposal_id: proposal.proposal_id }),
-  });
-  assert.equal(committed.status, 400);
-  assert.equal((await committed.json()).error.code, 'CONTEXT_GENERATION_MISMATCH');
+  assert.equal(proposed.status, 400);
+  assert.equal((await proposed.json()).error.code, 'CONTEXT_GENERATION_MISMATCH');
   const state = await fetch(base + '/v1/worlds/manifest-mismatch-world/state', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } });
   assert.equal((await state.json()).state.world_revision, 0);
 });
