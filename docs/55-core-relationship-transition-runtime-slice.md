@@ -1,6 +1,6 @@
 # Core typed Relationship transition runtime slice
 
-Status: merged into `main` through PRs #94–#96; exact-head Runtime tests passed on PR #96 head `79deb588e1f6321826dc3316085aaab6fdb010b7` (run #717). This is the first privileged canonical-write slice; it does not establish NPC/model-facing Relationship read or write authorization.
+Status: merged into `main` through PRs #94–#96, with HTTP auth/retry coverage in #107 and restart/rebuild coverage in #108. Exact-head Runtime tests passed on PR #96 head `79deb588e1f6321826dc3316085aaab6fdb010b7` (run #717), PR #107 head `bff370b920e32013f17a036eda9450c9eafd1066` (run #754), and PR #108 head `3db9c1484fedf4162023b93acc8920269eff6e10` (run #761). This is the first privileged canonical-write slice; it does not establish NPC/model-facing Relationship read or write authorization.
 
 ## Operation and authority
 
@@ -58,3 +58,8 @@ The operation treats evidence references as provenance inputs and validates thei
 - The first slice has no alternative independently sufficient evidence/support ledger. `relationship_domain` accepts only `world_pack_id`, `world_pack_version`, and `dimensions`; unsupported support-policy metadata is rejected. Conflicting/withheld/insufficient/unsupported candidate outcomes fail closed.
 - A generic initial-import/author-correction endpoint is not introduced.
 - Runtime readiness depends on exact-head CI and the real-path tests in `tests/relationship-transition-core.test.js`; the pure evaluator tests remain separate evidence.
+
+
+## Additional verification after the first slice
+
+The current-main `tests/relationship-transition-core.test.js` has 16 named tests (blob `37ff7f1eb0b9b4c0eb08e988dfc6b72e79e1ab02`). PR #107 covers missing/wrong/standalone admin credential denial and HTTP idempotent retry without a second event. PR #108 proves the directed projection survives SQLite close/reopen and deterministic rebuild, and that the trusted state read returns a composite freshness marker across rollback. These remain Core-internal/privileged guarantees; they do not add an NPC-facing read or write capability.
