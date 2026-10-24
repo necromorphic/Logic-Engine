@@ -12,22 +12,57 @@ const ADMIN = 'admin-token-long-enough-123456';
 const ADAPTER_A = 'adapter-a-token-long-enough-123456';
 const ADAPTER_B = 'adapter-b-token-long-enough-123456';
 const headers = { authorization: 'Bearer ' + TOKEN, 'content-type': 'application/json', 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER_A };
+const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
 const json = (body) => JSON.stringify(body);
 
 async function setup(t, options = {}) {
   const store = new SQLiteStore(':memory:');
-  const server = createApiServer({ engine: new LogicEngine(store), token: TOKEN, adapterTokens: { 'adapter-a': ADAPTER_A, 'adapter-b': ADAPTER_B }, ...options });
+  const server = createApiServer({ engine: new LogicEngine(store), token: TOKEN, adminToken: ADMIN, adapterTokens: { 'adapter-a': ADAPTER_A, 'adapter-b': ADAPTER_B }, ...options });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => { server.close(); store.close(); });
   return 'http://127.0.0.1:' + server.address().port;
 }
-async function createWorld(base, worldId, extraHeaders = headers) {
+async function createWorld(base, worldId, extraHeaders = adminHeaders) {
   return fetch(base + '/v1/worlds', {
     method: 'POST', headers: extraHeaders,
     body: json({ world_id: worldId, world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2026-01-01T00:00:00Z' }),
   });
 }
+
+test('API capability policy separates world creation and registry audit from general bearer access', async (t) => {
+  const base = await setup(t);
+
+  const deniedWorld = await createWorld(base, 'world-without-admin', headers);
+  assert.equal(deniedWorld.status, 403);
+  assert.equal((await deniedWorld.json()).error.code, 'ADMIN_REQUIRED');
+
+  assert.equal((await createWorld(base, 'world-with-admin')).status, 201);
+
+  // Immutable registry definitions are intentionally discoverable by authenticated API clients.
+  assert.equal((await fetch(base + '/v1/mechanic-templates', { headers })).status, 200);
+  assert.equal((await fetch(base + '/v1/rule-modules', { headers })).status, 200);
+
+  // Audit history is operational metadata and requires the separate admin capability.
+  const deniedAudit = await fetch(base + '/v1/mechanics/audit', { headers });
+  assert.equal(deniedAudit.status, 403);
+  assert.equal((await deniedAudit.json()).error.code, 'ADMIN_REQUIRED');
+  assert.equal((await fetch(base + '/v1/mechanics/audit', { headers: adminHeaders })).status, 200);
+
+  // A configured admin credential is required; a missing configuration fails closed.
+  const noAdminBase = await setup(t, { adminToken: null });
+  const noAdminConfigured = await createWorld(noAdminBase, 'world-admin-not-configured', headers);
+  assert.equal(noAdminConfigured.status, 403);
+  assert.equal((await noAdminConfigured.json()).error.code, 'ADMIN_REQUIRED');
+
+  // Admin credentials do not replace the route-wide bearer authentication.
+  const noBearer = await fetch(base + '/v1/worlds', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN },
+    body: json({ world_id: 'world-no-bearer', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2026-01-01T00:00:00Z' }),
+  });
+  assert.equal(noBearer.status, 401);
+});
 
 test('health, auth, proposal approval, and canonical commit boundary', async (t) => {
   const base = await setup(t, { approvalToken: APPROVAL, internalToken: INTERNAL });
