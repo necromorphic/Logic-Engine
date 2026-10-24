@@ -114,6 +114,24 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       const worldId = decodeURIComponent(parts[2]);
       const action = parts[3] || 'state';
 
+      if (action === 'time-advances') {
+        if (!secretMatches(req.headers['x-engine-internal-token'], internalToken)) {
+          return send(res, 403, { error: { code: 'INTERNAL_REQUIRED', message: 'Time advancement requires the separately configured internal credential.' } });
+        }
+        if (parts.length === 4 && req.method === 'POST') {
+          const operation = engine.startTimeAdvance(worldId, await readBody(req));
+          return send(res, operation.status === 'needs_review' ? 409 : 200, { operation });
+        }
+        if (parts.length === 5 && req.method === 'GET') {
+          return send(res, 200, { operation: engine.getTimeAdvanceOperation(worldId, decodeURIComponent(parts[4])) });
+        }
+        if (parts.length === 6 && parts[5] === 'resume' && req.method === 'POST') {
+          const operation = engine.resumeTimeAdvance(worldId, decodeURIComponent(parts[4]));
+          return send(res, operation.status === 'needs_review' ? 409 : 200, { operation });
+        }
+        return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported time-advance operation.' } });
+      }
+
       if (parts.length === 4 && action === 'authorized-read' && req.method === 'POST') {
         const adapterId = adapterIdFor(req);
         if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required for authorized reads.' } });

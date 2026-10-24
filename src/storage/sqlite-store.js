@@ -10,6 +10,25 @@ import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidat
 const now = () => new Date().toISOString();
 const enc = (x) => JSON.stringify(x);
 const dec = (x) => x == null ? null : JSON.parse(x);
+const timeAdvanceOperation = (row) => row && ({
+  operation_id: row.operation_id,
+  world_id: row.world_id,
+  idempotency_key: row.idempotency_key,
+  request_hash: row.request_hash,
+  from_coordinate: row.from_coordinate,
+  target_coordinate: row.target_coordinate,
+  confirmed_coordinate: row.confirmed_coordinate,
+  starting_world_revision: row.starting_world_revision,
+  current_world_revision: row.current_world_revision,
+  status: row.status,
+  next_segment_index: row.next_segment_index,
+  segment_count: JSON.parse(row.segments_json).length,
+  plan: dec(row.plan_json),
+  result: dec(row.result_json),
+  error: dec(row.error_json),
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+});
 const relationshipRef = (subjectId, targetId) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId);
 const parseRelationshipRef = (value) => {
   if (typeof value !== 'string' || !value.startsWith('relationship:')) return null;
@@ -331,6 +350,34 @@ export class SQLiteStore {
             }
             updateEventTime.run(coordinate, durationMs, row.world_id, row.event_id);
           }
+        },
+      },
+      {
+        version: 7,
+        apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS time_advance_operations(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            operation_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            request_hash TEXT NOT NULL,
+            from_coordinate INTEGER NOT NULL,
+            target_coordinate INTEGER NOT NULL,
+            confirmed_coordinate INTEGER NOT NULL,
+            starting_world_revision INTEGER NOT NULL,
+            current_world_revision INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('running','completed','interrupted','blocked','needs_review')),
+            next_segment_index INTEGER NOT NULL DEFAULT 0,
+            segments_json TEXT NOT NULL,
+            plan_json TEXT NOT NULL,
+            result_json TEXT,
+            error_json TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,operation_id),
+            UNIQUE(world_id,idempotency_key)
+          );
+          CREATE INDEX IF NOT EXISTS time_advance_operations_world_status
+            ON time_advance_operations(world_id,status,updated_at);`);
         },
       },
     ];
@@ -1319,6 +1366,135 @@ export class SQLiteStore {
       this.saveReplay(id, key, requestHash, result);
       return result;
     });
+  }
+
+  createTimeAdvanceOperation(input) {
+    return this.tx(() => {
+      const old = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND idempotency_key=?')
+        .get(input.world_id, input.idempotency_key);
+      if (old) {
+        if (old.request_hash !== input.request_hash) {
+          throw new EngineError('IDEMPOTENCY_CONFLICT', 'The time-advance idempotency key was already used with a different request.', 409);
+        }
+        return timeAdvanceOperation(old);
+      }
+      const worldAtStart = this.world(input.world_id);
+      if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (worldAtStart.game_time_coordinate !== input.from_coordinate
+        || worldAtStart.world_revision !== input.starting_world_revision) {
+        throw new EngineError('TIME_ADVANCE_START_STALE', 'World time or revision changed before the time-advance operation was recorded.', 409);
+      }
+      const stamp = now();
+      this.db.prepare(`INSERT INTO time_advance_operations(
+        world_id,operation_id,idempotency_key,request_hash,from_coordinate,target_coordinate,confirmed_coordinate,
+        starting_world_revision,current_world_revision,status,next_segment_index,segments_json,plan_json,result_json,error_json,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        input.world_id, input.operation_id, input.idempotency_key, input.request_hash,
+        input.from_coordinate, input.target_coordinate, input.from_coordinate,
+        input.starting_world_revision, input.starting_world_revision, input.status,
+        0, enc(input.segments), enc(input.plan), input.result ? enc(input.result) : null,
+        input.error ? enc(input.error) : null, stamp, stamp,
+      );
+      return timeAdvanceOperation(this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+        .get(input.world_id, input.operation_id));
+    });
+  }
+
+  getTimeAdvanceOperation(worldId, operationId) {
+    const row = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+      .get(worldId, operationId);
+    if (!row) throw new EngineError('TIME_ADVANCE_OPERATION_NOT_FOUND', 'Time-advance operation not found.', 404);
+    return timeAdvanceOperation(row);
+  }
+
+  getTimeAdvanceOperationByKey(worldId, idempotencyKey) {
+    const row = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND idempotency_key=?')
+      .get(worldId, idempotencyKey);
+    return row ? timeAdvanceOperation(row) : null;
+  }
+
+  resumeTimeAdvanceOperation(worldId, operationId) {
+    while (true) {
+      const current = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+        .get(worldId, operationId);
+      if (!current) throw new EngineError('TIME_ADVANCE_OPERATION_NOT_FOUND', 'Time-advance operation not found.', 404);
+      if (current.status !== 'running') return timeAdvanceOperation(current);
+      const segments = dec(current.segments_json);
+      if (current.next_segment_index >= segments.length) {
+        this.tx(() => {
+          const fresh = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+            .get(worldId, operationId);
+          if (!fresh || fresh.status !== 'running') return;
+          const plan = dec(fresh.plan_json);
+          const finalStatus = plan.status === 'interrupted' ? 'interrupted' : 'completed';
+          const result = {
+            operation_id: operationId, world_id: worldId, status: finalStatus,
+            from_coordinate: fresh.from_coordinate, target_coordinate: fresh.target_coordinate,
+            confirmed_coordinate: fresh.confirmed_coordinate, world_revision: fresh.current_world_revision,
+            completed_trigger_ids: plan.completed_trigger_ids || [],
+          };
+          this.db.prepare('UPDATE time_advance_operations SET status=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?')
+            .run(finalStatus, enc(result), now(), worldId, operationId);
+        });
+        continue;
+      }
+      try {
+        this.tx(() => {
+          const fresh = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+            .get(worldId, operationId);
+          if (!fresh || fresh.status !== 'running') return;
+          const worldAtStart = this.world(worldId);
+          if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+          if (worldAtStart.game_time_coordinate !== fresh.confirmed_coordinate
+            || worldAtStart.world_revision !== fresh.current_world_revision) {
+            const errorBody = {
+              code: 'TIME_ADVANCE_CHECKPOINT_STALE',
+              message: 'World time or revision changed after the last confirmed operation segment.',
+              expected_coordinate: fresh.confirmed_coordinate,
+              current_coordinate: worldAtStart.game_time_coordinate,
+              expected_revision: fresh.current_world_revision,
+              current_revision: worldAtStart.world_revision,
+            };
+            this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
+              .run(enc(errorBody), now(), worldId, operationId);
+            return;
+          }
+          const segment = segments[fresh.next_segment_index];
+          if (!segment || !Array.isArray(segment.events) || segment.events.length < 1 || segment.events.length > 32) {
+            throw new EngineError('INVALID_TIME_ADVANCE_SEGMENT', 'Persisted time-advance segment is malformed.', 500);
+          }
+          const commitResult = this.commitSegment(
+            worldId, segment.events, segment.idempotency_key, segment.request_hash,
+            worldAtStart.world_revision, this.currentCommitSequence(worldId),
+          );
+          const worldAfter = this.world(worldId);
+          const nextIndex = fresh.next_segment_index + 1;
+          const terminal = nextIndex >= segments.length;
+          const plan = dec(fresh.plan_json);
+          const status = terminal ? (plan.status === 'interrupted' ? 'interrupted' : 'completed') : 'running';
+          const result = {
+            operation_id: operationId, world_id: worldId, status,
+            from_coordinate: fresh.from_coordinate, target_coordinate: fresh.target_coordinate,
+            confirmed_coordinate: segment.coordinate, world_revision: worldAfter.world_revision,
+            last_segment: commitResult, completed_trigger_ids: plan.completed_trigger_ids || [],
+          };
+          this.db.prepare(`UPDATE time_advance_operations SET
+            confirmed_coordinate=?,current_world_revision=?,next_segment_index=?,status=?,result_json=?,error_json=NULL,updated_at=?
+            WHERE world_id=? AND operation_id=?`).run(
+            segment.coordinate, worldAfter.world_revision, nextIndex, status, enc(result), now(), worldId, operationId,
+          );
+        });
+      } catch (error) {
+        this.tx(() => {
+          const fresh = this.db.prepare('SELECT status FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+            .get(worldId, operationId);
+          if (!fresh || fresh.status !== 'running') return;
+          const errorBody = { code: error?.code || 'TIME_ADVANCE_SEGMENT_FAILED', message: error?.message || 'Time-advance segment failed and requires review.' };
+          this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
+            .run(enc(errorBody), now(), worldId, operationId);
+        });
+      }
+    }
   }
 
   rollback(id, rootId, key, requestHash) {

@@ -3,6 +3,7 @@ import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
+import { planDueWork } from '../time/scheduler.js';
 
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const strings = (x, name) => {
@@ -329,6 +330,170 @@ export class LogicEngine {
       x.expected_revision,
       x.expected_commit_sequence ?? null,
     );
+  }
+
+  startTimeAdvance(id, x) {
+    assert(obj(x), 'INVALID_TIME_ADVANCE_OPERATION', 'Time-advance request must be an object.');
+    const allowed = ['idempotency_key', 'expected_revision', 'to_coordinate', 'triggers', 'completed_trigger_ids'];
+    assert(Object.keys(x).every((key) => allowed.includes(key)), 'UNSUPPORTED_TIME_ADVANCE_FIELD', 'Time-advance request contains an unsupported field.');
+    assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200,
+      'IDEMPOTENCY_KEY_REQUIRED', 'Time-advance idempotency_key is required.');
+    assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0,
+      'INVALID_REVISION', 'Time-advance expected_revision must be a non-negative safe integer.');
+    assert(Number.isSafeInteger(x.to_coordinate), 'INVALID_TIME_COORDINATE', 'to_coordinate must be a safe integer.');
+    const requestHash = hashRequest({
+      operation: 'time.advance',
+      world_id: id,
+      idempotency_key: x.idempotency_key.trim(),
+      expected_revision: x.expected_revision,
+      to_coordinate: x.to_coordinate,
+      triggers: x.triggers ?? [],
+      completed_trigger_ids: x.completed_trigger_ids ?? [],
+    });
+    const existing = this.store.getTimeAdvanceOperationByKey(id, x.idempotency_key.trim());
+    if (existing) {
+      if (existing.request_hash !== requestHash) {
+        throw new EngineError('IDEMPOTENCY_CONFLICT', 'The time-advance idempotency key was already used with a different request.', 409);
+      }
+      return existing.status === 'running'
+        ? this.store.resumeTimeAdvanceOperation(id, existing.operation_id)
+        : existing;
+    }
+    const world = this.getState(id);
+    if (world.world_revision !== x.expected_revision) {
+      throw new EngineError('REVISION_CONFLICT', 'World changed before time-advance planning.', 409, {
+        expected_revision: x.expected_revision, current_revision: world.world_revision,
+      });
+    }
+    const from = world.game_time_coordinate;
+    if (from % 1000 !== 0 || x.to_coordinate % 1000 !== 0) {
+      throw new EngineError('TIME_ADVANCE_SUBSECOND_UNSUPPORTED', 'Time-advance execution currently requires whole-second boundaries.', 400);
+    }
+    let plan;
+    try {
+      plan = planDueWork({
+        world_id: id,
+        from_coordinate: from,
+        to_coordinate: x.to_coordinate,
+        triggers: x.triggers ?? [],
+        completed_trigger_ids: x.completed_trigger_ids ?? [],
+      });
+    } catch (error) {
+      if (error instanceof EngineError) throw error;
+      throw new EngineError(error.code || 'INVALID_DUE_WORK_REQUEST', error.message || 'Due-work planning failed.', 400, error.details);
+    }
+
+    const operationId = randomUUID();
+    const effectiveTarget = plan.status === 'blocked' ? from : plan.planned_until_coordinate;
+    const segments = [];
+    let cursor = from;
+    const maxSkipMs = 604800000;
+    const appendSegment = (coordinate, events) => {
+      const index = segments.length;
+      const segmentKey = 'time-segment:' + operationId + ':' + index;
+      segments.push({
+        coordinate,
+        idempotency_key: segmentKey,
+        request_hash: hashRequest({ operation_id: operationId, segment_index: index, coordinate, events }),
+        events,
+      });
+    };
+    const makeAdvanceEvent = (deltaMs, index) => {
+      const seconds = deltaMs / 1000;
+      assert(Number.isSafeInteger(seconds) && seconds > 0 && seconds <= 604800,
+        'INVALID_TIME_ADVANCE_SEGMENT', 'Synthetic time-advance segments must be whole seconds and no longer than seven days.');
+      const suffix = operationId + ':' + index;
+      return this.prepareEvent({
+        event_id: 'time-advance-' + hashRequest({ operation_id: operationId, index }).slice(0, 32),
+        idempotency_key: 'time-advance-event:' + hashRequest({ operation_id: operationId, index }).slice(0, 40),
+        turn_id: 'time-advance:' + suffix,
+        event_type: 'time.advance',
+        time_advance_seconds: seconds,
+        time_mode: 'explicit_skip',
+        effects: [],
+      });
+    };
+
+    if (plan.status !== 'blocked') {
+      for (const plannedSegment of plan.segments) {
+        const coordinate = plannedSegment.due_coordinate;
+        while (coordinate - cursor > maxSkipMs) {
+          cursor += maxSkipMs;
+          appendSegment(cursor, [makeAdvanceEvent(maxSkipMs, segments.length)]);
+        }
+        const triggerEvents = plannedSegment.triggers.map((trigger) => {
+          const payload = trigger.payload;
+          if (!payload || typeof payload !== 'object' || Array.isArray(payload)
+            || !payload.event || typeof payload.event !== 'object' || Array.isArray(payload.event)) {
+            throw new EngineError('TRIGGER_EVENT_PROPOSAL_REQUIRED', 'Each executable trigger payload must contain an event proposal.', 400, { trigger_id: trigger.trigger_id });
+          }
+          const proposal = payload.event;
+          if (proposal.expected_revision !== undefined || proposal.expected_commit_sequence !== undefined) {
+            throw new EngineError('INVALID_TRIGGER_EVENT_CURSOR', 'Scheduled event proposals cannot choose their own revision or commit cursor.', 400, { trigger_id: trigger.trigger_id });
+          }
+          if (proposal.time_advance_seconds !== undefined && proposal.time_advance_seconds !== 0) {
+            throw new EngineError('INVALID_TRIGGER_EVENT_DURATION', 'Scheduled trigger effects must execute at their due coordinate with zero additional duration.', 400, { trigger_id: trigger.trigger_id });
+          }
+          const identity = hashRequest({ operation_id: operationId, trigger_id: trigger.trigger_id });
+          const event = {
+            ...proposal,
+            event_id: proposal.event_id ?? ('time-trigger-' + identity.slice(0, 32)),
+            idempotency_key: proposal.idempotency_key ?? ('time-trigger:' + identity.slice(0, 48)),
+            time_advance_seconds: 0,
+          };
+          return this.prepareEvent(event);
+        });
+        let offset = 0;
+        while (offset < triggerEvents.length) {
+          const needsAdvance = cursor < coordinate;
+          const capacity = needsAdvance ? 31 : 32;
+          const chunk = triggerEvents.slice(offset, offset + capacity);
+          const events = [];
+          if (needsAdvance) events.push(makeAdvanceEvent(coordinate - cursor, segments.length));
+          events.push(...chunk);
+          appendSegment(coordinate, events);
+          cursor = coordinate;
+          offset += chunk.length;
+        }
+      }
+      while (effectiveTarget - cursor > maxSkipMs) {
+        cursor += maxSkipMs;
+        appendSegment(cursor, [makeAdvanceEvent(maxSkipMs, segments.length)]);
+      }
+      if (effectiveTarget > cursor) {
+        appendSegment(effectiveTarget, [makeAdvanceEvent(effectiveTarget - cursor, segments.length)]);
+        cursor = effectiveTarget;
+      }
+    }
+
+    const completedTriggerIds = plan.segments.flatMap((segment) => segment.trigger_ids);
+    plan.completed_trigger_ids = completedTriggerIds;
+    const initialStatus = plan.status === 'blocked' ? 'blocked'
+      : segments.length === 0 ? (plan.status === 'interrupted' ? 'interrupted' : 'completed')
+        : 'running';
+    const operation = this.store.createTimeAdvanceOperation({
+      world_id: id,
+      operation_id: operationId,
+      idempotency_key: x.idempotency_key.trim(),
+      request_hash: requestHash,
+      from_coordinate: from,
+      target_coordinate: effectiveTarget,
+      starting_world_revision: x.expected_revision,
+      status: initialStatus,
+      segments,
+      plan,
+      result: initialStatus === 'blocked' ? { status: 'blocked', blocked: plan.blocked, confirmed_coordinate: from } : null,
+    });
+    if (operation.status !== 'running') return operation;
+    return this.store.resumeTimeAdvanceOperation(id, operation.operation_id);
+  }
+
+  resumeTimeAdvance(id, operationId) {
+    return this.store.resumeTimeAdvanceOperation(id, operationId);
+  }
+
+  getTimeAdvanceOperation(id, operationId) {
+    return this.store.getTimeAdvanceOperation(id, operationId);
   }
 
   commitRelationshipTransition(id, x) {
