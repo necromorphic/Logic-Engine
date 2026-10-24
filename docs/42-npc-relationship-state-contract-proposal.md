@@ -10,6 +10,7 @@ Related contracts:
 - `docs/31-npc-subsystem-contract.md` — multidimensional relationship semantics and causal constraints.
 - `docs/32-npc-semantic-acceptance-matrix.md` — semantic acceptance scenarios.
 - `docs/36-npc-core-integration-seam.md` and `docs/39-npc-core-knowledge-contract-proposal.md` — existing core boundaries and knowledge ownership decisions.
+- `docs/43-npc-relationship-core-integration-decision.md` — parallel-work dependency map and provisional integration recommendation.
 
 ## 1. Purpose
 
