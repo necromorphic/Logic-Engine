@@ -355,6 +355,17 @@ test('complete-empty is ready only when the Memory index explicitly reports read
   assert.deepEqual(rebuilding.admitted, []);
   assert.deepEqual(rebuilding.candidates, []);
 
+  provider.retrieveCandidates = async () => {
+    const result = await originalRetrieve();
+    delete result.index_health;
+    return result;
+  };
+  const unknownHealth = await consumer.retrieveForNpc(request());
+  assert.equal(unknownHealth.status, 'non_ready');
+  assert.equal(unknownHealth.reason, 'memory_index_not_ready');
+  assert.deepEqual(unknownHealth.admitted, []);
+  assert.deepEqual(unknownHealth.candidates, []);
+
   provider.retrieveCandidates = async () => ({
     ...(await originalRetrieve()),
     index_health: 'ready',
