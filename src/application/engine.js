@@ -402,8 +402,6 @@ export class LogicEngine {
   assertNoScheduledTriggerCrossing(id, events, expectedRevision) {
     const durationMs = events.reduce((sum, event) => sum + (event.time_advance_seconds ?? 0) * 1000, 0);
     if (durationMs === 0) return;
-    assert(Number.isSafeInteger(expectedRevision) && expectedRevision >= 0,
-      'TIMED_EVENT_REVISION_REQUIRED', 'A direct timed commit requires expected_revision so trigger registration cannot race the time boundary.');
     const world = this.getState(id);
     // Do not reject stale revisions here: SQLiteStore checks idempotency replay
     // before revision freshness, so an identical completed request can replay.
@@ -415,6 +413,8 @@ export class LogicEngine {
       const code = error.code === 'COORDINATE_OVERFLOW' ? 'TIME_COORDINATE_OVERFLOW' : (error.code || 'INVALID_TIME_COORDINATE');
       throw new EngineError(code, error.message || 'Timed event target is outside the coordinate range.', 400);
     }
+    assert(Number.isSafeInteger(expectedRevision) && expectedRevision >= 0,
+      'TIMED_EVENT_REVISION_REQUIRED', 'A direct timed commit requires expected_revision so trigger registration cannot race the time boundary.');
     const due = this.store.listTimeTriggers(id)
       .filter((trigger) => trigger.status === 'pending'
         && trigger.due_coordinate > world.game_time_coordinate
