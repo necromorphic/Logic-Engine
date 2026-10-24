@@ -128,7 +128,7 @@ These checks are pure-domain or consumer-boundary targets unless explicitly mark
 11. **Disabled module:** no evaluation or catch-up occurs while disabled.
 12. **Host boundary:** a plausible candidate cannot become canonical without the approved Core operation, trusted provenance, authorization, and revision/atomicity checks.
 
-The first eleven can be covered by pure-domain tests once an evaluator boundary exists. The final check requires production Core integration tests and remains blocked by the dependencies documented in `docs/46-relationship-domain-module-design.md` §10.
+The first eleven include pure-domain, World Pack, and consumer-boundary checks. The standalone evaluator covers only a subset; remaining cases require additional domain/consumer tests. The final check requires production Core integration tests and remains blocked by the dependencies documented in `docs/46-relationship-domain-module-design.md` §10.
 
 ## 10. Readiness
 
