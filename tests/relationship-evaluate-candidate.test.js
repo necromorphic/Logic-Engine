@@ -196,3 +196,30 @@ test("empty patch is a no-change result", () => {
   assert.equal(result.status, "no_change");
   assert.equal(result.reason, "empty_patch");
 });
+
+test("self-relations are rejected unless each affected dimension explicitly allows them", () => {
+  const rejected = evaluateRelationshipCandidate({
+    ...base,
+    subjectId: "A",
+    targetId: "A",
+    patch: { trust: "guarded" },
+  });
+  assert.equal(rejected.status, "invalid_candidate");
+  assert.equal(rejected.reason, "self_relation_not_enabled");
+
+  const selfRules = {
+    trust: {
+      ...rules.trust,
+      allowSelfRelation: true,
+    },
+  };
+  const allowed = evaluateRelationshipCandidate({
+    ...base,
+    subjectId: "A",
+    targetId: "A",
+    currentValues: { trust: "low" },
+    patch: { trust: "guarded" },
+    dimensionRules: selfRules,
+  });
+  assert.equal(allowed.status, "candidate");
+});
