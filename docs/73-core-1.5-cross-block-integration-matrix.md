@@ -2,7 +2,7 @@
 
 **Status:** evidence-based integration audit, documentation only.  
 **Audit date:** 2026-10-24.  
-**Main baseline checked:** `378123fec5fc07dd4251ebe2028831da51a30fff`.  
+**Main baseline checked:** `f1d2f43b0171733b7a6fbc6321fc289e4c62813b`.  
 **Purpose:** keep parallel Core, Memory, Relationships, NPC, and Personality work compatible without treating an open PR or a branch-local proposal as shipped runtime behavior.
 
 This document records observed repository state and integration gates. It does not approve a new API, schema, storage model, authorization policy, or merge. Re-check branch heads before acting on this snapshot.
@@ -179,7 +179,7 @@ The current Core write path has useful safeguards that the future typed Relation
 - `SQLiteStore.rollback()` performs causal invalidation, revision update, event-validity changes, projection rebuild, rollback row, audit, and replay result in one transaction. A `requires_review` outcome stores its idempotent diagnostic response without applying a semantic rollback or incrementing world revision.
 - The event cursor is `MAX(commit_sequence)`; rollback advances `world_revision` but does not create a new world event or advance `commit_sequence`. Consumers must therefore use the composite freshness marker `(world_revision, commit_sequence)`, not the event cursor alone.
 
-These are source-level findings. Follow-up test coverage has since been merged through PRs #72 and #74: PR #72 exercises injected rollback projection failure, canonical commit/rollback replay-record persistence failure, atomic rollback metadata, retry/replay behavior, nested savepoint isolation, and proposal-commit failure recovery; PR #74 exercises composite snapshot freshness, cross-world/missing manifest handling, and snapshot size boundaries. These tests strengthen existing Core invariants, but they do not by themselves implement a typed Relationship operation. Explicit injected audit-write failure and stale revision/cursor race coverage remain separate verification items before a new Relationship operation can claim those guarantees.
+These are source-level findings. Follow-up test coverage has since been merged through PRs #72 and #74, and the typed Relationship operation is implemented/tested in PRs #94–#96. PR #103 closes public proposal-commit creator authorization; PR #106 adds internal-only context-manifest registration. Remaining gaps include trusted manifest generation binding, trusted import/correction, a configured field visibility policy, and Memory source reconciliation.
 
 ### Core implementation order after this audit
 
@@ -193,7 +193,7 @@ These are source-level findings. Follow-up test coverage has since been merged t
 
 The Core branch's detailed audit proposal is [PR #67, `docs/53-core-http-service-boundary-audit.md`](https://github.com/necromorphic/Logic-Engine/blob/03706188f044a4821c5957a0f7aa7199df193eb0/docs/53-core-http-service-boundary-audit.md). It is a documentation-only audit, not a runtime fix, and remains separate from this matrix. The findings below are cross-checked against the current `main` source reviewed above:
 
-- **CORE-AUTH-04 — context-manifest registration trust:** `POST .../context-manifests` uses only the general bearer. There is no server-derived producer/generation binding on this route. Stored and hashed manifest content is not proof that a trusted host actually prepared that context. Until a trusted generation record exists, restrict registration to a dedicated internal capability or fail closed; do not accept a caller-supplied producer/origin label as authority.
+- **CORE-AUTH-04 — context-manifest registration trust:** the historical audit found that `POST .../context-manifests` used only the general bearer. PR #106 now requires the separate internal-host credential. The remaining gap is server-derived producer/generation binding: stored and hashed manifest content is not proof that a trusted host actually prepared or used that context. Do not accept a caller-supplied producer/origin label as authority.
 - **CORE-READ-05 — raw state is not a revision-bound atomic snapshot:** `GET .../state` calls `getState` → `SQLiteStore.state`, which reads world/entity/fact rows through separate queries and does not return `commit_sequence`. `readSnapshot` instead uses a bounded selector and a single SQLite read transaction with both `world_revision` and `commit_sequence`. The state route must not be treated as the model/workflow snapshot contract even though raw HTTP access is now gated.
 - **CORE-CAP-06 — capability classification is incomplete:** world creation, mechanic-registry audit, and template/rule-module metadata reads use the general bearer. Whether each should be admin/internal-only is a deployment policy decision, not something to infer by granting broad admin rights. Record and enforce an explicit capability matrix before exposing these routes to untrusted adapters.
 
