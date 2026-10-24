@@ -4,11 +4,26 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { EngineError } from '../core/errors.js';
+import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidate.js';
 
 const now = () => new Date().toISOString();
 const enc = (x) => JSON.stringify(x);
 const dec = (x) => x == null ? null : JSON.parse(x);
-const refs = (effects) => effects.map((e) => e.kind.startsWith('entity.') ? 'entity:' + e.entity_id : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id);
+const relationshipRef = (subjectId, targetId) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId);
+const parseRelationshipRef = (value) => {
+  if (typeof value !== 'string' || !value.startsWith('relationship:')) return null;
+  const pair = value.slice('relationship:'.length).split('/');
+  if (pair.length !== 2) return null;
+  try {
+    const subjectId = decodeURIComponent(pair[0]);
+    const targetId = decodeURIComponent(pair[1]);
+    return subjectId && targetId ? { subjectId, targetId } : null;
+  } catch { return null; }
+};
+const refs = (effects) => effects.map((e) => e.kind === 'relationship.transition'
+  ? relationshipRef(e.subject_id, e.target_id)
+  : e.kind.startsWith('entity.') ? 'entity:' + e.entity_id
+    : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id);
 const applyEntityEffects = (entities, effects) => {
   for (const effect of effects) {
     if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
@@ -125,6 +140,19 @@ export class SQLiteStore {
         world_id TEXT NOT NULL REFERENCES worlds(world_id), entity_id TEXT NOT NULL, entity_type TEXT NOT NULL,
         status TEXT NOT NULL, attributes_json TEXT NOT NULL, created_by_event_id TEXT NOT NULL,
         updated_revision INTEGER NOT NULL, PRIMARY KEY(world_id,entity_id)
+      );
+      CREATE TABLE IF NOT EXISTS relationships(
+        world_id TEXT NOT NULL REFERENCES worlds(world_id),
+        subject_id TEXT NOT NULL,
+        target_id TEXT NOT NULL,
+        dimension TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('value','cleared')),
+        value_json TEXT,
+        rule_module_id TEXT NOT NULL,
+        rule_module_version TEXT NOT NULL,
+        last_event_id TEXT NOT NULL,
+        updated_revision INTEGER NOT NULL,
+        PRIMARY KEY(world_id,subject_id,target_id,dimension)
       );
       CREATE TABLE IF NOT EXISTS fact_claims(
         world_id TEXT NOT NULL REFERENCES worlds(world_id), fact_id TEXT NOT NULL, event_id TEXT NOT NULL,
@@ -947,6 +975,14 @@ export class SQLiteStore {
           expected_revision: x.expected_revision, current_revision: w.world_revision,
         });
       }
+      if (x.expected_commit_sequence !== undefined && x.expected_commit_sequence !== null
+        && x.expected_commit_sequence !== this.currentCommitSequence(id)) {
+        throw new EngineError('COMMIT_SEQUENCE_CONFLICT', 'World event cursor changed after Relationship evaluation.', 409, {
+          expected_commit_sequence: x.expected_commit_sequence,
+          current_commit_sequence: this.currentCommitSequence(id),
+          current_world_revision: w.world_revision,
+        });
+      }
       const eventId = x.event_id || randomUUID();
       if (this.db.prepare('SELECT event_id FROM world_events WHERE event_id=?').get(eventId)) {
         throw new EngineError('EVENT_ALREADY_EXISTS', 'Event ID already exists.', 409);
@@ -954,9 +990,70 @@ export class SQLiteStore {
       const revision = w.world_revision + 1;
       this.validateCausalMetadata(id, x, revision);
       const currentEntities = this.currentEntityProjection(id);
+      const relationshipPairs = new Set();
       const entityEffectIds = new Set();
       const mechanicEffectIds = new Set();
       for (const effect of x.effects) {
+        if (effect.kind === 'relationship.transition') {
+          if (x.effects.length !== 1) throw new EngineError('MIXED_RELATIONSHIP_EFFECTS_UNSUPPORTED', 'A Relationship transition must be the only effect in its canonical event.', 400);
+          const pairKey = JSON.stringify([effect.subject_id, effect.target_id]);
+          if (relationshipPairs.has(pairKey)) throw new EngineError('DUPLICATE_RELATIONSHIP_EFFECT', 'An event may contain at most one transition for a directed pair.', 400);
+          relationshipPairs.add(pairKey);
+          for (const participantId of [effect.subject_id, effect.target_id]) {
+            const participant = currentEntities.get(participantId);
+            if (!participant || participant.status === 'destroyed') {
+              throw new EngineError('RELATIONSHIP_PARTICIPANT_NOT_ELIGIBLE', 'Both Relationship participants must be existing non-destroyed entities in this world.', 409, { participant_id: participantId });
+            }
+          }
+          const moduleRow = this.db.prepare('SELECT manifest_json FROM rule_module_manifests WHERE module_id=? AND version=?')
+            .get(effect.rule_module_id, effect.rule_module_version);
+          if (!moduleRow) throw new EngineError('RELATIONSHIP_RULE_VERSION_NOT_FOUND', 'The exact Relationship rule-module version is not registered.', 409, { module_id: effect.rule_module_id, module_version: effect.rule_module_version });
+          const manifest = dec(moduleRow.manifest_json);
+          const domain = manifest.metadata?.relationship_domain;
+          if (!manifest.operations?.includes('validate_transition') || !domain
+            || domain.world_pack_id !== w.world_pack_id || domain.world_pack_version !== w.world_pack_version
+            || !domain.dimensions || typeof domain.dimensions !== 'object' || Array.isArray(domain.dimensions)) {
+            throw new EngineError('RELATIONSHIP_RULE_VERSION_INCOMPATIBLE', 'The pinned rule module must contain relationship_domain rules matching this exact World Pack and version.', 409, {
+              module_id: effect.rule_module_id, module_version: effect.rule_module_version,
+              world_pack_id: w.world_pack_id, world_pack_version: w.world_pack_version,
+            });
+          }
+          for (const ref of effect.evidence_refs) {
+            if (!ref.startsWith('event:') || ref.length <= 'event:'.length) {
+              throw new EngineError('INVALID_RELATIONSHIP_EVIDENCE_REFERENCE', 'Relationship evidence references must use event:<event_id> references.', 400, { reference: ref });
+            }
+            const source = this.db.prepare('SELECT validity,commit_sequence FROM world_events WHERE world_id=? AND event_id=?')
+              .get(id, ref.slice('event:'.length));
+            if (!source || source.validity !== 'valid' || source.commit_sequence >= this.currentCommitSequence(id) + 1) {
+              throw new EngineError('RELATIONSHIP_EVIDENCE_NOT_ELIGIBLE', 'Each evidence event must exist, be valid, and precede this transition in the same world.', 409, { reference: ref });
+            }
+          }
+          const currentValues = {};
+          const currentRows = this.db.prepare('SELECT dimension,status,value_json FROM relationships WHERE world_id=? AND subject_id=? AND target_id=?')
+            .all(id, effect.subject_id, effect.target_id);
+          for (const row of currentRows) {
+            Object.defineProperty(currentValues, row.dimension, {
+              value: row.status === 'cleared' ? { status: 'cleared' } : dec(row.value_json),
+              enumerable: true, configurable: true, writable: true,
+            });
+          }
+          const candidate = evaluateRelationshipCandidate({
+            subjectId: effect.subject_id,
+            targetId: effect.target_id,
+            currentValues,
+            patch: effect.patch,
+            dimensionRules: domain.dimensions,
+            evidence: { status: 'supported', refs: effect.evidence_refs },
+            ruleVersion: effect.rule_module_id + '@' + effect.rule_module_version,
+          });
+          if (candidate.status !== 'candidate') {
+            throw new EngineError('RELATIONSHIP_TRANSITION_REJECTED', 'Relationship candidate did not produce a committable transition.', 409, {
+              candidate_status: candidate.status, reason: candidate.reason ?? null,
+            });
+          }
+          effect.patch = candidate.patch;
+          continue;
+        }
         if (effect.kind.startsWith('mechanic.instance.')) {
           if (mechanicEffectIds.has(effect.instance_id)) throw new EngineError('DUPLICATE_MECHANIC_INSTANCE_EFFECT', 'An event may contain at most one lifecycle effect for a given mechanic instance.', 400, { instance_id: effect.instance_id });
           mechanicEffectIds.add(effect.instance_id);
