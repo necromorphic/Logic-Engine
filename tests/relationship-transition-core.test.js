@@ -103,7 +103,7 @@ test('API rejects ordinary bearer without the separate admin credential and does
     });
     assert.equal(response.status, 403);
     assert.equal(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, undefined);
-    assert.equal(engine.getState('world-relationship-test').world.world_revision, 1);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 1);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     store.close();
@@ -122,7 +122,7 @@ test('stale composite cursor and spoofed executor are rejected without mutation'
       (error) => error.code === 'UNSUPPORTED_RELATIONSHIP_TRANSITION_FIELD',
     );
     assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
-    assert.equal(engine.getState('world-relationship-test').world.world_revision, 1);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 1);
   } finally {
     store.close();
   }
@@ -136,7 +136,7 @@ test('invalid mixed patch commits nothing and idempotent retry does not duplicat
       (error) => error.code === 'RELATIONSHIP_TRANSITION_REJECTED',
     );
     assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
-    assert.equal(engine.getState('world-relationship-test').world.world_revision, 1);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 1);
 
     const request = transitionRequest(seed);
     const first = engine.commitRelationshipTransition('world-relationship-test', request);
@@ -167,7 +167,7 @@ test('rollback invalidates later transition dependent on the same directed pair 
     assert.ok(rollback.invalidated_event_ids.includes(first.event_id));
     assert.ok(rollback.invalidated_event_ids.includes(second.event_id));
     assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
-    assert.equal(engine.getState('world-relationship-test').world.world_revision, 4);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 4);
     assert.equal(engine.store.currentCommitSequence('world-relationship-test'), 3);
   } finally {
     store.close();
