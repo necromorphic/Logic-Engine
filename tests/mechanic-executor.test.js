@@ -146,7 +146,7 @@ test('mechanic context provider can enforce actor binding and field policy throu
     resolveAuthorizedContext: (args) => provider.resolve(args),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
 
-  assert.equal(result.status, 'ready');
+  assert.equal(result.status, 'ready', JSON.stringify(result));
   assert.equal(result.context_policy_version, provider.policyFingerprint);
   assert.equal(result.authorization_scope, 'test-adapter:entity.actor-context:model:npc_decision');
   assert.equal(result.dependency_manifest.context_projection_dependencies_complete, true);
