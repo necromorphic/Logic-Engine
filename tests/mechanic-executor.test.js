@@ -121,6 +121,8 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(typeof result.evaluation_fingerprint, 'string');
   assert.equal(result.commit_authority, 'none');
   assert.deepEqual(result.dependency_manifest.condition_paths, ['actor.hp', 'world.weather']);
+  assert.equal(result.dependency_manifest.scope, 'bounded_deterministic_action_v1');
+  assert.equal(result.dependency_manifest.global_mechanic_dependencies_complete, false);
   assert.equal(result.dependency_manifest.condition_ast_dependencies_complete, true);
   assert.equal(result.dependency_manifest.context_projection_dependencies_complete, true);
   assert.deepEqual(result.dependency_manifest.effect_target_dependencies, [
@@ -129,6 +131,7 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(result.dependency_manifest.effect_target_dependencies_complete, true);
   assert.equal(result.dependency_manifest.causal_read_set_complete_for_supported_slice, true);
   assert.equal(result.dependency_manifest.mechanic_dependencies_complete, true);
+  assert.equal(result.guarantees.complete_global_mechanic_dependencies, false);
   assert.deepEqual(result.dependency_manifest.unresolved_sources, []);
   assert.deepEqual(result.read_set, ['entity:entity.actor-context', 'entity:entity.world-context']);
   assert.ok(result.causal_links.some((link) => link.relation === 'READS_ENTITY' && link.target_id === 'entity.actor-context'));
