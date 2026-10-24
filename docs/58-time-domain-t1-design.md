@@ -71,8 +71,8 @@ Automated tests for the current pure API are in `tests/time-model.test.js`. A fu
 - [x] Declarative calendar projection and inverse mapping exist.
 - [x] Validation errors are explicit and machine-readable.
 - [x] Tests cover positive/negative coordinates, cycle boundaries, round-trips, holidays, and invalid input.
-- [ ] Run the complete repository test suite in CI and resolve failures.
-- [ ] Review the public calendar schema and naming before merge.
-- [ ] Decide whether this pure API is accepted as the basis for the next Core integration design.
+- [x] Run the complete repository test suite in CI and resolve failures (GitHub Actions `test` passed on the current PR head).
+- [x] Review the public calendar schema and naming for the T1 scope; cross-field semantic constraints remain enforced by the pure validator.
+- [x] Select this pure API as the proposed basis for the next Core integration design; that integration still requires its own contract and review.
 
 T1 completion does not authorize T2–T6. Core integration remains blocked on transaction-boundary and recovery audits.
