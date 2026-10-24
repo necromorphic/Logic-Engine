@@ -13,7 +13,7 @@ This document isolates the Core-owned portion of the first process slice: canoni
 
 - **Time block:** temporal coordinates, due-milestone planning, deterministic ordering, interruption point, and temporal policy.
 - **Core:** canonical-state authority, world/revision/snapshot validation, proposal validation, transaction boundary, event provenance, idempotency, and rollback/rebuild effects.
-- **Process lifecycle owner (to be confirmed by the Time/Core handoff):** process identity, legal state transitions, cancellation/pause/resume semantics, and process-level validation.
+- **Process Manager (runtime candidate in PR #248):** process identity/definition version, legal lifecycle transitions, durable milestone checkpoints, cancellation/pause/resume semantics, and process-level validation.
 - **NPC / delivery:** knowledge acquisition, belief updates, narration, and player notification are separate state transitions. A completed process does not imply any of these occurred.
 
 A process must reuse the existing time-advance, registered-trigger, and Core segment pipeline. No process-specific code may write canonical projections or events outside Core's existing commit boundary.
@@ -65,16 +65,18 @@ Do not invent a second idempotency ledger if the existing Core operation/event t
 
 Rollback must not blindly delete every later process milestone, nor preserve progress whose required causal inputs are no longer valid.
 
-Proposed conservative rule:
-1. Each committed milestone records causal input references and the canonical event/effect references it produced.
-2. When rollback/rebuild invalidates a causal input, Core computes the affected process-milestone dependency closure only where the declared dependency contract is complete.
-3. If a milestone is provably independent of the invalidated input, it may remain valid.
-4. If deterministic recomputation is supported and all required inputs/policies are available, recomputation must produce a new validated proposal and commit through Core; it must not mutate history silently.
-5. If dependency completeness, source validity, or recomputation semantics are unknown, mark the affected process progress as stale/needs-review and block further progression until reviewed.
+Core's existing rollback path computes the invalidated canonical-event closure and calls Process Manager invalidation inside the same SQLite transaction. The current PR #248 candidate then expands direct milestone hits through transitive `prerequisites` in the already-persisted definition and marks completed descendants `needs_review`.
+
+Current guarantee is deliberately bounded:
+1. Canonical event rollback/rebuild uses Core's existing causal/projection machinery and provides the invalidated event IDs to Process Manager in the same transaction.
+2. Within one process definition, a completed milestone directly supported by an invalidated event and its transitive completed prerequisite descendants are marked `needs_review`; process progress is gated and audited.
+3. Pending milestones retain their pending status, but the process is blocked at `needs_review`; no automatic replan or recomputation is implied.
+4. The schema has no explicit cross-process prerequisite edge, so causal closure across separate processes is not proven. If a cross-process dependency is unknown or cannot be enumerated, Core must not claim independence or preserve it as verified progress.
+5. Deterministic recomputation is not implemented by this slice. Affected progress stays `needs_review` until a separately approved reconciliation/rebuild operation exists.
 6. Never infer causation from timestamp order alone. Same-coordinate order is not causal evidence.
 
-Open decision: whether process progress is represented as append-only transition history plus a current projection, or as a mutable checkpoint with event-level causal references. Choose only after inspecting existing event/projection conventions and demonstrating rollback/rebuild behavior in tests. Do not add a parallel event store.
-
+The new executable A→B→C integration test on PR #248 verifies within-process closure, audit/progress projection, blocked resume, and SQLite restart. Cross-process closure, proof that unrelated progress is independent, and automatic causal recomputation remain open acceptance items.
+ 
 ## 6. Recovery contract
 
 Recovery must reconcile the process checkpoint with the existing durable time-advance operation and trigger records. It must not create a second scheduler or wall-clock catch-up path.
