@@ -101,16 +101,24 @@ function lineageIsSafe(candidate, request) {
     return false;
   }
 
-  return candidate.lineage.sources.every((source) =>
-    source != null
-      && isNonEmptyString(source.ref)
-      && isNonEmptyString(source.version)
-      && source.world_id === request.world_id
-      && source.access?.outcome === ALLOW
-      && source.access?.subject_id === request.subject_id
-      && source.access?.purpose === request.purpose
-      && READY_SOURCE_STATES.has(source.freshness?.status)
-  );
+  // Array.prototype.every skips sparse slots. Treat a missing lineage entry
+  // as incomplete evidence rather than silently accepting the remaining sources.
+  const sources = candidate.lineage.sources;
+  for (let index = 0; index < sources.length; index += 1) {
+    if (!Object.hasOwn(sources, index)) return false;
+    const source = sources[index];
+    if (
+      source == null
+      || !isNonEmptyString(source.ref)
+      || !isNonEmptyString(source.version)
+      || source.world_id !== request.world_id
+      || source.access?.outcome !== ALLOW
+      || source.access?.subject_id !== request.subject_id
+      || source.access?.purpose !== request.purpose
+      || !READY_SOURCE_STATES.has(source.freshness?.status)
+    ) return false;
+  }
+  return true;
 }
 
 function candidateRejection(candidate, request) {

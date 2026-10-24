@@ -481,3 +481,30 @@ test("candidate admission does not mutate its request or result inputs", () => {
   assert.deepEqual(inputRequest, requestBefore);
   assert.deepEqual(inputResult, resultBefore);
 });
+
+test("summary lineage rejects sparse source arrays instead of skipping missing entries", () => {
+  const sources = [];
+  sources[0] = {
+    ref: "source:a",
+    version: "1",
+    world_id: request.world_id,
+    access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
+    freshness: { status: "current" },
+  };
+  sources[2] = {
+    ref: "source:c",
+    version: "3",
+    world_id: request.world_id,
+    access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
+    freshness: { status: "current" },
+  };
+
+  const summary = candidate({
+    content_kind: "summary",
+    lineage: { status: "complete", sources },
+  });
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, []);
+});
