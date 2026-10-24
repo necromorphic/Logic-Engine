@@ -98,3 +98,7 @@ The remaining boundary gates are unchanged: no general authorized Memory retriev
 ## Core status refresh (2026-10-24)
 
 PR #94 adds an admin-credential-only typed Relationship transition writer and event-derived directed projection/replay; PR #95 adds transaction failure-injection coverage; PR #96 rejects unsupported support metadata and links evidence-source rollback causality. These changes do not create general Memory/NPC authorized reads, a Memory source-change feed, acquisition/delivery/belief persistence, or a safe Relationship card projection. BND-01/BND-03/BND-06/BND-07 remain blockers for production Memory→NPC integration.
+
+## Core authorized-read extension seam (2026-10-24)
+
+PR #101 adds optional trusted host configuration for the authorized-read field policy and a bounded target-ID list. The default remains self-identity-only; no request or model can supply the policy. This is not a visibility schema and does not unblock Memory→NPC reads by itself. BND-01/BND-02 still require a concrete trusted policy, before-disclosure tests for content/snippets/counts/lineage/diagnostics, and revocation/reconciliation behavior against the real path.
