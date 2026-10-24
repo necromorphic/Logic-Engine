@@ -169,7 +169,7 @@ function translateOne(effect, index, jsonBudget) {
     }
     translated = { kind: 'entity.update', entity_id: targetRef };
     if (hasAttributes) {
-      translated.attributes = cloneJson(object(payload.attributes, label + '.payload.attributes'), label + '.payload.attributes');
+      translated.attributes = cloneJson(object(payload.attributes, label + '.payload.attributes'), label + '.payload.attributes', new Set(), jsonBudget);
     }
     if (hasRemovals) {
       if (!Array.isArray(payload.remove_attributes) || payload.remove_attributes.length > 200) {
