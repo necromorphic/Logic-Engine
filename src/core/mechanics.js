@@ -553,6 +553,28 @@ export function evaluateMechanicActionAgainstSnapshot({
       effect_provenance: [],
     };
   }
+  let contextFingerprint;
+  try {
+    contextFingerprint = hashRequest({
+      authorizedContext,
+      knownAbsentPaths: [...knownAbsentPaths].sort(),
+    });
+  } catch (error) {
+    return {
+      status: 'unknown',
+      reason_code: 'CONTEXT_NOT_FINGERPRINTABLE',
+      diagnostic: error.message,
+      world_id: snapshot.world_id,
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+      instance_id: instance.instance_id,
+      template_id: template.template_id,
+      template_version: template.version,
+      action_id: actionId,
+      effects: [],
+      effect_provenance: [],
+    };
+  }
   const identity = {
     world_id: snapshot.world_id,
     world_revision: snapshot.world_revision,
@@ -563,6 +585,7 @@ export function evaluateMechanicActionAgainstSnapshot({
     template_version: template.version,
     template_hash: templateEntry.template_hash,
     action_id: actionId,
+    context_fingerprint: contextFingerprint,
     condition_results: conditions.condition_results,
     effects: translated.effects,
     effect_provenance: translated.effect_provenance,
