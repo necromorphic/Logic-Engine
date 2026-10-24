@@ -33,8 +33,8 @@ function text(value, label, max = MAX_ID) {
 }
 
 function identityText(value, label, max = MAX_ID) {
-  if (typeof value !== 'string' || !value.trim() || value.length > max) {
-    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be a non-empty string of at most ' + max + ' characters.');
+  if (typeof value !== 'string' || !value.trim() || value.length > max || value !== value.trim()) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be a non-empty identifier of at most ' + max + ' characters without surrounding whitespace.');
   }
   return value;
 }
@@ -122,8 +122,8 @@ function translateOne(effect, index, jsonBudget) {
   for (const key of ['effect_id', 'kind', 'target_ref']) {
     if (!Object.hasOwn(effect, key)) fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' is missing ' + key + '.');
   }
-  text(effect.effect_id, label + '.effect_id', 128);
-  const kind = text(effect.kind, label + '.kind', 128);
+  identityText(effect.effect_id, label + '.effect_id', 128);
+  const kind = identityText(effect.kind, label + '.kind', 128);
   const targetRef = identityText(effect.target_ref, label + '.target_ref', MAX_ID);
 
   if (!KNOWN_INTENTS.has(kind)) {
