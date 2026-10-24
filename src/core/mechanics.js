@@ -475,6 +475,7 @@ export function evaluateMechanicActionAgainstSnapshot({
   actionId,
   authorizedContext,
   knownAbsentPaths = [],
+  contextIdentity = {},
 }) {
   if (!obj(snapshot) || typeof snapshot.world_id !== 'string'
     || !Number.isSafeInteger(snapshot.world_revision) || snapshot.world_revision < 0
@@ -558,6 +559,7 @@ export function evaluateMechanicActionAgainstSnapshot({
     contextFingerprint = hashRequest({
       authorizedContext,
       knownAbsentPaths: [...knownAbsentPaths].sort(),
+      contextIdentity,
     });
   } catch (error) {
     return {
