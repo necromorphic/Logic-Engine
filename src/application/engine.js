@@ -130,7 +130,7 @@ function validateIndependentSegment(events) {
     if ((event.caused_by || []).some((eventId) => eventIds.has(eventId))) {
       throw new EngineError('SEGMENT_INTRA_DEPENDENCY_UNSUPPORTED', 'Events in one segment cannot depend on another event in the same segment; split at the dependency boundary.', 400);
     }
-    if ((event.depends_on || []).some((ref) => !isTypedProjectionRef(ref) && eventIds.has(ref))) {
+    if ((event.depends_on || []).some((ref) => eventIds.has(ref))) {
       throw new EngineError('SEGMENT_INTRA_DEPENDENCY_UNSUPPORTED', 'Events in one segment cannot depend on another event in the same segment; split at the dependency boundary.', 400);
     }
     if ((event.causal_links || []).some((link) => link.relation === 'READS_SOURCE' && eventIds.has(link.target_id))) {
@@ -305,6 +305,7 @@ export class LogicEngine {
         'INVALID_SEGMENT_EVENT_CURSOR', 'Per-event revision/cursor fields are not allowed; the segment owns its base cursor.');
       const prepared = this.prepareEvent(event, options);
       assert(typeof prepared.event_id === 'string' && prepared.event_id.trim(), 'SEGMENT_EVENT_ID_REQUIRED', 'Every segment event must have an explicit event_id.');
+      assert(!['entity:', 'fact:', 'relationship:', 'mechanic:'].some((prefix) => prepared.event_id.startsWith(prefix)), 'INVALID_EVENT_ID', 'Segment event IDs cannot use reserved projection reference prefixes.');
       return prepared;
     });
     const ids = preparedEvents.map((event) => event.event_id);
