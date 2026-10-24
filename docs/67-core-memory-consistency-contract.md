@@ -34,6 +34,10 @@ Do not update canonical state and memory in one cross-subsystem transaction unle
 
 Whether the current SQLite store can support the required transaction/outbox pattern must be proven from the implementation before adding schema.
 
+### Current-main audit note
+
+The inspected `SQLiteStore` has a transactional write helper and a consistent read-snapshot path, but no durable memory source-change outbox was identified in its current schema. Canonical rollback updates source-event validity and writes a rollback record while rebuilding projections; it is not safe to reconcile by looking only for event IDs with a higher `commit_sequence`. A future poller must observe rollback/revision changes and compare source validity (or consume an approved durable change record). This is a design constraint from source inspection, not an implemented Memory feature or a claim of causal completeness.
+
 ## 4. Rollback handling
 
 On canonical source rollback, locate records derived from or dependent on that source. Mark them stale/quarantined pending re-evaluation; do not silently delete them or keep them presented as active evidence. If a record has independent sources, retain the record only when the typed source policy can show that sufficient valid support remains. Otherwise preserve the conflict/uncertainty and require recomputation or review.
