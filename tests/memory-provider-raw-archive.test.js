@@ -239,3 +239,37 @@ test('raw archive authorization failure does not reveal whether a requested vers
     );
   }
 });
+
+test('raw deletion and dependent-copy invalidation survive provider restart', async (t) => {
+  const s = setup(t, { authorizeRawRead: async () => true });
+  s.provider.captureRawMessage(capture());
+  s.provider.selectActiveRawVersion(sourceKey());
+  s.provider.registerRawDerivedCopy({
+    ...sourceKey(),
+    source_version_id: 'generation-1',
+    copy_ref: 'summary:persisted',
+    copy_version: 'summary-v1',
+    copy_kind: 'summary',
+    content: 'Derived copy whose invalidation must survive restart.',
+  });
+  s.provider.markRawSourceDeleted(sourceKey());
+  s.reopen();
+
+  assert.deepEqual(await s.provider.readActiveRawMessages({ world_id: 'world-a', conversation_id: 'chat-a' }), []);
+  await assert.rejects(() => s.provider.readRawMessageVersion(sourceKey()), /MEMORY_RAW_VERSION_UNAVAILABLE/);
+  assert.equal(s.provider.db.prepare(`SELECT status FROM memory_raw_derived_copies
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`)
+    .get('world-a', 'chat-a', 'message-1', 'generation-1').status, 'invalidated');
+});
+
+test('raw archive reads fail closed when stored content no longer matches its integrity digest', async (t) => {
+  const s = setup(t, { authorizeRawRead: async () => true });
+  s.provider.captureRawMessage(capture());
+  s.provider.db.prepare(`UPDATE memory_raw_captures SET content_text=?
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .run('tampered body', 'world-a', 'chat-a', 'message-1', 'generation-1');
+  await assert.rejects(
+    () => s.provider.readRawMessageVersion(sourceKey()),
+    /MEMORY_RAW_CONTENT_CORRUPT/,
+  );
+});
