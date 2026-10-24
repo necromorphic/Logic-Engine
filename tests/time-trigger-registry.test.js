@@ -140,6 +140,30 @@ test('cancellation is audited and request-scoped advancement cannot bypass regis
   assert.equal(engine.listTimeTriggers('time-trigger-world').find((item) => item.trigger_id === 'registered-pending').status, 'pending');
 });
 
+test('Core derives scheduler write sets from trigger effects before grouping same-coordinate work', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.registerTimeTrigger('time-trigger-world', {
+    ...trigger('write-one', 10000, 'shared-entity'),
+    write_set: [],
+  });
+  engine.registerTimeTrigger('time-trigger-world', {
+    ...trigger('write-two', 10000, 'shared-entity'),
+    write_set: [],
+  });
+  assert.throws(
+    () => engine.startTimeAdvance('time-trigger-world', {
+      idempotency_key: 'conflicting-registered-work',
+      expected_revision: 2,
+      to_coordinate: 10000,
+    }),
+    (error) => error.code === 'TRIGGER_CONFLICT_NEEDS_REVIEW',
+  );
+  assert.equal(engine.getState('time-trigger-world').game_time_coordinate, 0);
+  assert.equal(engine.listTimeTriggers('time-trigger-world').every((item) => item.status === 'pending'), true);
+});
+
 test('a running operation claim prevents concurrent trigger cancellation', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
