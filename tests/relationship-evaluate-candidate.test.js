@@ -629,3 +629,28 @@ test("rejects non-enumerable patch dimensions instead of silently ignoring them"
   assert.equal(result.status, "invalid_candidate");
   assert.equal(result.reason, "state_patch_and_rules_must_be_objects");
 });
+
+
+test("rejects undeclared dimension-rule fields instead of silently ignoring them", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    dimensionRules: {
+      trust: { ...rules.trust, allowSelfRelations: true },
+    },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "dimension_rule_incomplete");
+});
+
+test("rejects a non-boolean self-relation rule flag", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    dimensionRules: {
+      trust: { ...rules.trust, allowSelfRelation: "true" },
+    },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "dimension_rule_incomplete");
+});
