@@ -98,6 +98,25 @@ test('health, auth, proposal approval, and canonical commit boundary', async (t)
   assert.equal(approved.status, 200);
   assert.equal((await approved.json()).proposal.status, 'approved');
 
+  const crossAdapterCommit = await fetch(base + '/v1/worlds/api-world/proposals/' + proposal.proposal_id + '/commit', {
+    method: 'POST',
+    headers: { ...headers, 'x-adapter-id': 'adapter-b', 'x-adapter-token': ADAPTER_B },
+    body: '{}',
+  });
+  assert.equal(crossAdapterCommit.status, 404);
+  const deniedError = (await crossAdapterCommit.json()).error;
+  assert.equal(deniedError.code, 'PROPOSAL_NOT_FOUND');
+  const missingProposalCommit = await fetch(base + '/v1/worlds/api-world/proposals/not-a-real-proposal/commit', { method: 'POST', headers, body: '{}' });
+  assert.equal(missingProposalCommit.status, 404);
+  assert.deepEqual((await missingProposalCommit.json()).error, deniedError);
+  const noAdapterCommit = await fetch(base + '/v1/worlds/api-world/proposals/' + proposal.proposal_id + '/commit', {
+    method: 'POST', headers: { authorization: headers.authorization, 'content-type': 'application/json' }, body: '{}',
+  });
+  assert.equal(noAdapterCommit.status, 403);
+  assert.equal((await noAdapterCommit.json()).error.code, 'ADAPTER_REQUIRED');
+  const stateAfterDeniedCommit = await fetch(base + '/v1/worlds/api-world/state', { headers: internalReadHeaders });
+  assert.equal((await stateAfterDeniedCommit.json()).state.world_revision, 0);
+
   const committed = await fetch(base + '/v1/worlds/api-world/proposals/' + proposal.proposal_id + '/commit', { method: 'POST', headers, body: '{}' });
   assert.equal(committed.status, 200);
   const result = await committed.json();
@@ -153,7 +172,11 @@ test('API registers a generation-bound context manifest and commits against it t
   const proposal = (await proposed.json()).proposal;
   const approved = await fetch(base + '/v1/worlds/manifest-api-world/proposals/' + proposal.proposal_id + '/approve', { method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}' });
   assert.equal(approved.status, 200);
-  const committed = await fetch(base + '/v1/worlds/manifest-api-world/proposals/' + proposal.proposal_id + '/commit', { method: 'POST', headers, body: '{}' });
+  const committed = await fetch(base + '/v1/worlds/manifest-api-world/events', {
+    method: 'POST',
+    headers: { ...headers, 'x-engine-internal-token': INTERNAL },
+    body: json({ proposal_id: proposal.proposal_id }),
+  });
   assert.equal(committed.status, 200);
   assert.equal((await committed.json()).commit_result.commit_sequence, 1);
 });
