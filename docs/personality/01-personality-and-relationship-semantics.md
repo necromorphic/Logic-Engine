@@ -97,7 +97,7 @@ A relationship is an input, not a guaranteed action. The NPC subsystem should re
 The Personality block defines expected semantics, not a causal engine.
 
 - If an in-world relationship transition depends on a rolled-back event, the current relationship projection must be recomputed under the core's approved rollback contract.
-- An independent valid cause must not be erased merely because another cause is rolled back.
+- Where a domain explicitly models independently sufficient support, rolling back one cause must not erase a result still justified by surviving support. This is a target requirement, not a currently available guarantee; independent-support cases remain deferred until Core representation and domain sufficiency rules are defined and tested.
 - A list of event IDs must not be treated as alternative support unless the core contract explicitly defines it that way.
 - Personality-side tests may state these requirements but cannot claim that the production runtime passes them until the real core path and tests exist.
 - No Personality-owned causal graph, event log, identity registry, or rollback mechanism is permitted.
@@ -123,7 +123,7 @@ These are specifications, not executable integration tests.
 | PERS-REL-011 | Knowledge boundary | Relationship state does not grant knowledge of facts or secrets. |
 | PERS-REL-012 | Derived card | A card summary is read-only and cannot become a duplicate canonical store. |
 | PERS-REL-013 | Rollback dependency | A transition supported only by an invalidated cause is removed/recomputed. |
-| PERS-REL-014 | Independent support | Rolling back one cause preserves a result only when the remaining support is sufficient under explicit domain rules. |
+| PERS-REL-014 | Independent support | Deferred target: if independent support is explicitly modeled and supported, rollback preserves a result only when remaining support is sufficient under explicit domain rules; source IDs alone are insufficient. |
 | PERS-REL-015 | Authorized read | A snapshot is not authorization; actor/purpose filtering precedes decision use. |
 | PERS-REL-016 | Agency | Personality rules never authorize invented voluntary player actions, thoughts, or dialogue. |
 
