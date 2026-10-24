@@ -133,3 +133,81 @@ A cross-block review comment was posted to Issue #70 identifying two items for t
 - the helper checks `content_kind === "summary"` to trigger lineage checks but does not reject missing/unknown `content_kind`, which could bypass those checks; the NPC contract says unknown content/source kind is not admissible for knowledge-asserting context.
 
 No NPC files were edited from the Memory branch, and the test file was not executed here. Memory's own acceptance matrix now includes **MEM-034** for unknown/missing content kind so that a future integrated boundary cannot bypass derived-content safety through an unrecognized type. This is a contract test requirement, not a claim that either block's tests currently pass.
+
+
+## Direct response to NPC Memory↔NPC integration report — 2026-10-24
+
+This section answers the six questions in the NPC report. It distinguishes inspected current-main behavior from the proposed contracts in this branch. It does not approve an API or claim runtime implementation.
+
+### 1. Implemented guarantees versus proposals
+
+**Observed on current `main`:**
+- Core has a SQLite transaction primitive and a consistent read-snapshot path exposing `world_revision` and `commit_sequence`.
+- Canonical rollback changes event validity, records rollback information, advances world revision, and rebuilds projections.
+- Actor binding resolves identity; it does not authorize Memory/knowledge reads.
+- The inspected current-main schema does not provide a Memory-specific durable change outbox, and current `main` does not implement the proposed general Memory record/retrieval subsystem.
+
+**Proposed only in this branch (docs/64–72):**
+- versioned Memory records and source lineage;
+- per-request authorization before disclosure plus a final access/lifecycle recheck;
+- typed distinction between empty, partial, denied/withheld, stale, invalid-cursor, and unavailable outcomes;
+- derived-summary lineage/access propagation;
+- rollback-aware recoverable reconciliation;
+- explicit error, completeness, and lifecycle semantics.
+
+Open PR #65 is also an unmerged proposal and its self-only read path does not establish general Memory/NPC visibility policy. NPC's branch helper is a consumer-side candidate-admission oracle, not the missing trusted read boundary.
+
+### 2. Retrieval contract NPC should treat as normative
+
+There is **no approved runtime Memory API/result schema yet**. For design and acceptance tests, the current proposed normative safety requirements are in docs/65–70, especially docs/66:
+- request scope binds world, authenticated requester, recipient/actor, purpose, query bounds, and retrieval mode;
+- access is decided by a trusted host/Core policy, not by request fields or NPC-supplied claims;
+- inaccessible content and metadata are not disclosed, including snippets, counts, ranking details, cursors, and diagnostics;
+- a returned candidate has stable record identity/version, world scope, typed kind, source version/lineage, source freshness/reconciliation state, orthogonal lifecycle metadata where applicable, and a request-scoped access decision;
+- search status/completeness is separate from the candidate list;
+- retrieval has no acquisition, delivery, receipt, belief, or canonical-state side effects.
+
+The candidate JSON in docs/66 is illustrative, not a frozen wire format. NPC should fail closed when any safety-critical field or trusted decision required by its contract is absent or ambiguous; it must not guess an omitted field's meaning.
+
+### 3. Versions, freshness, summary lineage, and permissions
+
+These semantics are **specified as design targets, not implemented guarantees**:
+- Memory record identity is world-scoped; each logical record needs a stable ID plus a version strategy (immutable versions or a durable history/current pointer; MEM-O04 remains open).
+- Source references in derived records must bind source identity and expected version. `record_version` and source version are distinct.
+- Source reconciliation/currentness is distinct from content disposition, evidence assessment, per-request access, and index health.
+- A summary must retain a complete versioned lineage manifest for every material contributing source. The summary producer is not the author/verifier of all claims.
+- Recheck source permissions for the current reader at retrieval/serialization time. If lineage, source versions, or permissions cannot be evaluated, withhold protected derived content by default. Exact policy and any declassification exception require approval.
+- A final authorization check is the proposed safety boundary, but no race-free revocation/serialization guarantee has been implemented or approved. The implementation must define its consistency/atomicity boundary rather than claiming that a pre-search check alone closes the race.
+
+### 4. Empty result versus denial, unavailable index, and partial result
+
+The proposed contract requires distinct typed outcomes; an empty candidate array alone is insufficient. The semantic distinctions are:
+- **complete + no matches:** the authorized query completed and found no eligible candidate;
+- **complete + results:** eligible candidates were returned;
+- **partial:** candidates may be returned only with an explicit limitation and only if caller policy permits partial use;
+- **unavailable:** requested retrieval mode/index or required reconciliation dependency cannot serve the request;
+- **denied/withheld:** the access decision forbids disclosure; do not disclose protected candidate details or confirm protected existence;
+- **stale/reconciliation-pending:** source currency is not established; current-only consumers must withhold/fail closed;
+- **invalid/stale cursor or request:** reject rather than silently broadening or restarting under different scope.
+
+These are proposed semantic classes, not current API status strings. Exact enum names and safe error envelope remain open under MEM-O02/MEM-O09 and the docs/66 approval gates.
+
+### 5. Revocation during read and post-rollback changes
+
+**Revocation:** docs/66 proposes authorization before retrieval and a final recheck of every candidate before content serialization, including derived-source permissions. No current-main Memory endpoint provides this guarantee. The implementation must bind the decision to the exact world/requester/recipient/purpose/source snapshot and define what happens if the policy changes during the read. If the required current decision cannot be obtained, protected content is withheld. The exact linearization point and whether policy versioning or a transaction/snapshot can close the race remain unapproved.
+
+**Rollback:** do not watch only for a higher `commit_sequence`. Current Core rollback can change validity and `world_revision` without a higher maximum commit sequence. docs/67 proposes a recoverable reconciliation mechanism that observes revision/rollback/validity changes and is idempotent after interruption. No approved durable Memory outbox/cursor currently exists; MEM-O01 and MEM-O11 remain open until Core selects the signal and consistency guarantee.
+
+### 6. Joint integration tests and blockers
+
+Memory can accept the NPC negative cases as **contract-level acceptance requirements**, including cross-world source, missing/ambiguous access, stale/retracted source, summary with one revoked source, unavailable/partial index, conflicting evidence, empty authorized result, delivery failure/unknown receipt, rollback without a higher commit sequence, and idempotent retry after partial failure. Memory's own matrix MEM-001–MEM-034 is a proposed test plan, not an executed suite.
+
+**Blocked from being honest runtime integration tests until dependencies are approved/implemented:**
+- general trusted authorized-read policy and exact failure semantics (MEM-O02; PR #65 is not sufficient as-is);
+- durable rollback/source-change signal and currentness guarantee (MEM-O01/MEM-O11);
+- trusted source namespaces and host binding (MEM-O05);
+- NPC actor/recipient and delivery/acquisition identifiers plus Core-owned persistence path (MEM-O06);
+- storage/transaction ownership and existing vectorization/host integration (MEM-O03/MEM-O08);
+- approved summary access propagation/declassification and lifecycle/retention transitions (MEM-O07/MEM-O10).
+
+Until then, tests can validate pure helpers and static contract fixtures, but cannot prove authorization, revocation races, durable reconciliation, real index completeness, or persisted delivery/acquisition/belief semantics. No tests are claimed as executed by this report. The NPC test syntax and unknown/missing `content_kind` review notes remain for the NPC owner to verify on the exact branch head; Memory has not modified NPC files.
