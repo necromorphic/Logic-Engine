@@ -274,6 +274,40 @@ export class ProcessStore {
     });
   }
 
+  invalidateEvents(worldId, invalidatedEventIds, rollbackId) {
+    const invalidated = new Set(invalidatedEventIds);
+    if (!invalidated.size) return [];
+    return this.store.tx(() => {
+      const rows = this.db.prepare("SELECT * FROM world_process_milestones WHERE world_id=? AND status='completed'")
+        .all(worldId);
+      const affected = [];
+      const stamp = now();
+      for (const milestone of rows) {
+        const eventIds = dec(milestone.completed_event_ids_json);
+        const overlap = eventIds.filter((eventId) => invalidated.has(eventId));
+        if (!overlap.length) continue;
+        this.db.prepare(`UPDATE world_process_milestones SET status='needs_review',
+          checkpoint_version=checkpoint_version+1,updated_at=?
+          WHERE world_id=? AND process_id=? AND milestone_id=?`)
+          .run(stamp, worldId, milestone.process_id, milestone.milestone_id);
+        const error = {
+          code: 'PROCESS_MILESTONE_ROLLED_BACK',
+          message: 'A canonical event supporting a completed process milestone was invalidated; progress requires explicit review.',
+          milestone_id: milestone.milestone_id,
+          invalidated_event_ids: overlap,
+          rollback_id: rollbackId,
+        };
+        this.db.prepare(`UPDATE world_processes SET status='needs_review',version=version+1,last_error_json=?,updated_at=?
+          WHERE world_id=? AND process_id=? AND status NOT IN ('cancelled','failed')`)
+          .run(enc(error), stamp, worldId, milestone.process_id);
+        this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+          .run(worldId, this.store.world(worldId).world_revision + 1, 'process.rollback.needs_review', milestone.process_id, enc(error), stamp);
+        affected.push({ process_id: milestone.process_id, milestone_id: milestone.milestone_id, invalidated_event_ids: overlap });
+      }
+      return affected;
+    });
+  }
+
   markNeedsReview(worldId, processId, code, message) {
     return this.store.tx(() => {
       const stamp = now();
