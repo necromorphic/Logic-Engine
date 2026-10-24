@@ -10,8 +10,7 @@ function setup() {
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   engine.createWorld({
-    world_id: 'time-operation-world',
-    world_pack_id: 'test.world',
+      world_pack_id: 'test.world',
     world_pack_version: '1.0.0',
     game_time: '2005-12-29T10:00:00.000Z',
   });
@@ -22,7 +21,6 @@ const trigger = (id, due, entityId, dependencies = []) => ({
   trigger_id: id,
   world_id: 'time-operation-world',
   due_coordinate: due,
-  status: 'pending',
   dependencies,
   read_set: [],
   write_set: ['entity:' + entityId],
