@@ -324,7 +324,7 @@ test('translateMechanicEffectIntents maps only the declared literal subset and p
     lifecycle_policy: { on_disable: 'require_author_decision' },
     unknown_policy: 'mark_unknown',
   };
-  const result = translateMechanicEffectIntents(template);
+  const result = translateMechanicEffectIntents(template, 'act');
   assert.equal(result.status, 'ready');
   assert.deepEqual(result.effects.map((effect) => effect.kind), ['entity.create', 'entity.update', 'fact.set']);
   assert.deepEqual(result.effect_provenance.map((item) => item.effect_id), ['create-1', 'update-1', 'fact-1']);
@@ -356,7 +356,7 @@ test('translateMechanicEffectIntents rejects unsupported intents atomically with
     lifecycle_policy: { on_disable: 'require_author_decision' },
     unknown_policy: 'mark_unknown',
   };
-  const result = translateMechanicEffectIntents(template);
+  const result = translateMechanicEffectIntents(template, 'act');
   assert.equal(result.status, 'unknown');
   assert.equal(result.reason_code, 'UNSUPPORTED_EFFECT_INTENT');
   assert.deepEqual(result.effects, []);
@@ -378,11 +378,13 @@ test('translateMechanicEffectIntents rejects unknown fields, empty patches, dupl
     unknown_policy: 'mark_unknown',
   });
   const base = { effect_id: 'e1', kind: 'create_entity', target_ref: 'entity.new', payload: { entity_type: 'character' } };
-  assert.equal(translateMechanicEffectIntents(make([{ ...base, payload: { ...base.payload, expression: 'x' } }])).reason_code, 'UNSUPPORTED_EFFECT_PAYLOAD_FIELD');
-  assert.equal(translateMechanicEffectIntents(make([{ effect_id: 'e1', kind: 'update_attribute', target_ref: 'entity.a', payload: {} }])).reason_code, 'EMPTY_EFFECT_PATCH');
-  assert.equal(translateMechanicEffectIntents(make([base, { ...base }])).reason_code, 'DUPLICATE_EFFECT_ID');
-  assert.equal(translateMechanicEffectIntents(make([{ ...base, source_refs: ['event.x'] }])).reason_code, 'UNSUPPORTED_EFFECT_PROVENANCE');
-  const invalidTarget = translateMechanicEffectIntents(make([{ ...base, target_ref: 'entity:reserved' }]));
-  assert.equal(invalidTarget.status, 'unknown');
-  assert.equal(invalidTarget.effects.length, 0);
+  assert.equal(translateMechanicEffectIntents(make([{ ...base, payload: { ...base.payload, expression: 'x' } }]), 'act').reason_code, 'UNSUPPORTED_EFFECT_PAYLOAD_FIELD');
+  assert.equal(translateMechanicEffectIntents(make([{ effect_id: 'e1', kind: 'update_attribute', target_ref: 'entity.a', payload: {} }]), 'act').reason_code, 'EMPTY_EFFECT_PATCH');
+  assert.equal(translateMechanicEffectIntents(make([base, { ...base }]), 'act').reason_code, 'DUPLICATE_EFFECT_ID');
+  assert.equal(translateMechanicEffectIntents(make([{ ...base, source_refs: ['event.x'] }]), 'act').reason_code, 'UNSUPPORTED_EFFECT_PROVENANCE');
+  const invalidEffect = translateMechanicEffectIntents(make([{ ...base, payload: { entity_type: 'character', status: 'not-a-status' } }]), 'act');
+  assert.equal(invalidEffect.status, 'unknown');
+  assert.equal(invalidEffect.reason_code, 'INVALID_TRANSLATED_EFFECT');
+  assert.equal(invalidEffect.effects.length, 0);
+  assert.equal(translateMechanicEffectIntents(make([base]), 'missing').reason_code, 'MECHANIC_ACTION_NOT_FOUND');
 });
