@@ -73,6 +73,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   };
   const consumer = new MemoryNpcConsumer({
     authorizedReadService,
+    actorBindingService: bindings,
     memoryProvider: provider,
     contentFields: ['attributes.public_note'],
   });
@@ -192,7 +193,38 @@ test('Memory provider must supply all trusted host callbacks; no default policy 
   assert.ok(consumer);
   assert.throws(() => new MemoryNpcConsumer({
     authorizedReadService: { readEntityFields() {} },
+    actorBindingService: { resolve() {} },
     memoryProvider: { retrieveCandidates() {} },
     contentFields: ['attributes.public_note'],
   }), /trusted Memory query, retrieval, and record authorization functions/);
+});
+
+
+test('actor binding is checked before query authorization even for complete-empty results', async (t) => {
+  const { consumer, provider, setCandidates } = setup(t);
+  setCandidates([]);
+  let queryAuthorizationCalled = false;
+  provider.authorizeQuery = async () => {
+    queryAuthorizationCalled = true;
+    return true;
+  };
+
+  const result = await consumer.retrieveForNpc({ ...request(), adapterId: 'unbound-adapter' });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.equal(queryAuthorizationCalled, false);
+});
+
+test('duplicate Memory identity/version cannot be rebound to a different canonical source', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
+  setCandidates([
+    candidate(),
+    candidate({ source: { kind: 'canonical_entity', entity_id: 'source-b' } }),
+  ]);
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_identity_conflict');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
 });
