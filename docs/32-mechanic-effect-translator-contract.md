@@ -92,7 +92,7 @@ Failure must be all-or-nothing and side-effect free. The caller may turn a failu
 1. Golden mapping tests for each of the three supported intent kinds, including optional fields omitted versus supplied.
 2. Rejection tests for all 15 other declared intent kinds, including review/result kinds.
 3. Unknown payload fields, missing required fields, invalid status, invalid JSON/object shapes, empty update patches, overlapping patch/removal keys, duplicate removal keys, duplicate `effect_id` values, and an empty batch fail closed.
-4. Unsafe object keys (`__proto__`, `constructor`, `prototype`) are rejected recursively in nested JSON payloads.
+4. Unsafe object keys (`__proto__`, `constructor`, `prototype`) are rejected recursively in nested JSON payloads. Nested JSON values are bounded to depth 32, at most 10,000 nodes per batch, and at most 1,000 entries per array/object; exceeding a bound fails closed.
 5. Non-empty `source_refs` or `caused_by` fail with the provenance-specific reason; the translator must never drop them.
 6. A batch with one valid intent followed by an invalid/unsupported intent yields no partial output.
 7. Output is deterministic and input is unchanged after both success and failure.
