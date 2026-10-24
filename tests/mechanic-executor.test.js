@@ -671,7 +671,7 @@ test('application executor accepts only same-snapshot canonical absence evidence
   const provenAbsent = new MechanicExecutor(engine, { resolveAuthorizedContext: provider(['actor.injury']) })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(provenAbsent.status, 'ready');
-  assert.deepEqual(provenAbsent.dependency_manifest.condition_paths, ['actor.injury']);
+  assert.deepEqual(provenAbsent.dependency_manifest.condition_paths, ['actor.hp', 'actor.injury']);
 
   const unprovenAbsent = new MechanicExecutor(engine, { resolveAuthorizedContext: provider([]) })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
