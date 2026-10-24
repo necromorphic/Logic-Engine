@@ -35,6 +35,23 @@ const isRecord = (value) => {
   });
 };
 
+const isDataArray = (value) => {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) {
+    return false;
+  }
+  const keys = Reflect.ownKeys(value);
+  if (keys.some((key) => key !== "length"
+      && (typeof key !== "string" || !/^(0|[1-9]\\d*)$/.test(key)))) {
+    return false;
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    if (!own(value, String(index))) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !own(descriptor, "value")) return false;
+  }
+  return true;
+};
+
 const isNonEmptyString = (value) =>
   typeof value === "string" && value.trim().length > 0;
 
@@ -178,8 +195,8 @@ export function evaluateRelationshipCandidate(input) {
   if (evidence.status === "unsupported") {
     return result("unsupported", { reason: "evidence_contract_unsupported" });
   }
-  if (!Array.isArray(evidence.refs) || evidence.refs.length === 0
-      || !evidence.refs.every(isNonEmptyString)) {
+  if (!isDataArray(evidence.refs) || evidence.refs.length === 0
+      || !Array.prototype.every.call(evidence.refs, isNonEmptyString)) {
     return result("insufficient_evidence", { reason: "supported_evidence_refs_required" });
   }
 
@@ -195,11 +212,11 @@ export function evaluateRelationshipCandidate(input) {
     }
 
     const rule = dimensionRules[dimension];
-    if (!isRecord(rule) || !Array.isArray(rule.values)
-        || !rule.values.every((value) => typeof value === "string")
+    if (!isRecord(rule) || !isDataArray(rule.values)
+        || !Array.prototype.every.call(rule.values, (value) => typeof value === "string")
         || typeof rule.allowClear !== "boolean"
-        || !Array.isArray(rule.transitions)
-        || !rule.transitions.every((transition) =>
+        || !isDataArray(rule.transitions)
+        || !Array.prototype.every.call(rule.transitions, (transition) =>
           isRecord(transition)
           && Object.keys(transition).length === 3
           && own(transition, "operation")
