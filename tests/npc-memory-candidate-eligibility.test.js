@@ -284,7 +284,7 @@ test("stale, retracted, unavailable, and unknown freshness are not current knowl
 });
 
 test("malformed trusted or candidate snapshots fail closed", () => {
-  for (const snapshot of [{}, { world_revision: 12 }, { world_revision: "", commit_sequence: 40 }]) {
+  for (const snapshot of [undefined, null, {}, { world_revision: 12 }, { world_revision: "", commit_sequence: 40 }]) {
     const result = evaluateMemoryCandidateAdmission(
       { ...request, snapshot },
       completeResult([candidate()]),
