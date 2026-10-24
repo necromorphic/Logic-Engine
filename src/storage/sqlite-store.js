@@ -1757,8 +1757,8 @@ export class SQLiteStore {
       const sourceIds = new Set(input.process.source_event_ids);
       for (const milestone of input.process.milestones) for (const sourceId of milestone.source_event_ids) sourceIds.add(sourceId);
       for (const sourceId of sourceIds) {
-        const event = this.db.prepare("SELECT event_id FROM world_events WHERE world_id=? AND event_id=?").get(worldId, sourceId);
-        if (!event) throw new EngineError('PROCESS_SOURCE_EVENT_NOT_FOUND', 'A process causal source must reference an existing event in this world.', 409, { event_id: sourceId });
+        const event = this.db.prepare("SELECT event_id,validity FROM world_events WHERE world_id=? AND event_id=?").get(worldId, sourceId);
+        if (!event || event.validity !== 'valid') throw new EngineError('PROCESS_SOURCE_EVENT_NOT_VALID', 'A process causal source must reference a currently valid event in this world.', 409, { event_id: sourceId, validity: event?.validity ?? null });
       }
       const stamp = now();
       this.db.prepare("INSERT INTO world_processes(world_id,process_id,idempotency_key,request_hash,status,source_event_ids_json,created_revision,last_operation_id,error_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
