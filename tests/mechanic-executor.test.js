@@ -263,6 +263,9 @@ test('mechanic evaluation hands off through the ordinary durable proposal lifecy
   assert.equal(committed.status, 'committed');
   assert.equal(engine.getState(worldId).world_revision, 3);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
+  const committedEvent = engine.getEvents(worldId).find((event) => event.event_id === committed.commit_result.event_id);
+  assert.deepEqual(committedEvent.read_set, evaluation.read_set);
+  assert.deepEqual(committedEvent.causal_links, evaluation.causal_links);
   assert.deepEqual(proposals.get(worldId, proposal.proposal_id).mechanic_execution.effect_provenance, evaluation.effect_provenance);
   const replay = proposals.createFromMechanicEvaluation(worldId, evaluation, {
     idempotencyKey: 'mechanic-proposal-1',
@@ -568,4 +571,42 @@ test('application executor rejects required capabilities without a grant contrac
   assert.equal(result.status, 'unknown');
   assert.equal(result.reason_code, 'UNSUPPORTED_MECHANIC_CAPABILITIES');
   assert.deepEqual(result.effects, []);
+});
+
+
+test('application executor refuses context whose canonical dependency evidence is missing or mismatched', (t) => {
+  const missingSetup = setup(t, 'executor-missing-evidence-world');
+  enableFixture(missingSetup.engine, missingSetup.worldId);
+  const missing = new MechanicExecutor(missingSetup.engine, {
+    resolveAuthorizedContext: ({ snapshot }) => ({
+      context: { world: { weather: 'rain' }, actor: { hp: 10 } },
+      knownAbsentPaths: [],
+      dependencyEvidence: [],
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+      policy_version: 'test-policy-v1',
+    }),
+  }).evaluate({ worldId: missingSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(missing.status, 'unknown');
+  assert.equal(missing.reason_code, 'DEPENDENCY_EVIDENCE_INCOMPLETE');
+  assert.deepEqual(missing.effects, []);
+
+  const mismatchSetup = setup(t, 'executor-mismatched-evidence-world');
+  enableFixture(mismatchSetup.engine, mismatchSetup.worldId);
+  const mismatch = new MechanicExecutor(mismatchSetup.engine, {
+    resolveAuthorizedContext: ({ snapshot }) => ({
+      context: { world: { weather: 'rain' }, actor: { hp: 10 } },
+      knownAbsentPaths: [],
+      dependencyEvidence: [
+        { path: 'world.weather', kind: 'entity_attribute', entity_id: 'entity.actor-context', attribute: 'hp' },
+        { path: 'actor.hp', kind: 'entity_attribute', entity_id: 'entity.actor-context', attribute: 'hp' },
+      ],
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+      policy_version: 'test-policy-v1',
+    }),
+  }).evaluate({ worldId: mismatchSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(mismatch.status, 'unknown');
+  assert.equal(mismatch.reason_code, 'DEPENDENCY_EVIDENCE_VALUE_MISMATCH');
+  assert.deepEqual(mismatch.effects, []);
 });
