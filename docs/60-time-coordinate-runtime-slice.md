@@ -1,6 +1,6 @@
 # Time coordinate runtime slice — T2
 
-**Status:** implementation proposal in PR; not merged.  
+**Status:** T2 coordinate migration and single-event runtime integration are merged in main.  
 **Baseline:** main's existing ISO-based runtime and migration system.  
 **Scope:** canonical coordinate fields, compatibility-preserving migration, and single-event Core commit updates.
 
