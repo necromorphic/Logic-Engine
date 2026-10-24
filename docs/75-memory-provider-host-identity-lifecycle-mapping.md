@@ -300,3 +300,100 @@ Core is asked to respond to this single contract with **APPROVE**, **APPROVE WIT
 - the final disclosure point and accepted post-check race limits.
 
 Only after that recorded review may Host + Provider submit concrete field placement and any required API/schema diff for a second explicit review. Until then, this contract is documentation only: no new API/schema or cross-block implementation; production Memory→NPC remains **DISABLED / FAIL-CLOSED**; vectorization remains untouched.
+
+
+## 11. Concrete Host + Provider contract proposal for Core review (24 Oct 2026)
+
+**Purpose:** submit one exact, source-grounded proposal after Core decision #140. This section supersedes the earlier “next step: prepare a concrete proposal” wording above. It is still a proposal, not implementation authorization. The canonical mapping remains this document; Host evidence is maintained only in [docs/27-host-adapter-lifecycle-evidence.md](https://github.com/necromorphic/Logic-Engine/blob/docs/host-adapter-st-lifecycle-evidence/docs/27-host-adapter-lifecycle-evidence.md). No runtime code, field, API, schema, store, journal, cursor, outbox, or cross-block wiring is changed by this commit.
+
+### 11.1 Proposed contract (review each row as ACCEPT / REJECT / REVISE)
+
+| Contract point | Exact proposal | Existing code anchor | Owner | Failure behavior before approval |
+|---|---|---|---|---|
+| Logical-message identity | One persistent ID on each logical ST message object; independent of chat-array index. Candidate placement: `message.logic_engine_message_id`. Generate once at logical-message creation; preserve on ordinary save/load of the same source. | Pinned ST `public/script.js`: user/assistant message construction; `public/scripts/group-chats.js`: group greeting and group message path; `public/scripts/slash-commands.js`: slash-command insertion. See Host evidence links below. | Host implements creation/serialization; Core approves semantics and migration; Provider consumes only approved IDs. | Missing/duplicate/ambiguous ID => source NON_READY; never derive from index, timestamp, content hash, or `extra.gen_id`. |
+| Immutable version identity | One persistent ID per separately selectable immutable swipe/version, stored with its `swipe_info[i]` entry. Candidate placement: `message.swipe_info[i].logic_engine_version_id`. Selecting a swipe changes only `message.swipe_id`; resolve identity through the selected metadata entry. | `public/script.js::saveReply()`; `ensureSwipes()`; existing `swipes[]`, parallel `swipe_info[]`, and `swipe_id`. | Host creates/persists; Core approves; Provider uses as existing `version_id` component. | Missing or mismatched metadata-to-swipe identity => NON_READY; do not infer from array position. |
+| Edit and ancestry | Treat an edit as a new immutable version under the same logical-message ID; candidate predecessor placement: `message.swipe_info[i].logic_engine_parent_version_id`. Capture prior version before text mutation. Do not overwrite archived prior raw content. | `public/script.js::messageEditDone()` currently calls `updateMessage(div)` before `MESSAGE_EDITED`; a post-event listener cannot reliably recover the before-state. | Host owns pre-mutation capture; Core + Host + Provider approve ancestry semantics and representation. | Until a pre-mutation capture and persisted parent are proven, edited source is NON_READY for ingestion. No ancestry inference from timestamps, adjacent slots, generation events, or arbitrary metadata. |
+| Generation completion | Only a persisted, completed output becomes an ordinary eligible immutable version. Stop/cancel/partial output is not silently classified as complete; any future partial-output semantics require a separate explicit decision. | Pinned ST generation/save paths and their event ordering; see Host source matrix. | Host supplies completion/persistence evidence; Core approves semantic distinction; Provider stores only approved captures. | Ambiguous finish/stop/cancel or failed save => no ready capture. Event emission alone is not a durable-commit signal. |
+| Delete one version | Capture the target version ID before either swipe-array splice; then request an exact-version tombstone. | `public/script.js::deleteSwipe()`: target and `swipe_info[swipeId]` exist before `message.swipes.splice()` and `message.swipe_info.splice()`. Existing Provider operation: `markRawSourceDeleted()`. | Host captures exact target; Provider tombstones that tuple and invalidates registered Provider-local copies; Core approves source authority. | Unknown target or post-splice-only evidence => no tombstone success claim; scope remains NON_READY. |
+| Delete whole message/chat | Before the first message splice, capture the logical ID and all retained version IDs for every affected message. This list is not exhaustive for versions previously physically removed from ST. Therefore whole-message/chat retraction is **not admissible** unless an authoritative source inventory proves the exhaustive historical set. | `public/script.js::deleteMessage()` splices before `MESSAGE_DELETED`; current event payload is not a durable deleted-object identity. Existing Provider operation is exact-version `markRawSourceDeleted()`; no approved atomic whole-message operation exists. | Host supplies exhaustive affected set; Provider applies exact tombstones; Core approves completeness/authority. | If any historical version is unknown, whole-source deletion is NON_READY/incomplete; never claim all versions retracted. |
+| Provider persistence and duplicate semantics | Use the existing Provider draft contract only after approval: composite key `(world_id, conversation_id, message_id, version_id)`; identical tuple+payload replay is idempotent; same tuple with conflicting payload is rejected; a tombstoned version cannot be resurrected by replay; active selection preserves alternatives. | Provider raw archive: `captureRawMessage()`, `selectActiveRawVersion()`, `markRawSourceDeleted()`, `purgeRawSource()`; tests in `tests/memory-provider-raw-archive.test.js`. | Provider owns local storage behavior; Host must prove supplied tuple authenticity/persistence; Core approves scope and source semantics. | Existing draft tests do not authorize production wiring. Missing scope/identity or conflict => reject/withhold. Ordinary delete is a tombstone, not `purgeRawSource()`. |
+| World/session and conversation binding | Core must name the existing authoritative evidence that binds each captured source to a world/session and durable conversation. A caller-supplied `world_id`, chat name, filename, character ID, or group ID is not sufficient authority by itself. | Existing Provider composite key includes `world_id` and `conversation_id`; pinned ST load paths `getChat()` and group-chat load/save do not prove Core-authorized binding across copy/import/restore. | Core defines authority; Host supplies evidence and stable conversation identity; Provider enforces the approved scope. | Missing, denied, or ambiguous binding => NON_READY. No silent rebinding. |
+| Complete inventory/currentness | Inventory must cover the declared Host source domain for the bound scope, including inactive versions and deleted/retracted identities; establish complete enumeration and a consistent source state; distinguish complete-empty from unavailable/denied/partial/unknown. Any rollback, restore, branch/import replacement, suspected omitted event, unexplained set mismatch, or concurrent mutation invalidates readiness until a fresh authoritative full reconciliation succeeds. | Current ST chat JSON contains only retained objects; swipe/message deletion physically splices objects. Current events have no completeness guarantee. Provider `reconcile(worldId)` / injected `validateInventory` concerns Provider canonical-entity records, not completeness of raw ST captures. | Core defines proof and invalidation rules; Host must identify/prove an existing authoritative inventory source; Provider may consume it only after approval. | **No qualifying source is currently established.** No new journal/cursor/store/API is presumed. Therefore the contract is NON_READY and production ingestion remains blocked until Core approves a concrete evidence mechanism and Host demonstrates it. |
+| Final disclosure/revocation | Revalidate the exact source versions, lineage, scope, inventory readiness, and authorization at the actual final serialization/disclosure boundary—after asynchronous reads and candidate assembly. If revocation/tombstone/scope change/stale snapshot/non-ready is observed before that boundary, cancel and return no content, snippet, or diagnostic count. | Provider final raw-read authorization recheck exists in draft tests; no current evidence identifies a production Host→Provider→Core→NPC serialization boundary wired to this source. Provider-local checks do not make cross-store access atomic. | Core defines required semantics and accepted race limits; Provider owns its local check; Host/NPC disclosure owner must identify and test the real final serialization call. | No demonstrated final boundary or bounded race guarantee => no disclosure path is enabled. Do not describe Provider read-time recheck or NPC admission as final authorization. |
+
+### 11.2 Proposed candidate placement in pinned SillyTavern (not approved fields)
+
+The candidate names above are deliberately concrete so Core can accept/reject exact placement; they must not be added before approval.
+
+- `message.logic_engine_message_id`: on the logical message object, not a DOM element or index.
+- `message.swipe_info[i].logic_engine_version_id`: on the metadata entry corresponding to the immutable `swipes[i]` version.
+- `message.swipe_info[i].logic_engine_parent_version_id`: predecessor reference only if Core approves edit-as-new-version and the required lineage semantics.
+- No additional active-version field: existing `message.swipe_id` remains an array-position pointer and resolves to the selected version's durable ID.
+- No Host field is proposed for world/session authority; that must be evidenced by a Core-approved binding, not asserted by an ST-local string.
+
+Exact source anchors at pinned ST commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`:
+- [Message creation, swipe creation and saveReply](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L6642-L6685)
+- [Swipe metadata repair/synchronization](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L6833-L7018)
+- [Edit mutates before MESSAGE_EDITED](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L8397-L8435)
+- [Swipe deletion before/after splice](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L9339-L9408)
+- [Whole-message deletion/tool-call cascade](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L1639-L1700)
+- [Single-chat load](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L7634-L7675)
+- [Group-chat load/save](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/scripts/group-chats.js#L260-L322)
+
+### 11.3 Executable acceptance plan and evidence labels
+
+**Provider-local tests (already available; run against the exact reviewed Provider head):**
+1. Run `npm test -- tests/memory-provider-raw-archive.test.js` from the Logic-Engine repository.
+2. Exact duplicate tuple + payload after Provider restart yields one logical raw record.
+3. Same tuple + different role/content/metadata is rejected as a conflict; prior bytes are unchanged.
+4. Select another captured version changes only the active pointer; alternatives remain.
+5. Tombstone a version twice, restart Provider, replay the original identical capture: the deleted version remains unavailable and is not resurrected.
+6. Register a dependent copy, tombstone its source, restart Provider: the registered copy remains invalidated.
+7. Cause revocation to be observed during the final Provider raw-read authorization check: no content is returned.
+8. Supply incomplete/unavailable/stale inventory or source-currentness evidence: readiness/read fails closed, never returns complete-empty.
+   
+The existing evidence is Provider-local: draft code/test HEAD `0c7b4abd8a5b3547304f452380b310bb155aeb52`, CI #1784 **290/290** ([run](https://github.com/necromorphic/Logic-Engine/actions/runs/40121937992)). It is not proof of Host integration, source inventory completeness, or the final serialization race.
+
+**Host runtime tests (not yet run; required on the pinned Android/Termux ST install):**
+1. Create a user message and an assistant response; save, close/reopen the chat, restart ST, and compare persisted logical/version IDs before and after.
+2. Generate two swipes; select each; save/reload; verify each ID follows its content and the active ID resolves from the selected metadata entry after reindex.
+3. Edit the active message; verify old content/version remains identifiable, new version has a distinct ID, and parent points to the exact prior active version.
+4. Stop/cancel generation and force a save failure if safely reproducible; verify partial/unpersisted output is not reported as a completed persisted source.
+5. Delete first, middle, and last swipes; inspect the target ID captured before either splice and confirm remaining version IDs do not change.
+6. Delete a message with multiple swipes and tool-call cascade; record all retained IDs before the first splice. Then demonstrate whether the source can enumerate *previously deleted* versions. If it cannot, assert NON_READY rather than claiming complete retraction.
+7. Switch chats; test group-chat load/save; repeat with copy/branch/import/restore and legacy chat data. Verify approved preserve/remap behavior and reject collisions/ambiguous ancestry.
+8. Replay the same captured persisted state twice into Provider after restart: no duplicate; then mutate payload under the same tuple: conflict without overwrite.
+   
+For every case, attach before/after persisted chat evidence with sensitive content redacted, the pinned ST commit, platform/build, and observed save outcome. A fired event log alone does not pass.
+
+**Inventory/currentness tests (BLOCKED until an authoritative existing mechanism is identified and Core approves its exact contract):**
+- Prove complete-empty versus denied/unavailable/partial/unknown.
+- Inject truncation, omitted page/event, parse/permission failure, unknown legacy source, concurrent mutation, rollback, restore, branch/import replacement and replay ambiguity; each must invalidate readiness.
+- Interrupt reconciliation, restart, and prove a fresh full reconciliation is required.
+- Delete an inactive and a previously removed version, then prove the inventory still identifies its tombstone/absence.
+- Verify Provider compares accepted scope/snapshot before and after reconciliation, while separately proving that this does not substitute for Host completeness.
+
+**Final disclosure race tests (BLOCKED until the real serialization owner/path is identified):**
+- Pause after candidate assembly but before final serialization; tombstone/revoke one candidate, change scope, or invalidate inventory; resume and assert no content, snippet, or diagnostic count is returned.
+- Repeat with revocation after the final check to characterize the exact residual race. Core must explicitly accept a bounded mechanism or the path remains disabled; sequential checks must not be labelled atomic.
+- Run this through the actual Host→Provider→Core→NPC output path, not only injected Provider fixtures.
+
+Evidence status today:
+- **SOURCE-INSPECTED:** pinned ST construction/edit/swipe-delete/message-delete/load/save paths above.
+- **RUNTIME-OBSERVED:** only the lifecycle event families in the redacted samples linked from Host issue #258; those samples do not prove persistence ordering or completeness.
+- **FIXTURE-TESTED:** Provider raw-archive tests at the exact cited draft head/CI.
+- **REAL-RUNTIME-TESTED:** none for the full Host→Provider lifecycle on Android/Termux; none for authoritative complete inventory; none for final serialization/revocation race.
+
+### 11.4 Core decision requested
+
+Please mark each item **ACCEPT / REJECT / REVISE**:
+
+1. Candidate Host placements and identity lifecycle in §11.1–11.2.
+2. Edit-as-new-immutable-version and explicit predecessor lineage; completion versus cancelled/partial generation.
+3. Legacy migration and copy/branch/import/restore ID preservation/remapping/collision policy.
+4. World/session binding evidence and durable conversation identity.
+5. Inventory contract: because current ST state and events cannot prove complete historical inventory, identify an existing authoritative mechanism that meets §11.1, or explicitly keep the gate blocked pending a separately approved mechanism. This proposal does not introduce a journal, cursor, store, or API.
+6. Final serialization owner/path and a concrete race-closing mechanism with explicit residual-race semantics. No production boundary is claimed to exist today.
+7. The acceptance criteria and required evidence labels in §11.3.
+
+**Release state:** production Memory→NPC remains **DISABLED / FAIL-CLOSED**. No implementation of the candidate fields or any new API/schema/store/journal/cursor/outbox is authorized by this proposal. Existing Ollama vectorization/remote-store path is untouched.
