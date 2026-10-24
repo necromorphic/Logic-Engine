@@ -147,12 +147,21 @@ test('query denial and incomplete Memory results fail closed without returning c
   assert.deepEqual(result.candidates, []);
 });
 
-test('Memory record denial is indistinguishable from an authorized empty candidate set', async (t) => {
+test('Memory record denial is indistinguishable from an authorized empty candidate set, including stale hidden records', async (t) => {
   const denied = setup(t, { authorizeCandidate: false });
   const result = await denied.consumer.retrieveForNpc(request());
   assert.equal(result.status, 'ready');
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
+
+  denied.setCandidates([denied.candidate({
+    freshness: { status: 'stale' },
+  })]);
+  const staleButDenied = await denied.consumer.retrieveForNpc(request());
+  assert.equal(staleButDenied.status, 'ready');
+  assert.deepEqual(staleButDenied.admitted, []);
+  assert.deepEqual(staleButDenied.candidates, []);
+  assert.deepEqual(staleButDenied, result);
 });
 
 test('Core field denial removes the candidate content and does not disclose protected fields', async (t) => {
