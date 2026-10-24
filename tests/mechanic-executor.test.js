@@ -643,3 +643,56 @@ test('mechanic proposal cannot commit after an intervening world change', (t) =>
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.competing'), true);
   assert.equal(proposals.get(worldId, proposal.proposal_id).status, 'approved');
 });
+
+
+test('application executor accepts only same-snapshot canonical absence evidence for negative conditions', (t) => {
+  const { engine, worldId } = setup(t, 'executor-known-absence-world');
+  const value = template({
+    applicability: [{ op: 'exists', path: 'actor.injury', value: false }],
+  });
+  enableFixture(engine, worldId, value);
+  const provider = (knownAbsentPaths) => ({ snapshot }) => ({
+    context: { world: { weather: 'rain' }, actor: { hp: 10 } },
+    knownAbsentPaths,
+    dependencyEvidence: [{
+      path: 'actor.injury',
+      kind: 'entity_attribute',
+      entity_id: 'entity.actor-context',
+      attribute: 'injury',
+    }],
+    world_revision: snapshot.world_revision,
+    commit_sequence: snapshot.commit_sequence,
+    policy_version: 'test-visibility-policy-v1',
+  });
+  const provenAbsent = new MechanicExecutor(engine, { resolveAuthorizedContext: provider(['actor.injury']) })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(provenAbsent.status, 'ready');
+  assert.deepEqual(provenAbsent.dependency_manifest.condition_paths, ['actor.injury']);
+
+  const unprovenAbsent = new MechanicExecutor(engine, { resolveAuthorizedContext: provider([]) })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(unprovenAbsent.status, 'unknown');
+  assert.equal(unprovenAbsent.reason_code, 'DEPENDENCY_EVIDENCE_ABSENCE_UNPROVEN');
+  assert.deepEqual(unprovenAbsent.effects, []);
+});
+
+test('application executor rejects known-absence claims outside the declared condition paths', (t) => {
+  const { engine, worldId } = setup(t, 'executor-absence-scope-world');
+  enableFixture(engine, worldId);
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: ({ snapshot }) => ({
+      context: { world: { weather: 'rain' }, actor: { hp: 10 } },
+      knownAbsentPaths: ['actor.secret'],
+      dependencyEvidence: [
+        { path: 'world.weather', kind: 'entity_attribute', entity_id: 'entity.world-context', attribute: 'weather' },
+        { path: 'actor.hp', kind: 'entity_attribute', entity_id: 'entity.actor-context', attribute: 'hp' },
+      ],
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+      policy_version: 'test-visibility-policy-v1',
+    }),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'INVALID_KNOWN_ABSENCE_SCOPE');
+  assert.deepEqual(result.effects, []);
+});
