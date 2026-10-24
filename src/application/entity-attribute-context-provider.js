@@ -68,6 +68,7 @@ export class CanonicalEntityAttributeContextProvider {
     this.canRead = canRead;
     this.policyFingerprint = hashRequest({
       policy_version: this.policyVersion,
+      authorization_scope: this.authorizationScope,
       bindings: [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path)),
     });
     Object.freeze(this);
