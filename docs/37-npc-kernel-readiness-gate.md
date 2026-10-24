@@ -31,8 +31,8 @@ Never silently upgrade a documented target, candidate seam, or NPC requirement i
 | Proposal lifecycle | Observed / candidate seam | Existing service can create pending proposals and has approval/commit paths with validation and stale-snapshot checks. | That a valid proposal is semantically faithful, actor-authorized, safe for player agency, or fully causally justified. |
 | Canonical state and revisions | Observed, within current APIs | Existing engine owns current canonical event/state operations and revision-related checks. | That every future NPC state category is already represented or that all revision semantics are final. |
 | Rollback and causality | Documented target plus partial implementation | Existing code/tests cover some causal invalidation and preservation cases; design docs describe broader goals. | That every causal edge, derived fact, external effect, or future NPC action has complete rollback semantics. |
-| Condition evaluation | Observed limitation | Current evaluator returns boolean for the inspected condition path; missing paths can collapse to false for several operators. | That false, unknown, incomplete, inaccessible, and conflicted are already distinct kernel values. Do not change this globally from NPC code. |
-| Actor identity and authorization | Open core decision | NPC integration will need a trusted actor identity and a defined authorization boundary. | That adapter identity is the same as in-world actor identity, or that proposal approval is actor authorization. |
+| Condition evaluation | Observed: opt-in tri-state primitive exists | `evaluateConditionResult(...)` and `tests/tri-state-rules.test.js` distinguish true/false/unknown and support explicitly known-absent paths. | That this primitive is an access-control mechanism or proves completeness/authorization of a whole knowledge read. |
+| Actor identity and authorization | Identity binding observed on current Core `main`; not yet in NPC branch | `ActorBindingService`, adapter-authenticated resolution routes, and `tests/actor-binding.test.js` bind trusted adapters to canonical actor IDs. | That identity binding grants knowledge access, proves acquisition, filters secrets, or authorizes approval/commit. |
 | NPC belief and knowledge | NPC requirement / deferred core dependency | NPC behavior must not confuse canonical truth with what a character believes or has learned. | That a canonical NPC belief store, provenance model, or actor-specific knowledge API already exists. |
 | Intent-to-effect mapping | Open core/NPC coordination decision | NPC proposals need an explicit mapping to effects the core supports. | That high-level mechanics intents can be sent directly wherever the lower-level validator expects core effects. |
 | Player agency | NPC requirement / deferred integration policy | The NPC layer must not invent or commit player-controlled dialogue, thoughts, or decisions. | That a universal player-agency policy already exists in core services. |
@@ -445,3 +445,10 @@ The inspected Core implementation plan, `docs/43-core-npc-knowledge-runtime-impl
 The new minimal character-card projection is also not a substitute for an actor-relative knowledge filter: it intentionally exposes only stable entity identity/type/status and optional source metadata, omitting arbitrary attributes and facts.
 
 **CI caveat:** the available commit-workflow query returned no PR-triggered workflow runs for the current `main` head. That query does not enumerate all workflow triggers; this audit therefore records source/test presence, not a green-CI claim for the current head.
+
+
+## 27. Consolidated live knowledge audit
+
+The detailed source-to-requirement audit is now recorded in `docs/49-npc-core-knowledge-live-audit.md`. It inspects current Core `main` at `37b05c38b15eda1743fb6fce08a8ccc2f1d2e672` and separates implemented adjacent primitives from the missing first-slice production boundary.
+
+The summary in §3 is refreshed accordingly: actor binding and tri-state condition results are observed capabilities; actor-relative acquisition, provenance, pre-model filtering, and safe-envelope adapter integration remain unimplemented/unverified. The Core target is not copied into this branch by this documentation change.
