@@ -360,7 +360,7 @@ export class LogicEngine {
     assert(x.time_mode === undefined || x.time_mode === 'action' || skip, 'INVALID_TIME_MODE', 'time_mode must be action or explicit_skip.');
     const maxSeconds = skip ? (options.maxSkipDurationSeconds ?? 604800) : (options.maxActionDurationSeconds ?? 43200);
     assert(seconds <= maxSeconds, 'TIME_ADVANCE_TOO_LARGE', 'Time advance exceeds the active duration limit.');
-    if (seconds > 0) assert(['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Invalid event type for time advance.');
+    if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
 
     const effects = x.effects ?? [];
     validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
