@@ -131,15 +131,6 @@ export class MemoryNpcConsumer {
         continue;
       }
 
-      // Memory-owned freshness and index-health signals must come from the
-      // trusted provider. A stale/rebuilding candidate is not a complete-empty
-      // result, and the Core snapshot cursor cannot upgrade it to current.
-      if (candidate.freshness?.status !== 'current'
-        || candidate.lifecycle?.source_reconciliation !== 'current'
-        || candidate.lifecycle?.index_health !== 'ready') {
-        return nonReady('memory_source_not_current');
-      }
-
       let recordAllowed;
       try {
         recordAllowed = await this.memoryProvider.authorizeCandidate({
@@ -154,7 +145,17 @@ export class MemoryNpcConsumer {
         // not evidence that the result is complete-empty.
         return nonReady('memory_record_authorization_unavailable');
       }
-      if (recordAllowed) authorizedCandidates.push(candidate);
+      if (!recordAllowed) continue;
+
+      // Check Memory-owned currentness only after record authorization, so a
+      // denied record cannot change the result shape based on its freshness.
+      // A visible stale/rebuilding record is non-ready, not complete-empty.
+      if (candidate.freshness?.status !== 'current'
+        || candidate.lifecycle?.source_reconciliation !== 'current'
+        || candidate.lifecycle?.index_health !== 'ready') {
+        return nonReady('memory_source_not_current');
+      }
+      authorizedCandidates.push(candidate);
     }
 
     if (authorizedCandidates.length === 0) {
