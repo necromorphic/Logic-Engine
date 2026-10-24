@@ -11,6 +11,7 @@ import {
   TIME_UNITS_PER_DAY,
 } from '../src/time/coordinate.js';
 import { projectFixedCalendar } from '../src/time/calendar.js';
+import { coordinateToIsoInstant, isoInstantToCoordinate } from '../src/time/iso-compat.js';
 
 const calendar = {
   version: 'test-calendar@1',
@@ -138,4 +139,20 @@ test('calendar definitions reject invalid epochs and month layouts', () => {
   assert.throws(() => projectFixedCalendar(0, { ...calendar, months: [{ name: 'Ash', days: 0 }] }), TypeError);
   assert.throws(() => projectFixedCalendar(0, { ...calendar, weekdays: ['Same', 'Same'] }), TypeError);
   assert.throws(() => projectFixedCalendar(0, { ...calendar, holidays: 'not-an-array' }), TypeError);
+});
+
+test('ISO compatibility uses an explicit anchor and preserves milliseconds', () => {
+  const epoch = '2005-12-29T10:00:00.000Z';
+  assert.equal(isoInstantToCoordinate('2005-12-29T10:00:01.234Z', epoch), 1234);
+  assert.equal(isoInstantToCoordinate('2005-12-29T11:00:00+01:00', epoch), 0);
+  assert.equal(coordinateToIsoInstant(1234, epoch), '2005-12-29T10:00:01.234Z');
+  assert.equal(coordinateToIsoInstant(-1, epoch), '2005-12-29T09:59:59.999Z');
+});
+
+test('ISO compatibility rejects ambiguous, malformed, or unrepresentable values', () => {
+  const epoch = '2005-12-29T10:00:00.000Z';
+  assert.throws(() => isoInstantToCoordinate('2005-12-29T10:00:00', epoch), TypeError);
+  assert.throws(() => isoInstantToCoordinate('2025-02-30T10:00:00Z', epoch), TypeError);
+  assert.throws(() => isoInstantToCoordinate('2005-12-29T10:00:00.1234Z', epoch), TypeError);
+  assert.throws(() => coordinateToIsoInstant(Number.MAX_SAFE_INTEGER, epoch), RangeError);
 });
