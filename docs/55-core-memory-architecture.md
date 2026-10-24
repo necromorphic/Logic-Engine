@@ -11,8 +11,9 @@ The subsystem is optional. Core operations that do not request memory must conti
 ## 2. Ownership
 
 - **Core owns:** canonical entities/facts/events, world revisions, commit sequence, mutation authorization, event validity, rollback decisions, and canonical audit.
-- **Memory owns:** memory-record identity, record versions, memory lifecycle, source links, derived summaries, retrieval indexes, retention policy, memory-operation audit, and reconciliation of memory projections with their authoritative inputs.
-- **NPC owns:** acquisition/delivery semantics for a particular actor, personal knowledge, beliefs, inferences, and whether evidence changes those states.
+- **Memory owns:** generic archival/evidence-record identity and versions, derived summaries, retrieval indexes, retention policy for its records, memory-operation audit, and reconciliation of memory projections with their authoritative inputs.
+- **Core owns semantic simulation records** where approved Core/NPC contracts assign that authority, including actor-specific acquisition/provenance, delivery status, belief state, and reconciliation of those records against canonical source validity. The NPC proposal on `feat/npc-subsystem` explicitly records this ownership, but it is still a proposal branch and must be reconciled with the selected Core base before runtime work.
+- **NPC owns:** NPC-domain decision and interpretation policy—how a subject evaluates evidence, forms an inference, or changes belief—without creating a second authoritative persistence or rollback system. It does not mean that the Memory subsystem decides what a subject knows.
 - **Relations owns:** relationship domain semantics and evaluation.
 - **Personality owns:** personality semantics and psychological interpretation.
 - **Adapters own no authority:** they may request operations through approved services but may not read storage directly or assert trusted provenance through caller-supplied labels.
