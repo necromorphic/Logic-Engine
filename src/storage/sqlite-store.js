@@ -29,6 +29,25 @@ const timeAdvanceOperation = (row) => row && ({
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
+const timeTrigger = (row) => row && ({
+  trigger_id: row.trigger_id,
+  world_id: row.world_id,
+  due_coordinate: row.due_coordinate,
+  status: row.status,
+  dependencies: dec(row.dependencies_json),
+  read_set: dec(row.read_set_json),
+  write_set: dec(row.write_set_json),
+  processing_mode: row.processing_mode,
+  interrupt_after_coordinate: row.interrupt_after_coordinate === 1,
+  payload: dec(row.payload_json),
+  content_hash: row.content_hash,
+  claimed_by_operation_id: row.claimed_by_operation_id,
+  completed_operation_id: row.completed_operation_id,
+  cancellation_reason: row.cancellation_reason,
+  created_revision: row.created_revision,
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+});
 const relationshipRef = (subjectId, targetId) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId);
 const parseRelationshipRef = (value) => {
   if (typeof value !== 'string' || !value.startsWith('relationship:')) return null;
