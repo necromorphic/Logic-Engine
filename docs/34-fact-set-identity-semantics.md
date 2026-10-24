@@ -28,6 +28,8 @@ Treat `fact_id` as the stable identity of one proposition slot within a world. I
 
 An empty or whitespace-only `subject_ref` is invalid and must be rejected during canonical effect validation; it must not be silently converted to `null`. This makes identity normalization explicit and avoids treating malformed identifiers as an absent subject.
 
+For `fact_id`, `predicate`, and non-null `subject_ref`, leading or trailing whitespace is invalid. Reject it at validation; do not trim or silently rewrite identity strings. Preserve valid, unpadded strings exactly. Missing and explicit-null `subject_ref` remain equivalent. This keeps translator validation and the canonical commit identity check consistent.
+
 For any existing `fact_id`, subsequent claims must use the same `predicate` and normalized `subject_ref`. A mismatch is not a competing value for the same proposition; it is an identity collision and must be rejected at the canonical commit boundary with a stable 409 error such as `FACT_IDENTITY_MISMATCH`. Do not overwrite the existing identity or reinterpret the previous claims.
 
 ### 2.2 Claim accumulation, not replacement
