@@ -208,3 +208,25 @@ test('rollback sends causally affected milestones to review and preserves indepe
   assert.equal(engine.getState('process-world').entities.some((entity) => entity.entity_id === 'dependent'), false);
   assert.equal(engine.getState('process-world').entities.find((entity) => entity.entity_id === 'independent').attributes.milestone, 'independent');
 });
+
+test('process completion does not publish mechanic recalculation, NPC knowledge, or player delivery', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.createProcess('process-world', {
+    process_id: 'boundary-process',
+    idempotency_key: 'create-boundary-process',
+    expected_revision: engine.getState('process-world').world_revision,
+    milestones: [milestone('write-entity', 10000, 'boundary-entity')],
+  });
+  const result = engine.startTimeAdvance('process-world', {
+    idempotency_key: 'advance-boundary-process',
+    expected_revision: engine.getState('process-world').world_revision,
+    to_coordinate: 10000,
+  });
+  assert.equal(result.status, 'completed');
+  assert.equal(engine.getProcess('process-world', 'boundary-process').status, 'completed');
+  const events = engine.getEvents('process-world');
+  assert.equal(events.some((event) => event.effects.some((effect) => effect.kind.startsWith('mechanic.instance.'))), false);
+  const tables = store.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name.toLowerCase());
+  assert.equal(tables.some((name) => name.includes('knowledge') || name.includes('delivery') || name.includes('narration')), false);
+});
