@@ -2,7 +2,7 @@
 
 **Status:** evidence-based integration audit, documentation only.  
 **Audit date:** 2026-10-24.  
-**Main baseline checked:** `e661ad9da2455caee63337e987ad68926ad19ad7`.  
+**Main baseline checked:** `42d945a88abfee449182789609df5248b893766d`.  
 **Purpose:** keep parallel Core, Memory, Relationships, NPC, and Personality work compatible without treating an open PR or a branch-local proposal as shipped runtime behavior.
 
 This document records observed repository state and integration gates. It does not approve a new API, schema, storage model, authorization policy, or merge. Re-check branch heads before acting on this snapshot.
@@ -18,7 +18,7 @@ This document records observed repository state and integration gates. It does n
 
 ## 2. Current cross-block status
 
-**Status refresh (2026-10-24):** PR #61 (first-slice replay decision), PR #84 (extension-point audit), and PR #91 (Relationship domain-side handoff) are merged as documentation/decision records; PR #62 is merged as a pure evaluator; PR #65 and PR #83 are merged runtime slices with intentionally narrow scopes. Canonical Relationship writes/replay and general NPC/Relationship read authorization are still not implemented.
+**Status refresh (2026-10-24):** PR #61 (first-slice replay decision), PR #84 (extension-point audit), and PR #91 (Relationship domain-side handoff) are merged as documentation/decision records; PR #62 is merged as a pure evaluator; PR #65 and PR #83 are merged runtime slices with intentionally narrow scopes; PR #94 adds the admin-gated typed Relationship writer/projection/replay and PR #95 adds its remaining failure-injection tests. General NPC/Relationship read authorization is still not implemented.
 
 
 | Area | Verified evidence | Current status | Integration consequence |
@@ -29,7 +29,7 @@ This document records observed repository state and integration gates. It does n
 | Trusted initial import / author correction provenance | [PR #63](https://github.com/necromorphic/Logic-Engine/pull/63), current head `cf7df864` | Proposal only | Caller-supplied `origin` must not grant authority. Trusted authority source, correction semantics, and audit attribution remain open implementation gates. |
 | HTTP rollback authorization hardening | [PR #83](https://github.com/necromorphic/Logic-Engine/pull/83) | Main runtime; exact-head Runtime tests passed before merge | Every HTTP canonical rollback requires a separate admin credential regardless of event type. Trusted in-process callers still need equivalent authorization. |
 | Trust-boundary / proposal-execution audit | [PR #67](https://github.com/necromorphic/Logic-Engine/pull/67) | Proposal only | Useful as an audit plan, not an authorization implementation or approved policy. |
-| Typed relationship write, atomic commit and relationship-specific replay/rollback | [PR #61](https://github.com/necromorphic/Logic-Engine/pull/61), [PR #84](https://github.com/necromorphic/Logic-Engine/pull/84), [PR #91](https://github.com/necromorphic/Logic-Engine/pull/91) | Core decision/audit and domain handoff docs on main; runtime still blocked | First slice is deterministic replay of surviving valid typed transitions. No typed effect/projector or relationship projection is implemented. The #73 domain handoff and trusted mutation/read boundaries remain prerequisites; #77 stays open. |
+| Typed relationship write, atomic commit and relationship-specific replay/rollback | [PR #94](https://github.com/necromorphic/Logic-Engine/pull/94), [PR #95](https://github.com/necromorphic/Logic-Engine/pull/95), with decisions in #61/#84 and handoff in #91 | Main runtime; Runtime tests passed on exact PR #94 head `1aa59e6d` (run #705) and PR #95 head `6b8c4e6f` (run #707) | Admin-gated `relationship.transition` uses immutable versioned `metadata.relationship_domain`, canonical commit/audit/idempotency, directed projection/rebuild, composite freshness, and rollback dependency replay. General NPC/model writes and authorized Relationship reads remain blocked. #77 can close for the privileged first slice; visibility and non-admin authority remain separate gates. |
 | Pure relationship candidate evaluation | [PR #62](https://github.com/necromorphic/Logic-Engine/pull/62) | Main runtime; exact-head tests passed before merge | The evaluator returns a candidate only. It does not resolve identities, authorize evidence, write state, create events, or provide rollback. Its input shape is not a Core API or wire format. |
 | Relationship module boundary and test traceability | [PR #60](https://github.com/necromorphic/Logic-Engine/pull/60), branch `feat/relationship-domain-module`, current head `16458243` | Documentation-only proposal | Domain semantics can be reviewed independently; no runtime relationship consumer or canonical writer is implied. |
 | Memory record/retrieval/summary contracts | [PR #81](https://github.com/necromorphic/Logic-Engine/pull/81) | Proposal docs integrated on main; runtime retrieval/auth remains unimplemented | Retrieval must remain separate from access authorization and NPC knowledge acquisition. Memory must not become a second canonical or belief store. |
