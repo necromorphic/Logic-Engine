@@ -263,7 +263,8 @@ test('rollback-only revision change invalidates a prior candidate without sequen
   assert.notEqual(engine.getState('memory-npc-world').world_revision, beforeRevision);
 
   const after = await consumer.retrieveForNpc(request());
-  assert.equal(after.status, 'ready');
+  assert.equal(after.status, 'non_ready');
+  assert.equal(after.reason, 'memory_snapshot_stale');
   assert.deepEqual(after.admitted, []);
   assert.deepEqual(after.candidates, []);
 });
