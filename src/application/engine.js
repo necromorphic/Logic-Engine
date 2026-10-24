@@ -403,7 +403,7 @@ export class LogicEngine {
       assert(Number.isSafeInteger(seconds) && seconds > 0 && seconds <= 604800,
         'INVALID_TIME_ADVANCE_SEGMENT', 'Synthetic time-advance segments must be whole seconds and no longer than seven days.');
       const suffix = operationId + ':' + index;
-      return {
+      return this.prepareEvent({
         event_id: 'time-advance-' + hashRequest({ operation_id: operationId, index }).slice(0, 32),
         idempotency_key: 'time-advance-event:' + hashRequest({ operation_id: operationId, index }).slice(0, 40),
         turn_id: 'time-advance:' + suffix,
@@ -411,7 +411,7 @@ export class LogicEngine {
         time_advance_seconds: seconds,
         time_mode: 'explicit_skip',
         effects: [],
-      };
+      });
     };
 
     if (plan.status !== 'blocked') {
@@ -441,8 +441,7 @@ export class LogicEngine {
             idempotency_key: proposal.idempotency_key ?? ('time-trigger:' + identity.slice(0, 48)),
             time_advance_seconds: 0,
           };
-          this.prepareEvent(event);
-          return event;
+          return this.prepareEvent(event);
         });
         let offset = 0;
         while (offset < triggerEvents.length) {
