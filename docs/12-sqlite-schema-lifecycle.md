@@ -17,7 +17,7 @@ This contract applies to the schema states represented by the repository's fixtu
 | ---: | --- |
 | 1 | Add idempotency_keys.request_hash when missing. |
 | 2 | Add world_events.causal_links_json when missing. |
-| 3 | Add/backfill world_events.commit_sequence when missing, deterministically ordered by committed revision and event ID per world; create the unique world/sequence index. |
+| 3 | Add/backfill world_events.commit_sequence when missing; assign missing values in committed-revision/event-ID order after the existing per-world maximum; create the unique world/sequence index. |
 | 4 | Add world_events.context_manifest_id; ensure context_manifests exists and has base_world_revision. |
 | 5 | Create the world/event unique index and mechanic_instances table when missing. |
 
