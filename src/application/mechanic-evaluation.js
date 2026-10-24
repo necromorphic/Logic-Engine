@@ -8,6 +8,31 @@ function freezeDeep(value, seen = new WeakSet()) {
   seen.add(value);
   for (const child of Object.values(value)) freezeDeep(child, seen);
   return Object.freeze(value);
+
+  /**
+   * Evaluate and, only for a ready supported result, create a proposal through
+   * the existing proposal service. The proposal service rechecks the exact
+   * revision/cursor in its write transaction and retains effect provenance.
+   * This method never approves or commits.
+   */
+  async evaluateAndPropose({
+    worldId, instanceId, actionId, actorContext = null,
+    idempotencyKey, turnId, sourceText, adapterId,
+  }) {
+    if (!this.proposalService) {
+      throw new TypeError('A ProposalService is required for evaluateAndPropose().');
+    }
+    const evaluation = await this.evaluate({ worldId, instanceId, actionId, actorContext });
+    if (evaluation.status !== 'ready') return { evaluation, proposal: null };
+    const proposal = this.proposalService.createFromMechanicEvaluation(worldId, evaluation, {
+      idempotencyKey,
+      turnId,
+      sourceText,
+      adapterId,
+    });
+    return { evaluation, proposal };
+  }
+
 }
 
 /**
@@ -20,15 +45,19 @@ function freezeDeep(value, seen = new WeakSet()) {
  * commit effects.
  */
 export class MechanicEvaluationService {
-  constructor(engine, { contextProvider } = {}) {
+  constructor(engine, { contextProvider, proposalService = null } = {}) {
     if (!engine || typeof engine.getSnapshot !== 'function') {
       throw new TypeError('MechanicEvaluationService requires an engine with getSnapshot().');
     }
     if (typeof contextProvider !== 'function') {
       throw new TypeError('A trusted contextProvider is required; raw snapshot reads are not an authorization policy.');
     }
+    if (proposalService !== null && typeof proposalService.createFromMechanicEvaluation !== 'function') {
+      throw new TypeError('proposalService must implement createFromMechanicEvaluation().');
+    }
     this.engine = engine;
     this.contextProvider = contextProvider;
+    this.proposalService = proposalService;
   }
 
   async evaluate({ worldId, instanceId, actionId, actorContext = null }) {
