@@ -369,7 +369,12 @@ export class MemoryNpcConsumer {
       }
 
       const source = sourceById.get(candidate.source.entity_id);
-      if (!source || this.contentFields.some((field) => !Object.hasOwn(source, field))) continue;
+      // Missing canonical source is not evidence of an empty Memory result:
+      // it may mean deletion, incomplete projection, or a source-read boundary
+      // failure. Fail closed. A present source with a denied field may still be
+      // safely excluded without disclosing which field policy denied it.
+      if (!source) return nonReady('authorized_source_missing');
+      if (this.contentFields.some((field) => !Object.hasOwn(source, field))) continue;
 
       const trustedCandidate = {
         ...candidate,
