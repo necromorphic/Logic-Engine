@@ -186,7 +186,7 @@ test('API registers a generation-bound context manifest and commits against it t
   assert.equal((await committed.json()).commit_result.commit_sequence, 1);
 });
 
-test('API rejects an event whose generation label does not match the registered context manifest', async (t) => {
+test('API rejects a proposal whose generation label does not match the registered context manifest', async (t) => {
   const base = await setup(t, { internalToken: INTERNAL });
   assert.equal((await createWorld(base, 'manifest-mismatch-world')).status, 201);
   const registered = await fetch(base + '/v1/worlds/manifest-mismatch-world/context-manifests', {
