@@ -446,9 +446,114 @@ export class LogicEngine {
     );
   }
 
+  registerTimeTrigger(id, x) {
+    assert(obj(x), 'INVALID_TIME_TRIGGER', 'Time trigger must be an object.');
+    const allowed = ['trigger_id', 'due_coordinate', 'dependencies', 'read_set', 'write_set', 'processing_mode', 'interrupt_after_coordinate', 'payload'];
+    assert(Object.keys(x).every((key) => allowed.includes(key)), 'UNSUPPORTED_TIME_TRIGGER_FIELD', 'Time trigger contains an unsupported field.');
+    assert(typeof x.trigger_id === 'string' && x.trigger_id.trim() && x.trigger_id.trim().length <= 200,
+      'INVALID_TIME_TRIGGER', 'trigger_id must be a non-empty string of at most 200 characters.');
+    assert(Number.isSafeInteger(x.due_coordinate), 'INVALID_TIME_TRIGGER', 'due_coordinate must be a safe integer.');
+    const world = this.getState(id);
+    let normalized;
+    try {
+      planDueWork({
+        world_id: id,
+        from_coordinate: world.game_time_coordinate,
+        to_coordinate: world.game_time_coordinate,
+        triggers: [{
+          ...x,
+          trigger_id: x.trigger_id.trim(),
+          world_id: id,
+          status: 'pending',
+          dependencies: x.dependencies ?? [],
+          read_set: x.read_set ?? [],
+          write_set: x.write_set ?? [],
+          processing_mode: x.processing_mode ?? 'exact',
+          interrupt_after_coordinate: x.interrupt_after_coordinate ?? false,
+        }],
+      });
+      const payload = x.payload;
+      assert(obj(payload) && Object.keys(payload).length === 1 && obj(payload.event),
+        'TRIGGER_EVENT_PROPOSAL_REQUIRED', 'payload must contain only an event object.');
+      const proposal = payload.event;
+      const eventAllowed = ['turn_id', 'event_type', 'generation_id', 'context_manifest_id', 'source_message_id',
+        'time_advance_seconds', 'time_mode', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
+      assert(obj(proposal) && Object.keys(proposal).every((key) => eventAllowed.includes(key)),
+        'INVALID_TRIGGER_EVENT_PROPOSAL', 'Scheduled event proposal contains an unsupported field or caller-controlled identity/cursor.');
+      assert(proposal.event_type !== 'time.advance', 'INVALID_TRIGGER_EVENT_PROPOSAL',
+        'A scheduled trigger cannot itself advance canonical time.');
+      assert(proposal.time_advance_seconds === undefined || proposal.time_advance_seconds === 0,
+        'INVALID_TRIGGER_EVENT_DURATION', 'Scheduled trigger effects execute at their due coordinate with zero additional duration.');
+      assert(proposal.time_mode === undefined || proposal.time_mode === 'action',
+        'INVALID_TRIGGER_EVENT_DURATION', 'Scheduled trigger events cannot use explicit-skip time mode.');
+      assert(proposal.duration_proposal === undefined, 'INVALID_TRIGGER_EVENT_DURATION',
+        'Scheduled trigger events cannot supply a duration proposal.');
+      const identity = hashRequest({ world_id: id, trigger_id: x.trigger_id.trim() });
+      const eventId = 'time-trigger-' + identity.slice(0, 32);
+      const eventKey = 'time-trigger-key:' + identity.slice(0, 40);
+      const eventRequest = {
+        ...proposal,
+        event_id: eventId,
+        idempotency_key: eventKey,
+        turn_id: proposal.turn_id ?? ('time-trigger-turn:' + identity.slice(0, 32)),
+        time_advance_seconds: 0,
+        time_mode: 'action',
+      };
+      const prepared = this.prepareEvent(eventRequest);
+      const storedEvent = {
+        event_id: eventId,
+        idempotency_key: eventKey,
+        turn_id: prepared.turn_id,
+        event_type: prepared.event_type,
+        time_advance_seconds: 0,
+        time_mode: 'action',
+        caused_by: prepared.caused_by,
+        depends_on: prepared.depends_on,
+        read_set: prepared.read_set,
+        causal_links: prepared.causal_links,
+        effects: prepared.effects,
+        ...(prepared.generation_id ? { generation_id: prepared.generation_id } : {}),
+        ...(prepared.context_manifest_id ? { context_manifest_id: prepared.context_manifest_id } : {}),
+        ...(prepared.source_message_id !== undefined && prepared.source_message_id !== null ? { source_message_id: prepared.source_message_id } : {}),
+      };
+      normalized = {
+        trigger_id: x.trigger_id.trim(),
+        due_coordinate: x.due_coordinate,
+        dependencies: [...new Set((x.dependencies ?? []).map((v) => v.trim()))].sort(),
+        read_set: [...new Set((x.read_set ?? []).map((v) => v.trim()))].sort(),
+        write_set: [...new Set((x.write_set ?? []).map((v) => v.trim()))].sort(),
+        processing_mode: x.processing_mode ?? 'exact',
+        interrupt_after_coordinate: x.interrupt_after_coordinate ?? false,
+        payload: { event: storedEvent },
+      };
+    } catch (error) {
+      if (error instanceof EngineError) throw error;
+      throw new EngineError(error.code || 'INVALID_TIME_TRIGGER', error.message || 'Time trigger validation failed.', 400, error.details);
+    }
+    if (normalized.due_coordinate <= world.game_time_coordinate) {
+      throw new EngineError('TIME_TRIGGER_NOT_IN_FUTURE', 'A new trigger must be scheduled strictly after the current world coordinate.', 409, {
+        current_coordinate: world.game_time_coordinate, due_coordinate: normalized.due_coordinate,
+      });
+    }
+    const contentHash = hashRequest(normalized);
+    return this.store.registerTimeTrigger(id, { ...normalized, content_hash: contentHash });
+  }
+
+  listTimeTriggers(id) {
+    return this.store.listTimeTriggers(id);
+  }
+
+  cancelTimeTrigger(id, triggerId, reason = null) {
+    assert(typeof triggerId === 'string' && triggerId.trim() && triggerId.trim().length <= 200,
+      'INVALID_TIME_TRIGGER_ID', 'trigger_id must be a non-empty string of at most 200 characters.');
+    assert(reason === null || reason === undefined || (typeof reason === 'string' && reason.length <= 500),
+      'INVALID_TIME_TRIGGER_REASON', 'reason must be a string of at most 500 characters.');
+    return this.store.cancelTimeTrigger(id, triggerId.trim(), reason ?? null);
+  }
+
   startTimeAdvance(id, x) {
     assert(obj(x), 'INVALID_TIME_ADVANCE_OPERATION', 'Time-advance request must be an object.');
-    const allowed = ['idempotency_key', 'expected_revision', 'to_coordinate', 'triggers', 'completed_trigger_ids'];
+    const allowed = ['idempotency_key', 'expected_revision', 'to_coordinate'];
     assert(Object.keys(x).every((key) => allowed.includes(key)), 'UNSUPPORTED_TIME_ADVANCE_FIELD', 'Time-advance request contains an unsupported field.');
     assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200,
       'IDEMPOTENCY_KEY_REQUIRED', 'Time-advance idempotency_key is required.');
@@ -461,8 +566,6 @@ export class LogicEngine {
       idempotency_key: x.idempotency_key.trim(),
       expected_revision: x.expected_revision,
       to_coordinate: x.to_coordinate,
-      triggers: x.triggers ?? [],
-      completed_trigger_ids: x.completed_trigger_ids ?? [],
     });
     const existing = this.store.getTimeAdvanceOperationByKey(id, x.idempotency_key.trim());
     if (existing) {
@@ -497,14 +600,14 @@ export class LogicEngine {
     if (from % 1000 !== 0 || x.to_coordinate % 1000 !== 0) {
       throw new EngineError('TIME_ADVANCE_SUBSECOND_UNSUPPORTED', 'Time-advance execution currently requires whole-second boundaries.', 400);
     }
+    const triggerSnapshot = this.store.getTimeTriggerSnapshot(id);
     let plan;
     try {
       plan = planDueWork({
         world_id: id,
         from_coordinate: from,
         to_coordinate: x.to_coordinate,
-        triggers: x.triggers ?? [],
-        completed_trigger_ids: x.completed_trigger_ids ?? [],
+        triggers: triggerSnapshot.triggers,
       });
     } catch (error) {
       if (error instanceof EngineError) throw error;
@@ -515,13 +618,14 @@ export class LogicEngine {
     const effectiveTarget = plan.status === 'blocked' ? from : plan.planned_until_coordinate;
     const segments = [];
     let cursor = from;
-    const appendSegment = (coordinate, events) => {
+    const appendSegment = (coordinate, events, triggerIds = []) => {
       const index = segments.length;
       const segmentKey = 'time-segment:' + operationId + ':' + index;
       segments.push({
         coordinate,
+        trigger_ids: triggerIds,
         idempotency_key: segmentKey,
-        request_hash: hashRequest({ operation_id: operationId, segment_index: index, coordinate, events }),
+        request_hash: hashRequest({ operation_id: operationId, segment_index: index, coordinate, events, trigger_ids: triggerIds }),
         events,
       });
     };
@@ -578,7 +682,7 @@ export class LogicEngine {
           const events = [];
           if (needsAdvance) events.push(makeAdvanceEvent(coordinate - cursor, segments.length));
           events.push(...chunk);
-          appendSegment(coordinate, events);
+          appendSegment(coordinate, events, chunk.map((trigger) => trigger.trigger_id));
           cursor = coordinate;
           offset += chunk.length;
         }
@@ -606,6 +710,7 @@ export class LogicEngine {
       from_coordinate: from,
       target_coordinate: effectiveTarget,
       starting_world_revision: x.expected_revision,
+      trigger_inventory_hash: triggerSnapshot.inventory_hash,
       status: initialStatus,
       segments,
       plan,
