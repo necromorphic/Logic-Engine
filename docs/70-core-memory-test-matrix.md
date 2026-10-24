@@ -29,13 +29,16 @@ Use isolated test worlds and deterministic fixtures. Assert both the returned re
 | MEM-019 | Cross-world source reference inside a record or summary | Reject before durable write |
 | MEM-020 | Inject malformed schema, oversized payload, unsafe nested structures, or excessive result limit | Bounded stable failure; no partial write |
 | MEM-021 | Source change notification delivered twice or out of order | Idempotent reconciliation; cursor does not move backwards or skip unresolved work |
-| MEM-022 | Revoke source authorization after summary creation | Summary lifecycle/access policy reflects source visibility change; no unauthorized source snippet leaks |
+| MEM-022 | Revoke source authorization after summary creation | Summary is withheld from the newly unauthorized reader until re-derived from permitted sources or explicitly declassified under an approved policy; no copied source content leaks through summary/snippet/count |
 | MEM-023 | Query with same semantic score ties | Stable tie-break or explicitly weaker ranking guarantee |
 | MEM-024 | Run current Core test suite after adding optional memory module | Existing Core tests pass; no memory dependency for unrelated operations |
 | MEM-025 | Remove/disable memory adapter | Core startup and unrelated canonical operations still work |
 | MEM-026 | Model output claims higher confidence than its sources | Epistemic status is not promoted; claim remains attributed as derived/unverified |
 | MEM-027 | Retry after partial failure at each persistence boundary | Transaction and recovery invariants hold; no duplicate record or lost pending index task |
-| MEM-028 | Revoke one source from a multi-source record | Record remains supported only if the declared typed policy says sufficient valid support remains; otherwise disputed/stale |\n| MEM-029 | Reconcile canonical rollback when no new event is appended and max `commit_sequence` is unchanged | Source invalidation is detected through an approved revision/rollback/validity comparison; dependent records and summaries are marked stale or re-evaluated; cursor never falsely claims currentness |
+| MEM-028 | Revoke one source from a multi-source record | Record remains supported only if the declared typed policy says sufficient valid support remains; otherwise disputed/stale |
+| MEM-029 | Reconcile canonical rollback when no new event is appended and max `commit_sequence` is unchanged | Source invalidation is detected through an approved revision/rollback/validity comparison; dependent records and summaries are marked stale or re-evaluated; cursor never falsely claims currentness |
+| MEM-030 | Create a summary from a source with distinct record producer and content origin; inspect lineage | Producer identity/method and source attribution remain distinct; the summary producer is not misrepresented as source author or verifier |
+| MEM-031 | A derived summary contains content from sources A and B; reader loses permission to A but retains permission to B | Summary is withheld from that reader until a safe re-derivation excluding A or an approved declassification; historical version/audit remains intact |
 
 ## Threat review checklist
 
