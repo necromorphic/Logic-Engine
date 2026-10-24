@@ -42,7 +42,7 @@ function instrument(store) {
   return counts;
 }
 
-function seed(store, eventCount) {
+function seed(store, eventCount, operation) {
   const timestamp = '2005-12-29T10:00:00.000Z';
   const insert = store.db.prepare(`INSERT INTO world_events(
     event_id,world_id,turn_id,event_type,game_time,committed_revision,commit_sequence,validity,
@@ -74,9 +74,10 @@ function seed(store, eventCount) {
           patch: { trust: index },
         },
       ];
+      const causedBy = operation === 'rollback-cascade' && index > 0 ? ['seed-event-' + (index - 1)] : [];
       insert.run(
         'seed-event-' + index, 'bench-world', 'seed-turn-' + index, 'action.completed', timestamp,
-        index + 1, index + 1, 'valid', '[]', '[]', '[]', '[]',
+        index + 1, index + 1, 'valid', JSON.stringify(causedBy), '[]', '[]', '[]',
         JSON.stringify(effects), 0, timestamp,
       );
     }
@@ -108,7 +109,7 @@ function measureOperation(eventCount, operation) {
       world_pack_version: '1.0.0',
       game_time: '2005-12-29T10:00:00.000Z',
     });
-    seed(store, eventCount);
+    seed(store, eventCount, operation);
     const databaseSizeBeforeBytes = statSync(dbPath).size;
     const counts = instrument(store);
     const before = { ...counts };
@@ -135,7 +136,7 @@ function measureOperation(eventCount, operation) {
           },
         ],
       });
-    } else if (operation === 'rollback') {
+    } else if (operation === 'rollback' || operation === 'rollback-cascade') {
       engine.rollbackEvent('bench-world', {
         root_event_id: 'seed-event-0',
         idempotency_key: 'bench-rollback-' + eventCount,
@@ -170,7 +171,7 @@ function measureOperation(eventCount, operation) {
 
 const results = [];
 for (const size of sizes) {
-  for (const operation of ['commit', 'rollback', 'rebuild']) {
+  for (const operation of ['commit', 'rollback', 'rollback-cascade', 'rebuild']) {
     results.push(measureOperation(size, operation));
   }
 }
