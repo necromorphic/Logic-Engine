@@ -437,7 +437,12 @@ export class SQLiteMemoryProvider {
         source_kind: row.source_kind, source_entity_id: row.source_entity_id,
         source_version: row.source_version, lineage: Object.freeze(decode(row.lineage_json)),
       })) === true;
-    } catch { return false; }
+    } catch {
+      // An unavailable host/Core validator is not an ordinary denial. Surface a
+      // generic failure so the consumer returns non-ready instead of turning an
+      // outage into an apparently complete-empty result. Never expose host details.
+      throw new Error('MEMORY_SOURCE_VALIDATION_UNAVAILABLE');
+    }
     if (!sourceValid) return false;
 
     // Source validation may await a host/Core read. Recheck provider-owned grants
