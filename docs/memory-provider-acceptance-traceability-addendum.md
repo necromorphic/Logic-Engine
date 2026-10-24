@@ -1,6 +1,6 @@
 # Memory Provider acceptance traceability — follow-up addendum
 
-**Applies to:** PR #201. Exact current HEAD `7a5bfa7cb48c9e6e36c73331424df08cfa53e286` passed Runtime CI run #1604 with **282/282 tests**.
+**Applies to:** PR #201. Provider code/test HEAD `88451463bf4545adaaa38eab42e3df30f28da54f` passed Runtime CI run #1616 with **283/283 tests**.
 
 This addendum corrects the two completed Provider-owned items still listed as future work in the original `memory-provider-acceptance-traceability.md` checklist and records the raw archive and typed-failure slices. The original register is retained as historical context rather than silently rewritten.
 
@@ -10,13 +10,13 @@ This addendum corrects the two completed Provider-owned items still listed as fu
 - Interrupted index rebuild followed by reopen is covered in `tests/sqlite-memory-provider.test.js`: retrieval remains unavailable after the injected rebuild failure and provider restart.
 - Interrupted reconciliation is covered in `tests/memory-provider-reconcile-interruption.test.js`: the test pauses at an awaited source-validation boundary, closes/reopens the same SQLite database, confirms retrieval fails with `MEMORY_INDEX_NOT_READY`, and then requires a successful complete reconciliation before retrieval resumes.
 - Raw archive lifecycle is covered in `tests/memory-provider-raw-archive.test.js`: durable capture and digest, idempotent retry versus identity conflict, active-version switching without deleting alternatives, source deletion and dependent-copy invalidation, explicit purge with dependent-copy cascade, world isolation, fail-closed reads without trusted host authorization, active-version-only reads, restart persistence of deletion/invalidation, integrity mismatch rejection, and a second authorization check at the disclosure boundary.
-- Typed readiness failures are covered in `tests/memory-provider-typed-failures.test.js`: source validation failure, incomplete inventory, Core snapshot outage, index rebuild failure, durable internal reason codes, and generic non-disclosing retrieval failure after restart.
+- Typed readiness failures are covered in `tests/memory-provider-typed-failures.test.js`: source validation failure, incomplete inventory, Core snapshot outage, index rebuild failure, durable internal reason codes, generic non-disclosing retrieval failure after restart, and migration of a pre-existing readiness table without losing state.
 
 ## Exact-head test evidence
 
-- Runtime CI run #1604: **success, 282/282 tests**, exact current HEAD `7a5bfa7cb48c9e6e36c73331424df08cfa53e286`.
-- Run: https://github.com/necromorphic/Logic-Engine/actions/runs/40101053726
-- The code/test commit also passed run #1599 (282/282): https://github.com/necromorphic/Logic-Engine/actions/runs/40100990862
+- Runtime CI run #1616: **success, 283/283 tests**, code/test HEAD `88451463bf4545adaaa38eab42e3df30f28da54f`.
+- Run: https://github.com/necromorphic/Logic-Engine/actions/runs/40101226193
+- The previous exact documentation HEAD passed run #1604 (282/282): https://github.com/necromorphic/Logic-Engine/actions/runs/40101053726
 - The prior raw archive lifecycle code/test HEAD also passed run #1585 (278/278): https://github.com/necromorphic/Logic-Engine/actions/runs/40100622470.
 - Provider-local tests do not establish that a SillyTavern hook, external archive/index purge, authoritative Core source-version API, or production Core → Provider → NPC integration exists.
 
