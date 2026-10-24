@@ -106,7 +106,7 @@ Required tests before relationship integration is considered ready:
 | Conflict/insufficiency | The system applies an explicit rule or reports a conflict/insufficient-support reconciliation result; it does not invent an outcome or conflate that result with unset. |
 | Character card | The view reflects authorized canonical state and cannot mutate it independently. |
 
-These are required future tests, not claims that the current runtime already passes them.
+These are the full integration acceptance areas, not a claim that every area is unimplemented. The privileged first slice already has production-path evidence for directed writes, supported validation, mixed-patch atomicity, idempotency, clear/unset/neutral replay, transaction-failure atomicity, restart/rebuild, and required-dependency rollback. Remaining unproven areas are listed in §§4–5 and the current-main evidence note in §2.
 
 ## 7. Work sequence and gates
 
