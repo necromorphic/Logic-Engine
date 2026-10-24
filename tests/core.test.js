@@ -701,3 +701,17 @@ test('a nested canonical commit failure leaves an approved proposal retryable', 
   assert.equal(replay.commit_result.idempotent_replay, true);
   assert.equal(h.engine.getEvents('w', true).length, 1);
 });
+
+
+test('authorized canonical commits preserve open domain event_type values', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  h.engine.commitEvent('w', cmd({
+    idempotency_key: 'open-domain-event-type',
+    turn_id: 'open-domain-event-type',
+    event_type: 'world.yakuza.custom_action',
+    effects: [],
+  }));
+  const event = h.engine.getEvents('w', true).find((item) => item.turn_id === 'open-domain-event-type');
+  assert.equal(event.event_type, 'world.yakuza.custom_action');
+});
