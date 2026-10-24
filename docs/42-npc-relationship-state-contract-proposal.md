@@ -200,19 +200,19 @@ Given A's attraction, respect, fear, or loyalty toward B, the system does not in
 ### REL-012 — Author edit is attributed
 Given an author corrects a relationship through an authorized management operation, the operation is distinguishable from an in-world event and follows the core's audit/causality policy.
 
-## 12. Open decisions before implementation
+## 12. Decisions settled by core review vs details still open
 
-The following remain intentionally unresolved:
+The core owner's review in [PR #38 comment 6377468310](https://github.com/necromorphic/Logic-Engine/pull/38#issuecomment-6377468310) settles the following semantic boundaries:
 
-1. **Canonical representation:** which existing core record/effect types can safely express a relationship transition, or what core-level extension is needed.
-2. **Participant references:** how to represent a person with no existing `entity_id` without creating a parallel canonical identity system or an autonomous NPC by accident.
-3. **Dimension schema:** which fields, value types, and optionality rules are universal versus World Pack-defined; whether any setting may use numbers and what their meanings are.
-4. **Starting conditions and author edits:** where authored initial relationship data belongs and how explicit corrections are validated and audited.
-5. **Causal reconciliation:** how multiple causes, conflicting transitions, gradual changes, and rollback are represented using the existing core contract.
-6. **Projection/read API:** how the character-card summary and NPC decision context read relationship data without duplicating it or leaking private state.
-7. **Management permissions:** which users/roles may inspect or edit private relationship state, if multi-user operation is in scope.
+1. **Canonical operation — direction settled, exact contract open.** Use a typed relationship record/effect committed through the canonical event/revision/audit path. Generic entity attributes and `fact.set` are not an adequate mutable relationship-state contract. The precise effect shape, validation rules, and event payload remain to be reconciled with the core's canonical effect architecture.
+2. **Participant references — commit rule settled.** A committed canonical relationship participant must resolve to an existing `entity_id`. Unresolved people may remain in authoring/import data; do not create an entity/NPC or parallel identity registry. A future typed unresolved-reference mechanism would require separate approval.
+3. **Dimension schema — open.** Universal versus World Pack-defined dimensions, value types, allowed explicit neutral values, partial-update rules, and validation remain to be specified. Unknown/unset must not become zero or neutral.
+4. **Starting conditions and author edits — semantic boundary settled, exact interface open.** Author-initial/imported origin and authorship/provenance are metadata separate from dimension values and in-world transitions. The approved authoring operation and audit representation remain to be defined.
+5. **Causal reconciliation — requirement settled, mechanism open.** Relationship transitions must reference canonical source/cause identities; rollback must recompute support from remaining valid independent causes. If current core causality cannot express this, relationship commits remain blocked until the core contract and tests are extended. No parallel relationship causal graph/log.
+6. **Read/projection — dependency order settled, interface open.** Use a consistent snapshot as a prerequisite, never as authorization. After snapshot integration, a core-owned actor/purpose/snapshot access filter must precede NPC/player context. Card summaries are bounded, derived, read-only projections. Exact trusted policy inputs and internal interface remain unverified.
+7. **Management permissions — open.** Which users/roles may inspect or edit private relationship state remains a product/host decision if multi-user operation is in scope.
 
-Do not resolve these questions by adding an independent relationship database, new ID/revision scheme, or speculative runtime. Inspect the production code and the relevant in-progress PRs first, then agree on the narrowest compatible contract.
+These decisions define constraints, not implemented capabilities. Do not resolve remaining details by adding an independent relationship database, new ID/revision scheme, or speculative runtime.
 
 ## 13. Readiness conclusion
 
