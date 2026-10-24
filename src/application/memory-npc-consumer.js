@@ -220,7 +220,12 @@ export class MemoryNpcConsumer {
       if (!sameSnapshot(candidate.snapshot, {
         world_revision: sourceRead.world_revision,
         commit_sequence: sourceRead.commit_sequence,
-      })) continue;
+      })) {
+        // A non-empty retrieval with a stale index snapshot is not a complete
+        // empty result. Reject the whole read so callers cannot mistake stale
+        // Memory for absence of relevant knowledge.
+        return nonReady('memory_snapshot_stale');
+      }
 
       const source = sourceById.get(candidate.source.entity_id);
       if (!source || this.contentFields.some((field) => !Object.hasOwn(source, field))) continue;
