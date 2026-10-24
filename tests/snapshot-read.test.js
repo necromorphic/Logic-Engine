@@ -336,6 +336,33 @@ test('snapshot accepts the exact bounded entity limit and refuses one above it',
     () => engine.getSnapshot('snapshot-world', { contextManifestIds: [aboveLimit.manifest_id] }),
     (error) => error.code === 'SNAPSHOT_TOO_LARGE' && error.status === 409,
   );
+
+  // Each manifest is individually below the limit, but their union is not.
+  const firstSplit = makeManifest('generation-split-150', 150);
+  const secondSplit = engine.registerContextManifest('snapshot-world', {
+    generation_id: 'generation-split-51',
+    base_world_revision: 2,
+    base_commit_sequence: 2,
+    items: entityEffects.slice(150, 201).map((effect) => ({ kind: 'entity', target_id: effect.entity_id })),
+  });
+  assert.throws(
+    () => engine.getSnapshot('snapshot-world', { contextManifestIds: [firstSplit.manifest_id, secondSplit.manifest_id] }),
+    (error) => error.code === 'SNAPSHOT_TOO_LARGE' && error.status === 409,
+  );
+
+  // Overlapping references across manifests count once in the combined snapshot.
+  const overlapping = makeManifest('generation-overlap-199', 199);
+  const overlapTail = engine.registerContextManifest('snapshot-world', {
+    generation_id: 'generation-overlap-tail',
+    base_world_revision: 2,
+    base_commit_sequence: 2,
+    items: entityEffects.slice(198, 200).map((effect) => ({ kind: 'entity', target_id: effect.entity_id })),
+  });
+  const deduplicated = engine.getSnapshot('snapshot-world', {
+    contextManifestIds: [overlapping.manifest_id, overlapTail.manifest_id],
+  });
+  assert.equal(deduplicated.entities.length, 200);
+  assert.equal(new Set(deduplicated.entities.map((entity) => entity.entity_id)).size, 200);
 });
 
 test('snapshot does not expand a manifest after rollback changes revision without advancing the event cursor', (t) => {
