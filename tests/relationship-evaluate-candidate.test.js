@@ -373,3 +373,31 @@ test("rejects non-transitionable status tags in transition source rules", () => 
   assert.equal(result.status, "unsupported");
   assert.equal(result.reason, "dimension_rule_incomplete");
 });
+
+test("rejects a current value outside the active dimension domain", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: { trust: "legacy-unknown" },
+    patch: { trust: "guarded" },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "current_relationship_value_outside_domain");
+});
+
+test("rejects transition rules sourced from values outside the dimension domain", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    dimensionRules: {
+      trust: {
+        ...rules.trust,
+        transitions: [
+          { operation: "set", from: "legacy-unknown", to: "guarded" },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "dimension_rule_incomplete");
+});
