@@ -91,11 +91,11 @@ The next implementation step should be chosen only after the kernel's current wo
 
 ## 7. Active core work discovered during source-level review
 
-This is a time-bounded branch snapshot, not a statement that any listed change is merged or approved. The default branch inspected for this review was `main` at `cb4ad189f12484ca5458c30b1d176cbd9f7d4ccc`. Always re-check current branch heads and PR dependencies before relying on this inventory.
+This subsection began as a time-bounded branch snapshot and is retained as historical context; its original `main` SHA and branch locations below are not current-status claims. The universal mechanic contract has since appeared in `main`, as reflected in the corrected row below. Re-check current branch heads and PR dependencies before relying on any other branch-status detail.
 
 | Area | Observed development location | Safe interpretation for NPC work |
 |---|---|---|
-| Universal mechanic execution | `docs/core-stage1.3-mechanics-execution-contract`, including `docs/30-stage1.3-mechanic-execution-boundary.md` | A proposed core execution contract exists on a separate branch. Its stated scope explicitly excludes NPC goals, plans, schedules, and off-screen autonomy. Do not treat it as shipped runtime behavior. |
+| Universal mechanic execution | `main` contains `docs/30-stage1.3-mechanic-execution-boundary.md` | The contract is now present in the inspected main line as a documented target for a future core vertical slice. It is not evidence that the full execution pipeline is implemented. Its scope explicitly excludes NPC goals, plans, schedules, and off-screen autonomy. |
 | Mechanic intent translation and proposal integration | `feat/mechanic-effect-translator`, `docs/mechanic-intent-proposal-boundary`, and `feat/mechanic-intent-proposal-integration`; PRs #36–#40 form a stacked sequence | Translation and proposal integration are being developed with tests and explicit fail-closed limits. Keep the stack's dependencies and unresolved decisions intact; do not create a second translator in the NPC subsystem or assume these changes are already in `main`. |
 | Typed causal links | `feat/typed-causal-links` | A separate implementation/test line exists. Because it diverges from `main`, its exact semantics must be reviewed against current core decisions before NPC work depends on them. |
 | Historical tri-state predicates | `feat/tri-state-historical-fact-predicates` | Work exists around historical predicate uncertainty. This does not prove that general rule evaluation has a universal tri-state result; keep the observed boolean behavior of the inspected `main` path distinct from branch-specific behavior. |
