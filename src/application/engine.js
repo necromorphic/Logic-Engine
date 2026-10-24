@@ -239,7 +239,7 @@ export class LogicEngine {
         status: 'resolved', certainty: 'fixed', duration_ms: seconds * 1000,
         source: 'explicit_skip_policy', policy_id: policy.policy_id, policy_version: policy.version,
       };
-      return this.prepareEvent(x, { ...options, maxActionDurationSeconds: Math.floor(policy.max_action_duration_ms / 1000), maxSkipDurationSeconds: Math.floor(policy.max_skip_duration_ms / 1000), durationDecision: decision });
+      return this.prepareEvent(x, { ...options, maxActionDurationSeconds: Math.floor(policy.max_action_duration_ms / 1000), maxSkipDurationSeconds: Math.floor(policy.max_skip_duration_ms / 1000), durationDecision: { ...decision, time_config_version: config.version } });
     }
     const requestedMs = (x.time_advance_seconds ?? 0) * 1000;
     const decision = resolveDurationDecision(policy, x.event_type, x.duration_proposal ?? null, requestedMs);
@@ -262,7 +262,7 @@ export class LogicEngine {
       ...options,
       maxActionDurationSeconds: Math.floor(policy.max_action_duration_ms / 1000),
       maxSkipDurationSeconds: Math.floor(policy.max_skip_duration_ms / 1000),
-      durationDecision: decision,
+      durationDecision: { ...decision, time_config_version: config.version },
     });
   }
 
@@ -493,7 +493,8 @@ export class LogicEngine {
     const effectiveTarget = plan.status === 'blocked' ? from : plan.planned_until_coordinate;
     const segments = [];
     let cursor = from;
-    const maxSkipMs = 604800000;
+    const activeTimeConfig = this.store.getTimeConfiguration(id);
+    const maxSkipMs = activeTimeConfig ? Math.min(activeTimeConfig.time_policy.max_skip_duration_ms, 604800000) : 604800000;
     const appendSegment = (coordinate, events) => {
       const index = segments.length;
       const segmentKey = 'time-segment:' + operationId + ':' + index;
