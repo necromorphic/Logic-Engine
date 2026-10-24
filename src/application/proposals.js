@@ -149,14 +149,28 @@ export class ProposalService {
       dependency_manifest: evaluation.dependency_manifest,
       effects: evaluation.effects,
       effect_provenance: evaluation.effect_provenance,
+      read_set: evaluation.read_set,
+      causal_links: evaluation.causal_links,
     });
     assert(expectedEvaluationFingerprint === evaluation.evaluation_fingerprint,
       'INVALID_MECHANIC_EVALUATION_FINGERPRINT', 'Evaluation content does not match its fingerprint.');
     assert(object(evaluation.guarantees) && evaluation.guarantees.read_only === true
       && evaluation.guarantees.context_provider_attested_snapshot === true
       && evaluation.guarantees.context_policy_versioned === true
+      && evaluation.guarantees.complete_mechanic_dependencies === true
       && evaluation.guarantees.proposal_created === false && evaluation.guarantees.canonical_state_mutated === false,
-    'INVALID_MECHANIC_EVALUATION', 'Evaluation must carry the read-only and snapshot-attestation guarantees.');
+    'INVALID_MECHANIC_EVALUATION', 'Evaluation must carry read-only, snapshot-attestation, and dependency-completeness guarantees.');
+    assert(object(evaluation.dependency_manifest)
+      && evaluation.dependency_manifest.condition_ast_dependencies_complete === true
+      && evaluation.dependency_manifest.context_projection_dependencies_complete === true
+      && evaluation.dependency_manifest.effect_target_dependencies_complete === true
+      && evaluation.dependency_manifest.causal_read_set_complete_for_supported_slice === true
+      && evaluation.dependency_manifest.mechanic_dependencies_complete === true
+      && Array.isArray(evaluation.dependency_manifest.unresolved_sources)
+      && evaluation.dependency_manifest.unresolved_sources.length === 0,
+    'INCOMPLETE_MECHANIC_DEPENDENCIES', 'Mechanic proposal requires a complete dependency manifest for the supported execution slice.');
+    assert(Array.isArray(evaluation.read_set) && Array.isArray(evaluation.causal_links),
+      'INVALID_MECHANIC_DEPENDENCY_PROVENANCE', 'Evaluation must include canonical read_set and causal_links.');
     assert(Array.isArray(evaluation.effects) && evaluation.effects.length > 0, 'INVALID_MECHANIC_EVALUATION', 'At least one translated effect is required.');
     assert(Array.isArray(evaluation.effect_provenance) && evaluation.effect_provenance.length === evaluation.effects.length,
       'INVALID_MECHANIC_EFFECT_PROVENANCE', 'Every translated effect must have exactly one provenance entry.');
@@ -197,11 +211,19 @@ export class ProposalService {
       evaluation_fingerprint: evaluation.evaluation_fingerprint,
       dependency_manifest: evaluation.dependency_manifest,
       effect_provenance: provenance,
-      dependency_completeness: 'not_proven',
+      read_set: evaluation.read_set,
+      causal_links: evaluation.causal_links,
+      dependency_completeness: 'complete_for_supported_slice',
       semantic_review_required: true,
     };
     return this.engine.store.tx(() => {
-      const event = { turn_id: turnId, event_type: 'action.completed', effects: evaluation.effects };
+      const event = {
+        turn_id: turnId,
+        event_type: 'action.completed',
+        effects: evaluation.effects,
+        read_set: evaluation.read_set,
+        causal_links: evaluation.causal_links,
+      };
       const expectedRequestHash = hashRequest({
         source_text: sourceText,
         event,
@@ -233,7 +255,13 @@ export class ProposalService {
       return this.create(worldId, {
         idempotency_key: idempotencyKey,
         source_text: sourceText,
-        event: { turn_id: turnId, event_type: 'action.completed', effects: evaluation.effects },
+        event: {
+          turn_id: turnId,
+          event_type: 'action.completed',
+          effects: evaluation.effects,
+          read_set: evaluation.read_set,
+          causal_links: evaluation.causal_links,
+        },
       }, adapterId, mechanicExecution);
     });
   }
