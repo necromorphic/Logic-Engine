@@ -33,6 +33,7 @@ async function fixture() {
     idempotency_key: 'seed-entities',
     turn_id: 'seed-entities',
     event_type: 'entity.create',
+    expected_revision: 0,
     effects: [
       { kind: 'entity.create', entity_id: 'A', entity_type: 'character' },
       { kind: 'entity.create', entity_id: 'B', entity_type: 'character' },
