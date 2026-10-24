@@ -53,6 +53,9 @@ function validateCalendar(definition) {
     throw new TypeError('calendar.epoch.weekdayIndex is outside the weekday cycle.');
   }
 
+  if (definition.holidays !== undefined && !Array.isArray(definition.holidays)) {
+    throw new TypeError('calendar.holidays must be an array when provided.');
+  }
   const holidayIds = new Set();
   for (const holiday of definition.holidays ?? []) {
     if (!object(holiday) || typeof holiday.id !== 'string' || !holiday.id.trim()
