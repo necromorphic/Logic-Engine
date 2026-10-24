@@ -283,6 +283,16 @@ Every remaining Core gate must be labeled one of: **current-stage required**, **
 
 - Current evidence does not establish a durable source-change feed/outbox or a complete production Memory→NPC consumer. The composite snapshot marker alone cannot guarantee detection of all source validity changes.
 - Do not implement an outbox, cursor, polling API, schema, or parallel ledger in this pass. Before choosing journal, revision-triggered full reconciliation, or a hybrid, the Memory/NPC owners must identify the concrete consumer operation, maximum acceptable stale interval, source classes, retraction semantics, and recovery behavior. If those constraints are not agreed, production consumption remains disabled.
+
+**Option comparison (decision support only; no option is approved or implemented):**
+
+| Option | What it could guarantee | Limits / cost | Current disposition |
+|---|---|---|---|
+| Durable Core change journal / outbox | A consumer can resume from durable canonical change records, including explicitly represented invalidation/rollback entries, if those records are committed atomically with the canonical change. | Requires an approved journal schema/API, event identity and retention rules, rollback/retraction representation, and a durable consumer checkpoint. A generic event list or maximum `commit_sequence` is not automatically such a contract; Memory-store atomicity still would not be implied. | Not selected; no approved contract or concrete consumer requirement yet. |
+| Revision-triggered full reconciliation | A consumer compares both `world_revision` and `commit_sequence` and revalidates its relevant sources when either marker changes. The revision catches the known rollback case where the commit sequence does not advance. | Requires a defined polling/trigger interval and a complete source inventory. It may be expensive, and it does not by itself detect Memory-only revocation or a source change that does not alter the Core snapshot markers. Staleness lasts until the next reconciliation. | Candidate only; Memory/NPC must state volume and maximum stale interval. |
+| Hybrid journal plus periodic/full reconciliation | A journal provides low-latency incremental invalidation; reconciliation repairs missed notifications, restarts, cursor loss, or journal retention gaps. | Highest implementation and operational complexity; still needs an approved journal, checkpoint semantics, reconciliation authority, retention, and conflict/retraction rules. | Candidate only; not justified until the actual consumer and failure/recovery requirements are agreed. |
+
+**Decision rule:** select only after Memory/NPC identify the exact consumer operation, source classes, maximum stale interval, expected volume, revocation/retraction semantics, and restart/recovery requirements. Until then the correct Core result is to keep the consumer disabled, not to guess a strategy.
 - Required real-path acceptance: a source becomes stale/retracted without an increased `commit_sequence`; consumer rejects/withholds it, reconciliation converges after rollback/revocation, and restart/retry does not resurrect invalid knowledge. Test both same-process and restart recovery where applicable.
 
 ### Gate D — persistence and transaction ownership
