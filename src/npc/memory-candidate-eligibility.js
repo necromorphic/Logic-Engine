@@ -104,6 +104,22 @@ export function evaluateMemoryCandidateAdmission(request, result) {
     });
   }
 
+  // This request-level gate is required even for zero candidates: an empty
+  // denied/withheld result must not be mistaken for an authorized empty search.
+  if (
+    result.access?.outcome !== ALLOW
+    || result.scope?.world_id !== request.world_id
+    || result.scope?.subject_id !== request.subject_id
+    || result.scope?.purpose !== request.purpose
+  ) {
+    return Object.freeze({
+      status: "non_ready",
+      admitted: Object.freeze([]),
+      rejected: Object.freeze([]),
+      reason: "request_access_or_scope_unconfirmed",
+    });
+  }
+
   const admitted = [];
   const rejected = [];
   const seen = new Set();
