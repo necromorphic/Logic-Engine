@@ -8,7 +8,7 @@ Status: merged into `main` through PR #65. This document records the deliberatel
 - Reads use LogicEngine.getSnapshot with a bounded explicit entity-ID set and preserve the snapshot's world_revision and commit_sequence.
 - A trusted application-owned field policy must explicitly allow each disclosed field. Missing, throwing, or non-boolean-true decisions deny that field.
 - Missing targets and targets from which no field can be disclosed share the same READ_NOT_AVAILABLE result.
-- The API route POST /v1/worlds/:world_id/authorized-read authenticates a configured adapter, then permits only the bound actor's own entity_id, entity_type, and status. Arbitrary attributes are not disclosed.
+- By default, the API route POST /v1/worlds/:world_id/authorized-read authenticates a configured adapter, then permits only the bound actor's own entity_id, entity_type, and status. Arbitrary attributes and non-self targets remain withheld unless a trusted host explicitly supplies a field policy; see the PR #101 addendum below.
 - Raw canonical GET .../state, GET .../events, and GET .../audit routes require the distinct internal or administrative credential. The general API bearer token alone is not sufficient.
 - Adapter proposal reads are scoped to the adapter that created the proposal. A separately configured admin credential may read any proposal.
 - Reads are read-only and do not advance canonical revision, event cursor, event history, or audit.
