@@ -41,6 +41,24 @@ Index health is not authorization, and index health is not source freshness. Tre
 
 **Result-completeness rule:** distinguish at least complete-empty, complete-nonempty, partial/truncated, stale, denied/withheld, timeout, index-unavailable/rebuilding, and generic unavailable outcomes in the future contract. These are proposed semantic outcomes, not an approved wire enum. Do not freeze names or add an API/schema without Core review.
 
+### Concrete result-status proposal (semantic contract, not a wire enum)
+
+Use one primary outcome for the retrieval attempt; never infer success from an empty payload alone. The names below are descriptive labels for review, not approved serialized values:
+
+| Semantic outcome | Assign only when | Consumer-safe interpretation |
+|---|---|---|
+| Complete / non-empty | The search and required source, lineage, and access checks completed for the declared scope, and at least one result survived all checks. | Results may be considered only under their separately verified freshness/access evidence; this does not imply delivery or acquisition. |
+| Complete / empty | The search and all required checks completed for the declared scope, and no result survived. | A genuine complete-empty result; never use it for a backend error, hidden-candidate shortcut, or incomplete scan. |
+| Partial / truncated | The operation returned some usable work but explicitly did not finish the declared scope (for example, a bounded/truncated result or incomplete inventory). | Must not be represented as complete; no current/completed reconciliation marker may advance from it. |
+| Stale | The relevant source/index/reconciliation evidence is known to lag or mismatch the required current boundary. | Strict-current consumers must withhold source-dependent results or use an explicitly approved eventual mode; never relabel as current. |
+| Denied / withheld | The trusted access boundary denies the requested read, or safe disclosure is not permitted. | Return only the approved non-disclosing shape; do not reveal whether protected candidates exist. |
+| Timeout | The operation exceeded its approved deadline before completeness could be established. | Incomplete, not empty; retry policy belongs to the owning service contract. |
+| Rebuilding | The index is undergoing a rebuild or has not completed post-rebuild reconciliation. | Non-current; a partially rebuilt index cannot claim complete coverage. |
+| Index unavailable | The index backend cannot serve the request or its health/state cannot be trusted. | Not empty. Use only an approved authoritative fallback with equivalent access/lineage checks; otherwise withhold. |
+| Unavailable / unknown | A required source, adapter, version, lineage, or reconciliation fact cannot be established and no more specific safe outcome applies. | Currentness is unproven; fail closed for protected/source-dependent use. |
+
+**Precedence proposal:** authorization/non-disclosure is evaluated before any externally visible candidate details; if a safe read is denied, return the approved denied/withheld shape. Otherwise, any incomplete execution (timeout, partial/truncated, rebuilding, index unavailable, or unavailable/unknown) must not be collapsed into complete-empty. If authoritative evidence positively establishes staleness, classify it as stale rather than current. Complete-empty/non-empty are permitted only after the declared scope and all required checks have completed. Core and the host/index owner must approve this precedence and the consumer mapping before a wire representation is introduced.
+
 ## 4. Source changes, retraction, revocation, and derived summaries
 
 - **Canonical correction/rollback:** Core owns canonical validity and rollback. Memory can only react to a change it can reliably observe or discover during a complete authoritative reconciliation. A larger `commit_sequence` is not sufficient.
@@ -76,6 +94,12 @@ No Memory-specific durable source-change feed, outbox, cursor, invalidation work
 | Hybrid incremental signal plus periodic full comparison | The incremental signal's limits and maximum stale window are explicit; a missed signal is repaired by full comparison. Strict-current reads cannot rely on the interval as immediate proof. | Core + Memory |
 
 Do not choose or implement an option in this docs/tests PR. Do not create an outbox, cursor, schema, store, API, or callback. Until an owner-approved recoverable mechanism exists, restart or unknown reconciliation state means **currentness unproven**; protected/source-dependent retrieval must fail closed or return a safe explicit unavailable/stale outcome.
+
+### Smallest recommended decision for rollback and restart
+
+**Proposal for Core + Memory approval:** treat any observed change to the composite snapshot boundary—including a `world_revision` change with unchanged `commit_sequence`—as invalidating the Memory claim that reconciliation is current. Re-establish currentness only after a complete, consistent authoritative source inventory has been compared/reconciled and all required source versions, lineage and access are revalidated. A sequence-only incremental scan is insufficient. This is a conservative decision proposal, not an implemented trigger or durable feed.
+
+For interruption recovery, the minimum semantic rule is **no early completion marker**: progress may be retained only if its durability and replay semantics are known; after restart, unknown/partial progress is not proof of completion. The owner must select the actual checkpoint mechanism only after identifying an existing supported persistence seam. If no such seam exists, the implementation remains blocked rather than silently adding a cursor/store. Acceptance must interrupt after partial work, restart, replay twice, and prove that the final result is equivalent to a clean full reconciliation and that duplicate replay is harmless.
 
 ## 6. Persistence, audit, and transaction boundary
 
