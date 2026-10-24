@@ -172,7 +172,9 @@ test('stale snapshot candidates and derived summaries are never admitted', async
     },
   })]);
   const stale = await consumer.retrieveForNpc(request());
-  assert.equal(stale.status, 'ready');
+  assert.equal(stale.status, 'non_ready');
+  assert.equal(stale.reason, 'memory_snapshot_stale');
+  assert.deepEqual(stale.admitted, []);
   assert.deepEqual(stale.candidates, []);
 
   setCandidates([candidate({
