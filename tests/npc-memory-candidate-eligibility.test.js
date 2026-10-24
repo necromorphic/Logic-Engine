@@ -396,17 +396,22 @@ test("duplicate record/version is admitted once without text-based identity", ()
   assert.equal(result.admitted.length, 1);
 });
 
-test("partial or unavailable retrieval is not treated as an empty complete result", () => {
+test("partial, unavailable, rebuilding, malformed, or unknown retrieval is not treated as complete-empty", () => {
+  const authorizedEmpty = evaluateMemoryCandidateAdmission(request, completeResult([]));
   for (const resultInput of [
-    { completeness: "partial", candidates: [] },
-    { completeness: "unavailable", candidates: [] },
-    { candidates: [] },
     null,
+    { completeness: "partial", candidates: [candidate()] },
+    { completeness: "unavailable", candidates: [candidate()] },
+    { completeness: "rebuilding", candidates: [candidate()] },
+    { completeness: "unknown", candidates: [candidate()] },
+    { completeness: "complete", candidates: "not-an-array" },
   ]) {
     const result = evaluateMemoryCandidateAdmission(request, resultInput);
     assert.equal(result.status, "non_ready");
     assert.equal(result.reason, "result_incomplete_or_unavailable");
     assert.deepEqual(result.admitted, []);
+    assert.equal(JSON.stringify(result).includes("memory:claim-1"), false);
+    assert.notDeepEqual(result, authorizedEmpty);
   }
 });
 
@@ -418,6 +423,7 @@ test("a complete authorized empty result is not proof that the subject knows not
 });
 
 test("empty denied, withheld, or scope-mismatched results fail closed", () => {
+  const authorizedEmpty = evaluateMemoryCandidateAdmission(request, completeResult([]));
   const variants = [
     completeResult([], { access: { outcome: "deny" } }),
     completeResult([], { access: { outcome: "withheld" } }),
@@ -430,6 +436,7 @@ test("empty denied, withheld, or scope-mismatched results fail closed", () => {
     assert.equal(result.status, "non_ready");
     assert.equal(result.reason, "request_access_or_scope_unconfirmed");
     assert.deepEqual(result.admitted, []);
+    assert.notDeepEqual(result, authorizedEmpty);
   }
 });
 
