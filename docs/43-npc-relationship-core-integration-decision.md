@@ -70,18 +70,18 @@ This direction does not prescribe a table layout, JSON shape, numeric scale, uni
 
 ## 6. Required cross-block interfaces before runtime work
 
-Do not begin relationship runtime implementation until the following are either confirmed by the core owner or explicitly deferred with fail-closed behavior:
+The core owner has confirmed the semantic direction in PR #38 comment [6377468310](https://github.com/necromorphic/Logic-Engine/pull/38#issuecomment-6377468310). The following list distinguishes decisions already settled from production interfaces that remain to be specified and tested.
 
-1. **Canonical write:** Which approved core effect/operation can create or transition a relationship record? If none exists, agree on the typed effect contract before implementation.
-2. **Identity:** How are the two participants referenced, and how are unresolved past-person references handled without creating a second identity system or auto-creating NPCs?
-3. **State semantics:** How are unknown/unset dimensions represented separately from neutral/zero? Are dimensions typed values, authored text, or both? Which rules are universal versus World Pack-defined?
-4. **Transitions and authorship:** How are authored initial conditions, corrections, and in-world transitions distinguished and audited?
-5. **Causality/rollback:** Which event/read references support reconstruction after rollback, and what happens if existing core guarantees cannot determine whether a transition remains valid?
-6. **Read boundary:** Which real core read operation supplies a coherent snapshot? A raw snapshot is not an actor-authorized context and must not be exposed directly to a model.
-7. **Projection:** What minimal read contract lets a card projector display a summary without writing duplicate relationship data or leaking private notes?
-8. **Executable tests:** Exercise real core and NPC functions for asymmetry, unknown-vs-neutral, no reciprocal inference, conflicting/unsupported transitions, and rollback of a relationship change while preserving independent changes.
+1. **Canonical write — direction confirmed, effect contract open.** Use a typed relationship record/effect through the canonical event/revision/audit path. Define its exact shape, dimension-level update semantics, validation, and provenance against the core effect architecture before implementation.
+2. **Identity — commit rule confirmed.** Committed participants must resolve to existing canonical `entity_id` values. Unresolved authoring/import references must not auto-create entities/NPCs or form a parallel identity registry.
+3. **State semantics — key distinctions confirmed, schema open.** Unknown/unset, explicit World Pack-defined neutral, and author-initial/imported origin must remain distinct. Specify universal versus World Pack-defined dimensions, value types, optionality, and invalid-transition behavior.
+4. **Transitions and authorship — boundary confirmed, operation open.** Authored initial conditions/corrections need explicit provenance separate from dimension values and in-world transitions. The authorized edit/initialization operation and audit representation remain to be designed.
+5. **Causality/rollback — requirement confirmed, mechanism open.** Transitions need canonical source/cause references; rollback must recompute support from remaining valid independent causes. If current core causality cannot express this, block commits until extended and tested; do not add a parallel NPC causal system.
+6. **Read boundary — dependency order confirmed, authorized interface open.** Integrate a consistent snapshot first, then define the core-owned actor/purpose/snapshot filter. Raw snapshot rows are not model/player context and must not be exposed directly.
+7. **Projection — behavior confirmed, input contract open.** Character cards consume a bounded, derived, read-only relationship summary; they must not write duplicate state or expose raw records/private notes. The precise internal projection input depends on the typed record and trusted read boundary.
+8. **Executable tests — blocked on real interfaces.** Tests must exercise the production write/read/rollback path for asymmetry, unknown-vs-neutral, partial updates, unresolved participants, access separation, author provenance, and multi-cause rollback. Do not use mocks to simulate absent production semantics.
 
-## 7. Safe parallel-work plan
+#### 7. Safe parallel-work plan
 
 - NPC work may continue on semantic scenarios, authoring expectations, decision-context needs, and the relationship projection requirements.
 - Core work may continue on canonical record/effect boundaries, fact identity, snapshot reads, and rollback guarantees without waiting for the NPC implementation.
