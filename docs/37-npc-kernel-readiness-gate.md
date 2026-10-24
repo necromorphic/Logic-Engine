@@ -321,7 +321,7 @@ This section supersedes the older live-status statements in §§15, 16, 17, and 
 - PR #45 (consistent internal snapshot) merged at `2bbdbff4e4d4c4c56601ed5ac18e2083aa99c48b`.
 - PR #46 (opt-in tri-state condition result API) merged at `e796896fc40fa8e782f574e13298682a4e6fb813`.
 - The original stacked PR #47 was closed without merge. Its reviewed delta was rebased onto the updated main line in PR #49, which merged at `8602a9ed41f13f536d87b1103a02e8fd12de3b03`. The current snapshot implementation includes bounded context-manifest expansion and optional mechanic-evaluation inputs in the same read transaction.
-- The NPC branch currently diverges from `main`: 125 commits ahead and 7 behind; merge base `9e785a050e8b8acde9a3f343275c4213bbe8d72f`. Do not auto-rebase or force-update. Reconcile the seven main-side commits deliberately before integration.
+- The NPC branch diverges from `main` and has 7 main-side commits not yet incorporated; merge base `9e785a050e8b8acde9a3f343275c4213bbe8d72f`. The ahead count changes with documentation-only work and is not a useful readiness measure. Do not auto-rebase or force-update; reconcile the seven main-side commits deliberately before integration.
 
 ### What these merges unblock
 
