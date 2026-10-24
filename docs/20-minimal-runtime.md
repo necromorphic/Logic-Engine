@@ -37,7 +37,10 @@ Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in su
 - `POST /v1/worlds/:id/time-configurations` — register and activate an immutable calendar + TimePolicy configuration for the world's pinned World Pack (requires `x-admin-token`).
 - `GET /v1/worlds/:id/time-configurations/current` — read the active or explicitly selected configuration version (requires a trusted admin/internal credential).
 - `GET /v1/worlds/:id/time` — project the canonical coordinate through the active calendar (requires a trusted admin/internal credential).
-- `POST /v1/worlds/:id/time-advances` — plan and run a durable time-advance operation (requires `x-engine-internal-token`); the request must include an expected revision, target millisecond coordinate, and trigger set with validated event proposals in each executable trigger payload.
+- `POST /v1/worlds/:id/time-triggers` — register an immutable, world-scoped due-work trigger (requires `x-engine-internal-token`). Trigger IDs cannot be reused with different content; deadlines must be strictly after current world time.
+- `GET /v1/worlds/:id/time-triggers` — list durable trigger lifecycle state (internal credential required).
+- `POST /v1/worlds/:id/time-triggers/:trigger_id/cancel` — cancel an unclaimed pending trigger (internal credential required); claimed/completed triggers require review rather than silent cancellation.
+- `POST /v1/worlds/:id/time-advances` — plan and run a durable time-advance operation from the Core-owned trigger registry (requires `x-engine-internal-token`); request includes idempotency key, expected revision and target millisecond coordinate. Inline trigger arrays are rejected by the HTTP API.
 - `GET /v1/worlds/:id/time-advances/:operation_id` — retrieve persisted operation/checkpoint state (internal credential required).
 - `POST /v1/worlds/:id/time-advances/:operation_id/resume` — resume a persisted running operation from its last atomically committed segment (internal credential required).
 - `POST /v1/worlds/:id/rollback` — invalidate a causal branch and rebuild projections (requires `x-admin-token`).
