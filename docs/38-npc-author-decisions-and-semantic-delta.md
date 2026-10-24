@@ -226,3 +226,17 @@ The corresponding proposed acceptance scenarios are NPC-SEM-029–032 in `docs/3
 The core owner answered all eight questions in `docs/39-npc-core-knowledge-contract-proposal.md`. Acquisition/provenance, delivery status, source reconciliation, and persistent belief state are core-owned; canonical truth, acquisition history, and current belief remain separate. The first supported acquisition slice is limited to explicitly authorized author-initial/imported knowledge. Existing IDs and snapshot cursors are to be reused. Host delivery remains unconfirmed absent a verified rendering signal.
 
 The internal actor/purpose/snapshot-scoped read/filter interface and its real test boundary remain to be designed. This is a confirmed semantic direction, not a claim of existing implementation. Details are in `docs/39-npc-core-knowledge-contract-proposal.md` section 10 and `docs/37-npc-kernel-readiness-gate.md` section 14.
+
+
+## 10. Authoring corrections and card-summary safeguards — 2026-10-24
+
+The detailed semantic contract for author edits, correction scope, uncertainty states, decision-input completeness, author-reserved editorial information, and character-card summaries is now in `docs/46-npc-authoring-correction-and-card-summary-contract.md`.
+
+This adds no new author decision; it operationalizes existing decisions. In particular:
+- correcting a profile note does not silently rewrite committed canon;
+- changing canonical truth does not by itself change an NPC's acquired information or belief;
+- unknown/unset is not explicit neutral, and withheld/incomplete is not known absent;
+- card summaries are read-only projections and must preserve material uncertainty;
+- an author-mandated future outcome is not itself a committed event.
+
+The cases NPC-AUTH-001–010 are indexed in `docs/32-npc-semantic-acceptance-matrix.md` and mapped to their actual production gates in `docs/35-npc-test-boundary-map.md`. Runtime/editor/projection behavior remains unclaimed and gated by the real integration contracts.
