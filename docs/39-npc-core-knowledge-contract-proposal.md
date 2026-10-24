@@ -373,3 +373,10 @@ These are acceptance targets, not tests that can be satisfied by mocks of missin
 The cross-cutting causal acceptance matrix is in `docs/47-npc-causal-rollback-reconciliation-test-matrix.md`, especially NPC-CAUSE-004 and NPC-CAUSE-007. For knowledge reconciliation, the critical sequence is not only “invalidate one of two sources”: it is also “complete rollback/reconciliation, then commit a new source, then reconcile again.” Tests must prove that the later source is evaluated against a fresh canonical marker, does not revive the invalid source, is idempotent under retry, and does not automatically restore downstream effects whose own dependencies remain invalid.
 
 This remains a test requirement, not an assertion that source reconciliation or persistent belief updates already exist. The core-owned acquisition/provenance and actor/purpose filter contracts remain prerequisites; the NPC branch must not implement substitute causal or knowledge persistence.
+
+
+## 18. Delivery/acquisition production-path matrix
+
+`docs/48-npc-delivery-acquisition-boundary-matrix.md` expands the existing delivery and acquisition requirements into NPC-DELIV-001–010 with explicit evidence thresholds and test sequences. It is intentionally stricter than a generic “message sent” flag: context inclusion is not delivery; host acceptance is not proof of visible rendering; visibility is not comprehension; acknowledgement is not belief; and a received report is not canonical truth.
+
+The matrix also requires target isolation, idempotent retry, and a separate source-invalidation sequence. These requirements refine this proposal but do not create new author decisions or assert runtime support. The core-owned delivery/acquisition records, real host signals, trusted actor binding, and pre-model filter remain implementation gates.
