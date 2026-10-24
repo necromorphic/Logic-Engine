@@ -1,6 +1,6 @@
 # Time advancement — Core integration audit
 
-**Audit baseline:** `main` at `52939b77aa7912377ea5d0309411653c98247b61` (2026-10-24), including the replay/rollback growth benchmark.  
+**Audit baseline:** `main` at `1c5854296386565ef59c50640195caf142e131aa` (2026-10-24), including the mixed-projection replay/rollback benchmark.  
 **Status:** static code/document audit; no runtime changes in this document.  
 **Related proposal:** `docs/58-time-domain-t1-design.md` in the T1 feature branch / PR #204.
 
@@ -32,7 +32,7 @@ The transaction helper uses `BEGIN IMMEDIATE` at the outer level and SQLite save
 
 ### 3. Performance implication from the new benchmark
 
-The repository's `benchmark:replay` CI run on the audit baseline measured the existing single-event commit at about 18 ms with 1,000 prior events, 64 ms with 5,000, and 122 ms with 10,000; the benchmark counts one full event-history projection replay per commit. Rollback took about 32 ms / 98 ms / 226 ms at those sizes, and a standalone rebuild took about 11 ms / 50 ms / 100 ms. These are one-run CI measurements, not performance guarantees, but they confirm the main scaling shape.
+The repository's replay/rollback CI benchmarks demonstrate history-scan growth. In the earlier entity-only workload, a commit took about 18 ms / 64 ms / 122 ms at 1,000 / 5,000 / 10,000 prior events. The newer mixed entity/fact/relationship workload measured commit at about 65 ms / 239 ms / 494 ms, rollback at about 51 ms / 265 ms / 1,310 ms, and standalone rebuild at about 52 ms / 220 ms / 486 ms at those same sizes. These are one-run CI measurements, not performance guarantees; the mixed workload is synthetic, but it exercises all three projection families and confirms that projection rebuilding is a material cost.
 
 **Do not implement a segment as N calls to the current commit path and assume the cost is acceptable.** Each nested call would still run causal/effect validation and a full projection rebuild, so a segment of many events could repeatedly scan the growing history. A T3 batch path should validate and apply the segment in causal order inside one outer transaction, maintain an in-memory/transaction-local projection as needed, persist event/audit/idempotency records, and rebuild or finalize canonical projections once per segment. That path needs parity tests against repeated single-event commits for all supported effect kinds.
 
@@ -89,4 +89,4 @@ If this proof fails, do not approximate segment atomicity by issuing independent
 
 ## Decision boundary
 
-This audit supports proceeding with a **small T2 compatibility migration and Core-owned coordinate advancement**, after its implementation contract and migration tests are reviewed. It does not justify adding the scheduler or resumable long skips yet. T3 is gated on the explicit atomic-segment tests above; T4 is gated on T2/T3 and event-boundary semantics.
+This audit supports the T2 coordinate migration and Core-owned advancement implemented for review in PR #209. The current CI run on that PR passes 263 tests. It does not justify adding the scheduler or resumable long skips yet. T3 is gated on a batch path that preserves causal validation while avoiding a full projection rebuild after every event; T4 is gated on T2/T3 and event-boundary semantics.
