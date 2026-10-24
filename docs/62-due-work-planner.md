@@ -31,7 +31,7 @@ Trigger IDs are the deterministic final tie-break after due coordinate. Ordering
 
 ## Separation of responsibilities
 
-- The planner returns proposals, not confirmed effects. A caller must commit each segment through Core.
+- The planner returns proposals, not confirmed effects. A caller must commit each segment through Core. The current Core request contract still accepts `time_advance_seconds` as whole seconds, while coordinates are milliseconds; therefore an execution adapter must not promise exact sub-second due boundaries until a reviewed millisecond-duration API or explicit alignment rule exists.
 - `processing_mode` is preserved as trigger metadata. This planner does not execute or aggregate batch-process effects.
 - `interrupt_after_coordinate` is a planning boundary. It does not itself grant knowledge to NPCs or deliver a message to the player.
 - The planner does not persist an operation cursor or resume after restart. Durable multi-segment operation state remains a separate integration requirement.
