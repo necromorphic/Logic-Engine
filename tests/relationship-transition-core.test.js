@@ -110,6 +110,59 @@ test('API rejects ordinary bearer without the separate admin credential and does
   }
 });
 
+test('admin route commits through the canonical event lifecycle and returns the current directed projection', async () => {
+  const { store, engine, seed } = await fixture();
+  const server = createApiServer({ engine, token, adminToken });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = server.address().port;
+    const response = await fetch('http://127.0.0.1:' + port + '/v1/worlds/world-relationship-test/relationship-transitions', {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ' + token,
+        'x-admin-token': adminToken,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(transitionRequest(seed)),
+    });
+    assert.equal(response.status, 201);
+    const body = await response.json();
+    assert.equal(body.commit_result.accepted, true);
+    assert.equal(body.relationship.dimensions.trust, 'low');
+    assert.equal(body.relationship.subject_id, 'A');
+    assert.equal(body.relationship.target_id, 'B');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+  }
+});
+
+test('generic event preparation cannot smuggle a Relationship effect', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    assert.throws(
+      () => engine.prepareEvent({
+        idempotency_key: 'generic-relationship-attempt',
+        turn_id: 'generic-relationship-attempt',
+        event_type: 'relationship.transition',
+        effects: [{
+          kind: 'relationship.transition',
+          subject_id: 'A',
+          target_id: 'B',
+          rule_module_id: 'relationship-rules',
+          rule_module_version: '1.0.0',
+          patch: { trust: 'low' },
+          evidence_refs: ['event:' + seed.event_id],
+          executor_type: 'admin_credential',
+        }],
+      }),
+      (error) => error.code === 'UNSUPPORTED_EFFECT',
+    );
+  } finally {
+    store.close();
+  }
+});
+
 test('stale composite cursor and spoofed executor are rejected without mutation', async () => {
   const { store, engine, seed } = await fixture();
   try {
