@@ -174,11 +174,16 @@ export class MechanicExecutor {
       }
     }
 
-    const contextFingerprint = hashRequest({
-      context: resolved.context,
-      knownAbsentPaths,
-      policy_version: resolved.policy_version,
-    });
+    let contextFingerprint;
+    try {
+      contextFingerprint = hashRequest({
+        context: resolved.context,
+        knownAbsentPaths,
+        policy_version: resolved.policy_version,
+      });
+    } catch {
+      return unknown('AUTHORIZED_CONTEXT_NOT_FINGERPRINTABLE', 'Trusted context is not a canonical JSON value; evaluation failed closed.', identity);
+    }
     const evaluationIdentity = {
       snapshot_identity: identity,
       action_id: actionId,
