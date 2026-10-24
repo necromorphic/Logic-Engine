@@ -1600,7 +1600,8 @@ export class SQLiteStore {
               }), triggerStamp);
             if (this.processStore) {
               const triggerIndex = (segment.trigger_ids || []).indexOf(triggerId);
-              const eventId = triggerIndex >= 0 ? segment.events[triggerIndex]?.event_id : null;
+              const eventOffset = segment.events.length - (segment.trigger_ids || []).length;
+              const eventId = triggerIndex >= 0 ? segment.events[eventOffset + triggerIndex]?.event_id : null;
               this.processStore.completeTrigger(worldId, triggerId, eventId ? [eventId] : [], operationId);
             }
           }
