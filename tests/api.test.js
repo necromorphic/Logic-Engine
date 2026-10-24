@@ -1447,7 +1447,7 @@ test('event_type cannot bypass the internal credential boundary', async (t) => {
 });
 
 test('proposal API deduplicates concurrent same-key create requests', async (t) => {
-  const base = await setup(t, { approvalToken: APPROVAL });
+  const base = await setup(t, { approvalToken: APPROVAL, internalToken: INTERNAL });
   assert.equal((await createWorld(base, 'proposal-concurrent-create-world')).status, 201);
   const url = base + '/v1/worlds/proposal-concurrent-create-world/proposals';
   const body = {
