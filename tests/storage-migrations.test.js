@@ -122,7 +122,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
       { event_id: committed.event_id, commit_sequence: 3 },
     ],
   );
-  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7]);
   assert.equal(reopenedEngine.getState('legacy-world').world_revision, 3);
   assert.equal(reopenedEngine.getState('legacy-world').entities.find((entity) => entity.entity_id === 'post-migration-entity').attributes.migrated, true);
   assert.equal(reopenedEngine.getState('legacy-world').facts.find((fact) => fact.fact_id === 'post-migration-fact').value, true);
