@@ -250,6 +250,13 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           return send(res, 200, { proposal: proposals.approve(worldId, proposalId) });
         }
         if (operation === 'commit') {
+          // Possession of a proposal ID and the general API bearer are not
+          // execution authority. Adapter-facing commits must be made by the
+          // adapter that created the proposal; trusted orchestration uses
+          // the separately authenticated internal /events route below.
+          const adapterId = adapterIdFor(req);
+          if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required to commit a proposal.' } });
+          proposals.get(worldId, proposalId, adapterId); // non-enumerating ownership check
           const result = proposals.commit(worldId, proposalId);
           const { commit_result: commitResult, ...proposal } = result;
           return send(res, 200, { proposal, commit_result: commitResult });
