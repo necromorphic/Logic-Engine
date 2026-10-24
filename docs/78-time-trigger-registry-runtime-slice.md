@@ -14,7 +14,7 @@ A registered trigger contains:
 - `processing_mode` (`exact` or `batch`) and `interrupt_after_coordinate`;
 - a `payload.event` proposal validated by Core.
 
-Core derives stable event identity from world and trigger ID. A trigger ID is immutable: repeating the same registration returns the existing lifecycle record; reusing it with changed content is rejected. Forward dependencies may be registered before their dependency, but a due plan is blocked until the dependency is known and completed.
+Core derives stable event identity from world and trigger ID, and unions the trigger's declared conflict sets with the event proposal's read set and effect writes so omitted declarations cannot make conflicting effects appear independent. A trigger ID is immutable: repeating the same registration returns the existing lifecycle record; reusing it with changed content is rejected. Forward dependencies may be registered before their dependency, but a due plan is blocked until the dependency is known and completed.
 
 ## Lifecycle and atomicity
 
@@ -37,7 +37,7 @@ All routes require the general bearer token and the separately configured `x-eng
 - `GET /v1/worlds/:id/time-triggers/:trigger_id` — read one record.
 - `POST /v1/worlds/:id/time-triggers/:trigger_id/cancel` — cancel a pending unclaimed trigger (or one whose claiming operation is no longer running), with an optional reason.
 
-A `POST /v1/worlds/:id/time-advances` request that omits `triggers` uses registered triggers. Supplying `triggers` selects the existing request-scoped compatibility path. The two sources cannot be mixed in one request.
+A `POST /v1/worlds/:id/time-advances` request that omits `triggers` uses registered triggers. Supplying `triggers` selects the existing request-scoped compatibility path. The two sources cannot be mixed in one request, and request-scoped mode is rejected if it would cross any registered pending trigger.
 
 ## Explicit limitations
 
