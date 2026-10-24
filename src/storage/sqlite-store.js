@@ -612,14 +612,6 @@ export class SQLiteStore {
     const read = () => {
       const w = this.world(id);
       if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-      if (x.duration_decision?.time_config_version
-        && w.time_config_version !== x.duration_decision.time_config_version) {
-        throw new EngineError('TIME_CONFIG_STALE', 'Active time configuration changed after duration resolution.', 409, {
-          resolved_config_version: x.duration_decision.time_config_version,
-          active_config_version: w.time_config_version ?? null,
-        });
-      }
-
       const commitSequence = this.currentCommitSequence(id);
       const contextManifests = contextManifestIds.length
         ? this.db.prepare('SELECT manifest_id,world_id,generation_id,base_commit_sequence,base_world_revision,items_json,manifest_hash,created_at FROM context_manifests WHERE world_id=? AND manifest_id IN (' + contextManifestIds.map(() => '?').join(',') + ') ORDER BY manifest_id')
@@ -1130,6 +1122,13 @@ export class SQLiteStore {
       if (old) return { ...old, idempotent_replay: true };
       const w = this.world(id);
       if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (x.duration_decision?.time_config_version
+        && w.time_config_version !== x.duration_decision.time_config_version) {
+        throw new EngineError('TIME_CONFIG_STALE', 'Active time configuration changed after duration resolution.', 409, {
+          resolved_config_version: x.duration_decision.time_config_version,
+          active_config_version: w.time_config_version ?? null,
+        });
+      }
       if (x.expected_revision !== undefined && x.expected_revision !== w.world_revision) {
         throw new EngineError('REVISION_CONFLICT', 'World changed after proposal preparation.', 409, {
           expected_revision: x.expected_revision, current_revision: w.world_revision,
