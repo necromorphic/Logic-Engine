@@ -28,6 +28,13 @@ test('Memory source-boundary handoff records each required identity and lifecycl
     'revocation after indexing',
     'world_revision` without increasing `commit_sequence',
     'Restart test interrupts rebuild/reconciliation',
+    'Concrete result-status proposal (semantic contract, not a wire enum)',
+    'Complete / empty',
+    'Denied / withheld',
+    'Precedence proposal',
+    'Smallest recommended decision for rollback and restart',
+    'sequence-only incremental scan is insufficient',
+    'no early completion marker',
     'production Memory→NPC remains disabled',
   ]) {
     assert.ok(doc.includes(required), `handoff must cover: ${required}`);
