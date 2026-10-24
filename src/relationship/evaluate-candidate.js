@@ -30,6 +30,15 @@ function result(status, details = {}) {
   return Object.freeze({ status, ...details });
 }
 
+function setOwn(target, key, value) {
+  Object.defineProperty(target, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+
 function transitionFromMatches(expected, current) {
   if (isRecord(expected) && isRecord(current)) {
     return expected.status === current.status
@@ -265,9 +274,9 @@ export function evaluateRelationshipCandidate(input) {
     }
 
     if (clearing) {
-      candidatePatch[dimension] = Object.freeze({ operation: "clear" });
+      setOwn(candidatePatch, dimension, Object.freeze({ operation: "clear" }));
     } else {
-      candidatePatch[dimension] = to;
+      setOwn(candidatePatch, dimension, to);
     }
     changes.push(dimension);
   }
