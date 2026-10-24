@@ -298,3 +298,26 @@ test('snapshot reports requested context manifests that do not exist in the requ
   assert.deepEqual(snapshot.context_manifests, []);
   assert.deepEqual(snapshot.missing_context_manifest_ids, [registered.manifest_id, 'missing-manifest']);
 });
+
+
+test('snapshot refuses a context manifest whose expanded entity set exceeds the bounded read limit', (t) => {
+  const { engine } = setup(t);
+  const entityEffects = Array.from({ length: 201 }, (_, index) => ({
+    kind: 'entity.create',
+    entity_id: 'bounded-npc-' + index,
+    entity_type: 'character',
+  }));
+  commit(engine, 'snapshot-world', 'bounded-manifest-seed', 0, entityEffects);
+
+  const manifest = engine.registerContextManifest('snapshot-world', {
+    generation_id: 'generation-too-large',
+    base_world_revision: 1,
+    base_commit_sequence: 1,
+    items: entityEffects.map((effect) => ({ kind: 'entity', target_id: effect.entity_id })),
+  });
+
+  assert.throws(
+    () => engine.getSnapshot('snapshot-world', { contextManifestIds: [manifest.manifest_id] }),
+    (error) => error.code === 'SNAPSHOT_TOO_LARGE' && error.status === 409,
+  );
+});
