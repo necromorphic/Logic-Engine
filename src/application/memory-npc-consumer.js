@@ -92,15 +92,22 @@ export class MemoryNpcConsumer {
       return nonReady('memory_retrieval_unavailable');
     }
 
-    if (!object(memoryResult)
-      || memoryResult.completeness !== 'complete'
-      || memoryResult.index_health !== 'ready'
+    if (!object(memoryResult)) {
+      return nonReady('memory_result_incomplete_or_scope_mismatch');
+    }
+    if (memoryResult.index_health !== 'ready') {
+      return nonReady('memory_index_not_ready');
+    }
+    if (memoryResult.source_reconciliation !== 'current') {
+      return nonReady('memory_reconciliation_not_current');
+    }
+    if (memoryResult.completeness !== 'complete'
       || !Array.isArray(memoryResult.candidates)
       || memoryResult.candidates.length > 50
       || memoryResult.scope?.world_id !== scope.world_id
       || memoryResult.scope?.subject_id !== scope.subject_id
       || memoryResult.scope?.purpose !== scope.purpose) {
-      return nonReady(memoryResult?.index_health === 'ready' ? 'memory_result_incomplete_or_scope_mismatch' : 'memory_index_not_ready');
+      return nonReady('memory_result_incomplete_or_scope_mismatch');
     }
 
     if (memoryResult.candidates.length === 0) {
