@@ -7,7 +7,7 @@ Status: repository-source audit; not a test-run report. Audited 2026-10-24 again
 - Personality acceptance source: `docs/personality/04-semantic-acceptance-matrix.md`, `05-world-pack-relationship-dimension-template.md`, `08-semantic-traceability-and-review-workflow.md`, and `09-per-case-acceptance-traceability.md`.
 - Pure evaluator source: `feat/relationship-pure-evaluator:tests/relationship-evaluate-candidate.test.js`.
 - NPC consumer contract: `feat/npc-subsystem:docs/52-npc-relationship-consumer-compatibility.md`. This is a document on another branch, not an executable test and not modified by this audit.
-- Relationship proposal references: `feat/relationship-domain-module:docs/47-relationship-module-test-traceability.md` and `docs/48-relationship-pure-evaluation-contract.md`.
+- Relationship references on current `main`: [`docs/47-relationship-module-test-traceability.md`](../47-relationship-module-test-traceability.md) and [`docs/48-relationship-pure-evaluation-contract.md`](../48-relationship-pure-evaluation-contract.md). The original source PR #60 was closed unmerged; these documents were ported to `main` through PR #80. These are documentation references, not runtime integration evidence.
 - Core integration: the pure evaluator is not a Core write/read/authorization/replay implementation. Where a production Core seam or contract is absent, the case remains an integration blocker; no mock or prose is promoted to a passing integration test.
 - Source audit execution status: this documentation audit inspected source text only; it did not itself execute tests.
 
