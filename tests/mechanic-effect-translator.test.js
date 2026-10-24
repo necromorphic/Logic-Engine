@@ -191,18 +191,30 @@ test('target identifiers and batch size are bounded', () => {
   );
 });
 
-test('fact identity strings are validated but preserved exactly by translation', () => {
+test('fact identity strings reject surrounding whitespace and preserve valid values exactly', () => {
+  const invalidCases = [
+    intent({ kind: 'assert_fact', target_ref: ' fact.example ', payload: { predicate: 'is_known', value: true, subject_ref: 'entity.example' } }),
+    intent({ kind: 'assert_fact', target_ref: 'fact.example', payload: { predicate: ' is_known ', value: true, subject_ref: 'entity.example' } }),
+    intent({ kind: 'assert_fact', target_ref: 'fact.example', payload: { predicate: 'is_known', value: true, subject_ref: ' entity.example ' } }),
+  ];
+  for (const invalid of invalidCases) {
+    assert.throws(
+      () => translateMechanicEffectIntents([invalid]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+
   const result = translateMechanicEffectIntents([intent({
     kind: 'assert_fact',
-    target_ref: ' fact.example ',
-    payload: { predicate: ' is_known ', value: true, subject_ref: ' entity.example ' },
+    target_ref: 'fact.example',
+    payload: { predicate: 'is_known', value: true, subject_ref: 'entity.example' },
   })]);
   assert.deepEqual(result, [{
     kind: 'fact.set',
-    fact_id: ' fact.example ',
-    predicate: ' is_known ',
+    fact_id: 'fact.example',
+    predicate: 'is_known',
     value: true,
-    subject_ref: ' entity.example ',
+    subject_ref: 'entity.example',
   }]);
   assert.doesNotThrow(() => validateEffects(result));
 });
