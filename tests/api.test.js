@@ -236,6 +236,7 @@ test('author-range duration can be approved only through the proposal approval b
   };
 
   const missingCandidate = await createProposal('rest-missing-duration', undefined);
+  assert.equal(missingCandidate.validation_result.time_policy.status, 'needs_author');
   const refused = await fetch(base + '/v1/worlds/author-duration-world/proposals/' + missingCandidate.proposal_id + '/approve', {
     method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
   });
