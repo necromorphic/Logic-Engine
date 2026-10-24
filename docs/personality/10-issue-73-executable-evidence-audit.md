@@ -172,7 +172,7 @@ The correction is verified in the canonical table and the accompanying `12-relat
 
 ## Core status refresh (2026-10-24)
 
-This audit's pure-evaluator mappings remain distinct from production-path evidence. Core PRs #94–#96 and test follow-ups #107–#108 are merged; exact-head Runtime CI passed on PR #96 head `79deb588e1f6321826dc3316085aaab6fdb010b7` (run #717), PR #107 head `bff370b920e32013f17a036eda9450c9eafd1066` (run #755), and PR #108 head `3db9c1484fedf4162023b93acc8920269eff6e10` (run #758). Real-path Relationship write/rollback tests now exist, but no general actor-authorized Relationship read or NPC-facing mutation path is established.
+This audit's pure-evaluator mappings remain distinct from production-path evidence. Core PRs #94–#96 and test follow-ups #107–#108 are merged; exact-head Runtime CI passed on PR #96 head `79deb588e1f6321826dc3316085aaab6fdb010b7` (run #717), PR #107 head `bff370b920e32013f17a036eda9450c9eafd1066` (run #754), and PR #108 head `3db9c1484fedf4162023b93acc8920269eff6e10` (run #761). Real-path Relationship write/rollback tests now exist, but no general actor-authorized Relationship read or NPC-facing mutation path is established.
 
 ### Exact Core test inventory (current main)
 
