@@ -358,6 +358,25 @@ test('duplicate Memory identity/version cannot be rebound to a different canonic
 });
 
 
+test('duplicate record identity with conflicting index snapshots fails closed', async (t) => {
+  const { consumer, setCandidates, candidate, snapshot } = setup(t);
+  setCandidates([
+    candidate(),
+    candidate({
+      snapshot: {
+        world_revision: snapshot.world_revision - 1,
+        commit_sequence: snapshot.commit_sequence,
+      },
+    }),
+  ]);
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_identity_conflict');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+});
+
 test('rollback-only revision change invalidates a prior candidate without sequence growth', async (t) => {
   const { consumer, engine, store, snapshot } = setup(t);
   const beforeSequence = store.currentCommitSequence('memory-npc-world');
