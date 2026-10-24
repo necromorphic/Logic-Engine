@@ -405,6 +405,36 @@ export class SQLiteStore {
             ON world_time_configurations(world_pack_id,world_pack_version,version);`);
         },
       },
+      {
+        version: 9,
+        apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS world_time_triggers(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            trigger_id TEXT NOT NULL,
+            due_coordinate INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending','completed','cancelled')),
+            dependencies_json TEXT NOT NULL,
+            read_set_json TEXT NOT NULL,
+            write_set_json TEXT NOT NULL,
+            processing_mode TEXT NOT NULL CHECK(processing_mode IN ('exact','batch')),
+            interrupt_after_coordinate INTEGER NOT NULL CHECK(interrupt_after_coordinate IN (0,1)),
+            payload_json TEXT NOT NULL,
+            trigger_hash TEXT NOT NULL,
+            claimed_operation_id TEXT,
+            completed_operation_id TEXT,
+            created_revision INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,trigger_id),
+            FOREIGN KEY(world_id,claimed_operation_id) REFERENCES time_advance_operations(world_id,operation_id),
+            FOREIGN KEY(world_id,completed_operation_id) REFERENCES time_advance_operations(world_id,operation_id)
+          );
+          CREATE INDEX IF NOT EXISTS world_time_triggers_due
+            ON world_time_triggers(world_id,status,due_coordinate,trigger_id);
+          CREATE INDEX IF NOT EXISTS world_time_triggers_claim
+            ON world_time_triggers(world_id,claimed_operation_id,status);`);
+        },
+      },
     ];
     for (const migration of migrations) {
       const applied = this.db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
