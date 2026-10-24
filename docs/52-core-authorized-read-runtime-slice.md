@@ -1,6 +1,6 @@
 # Core authorized-read runtime slice
 
-Status: implementation candidate in PR #65; not merged. This document records the deliberately narrow runtime boundary and the remaining integration blockers.
+Status: merged into `main` through PR #65. This document records the deliberately narrow runtime boundary and the remaining integration blockers; it is not a general Memory/NPC visibility policy.
 
 ## 1. What this slice enforces
 
