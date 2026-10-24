@@ -262,3 +262,16 @@ This section supersedes stale PR-state and core-commit statements in the earlier
 - The remaining relationship blockers are unchanged: typed canonical relationship write/effect; trusted authoring/correction boundary; actor/purpose/snapshot filtering before model input; bounded authorized read-only projection; and domain-correct causal rollback/reconciliation. The merged snapshot and tri-state primitives do not satisfy these gates by themselves.
 
 All relationship acceptance cases remain design targets until verified through real production interfaces. Passing CI on this documentation branch does not establish runtime relationship readiness.
+
+
+## 17. Reconciliation against the newer Core head — 2026-10-24
+
+The current `main` ref has advanced to `37b05c38b15eda1743fb6fce08a8ccc2f1d2e672`, ten commits beyond the Core head cited in §16. The NPC branch remains separate and has not incorporated these changes. This section supersedes earlier statements that actor binding or the minimal character-card projection are wholly absent from current Core `main`; those earlier statements remain historical observations only.
+
+- **Actor binding is now observed on current Core `main`:** `src/application/actor-bindings.js`, API routes in `src/api/server.js`, and `tests/actor-binding.test.js` implement a Core-owned authenticated-adapter-to-canonical-entity allowlist with admin-controlled binding and revocation. This resolves the existence question for identity binding at source level, but does not authorize knowledge reads or relationship visibility.
+- **Minimal card projection is now observed on current Core `main`:** `src/application/character-card-projection.js` returns only stable identity/type/status and optional source metadata from a supplied snapshot. It deliberately omits arbitrary attributes and facts, so it is not a relationship-summary projection or actor-relative knowledge filter.
+- **Still not supplied by those changes:** a typed canonical relationship mutation/effect and its domain validation; a bounded actor/purpose/snapshot-scoped relationship read/projection; authorization for reserved/private relationship dimensions before model input; and production-path causal rollback/reconciliation evidence for alternative support.
+- **Core-owned knowledge work remains separate:** `docs/43-core-npc-knowledge-runtime-implementation-plan.md` on current `main` still places acquisition/provenance and snapshot-bound filtering after actor binding. Do not infer that knowledge or relationship access is ready merely because the identity binding exists.
+- **Verification boundary:** the available commit-workflow query returned no PR-triggered runs for current `main`; this is not proof that no other workflows ran and is not a green-CI claim. Verify the exact proposed integration head before any readiness claim.
+
+The NPC branch work remains documentation-only. Do not copy or reimplement these Core capabilities in NPC code, and do not merge/rebase the Core branch automatically. Update the relationship readiness gate only when the actual typed write/read/filter and causal acceptance paths are present and tested.
