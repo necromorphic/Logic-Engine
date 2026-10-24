@@ -143,7 +143,12 @@ export function evaluateConditionResult(rule, context, options = {}) {
     throw new EngineError('INVALID_RULE_RESULT_OPTIONS', 'knownAbsentPaths must be an array of at most 1000 non-empty paths.');
   }
   const knownAbsentPaths = new Set(rawKnownAbsent);
-  for (const path of knownAbsentPaths) readPath({}, path);
+  for (const path of knownAbsentPaths) {
+    const found = readPath(context, path);
+    if (found.exists) {
+      throw new EngineError('CONTRADICTORY_KNOWN_ABSENCE', 'A path cannot be both present in context and declared known absent.');
+    }
+  }
 
   // Validate the complete rule tree and preserve existing type/error behavior.
   // The returned Boolean is deliberately not trusted for missing context.
@@ -173,6 +178,9 @@ export function evaluateConditionResult(rule, context, options = {}) {
     if (!found.exists && !knownAbsentPaths.has(current.path)) {
       unresolvedPaths.add(current.path);
       return { status: 'unknown' };
+    }
+    if (!found.exists && knownAbsentPaths.has(current.path) && current.op === 'neq') {
+      return { status: 'true' };
     }
     return { status: evaluateCondition(current, context) ? 'true' : 'false' };
   };
