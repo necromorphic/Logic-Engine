@@ -135,6 +135,17 @@ export class ProposalService {
       && typeof evaluation.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.evaluation_fingerprint)
       && typeof evaluation.context_policy_version === 'string' && evaluation.context_policy_version.trim(),
     'INVALID_MECHANIC_EVALUATION_FINGERPRINT', 'Context and evaluation fingerprints are required.');
+    const expectedEvaluationFingerprint = hashRequest({
+      snapshot_identity: identity,
+      action_id: evaluation.action_id,
+      context_fingerprint: evaluation.context_fingerprint,
+      context_policy_version: evaluation.context_policy_version,
+      condition_result: evaluation.condition_result,
+      effects: evaluation.effects,
+      effect_provenance: evaluation.effect_provenance,
+    });
+    assert(expectedEvaluationFingerprint === evaluation.evaluation_fingerprint,
+      'INVALID_MECHANIC_EVALUATION_FINGERPRINT', 'Evaluation content does not match its fingerprint.');
     assert(object(evaluation.guarantees) && evaluation.guarantees.read_only === true
       && evaluation.guarantees.context_provider_attested_snapshot === true
       && evaluation.guarantees.context_policy_versioned === true
