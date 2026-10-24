@@ -466,3 +466,8 @@ The available workflow query for the then-current NPC head returned no PR-trigge
 The semantic requirements for the first supported acquisition slice are consolidated in `docs/50-npc-initial-knowledge-acquisition-contract.md`. It limits the first slice to explicit `author_initial` and `imported` assignment, defines isolation/provenance/validity/status requirements, and supplies production-boundary acceptance cases NKA-01–NKA-14.
 
 This is documentation-only. It does not resolve the missing Core representation or authorize runtime work. The NPC gate remains closed until Core implements the real source/acquisition boundary and the safe actor/purpose/snapshot filter, with restricted values absent from exact serialized model input.
+
+
+## 30. Acquisition source reconciliation
+
+`docs/51-npc-acquisition-source-reconciliation.md` records the source-level cross-check against Core causality and the parallel relationship contract. Current causal metadata and partial rollback must not be treated as proof-complete reconciliation for acquisition records. The first NPC slice remains blocked pending a Core-owned author/import source representation, replayable validity, alternative-support semantics, pre-serialization restriction enforcement, and real safe-envelope tests.
