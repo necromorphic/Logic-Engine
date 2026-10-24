@@ -54,7 +54,7 @@ This fixture is a test design only. It is not a proposed storage schema or an as
 
 ## 4. Current executable pure-evaluator coverage
 
-The standalone evaluator in PR #62 is deliberately narrower than the full module contract. The following map records what its current unit suite actually exercises; it does not upgrade any consumer/Core requirement to implemented status. At this cross-branch reference, evaluator PR #62 head `cfff168d91aa2d888173c2b61ef603ac43ab8a8a` includes the additional null-prototype-record regression test. The latest evaluator head `cfff168` passed GitHub Actions run #610 (`npm test`), including the null-prototype-record regression test. That earlier result belongs to the evaluator branch; this documentation branch does not contain those tests.
+The standalone evaluator in PR #62 is deliberately narrower than the full module contract. The following map records what its current unit suite actually exercises; it does not upgrade any consumer/Core requirement to implemented status. At this cross-branch reference, evaluator PR #62 head `cfff168d91aa2d888173c2b61ef603ac43ab8a8a` includes the additional null-prototype-record regression test. The latest evaluator head `cfff168` passed GitHub Actions run #610 (`npm test`), including the null-prototype-record regression test. That evaluator result belongs to the separate evaluator branch; this documentation branch does not contain those tests.
 
 | Requirement | Current pure-evaluator coverage | Boundary / remaining work |
 |---|---|---|
