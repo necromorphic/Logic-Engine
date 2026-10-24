@@ -9,7 +9,7 @@ Status: repository-source audit; not a test-run report. Audited 2026-10-24 again
 - NPC consumer contract: `feat/npc-subsystem:docs/52-npc-relationship-consumer-compatibility.md`. This is a document on another branch, not an executable test and not modified by this audit.
 - Relationship proposal references: `feat/relationship-domain-module:docs/47-relationship-module-test-traceability.md` and `docs/48-relationship-pure-evaluation-contract.md`.
 - Core integration: the pure evaluator is not a Core write/read/authorization/replay implementation. Where a production Core seam or contract is absent, the case remains an integration blocker; no mock or prose is promoted to a passing integration test.
-- Execution status: this audit inspected source text only. It did not execute tests and does not assert CI status.
+- Source audit execution status: this documentation audit inspected source text only; it did not itself execute tests.
 
 ## Required case-by-case evidence
 
@@ -39,7 +39,10 @@ Status: repository-source audit; not a test-run report. Audited 2026-10-24 again
 - **Covered by source-level pure-evaluator tests:** candidate purity; omitted-dimension behavior; explicit clear; whole-candidate rejection; directedness; unset/neutral/cleared/withheld/conflict/unsupported distinctions; special property keys; pinned version input and deterministic repeat evaluation.
 - **Specified but not executable in inspected consumer path:** stable-trait non-mutation; knowledge partition; no inferred motive/cause/consent/obligation/reciprocity; player agency in the production NPC path.
 - **Blocked on Core production contracts/tests:** canonical write/read; true commit atomicity; trusted provenance and author correction; actor/purpose authorization; audit/revision; commit idempotency/event deduplication; canonical clear history; historical version selection/migration; rollback/rebuild and safe projections.
-- **Not executed:** no test suite was run for this audit. Do not infer a green test result.
+
+## CI evidence (separate from this documentation audit)
+
+GitHub Actions workflow **Runtime tests**, run [#591](https://github.com/necromorphic/Logic-Engine/actions/runs/40058497617), completed successfully on `feat/relationship-pure-evaluator` at commit `b2697e77ac0e97b1f7022656c08da5776fa29685`. Its `npm test` step concluded `success` (run created 2026-10-24 03:29:21 UTC). This is positive CI evidence for that exact evaluator commit only. It is not a test run for this Personality PR, does not certify a newer evaluator commit, and does not demonstrate Core/NPC integration. The source/documentation audit in this PR did not execute the suite itself.
 
 ## Cross-document consistency checks
 
