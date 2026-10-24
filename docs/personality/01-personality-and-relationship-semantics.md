@@ -15,6 +15,7 @@ Related documents:
 - [World Pack relationship dimension template](./05-world-pack-relationship-dimension-template.md) — required per-dimension semantics, transitions, non-implications, and acceptance checks.
 - [Stable trait lifecycle](./06-stable-trait-lifecycle.md) — separation of stable traits, temporary conditions, goals, beliefs, behavior, and inference.
 - [Cross-block readiness and core handoff](./07-cross-block-readiness-and-handoff.md) — ownership matrix, current integration evidence, and remaining blockers.
+- [Semantic traceability and review workflow](./08-semantic-traceability-and-review-workflow.md) — requirement-to-acceptance mapping, status vocabulary, and documentation review checklist.
 
 ## 2. Responsibility boundary
 
