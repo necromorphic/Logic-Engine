@@ -354,3 +354,8 @@ The compact NPC↔Memory lifecycle/type vocabulary crosswalk is maintained in [`
 
 
 See also: `docs/54-npc-memory-boundary-assumptions-and-integration-gates.md` for the field trust classification and production-boundary acceptance tests.
+
+
+## Current Core boundary status (2026-10-24)
+
+Core now has an opt-in trusted host policy hook for bounded authorized reads (#101), with default non-self denial covered by #102; adapter-owned proposal commit (#103); and internal-host-only context-manifest registration (#106). These do not supply a concrete Memory visibility policy, source-change/reconciliation signal, acquisition/delivery/belief persistence, or verified host rendering/receipt signal. Keep all related production acceptance cases blocked until real boundary tests exercise the actual configured host path.
