@@ -376,8 +376,8 @@ export class LogicEngine {
       expected_commit_sequence: x.expected_commit_sequence ?? null,
       time_advance_seconds: seconds,
       time_mode: x.time_mode ?? 'action',
-      duration_proposal: x.duration_proposal ?? null,
-      duration_decision: options.durationDecision ?? null,
+      ...(x.duration_proposal !== undefined ? { duration_proposal: x.duration_proposal } : {}),
+      ...(options.durationDecision ? { duration_decision: options.durationDecision } : {}),
       caused_by: strings(x.caused_by, 'caused_by'),
       depends_on: strings(x.depends_on, 'depends_on'),
       read_set: strings(x.read_set, 'read_set'),
@@ -617,7 +617,7 @@ export class LogicEngine {
     'INVALID_RELATIONSHIP_EVIDENCE_REFERENCE', 'evidence_refs must contain unique event:<event_id> references.');
     const operationKey = x.idempotency_key.trim();
     const requestIdentity = hashRequest({ operation: 'relationship.transition', world_id: id, idempotency_key: operationKey });
-    const prepared = this.prepareEvent({
+    const prepared = this.prepareEventForWorld(id, {
       idempotency_key: 'relationship-transition:' + requestIdentity,
       turn_id: 'relationship-transition:' + requestIdentity.slice(0, 32),
       event_type: 'relationship.transition',
@@ -652,7 +652,7 @@ export class LogicEngine {
   }
 
   validateEvent(id, x) {
-    const prepared = this.prepareEvent({ ...x, idempotency_key: 'validation:' + randomUUID() });
+    const prepared = this.prepareEventForWorld(id, { ...x, idempotency_key: 'validation:' + randomUUID() });
     prepared.request_hash = hashRequest({
       operation: 'event.validate',
       request_hash: prepared.request_hash,
