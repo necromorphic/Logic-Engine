@@ -12,7 +12,7 @@ Status: coordination document for the Personality branch. It records boundaries 
 
 ## 2. Confirmed direction versus runtime evidence
 
-Core's response in [PR #38, comment 6377879793](https://github.com/necromorphic/Logic-Engine/pull/38#issuecomment-6377879793) establishes the current architecture direction. The consolidated record and unresolved questions are in [03-core-decision-and-integration-gates.md](./03-core-decision-and-integration-gates.md).
+The Core response in [Issue #59](https://github.com/necromorphic/Logic-Engine/issues/59#issuecomment-6378586821) confirms the current architecture direction and remaining blockers. The consolidated record and unresolved questions are in [03-core-decision-and-integration-gates.md](./03-core-decision-and-integration-gates.md).
 
 - A typed canonical relationship operation is required, but no such runtime operation has been verified.
 - Partial updates, directionality, and distinct unset/neutral/clear semantics are semantic requirements; exact payload/API/storage representation remains unapproved.
