@@ -259,6 +259,16 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         }
       }
 
+      if (parts.length === 4 && action === 'relationship-transitions' && req.method === 'POST') {
+        if (!adminToken || req.headers['x-admin-token'] !== adminToken) {
+          return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required for canonical Relationship transitions.' } });
+        }
+        const body = await readBody(req);
+        const commit_result = engine.commitRelationshipTransition(worldId, body);
+        const { subject_id, target_id } = body;
+        const relationship = engine.store.getRelationshipPair(worldId, subject_id, target_id);
+        return send(res, commit_result.idempotent_replay ? 200 : 201, { commit_result, relationship });
+      }
       if (req.method === 'POST' && action === 'context-manifests') return send(res, 201, { context_manifest: engine.registerContextManifest(worldId, await readBody(req)) });
       if (req.method === 'GET' && action === 'state') return send(res, 200, { state: engine.getState(worldId) });
       if (req.method === 'GET' && action === 'events') return send(res, 200, { events: engine.getEvents(worldId, url.searchParams.get('include_invalid') === 'true') });
