@@ -199,7 +199,7 @@ export function evaluateMemoryCandidateAdmission(request, result) {
       continue;
     }
 
-    const identity = `${candidate.record.ref}\u0000${candidate.record.version}`;
+    const identity = JSON.stringify([candidate.record.ref, candidate.record.version]);
     if (seen.has(identity)) {
       continue;
     }
