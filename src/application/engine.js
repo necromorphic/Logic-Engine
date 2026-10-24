@@ -604,7 +604,7 @@ export class LogicEngine {
     if (from % 1000 !== 0 || x.to_coordinate % 1000 !== 0) {
       throw new EngineError('TIME_ADVANCE_SUBSECOND_UNSUPPORTED', 'Time-advance execution currently requires whole-second boundaries.', 400);
     }
-    const triggers = registryMode ? this.store.listTimeTriggers(id) : x.triggers;
+    const triggers = registryMode ? this.store.listTimeTriggers(id, true) : x.triggers;
     if (registryMode) {
       const overdue = triggers.filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= from);
       if (overdue.length) {
