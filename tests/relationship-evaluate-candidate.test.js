@@ -340,6 +340,24 @@ test("rejects malformed tagged current values instead of treating them as unset"
   assert.equal(result.reason, "relationship_state_shape_unsupported");
 });
 
+test("rejects tagged current states with unexpected extra fields", () => {
+  const malformedCleared = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: { trust: { status: "cleared", value: "low" } },
+    patch: { trust: "guarded" },
+  });
+  const malformedUnset = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: { trust: { status: "unset", value: "low" } },
+    patch: { trust: "guarded" },
+  });
+
+  assert.equal(malformedCleared.status, "unsupported");
+  assert.equal(malformedCleared.reason, "relationship_state_shape_unsupported");
+  assert.equal(malformedUnset.status, "unsupported");
+  assert.equal(malformedUnset.reason, "relationship_state_shape_unsupported");
+});
+
 test("rejects malformed transition declarations as incomplete rules", () => {
   const result = evaluateRelationshipCandidate({
     ...base,
