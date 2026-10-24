@@ -421,3 +421,27 @@ This is the latest repository-state check for the NPC documentation branch. It s
 - **Change boundary:** this branch work remains NPC documentation/contracts/test-boundary design only. No core source, public API, schema, storage, or NPC runtime implementation was added by this status audit.
 
 **Decision:** do not rebase, merge, force-update, reopen PR #38, or create a replacement PR as part of this pass. Continue only with NPC-owned contract reconciliation and evidence mapping. Before any integration, compare the exact current core and NPC refs, reconcile the 17 core-side commits deliberately, and verify CI on the exact proposed integration head.
+
+
+## 26. Reconciliation against the newer Core head — 2026-10-24
+
+A fresh comparison found that `main` has advanced ten commits beyond the previously audited `8602a9ed41f13f536d87b1103a02e8fd12de3b03`, to `37b05c38b15eda1743fb6fce08a8ccc2f1d2e672`. The NPC branch has not incorporated these changes. This section records only the relevant inspected deltas; it does not authorize merging Core work into this branch.
+
+### Newly observed Core capability: actor binding
+
+The current Core source adds `src/application/actor-bindings.js`, routes in `src/api/server.js`, and `tests/actor-binding.test.js`. The implementation provides a Core-owned adapter-to-canonical-actor allowlist with administrative bind/revoke operations and adapter-authenticated resolution. The inspected tests cover adapter separation, rejection of unbound/unknown/destroyed/cross-world actors, rejection of model-supplied extra identity fields, and revocation.
+
+**Readiness correction:** trusted actor-to-`entity_id` binding is no longer accurately described as wholly absent from current `main`. It is now an observed Core capability on `37b05c38b15eda1743fb6fce08a8ccc2f1d2e672`, subject to verification of its exact deployment/configuration and CI on any proposed integration head. It grants identity resolution only; it does not authorize knowledge access, select a purpose, prove acquisition, filter reserved secrets, or grant approval/commit authority.
+
+### Still blocked
+
+The inspected Core implementation plan, `docs/43-core-npc-knowledge-runtime-implementation-plan.md`, explicitly keeps acquisition/provenance and snapshot-bound safe filtering as subsequent stages. The NPC first slice therefore remains blocked on:
+
+- Core-owned `author_initial`/imported acquisition records with source/provenance, subject assignment, validity, and causal reconciliation;
+- an actor/purpose/snapshot-bound filter that consumes those records and the canonical snapshot, excludes reserved secrets before model-visible serialization, and preserves `known`, `unknown`, `known_absent`, `withheld`, `incomplete`, and `unsupported`;
+- production-path tests for acquisition isolation, invalidation/reconciliation, exact serialized input, snapshot freshness, and proposal non-mutation;
+- an NPC adapter consuming only that safe envelope and producing a non-committing proposal.
+
+The new minimal character-card projection is also not a substitute for an actor-relative knowledge filter: it intentionally exposes only stable entity identity/type/status and optional source metadata, omitting arbitrary attributes and facts.
+
+**CI caveat:** the available commit-workflow query returned no PR-triggered workflow runs for the current `main` head. That query does not enumerate all workflow triggers; this audit therefore records source/test presence, not a green-CI claim for the current head.
