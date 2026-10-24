@@ -746,4 +746,7 @@ test('approval endpoint rejects a JSON null body with a client error instead of 
   });
   assert.equal(response.status, 400);
   assert.equal((await response.json()).error.code, 'INVALID_APPROVAL_REQUEST');
+  const afterMalformedApproval = await fetch(base + '/v1/worlds/null-approval-world/proposals/' + proposal.proposal_id, { headers });
+  assert.equal(afterMalformedApproval.status, 200);
+  assert.equal((await afterMalformedApproval.json()).proposal.status, 'pending');
 });
