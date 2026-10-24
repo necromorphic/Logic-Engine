@@ -154,11 +154,23 @@ For each candidate item, the boundary would need to distinguish and provide evid
 
 These are requirements for evaluating a future boundary, not a new data model or approved schema.
 
-### 8.4 Open owner decisions before runtime or tests
+### 8.4 Status after the core-owner decision
 
-The core owner and NPC owner still need to agree on: (a) who is the trusted caller and how its trust is established; (b) the authoritative source of actor identity and actor-relative access; (c) whether acquisition records are represented by existing canonical events, a caller-owned input record, or another already-approved mechanism; (d) how belief/inference/rumor differ from acquired source information; and (e) how acquisition evidence is linked to generation and later invalidation/rollback.
+The core owner has since answered the ownership questions above; this section is retained as a historical decision checkpoint, not as a list of unresolved ownership decisions.
 
-Do not answer these by adding a second event store, knowledge store, revision counter, access-control subsystem, or new API/storage schema in this branch. Do not add executable NPC tests until the owner and semantics are agreed and a real boundary exists. The acceptance matrix remains a requirements map, not proof of runtime support.
+Confirmed semantic ownership:
+- The core owns acquisition/provenance, delivery-attempt and receipt status, source-validity reconciliation, and persistent subject-relative belief state.
+- Canonical truth, acquired information, and current belief remain distinct.
+- Existing world/entity/event/fact identifiers and the existing snapshot pair are reused; no parallel identity, revision, event-log, causal-graph, or rollback mechanism is introduced.
+- The first supported acquisition path is explicitly authorized author-initial/imported knowledge. Other acquisition paths remain unsupported until their evidence paths are specified and tested.
+
+Still unresolved at the implementation boundary:
+- The actual trusted caller and how it is authenticated in production.
+- The real actor/entity binding and representation of authorized initial knowledge.
+- The exact internal actor/purpose/snapshot-scoped read/filter function and its fail-closed behavior.
+- The production test boundary and verified host rendering signal.
+
+These are now code/interface reconciliation questions, not open ownership semantics. Do not answer them by adding a second event store, knowledge store, revision counter, access-control subsystem, or new API/storage schema in this branch. Do not add executable NPC integration tests until a real production boundary exists. The acceptance matrix remains a requirements map, not proof of runtime support.
 
 
 ## 9. Social identity editor integration boundary
