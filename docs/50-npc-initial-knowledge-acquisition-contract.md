@@ -195,3 +195,8 @@ The NPC first slice remains **blocked** until all of the following are true:
 - the thin NPC adapter consumes only the safe envelope and cannot fall back to raw world state.
 
 Until then, NPC work remains contract, audit, and test-boundary documentation. This is not a request to start Core implementation from the NPC branch and does not authorize a PR, merge, rebase, or changes outside `feat/npc-subsystem`.
+
+
+## 12. Source and cross-subsystem reconciliation
+
+The implementation evidence and unresolved Core decisions are consolidated in `docs/51-npc-acquisition-source-reconciliation.md`. In particular, current `caused_by`, `depends_on`, `read_set`, and `causal_links` semantics do not prove causal completeness or general alternative support for an acquisition record. The first slice remains blocked until Core confirms the actual author/import source path, replay/validity lifecycle, restriction authority, and safe query boundary.
