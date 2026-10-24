@@ -63,7 +63,8 @@ function enableFixture(engine, worldId, value = template()) {
     template_id: value.template_id,
     template_version: value.version,
   }]);
-  commit(engine, worldId, 'enable-instance', 1, [{ kind: 'mechanic.instance.enable', instance_id: 'instance.executor' }], ['create-instance']);
+  const created = engine.getMechanicInstance(worldId, 'instance.executor');
+  commit(engine, worldId, 'enable-instance', 1, [{ kind: 'mechanic.instance.enable', instance_id: 'instance.executor' }], [created.last_event_id]);
 }
 
 function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10 } }) {
@@ -72,6 +73,7 @@ function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10
     knownAbsentPaths: [],
     world_revision: snapshot.world_revision,
     commit_sequence: snapshot.commit_sequence,
+    policy_version: 'test-visibility-policy-v1',
   });
 }
 
@@ -104,6 +106,7 @@ test('application executor fails closed without trusted context or with a mismat
       context: { world: { weather: 'rain' }, actor: { hp: 10 } },
       world_revision: snapshot.world_revision - 1,
       commit_sequence: snapshot.commit_sequence,
+      policy_version: 'test-visibility-policy-v1',
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(mismatch.status, 'unknown');
@@ -120,7 +123,7 @@ test('application executor preserves unknown conditions and emits no effects on 
   assert.deepEqual(unknown.effects, []);
   const failed = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider({ world: { weather: 'sun' }, actor: { hp: 10 } }) })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
-  assert.equal(failed.status, 'rejected');
+  assert.equal(failed.status, 'no_match');
   assert.deepEqual(failed.effects, []);
 });
 
