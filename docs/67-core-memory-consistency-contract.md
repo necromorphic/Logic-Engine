@@ -38,6 +38,19 @@ Whether the current SQLite store can support the required transaction/outbox pat
 
 The inspected `SQLiteStore` has a transactional write helper and a consistent read-snapshot path, but no durable memory source-change outbox was identified in its current schema. Canonical rollback updates source-event validity and writes a rollback record while rebuilding projections; it is not safe to reconcile by looking only for event IDs with a higher `commit_sequence`. A future poller must observe rollback/revision changes and compare source validity (or consume an approved durable change record). This is a design constraint from source inspection, not an implemented Memory feature or a claim of causal completeness.
 
+## 3.1 Candidate fallback when no durable outbox exists (design only)
+
+If Core does not approve a durable outbox, a conservative reconciliation worker may be evaluated against the following candidate algorithm. This is not an approved cursor/API and must not be implemented until Core confirms that the listed source reads are available and that every relevant validity mutation advances `world_revision`.
+
+1. Read a consistent Core snapshot and capture `world_id`, `world_revision`, and `commit_sequence` together.
+2. If the captured revision and sequence equal the last reconciled marker, the worker may skip a full scan only if Core confirms that no relevant source-validity mutation can occur without advancing one of those markers.
+3. If either marker changed, enumerate the complete bounded source inventory for that world, including source identity, source version/content hash where available, and current validity. Compare it with the prior durable reconciliation manifest.
+4. Reconcile additions, corrections, retractions, missing sources, and validity changes idempotently. Do not infer deletion from an incomplete/failed scan.
+5. Persist the new reconciliation manifest and marker only after the comparison completes successfully. If enumeration is partial, the worker remains pending/stale and must retry; it must not advance the currentness marker.
+6. Periodically perform a full comparison even when markers appear unchanged, as a recovery path for missed notifications or a broken cursor invariant.
+
+This fallback is intentionally more expensive than an outbox and may be unsuitable for large worlds. Its safety depends on an authoritative complete source inventory and stable source identities; if Core cannot provide these, Memory must keep current-only results withheld rather than claim reconciliation completeness.
+
 ## 4. Rollback handling
 
 On canonical source rollback, locate records derived from or dependent on that source. Mark them stale/quarantined pending re-evaluation; do not silently delete them or keep them presented as active evidence. If a record has independent sources, retain the record only when the typed source policy can show that sufficient valid support remains. Otherwise preserve the conflict/uncertainty and require recomputation or review.
