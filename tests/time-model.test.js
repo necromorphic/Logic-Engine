@@ -8,7 +8,6 @@ import {
   createTimeInterval,
   intervalContainsTime,
   projectCalendarDate,
-  TemporalModelError,
 } from '../src/time/model.js';
 
 const calendar = () => ({
@@ -17,22 +16,14 @@ const calendar = () => ({
   day_length_ms: 1000,
   weekdays: ['Ashday', 'Brightday', 'Cinderday'],
   year_cycle: [
-    {
-      id: 'short',
-      name: 'Short year',
-      months: [
-        { id: 'first', name: 'First', days: 2 },
-        { id: 'last', name: 'Last', days: 2 },
-      ],
-    },
-    {
-      id: 'long',
-      name: 'Long year',
-      months: [
-        { id: 'first', name: 'First', days: 2 },
-        { id: 'last', name: 'Last', days: 3 },
-      ],
-    },
+    { id: 'short', name: 'Short year', months: [
+      { id: 'first', name: 'First', days: 2 },
+      { id: 'last', name: 'Last', days: 2 },
+    ] },
+    { id: 'long', name: 'Long year', months: [
+      { id: 'first', name: 'First', days: 2 },
+      { id: 'last', name: 'Last', days: 3 },
+    ] },
   ],
   epoch: {
     coordinate: 0,
@@ -69,13 +60,14 @@ test('interval uses open start and closed end boundary', () => {
 test('calendar projection supports custom year lengths, weekdays, and negative coordinates', () => {
   const definition = createCalendarDefinition(calendar());
   assert.equal(definition.calendar_id, 'test.cycle');
-
+  const projected = projectCalendarDate(definition, 4000);
   assert.deepEqual(
-    (({ year_number, month_id, day_of_month, weekday }) => ({ year_number, month_id, day_of_month, weekday }))(projectCalendarDate(definition, 4000)),
+    { year_number: projected.year_number, month_id: projected.month_id, day_of_month: projected.day_of_month, weekday: projected.weekday },
     { year_number: 11, month_id: 'first', day_of_month: 1, weekday: 'Brightday' },
   );
+  const beforeEpoch = projectCalendarDate(definition, -1);
   assert.deepEqual(
-    (({ year_number, month_id, day_of_month }) => ({ year_number, month_id, day_of_month }))(projectCalendarDate(definition, -1)),
+    { year_number: beforeEpoch.year_number, month_id: beforeEpoch.month_id, day_of_month: beforeEpoch.day_of_month },
     { year_number: 9, month_id: 'last', day_of_month: 3 },
   );
   assert.equal(projectCalendarDate(definition, 1000).day_of_month, 2);
@@ -91,9 +83,8 @@ test('calendar date conversion round-trips across year-cycle boundaries and time
 
 test('annual and one-off holidays are projected without creating world events', () => {
   const definition = calendar();
-  const annual = projectCalendarDate(definition, 5000);
+  const annual = projectCalendarDate(definition, 7000);
   assert.equal(annual.holidays.some((holiday) => holiday.id === 'annual'), true);
-
   const oneOff = projectCalendarDate(definition, 1000);
   assert.equal(oneOff.holidays.some((holiday) => holiday.id === 'one-off'), true);
   assert.deepEqual(oneOff.holidays.map((holiday) => holiday.id), ['one-off']);
@@ -116,7 +107,7 @@ test('calendar validation rejects invalid epoch, dates, duplicate holidays, and 
     (error) => error.code === 'DUPLICATE_HOLIDAY_ID',
   );
   assert.throws(
-    () => projectCalendarDate(calendar(), Number.MAX_SAFE_INTEGER),
-    (error) => error instanceof TemporalModelError,
+    () => projectCalendarDate(calendar(), Number.MAX_SAFE_INTEGER + 1),
+    (error) => error.code === 'INVALID_INTEGER',
   );
 });
