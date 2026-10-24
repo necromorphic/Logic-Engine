@@ -114,3 +114,17 @@ test('does not publish current when source inventory completeness cannot be conf
   assert.equal((await s.provider.reconcile('world-a')).status, 'stale');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
 });
+test('raw ingest survives a derived-index failure and becomes usable only after rebuild', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.db.exec(`CREATE TRIGGER fail_index_insert BEFORE INSERT ON memory_index_entries
+    BEGIN SELECT RAISE(ABORT, 'injected index failure'); END;`);
+  assert.throws(() => s.provider.putRecord(s.record), /injected index failure/);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+    .get('world-a').count, 1);
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  s.provider.db.exec('DROP TRIGGER fail_index_insert');
+  assert.deepEqual(await s.provider.rebuildIndex('world-a'), { status: 'rebuilt', count: 1 });
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+  assert.equal((await s.provider.retrieveCandidates(s.scope)).candidates.length, 0);
+});
