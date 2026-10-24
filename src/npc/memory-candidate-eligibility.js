@@ -110,7 +110,11 @@ function lineageIsSafe(candidate, request) {
 function candidateRejection(candidate, request) {
   if (candidate == null || typeof candidate !== "object") return "invalid_candidate";
   if (!matchesRequest(candidate, request)) return "scope_mismatch";
-  if (candidate.access?.outcome !== ALLOW) return "access_not_allowed";
+  if (
+    candidate.access?.outcome !== ALLOW
+    || candidate.access?.subject_id !== request.subject_id
+    || candidate.access?.purpose !== request.purpose
+  ) return "access_not_allowed";
   if (!validReference(candidate.record)) return "record_identity_incomplete";
   if (!KNOWN_CONTENT_KINDS.has(candidate.content_kind)) return "content_kind_unknown";
   if (!KNOWN_EPISTEMIC_KINDS.has(candidate.epistemic_kind)) return "epistemic_kind_unknown";
@@ -167,6 +171,8 @@ export function evaluateMemoryCandidateAdmission(request, result) {
   // denied/withheld result must not be mistaken for an authorized empty search.
   if (
     result.access?.outcome !== ALLOW
+    || result.access?.subject_id !== request.subject_id
+    || result.access?.purpose !== request.purpose
     || result.scope?.world_id !== request.world_id
     || result.scope?.subject_id !== request.subject_id
     || result.scope?.purpose !== request.purpose
