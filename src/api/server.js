@@ -10,6 +10,9 @@ const MAX = 1048576;
 
 /** Resolve the active deployment-owned policy on every boundary check. */
 export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider) {
+  if (typeof getActiveMechanicContextProvider !== 'function') {
+    throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
+  }
   return (identity) => {
     let provider;
     try { provider = getActiveMechanicContextProvider(); } catch { return false; }
