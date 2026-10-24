@@ -724,3 +724,112 @@ test('trusted context registration and proposal creator checks compose without u
   assert.equal(ownerCommit.status, 200);
   assert.equal((await ownerCommit.json()).proposal.status, 'committed');
 });
+
+
+test('authorized-read HTTP route requires a configured adapter and keeps the default policy self-identity-only', async (t) => {
+  const base = await setup(t, { approvalToken: APPROVAL, adminToken: ADMIN });
+  assert.equal((await createWorld(base, 'authorized-read-api-world')).status, 201);
+
+  const created = await fetch(base + '/v1/worlds/authorized-read-api-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'authorized-read-api-seed',
+      source_text: '',
+      event: {
+        turn_id: 'authorized-read-api-seed-turn',
+        event_type: 'action.completed',
+        effects: [
+          { kind: 'entity.create', entity_id: 'bound-actor', entity_type: 'character', attributes: { name: 'Visible-to-self', secret: 'never-default-disclose' } },
+          { kind: 'entity.create', entity_id: 'other-character', entity_type: 'character', attributes: { name: 'Other', secret: 'other-private' } },
+        ],
+      },
+    }),
+  });
+  assert.equal(created.status, 201);
+  const proposal = (await created.json()).proposal;
+  const approved = await fetch(base + '/v1/worlds/authorized-read-api-world/proposals/' + proposal.proposal_id + '/approve', {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  });
+  assert.equal(approved.status, 200);
+  const committed = await fetch(base + '/v1/worlds/authorized-read-api-world/proposals/' + proposal.proposal_id + '/commit', {
+    method: 'POST', headers, body: '{}',
+  });
+  assert.equal(committed.status, 200);
+
+  const bind = await fetch(base + '/v1/worlds/authorized-read-api-world/actor-bindings', {
+    method: 'POST',
+    headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({ adapter_id: 'adapter-a', entity_id: 'bound-actor' }),
+  });
+  assert.equal(bind.status, 201);
+
+  const readUrl = base + '/v1/worlds/authorized-read-api-world/authorized-read';
+  const readBody = {
+    actor_entity_id: 'bound-actor',
+    purpose: 'npc_decision',
+    entity_ids: ['bound-actor'],
+    fields: ['entity_id', 'entity_type', 'status', 'attributes.name', 'attributes.secret'],
+  };
+  const noAdapter = await fetch(readUrl, {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + TOKEN, 'content-type': 'application/json' },
+    body: json(readBody),
+  });
+  assert.equal(noAdapter.status, 403);
+  assert.equal((await noAdapter.json()).error.code, 'ADAPTER_REQUIRED');
+
+  const selfRead = await fetch(readUrl, { method: 'POST', headers, body: json(readBody) });
+  assert.equal(selfRead.status, 200);
+  const selfPayload = await selfRead.json();
+  assert.deepEqual(selfPayload.read.entities, [{
+    entity_id: 'bound-actor',
+    entity_type: 'character',
+    status: 'active',
+  }]);
+  assert.equal(JSON.stringify(selfPayload).includes('Visible-to-self'), false);
+  assert.equal(JSON.stringify(selfPayload).includes('never-default-disclose'), false);
+
+  const crossActorRead = await fetch(readUrl, {
+    method: 'POST', headers,
+    body: json({ ...readBody, entity_ids: ['other-character'] }),
+  });
+  assert.equal(crossActorRead.status, 404);
+  const crossActorError = (await crossActorRead.json()).error;
+  assert.equal(crossActorError.code, 'READ_NOT_AVAILABLE');
+  assert.equal(JSON.stringify(crossActorError).includes('other-private'), false);
+
+  const missingRead = await fetch(readUrl, {
+    method: 'POST', headers,
+    body: json({ ...readBody, entity_ids: ['not-present'] }),
+  });
+  assert.equal(missingRead.status, 404);
+  assert.deepEqual((await missingRead.json()).error, crossActorError);
+});
+
+
+test('authorized-read HTTP route rejects caller-supplied policy and identity overrides', async (t) => {
+  const base = await setup(t);
+  assert.equal((await createWorld(base, 'authorized-read-no-policy-injection')).status, 201);
+  const url = base + '/v1/worlds/authorized-read-no-policy-injection/authorized-read';
+  const baseBody = {
+    actor_entity_id: 'actor-a',
+    purpose: 'npc_decision',
+    entity_ids: ['actor-a'],
+    fields: ['entity_id'],
+  };
+
+  for (const extra of [
+    { field_policy: { allow_all: true } },
+    { authenticated_adapter_id: 'adapter-b' },
+    { recipient: 'admin' },
+    { authorization: true },
+  ]) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: json({ ...baseBody, ...extra }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.code, 'INVALID_AUTHORIZED_READ');
+  }
+});
