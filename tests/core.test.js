@@ -656,3 +656,48 @@ test('nested transaction savepoints isolate failures and preserve the enclosing 
     1,
   );
 });
+
+
+test('a nested canonical commit failure leaves an approved proposal retryable', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  const proposals = new ProposalService(h.engine);
+  const proposal = proposals.create('w', {
+    idempotency_key: 'proposal-nested-commit-failure',
+    source_text: 'Create a retryable canonical event.',
+    event: {
+      turn_id: 'proposal-nested-commit-failure',
+      event_type: 'action.completed',
+      effects: [{ kind: 'entity.upsert', entity_id: 'proposal-retry-target', entity_type: 'object' }],
+    },
+  }, 'unit-test-adapter');
+  proposals.approve('w', proposal.proposal_id);
+  const auditBefore = h.engine.getAudit('w');
+  const canonicalKey = 'proposal:' + proposal.proposal_id;
+  h.store.db.exec(`CREATE TRIGGER fail_nested_proposal_commit BEFORE INSERT ON idempotency_keys
+    WHEN NEW.idempotency_key='${canonicalKey}'
+    BEGIN SELECT RAISE(ABORT, 'injected nested canonical commit failure'); END;`);
+
+  assert.throws(() => proposals.commit('w', proposal.proposal_id), /injected nested canonical commit failure/);
+  assert.equal(h.engine.getState('w').world_revision, 0);
+  assert.equal(h.engine.getState('w').entities.length, 0);
+  assert.equal(h.engine.getEvents('w', true).length, 0);
+  assert.equal(proposals.get('w', proposal.proposal_id).status, 'approved');
+  assert.deepEqual(h.engine.getAudit('w'), auditBefore);
+  assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM event_proposals WHERE proposal_id=? AND status=\'approved\'').get(proposal.proposal_id).count, 1);
+  assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 0);
+  assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key=?').get(canonicalKey).count, 0);
+
+  h.store.db.exec('DROP TRIGGER fail_nested_proposal_commit');
+  const committed = proposals.commit('w', proposal.proposal_id);
+  assert.equal(committed.status, 'committed');
+  assert.equal(committed.commit_result.world_revision, 1);
+  assert.equal(h.engine.getState('w').entities.length, 1);
+  assert.equal(h.engine.getEvents('w', true).length, 1);
+  assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key=?').get(canonicalKey).count, 1);
+
+  const replay = proposals.commit('w', proposal.proposal_id);
+  assert.equal(replay.status, 'committed');
+  assert.equal(replay.commit_result.idempotent_replay, true);
+  assert.equal(h.engine.getEvents('w', true).length, 1);
+});
