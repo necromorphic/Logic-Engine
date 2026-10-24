@@ -421,3 +421,31 @@ Reviewed the NPC-owned proposal `docs/53-npc-memory-lifecycle-vocabulary-crosswa
 5. **All owners:** synchronize each branch with the current `main`, resolve numbered-file and semantic conflicts explicitly, then run the full relevant CI on the resulting exact SHAs.
 
 **Disposition:** not ready to merge. The crosswalk improves documentation alignment, but it does not close the production integration, trusted authorization/provenance, rollback reconciliation, exact-head CI, or branch-synchronization gates. No runtime code or schema is approved by this review. No PR was merged.
+## Merge-readiness refresh — exact Core dependency and branch evidence — 2026-10-24
+
+### Current authorized-read and rollback PR status
+
+- Core PR #65 (`core/authorized-read-service-prototype`) is open Draft, unmerged, currently at head `2bc7b00c55074a14f7b7200ecae85cbae5f19162`. Runtime-tests run [40059975239](https://github.com/necromorphic/Logic-Engine/actions/runs/40059975239) is completed successfully for that SHA. This corrects the older PR body statement that no run had yet been reported. It validates the current PR's test suite only; it does not make the service part of `main` or expand its intentionally self-only HTTP route into general NPC/Memory visibility authorization.
+- PR #65's internal service uses a trusted injected field policy and a snapshot marker, but the HTTP route deliberately exposes only the bound actor's own `entity_id`, `entity_type`, and `status`. Arbitrary attributes and multi-entity knowledge reads remain disabled. The direct in-process snapshot APIs remain trusted surfaces requiring host-caller review. Therefore PR #65 is a possible building block, not the complete Memory/NPC authorization dependency.
+- Core PR #66 (`fix(core): require admin authority for canonical rollback`) remains open Draft and unmerged. Even when its HTTP rollback authorization is correct, it does not by itself provide a durable source-change outbox or an NPC-facing invalidation feed. Memory still needs a Core-approved recovery cursor/reconciliation guarantee that observes rollback/revision/validity changes.
+
+### Current exact-head validation
+
+- Memory PR #68 current head `2857c50780d01bdcbeebf926442d1c5fc3205249`: Runtime-tests run [40061589516](https://github.com/necromorphic/Logic-Engine/actions/runs/40061589516) completed successfully. PR #68 remains documentation-only and Draft; this run does not validate a Memory runtime implementation.
+- NPC PR #76 current head `0106f6da30034ce414e1ab2ee377b6707a0ca48a`: the exact-SHA workflow query returned no PR-triggered run. The earlier successful run 40052652503 belongs to `dba4bd9c101fdc2c37ce0fd33846ab5f285782f3`, not the current head. The crosswalk at the current branch is documentation-only; its proposed boundary tests have not been executed as integration tests.
+
+### Branch synchronization and sequence
+
+Current comparison against `main` reports Memory `feat/core-memory-contracts` as 100 commits ahead / 2 behind, and NPC `feat/npc-subsystem` as 251 ahead / 19 behind. These branches have diverged histories; do not equate commit counts with the number of feature changes or attempt a blind merge. `main` already contains merged PR #72 (merge commit `506d3a6376a3b0209afb8622db61cbbb4ef98c0a`) and PR #74 (merge commit `683cbc3866468585173da8ad3e717d87be9e570a`); do not port their changes a second time.
+
+Recommended integration order, conditional on explicit review/approval:
+
+1. Core owner resolves and merges (or rejects) the narrow Core PRs #65 and #66 after current-head CI/review. If #65 merges, re-audit its actual merged contract; do not assume it grants general Memory reads. If #66 merges, record exactly what rollback authorization changed and what source-change signaling remains absent.
+2. Memory owner reconciles PR #68 against the then-current `main`, preserving docs 64–72 and the already-merged #72/#74 changes. Re-run full repository CI on the resulting exact SHA.
+3. NPC owner synchronizes PR #76 with the same current `main`, resolves the duplicate document-number namespace (`docs/52-npc-memory-consumption-contract-and-failure-matrix.md` versus `docs/52-npc-relationship-consumer-compatibility.md`) as a naming/maintainability issue, and runs native `npm test` / CI on the exact resulting SHA.
+4. Core + Memory + NPC approve a single boundary contract and implement the real retrieval-to-candidate path plus boundary tests. This step cannot be replaced by merging documentation or by passing the current pure oracle.
+5. Only after these gates are independently green should the owner choose a sequential merge order. No PR should be merged merely because another prerequisite PR merged or its CI passed.
+
+### Disposition
+
+Memory docs PR #68 has current-head CI success; Core PR #65 also has current-head CI success. Those are positive test results for their own heads, not integration readiness. NPC PR #76 has no confirmed CI for its current head. The production Memory→NPC path, approved general authorized-read policy, rollback-aware source reconciliation contract, and cross-owner transition/persistence boundary remain unresolved. No merge is recommended at this checkpoint, and no PR was merged by this work.
