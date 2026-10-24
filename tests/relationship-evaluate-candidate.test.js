@@ -517,7 +517,6 @@ test("rejects transition rules sourced from values outside the dimension domain"
   assert.equal(result.reason, "dimension_rule_incomplete");
 });
 
-
 test("rejects accessor-backed input records without invoking their getters", () => {
   let getterCalls = 0;
   const input = { ...base };
@@ -577,7 +576,6 @@ test("rejects accessor-backed transition records without invoking their getters"
   assert.equal(getterCalls, 0);
 });
 
-
 test("rejects accessor-backed evidence arrays without invoking indexed getters", () => {
   let getterCalls = 0;
   const refs = [];
@@ -616,7 +614,6 @@ test("rejects sparse rule arrays as incomplete configuration", () => {
   assert.equal(result.reason, "dimension_rule_incomplete");
 });
 
-
 test("rejects non-enumerable patch dimensions instead of silently ignoring them", () => {
   const patch = {};
   Object.defineProperty(patch, "trust", {
@@ -629,7 +626,6 @@ test("rejects non-enumerable patch dimensions instead of silently ignoring them"
   assert.equal(result.status, "invalid_candidate");
   assert.equal(result.reason, "state_patch_and_rules_must_be_objects");
 });
-
 
 test("rejects undeclared dimension-rule fields instead of silently ignoring them", () => {
   const result = evaluateRelationshipCandidate({
@@ -654,7 +650,6 @@ test("rejects a non-boolean self-relation rule flag", () => {
   assert.equal(result.status, "unsupported");
   assert.equal(result.reason, "dimension_rule_incomplete");
 });
-
 
 test("does not treat duplicate evidence references as additional support", () => {
   const result = evaluateRelationshipCandidate({
