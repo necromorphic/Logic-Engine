@@ -376,3 +376,63 @@ test('durable raw capture survives derived-index rebuild failure and provider re
     /MEMORY_INDEX_NOT_READY/,
   );
 });
+
+
+test('replayed exact-version deletion and duplicate capture never revive a tombstoned source after restart', (t) => {
+  const s = setup(t);
+  const input = capture();
+  s.provider.captureRawMessage(input);
+  s.provider.selectActiveRawVersion(sourceKey());
+  s.provider.registerRawDerivedCopy({
+    ...sourceKey(),
+    source_version_id: 'generation-1',
+    copy_ref: 'summary:delete-replay',
+    copy_version: 'summary-v1',
+    copy_kind: 'summary',
+    content: 'Derived copy must stay invalidated after replay.',
+  });
+
+  assert.deepEqual(s.provider.markRawSourceDeleted(sourceKey()), {
+    status: 'deleted', invalidated_copies: 1,
+  });
+  const firstTombstone = s.provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get('world-a', 'chat-a', 'message-1', 'generation-1').deleted_at;
+  assert.ok(firstTombstone);
+
+  // Redelivery of the original capture is a duplicate, not a resurrection.
+  assert.equal(s.provider.captureRawMessage(input).status, 'duplicate');
+  assert.deepEqual(s.provider.markRawSourceDeleted(sourceKey()), {
+    status: 'deleted', invalidated_copies: 0,
+  });
+  assert.equal(s.provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get('world-a', 'chat-a', 'message-1', 'generation-1').deleted_at, firstTombstone);
+
+  s.reopen();
+  assert.equal(s.provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get('world-a', 'chat-a', 'message-1', 'generation-1').deleted_at, firstTombstone);
+  assert.equal(s.provider.db.prepare(`SELECT status FROM memory_raw_derived_copies
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`)
+    .get('world-a', 'chat-a', 'message-1', 'generation-1').status, 'invalidated');
+  assert.throws(() => s.provider.selectActiveRawVersion(sourceKey()), /MEMORY_RAW_VERSION_UNAVAILABLE/);
+});
+
+test('raw version read withholds content if the exact source is tombstoned during the final authorization check', async (t) => {
+  let checks = 0;
+  const s = setup(t, {
+    authorizeRawRead: async () => {
+      checks += 1;
+      if (checks === 2) s.provider.markRawSourceDeleted(sourceKey());
+      return true;
+    },
+  });
+  s.provider.captureRawMessage(capture());
+
+  await assert.rejects(
+    () => s.provider.readRawMessageVersion(sourceKey()),
+    /MEMORY_RAW_VERSION_UNAVAILABLE/,
+  );
+  assert.equal(checks, 2);
+});
