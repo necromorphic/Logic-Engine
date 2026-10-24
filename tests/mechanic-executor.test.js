@@ -1019,3 +1019,33 @@ test('caller-controlled event payload cannot forge internal mechanic execution m
   assert.equal(engine.getState(worldId).world_revision, 0);
   assert.deepEqual(engine.store.events(worldId), []);
 });
+
+
+test('canonical context provider policy fingerprint changes with mapping and authorization scope', (t) => {
+  const { engine, worldId } = setup(t, 'executor-provider-policy-fingerprint-world');
+  enableFixture(engine, worldId);
+  const value = template();
+  const snapshot = engine.getSnapshot(worldId, { includeMechanicEvaluationState: true });
+  const bindings = [
+    { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+    { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+  ];
+  const first = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'visibility-policy-v1', authorizationScope: 'principal-a', bindings, canRead: () => true,
+  }).resolve({ worldId, snapshot, template: value, action: value.actions[0] });
+  const otherScope = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'visibility-policy-v1', authorizationScope: 'principal-b', bindings, canRead: () => true,
+  }).resolve({ worldId, snapshot, template: value, action: value.actions[0] });
+  const otherMapping = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'visibility-policy-v1',
+    authorizationScope: 'principal-a',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp_value' },
+    ],
+    canRead: () => true,
+  }).resolve({ worldId, snapshot, template: value, action: value.actions[0] });
+  assert.notEqual(first.policy_version, otherScope.policy_version);
+  assert.notEqual(first.policy_version, otherMapping.policy_version);
+  assert.notEqual(first.authorization_scope, otherScope.authorization_scope);
+});
