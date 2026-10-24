@@ -53,7 +53,7 @@ A trigger is world-scoped and identified by an immutable `trigger_id`. It contai
 
 A trigger can be registered only strictly after the world's current coordinate. Re-registering the same ID with the same normalized content is idempotent; the same ID with different content is rejected. The first slice has no reschedule or reopen operation. Cancellation is permitted only while a trigger is pending and unclaimed.
 
-The registry is isolated by `world_id`. Registration and cancellation increment the world's revision and write audit entries. The registry is limited to 10,000 triggers per world; each event payload is limited to 256 KiB.
+The registry is isolated by `world_id`. Registration and cancellation increment the world's revision and write audit entries. The registry is limited to 10,000 triggers per world, 32 MiB total stored payload bytes per world, and 256 KiB per event payload. Registry list responses omit payload content to keep response size bounded.
 
 ## Operation selection and reservation
 
