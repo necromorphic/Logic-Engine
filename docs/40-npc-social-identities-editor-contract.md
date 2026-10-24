@@ -25,9 +25,20 @@ A social identity must link to the same underlying character through an explicit
 
 The identity record is authored configuration/profile data, not by itself a canonical event, proof of document issuance, or evidence that any other character knows about it.
 
-## 3. Optional editor sections
+## 3. Minimal author-facing editor surface
 
-Each social identity may contain any relevant subset of these fields. Empty or absent fields remain unknown/unprovided; the engine must not fill them by invention.
+The basic character-card editor should keep the social-identity form deliberately small, with only two optional top-level fields:
+
+1. **Name and image** — the display name for this social identity and an optional image/visual reference.
+2. **Differences and additional information** — an optional free-form area for how this identity differs from the underlying character and any useful cover details.
+
+Neither field is mandatory. A character may have no additional identity, and an identity may have only a name, only an image, only notes, or a combination. An image is a presentation reference; it does not verify a real person's identity, establish a disguise's effectiveness, or create a canonical world fact.
+
+The detailed categories below are a semantic checklist for interpreting the optional information, not a mandatory questionnaire or a requirement to add a separate visible field for every category. Claimed biography, documents/evidence, rationale, weaknesses, contradictions, and setting-specific details may be recorded in the free-form information area. A future editor may offer optional collapsible structure if useful, but it must preserve this minimal entry path and must not require every category to be filled.
+
+## 3.1 Optional content categories
+
+Each social identity may contain any relevant subset of the following information. Empty or absent fields remain unknown/unprovided; the engine must not fill them by invention.
 
 ### 3.1 Display and claimed identity
 - Display name, family name, aliases, pronunciation or presentation notes.
