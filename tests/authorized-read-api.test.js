@@ -100,6 +100,12 @@ test('authorized-read API requires adapter credentials and rejects unknown field
   assert.equal(noAdapter.status, 403);
   assert.equal((await noAdapter.json()).error.code, 'ADAPTER_REQUIRED');
 
+  for (const action of ['state', 'events', 'audit']) {
+    const rawRead = await fetch(base + '/v1/worlds/authorized-read-world/' + action, { headers });
+    assert.equal(rawRead.status, 403, action + ' must not bypass the authorized-read boundary');
+    assert.equal((await rawRead.json()).error.code, 'AUTHORIZED_READ_REQUIRED');
+  }
+
   const extraField = await fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
     method: 'POST',
     headers,
