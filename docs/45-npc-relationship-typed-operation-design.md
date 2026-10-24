@@ -155,3 +155,10 @@ The core-owner review in PR #38 comment 6377634483 resolves the following contra
 5. Tests must exercise the real canonical commit, audit, idempotency, projection, rollback, and consumer-filter paths. Design mocks are not integration evidence.
 
 Until these gates are satisfied, this remains a schema-neutral design proposal. No runtime, API, schema, storage, character-card, prompt, or `main` change is implied or authorized.
+
+
+## 10. Cross-cutting multi-step rollback scenarios
+
+See `docs/47-npc-causal-rollback-reconciliation-test-matrix.md` for NPC-CAUSE-001–008. Of particular importance, NPC-CAUSE-004 adds a distinct later-source sequence: first complete rollback/reconciliation, then commit a new source against the current snapshot, then reconcile again. This must verify no resurrection of invalid history, no blanket restoration of downstream effects, idempotent retry, and stale-snapshot rejection.
+
+The matrix supplements, but does not replace, the relationship-specific hard gate: the first slice still cannot claim generic OR-style alternative-support aggregation without an approved domain sufficiency rule, core-owned representation/reducer or justified deterministic replay, and tests against the real canonical path.
