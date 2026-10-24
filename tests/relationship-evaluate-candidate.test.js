@@ -346,14 +346,39 @@ test("does not silently apply a transition absent from the World Pack rules", ()
   assert.equal(result.reason, "transition_not_allowed");
 });
 
-test("requires a pinned rule version", () => {
+test("preserves the exact caller-supplied rule version label on a candidate", () => {
+  const ruleVersion = "world-pack:test@1.2.3";
   const result = evaluateRelationshipCandidate({
     ...base,
-    ruleVersion: "",
+    ruleVersion,
   });
 
-  assert.equal(result.status, "unsupported");
-  assert.equal(result.reason, "rule_version_required");
+  assert.equal(result.status, "candidate");
+  assert.equal(result.ruleVersion, ruleVersion);
+  assert.equal(Object.isFrozen(result), true);
+});
+
+test("requires a pinned rule version", () => {
+  for (const ruleVersion of ["", "   ", null, 0, false, {}, []]) {
+    const result = evaluateRelationshipCandidate({
+      ...base,
+      ruleVersion,
+    });
+
+    assert.equal(result.status, "unsupported", String(ruleVersion));
+    assert.equal(result.reason, "rule_version_required", String(ruleVersion));
+  }
+});
+
+test("rejects a missing ruleVersion field instead of treating it as a pinned version", () => {
+  const input = { ...base };
+  delete input.ruleVersion;
+
+  const result = evaluateRelationshipCandidate(input);
+
+  assert.equal(result.status, "invalid_candidate");
+  assert.equal(result.reason, "input_fields_required");
+  assert.equal(Object.hasOwn(result, "ruleVersion"), false);
 });
 
 test("returns a non-mutating unsupported result when dimension rules are incomplete", () => {
@@ -995,4 +1020,19 @@ test("accepts null-prototype data records without changing their prototype or co
   assert.equal(Object.getPrototypeOf(trustRule), null);
   assert.deepEqual(currentValues.trust, "low");
   assert.deepEqual(patch.trust, "guarded");
+});
+
+test("does not treat a ruleVersion label as registry resolution or compatibility proof", () => {
+  const unknownVersion = "world-pack:missing@999.0.0";
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    ruleVersion: unknownVersion,
+  });
+
+  // The pure evaluator only sees the supplied rules and preserves the label.
+  // It cannot establish that this label resolves to those rules or is
+  // compatible with a world; callers/Core must resolve and validate that.
+  assert.equal(result.status, "candidate");
+  assert.equal(result.ruleVersion, unknownVersion);
+  assert.deepEqual(result.patch, { trust: "guarded" });
 });
