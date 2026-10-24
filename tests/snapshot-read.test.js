@@ -321,3 +321,31 @@ test('snapshot refuses a context manifest whose expanded entity set exceeds the 
     (error) => error.code === 'SNAPSHOT_TOO_LARGE' && error.status === 409,
   );
 });
+
+
+test('snapshot does not expand a manifest after rollback changes revision without advancing the event cursor', (t) => {
+  const { engine } = setup(t);
+  seedCharacter(engine, 'snapshot-world', 'rollback-stale-npc');
+  const manifest = engine.registerContextManifest('snapshot-world', {
+    generation_id: 'generation-before-rollback',
+    base_world_revision: 1,
+    base_commit_sequence: 1,
+    items: [
+      { kind: 'entity', target_id: 'rollback-stale-npc' },
+      { kind: 'event', target_id: 'seed-rollback-stale-npc' },
+    ],
+  });
+
+  const rollback = engine.rollbackEvent('snapshot-world', {
+    root_event_id: 'seed-rollback-stale-npc',
+    idempotency_key: 'rollback-stale-manifest',
+  });
+  assert.equal(rollback.world_revision, 2);
+
+  const snapshot = engine.getSnapshot('snapshot-world', { contextManifestIds: [manifest.manifest_id] });
+  assert.equal(snapshot.world_revision, 2);
+  assert.equal(snapshot.commit_sequence, 1);
+  assert.equal(snapshot.context_manifests.length, 1);
+  assert.deepEqual(snapshot.entities, []);
+  assert.deepEqual(snapshot.events, []);
+});
