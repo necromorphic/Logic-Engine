@@ -178,7 +178,7 @@ export class MechanicExecutor {
     try {
       resolved = this.resolveAuthorizedContext({ worldId, snapshot, instance, template, action });
     } catch (error) {
-      return unknown('AUTHORIZED_CONTEXT_RESOLUTION_FAILED', 'Trusted context resolution failed; details are retained only in host-side diagnostics.', identity);
+      return unknown('AUTHORIZED_CONTEXT_RESOLUTION_FAILED', 'Trusted context resolution failed; details are withheld.', identity);
     }
     const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'knownAbsentPaths', 'dependencyEvidence']);
     let resolvedShapeValid = false;
