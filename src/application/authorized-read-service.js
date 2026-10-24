@@ -37,6 +37,83 @@ export class AuthorizedReadService {
     this.fieldPolicy = fieldPolicy;
   }
 
+  /**
+   * Internal field-level read used by trusted application services that must
+   * distinguish an authorized, absent attribute from an unavailable/denied read.
+   * This is not exposed as an HTTP endpoint. It is bound to the same actor
+   * binding and field policy as ordinary authorized reads, and to the caller's
+   * expected snapshot cursor.
+   */
+  readEntityAttributeForMechanic(request) {
+    assert(object(request), 'INVALID_AUTHORIZED_READ', 'Mechanic attribute read request must be an object.');
+    const allowed = new Set([
+      'worldId', 'adapterId', 'actorEntityId', 'recipient', 'purpose',
+      'entityId', 'attribute', 'expectedWorldRevision', 'expectedCommitSequence',
+    ]);
+    assert(Object.keys(request).every((key) => allowed.has(key)),
+      'INVALID_AUTHORIZED_READ', 'Mechanic attribute read contains unsupported fields.');
+    assert(validId(request.worldId) && validId(request.adapterId) && validId(request.actorEntityId)
+      && validId(request.entityId),
+    'INVALID_AUTHORIZED_READ', 'World, adapter, actor, and target entity IDs are required.');
+    assert(RECIPIENTS.has(request.recipient), 'INVALID_READ_RECIPIENT', 'Unsupported read recipient.');
+    assert(PURPOSES.has(request.purpose), 'INVALID_READ_PURPOSE', 'Unsupported read purpose.');
+    assert(typeof request.attribute === 'string'
+      && /^[a-zA-Z][a-zA-Z0-9_.-]{0,99}$/.test(request.attribute)
+      && !['__proto__', 'constructor', 'prototype'].some((part) => request.attribute.split('.').includes(part)),
+    'INVALID_READ_FIELDS', 'Mechanic attribute name is invalid.');
+    assert(Number.isSafeInteger(request.expectedWorldRevision) && request.expectedWorldRevision >= 0
+      && Number.isSafeInteger(request.expectedCommitSequence) && request.expectedCommitSequence >= 0,
+    'INVALID_AUTHORIZED_READ_SNAPSHOT', 'Expected world revision and commit sequence are required.');
+
+    const binding = this.actorBindingService.resolve(
+      request.worldId,
+      request.adapterId,
+      request.actorEntityId,
+    );
+    const context = Object.freeze({
+      worldId: request.worldId,
+      authenticatedAdapterId: binding.adapter_id,
+      actor: Object.freeze({ ...binding.actor }),
+      recipient: request.recipient,
+      purpose: request.purpose,
+    });
+
+    let snapshot;
+    try {
+      snapshot = this.engine.getSnapshot(request.worldId, { entityIds: [request.entityId] });
+    } catch (error) {
+      if (error?.code === 'ENTITY_NOT_FOUND') throw unavailable();
+      throw error;
+    }
+    if (snapshot.world_revision !== request.expectedWorldRevision
+      || snapshot.commit_sequence !== request.expectedCommitSequence) {
+      throw new EngineError('STALE_AUTHORIZED_READ_SNAPSHOT', 'Mechanic attribute read snapshot is stale.', 409);
+    }
+    if (snapshot.entities.length !== 1 || snapshot.entities[0].entity_id !== request.entityId) {
+      throw unavailable();
+    }
+
+    const entity = snapshot.entities[0];
+    let allowedField = false;
+    try {
+      allowedField = this.fieldPolicy(context, Object.freeze({ ...entity }), 'attributes.' + request.attribute) === true;
+    } catch {
+      allowedField = false;
+    }
+    if (!allowedField) throw unavailable();
+
+    const present = object(entity.attributes) && Object.hasOwn(entity.attributes, request.attribute);
+    return Object.freeze({
+      world_id: snapshot.world_id,
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+      entity_id: entity.entity_id,
+      attribute: request.attribute,
+      present,
+      ...(present ? { value: entity.attributes[request.attribute] } : {}),
+    });
+  }
+
   readEntityFields(request) {
     assert(object(request), 'INVALID_AUTHORIZED_READ', 'Read request must be an object.');
     assert(validId(request.worldId) && validId(request.adapterId) && validId(request.actorEntityId),
