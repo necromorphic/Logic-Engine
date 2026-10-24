@@ -398,6 +398,23 @@ test("rejects tagged current states with unexpected extra fields", () => {
   assert.equal(malformedUnset.reason, "relationship_state_shape_unsupported");
 });
 
+test("rejects transition declarations with undeclared extra fields", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    dimensionRules: {
+      trust: {
+        ...rules.trust,
+        transitions: [
+          { operation: "set", from: "low", to: "guarded", note: "not part of the rule contract" },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "dimension_rule_incomplete");
+});
+
 test("rejects malformed transition declarations as incomplete rules", () => {
   const result = evaluateRelationshipCandidate({
     ...base,
