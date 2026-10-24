@@ -124,7 +124,7 @@ The first relationship slice is deterministic replay of surviving valid typed tr
 - Ordinary relationship changes must be represented as typed in-world transitions and pass the canonical event lifecycle.
 - An author correction to a relationship must preserve historical audit and use a separately approved correction/compensation/rollback semantic; it must not mutate the relationship projection directly.
 - No relationship-specific independent-support semantics are implied by an import or correction label.
-- Until typed relationship effects exist, these are integration requirements, not current runtime guarantees.
+- Typed Relationship transitions are now implemented for the privileged first slice in PRs #94–#96, with atomicity, replay, rollback dependencies, and server-derived provenance covered by current tests. Initial import and author correction remain unimplemented; the requirements in this section must not be read as runtime support for those command classes.
 
 ## 7. Acceptance tests required before implementation is ready
 
