@@ -148,8 +148,6 @@ export class ProposalService {
       condition_result: evaluation.condition_result,
       dependency_manifest: evaluation.dependency_manifest,
       effects: evaluation.effects,
-      read_set: evaluation.read_set,
-      causal_links: evaluation.causal_links,
       effect_provenance: evaluation.effect_provenance,
       read_set: evaluation.read_set,
       causal_links: evaluation.causal_links,
@@ -216,6 +214,7 @@ export class ProposalService {
       read_set: evaluation.read_set,
       causal_links: evaluation.causal_links,
       dependency_completeness: 'complete_for_supported_slice',
+      global_dependency_completeness: 'not_proven',
       semantic_review_required: true,
     };
     return this.engine.store.tx(() => {
