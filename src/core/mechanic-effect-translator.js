@@ -230,6 +230,7 @@ export function translateMechanicEffectIntents(intents) {
     seenIds.add(id);
   }
 
+  // Share one budget across all cloned payloads so a batch cannot reset the nested-JSON limits per intent.
   const jsonBudget = { nodes: 0 };
   const translated = intents.map((intent, index) => translateOne(intent, index, jsonBudget));
   try {
