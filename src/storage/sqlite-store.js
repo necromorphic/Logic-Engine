@@ -487,7 +487,7 @@ export class SQLiteStore {
       const missingEventIds = eventIds.filter((eventId) => !events.some((event) => event.event_id === eventId));
 
       // The world revision, event cursor, and all selected rows are read inside
-      // one SQLite read transaction (or the caller's already-open store tx).
+      // the read transaction opened by readSnapshot below.
       const commitSequence = this.currentCommitSequence(id);
       return {
         ...w,
