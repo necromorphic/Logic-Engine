@@ -75,30 +75,64 @@ A stable record reference is not necessarily a canonical source reference. The r
       "commit_sequence": "<same-read-view>"
     }
   },
-  "candidates": [
-    {
-      "record": { "ref": "<stable-record-ref>", "version": "<record-version>" },
-      "world_id": "<same-world>",
-      "access": { "outcome": "allow | deny | withheld | unknown", "decision_ref": "<if supported>" },
-      "content_kind": "claim | report | summary | author_initial | imported | inference | unknown",
-      "epistemic_kind": "canonical | acquired_report | rumor | inference | authored_initial | unknown",
-      "producer": { "kind": "<producer-or-transform>", "ref": "<if supported>" },
-      "lineage": {
-        "status": "complete | incomplete | unavailable",
-        "sources": [{ "ref": "<source-ref>", "version": "<source-version>", "world_id": "<same-world>", "access": { "outcome": "allow", "subject_id": "<same-request-actor>", "purpose": "<same-request-purpose>" } }]
-      },
-      "freshness": { "status": "current | stale | retracted | unavailable | unknown" },
-      "lifecycle": {
-        "content_disposition": "<independent dimension>",
-        "source_reconciliation": "<independent dimension>",
-        "evidence_assessment": "<independent dimension>",
-        "access_outcome": "<request-scoped dimension>",
-        "index_health": "<retrieval-system dimension>"
-      }
-    }
-  ],
-  "result": {
+  "response": {
     "completeness": "complete | partial | unavailable",
+    "scope": {
+      "world_id": "<same-world>",
+      "subject_id": "<same-request-actor>",
+      "purpose": "<same-request-purpose>"
+    },
+    "access": {
+      "outcome": "allow | deny | withheld | unknown",
+      "subject_id": "<same-request-actor>",
+      "purpose": "<same-request-purpose>",
+      "decision_ref": "<if supported>"
+    },
+    "candidates": [
+      {
+        "record": { "ref": "<stable-record-ref>", "version": "<record-version>" },
+        "world_id": "<same-world>",
+        "subject_id": "<same-request-actor>",
+        "purpose": "<same-request-purpose>",
+        "access": {
+          "outcome": "allow | deny | withheld | unknown",
+          "subject_id": "<same-request-actor>",
+          "purpose": "<same-request-purpose>",
+          "decision_ref": "<if supported>"
+        },
+        "content_kind": "claim | report | summary | author_initial | imported | inference | unknown",
+        "epistemic_kind": "canonical | acquired_report | rumor | inference | authored_initial | imported | unknown",
+        "producer": { "kind": "<producer-or-transform>", "ref": "<if supported>" },
+        "lineage": {
+          "status": "complete | incomplete | unavailable",
+          "sources": [
+            {
+              "ref": "<source-ref>",
+              "version": "<source-version>",
+              "world_id": "<same-world>",
+              "access": {
+                "outcome": "allow",
+                "subject_id": "<same-request-actor>",
+                "purpose": "<same-request-purpose>"
+              },
+              "freshness": { "status": "current | stale | retracted | unavailable | unknown" }
+            }
+          ]
+        },
+        "freshness": { "status": "current | stale | retracted | unavailable | unknown" },
+        "snapshot": {
+          "world_revision": "<same-read-view>",
+          "commit_sequence": "<same-read-view>"
+        },
+        "lifecycle": {
+          "content_disposition": "<independent dimension>",
+          "source_reconciliation": "<independent dimension>",
+          "evidence_assessment": "<independent dimension>",
+          "access_outcome": "<request-scoped dimension>",
+          "index_health": "<retrieval-system dimension>"
+        }
+      }
+    ],
     "errors": [{ "kind": "<typed-error>", "retryable": false }]
   }
 }
