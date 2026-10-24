@@ -792,3 +792,40 @@ test('credential checks reject malformed and length-mismatched request secrets',
   assert.equal(wrongAdapter.status, 403);
   assert.equal((await wrongAdapter.json()).error.code, 'ADAPTER_REQUIRED');
 });
+
+
+test('event_type remains extensible metadata and does not grant privileged commit access', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL });
+  await createWorld(base, 'event-taxonomy-world');
+
+  const untrustedSpecialType = await fetch(base + '/v1/worlds/event-taxonomy-world/events', {
+    method: 'POST',
+    headers,
+    body: json({
+      idempotency_key: 'special-type-without-internal-credential',
+      turn_id: 'special-type-without-internal-credential',
+      event_type: 'core.admin.override',
+      expected_revision: 0,
+      effects: [{ kind: 'entity.upsert', entity_id: 'must-not-commit', entity_type: 'object' }],
+    }),
+  });
+  assert.equal(untrustedSpecialType.status, 403);
+  assert.equal((await untrustedSpecialType.json()).error.code, 'DIRECT_COMMIT_DISABLED');
+
+  const authorizedCustomType = await fetch(base + '/v1/worlds/event-taxonomy-world/events', {
+    method: 'POST',
+    headers: { ...headers, 'x-engine-internal-token': INTERNAL },
+    body: json({
+      idempotency_key: 'custom-domain-event-type',
+      turn_id: 'custom-domain-event-type',
+      event_type: 'world.yakuza.custom_action',
+      expected_revision: 0,
+      effects: [{ kind: 'entity.upsert', entity_id: 'authorized-custom-event', entity_type: 'object' }],
+    }),
+  });
+  assert.equal(authorizedCustomType.status, 201);
+  const result = await authorizedCustomType.json();
+  assert.equal(result.commit_result.accepted, true);
+  assert.equal(result.commit_result.event.event_type, 'world.yakuza.custom_action');
+  assert.equal(result.commit_result.world_revision, 1);
+});
