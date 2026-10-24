@@ -114,3 +114,17 @@ test('real provider revocation during candidate B authorization excludes previou
   assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
+test('Core rollback with unchanged commit_sequence invalidates provider currentness', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const before = s.engine.getSnapshot(s.scope.world_id);
+  const rollback = s.engine.rollbackEvent(s.scope.world_id, {
+    root_event_id: 'provider-e2e-seed',
+    idempotency_key: 'provider-e2e-rollback',
+  });
+  assert.equal(rollback.accepted, true);
+  const after = s.engine.getSnapshot(s.scope.world_id);
+  assert.equal(after.world_revision, before.world_revision + 1);
+  assert.equal(after.commit_sequence, before.commit_sequence);
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_SNAPSHOT_STALE/);
+});
