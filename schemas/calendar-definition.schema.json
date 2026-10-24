@@ -1,0 +1,101 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://logic-engine.invalid/schemas/calendar-definition.schema.json",
+  "title": "Logic-Engine Calendar Definition",
+  "description": "Declarative, versioned calendar projected from a canonical integer-millisecond time coordinate. This schema describes shape; runtime semantic validation remains authoritative.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["calendar_id", "version", "day_length_ms", "weekdays", "year_cycle", "epoch"],
+  "properties": {
+    "calendar_id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "version": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "day_length_ms": { "type": "integer", "minimum": 1, "maximum": 9007199254740991 },
+    "weekdays": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": { "type": "string", "minLength": 1, "maxLength": 200 }
+    },
+    "year_cycle": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1000,
+      "items": { "$ref": "#/$defs/year" }
+    },
+    "epoch": { "$ref": "#/$defs/epoch" },
+    "holidays": {
+      "type": "array",
+      "maxItems": 10000,
+      "items": { "$ref": "#/$defs/holiday" },
+      "default": []
+    }
+  },
+  "$defs": {
+    "safeInteger": {
+      "type": "integer",
+      "minimum": -9007199254740991,
+      "maximum": 9007199254740991
+    },
+    "positiveSafeInteger": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "identifier": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
+    },
+    "month": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "days"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "days": { "$ref": "#/$defs/positiveSafeInteger" }
+      }
+    },
+    "year": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "months"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "months": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 1000,
+          "items": { "$ref": "#/$defs/month" }
+        }
+      }
+    },
+    "epoch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["coordinate", "year_number", "year_cycle_index", "month_id", "day_of_month", "weekday_index"],
+      "properties": {
+        "coordinate": { "$ref": "#/$defs/safeInteger" },
+        "year_number": { "$ref": "#/$defs/safeInteger" },
+        "year_cycle_index": { "type": "integer", "minimum": 0, "maximum": 999 },
+        "month_id": { "$ref": "#/$defs/identifier" },
+        "day_of_month": { "$ref": "#/$defs/positiveSafeInteger" },
+        "weekday_index": { "type": "integer", "minimum": 0, "maximum": 999 },
+        "time_of_day_ms": { "$ref": "#/$defs/safeInteger", "default": 0 }
+      }
+    },
+    "holiday": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "name", "month_id", "day_of_month"],
+      "properties": {
+        "id": { "$ref": "#/$defs/identifier" },
+        "name": { "type": "string", "minLength": 1, "maxLength": 200 },
+        "month_id": { "$ref": "#/$defs/identifier" },
+        "day_of_month": { "$ref": "#/$defs/positiveSafeInteger" },
+        "year_number": { "$ref": "#/$defs/safeInteger" }
+      }
+    }
+  }
+}
