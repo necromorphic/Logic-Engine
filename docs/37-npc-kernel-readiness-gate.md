@@ -408,3 +408,16 @@ Cross-document corrections made in this pass: `docs/35` no longer describes PR #
 `docs/48-npc-delivery-acquisition-boundary-matrix.md` defines NPC-DELIV-001–010 and `docs/35-npc-test-boundary-map.md` maps them to implementation boundaries. The key invariant is that payload preparation, delivery attempt, host acceptance, visible rendering, acknowledgement, comprehension, acquisition, belief, and canonical truth are separate states with separate evidence thresholds.
 
 Core review already confirmed that host injection without a documented rendering signal remains `injected_unconfirmed`; `shown` remains unsupported until a real host signal is identified and verified. The first NPC slice therefore cannot claim communication-based acquisition. No local delivery store, inferred receipt, or mock-host success path may be added on the NPC branch.
+
+
+## 25. Live branch and verification status — 2026-10-24
+
+This is the latest repository-state check for the NPC documentation branch. It supersedes earlier branch-divergence counts and must be refreshed before integration work.
+
+- **NPC branch head:** `e1ebddd398753aaceddf5f1beadd43a02b73f224`.
+- **PR #38:** closed without merge; no replacement PR has been opened by this work.
+- **Comparison against current `main`:** GitHub reports the refs as diverged, with merge base `9e785a050e8b8acde9a3f343275c4213bbe8d72f`, 17 commits behind `main`, and 169 commits ahead on the NPC branch. The compare response lists the NPC-specific difference as documentation files `docs/31` through `docs/48` (17 files); the high ahead count reflects the branch's documentation history and is not evidence of runtime implementation.
+- **Workflow evidence:** the available commit-workflow query returned no PR-triggered workflow runs associated with `e1ebddd398753aaceddf5f1beadd43a02b73f224`. This query is limited to PR-triggered runs, so the result is **not** proof that no workflow ran; it is also not green-CI evidence for this exact head.
+- **Change boundary:** this branch work remains NPC documentation/contracts/test-boundary design only. No core source, public API, schema, storage, or NPC runtime implementation was added by this status audit.
+
+**Decision:** do not rebase, merge, force-update, reopen PR #38, or create a replacement PR as part of this pass. Continue only with NPC-owned contract reconciliation and evidence mapping. Before any integration, compare the exact current core and NPC refs, reconcile the 17 core-side commits deliberately, and verify CI on the exact proposed integration head.
