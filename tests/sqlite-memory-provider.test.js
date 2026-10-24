@@ -106,3 +106,11 @@ test('does not turn duplicate ingest into a second record or permit identity reb
     lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-source-a', source_version: 'source-v2' }] }),
   /MEMORY_IDENTITY_CONFLICT/);
 });
+test('does not publish current when source inventory completeness cannot be confirmed', async (t) => {
+  const s = setup(t, { validateInventory: async () => false });
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex('world-a');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'stale');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+});
