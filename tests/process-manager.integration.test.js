@@ -305,3 +305,50 @@ test('interrupted time advance resumes a running process after SQLite close and 
   assert.equal(process.status, 'completed');
   assert.equal(process.progress.completed, 2);
 }));
+
+test('process creation rejects underdeclared event reads and writes before storing triggers', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  const underdeclaredWrite = processInput();
+  underdeclaredWrite.milestones = [{
+    milestone_id: 'write',
+    trigger_id: 'underdeclared-write',
+    due_coordinate: 1000,
+    prerequisites: [],
+    read_set: [],
+    write_set: [],
+    event: {
+      turn_id: 'underdeclared-write-event',
+      event_type: 'process.write',
+      effects: [{ kind: 'entity.upsert', entity_id: 'target', entity_type: 'object', attributes: { changed: true } }],
+    },
+  }];
+  assert.throws(
+    () => engine.createProcess('world-a', underdeclaredWrite),
+    (error) => error.code === 'PROCESS_WRITE_SET_UNDERDECLARED',
+  );
+  assert.equal(engine.listTimeTriggers('world-a').length, 0);
+  assert.equal(engine.listProcesses('world-a').length, 0);
+
+  const underdeclaredRead = processInput();
+  underdeclaredRead.milestones = [{
+    milestone_id: 'read',
+    trigger_id: 'underdeclared-read',
+    due_coordinate: 1000,
+    prerequisites: [],
+    read_set: [],
+    write_set: [],
+    event: {
+      turn_id: 'underdeclared-read-event',
+      event_type: 'process.read',
+      read_set: ['entity:guard'],
+      effects: [],
+    },
+  }];
+  assert.throws(
+    () => engine.createProcess('world-a', underdeclaredRead),
+    (error) => error.code === 'PROCESS_READ_SET_UNDERDECLARED',
+  );
+  assert.equal(engine.listTimeTriggers('world-a').length, 0);
+  assert.equal(engine.listProcesses('world-a').length, 0);
+  assert.equal(engine.getState('world-a').world_revision, 0);
+}));
