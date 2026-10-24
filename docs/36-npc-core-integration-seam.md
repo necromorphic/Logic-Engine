@@ -219,3 +219,8 @@ Use the current core documents as the source for proposal and mechanic boundarie
 - `docs/45-npc-relationship-typed-operation-design.md` proposes a schema-neutral typed operation and carefully separates required dependencies from alternative causal support. It remains a proposal, not an approved schema/API or implemented capability.
 
 The integration seam remains a design boundary only. No actor/purpose/snapshot read filter, initial-knowledge provenance API, persistent NPC belief store, delivery receipt signal, typed relationship effect, or bounded relationship-card projection has been verified as integrated. Keep the fail-closed gate and wait for real production interfaces before writing integration tests that claim end-to-end coverage.
+
+
+## Current Core integration status (2026-10-24)
+
+The Core-owned seams have advanced since the original audit: actor binding and bounded snapshots exist; authorized reads now support an opt-in trusted host field policy (#101) but default to self-identity-only; context-manifest registration requires the internal-host credential (#106); proposal commits require creator-adapter identity (#103); and typed Relationship writes/replay exist for admin-authored transitions (#94–#96). None of these proves actor-relative knowledge acquisition or a Memory/NPC consumer path. The Core/NPC knowledge audit in `docs/49-npc-core-knowledge-live-audit.md` and the Memory handoff in `docs/64-memory-npc-contract-reconciliation.md` are the current cross-block references. Do not add a parallel NPC-local authorization, acquisition, cursor, or rollback mechanism.
