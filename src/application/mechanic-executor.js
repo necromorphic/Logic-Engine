@@ -11,19 +11,40 @@ function isCanonicalJsonValue(value, active = new WeakSet()) {
   if (typeof value === 'number') return Number.isFinite(value);
   if (typeof value !== 'object' || active.has(value)) return false;
   active.add(value);
-  let valid = true;
+  let valid = false;
   if (Array.isArray(value)) {
-    valid = Object.keys(value).length === value.length
-      && Object.getOwnPropertyNames(value).length === value.length + 1
-      && value.every((item) => isCanonicalJsonValue(item, active));
+    const keys = Object.keys(value);
+    valid = Object.getPrototypeOf(value) === Array.prototype
+      && Object.getOwnPropertySymbols(value).length === 0
+      && keys.length === value.length
+      && Object.getOwnPropertyNames(value).length === value.length + 1;
+    if (valid) {
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !Object.hasOwn(descriptor, 'value')
+          || !isCanonicalJsonValue(descriptor.value, active)) {
+          valid = false;
+          break;
+        }
+      }
+    }
   } else {
     const prototype = Object.getPrototypeOf(value);
     const keys = Object.keys(value);
     valid = (prototype === Object.prototype || prototype === null)
       && Object.getOwnPropertySymbols(value).length === 0
-      && Object.getOwnPropertyNames(value).length === keys.length
-      && keys.every((key) => !['__proto__', 'constructor', 'prototype'].includes(key)
-        && isCanonicalJsonValue(value[key], active));
+      && Object.getOwnPropertyNames(value).length === keys.length;
+    if (valid) {
+      for (const key of keys) {
+        const descriptor = Object.getOwnPropertyDescriptor(value, key);
+        if (['__proto__', 'constructor', 'prototype'].includes(key)
+          || !descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')
+          || !isCanonicalJsonValue(descriptor.value, active)) {
+          valid = false;
+          break;
+        }
+      }
+    }
   }
   active.delete(value);
   return valid;
@@ -160,9 +181,17 @@ export class MechanicExecutor {
       return unknown('AUTHORIZED_CONTEXT_RESOLUTION_FAILED', 'Trusted context resolution failed; details are retained only in host-side diagnostics.', identity);
     }
     const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'knownAbsentPaths', 'dependencyEvidence']);
-    if (!object(resolved) || Object.keys(resolved).some((key) => !allowedResolvedKeys.has(key))
-      || !object(resolved.context) || !isCanonicalJsonValue(resolved.context)) {
-      return unknown('INVALID_AUTHORIZED_CONTEXT', 'Trusted context must be a strict canonical JSON object with no unsupported fields.', identity);
+    let resolvedShapeValid = false;
+    try {
+      resolvedShapeValid = object(resolved)
+        && isCanonicalJsonValue(resolved)
+        && Object.keys(resolved).every((key) => allowedResolvedKeys.has(key))
+        && object(resolved.context);
+    } catch {
+      // Host-supplied proxies or reflective traps are not accepted as canonical data.
+    }
+    if (!resolvedShapeValid) {
+      return unknown('INVALID_AUTHORIZED_CONTEXT', 'Trusted context must be a strict canonical JSON object with no unsupported fields or accessors.', identity);
     }
     if (resolved.world_revision !== snapshot.world_revision
       || resolved.commit_sequence !== snapshot.commit_sequence
