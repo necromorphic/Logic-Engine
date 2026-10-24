@@ -1,6 +1,6 @@
 # T4 — pure due-work planning
 
-**Status:** implementation slice in PR; not merged.  
+**Status:** merged in main as T4 pure planner.  
 **Scope:** deterministic planning only. No storage, trigger persistence, execution, calendar mutation, NPC knowledge, or delivery.
 
 ## API
@@ -34,7 +34,7 @@ Trigger IDs are the deterministic final tie-break after due coordinate. Ordering
 - The planner returns proposals, not confirmed effects. A caller must commit each segment through Core. The current Core request contract still accepts `time_advance_seconds` as whole seconds, while coordinates are milliseconds; therefore an execution adapter must not promise exact sub-second due boundaries until a reviewed millisecond-duration API or explicit alignment rule exists.
 - `processing_mode` is preserved as trigger metadata. This planner does not execute or aggregate batch-process effects.
 - `interrupt_after_coordinate` is a planning boundary. It does not itself grant knowledge to NPCs or deliver a message to the player.
-- The planner does not persist an operation cursor or resume after restart. Durable multi-segment operation state remains a separate integration requirement.
+- The planner itself remains pure and does not persist an operation cursor. The separate T5 operation manager now stores a planned operation and resumes from an atomically committed segment checkpoint; trigger registration/completion reconciliation remains external.
 
 ## Acceptance tests
 
