@@ -516,3 +516,63 @@ test("rejects transition rules sourced from values outside the dimension domain"
   assert.equal(result.status, "unsupported");
   assert.equal(result.reason, "dimension_rule_incomplete");
 });
+
+
+test("rejects accessor-backed input records without invoking their getters", () => {
+  let getterCalls = 0;
+  const input = { ...base };
+  Object.defineProperty(input, "subjectId", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "A";
+    },
+  });
+
+  const result = evaluateRelationshipCandidate(input);
+
+  assert.equal(result.status, "invalid_candidate");
+  assert.equal(result.reason, "input_must_be_object");
+  assert.equal(getterCalls, 0);
+});
+
+test("rejects accessor-backed patch records without invoking their getters", () => {
+  let getterCalls = 0;
+  const patch = {};
+  Object.defineProperty(patch, "trust", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "guarded";
+    },
+  });
+
+  const result = evaluateRelationshipCandidate({ ...base, patch });
+
+  assert.equal(result.status, "invalid_candidate");
+  assert.equal(result.reason, "state_patch_and_rules_must_be_objects");
+  assert.equal(getterCalls, 0);
+});
+
+test("rejects accessor-backed transition records without invoking their getters", () => {
+  let getterCalls = 0;
+  const transition = { operation: "set", from: "low" };
+  Object.defineProperty(transition, "to", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "guarded";
+    },
+  });
+
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    dimensionRules: {
+      trust: { ...rules.trust, transitions: [transition] },
+    },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "dimension_rule_incomplete");
+  assert.equal(getterCalls, 0);
+});
