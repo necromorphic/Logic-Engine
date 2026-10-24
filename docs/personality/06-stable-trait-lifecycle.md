@@ -102,6 +102,7 @@ The same trait can lead to different plausible actions depending on knowledge, s
 | PERS-TRAIT-010 | Rollback of development event | If a supported trait change is event-derived, the canonical projection follows the core's approved rollback/rebuild contract. |
 
 These are semantic acceptance criteria, not claims of passing runtime tests. Criteria requiring authorization, persistence, audit, reads, or rollback must be exercised through real core interfaces once available.
+The PERS-TRAIT criteria are also summarized in the [per-case acceptance traceability crosswalk](./09-per-case-acceptance-traceability.md), which records ownership and runtime evidence status.
 
 ## 9. Author review checklist
 
