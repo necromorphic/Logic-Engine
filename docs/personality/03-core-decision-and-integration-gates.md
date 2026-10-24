@@ -68,7 +68,7 @@ These excluded cases must be rejected, deferred, or returned as an explicit unsu
 5. Rollback removes the effects of invalidated transitions and recomputes from surviving valid history; it does not preserve a value merely because another source ID exists.
 6. `caused_by` and `depends_on` retain their existing causal/dependency meaning. They are not alternative-support lists.
 
-This decision does **not** approve a universal alternative-cause store (Option B), define a public API/schema, or establish that the current runtime already meets these guarantees. Relationship-specific runtime tests are still required. If later requirements genuinely need independently sufficient evidence, that capability requires a separate typed support/reconciliation contract and tests; it is not part of this first slice.
+This decision does **not** approve a universal alternative-cause store (Option B) or define a public API/schema. The privileged typed-write/replay first slice is implemented and has production-path tests on current `main`; those tests do not establish all guarantees listed here. Additional tests remain required for general actor-authorized reads, trusted initial/import/correction, NPC/Personality consumer behavior, historical World Pack migration, and independent-support reconciliation. If later requirements genuinely need independently sufficient evidence, that capability requires a separate typed support/reconciliation contract and tests; it is not part of this first slice.
 
 ## 4. Authorized reads remain a blocking dependency
 
