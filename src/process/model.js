@@ -62,7 +62,11 @@ export function normalizeProcessDefinition(input, worldId, currentCoordinate) {
       dependencies: strings(raw.dependencies, 'dependencies'),
       read_set: strings(raw.read_set, 'read_set'),
       write_set: strings(raw.write_set, 'write_set'),
-      source_event_ids: strings(raw.source_event_ids ?? input.source_event_ids, 'source_event_ids'),
+      source_event_ids: [...new Set([
+        ...strings(raw.source_event_ids ?? input.source_event_ids, 'source_event_ids'),
+        ...strings(raw.event.caused_by, 'event.caused_by'),
+        ...strings(raw.event.depends_on, 'event.depends_on'),
+      ])],
       processing_mode: raw.processing_mode ?? 'exact',
       interrupt_after_coordinate: raw.interrupt_after_coordinate ?? false,
       event: structuredClone(raw.event),
