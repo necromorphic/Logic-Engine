@@ -8,8 +8,21 @@ Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in su
 
 ## Endpoints
 
-- `GET /health` — public health check.
 - `POST /v1/worlds` — create a world with a pinned World Pack ID/version and explicit in-world time.
+- `POST /v1/worlds/:id/proposals` — create an adapter-owned proposal (requires configured adapter credentials).
+- `GET /v1/worlds/:id/proposals/:proposal_id` — retrieve a proposal as its creating adapter or a trusted administrator.
+- `POST /v1/worlds/:id/proposals/:proposal_id/approve` — approve a proposal (requires `x-approval-token`; valid body is `{}`).
+- `POST /v1/worlds/:id/proposals/:proposal_id/commit` — commit through the creating adapter's proposal lifecycle.
+- `POST /v1/worlds/:id/proposals/:proposal_id/cancel` — cancel a proposal as its creating adapter.
+- `POST /v1/worlds/:id/authorized-read` — request actor-bound, policy-filtered entity fields (requires configured adapter credentials and a valid actor binding); this is not a complete knowledge/belief system.
+- `POST /v1/worlds/:id/actor-bindings` — bind an adapter ID to an entity (requires `x-admin-token`).
+- `POST /v1/worlds/:id/actor-bindings/resolve` — resolve the actor bound to the authenticated adapter.
+- `DELETE /v1/worlds/:id/actor-bindings/:adapter_id/:entity_id` — revoke an actor binding (requires `x-admin-token`).
+- `POST /v1/worlds/:id/relationship-transitions` — commit a typed directed Relationship transition (requires `x-admin-token`; not an NPC-facing write capability).
+- `POST /v1/worlds/:id/context-manifests` — register a generation-bound context manifest (requires `x-engine-internal-token`).
+- `GET /v1/worlds/:id/mechanic-instances` — list mechanic instances (requires `x-admin-token`).
+- `POST /v1/worlds/:id/mechanic-instances` — create a mechanic instance from an exact registered template version (requires `x-admin-token`).
+- `POST /v1/worlds/:id/mechanic-instances/:instance_id/enable` and `/disable` — change instance lifecycle (requires `x-admin-token`).
 - `GET /v1/mechanic-templates` — list immutable mechanic-template versions.
 - `POST /v1/mechanic-templates` — validate and register an immutable template version (requires `x-admin-token`).
 - `GET /v1/mechanic-templates/:template_id/:version` — retrieve one exact template version.
@@ -17,12 +30,11 @@ Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in su
 - `POST /v1/rule-modules` — validate and register a versioned rule-module manifest (requires `x-admin-token`).
 - `GET /v1/rule-modules/:module_id/:version` — retrieve one exact module manifest.
 - `GET /v1/mechanics/audit` — append-only registry audit records.
-- `GET /v1/worlds/:id/state` — canonical entity/fact projections.
-- `GET /v1/worlds/:id/events` — valid events; add `?include_invalid=true` to include retracted events.
-- `GET /v1/worlds/:id/audit` — append-only audit.
+- `GET /v1/worlds/:id/state` — canonical entity/fact projections; raw reads require trusted internal/admin credentials.
+- `GET /v1/worlds/:id/events` — valid events; add `?include_invalid=true` to include retracted events (trusted internal/admin credentials required).
+- `GET /v1/worlds/:id/audit` — append-only audit (trusted internal/admin credentials required).
 - `POST /v1/worlds/:id/events` — restricted internal route; requires the internal credential and an already-approved `proposal_id`, never an arbitrary event payload.
-- `POST /v1/worlds/:id/rollback` — invalidate a causal branch and rebuild projections.
-
+- `POST /v1/worlds/:id/rollback` — invalidate a causal branch and rebuild projections (requires `x-admin-token`).
 ## Trust-boundary note
 
 The API requires the general bearer token. Proposal creation and cancellation additionally require a configured per-adapter identity (`x-adapter-id`, `x-adapter-token`); cancellation is restricted to the creating adapter. Registry writes require `x-admin-token`. Approval requires the separate `x-approval-token`, which is a shared-secret gate and not proof of a named human identity. The internal events route cannot bypass the proposal lifecycle: it accepts only an already-approved `proposal_id`. Do not expose any credential to the LLM.
