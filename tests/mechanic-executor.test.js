@@ -412,6 +412,15 @@ test('application executor freezes the complete evaluation snapshot before trust
 
 test('application executor rejects fact subjects that are absent from the same world', (t) => {
   const { engine, worldId } = setup(t, 'executor-fact-subject-world');
+  engine.createWorld({
+    world_id: 'executor-fact-subject-other-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00Z',
+  });
+  commit(engine, 'executor-fact-subject-other-world', 'foreign-entity-event', 0, [{
+    kind: 'entity.create', entity_id: 'entity.from-other-world', entity_type: 'character',
+  }]);
   const value = template({
     actions: [{
       action_id: 'wait',
