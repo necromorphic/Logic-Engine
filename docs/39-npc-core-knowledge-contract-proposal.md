@@ -261,3 +261,59 @@ The snapshot and tri-state gates are now satisfied as core primitives on `main`,
 3. **Actor/purpose/snapshot filter:** select only the actor's authorized initial knowledge, exclude author-reserved secrets before model input, preserve unknown/withheld/incomplete distinctions, and bind the result to the exact snapshot marker.
 
 These must be designed against the actual core storage and trust boundaries before runtime/schema implementation. Do not create NPC-local copies of canonical truth, knowledge acquisition, actor authorization, or proposal persistence. Until these interfaces exist, the only valid NPC work is contract/source reconciliation and tests that target existing production behavior rather than mocks of the missing capabilities.
+
+## 15. Candidate decision-context envelope for interface review
+
+This is a schema-neutral candidate for the next core-owner review. It makes the trust and result boundary testable without pretending that the current runtime already has the required records. It is not approval to add the API, schema, tables, or adapter behavior.
+
+### 15.1 Request boundary
+
+The trusted internal operation should conceptually receive:
+
+- **World and exact snapshot:** `world_id`, `expected_world_revision`, and `expected_commit_sequence`.
+- **Actor binding:** a canonical `actor_entity_id` resolved by a trusted host/core boundary. The model may request an action for an actor, but its supplied string is not accepted as proof of actor identity or authority.
+- **Purpose:** a declared, bounded purpose such as `npc_decision`. The caller's authenticated adapter identity is established out of band and remains distinct from the in-world actor.
+- **Allowed source scope:** only core-recognized, explicitly authorized `author_initial`/imported knowledge records assigned to this actor. A request cannot add arbitrary fact IDs to its own allowlist.
+- **Decision scope:** the supported action/purpose boundary and any required source references. Unsupported requested capabilities must not trigger a broader world-state read.
+
+If actor binding, authorization, source representation, or exact snapshot validation cannot be resolved from production code, return a typed non-ready result. Never fall back to raw `getState()`, unrestricted `getSnapshot(...)`, profile text, vector hits, or model-supplied claims.
+
+### 15.2 Result envelope
+
+A successful result should contain only:
+
+- an overall status of `ready`, plus the exact `world_revision` and `commit_sequence` marker;
+- the actor entity actually resolved by the trusted boundary and the declared purpose;
+- bounded decision items whose canonical proposition/source references and initial-acquisition provenance are independently represented;
+- per-item epistemic status sufficient to distinguish authorized initial acquisition from unknown, withheld, incomplete, invalid, or unsupported information;
+- explicit completeness diagnostics that do not reveal the content of a withheld secret;
+- an explicit statement that belief state is unavailable unless the core can read a real core-owned belief record. The operation must not infer belief from acquisition.
+
+Non-ready outcomes should distinguish at least `invalid_actor`, `stale_snapshot`, `withheld`, `incomplete`, and `unsupported`. A caller may combine multiple blockers into one safe non-ready result, but it must not silently downgrade the result to `ready` or expose restricted details in diagnostics.
+
+The envelope is a read result only. It must not create acquisition, belief, delivery, events, revisions, or proposals as a side effect. Proposal creation remains a separate non-committing operation after context admission and deterministic/tri-state checks.
+
+### 15.3 Required security invariants
+
+1. Adapter authentication proves which integration caller made the request; it does not prove which NPC is acting.
+2. Actor identity must resolve to an existing canonical entity in the requested world; display name, card title, and model output are not identity proofs.
+3. Authorization is evaluated before restricted values are serialized into any model-bound envelope. A post-generation check is too late.
+4. `knownAbsentPaths` is derived only from the same trusted, complete snapshot/filter result; it is never inferred from an omitted, withheld, or unimplemented field.
+5. Canonical fact provenance (`source_event_ids`) does not prove actor acquisition. An explicit initial-acquisition record must carry actor assignment, acquisition kind, source/provenance, and validity.
+6. The exact snapshot marker must cover every returned canonical source and the actor's authorized initial-knowledge records; mixed markers are rejected as stale/inconsistent.
+7. A read, retrieval, context-manifest registration, model-input inclusion, or proposal creation cannot itself create an acquisition or delivery record.
+8. The result is not sent to the model if the actor/source authorization or reserved-secret filter cannot be proven.
+
+### 15.4 Production-path acceptance sequence
+
+The smallest executable acceptance path should test these boundaries in order:
+
+1. trusted adapter identity resolves actor A to canonical entity A; untrusted actor substitution is rejected;
+2. a core-owned initial-knowledge source explicitly assigned to A is returned with provenance; actor B cannot receive it by requesting the same source;
+3. a reserved secret is excluded before serialization and does not appear in diagnostics;
+4. unknown, known-absent, withheld, incomplete, and unsupported fields remain distinguishable through the real `evaluateConditionResult(...)` caller;
+5. a stale snapshot is rejected without mixing current world facts with older acquisition records;
+6. the filtered context is the exact input envelope used by the NPC decision adapter;
+7. proposal creation leaves canonical state, knowledge/acquisition state, belief state, delivery state, world revision, and commit sequence unchanged.
+
+Until the core exposes the real actor binding and initial-acquisition representation, these remain design acceptance targets, not executable integration tests. The first implementation PR should begin only after the core owner reviews this interface candidate and confirms that it maps to real source/storage boundaries without duplicating canonical ownership.
