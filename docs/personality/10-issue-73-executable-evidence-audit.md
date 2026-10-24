@@ -143,7 +143,7 @@ The legacy identifiers remain stable aliases, but each is audited separately bel
 
 ## CI evidence (separate from this documentation audit)
 
-GitHub Actions workflow **Runtime tests**, run [#591](https://github.com/necromorphic/Logic-Engine/actions/runs/40058497617), completed successfully on `feat/relationship-pure-evaluator` at commit `b2697e77ac0e97b1f7022656c08da5776fa29685`. Its `npm test` step concluded `success` (run created 2026-10-24 03:29:21 UTC). This is positive CI evidence for that exact evaluator commit only. It is not a test run for this Personality PR, does not certify a newer evaluator commit, and does not demonstrate Core/NPC integration. The source/documentation audit in this PR did not execute the suite itself.
+Historical GitHub Actions workflow **Runtime tests**, run [#591](https://github.com/necromorphic/Logic-Engine/actions/runs/40058497617), completed successfully on the then-isolated evaluator branch at commit `b2697e77ac0e97b1f7022656c08da5776fa29685`. Its `npm test` step concluded `success`. This is evidence for that historical evaluator commit only; it is not the current source-of-truth ref and does not demonstrate Core/NPC integration. Current source-of-truth is `main:tests/relationship-evaluate-candidate.test.js` at blob `06b1f94fa26a70726b9d2d39739b05c321793971`. The documentation audit itself did not execute the suite.
 
 ## CI evidence for this PR head
 
