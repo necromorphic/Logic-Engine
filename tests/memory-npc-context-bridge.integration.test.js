@@ -94,7 +94,7 @@ function memoryResult(snapshot, overrides = {}) {
   };
 }
 
-test('host seam composes real Core authorized-read with fixture Memory retrieval and NPC admission', (t) => {
+test('host seam composes real Core authorized-read with fixture Memory retrieval and NPC admission', async (t) => {
   const { sourceRead, snapshot } = setup(t);
   const request = {
     world_id: 'memory-bridge-world',
@@ -126,7 +126,7 @@ test('host seam composes real Core authorized-read with fixture Memory retrieval
         && authorized.commit_sequence === scope.snapshot.commit_sequence;
     },
   });
-  const output = bridge.read(request);
+  const output = await bridge.read(request);
   assert.equal(output.status, 'ready');
   assert.deepEqual(output.admitted, [{
     record_ref: 'memory:summary-1',
@@ -138,7 +138,7 @@ test('host seam composes real Core authorized-read with fixture Memory retrieval
   assert.equal(JSON.stringify(sourceRead()).includes('must-not-leak'), false);
 });
 
-test('host seam rejects a rollback-only revision change before NPC admission', (t) => {
+test('host seam rejects a rollback-only revision change before NPC admission', async (t) => {
   const { engine, store, sourceRead, snapshot } = setup(t);
   const request = {
     world_id: 'memory-bridge-world',
@@ -164,7 +164,7 @@ test('host seam rejects a rollback-only revision change before NPC admission', (
   assert.equal(rollback.accepted, true);
   assert.equal(store.currentCommitSequence('memory-bridge-world'), beforeSequence);
   assert.notEqual(engine.getState('memory-bridge-world').world_revision, snapshot.world_revision);
-  const output = bridge.read(request);
+  const output = await bridge.read(request);
   assert.equal(output.status, 'non_ready');
   assert.equal(output.reason, 'authoritative_result_unconfirmed');
   assert.deepEqual(output.admitted, []);
