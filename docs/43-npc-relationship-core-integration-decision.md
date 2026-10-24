@@ -101,3 +101,23 @@ Open for cross-block review:
 - projection contract and rollback behavior.
 
 No runtime code or schema changed by this document. No implementation readiness is claimed.
+
+
+## 9. Refined read/projection boundary after inspecting parallel PRs
+
+The current proposals narrow the design options:
+
+- PR #45's `getSnapshot/readSnapshot` candidate reads selected entities, facts, and events in one SQLite read transaction and returns a composite world revision/commit-sequence cursor. It explicitly returns raw internal source data and is not actor-authorized or model-safe context. It also has no relationship-specific selector or projection. If this PR is integrated, NPC may use it only behind an approved access/knowledge filter; it must not hand the raw snapshot directly to a model or player.
+- PR #32's `projectCharacterCard` candidate is a pure read-only projector over a snapshot. Its current output is deliberately limited to projection version, world/entity identity, entity type/status, optional source event reference, and source revision. It intentionally omits arbitrary entity attributes, facts, event payloads, and inferred profile data. It currently does not render relationship summaries.
+- Therefore the relationship summary belongs in a later explicit projector extension or a composed projection with a documented input contract. It must not be implemented by casually copying `facts` or `attributes` into the card. A projector needs a bounded, already-authorized relationship summary input; full relationship records and private notes should remain outside the card result.
+- PR #41 is documentation-only and PR #43 proposes commit-time fact identity guards on a different integration branch. Neither should be treated as a relationship-specific record contract, and PR #43's dependency on mechanic-intent integration means it must be reviewed in that branch chain before any rebase/cherry-pick decision.
+
+### Read-side dependency sequence
+
+1. Core finalizes or explicitly defers the consistent snapshot read boundary.
+2. The access/knowledge boundary defines which entities, facts, and events may enter an actor-specific context. The snapshot API alone does not decide this.
+3. NPC defines the minimal relationship summary semantics and what may be exposed for a given viewer.
+4. Character-card projection consumes that bounded result without storage access or mutation.
+5. Tests prove that private/unknown relationship information is not exposed and that the projection does not mutate canonical state.
+
+This is a dependency order, not a claim that the teams must stop parallel work. Core and NPC can develop their respective contracts concurrently as long as neither assumes the other's proposed interface is already integrated.
