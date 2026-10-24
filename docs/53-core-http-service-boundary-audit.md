@@ -142,3 +142,7 @@ This audit was originally documentation-only and did not introduce runtime chang
 - **Closed by PR #103:** public proposal commit requires authenticated adapter identity matching the stored proposal creator; a different adapter gets non-enumerating `PROPOSAL_NOT_FOUND`; trusted orchestration uses the separate internal-token route.
 - **Implemented by PRs #94–#96:** admin-only typed Relationship write/projection/replay, transaction failure tests, source dependency rollback and fail-closed unsupported metadata.
 - **Still open:** trusted initial import/author correction; context-manifest registration producer/generation binding; general visibility policy and direct in-process serializer inventory; Memory source-change/reconciliation; any NPC/model-facing Relationship write authority. The historical source audit below is not a statement that the fixed findings remain open.
+
+## Combined regression evidence (2026-10-24)
+
+PR #119 adds a real API test that exercises internal-only context-manifest registration and creator-bound proposal commit in the same flow. It proves a general adapter cannot register a manifest, a different adapter cannot commit an approved proposal, the denied commit leaves world revision unchanged, and the creator can commit through the canonical lifecycle. Exact-head Runtime CI passed on `64504a93c17f776cb8404a4d6c9c8a8a3650622a` ([run #804](https://github.com/necromorphic/Logic-Engine/actions/runs/40066216679)). This does not close context generation binding or general Memory/NPC visibility policy.
