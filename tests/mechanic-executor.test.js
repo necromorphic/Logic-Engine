@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { MechanicExecutor } from '../src/application/mechanic-executor.js';
+import { CanonicalEntityAttributeContextProvider } from '../src/application/entity-attribute-context-provider.js';
 import { ProposalService } from '../src/application/proposals.js';
 import { collectMechanicConditionDependencies } from '../src/core/mechanics.js';
 import { hashRequest } from '../src/core/request-hash.js';
@@ -782,4 +783,69 @@ test('application executor rejects non-canonical context values before hashing o
   assert.equal(result.status, 'unknown');
   assert.equal(result.reason_code, 'INVALID_AUTHORIZED_CONTEXT');
   assert.deepEqual(result.effects, []);
+});
+
+
+test('canonical entity-attribute provider constructs versioned context and evidence for the bounded executor', (t) => {
+  const { engine, worldId } = setup(t, 'executor-canonical-provider-world');
+  enableFixture(engine, worldId);
+  const value = template();
+  const snapshot = engine.getSnapshot(worldId, { includeMechanicEvaluationState: true });
+  const provider = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'visibility-policy-v1',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    canRead: () => true,
+  });
+  const resolved = provider.resolve({ worldId, snapshot, template: value, action: value.actions[0] });
+  assert.deepEqual(resolved.context, { actor: { hp: 10 }, world: { weather: 'rain' } });
+  assert.deepEqual(resolved.dependencyEvidence.map((item) => item.path), ['actor.hp', 'world.weather']);
+  assert.equal(resolved.world_revision, snapshot.world_revision);
+  assert.equal(resolved.commit_sequence, snapshot.commit_sequence);
+  assert.equal(typeof resolved.policy_version, 'string');
+  assert.equal(resolved.policy_version.length > 0, true);
+
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => provider.resolve(args),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'ready');
+  assert.equal(result.guarantees.context_provider_attested_snapshot, true);
+});
+
+test('canonical entity-attribute provider fails closed for denied or unbound condition paths', (t) => {
+  const { engine, worldId } = setup(t, 'executor-canonical-provider-denied-world');
+  enableFixture(engine, worldId);
+  const value = template();
+  const denied = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'visibility-policy-v1',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    canRead: ({ condition_path }) => condition_path !== 'actor.hp',
+  });
+  const deniedResult = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => denied.resolve(args),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(deniedResult.status, 'unknown');
+  assert.equal(deniedResult.reason_code, 'AUTHORIZED_CONTEXT_RESOLUTION_FAILED');
+  assert.deepEqual(deniedResult.effects, []);
+
+  const unboundTemplate = template({ applicability: [{ op: 'eq', path: 'world.time', value: 'night' }] });
+  const unbound = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'visibility-policy-v1',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    canRead: () => true,
+  });
+  const unboundResult = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => unbound.resolve(args),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(unboundResult.status, 'unknown');
+  assert.equal(unboundResult.reason_code, 'AUTHORIZED_CONTEXT_RESOLUTION_FAILED');
+  assert.deepEqual(unboundResult.effects, []);
 });
