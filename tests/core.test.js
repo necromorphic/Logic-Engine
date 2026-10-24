@@ -581,3 +581,59 @@ test('a failed canonical commit replay-record write rolls back the event and pro
   assert.equal(h.engine.getEvents('w', true).length, 1);
   assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key='commit-replay-key'").get().count, 1);
 });
+
+
+test('nested transaction savepoints isolate failures and preserve the enclosing transaction', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+
+  const insertAudit = (action) => h.store.db.prepare(
+    'INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)',
+  ).run('w', 0, action, action, '{}', '2005-12-29T10:00:00.000Z');
+
+  h.store.tx(() => {
+    insertAudit('savepoint.outer.before');
+
+    // A failed inner savepoint is caught by its parent. The parent must remain
+    // usable, and its own writes must still commit with the outer transaction.
+    h.store.tx(() => {
+      insertAudit('savepoint.middle.before');
+      assert.throws(() => h.store.tx(() => {
+        insertAudit('savepoint.inner.failed');
+        throw new Error('injected inner savepoint failure');
+      }), /injected inner savepoint failure/);
+      insertAudit('savepoint.middle.after');
+    });
+
+    // A later failure at the middle level must also roll back a successful
+    // child savepoint that was released into it, without erasing outer writes.
+    assert.throws(() => h.store.tx(() => {
+      insertAudit('savepoint.middle.rolled-back');
+      h.store.tx(() => {
+        insertAudit('savepoint.child.released-into-middle');
+      });
+      throw new Error('injected middle savepoint failure');
+    }), /injected middle savepoint failure/);
+
+    insertAudit('savepoint.outer.after');
+  });
+
+  const actions = h.store.db.prepare(
+    "SELECT action FROM audit_entries WHERE world_id='w' AND action LIKE 'savepoint.%' ORDER BY audit_id",
+  ).all().map((row) => row.action);
+
+  assert.deepEqual(actions, [
+    'savepoint.outer.before',
+    'savepoint.middle.before',
+    'savepoint.middle.after',
+    'savepoint.outer.after',
+  ]);
+
+  // A fresh transaction after the nested failures confirms txDepth and SQLite
+  // transaction state were restored, rather than merely hiding partial rows.
+  h.store.tx(() => insertAudit('savepoint.after.recovery'));
+  assert.equal(
+    h.store.db.prepare("SELECT COUNT(*) AS count FROM audit_entries WHERE world_id='w' AND action='savepoint.after.recovery'").get().count,
+    1,
+  );
+});
