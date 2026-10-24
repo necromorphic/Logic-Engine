@@ -83,3 +83,28 @@ test('coordinate overflow rejects the commit without event, revision, or time mu
   assert.equal(engine.getEvents('coordinate-world', true).length, 0);
   assert.equal(engine.getAudit('coordinate-world').length, 1);
 });
+
+
+test('rollback restores effects but never rewinds the canonical time coordinate', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('coordinate-world', command({
+    event_id: 'coordinate-rollback-root',
+    idempotency_key: 'coordinate-rollback-root-key',
+    time_advance_seconds: 60,
+    effects: [{ kind: 'entity.upsert', entity_id: 'rollback-target', entity_type: 'object' }],
+  }));
+  const beforeRollback = engine.getState('coordinate-world');
+  const result = engine.rollbackEvent('coordinate-world', {
+    root_event_id: 'coordinate-rollback-root',
+    idempotency_key: 'coordinate-rollback-key',
+  });
+  const afterRollback = engine.getState('coordinate-world');
+
+  assert.equal(result.accepted, true);
+  assert.equal(afterRollback.game_time_coordinate, beforeRollback.game_time_coordinate);
+  assert.equal(afterRollback.game_time, beforeRollback.game_time);
+  assert.equal(afterRollback.world_revision, beforeRollback.world_revision + 1);
+  assert.equal(afterRollback.entities.length, 0);
+});
