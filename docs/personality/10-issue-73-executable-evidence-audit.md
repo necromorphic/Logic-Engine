@@ -192,3 +192,20 @@ Source: `tests/relationship-transition-core.test.js` at blob `086cfb0db38c339897
 12. `rollback invalidates later transition dependent on the same directed pair and rebuilds surviving state`
 
 These prove only the privileged first slice. General actor/purpose-authorized reads, NPC/model-facing writes, generic initial import/author correction, historical World Pack migration, alternative independent-support accounting, and downstream Personality/NPC consumer behavior remain separate blockers. The existing authorized-read route remains self-identity-only by default; PR #101 adds an opt-in trusted host policy seam but no default visibility policy.
+
+
+## Superseding runtime-test inventory update (2026-10-24)
+
+Current-main source `tests/relationship-transition-core.test.js` is blob `4e18b085fac6de7dcf05368fb439ba92f466345a` and contains **15 named real-path tests**. This supersedes the earlier 12-test inventory recorded above.
+
+The later additions relevant to Relationship acceptance are:
+- `Relationship transition route rejects missing, wrong, or standalone admin credentials without mutation`
+- `HTTP idempotent retry returns the established transition without a second event`
+- `Relationship projection survives store restart and deterministic rebuild from valid events`
+
+Evidence:
+- [PR #107](https://github.com/necromorphic/Logic-Engine/pull/107) merged the HTTP authorization/retry tests; exact-head Runtime run #754 passed: https://github.com/necromorphic/Logic-Engine/actions/runs/40065570917 (head `bff370b920e32013f17a036eda9450c9eafd1066`).
+- [PR #108](https://github.com/necromorphic/Logic-Engine/pull/108) has a successful exact-head Runtime run #761: https://github.com/necromorphic/Logic-Engine/actions/runs/40065636886 (head `3db9c1484fedf4162023b93acc8920269eff6e10`). Its restart test is present in the current-main test blob, identical to the PR-head file; the PR itself is still reported open, so Core should reconcile its no-longer-unique delta.
+- Earlier PR #105 is superseded by merged #107 for HTTP authorization/retry coverage.
+
+These tests add stronger Core real-path evidence but do not close the separate authorized-read, NPC/model-write, import/correction, historical migration, alternative-support, or downstream consumer acceptance gates.
