@@ -118,3 +118,38 @@ This handoff does not:
 - close Issue #70 or #77, or reopen completed Issue #129.
 
 The tests added with this handoff guard the completeness of this evidence/decision document only. They do not substitute for the runtime integration tests listed above.
+
+
+## 8. Cross-review against the NPC admission contract
+
+**Evidence reviewed:** `src/npc/memory-candidate-eligibility.js` and `tests/npc-memory-candidate-eligibility.test.js` on `main`; NPC handoff proposed in PR #139 (still a separate, unmerged design/test-traceability change at review time). This section describes compatibility requirements, not a shared runtime contract.
+
+### Compatibility matrix
+
+| Boundary | What the NPC oracle actually checks | Required Memory/Core behavior and closure evidence |
+|---|---|---|
+| Record identity/version | Caller-supplied non-empty `record.ref` and `record.version`; no authentication of either. | Memory/adapter must resolve the reference in the requested world and verify its version against an authoritative source boundary. Test forged/stale references on the real adapter path; oracle-only fixtures do not satisfy this gate. |
+| Freshness vs index health | Candidate freshness must say `current`; lifecycle must say `source_reconciliation: current` and `index_health: ready`. These are supplied labels, not observations. | Keep the three dimensions separate: `ready` means index service health only; it must not imply source freshness, authorization, or completed reconciliation. Test a healthy-but-stale index, an unavailable index, and a rollback-only revision change. No stale candidate may be admitted as current. |
+| Access and revocation | Request and candidate allow metadata must bind to the requested subject and purpose. Summary lineage sources must each carry matching world, subject-/purpose-bound allow and `freshness.status: current`. The oracle cannot establish that an allow is genuine or re-check revocation. | Core owns authoritative access decisions; Memory/adapter must revalidate access at the approved read/serialization boundary. Test revocation after indexing for direct record, exact-ID lookup, snippets, counts, pagination and summaries, with no protected detail leakage. |
+| Summary lineage | Summary must have non-empty `lineage.sources`, each with ref/version, same world, bound allow and current freshness. Non-summary candidates do not receive this summary-specific lineage check. | Memory must emit complete, versioned lineage only when it can prove it; missing, partial, cross-world, stale, retracted or revoked support makes dependent content non-current/withheld unless an approved derivation policy proves remaining support. Test each negative case through the actual consumer path. |
+| Snapshot and rollback | If the request supplies a snapshot, candidate snapshot must match both `world_revision` and `commit_sequence`. The oracle cannot discover a source change and does not validate a lineage source's version against an authoritative snapshot. | Core must define how the consumer obtains authoritative current source state. Reconciliation must detect rollback when revision changes but sequence does not. Test candidate and each lineage source across that transition; equality of caller-supplied markers alone is insufficient proof. |
+| Result completeness | The helper accepts only a request-level result marked `completeness: complete` with bound allow/scope. It returns only `ready`/`non_ready` and safe references; it does not define the full retrieval result-status vocabulary. | Memory/Core must decide how complete-empty, partial/truncated, stale, denied/withheld, timeout, rebuilding and unavailable map to the future consumer contract. Do not translate backend failure into complete-empty or treat helper `ready` as proof that content was delivered or acquired. |
+| Rebuild, restart and persistence | The pure oracle has no index, checkpoint, reconciliation loop, persistence or restart behavior. | Memory + host/index owner must define a durable completion/checkpoint rule without assuming Core/Memory atomicity. Test interruption after partial reconciliation, restart/replay, failed/truncated scans, idempotence, and that no current/completed marker advances before a full successful pass. Core separately decides any canonical event/audit atomicity requirement. |
+
+### Minimum decisions still required
+
+1. **Core (#140):** authoritative source-currentness/version-validation boundary; authorized-read semantics for recipient/subject, purpose, field visibility and non-disclosure; rollback/reconciliation signal choice; and which records, if any, must share Core's canonical event/audit transaction.
+2. **Memory + host/index owner:** actual source adapter and index identity/version/lineage evidence; lifecycle/result-completeness semantics; revocation/retraction propagation; checkpoint ownership and crash/restart recovery; retention/erasure behavior.
+3. **NPC (#70 / PR #139):** confirm the consumer's accepted metadata semantics and real-path contract tests. The oracle's supplied `current`, `ready`, `allow`, and version values remain assertions from its caller until a trusted adapter is approved.
+
+### Verifiable closure checklist
+
+- [ ] A real-path positive test proves source reference, version, world, lineage and access against authoritative owner boundaries—not only fixture labels.
+- [ ] Negative tests cover cross-world/incomplete lineage; stale v1 after source advances to v2; retracted/unavailable support; revocation after indexing including derived summaries; and index health states distinct from freshness and access.
+- [ ] Rollback test changes `world_revision` without increasing `commit_sequence` and proves affected candidates/summaries are invalidated or reconciled.
+- [ ] Restart test interrupts rebuild/reconciliation after partial work, restarts, and proves idempotent recovery with no premature completed/current marker.
+- [ ] Complete-empty, partial, stale, denied/withheld, timeout, rebuilding and unavailable are distinguishable without disclosing protected candidate existence or details.
+- [ ] Core/Memory transaction and audit ownership is explicitly decided; no cross-store atomicity is inferred.
+- [ ] NPC confirms the consumer contract and its real-path acceptance suite; production Memory→NPC remains disabled until all required owner gates pass.
+
+Until these conditions are met, PR #144 is a documentation/test-traceability handoff only. The Memory document-contract test does not prove runtime lifecycle enforcement, and NPC oracle tests do not prove authentic authorization, retrieval, delivery, acquisition, or belief.
