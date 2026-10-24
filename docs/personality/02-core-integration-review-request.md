@@ -36,7 +36,7 @@ A snapshot or raw projection is not authorization. Before personality/relationsh
 
 The result must preserve the distinction between:
 - known value;
-- unset/unknown;
+- unset (sometimes called unknown only when no canonical value has been established);
 - inaccessible/withheld;
 - disputed/conflicted, where supported.
 
@@ -59,7 +59,7 @@ The core should choose and test one of these models:
 Required rollback outcomes:
 - if the only valid support for a transition is rolled back, remove or recompute the dependent state;
 - if one source is rolled back but another independent valid support remains sufficient, preserve the supported result;
-- if remaining evidence is contradictory or insufficient, apply an explicit domain rule or expose a conflict/unknown state rather than guessing;
+- if remaining evidence is contradictory or insufficient, apply an explicit domain rule or expose a conflict/insufficient-support reconciliation result (which may be labelled unknown by the read contract) rather than guessing;
 - retain audit history while rebuilding the current projection.
 
 ### 5. Decisions requested from the main architecture chat
