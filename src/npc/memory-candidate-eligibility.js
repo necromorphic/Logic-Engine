@@ -213,7 +213,7 @@ export function evaluateMemoryCandidateAdmission(request, result) {
   }
 
   return Object.freeze({
-    status: rejected.length === 0 ? "ready" : admitted.length > 0 ? "partial" : "non_ready",
+    status: rejected.length === 0 ? "ready" : admitted.length > 0 ? "ready_with_exclusions" : "non_ready",
     admitted: Object.freeze(admitted),
     rejected: Object.freeze(rejected),
     reason: rejected.length === 0 ? null : "one_or_more_candidates_excluded",
