@@ -240,3 +240,16 @@ This audit records source facts observed on `feat/npc-subsystem`; it does not cl
 ### Readiness verdict
 
 The semantics are now documented as a proposal, but the relationship block is **not implementation-ready**. The next required design gate is to select, against the actual target core commit, the smallest validated representation for directional relationship state, a safe participant-reference policy, and a bounded read/projection contract. Then add executable tests at those real boundaries before any runtime or schema change. No runtime code was changed in this work.
+
+
+## Core-owner decision addendum (2026-10-24)
+
+The core owner reviewed the five relationship integration questions in PR #38 discussion comment [6377468310](https://github.com/necromorphic/Logic-Engine/pull/38#issuecomment-6377468310). This confirms the semantic direction only; it does not establish implementation or authorize runtime/schema changes.
+
+- **Canonical write:** design a typed relationship record/effect committed through the existing canonical event, revision, and audit path. Do not use arbitrary entity attributes or append-only `fact.set` claims as mutable relationship state. Exact effect/schema shape remains subject to review against the canonical effect architecture.
+- **Participants:** committed canonical relationships require existing canonical `entity_id` references. Unresolved references may remain in authoring/import data, but cannot be committed as canonical participants until resolved, unless a separate typed unresolved-reference contract is approved. Do not auto-create entities/NPCs or add a parallel identity registry.
+- **Reads/projection:** a consistent snapshot is a dependency, not authorization. Raw snapshot data must not go directly to NPCs or players. A core-owned actor/purpose/snapshot access boundary must be specified and implemented first. Character-card projection remains read-only and consumes a bounded relationship summary.
+- **Rollback:** generic rollback alone does not guarantee multi-cause relationship reconciliation. Track source/cause references and recompute support from remaining valid independent causes. If the core causal representation cannot distinguish independent support, relationship transitions remain blocked until it can and tests verify it. Do not create a separate NPC rollback graph/log.
+- **State origins:** unknown/unset, explicit neutral (only where the World Pack defines it), and author-initial/imported state are distinct. Authorship/provenance is metadata separate from the dimension value and from in-world transitions. Unknown/withheld read outcomes are not false, neutral, or belief states.
+
+These decisions resolve the semantic questions in this proposal but leave the implementation gate intact: typed canonical operation, participant-resolution rule, authorized bounded read/projection contract, and multi-cause rollback behavior must be reconciled with the actual target core branch and executable tests before implementation.
