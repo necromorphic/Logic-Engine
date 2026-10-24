@@ -1,5 +1,5 @@
 import { EngineError } from './errors.js';
-import { SUPPORTED_RULE_OPERATORS, collectConditionDependencies, evaluateConditionResult } from './rules.js';
+import { SUPPORTED_RULE_OPERATORS, collectConditionDependencies, evaluateConditionResult, validateEffects } from './rules.js';
 
 const obj = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$/;
@@ -315,5 +315,132 @@ export function evaluateMechanicActionConditions(value, actionId, context, optio
     action_id: action.action_id,
     condition_results: conditionResults,
     unknown_paths: unknownPaths,
+  };
+}
+
+
+/**
+ * Translate the intentionally small, literal effect-intent subset to existing
+ * Core effects. This function does not resolve references, interpolate strings,
+ * execute modules, create proposals, or mutate state. Callers must preserve the
+ * returned effect_provenance alongside any proposal/audit record; without that
+ * mapping this adapter is not sufficient for production execution.
+ *
+ * Supported mappings:
+ * - create_entity -> entity.create
+ * - update_attribute -> entity.update
+ * - assert_fact -> fact.set
+ *
+ * The entire batch fails closed: unsupported or malformed entries never yield a
+ * partial effects list.
+ */
+export function translateMechanicEffectIntents(value) {
+  const template = validateMechanicTemplate(value);
+  const effects = [];
+  const effectProvenance = [];
+  const seenIds = new Set();
+
+  for (const action of template.actions) {
+    for (let index = 0; index < action.effects.length; index += 1) {
+      const intent = action.effects[index];
+      const location = action.action_id + '.effects[' + index + ']';
+      const reject = (reasonCode, message) => ({
+        status: 'unknown',
+        reason_code: reasonCode,
+        reason: message,
+        template_id: template.template_id,
+        template_version: template.version,
+        effects: [],
+        effect_provenance: [],
+        rejected_intent: { action_id: action.action_id, index, effect_id: intent.effect_id },
+      });
+
+      if (seenIds.has(intent.effect_id)) {
+        return reject('DUPLICATE_EFFECT_ID', location + ' duplicates effect_id ' + intent.effect_id + '.');
+      }
+      seenIds.add(intent.effect_id);
+
+      if ((intent.source_refs?.length ?? 0) > 0 || (intent.caused_by?.length ?? 0) > 0) {
+        return reject('UNSUPPORTED_EFFECT_PROVENANCE', location + ' uses source_refs/caused_by without a defined provenance mapping.');
+      }
+
+      let translated;
+      const payload = intent.payload ?? {};
+      const allowedPayload = {
+        create_entity: new Set(['entity_type', 'status', 'attributes']),
+        update_attribute: new Set(['status', 'attributes', 'remove_attributes']),
+        assert_fact: new Set(['subject_ref', 'predicate', 'value']),
+      }[intent.kind];
+
+      if (!allowedPayload) {
+        return reject('UNSUPPORTED_EFFECT_INTENT', location + ' uses unsupported intent kind ' + intent.kind + '.');
+      }
+      if (Object.keys(payload).some((key) => !allowedPayload.has(key))) {
+        return reject('UNSUPPORTED_EFFECT_PAYLOAD_FIELD', location + ' contains a payload field not allowed for ' + intent.kind + '.');
+      }
+
+      if (intent.kind === 'create_entity') {
+        if (typeof payload.entity_type !== 'string' || !payload.entity_type.trim()) {
+          return reject('INVALID_EFFECT_PAYLOAD', location + ' requires payload.entity_type.');
+        }
+        translated = {
+          kind: 'entity.create',
+          entity_id: intent.target_ref,
+          entity_type: payload.entity_type,
+          ...(payload.status !== undefined ? { status: payload.status } : {}),
+          ...(payload.attributes !== undefined ? { attributes: payload.attributes } : {}),
+        };
+      } else if (intent.kind === 'update_attribute') {
+        const hasAttributes = payload.attributes && typeof payload.attributes === 'object'
+          && !Array.isArray(payload.attributes) && Object.keys(payload.attributes).length > 0;
+        const hasRemovals = Array.isArray(payload.remove_attributes) && payload.remove_attributes.length > 0;
+        if (payload.status === undefined && !hasAttributes && !hasRemovals) {
+          return reject('EMPTY_EFFECT_PATCH', location + ' must change status, set attributes, or remove attributes.');
+        }
+        translated = {
+          kind: 'entity.update',
+          entity_id: intent.target_ref,
+          ...(payload.status !== undefined ? { status: payload.status } : {}),
+          ...(payload.attributes !== undefined ? { attributes: payload.attributes } : {}),
+          ...(payload.remove_attributes !== undefined ? { remove_attributes: payload.remove_attributes } : {}),
+        };
+      } else {
+        if (typeof payload.predicate !== 'string' || !payload.predicate.trim() || !Object.hasOwn(payload, 'value')) {
+          return reject('INVALID_EFFECT_PAYLOAD', location + ' requires payload.predicate and payload.value.');
+        }
+        translated = {
+          kind: 'fact.set',
+          fact_id: intent.target_ref,
+          ...(payload.subject_ref !== undefined ? { subject_ref: payload.subject_ref } : {}),
+          predicate: payload.predicate,
+          value: payload.value,
+        };
+      }
+
+      try {
+        validateEffects([translated]);
+      } catch (error) {
+        return reject('INVALID_TRANSLATED_EFFECT', location + ' failed Core effect validation: ' + error.message);
+      }
+
+      effects.push(translated);
+      effectProvenance.push({
+        effect_index: effects.length - 1,
+        action_id: action.action_id,
+        intent_index: index,
+        effect_id: intent.effect_id,
+        intent_kind: intent.kind,
+        target_ref: intent.target_ref,
+      });
+    }
+  }
+
+  return {
+    status: 'ready',
+    reason_code: null,
+    template_id: template.template_id,
+    template_version: template.version,
+    effects,
+    effect_provenance: effectProvenance,
   };
 }
