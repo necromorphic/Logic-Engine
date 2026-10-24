@@ -142,7 +142,7 @@ The eventual character editor should:
 - show the primary identity and an optional list of additional social identities;
 - allow zero, one, or many entries;
 - support add, rename, edit, duplicate-as-draft, and activate/deactivate actions, subject to the editor's eventual persistence/confirmation design; runtime-created identities are retained as cards and are not routinely deleted when no longer in use;
-- present the sections above as optional/collapsible groups rather than one mandatory questionnaire;
+- preserve the two-field minimal entry path (**Name and image**, **Differences and additional information**); any more structured categories remain optional/collapsible rather than a mandatory questionnaire;
 - distinguish author-entered claims from references to verified world entities/documents;
 - show unresolved contradictions and missing support without auto-correcting them;
 - make inherited values visible as inherited/read-only until the author explicitly supplies an override;
