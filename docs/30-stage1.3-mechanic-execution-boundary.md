@@ -143,17 +143,17 @@ Test profiles should include (a) no body/money/faction fields, (b) a fictional-r
 
 The initial code audit found a concrete contract mismatch that must be resolved before mechanic execution is connected:
 
-- `src/core/mechanics.js` validates a rule-operator set that includes `contains`, `status_is`, `ref_exists`, `time_before`, `time_after`, and `needs_review` in addition to the basic comparisons and boolean combinators.
-- `src/core/rules.js` currently evaluates only `eq`, `neq`, `exists`, `gt`, `gte`, `lt`, `lte`, `in`, `all`, `any`, and `not`. The wider validator allowlist is therefore not equivalent to executable evaluator support.
-- `evaluateCondition` returns a boolean and treats a missing path as `false` (except for `exists`). It does not currently express a tri-state `true` / `false` / `unknown` result. Mechanic evaluation must not interpret missing required context as a proven false predicate or as proof that a rule is inapplicable. Add context-completeness preflight or a tri-state evaluation contract before using this evaluator for mechanics.
-- The declarative schema, runtime contract validator, and evaluator must share a tested support matrix. A schema-valid rule is not necessarily executable by the current runtime.
+- The current `src/core/mechanics.js` imports `SUPPORTED_RULE_OPERATORS` from `src/core/rules.js`; the inspected `tests/mechanics-operator-matrix.test.js` also compares that set against `schemas/declarative-rule.schema.json`. The earlier concern that the validator independently accepts extra operators is stale for this source revision. Re-run the matrix test whenever either declaration changes.
+- The legacy `evaluateCondition` API returns a Boolean and treats a missing path as `false` for ordinary comparison operators (with `exists` using its explicit absence behavior). It cannot distinguish an actually absent field from context that was not retrieved, is incomplete, or is withheld.
+- The opt-in `evaluateConditionResult` API on the `feat/tri-state-condition-results` branch preserves the legacy API and returns `true`, `false`, or `unknown`. It propagates unknown through `not`, `all`, and `any`; a path is considered known absent only when the trusted caller explicitly supplies it in `knownAbsentPaths`. This is a candidate primitive on an unmerged branch, not yet the evaluator used by a mechanic-execution service.
+- Operator-name alignment does not solve effect-intent mapping, module implementation allowlisting, context completeness, or the absence of a Stage 1.3 application service. A schema-valid rule is not by itself proof that the full mechanic execution pipeline exists.
 
 Implementation order:
 
-1. Reconcile `src/core/mechanics.js`, `src/core/rules.js`, `schemas/declarative-rule.schema.json`, effect kinds, and existing tests into one explicit operator/effect support matrix.
-2. Decide and test missing-path semantics: distinguish a known absent field from context that was not retrieved or is not authorized. Return `unknown` when the engine cannot prove the predicate either way.
-3. Resolve discrepancies between supported declarative operators, effect kinds, and the result contract before writing execution code.
-4. Implement pure/read-only evaluation and result validation.
+1. Keep the schema, mechanic validator, and evaluator on one tested operator support matrix; the current source already shares the operator constant, so preserve that invariant rather than duplicating lists.
+2. Approve and test missing-path semantics: distinguish a known absent field from context that was not retrieved or is not authorized. Return `unknown` when the engine cannot prove the predicate either way.
+3. Reconcile declarative rule results, mechanic effect intents, canonical effect kinds, and the result contract before connecting evaluation to proposals.
+4. Implement the full pure/read-only evaluation service and structured result validation against a consistent snapshot.
 5. Add the acceptance tests above, including failure injection and cross-world isolation.
 6. Connect validated results to the existing proposal API without introducing a second commit path.
 7. Implement explicit lifecycle policy handling for active processes only after the core process contract is executable.
