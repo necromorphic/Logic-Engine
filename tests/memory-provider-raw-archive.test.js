@@ -299,6 +299,49 @@ test('raw read rechecks trusted authorization after loading content', async (t) 
   assert.equal(activeChecks, 2);
 });
 
+test('active raw version selection survives restart and deleting an inactive alternative preserves it', async (t) => {
+  const s = setup(t, { authorizeRawRead: async () => true });
+  const first = capture({ message_id: 'message-active-restart', version_id: 'generation-1' });
+  const second = capture({
+    message_id: 'message-active-restart',
+    version_id: 'generation-2',
+    content: 'Selected generation remains active after restart.',
+  });
+  s.provider.captureRawMessage(first);
+  s.provider.captureRawMessage(second);
+  s.provider.selectActiveRawVersion({
+    world_id: first.world_id,
+    conversation_id: first.conversation_id,
+    message_id: first.message_id,
+    version_id: second.version_id,
+  });
+
+  s.reopen();
+  let active = await s.provider.readActiveRawMessages({
+    world_id: first.world_id,
+    conversation_id: first.conversation_id,
+  });
+  assert.equal(active.length, 1);
+  assert.equal(active[0].version_id, 'generation-2');
+
+  // Deleting an unselected alternative must not clear the selected pointer.
+  assert.deepEqual(s.provider.markRawSourceDeleted({
+    world_id: first.world_id,
+    conversation_id: first.conversation_id,
+    message_id: first.message_id,
+    version_id: first.version_id,
+  }), { status: 'deleted', invalidated_copies: 0 });
+
+  s.reopen();
+  active = await s.provider.readActiveRawMessages({
+    world_id: first.world_id,
+    conversation_id: first.conversation_id,
+  });
+  assert.equal(active.length, 1);
+  assert.equal(active[0].version_id, 'generation-2');
+  assert.equal(active[0].content, second.content);
+});
+
 test('durable raw capture survives derived-index rebuild failure and provider restart', async (t) => {
   const s = setup(t);
   const raw = capture({ message_id: 'message-survives-index-failure', version_id: 'generation-raw' });
