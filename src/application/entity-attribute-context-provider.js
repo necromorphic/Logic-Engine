@@ -75,7 +75,7 @@ export class CanonicalEntityAttributeContextProvider {
 
   resolve({ worldId, snapshot, template, action } = {}) {
     if (typeof worldId !== 'string' || !worldId.trim()
-      || !object(snapshot) || !object(template) || !object(action)) {
+      || !object(snapshot) || snapshot.world_id !== worldId || !object(template) || !object(action)) {
       throw new TypeError('Provider resolution requires world, snapshot, template, and action.');
     }
     const conditionPaths = [...new Set([
