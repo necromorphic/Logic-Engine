@@ -67,8 +67,8 @@ test('process milestone and time segment checkpoint survive SQLite restart and r
     let process = engine.getProcess('process-world', 'build-out');
     assert.equal(process.status, 'running');
     assert.deepEqual(process.milestones.map((item) => item.status), ['completed', 'pending']);
-    assert.equal(engine.getState('process-world').entities.foundation.attributes.milestone, 'foundation');
-    assert.equal(engine.getState('process-world').entities.walls, undefined);
+    assert.equal(engine.getState('process-world').entities.find((entity) => entity.entity_id === 'foundation').attributes.milestone, 'foundation');
+    assert.equal(engine.getState('process-world').entities.some((entity) => entity.entity_id === 'walls'), false);
 
     store.close();
     ({ store, engine } = setup(path));
@@ -85,7 +85,7 @@ test('process milestone and time segment checkpoint survive SQLite restart and r
     process = engine.getProcess('process-world', 'build-out');
     assert.equal(process.status, 'completed');
     assert.deepEqual(process.milestones.map((item) => item.status), ['completed', 'completed']);
-    assert.equal(engine.getState('process-world').entities.walls.attributes.milestone, 'walls');
+    assert.equal(engine.getState('process-world').entities.find((entity) => entity.entity_id === 'walls').attributes.milestone, 'walls');
     assert.equal(engine.getEvents('process-world').filter((event) => event.event_type === 'action.completed').length, 2);
   } finally {
     store.close();
@@ -131,8 +131,8 @@ test('process creation and lifecycle commands are idempotent and reject changed 
     to_coordinate: 20000,
   });
   assert.equal(afterCancel.status, 'completed');
-  assert.equal(engine.getState('process-world').entities.foundation, undefined);
-  assert.equal(engine.getState('process-world').entities.walls, undefined);
+  assert.equal(engine.getState('process-world').entities.some((entity) => entity.entity_id === 'foundation'), false);
+  assert.equal(engine.getState('process-world').entities.some((entity) => entity.entity_id === 'walls'), false);
 });
 
 test('paused process can be resumed with new durable trigger identities', (t) => {
@@ -175,6 +175,7 @@ test('rollback sends causally affected milestones to review and preserves indepe
     event_id: 'root-event',
     turn_id: 'root-turn',
     event_type: 'action.completed',
+    expected_revision: engine.getState('process-world').world_revision,
     effects: [],
   });
   engine.createProcess('process-world', {
@@ -204,6 +205,6 @@ test('rollback sends causally affected milestones to review and preserves indepe
   assert.equal(process.status, 'needs_review');
   assert.equal(process.milestones.find((item) => item.milestone_id === 'dependent').status, 'needs_review');
   assert.equal(process.milestones.find((item) => item.milestone_id === 'independent').status, 'completed');
-  assert.equal(engine.getState('process-world').entities.dependent, undefined);
-  assert.equal(engine.getState('process-world').entities.independent.attributes.milestone, 'independent');
+  assert.equal(engine.getState('process-world').entities.some((entity) => entity.entity_id === 'dependent'), false);
+  assert.equal(engine.getState('process-world').entities.find((entity) => entity.entity_id === 'independent').attributes.milestone, 'independent');
 });
