@@ -1008,3 +1008,18 @@ test("accepts null-prototype data records without changing their prototype or co
   assert.deepEqual(currentValues.trust, "low");
   assert.deepEqual(patch.trust, "guarded");
 });
+
+test("does not treat a ruleVersion label as registry resolution or compatibility proof", () => {
+  const unknownVersion = "world-pack:missing@999.0.0";
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    ruleVersion: unknownVersion,
+  });
+
+  // The pure evaluator only sees the supplied rules and preserves the label.
+  // It cannot establish that this label resolves to those rules or is
+  // compatible with a world; callers/Core must resolve and validate that.
+  assert.equal(result.status, "candidate");
+  assert.equal(result.ruleVersion, unknownVersion);
+  assert.deepEqual(result.patch, { trust: "guarded" });
+});
