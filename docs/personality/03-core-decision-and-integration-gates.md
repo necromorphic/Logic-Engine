@@ -106,6 +106,8 @@ Integration remains blocked until the write, provenance, read, and rollback cont
 ## 8. Related documents
 
 - `docs/personality/01-personality-and-relationship-semantics.md` — Personality block semantic scope.
+- `docs/personality/05-world-pack-relationship-dimension-template.md` — per-dimension World Pack semantics and authoring readiness.
+- `docs/personality/06-stable-trait-lifecycle.md` — stable trait versus mutable state and inference lifecycle.
 - `docs/personality/02-core-integration-review-request.md` — original review request and recorded response.
 - `docs/21-stage1-causality-contract.md` — current limited rollback/causality boundary.
 - `docs/18-rollback-and-causality.md` — target rollback architecture, not proof of current runtime support.
