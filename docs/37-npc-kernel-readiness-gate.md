@@ -207,18 +207,18 @@ On 2026-10-24, the core owner reviewed all eight questions in `docs/39-npc-core-
 
 The next engineering action is to reconcile the confirmed contract with actual source/test boundaries, then propose the narrow internal interface and acceptance tests before any implementation.
 
-**Snapshot dependency note:** PR #45 (`feat: add consistent internal snapshot read boundary`) proposes a bounded internal snapshot read and reports passing Runtime tests on its current head, but it remains open and unmerged. Do not count `getSnapshot(...)` as available production behavior on `main` or this branch until its review/merge and target-branch presence are verified. That primitive would address only read-view consistency; actor-specific authorization, a trusted secret/access policy source, authorized initial-knowledge representation/provenance, belief/delivery records, and NPC acceptance tests remain separate blockers.
+**Snapshot dependency note (historical status superseded by §19):** PR #45 was subsequently merged into `main`; `LogicEngine.getSnapshot(...)` is now a real internal bounded snapshot primitive. The snapshot still does not provide actor-specific authorization, a trusted secret/access policy source, authorized initial-knowledge representation/provenance, persistent belief/delivery records, or NPC acceptance tests.
 
 ## 15. Refreshed main-branch boundary audit — 2026-10-24
 
-This section supersedes the older time-bounded inventory in §7 where the two differ. The live main ref was re-compared with this branch during the refresh: main is at `cb4ad189f12484ca5458c30b1d176cbd9f7d4ccc`; `feat/npc-subsystem` has three commits of main not yet incorporated. The branch is therefore not a current source snapshot of core, and no rebase or merge was performed as part of this audit.
+This section supersedes the older time-bounded inventory in §7 where the two differ. The live main ref was re-compared with this branch during the original refresh: main was at `cb4ad189f12484ca5458c30b1d176cbd9f7d4ccc`; see §19 for the later current main SHA and divergence count. No rebase or merge was performed as part of this audit.
 
 The intervening main changes add or revise core contracts and mechanic-effect support documentation. The following distinctions now govern NPC planning:
 
 - `docs/27-proposal-to-commit-boundary.md` describes the current proposal lifecycle more precisely: proposal creation uses rollback-only validation and does not mutate canonical world state; commit requires approval and rechecks staleness. This still does not establish named NPC actor authorization, complete semantic alignment, causal completeness, or player-agency policy.
 - `docs/30-stage1.3-mechanic-execution-boundary.md` defines a core-only next-slice contract for deterministic mechanic evaluation on one consistent snapshot. It explicitly excludes NPC goals, knowledge, schedules, decision-making, and off-screen autonomy; the contract is not itself proof that the evaluator is shipped.
 - `docs/31-mechanic-effect-intent-support-matrix.md` explicitly lists knowledge operations, generic relationship operations, and goal/task management as unsupported by the current canonical effect validator. Relationship state must not be smuggled through arbitrary attributes or generic `fact.set` as a substitute for a typed contract.
-- PR #45 (consistent snapshot read) and PR #32 (character-card projection) were rechecked and remain open, unmerged proposals. PR #45's candidate snapshot would be a read-consistency primitive only; PR #32's current projection remains minimal and does not supply relationship summaries or actor authorization.
+- PR #45 (consistent snapshot read) has since merged; PR #32 (character-card projection) remains an open Draft. The snapshot is now available on `main` but remains only a read-consistency primitive, not actor authorization. PR #32's current projection remains minimal and does not supply relationship summaries or actor authorization.
 - PRs #40 and #43 remain open Drafts in a stacked mechanic-intent integration chain. Do not treat the translator/proposal integration or canonical fact-identity guard as available on `main` solely because the PRs exist.
 - `docs/44-npc-relationship-semantic-acceptance.md` now specifies fourteen relationship cases, and `docs/45-npc-relationship-typed-operation-design.md` provides a schema-neutral proposal distinguishing required causal dependencies from alternative support. Neither document constitutes runtime or schema approval.
 
@@ -237,11 +237,11 @@ The first useful vertical slice is **one named canonical NPC receiving a bounded
 
 | Order | Gate / owner | Required evidence before proceeding | If absent |
 |---|---|---|---|
-| 1 | Consistent canonical snapshot — core | Review/integrate PR #45 (bounded canonical read) and its stacked PR #47 (same-read-view mechanic instances, exact pinned template/module manifests, and context manifests with automatic same-snapshot expansion of referenced entity/fact/event rows), or an approved equivalent; verify the composite marker and bounded fail-closed behavior on the target base. Both remain open/unmerged. | Do not assemble a decision snapshot from unrelated raw reads. |
+| 1 | Consistent canonical snapshot — core | `main` now includes the bounded `getSnapshot(...)` read plus the mechanic/context snapshot extension from merged PR #49; verify the composite marker and bounded fail-closed behavior on the exact target commit before consuming it. | Do not assemble a decision snapshot from unrelated raw reads; raw snapshot output is not model-safe. |
 | 2 | Trusted actor binding — core + host adapter | A real, trusted mapping from the decision subject to an existing canonical entity, and a declared purpose; neither may be accepted as an untrusted model-supplied identity. | Reject the request as unsupported; do not infer identity from display name/card text. |
 | 3 | Initial acquisition representation — core | Executable, audited record for explicitly authorized author-initial/imported knowledge, with canonical source references and explicit ownership; the contract in docs/39 §4.1 must be approved against real code. | Do not treat profile text, retrieval, manifest inclusion, or prompt text as acquired knowledge. |
 | 4 | Actor/purpose/snapshot filter — core | A bounded result tied to the same (world_revision, commit_sequence) marker, preserving known, unknown/unset, withheld, and incomplete/unsupported distinctly and excluding restricted content before model input. | Raw snapshot rows must not enter any NPC, narrator, player, or host-visible context. |
-| 5 | Condition evaluation semantics — core | The decision path must not convert missing/incomplete/unavailable values into ordinary false. Either a reviewed tri-state result contract is implemented, or the first slice avoids evaluating any condition whose required paths are absent/incomplete. | No NPC decision may depend on a false result produced by missing data. |
+| 5 | Condition evaluation semantics — core | `evaluateConditionResult(...)` is now available on `main` as an opt-in tri-state API; callers must provide `knownAbsentPaths` only when absence is proven by the same trusted context and must not use legacy Boolean evaluation for incomplete actor context. | No NPC decision may depend on a false result produced by missing data; the tri-state API does not itself authorize context. |
 | 6 | Proposal-only NPC adapter — NPC/integration | Build a pure adapter over the approved filtered envelope and existing proposal lifecycle. It can propose only supported existing effects and cannot commit, mutate belief/acquisition, or bypass approval. | Keep the output as a non-persistent draft/specification; do not add an NPC-owned proposal store. |
 | 7 | Production-path acceptance — shared | Tests invoke the real actor binding, authorized read/filter, context builder, and proposal creation path; assert source references, state-before/state-after, snapshot marker, excluded secrets, and no mutation. | Unit mocks can help design but cannot mark the slice integrated or ready. |
 
@@ -312,3 +312,29 @@ The NPC branch is three commits behind `main` at `cb4ad189f12484ca5458c30b1d176c
 
 **Current blocker remains unchanged:** even if #45, #47, and #46 are accepted, the first NPC slice still needs trusted actor-to-canonical-entity binding, a real authorized initial-knowledge/source representation, actor/purpose-scoped filtering that excludes reserved secrets before model input, and production-path acceptance tests. No implementation branch should invent those as NPC-local persistence or authorization.
 
+## 19. Core dependency recheck after merges — 2026-10-24
+
+This section supersedes the older live-status statements in §§15, 16, 17, and 18 where they describe current `main` or open PR state. Historical source observations remain tied to their stated commit and should not be read as current status.
+
+**Current main:** `8602a9ed41f13f536d87b1103a02e8fd12de3b03`. GitHub Actions Runtime tests run #378 passed on this exact main commit.
+
+- PR #45 (consistent internal snapshot) merged at `2bbdbff4e4d4c4c56601ed5ac18e2083aa99c48b`.
+- PR #46 (opt-in tri-state condition result API) merged at `e796896fc40fa8e782f574e13298682a4e6fb813`.
+- The original stacked PR #47 was closed without merge. Its reviewed delta was rebased onto the updated main line in PR #49, which merged at `8602a9ed41f13f536d87b1103a02e8fd12de3b03`. The current snapshot implementation includes bounded context-manifest expansion and optional mechanic-evaluation inputs in the same read transaction.
+- The NPC branch currently diverges from `main`: 125 commits ahead and 7 behind; merge base `9e785a050e8b8acde9a3f343275c4213bbe8d72f`. Do not auto-rebase or force-update. Reconcile the seven main-side commits deliberately before integration.
+
+### What these merges unblock
+
+1. **Consistent read primitive:** available on `main` via `LogicEngine.getSnapshot(...)`; it is internal, bounded, read-only, and transactionally consistent. It does not produce a model-safe projection.
+2. **Tri-state condition primitive:** `evaluateConditionResult(...)` is available without changing legacy `evaluateCondition(...)` callers. Missing paths remain unknown unless the trusted caller explicitly establishes known absence. This does not solve whether an NPC is allowed to see a value.
+3. **Mechanic/context snapshot inputs:** the current snapshot can optionally include pinned mechanic definitions and explicitly requested context manifests, with same-snapshot expansion and fail-closed bounds. This is not an NPC knowledge store, actor filter, or authorization mechanism.
+
+### Remaining hard blockers for the NPC first slice
+
+- A trusted binding from the in-world actor to a canonical `entity_id`, distinct from the adapter's authenticated identity.
+- A real, reviewed representation of explicitly authorized `author_initial`/imported knowledge and its provenance.
+- A core-owned actor/purpose/snapshot-scoped filter that excludes reserved secrets before any model-visible context is assembled, and returns unknown/withheld/incomplete distinctly.
+- A production-path NPC adapter that uses the actual filtered envelope, invokes only supported effects, and produces a non-committing proposal.
+- End-to-end tests against those real interfaces, including actor separation, provenance, reserved-secret exclusion, stale snapshot handling, and proof that proposal creation does not mutate canonical or knowledge state.
+
+**Next work:** continue NPC contract-to-source reconciliation against the current main commit and keep implementation blocked only on the actual missing actor/knowledge/filter boundary—not on the now-merged snapshot or tri-state primitives. Do not create NPC-local persistence or authorization as a workaround.
