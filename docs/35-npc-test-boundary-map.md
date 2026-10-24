@@ -8,7 +8,7 @@ The first NPC slice is a bounded decision-context plus non-committing proposal. 
 
 ## 2. Existing tests to reuse as baseline
 
-| Existing test | Verified responsibility | What it does not prove for NPCs |
+| Existing test | Responsibility confirmed by source inspection (not executed) | What it does not prove for NPCs |
 |---|---|---|
 | `tests/core.test.js` — `stale proposal is rejected without partial effects` | A proposal based on stale world history is rejected | Actor-specific knowledge/access or player-agency policy |
 | `tests/core.test.js` — `rule evaluator rejects unknown fields and read_set references must exist locally` | Invalid fields and unsupported reads are rejected | Missing input vs known-false distinction for all rule conditions |
