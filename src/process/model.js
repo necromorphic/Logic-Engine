@@ -32,12 +32,14 @@ const strings = (value, name, max = 100) => {
  */
 export function normalizeProcessDefinition(input, worldId, currentCoordinate) {
   if (!object(input)) fail('INVALID_PROCESS', 'Process request must be an object.');
-  const allowed = ['process_id', 'idempotency_key', 'source_event_ids', 'milestones'];
+  const allowed = ['process_id', 'idempotency_key', 'expected_revision', 'source_event_ids', 'milestones'];
   if (Object.keys(input).some((key) => !allowed.includes(key))) {
     fail('UNSUPPORTED_PROCESS_FIELD', 'Process request contains an unsupported field.');
   }
   const processId = text(input.process_id, 'process_id');
   const idempotencyKey = text(input.idempotency_key, 'idempotency_key');
+  const expectedRevision = safeInteger(input.expected_revision, 'expected_revision');
+  if (expectedRevision < 0) fail('INVALID_PROCESS', 'expected_revision must be non-negative.');
   safeInteger(currentCoordinate, 'current_coordinate');
   const sourceEventIds = strings(input.source_event_ids, 'source_event_ids');
   if (!Array.isArray(input.milestones) || input.milestones.length < 1 || input.milestones.length > 100) {
@@ -91,6 +93,7 @@ export function normalizeProcessDefinition(input, worldId, currentCoordinate) {
   return {
     process_id: processId,
     idempotency_key: idempotencyKey,
+    expected_revision: expectedRevision,
     source_event_ids: sourceEventIds,
     status: 'scheduled',
     milestones,
