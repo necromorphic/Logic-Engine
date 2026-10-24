@@ -23,7 +23,7 @@ The approved semantic direction is:
 - both participants resolve to existing canonical `entity_id` values;
 - direction is preserved (A → B is not B → A);
 - only explicitly supplied dimensions change; omitted keys mean unchanged;
-- unknown/unset, explicit neutral, and clearing an established value are distinct;
+- unset (sometimes called unknown only when no canonical value exists), explicit neutral, and clearing an established value are distinct; conflict/insufficient-support `unknown` is a separate reconciliation/read-result state;
 - dimensions and supported transitions are validated;
 - acceptance or rejection is atomic;
 - successful changes use the canonical event, audit, and revision lifecycle;
@@ -61,10 +61,10 @@ A consistent snapshot is useful but is not authorization. Before a relationship/
 - reading actor and purpose;
 - access rules, visibility, and sensitivity;
 - current validity and world scope;
-- known value versus unset/unknown, withheld/inaccessible, and incomplete/unsupported;
+- known value versus unset (sometimes called unknown in this narrow sense), withheld/inaccessible, and incomplete/unsupported; conflict/insufficient-support status must remain separately representable where the supported query can produce it;
 - disputed/conflicted status where supported.
 
-Raw snapshots, unrestricted entity attributes, and full event history are not authorized substitutes. A caller-supplied actor string alone does not establish authority. The current runtime has not been shown to provide a complete query-result distinction among `unknown/unset`, `withheld`, and `incomplete/unsupported` for such an actor-relative query.
+Raw snapshots, unrestricted entity attributes, and full event history are not authorized substitutes. A caller-supplied actor string alone does not establish authority. The current runtime has not been shown to provide a complete query-result distinction among a known value, unset, withheld, incomplete/unsupported, and (where applicable) conflict/insufficient support for such an actor-relative query. Here, `unknown` must not be used as an ambiguous catch-all for both unset and reconciliation conflict.
 
 **Remaining Core gate:** define and implement the internal actor/purpose/snapshot-scoped read/filter boundary over a consistent snapshot, then test actor separation, secret exclusion, world scope, safe result states, and concurrent commit/rollback consistency. Until then, raw snapshot data must not be passed directly to an NPC, narrator, player, or host adapter.
 
@@ -97,13 +97,13 @@ Required tests before relationship integration is considered ready:
 | Typed write / atomicity | Invalid operation causes no partial state mutation or misleading canonical success/revision/audit effects. |
 | Partial update | Supplied dimensions change; omitted dimensions remain unchanged. |
 | Identity and direction | Unknown participants and unsupported self-relations are rejected; A → B does not mutate B → A. |
-| Value semantics | Unknown/unset, explicit neutral, withheld, and explicit clearing are distinguishable at the appropriate semantic/read boundary. |
+| Value semantics | Unset (sometimes called unknown only when no canonical value exists), explicit neutral, withheld, and explicit clearing are distinguishable at the appropriate semantic/read boundary; conflict/insufficient-support is a separate reconciliation/read-result state. |
 | Provenance | Initial/imported state, in-world transition, and author correction are distinguishable and audited. |
 | Authorized read | The actor receives only permitted data from a consistent snapshot; withheld does not reveal canonical unset state. |
 | Deterministic rebuild | Replaying surviving valid history yields the same projection where replay is the approved model. |
 | Dependent rollback | If the only required basis is revoked, dependent state is recomputed. |
 | Independent support | A result remains only if remaining support is actually sufficient under declared rules; otherwise the case is unsupported or unresolved. |
-| Conflict/insufficiency | The system applies an explicit rule or reports conflict/unknown; it does not invent an outcome. |
+| Conflict/insufficiency | The system applies an explicit rule or reports a conflict/insufficient-support reconciliation result; it does not invent an outcome or conflate that result with unset. |
 | Character card | The view reflects authorized canonical state and cannot mutate it independently. |
 
 These are required future tests, not claims that the current runtime already passes them.
