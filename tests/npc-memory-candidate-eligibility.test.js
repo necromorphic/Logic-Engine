@@ -15,7 +15,7 @@ function candidate(overrides = {}) {
     world_id: request.world_id,
     subject_id: request.subject_id,
     purpose: request.purpose,
-    access: { outcome: "allow" },
+    access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
     content_kind: "claim",
     epistemic_kind: "acquired_report",
     producer: { kind: "test-fixture" },
@@ -35,7 +35,7 @@ function candidate(overrides = {}) {
 function completeResult(candidates, overrides = {}) {
   return {
     completeness: "complete",
-    access: { outcome: "allow" },
+    access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
     scope: {
       world_id: request.world_id,
       subject_id: request.subject_id,
@@ -101,10 +101,28 @@ test("missing, denied, withheld, and ambiguous access are all non-admissible", (
   }
 });
 
-test("access decision is bound to the requested subject and purpose", () => {
-  for (const overrides of [{ subject_id: "actor-other" }, { purpose: "different-purpose" }]) {
-    const result = evaluateMemoryCandidateAdmission(request, completeResult([candidate(overrides)]));
+test("candidate access decision must bind allow to the requested subject and purpose", () => {
+  for (const access of [
+    { outcome: "allow" },
+    { outcome: "allow", subject_id: "actor-other", purpose: request.purpose },
+    { outcome: "allow", subject_id: request.subject_id, purpose: "different-purpose" },
+  ]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([candidate({ access })]));
     assert.equal(result.status, "non_ready");
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
+  }
+});
+
+test("request-level access decision must bind allow to the requested subject and purpose", () => {
+  for (const access of [
+    { outcome: "allow" },
+    { outcome: "allow", subject_id: "actor-other", purpose: request.purpose },
+    { outcome: "allow", subject_id: request.subject_id, purpose: "different-purpose" },
+  ]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([], { access }));
+    assert.equal(result.status, "non_ready");
+    assert.equal(result.reason, "request_access_or_scope_unconfirmed");
     assert.deepEqual(result.admitted, []);
   }
 });
