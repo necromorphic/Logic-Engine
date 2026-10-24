@@ -140,6 +140,24 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported time-trigger operation.' } });
       }
 
+      if (action === 'time-actions') {
+        if (!secretMatches(req.headers['x-engine-internal-token'], internalToken)) {
+          return send(res, 403, { error: { code: 'INTERNAL_REQUIRED', message: 'Timed actions require the separately configured internal credential.' } });
+        }
+        if (parts.length === 4 && req.method === 'POST') {
+          const operation = engine.startTimedAction(worldId, await readBody(req));
+          return send(res, ['needs_review', 'blocked'].includes(operation.status) ? 409 : 200, { operation });
+        }
+        if (parts.length === 5 && req.method === 'GET') {
+          return send(res, 200, { operation: engine.getTimeAdvanceOperation(worldId, decodeURIComponent(parts[4])) });
+        }
+        if (parts.length === 6 && parts[5] === 'resume' && req.method === 'POST') {
+          const operation = engine.resumeTimeAdvance(worldId, decodeURIComponent(parts[4]));
+          return send(res, ['needs_review', 'blocked'].includes(operation.status) ? 409 : 200, { operation });
+        }
+        return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported timed-action operation.' } });
+      }
+
       if (action === 'time-advances') {
         if (!secretMatches(req.headers['x-engine-internal-token'], internalToken)) {
           return send(res, 403, { error: { code: 'INTERNAL_REQUIRED', message: 'Time advancement requires the separately configured internal credential.' } });

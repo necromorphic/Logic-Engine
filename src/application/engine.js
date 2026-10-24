@@ -4,7 +4,7 @@ import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
-import { createCalendarDefinition, projectCalendarDate } from '../time/model.js';
+import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -399,8 +399,38 @@ export class LogicEngine {
     };
   }
 
+  assertNoScheduledTriggerCrossing(id, events, expectedRevision) {
+    const durationMs = events.reduce((sum, event) => sum + (event.time_advance_seconds ?? 0) * 1000, 0);
+    if (durationMs === 0) return;
+    const world = this.getState(id);
+    // Do not reject stale revisions here: SQLiteStore checks idempotency replay
+    // before revision freshness, so an identical completed request can replay.
+    // A new stale request is still rejected by the canonical commit boundary.
+    let targetCoordinate;
+    try {
+      targetCoordinate = addTimeDuration(world.game_time_coordinate, durationMs);
+    } catch (error) {
+      const code = error.code === 'COORDINATE_OVERFLOW' ? 'TIME_COORDINATE_OVERFLOW' : (error.code || 'INVALID_TIME_COORDINATE');
+      throw new EngineError(code, error.message || 'Timed event target is outside the coordinate range.', 400);
+    }
+    assert(Number.isSafeInteger(expectedRevision) && expectedRevision >= 0,
+      'TIMED_EVENT_REVISION_REQUIRED', 'A direct timed commit requires expected_revision so trigger registration cannot race the time boundary.');
+    const due = this.store.listTimeTriggers(id)
+      .filter((trigger) => trigger.status === 'pending'
+        && trigger.due_coordinate > world.game_time_coordinate
+        && trigger.due_coordinate <= targetCoordinate)
+      .map((trigger) => trigger.trigger_id);
+    if (due.length) {
+      throw new EngineError('TIME_ADVANCE_OPERATION_REQUIRED',
+        'A direct timed commit cannot cross registered scheduled work; use the Core timed-action or time-advance operation.',
+        409, { trigger_ids: due, from_coordinate: world.game_time_coordinate, to_coordinate: targetCoordinate });
+    }
+  }
+
   commitEvent(id, x) {
-    return this.store.commit(id, this.prepareEventForWorld(id, x));
+    const prepared = this.prepareEventForWorld(id, x);
+    this.assertNoScheduledTriggerCrossing(id, [prepared], prepared.expected_revision);
+    return this.store.commit(id, prepared);
   }
 
   commitSegment(id, x, options = {}) {
@@ -428,6 +458,7 @@ export class LogicEngine {
     assert(new Set(ids).size === ids.length, 'DUPLICATE_SEGMENT_EVENT_ID', 'Segment event IDs must be unique.');
     assert(new Set(keys).size === keys.length, 'DUPLICATE_SEGMENT_EVENT_KEY', 'Segment event idempotency keys must be unique.');
     validateIndependentSegment(preparedEvents);
+    this.assertNoScheduledTriggerCrossing(id, preparedEvents, x.expected_revision);
 
     const requestHash = hashRequest({
       operation: 'event.segment.commit',
@@ -532,6 +563,93 @@ export class LogicEngine {
   }
 
   startTimeAdvance(id, x) {
+    return this._startTimeAdvance(id, x, null, null);
+  }
+
+  startTimedAction(id, x) {
+    assert(obj(x), 'INVALID_TIME_ACTION', 'Timed action request must be an object.');
+    assert(Object.keys(x).every((key) => ['idempotency_key', 'expected_revision', 'event'].includes(key)),
+      'UNSUPPORTED_TIME_ACTION_FIELD', 'Timed action request accepts only idempotency_key, expected_revision, and event.');
+    assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200,
+      'IDEMPOTENCY_KEY_REQUIRED', 'Timed action idempotency_key is required.');
+    assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0,
+      'INVALID_REVISION', 'Timed action expected_revision must be a non-negative safe integer.');
+    assert(obj(x.event), 'INVALID_TIME_ACTION_EVENT', 'Timed action event must be an object.');
+    assert(x.event.event_type !== 'time.advance', 'INVALID_TIME_ACTION_EVENT_TYPE',
+      'Timed actions cannot submit the Core-owned time.advance event type.');
+    const eventAllowed = ['turn_id', 'event_type', 'generation_id', 'context_manifest_id', 'source_message_id',
+      'duration_proposal', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
+    assert(Object.keys(x.event).every((key) => eventAllowed.includes(key)),
+      'INVALID_TIME_ACTION_EVENT', 'Timed action event contains an unsupported field or caller-controlled time/identity.');
+    const key = x.idempotency_key.trim();
+    const actionRequestHash = hashRequest({
+      operation: 'time.action',
+      world_id: id,
+      idempotency_key: key,
+      expected_revision: x.expected_revision,
+      event: x.event,
+    });
+    const existing = this.store.getTimeAdvanceOperationByKey(id, key);
+    if (existing) {
+      if (existing.plan?.action_request_hash !== actionRequestHash) {
+        throw new EngineError('IDEMPOTENCY_CONFLICT', 'The time-action idempotency key was already used with a different request.', 409);
+      }
+      return existing.status === 'running'
+        ? this.store.resumeTimeAdvanceOperation(id, existing.operation_id)
+        : existing;
+    }
+
+    const world = this.getState(id);
+    if (world.world_revision !== x.expected_revision) {
+      throw new EngineError('REVISION_CONFLICT', 'World changed before timed-action planning.', 409, {
+        expected_revision: x.expected_revision, current_revision: world.world_revision,
+      });
+    }
+    const configuration = this.store.getTimeConfiguration(id);
+    if (!configuration) {
+      throw new EngineError('TIME_CONFIG_REQUIRED', 'Timed actions require an active versioned world TimePolicy.', 409);
+    }
+    const identity = hashRequest({ world_id: id, idempotency_key: key }).slice(0, 40);
+    const event = {
+      ...x.event,
+      event_id: 'time-action-' + identity.slice(0, 32),
+      idempotency_key: 'time-action-key:' + identity,
+      turn_id: x.event.turn_id ?? ('time-action-turn:' + identity),
+      time_mode: 'action',
+    };
+    let prepared;
+    try {
+      prepared = this.prepareEventForWorld(id, event);
+    } catch (error) {
+      if (error instanceof EngineError) throw error;
+      throw new EngineError(error.code || 'INVALID_TIME_ACTION_EVENT', error.message || 'Timed action validation failed.', 400, error.details);
+    }
+    const durationMs = prepared.time_advance_seconds * 1000;
+    assert(Number.isSafeInteger(durationMs) && durationMs >= 0, 'INVALID_TIME_ACTION_DURATION',
+      'Resolved action duration must be a non-negative safe integer number of milliseconds.');
+    let targetCoordinate;
+    try {
+      targetCoordinate = addTimeDuration(world.game_time_coordinate, durationMs);
+    } catch (error) {
+      const code = error.code === 'COORDINATE_OVERFLOW' ? 'TIME_COORDINATE_OVERFLOW' : (error.code || 'INVALID_TIME_COORDINATE');
+      throw new EngineError(code, error.message || 'Timed action target is outside the coordinate range.', 400);
+    }
+    const finalEvent = {
+      event: {
+        ...event,
+        time_advance_seconds: 0,
+      },
+      duration_decision: prepared.duration_decision,
+    };
+    return this._startTimeAdvance(id, {
+      idempotency_key: key,
+      expected_revision: x.expected_revision,
+      to_coordinate: targetCoordinate,
+      trigger_source: 'registered',
+    }, finalEvent, actionRequestHash);
+  }
+
+  _startTimeAdvance(id, x, finalEventEnvelope = null, actionRequestHash = null) {
     assert(obj(x), 'INVALID_TIME_ADVANCE_OPERATION', 'Time-advance request must be an object.');
     const allowed = ['idempotency_key', 'expected_revision', 'to_coordinate', 'trigger_source', 'triggers', 'completed_trigger_ids'];
     assert(Object.keys(x).every((key) => allowed.includes(key)), 'UNSUPPORTED_TIME_ADVANCE_FIELD', 'Time-advance request contains an unsupported field.');
@@ -558,6 +676,7 @@ export class LogicEngine {
       trigger_source: triggerSource,
       triggers: triggerSource === 'request' ? (x.triggers ?? []) : null,
       completed_trigger_ids: triggerSource === 'request' ? (x.completed_trigger_ids ?? []) : [],
+      ...(finalEventEnvelope ? { final_event: finalEventEnvelope, action_request_hash: actionRequestHash } : {}),
     });
     const existing = this.store.getTimeAdvanceOperationByKey(id, x.idempotency_key.trim());
     if (existing) {
@@ -672,6 +791,10 @@ export class LogicEngine {
       });
     };
 
+    const preparedFinalEvent = finalEventEnvelope
+      ? this.prepareEvent(finalEventEnvelope.event, { durationDecision: finalEventEnvelope.duration_decision })
+      : null;
+
     if (plan.status !== 'blocked') {
       for (const plannedSegment of plan.segments) {
         const coordinate = plannedSegment.due_coordinate;
@@ -726,6 +849,38 @@ export class LogicEngine {
       }
     }
 
+    if (preparedFinalEvent) {
+      plan.action_request_hash = actionRequestHash;
+      plan.final_action_event_id = preparedFinalEvent.event_id;
+      plan.final_action_duration_ms = finalEventEnvelope.duration_decision?.duration_ms ?? 0;
+      plan.final_action_duration_decision = finalEventEnvelope.duration_decision ?? null;
+      if (plan.status === 'blocked') {
+        plan.final_action_status = 'not_executed_blocked';
+      } else if (plan.status === 'interrupted') {
+        plan.final_action_status = 'not_executed_interrupted';
+      } else {
+        const actionAccess = segmentAccess(preparedFinalEvent);
+        const targetSegments = segments.filter((segment) => segment.coordinate === effectiveTarget);
+        for (const segment of targetSegments) {
+          for (const existingEvent of segment.events) {
+            const existingAccess = segmentAccess(existingEvent);
+            const conflicts = [
+              ...[...actionAccess.writes].filter((ref) => existingAccess.writes.has(ref) || existingAccess.reads.has(ref)),
+              ...[...actionAccess.reads].filter((ref) => existingAccess.writes.has(ref)),
+            ];
+            if (conflicts.length) {
+              throw new EngineError('TIME_ACTION_TRIGGER_CONFLICT',
+                'Timed action effects conflict with scheduled work at the same coordinate; the operation requires an explicit causal policy.',
+                409, { action_event_id: preparedFinalEvent.event_id, conflicting_event_id: existingEvent.event_id, reference: conflicts[0] });
+            }
+          }
+        }
+        validateIndependentSegment([preparedFinalEvent]);
+        appendSegment(effectiveTarget, [preparedFinalEvent], [], []);
+        plan.final_action_status = 'pending';
+      }
+    }
+
     const completedTriggerIds = plan.segments.flatMap((segment) => segment.trigger_ids);
     plan.completed_trigger_ids = completedTriggerIds;
     const initialStatus = plan.status === 'blocked' ? 'blocked'
@@ -745,7 +900,10 @@ export class LogicEngine {
         ? [...new Set(segments.flatMap((segment) => segment.registered_trigger_ids ?? []))]
         : [],
       plan,
-      result: initialStatus === 'blocked' ? { status: 'blocked', blocked: plan.blocked, confirmed_coordinate: from } : null,
+      result: initialStatus === 'blocked' ? {
+        status: 'blocked', blocked: plan.blocked, confirmed_coordinate: from,
+        ...(plan.final_action_status ? { final_action_status: plan.final_action_status } : {}),
+      } : null,
     });
     if (operation.status !== 'running') return operation;
     return this.store.resumeTimeAdvanceOperation(id, operation.operation_id);

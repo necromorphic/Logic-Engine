@@ -40,6 +40,7 @@ Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in su
 - `POST /v1/worlds/:id/time-triggers` — register an immutable future trigger with a Core-validated effect proposal (requires `x-engine-internal-token`).
 - `GET /v1/worlds/:id/time-triggers` and `GET /v1/worlds/:id/time-triggers/:trigger_id` — inspect persisted trigger lifecycle state (internal credential required).
 - `POST /v1/worlds/:id/time-triggers/:trigger_id/cancel` — cancel unclaimed pending work (internal credential required).
+- `POST /v1/worlds/:id/time-actions` — resolve an action's duration through the active TimePolicy, process registered triggers inside that interval, and commit the action at the confirmed target (requires `x-engine-internal-token`). The action request accepts no caller-controlled duration or event identity. GET and resume use the same durable operation ID.
 - `POST /v1/worlds/:id/time-advances` — plan and run a durable time-advance operation (requires `x-engine-internal-token`); provide an expected revision and target millisecond coordinate. Omit `triggers` to use the durable registry, or pass a trigger set for request-scoped compatibility mode.
 - `GET /v1/worlds/:id/time-advances/:operation_id` — retrieve persisted operation/checkpoint state (internal credential required).
 - `POST /v1/worlds/:id/time-advances/:operation_id/resume` — resume a persisted running operation from its last atomically committed segment (internal credential required).
@@ -64,7 +65,7 @@ The API requires the general bearer token. Proposal creation and cancellation ad
 - T3 provides atomic bounded commits for independent event segments. T4 provides deterministic due-work planning over `(from, to]`. T5 persists time-advance operations and resumes from an atomically committed segment checkpoint; the internal start/status/resume routes require `x-engine-internal-token`.
 - T6 adds immutable, audited per-world calendar/TimePolicy configurations tied to the pinned World Pack ID/version. With a configuration active, Core resolves action duration from fixed/range/category rules; caller-supplied mismatched durations are rejected. Calendar mapping changes after event history require an explicit author rebase policy.
 - Event timestamps are recorded when the event is committed. Rollback increments `world_revision` and rebuilds projections without rewinding global `game_time`.
-- Worlds without an active TimePolicy retain legacy 12-hour action / seven-day skip limits. With a TimePolicy, the configured duration rules and whole-operation skip ceiling apply. Time advances only through accepted Core events.
+- Worlds without an active TimePolicy retain legacy 12-hour action / seven-day skip limits for the legacy event path. The new timed-action operation requires an active TimePolicy and processes registered triggers before committing action effects. Direct timed commits require an expected revision and are rejected if they would cross registered pending triggers. With a TimePolicy, the configured duration rules and whole-operation skip ceiling apply; synthetic scheduler events are chunked to at most seven days, with a 1,024-segment operation cap. Time advances only through accepted Core events.
 
 ## Known gaps and limits
 

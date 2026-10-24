@@ -39,6 +39,8 @@ All routes require the general bearer token and the separately configured `x-eng
 
 A `POST /v1/worlds/:id/time-advances` request that omits `triggers` uses registered triggers. Supplying `triggers` selects the existing request-scoped compatibility path. The two sources cannot be mixed in one request, and request-scoped mode is rejected if it would cross any registered pending trigger.
 
+A `POST /v1/worlds/:id/time-actions` request resolves the action duration through the active TimePolicy, plans the same durable trigger registry over the resulting interval, and commits the action event at the confirmed target after due work. The caller cannot set the duration, event ID, or revision cursor. If due work blocks or interrupts the interval, the action is not committed and the result states why. Conflicting scheduled effects at the action's exact target are rejected for explicit review. Direct timed event/segment commits require an expected revision and are rejected if they would cross registered pending triggers.
+
 ## Explicit limitations
 
 - Trigger completion is transactional with the segment checkpoint, but NPC knowledge and player delivery are separate and never implied by trigger completion.
