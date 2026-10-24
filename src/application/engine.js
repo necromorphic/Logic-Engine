@@ -399,8 +399,39 @@ export class LogicEngine {
     };
   }
 
+  assertNoScheduledTriggerCrossing(id, events, expectedRevision) {
+    const durationMs = events.reduce((sum, event) => sum + (event.time_advance_seconds ?? 0) * 1000, 0);
+    if (durationMs === 0) return;
+    assert(Number.isSafeInteger(expectedRevision) && expectedRevision >= 0,
+      'TIMED_EVENT_REVISION_REQUIRED', 'A direct timed commit requires expected_revision so trigger registration cannot race the time boundary.');
+    const world = this.getState(id);
+    if (world.world_revision !== expectedRevision) {
+      throw new EngineError('REVISION_CONFLICT', 'World changed before the timed event could be committed.', 409, {
+        expected_revision: expectedRevision, current_revision: world.world_revision,
+      });
+    }
+    let targetCoordinate;
+    try {
+      targetCoordinate = addTimeDuration(world.game_time_coordinate, durationMs);
+    } catch (error) {
+      throw new EngineError(error.code || 'INVALID_TIME_COORDINATE', error.message || 'Timed event target is outside the coordinate range.', 400);
+    }
+    const due = this.store.listTimeTriggers(id)
+      .filter((trigger) => trigger.status === 'pending'
+        && trigger.due_coordinate > world.game_time_coordinate
+        && trigger.due_coordinate <= targetCoordinate)
+      .map((trigger) => trigger.trigger_id);
+    if (due.length) {
+      throw new EngineError('TIME_ADVANCE_OPERATION_REQUIRED',
+        'A direct timed commit cannot cross registered scheduled work; use the Core timed-action or time-advance operation.',
+        409, { trigger_ids: due, from_coordinate: world.game_time_coordinate, to_coordinate: targetCoordinate });
+    }
+  }
+
   commitEvent(id, x) {
-    return this.store.commit(id, this.prepareEventForWorld(id, x));
+    const prepared = this.prepareEventForWorld(id, x);
+    this.assertNoScheduledTriggerCrossing(id, [prepared], prepared.expected_revision);
+    return this.store.commit(id, prepared);
   }
 
   commitSegment(id, x, options = {}) {
@@ -428,6 +459,7 @@ export class LogicEngine {
     assert(new Set(ids).size === ids.length, 'DUPLICATE_SEGMENT_EVENT_ID', 'Segment event IDs must be unique.');
     assert(new Set(keys).size === keys.length, 'DUPLICATE_SEGMENT_EVENT_KEY', 'Segment event idempotency keys must be unique.');
     validateIndependentSegment(preparedEvents);
+    this.assertNoScheduledTriggerCrossing(id, preparedEvents, x.expected_revision);
 
     const requestHash = hashRequest({
       operation: 'event.segment.commit',
