@@ -411,3 +411,8 @@ Do not close these gates with a fake host signal, mocked missing core records, o
 ## Current Core knowledge readiness reference — 2026-10-24
 
 For the live source-to-requirement audit, including exact inspected Core head, observed services/tests, missing acquisition/filter boundaries, and the production acceptance gate, see `docs/49-npc-core-knowledge-live-audit.md`. Actor binding now exists on current Core `main`, but actor-relative acquisition filtering and secret exclusion remain hard blockers. This map does not treat adjacent Core features as proof of NPC knowledge safety.
+
+
+## Initial-acquisition contract
+
+Use `docs/50-npc-initial-knowledge-acquisition-contract.md` as the semantic test source for the first `author_initial`/imported slice. Its NKA-01–NKA-14 cases are acceptance targets, not current passing tests. Tests must reach real Core services and the exact model serialization boundary; mock-only acquisition/filter implementations do not satisfy this map.
