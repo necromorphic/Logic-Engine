@@ -71,6 +71,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
     authorizeQuery: async () => authorizeQuery,
     retrieveCandidates: async () => ({
       completeness,
+      index_health: 'ready',
       scope,
       candidates: candidateList,
     }),
