@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { EngineError } from '../core/errors.js';
+import { hashRequest } from '../core/request-hash.js';
 import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidate.js';
 
 const now = () => new Date().toISOString();
@@ -891,7 +892,7 @@ export class SQLiteStore {
     });
   }
 
-  validateContextManifest(worldId, event) {
+  validateContextManifest(worldId, event, baseRevision = null) {
     if (!event.context_manifest_id) return;
     const manifest = this.db.prepare('SELECT * FROM context_manifests WHERE world_id=? AND manifest_id=?').get(worldId, event.context_manifest_id);
     if (!manifest) throw new EngineError('CONTEXT_MANIFEST_NOT_FOUND', 'context_manifest_id must reference a registered manifest in this world.', 400, { context_manifest_id: event.context_manifest_id });
@@ -902,8 +903,9 @@ export class SQLiteStore {
     if (manifest.base_commit_sequence > this.currentCommitSequence(worldId)) {
       throw new EngineError('INVALID_CONTEXT_CURSOR', 'Context manifest cursor cannot be ahead of the current world history.', 409);
     }
-    if (manifest.base_world_revision !== currentWorld.world_revision) {
-      throw new EngineError('CONTEXT_SNAPSHOT_STALE', 'The world changed after this context snapshot was registered; regenerate against a fresh manifest.', 409, { manifest_world_revision: manifest.base_world_revision, current_world_revision: currentWorld.world_revision });
+    const expectedBaseRevision = baseRevision ?? currentWorld.world_revision;
+    if (manifest.base_world_revision !== expectedBaseRevision) {
+      throw new EngineError('CONTEXT_SNAPSHOT_STALE', 'The context manifest is not anchored to the segment or commit base revision.', 409, { manifest_world_revision: manifest.base_world_revision, expected_base_revision: expectedBaseRevision, current_world_revision: currentWorld.world_revision });
     }
     const available = new Set(dec(manifest.items_json).map((item) => item.kind + ':' + item.target_id));
     const declared = new Set();
@@ -960,8 +962,8 @@ export class SQLiteStore {
       : { status: row.status, value: dec(row.value_json), values: [dec(row.value_json)] }]));
   }
 
-  validateCausalMetadata(worldId, event, nextRevision) {
-    this.validateContextManifest(worldId, event);
+  validateCausalMetadata(worldId, event, nextRevision, contextBaseRevision = null) {
+    this.validateContextManifest(worldId, event, contextBaseRevision);
     for (const eventId of event.caused_by) this.validateEventReference(worldId, eventId, nextRevision, 'caused_by');
     for (const ref of event.depends_on) {
       if (ref.startsWith('entity:')) {
@@ -1043,7 +1045,7 @@ export class SQLiteStore {
     }
   }
 
-  commit(id, x) {
+  commit(id, x, options = {}) {
     return this.tx(() => {
       const old = this.replay(id, x.idempotency_key, x.request_hash);
       if (old) return { ...old, idempotent_replay: true };
@@ -1071,7 +1073,7 @@ export class SQLiteStore {
       if (relationshipEffects.length) {
         x.read_set = [...new Set([...(x.read_set || []), ...relationshipEffects.map((effect) => relationshipRef(effect.subject_id, effect.target_id))])];
       }
-      this.validateCausalMetadata(id, x, revision);
+      this.validateCausalMetadata(id, x, revision, options.contextBaseRevision ?? null);
       const currentEntities = this.currentEntityProjection(id);
       const relationshipPairs = new Set();
       const entityEffectIds = new Set();
@@ -1220,7 +1222,7 @@ export class SQLiteStore {
       );
       this.db.prepare('UPDATE worlds SET world_revision=?,game_time=?,game_time_coordinate=? WHERE world_id=?')
         .run(revision, time, gameTimeCoordinate, id);
-      this.rebuild(id, revision);
+      if (!options.deferRebuild) this.rebuild(id, revision);
       const result = {
         accepted: true, event_id: eventId, world_id: id, world_revision: revision, commit_sequence: commitSequence,
         game_time: this.world(id).game_time, game_time_coordinate: this.world(id).game_time_coordinate, effect_count: x.effects.length, idempotent_replay: false,
@@ -1232,6 +1234,89 @@ export class SQLiteStore {
           time_advance_ms: durationMs, game_time_coordinate: gameTimeCoordinate,
         }), createdAt);
       this.saveReplay(id, x.idempotency_key, x.request_hash, result);
+      return result;
+    });
+  }
+
+  commitSegment(id, events, key, requestHash, expectedRevision, expectedCommitSequence = null) {
+    return this.tx(() => {
+      const old = this.replay(id, key, requestHash);
+      if (old) return { ...old, idempotent_replay: true };
+      const worldAtStart = this.world(id);
+      if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (expectedRevision !== worldAtStart.world_revision) {
+        throw new EngineError('REVISION_CONFLICT', 'World changed after segment planning.', 409, {
+          expected_revision: expectedRevision, current_revision: worldAtStart.world_revision,
+        });
+      }
+      const startCommitSequence = this.currentCommitSequence(id);
+      if (expectedCommitSequence !== null && expectedCommitSequence !== startCommitSequence) {
+        throw new EngineError('COMMIT_SEQUENCE_CONFLICT', 'World event cursor changed after segment planning.', 409, {
+          expected_commit_sequence: expectedCommitSequence, current_commit_sequence: startCommitSequence,
+          current_world_revision: worldAtStart.world_revision,
+        });
+      }
+      if (!Array.isArray(events) || events.length < 1 || events.length > 32) {
+        throw new EngineError('INVALID_SEGMENT_SIZE', 'A segment must contain between 1 and 32 events.', 400);
+      }
+
+      const eventIds = new Set();
+      const eventKeys = new Set();
+      for (const event of events) {
+        if (!event || typeof event.event_id !== 'string' || !event.event_id.trim()
+          || typeof event.idempotency_key !== 'string' || !event.idempotency_key.trim()) {
+          throw new EngineError('INVALID_SEGMENT_EVENT', 'Every segment event must have an explicit event_id and idempotency_key.', 400);
+        }
+        if (eventIds.has(event.event_id)) throw new EngineError('DUPLICATE_SEGMENT_EVENT_ID', 'Segment event IDs must be unique.', 400);
+        if (eventKeys.has(event.idempotency_key)) throw new EngineError('DUPLICATE_SEGMENT_EVENT_KEY', 'Segment event idempotency keys must be unique.', 400);
+        if (event.idempotency_key === key) throw new EngineError('SEGMENT_KEY_COLLISION', 'The segment idempotency key must differ from every event key.', 400);
+        eventIds.add(event.event_id);
+        eventKeys.add(event.idempotency_key);
+      }
+      for (const eventKey of eventKeys) {
+        if (this.db.prepare('SELECT 1 FROM idempotency_keys WHERE world_id=? AND idempotency_key=?').get(id, eventKey)) {
+          throw new EngineError('SEGMENT_EVENT_KEY_ALREADY_USED', 'An event idempotency key in this segment has already been used outside this segment.', 409, { idempotency_key: eventKey });
+        }
+      }
+
+      const eventResults = [];
+      for (const event of events) {
+        const currentWorld = this.world(id);
+        const currentSequence = this.currentCommitSequence(id);
+        const adjusted = {
+          ...event,
+          expected_revision: currentWorld.world_revision,
+          expected_commit_sequence: currentSequence,
+        };
+        const { request_hash: _oldHash, idempotency_key: eventKey, ...requestPayload } = adjusted;
+        adjusted.request_hash = hashRequest(requestPayload);
+        const result = this.commit(id, adjusted, {
+          deferRebuild: true,
+          contextBaseRevision: worldAtStart.world_revision,
+        });
+        if (result.idempotent_replay) {
+          throw new EngineError('SEGMENT_EVENT_KEY_ALREADY_USED', 'A segment event unexpectedly replayed an earlier commit.', 409, { idempotency_key: eventKey });
+        }
+        eventResults.push(result);
+      }
+
+      const finalWorld = this.world(id);
+      this.rebuild(id, finalWorld.world_revision);
+      const result = {
+        accepted: true,
+        segment_id: randomUUID(),
+        world_id: id,
+        event_ids: eventResults.map((event) => event.event_id),
+        event_results: eventResults,
+        start_game_time_coordinate: worldAtStart.game_time_coordinate,
+        end_game_time_coordinate: finalWorld.game_time_coordinate,
+        start_world_revision: worldAtStart.world_revision,
+        world_revision: finalWorld.world_revision,
+        start_commit_sequence: startCommitSequence,
+        commit_sequence: this.currentCommitSequence(id),
+        idempotent_replay: false,
+      };
+      this.saveReplay(id, key, requestHash, result);
       return result;
     });
   }
