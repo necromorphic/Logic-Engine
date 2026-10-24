@@ -119,8 +119,23 @@ test('calendar may omit weekdays and define a non-standard day length', () => {
   assert.equal(projected.weekday, null);
 });
 
+test('calendar projection uses exact floor division near negative coordinate boundaries', () => {
+  const custom = {
+    version: 'large-day@1',
+    unitsPerDay: Number.MAX_SAFE_INTEGER - 1,
+    epoch: { coordinate: 0, year: 0, month: 1, day: 1 },
+    months: [{ name: 'Only', days: 10 }],
+    weekdays: [],
+  };
+  const projected = projectFixedCalendar(-Number.MAX_SAFE_INTEGER, custom);
+  assert.equal(projected.year, -2);
+  assert.equal(projected.day, 9);
+  assert.equal(projected.time_of_day_units, Number.MAX_SAFE_INTEGER - 3);
+});
+
 test('calendar definitions reject invalid epochs and month layouts', () => {
   assert.throws(() => projectFixedCalendar(0, { ...calendar, epoch: { ...calendar.epoch, month: 99 } }), TypeError);
   assert.throws(() => projectFixedCalendar(0, { ...calendar, months: [{ name: 'Ash', days: 0 }] }), TypeError);
   assert.throws(() => projectFixedCalendar(0, { ...calendar, weekdays: ['Same', 'Same'] }), TypeError);
+  assert.throws(() => projectFixedCalendar(0, { ...calendar, holidays: 'not-an-array' }), TypeError);
 });
