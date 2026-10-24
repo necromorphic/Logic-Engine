@@ -1,0 +1,141 @@
+/**
+ * NPC-side Memory candidate admission oracle.
+ *
+ * This is a pure, schema-neutral consumer helper, NOT an authorization service,
+ * Memory adapter, or production read API. It only evaluates evidence supplied
+ * by an owner-approved caller. Missing evidence fails closed.
+ *
+ * No content is copied into the decision result, which avoids turning a
+ * rejection report into a secondary content-disclosure surface.
+ */
+
+const ALLOW = "allow";
+const SAFE_RESULT_COMPLETENESS = "complete";
+const READY_SOURCE_STATES = new Set(["current"]);
+const READY_LINEAGE_STATES = new Set(["complete"]);
+const KNOWN_EPISTEMIC_KINDS = new Set([
+  "canonical",
+  "acquired_report",
+  "rumor",
+  "inference",
+  "authored_initial",
+  "imported",
+]);
+
+function isNonEmptyString(value) {
+  return typeof value === "string" && value.trim().length > 0;
+}
+
+function matchesRequest(candidate, request) {
+  return candidate.world_id === request.world_id
+    && candidate.subject_id === request.subject_id
+    && candidate.purpose === request.purpose;
+}
+
+function sameSnapshot(candidate, request) {
+  if (request.snapshot == null) return true;
+  if (candidate.snapshot == null) return false;
+  return candidate.snapshot.world_revision === request.snapshot.world_revision
+    && candidate.snapshot.commit_sequence === request.snapshot.commit_sequence;
+}
+
+function validReference(record) {
+  return record != null
+    && isNonEmptyString(record.ref)
+    && isNonEmptyString(record.version);
+}
+
+function lineageIsSafe(candidate) {
+  if (candidate.content_kind !== "summary") return true;
+  if (candidate.lineage?.status !== "complete") return false;
+  if (!Array.isArray(candidate.lineage.sources) || candidate.lineage.sources.length === 0) {
+    return false;
+  }
+
+  return candidate.lineage.sources.every((source) =>
+    source != null
+      && isNonEmptyString(source.ref)
+      && isNonEmptyString(source.version)
+      && source.access?.outcome === ALLOW
+      && READY_SOURCE_STATES.has(source.freshness?.status)
+  );
+}
+
+function candidateRejection(candidate, request) {
+  if (candidate == null || typeof candidate !== "object") return "invalid_candidate";
+  if (!matchesRequest(candidate, request)) return "scope_mismatch";
+  if (candidate.access?.outcome !== ALLOW) return "access_not_allowed";
+  if (!validReference(candidate.record)) return "record_identity_incomplete";
+  if (!KNOWN_EPISTEMIC_KINDS.has(candidate.epistemic_kind)) return "epistemic_kind_unknown";
+  if (!READY_SOURCE_STATES.has(candidate.freshness?.status)) return "source_not_current";
+  if (!sameSnapshot(candidate, request)) return "snapshot_mismatch";
+  if (!lineageIsSafe(candidate)) return "lineage_not_safe";
+  return null;
+}
+
+/**
+ * Evaluate whether supplied candidates are eligible for a bounded NPC context.
+ *
+ * Request fields are trusted bindings established by the caller, not values
+ * that should be accepted from model output. The function does not establish
+ * that those bindings are authentic or that the access decision is genuine.
+ */
+export function evaluateMemoryCandidateAdmission(request, result) {
+  if (
+    request == null
+    || !isNonEmptyString(request.world_id)
+    || !isNonEmptyString(request.subject_id)
+    || !isNonEmptyString(request.purpose)
+  ) {
+    return Object.freeze({
+      status: "non_ready",
+      admitted: Object.freeze([]),
+      rejected: Object.freeze([]),
+      reason: "trusted_scope_incomplete",
+    });
+  }
+
+  if (result == null || result.completeness !== SAFE_RESULT_COMPLETENESS || !Array.isArray(result.candidates)) {
+    return Object.freeze({
+      status: "non_ready",
+      admitted: Object.freeze([]),
+      rejected: Object.freeze([]),
+      reason: "result_incomplete_or_unavailable",
+    });
+  }
+
+  const admitted = [];
+  const rejected = [];
+  const seen = new Set();
+
+  for (const candidate of result.candidates) {
+    const reason = candidateRejection(candidate, request);
+    if (reason) {
+      // Do not expose record IDs, titles, snippets, or source metadata here.
+      rejected.push(Object.freeze({ reason }));
+      continue;
+    }
+
+    const identity = `${candidate.record.ref}\u0000${candidate.record.version}`;
+    if (seen.has(identity)) {
+      rejected.push(Object.freeze({ reason: "duplicate_record_version" }));
+      continue;
+    }
+    seen.add(identity);
+
+    // Only stable reference/version are returned. Content must be fetched or
+    // projected by an authorized boundary; this helper never returns content.
+    admitted.push(Object.freeze({
+      record_ref: candidate.record.ref,
+      record_version: candidate.record.version,
+      epistemic_kind: candidate.epistemic_kind,
+    }));
+  }
+
+  return Object.freeze({
+    status: rejected.length === 0 ? "ready" : admitted.length > 0 ? "partial" : "non_ready",
+    admitted: Object.freeze(admitted),
+    rejected: Object.freeze(rejected),
+    reason: rejected.length === 0 ? null : "one_or_more_candidates_excluded",
+  });
+}
