@@ -32,20 +32,38 @@ function freeze(value) {
 /**
  * Versioned context projection for the bounded mechanic executor.
  *
- * The caller must supply an explicit path-to-entity-attribute binding and a
- * deployment-owned authorization callback. There is intentionally no default
- * allow policy. The provider reads canonical state internally but returns only
- * the projected values, evidence records, and snapshot markers.
+ * Every condition path needs an explicit path-to-entity-attribute binding and
+ * an explicit trusted authorization boundary. Deployments may provide a
+ * callback directly, or use AuthorizedReadService so adapter/actor binding,
+ * recipient, purpose, and the canonical field policy are enforced together.
+ * There is intentionally no default allow policy.
  */
 export class CanonicalEntityAttributeContextProvider {
   #bindings;
 
-  constructor(engine, { policyVersion, authorizationScope, bindings, canRead } = {}) {
+  constructor(engine, {
+    policyVersion, authorizationScope, bindings, canRead,
+    authorizedReadService, adapterId, actorEntityId, recipient, purpose,
+  } = {}) {
     if (!engine || typeof engine.getState !== 'function') throw new TypeError('A LogicEngine is required.');
     if (typeof policyVersion !== 'string' || !policyVersion.trim()) throw new TypeError('policyVersion must be a non-empty version identifier.');
     if (typeof authorizationScope !== 'string' || !authorizationScope.trim()) throw new TypeError('authorizationScope must identify the visibility principal or scope.');
     if (!Array.isArray(bindings)) throw new TypeError('bindings must be an explicit array.');
-    if (typeof canRead !== 'function') throw new TypeError('A deployment-owned canRead authorization callback is required.');
+    const useAuthorizedReadService = authorizedReadService !== undefined;
+    if (useAuthorizedReadService) {
+      if (typeof authorizedReadService?.readEntityAttributeForMechanic !== 'function') {
+        throw new TypeError('authorizedReadService must expose readEntityAttributeForMechanic.');
+      }
+      if (typeof adapterId !== 'string' || !adapterId.trim()
+        || typeof actorEntityId !== 'string' || !actorEntityId.trim()
+        || !['model', 'player', 'adapter'].includes(recipient)
+        || !['npc_decision', 'character_card', 'narrative'].includes(purpose)) {
+        throw new TypeError('Authorized context requires an adapter, bound actor, recipient, and purpose.');
+      }
+      if (canRead !== undefined) throw new TypeError('Provide either authorizedReadService or canRead, not both.');
+    } else if (typeof canRead !== 'function') {
+      throw new TypeError('A deployment-owned canRead callback or AuthorizedReadService is required.');
+    }
     const byPath = new Map();
     for (const binding of bindings) {
       if (!object(binding) || Object.keys(binding).some((key) => !['path', 'entity_id', 'attribute'].includes(key))
@@ -65,11 +83,19 @@ export class CanonicalEntityAttributeContextProvider {
     this.policyVersion = policyVersion.trim();
     this.authorizationScope = authorizationScope.trim();
     this.#bindings = byPath;
-    this.canRead = canRead;
+    this.canRead = canRead ?? null;
+    this.authorizedReadService = authorizedReadService ?? null;
+    this.readPrincipal = useAuthorizedReadService ? Object.freeze({
+      adapter_id: adapterId.trim(),
+      actor_entity_id: actorEntityId.trim(),
+      recipient,
+      purpose,
+    }) : null;
     this.policyFingerprint = hashRequest({
       policy_version: this.policyVersion,
       authorization_scope: this.authorizationScope,
       bindings: [...byPath.values()].sort((a, b) => a.path.localeCompare(b.path)),
+      ...(this.readPrincipal ? { authorization_principal: this.readPrincipal } : {}),
     });
     Object.freeze(this);
   }
@@ -95,27 +121,48 @@ export class CanonicalEntityAttributeContextProvider {
     for (const path of conditionPaths) {
       const binding = this.#bindings.get(path);
       if (!binding) throw new Error('A condition path has no registered canonical binding.');
-      const entity = state.entities.find((candidate) => candidate.entity_id === binding.entity_id && candidate.status !== 'destroyed');
-      if (!entity || !object(entity.attributes)) throw new Error('A condition binding target is unavailable in this world.');
-      const permitted = this.canRead({
-        world_id: worldId,
-        entity_id: entity.entity_id,
-        entity_type: entity.entity_type,
-        entity_status: entity.status,
-        attribute: binding.attribute,
-        condition_path: path,
-        world_revision: snapshot.world_revision,
-        commit_sequence: snapshot.commit_sequence,
-        policy_version: this.policyVersion,
-        authorization_scope: this.authorizationScope,
-      });
-      if (permitted !== true) throw new Error('A condition binding is not authorized by the configured visibility policy.');
 
-      if (Object.hasOwn(entity.attributes, binding.attribute)) {
-        setPath(context, path, entity.attributes[binding.attribute]);
+      if (this.authorizedReadService) {
+        const read = this.authorizedReadService.readEntityAttributeForMechanic({
+          worldId,
+          ...this.readPrincipal,
+          entityId: binding.entity_id,
+          attribute: binding.attribute,
+          expectedWorldRevision: snapshot.world_revision,
+          expectedCommitSequence: snapshot.commit_sequence,
+        });
+        if (read.world_id !== worldId || read.entity_id !== binding.entity_id
+          || read.attribute !== binding.attribute
+          || read.world_revision !== snapshot.world_revision
+          || read.commit_sequence !== snapshot.commit_sequence) {
+          throw new Error('Authorized read did not match the exact mechanic evaluation snapshot.');
+        }
+        if (read.present) setPath(context, path, read.value);
+        else knownAbsentPaths.push(path);
       } else {
-        knownAbsentPaths.push(path);
+        const entity = state.entities.find((candidate) => candidate.entity_id === binding.entity_id && candidate.status !== 'destroyed');
+        if (!entity || !object(entity.attributes)) throw new Error('A condition binding target is unavailable in this world.');
+        const permitted = this.canRead({
+          world_id: worldId,
+          entity_id: entity.entity_id,
+          entity_type: entity.entity_type,
+          entity_status: entity.status,
+          attribute: binding.attribute,
+          condition_path: path,
+          world_revision: snapshot.world_revision,
+          commit_sequence: snapshot.commit_sequence,
+          policy_version: this.policyVersion,
+          authorization_scope: this.authorizationScope,
+        });
+        if (permitted !== true) throw new Error('A condition binding is not authorized by the configured visibility policy.');
+
+        if (Object.hasOwn(entity.attributes, binding.attribute)) {
+          setPath(context, path, entity.attributes[binding.attribute]);
+        } else {
+          knownAbsentPaths.push(path);
+        }
       }
+
       dependencyEvidence.push({
         path,
         kind: 'entity_attribute',
