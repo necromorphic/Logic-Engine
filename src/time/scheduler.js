@@ -95,7 +95,7 @@ function heapPop(heap) {
   return root;
 }
 
-function normalizeTrigger(input, worldId) {
+export function normalizeTimeTrigger(input, worldId) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('INVALID_TRIGGER', 'Every trigger must be an object.');
   const trigger = {
     trigger_id: nonEmptyString(input.trigger_id, 'trigger_id'),
@@ -262,7 +262,7 @@ export function planDueWork(input) {
   if (to < from) fail('REVERSED_INTERVAL', 'Due-work interval end must not precede its start.');
   if (!Array.isArray(input.triggers) || input.triggers.length > 10000) fail('INVALID_TRIGGER_LIST', 'triggers must be an array of at most 10000 entries.');
   const completedIds = new Set(stringSet(input.completed_trigger_ids, 'completed_trigger_ids', 10000));
-  const triggers = input.triggers.map((trigger) => normalizeTrigger(trigger, worldId));
+  const triggers = input.triggers.map((trigger) => normalizeTimeTrigger(trigger, worldId));
   const allById = new Map();
   for (const trigger of triggers) {
     if (allById.has(trigger.trigger_id)) fail('DUPLICATE_TRIGGER_ID', 'Trigger IDs must be unique.');
