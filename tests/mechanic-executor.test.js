@@ -238,6 +238,8 @@ test('mechanic evaluation hands off through the ordinary durable proposal lifecy
   assert.equal(proposal.mechanic_execution.evaluation_fingerprint, evaluation.evaluation_fingerprint);
   assert.deepEqual(proposal.mechanic_execution.effect_provenance, evaluation.effect_provenance);
   assert.deepEqual(proposal.mechanic_execution.dependency_manifest, evaluation.dependency_manifest);
+  assert.deepEqual(proposal.event.read_set, evaluation.read_set);
+  assert.deepEqual(proposal.event.causal_links, evaluation.causal_links);
   assert.equal(proposal.mechanic_execution.context_policy_version, 'test-visibility-policy-v1');
   assert.deepEqual(proposal.mechanic_execution.dependency_manifest, evaluation.dependency_manifest);
   const creationAudit = engine.getAudit(worldId).find((entry) => entry.action === 'proposal.created' && entry.target_id === proposal.proposal_id);
