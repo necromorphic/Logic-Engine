@@ -556,3 +556,38 @@ test('record identities with control characters fail closed before identity join
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
 });
+
+
+test('Memory query and retrieval failures fail closed without leaking provider errors', async (t) => {
+  const { consumer, provider } = setup(t);
+  provider.authorizeQuery = async () => {
+    throw new Error('private query policy failure');
+  };
+  const queryFailure = await consumer.retrieveForNpc(request());
+  assert.equal(queryFailure.status, 'non_ready');
+  assert.equal(queryFailure.reason, 'query_access_unconfirmed');
+  assert.equal(JSON.stringify(queryFailure).includes('private query policy failure'), false);
+
+  provider.authorizeQuery = async () => true;
+  provider.retrieveCandidates = async () => {
+    throw new Error('private index backend failure');
+  };
+  const retrievalFailure = await consumer.retrieveForNpc(request());
+  assert.equal(retrievalFailure.status, 'non_ready');
+  assert.equal(retrievalFailure.reason, 'memory_retrieval_unavailable');
+  assert.equal(JSON.stringify(retrievalFailure).includes('private index backend failure'), false);
+
+  provider.retrieveCandidates = async () => ({
+    completeness: 'complete',
+    index_health: 'ready',
+    source_reconciliation: 'current',
+    scope: { world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' },
+    snapshot: { world_revision: 1, commit_sequence: 1 },
+    candidates: [],
+    unsupported_function: () => 'must not escape',
+  });
+  const invalidClone = await consumer.retrieveForNpc(request());
+  assert.equal(invalidClone.status, 'non_ready');
+  assert.equal(invalidClone.reason, 'memory_retrieval_unavailable');
+  assert.equal(JSON.stringify(invalidClone).includes('must not escape'), false);
+});
