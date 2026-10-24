@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { EngineError, assert } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
+import { isAttestedMechanicEvaluation } from './mechanic-evaluation-attestation.js';
 
 const now = () => new Date().toISOString();
 const enc = (value) => JSON.stringify(value);
@@ -125,6 +126,7 @@ export class ProposalService {
    */
   createFromMechanicEvaluation(worldId, evaluation, { idempotencyKey, turnId, sourceText, adapterId } = {}) {
     assert(object(evaluation) && evaluation.status === 'ready', 'INVALID_MECHANIC_EVALUATION', 'Only a ready mechanic evaluation can be handed off.');
+    assert(isAttestedMechanicEvaluation(evaluation), 'UNATTESTED_MECHANIC_EVALUATION', 'Only the original immutable result produced by the trusted MechanicExecutor can be handed off.');
     const identity = evaluation.snapshot_identity;
     assert(object(identity) && identity.world_id === worldId
       && Number.isSafeInteger(identity.world_revision) && identity.world_revision >= 0
