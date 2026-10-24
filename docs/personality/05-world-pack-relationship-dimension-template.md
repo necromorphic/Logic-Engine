@@ -45,7 +45,7 @@ These concepts must not be collapsed into one value:
 - **Conflict/insufficient support:** available valid evidence does not yield one justified result under the domain rules.
 - **Unsupported/incomplete:** the requested dimension, value, rule, or required input is not supported or is missing. Do not reinterpret this as neutral, unset, or a conflict unless the declared contract explicitly establishes that mapping.
 
-The first four are not interchangeable. In particular, “cleared” describes an explicit lifecycle event, not a requirement that the current value remain populated with a special sentinel. Conflict is an epistemic/reconciliation result, not a convenient extra relationship value unless the domain explicitly models it as such. The exact wire/storage representation remains a core contract decision.
+Unset, explicit neutral, and cleared are distinct canonical-state cases; withheld/inaccessible is a read-result state and must not be conflated with any of them. In particular, “cleared” describes an explicit lifecycle event, not a requirement that the current value remain populated with a special sentinel. Conflict/insufficient support and unsupported/incomplete are also distinct from those canonical-state cases; conflict is a reconciliation result, not a convenient extra relationship value unless the domain explicitly models it as such. The exact wire/storage representation remains a core contract decision. For the cross-document semantic definition of these distinctions, see [Personality and relationship semantics](./01-personality-and-relationship-semantics.md) §4.
 
 ## 4. Cross-dimension rules
 
