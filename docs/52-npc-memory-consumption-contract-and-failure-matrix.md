@@ -346,3 +346,8 @@ The tests cover: incomplete trusted scope; foreign world; missing/denied/withhel
 
 **Interpretation limit:** these tests establish the pure helper's fail-closed decision behavior only. They do not prove Memory authorization, source freshness, revocation races, summary derivation safety in a production pipeline, delivery/receipt, acquisition, belief persistence, rollback reconciliation, or prompt integration. No test execution result is claimed in this document unless separately confirmed by a run against the exact commit.
 
+
+
+## Vocabulary crosswalk follow-up
+
+The compact NPC↔Memory lifecycle/type vocabulary crosswalk is maintained in [`docs/53-npc-memory-lifecycle-vocabulary-crosswalk.md`](53-npc-memory-lifecycle-vocabulary-crosswalk.md). It separates record type from epistemic kind and lifecycle dimensions, marks exact/conditional/lossy/invalid mappings, identifies fail-closed states and owner decisions, and lists future boundary tests. It is a proposal only; it does not approve enums, add an adapter, or establish runtime integration.
