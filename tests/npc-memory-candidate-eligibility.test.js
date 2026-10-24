@@ -18,6 +18,14 @@ function candidate(overrides = {}) {
     access: { outcome: "allow" },
     content_kind: "claim",
     epistemic_kind: "acquired_report",
+    producer: { kind: "test-fixture" },
+    lifecycle: {
+      content_disposition: "usable",
+      source_reconciliation: "current",
+      evidence_assessment: "unverified",
+      access_outcome: "allow",
+      index_health: "ready",
+    },
     freshness: { status: "current" },
     snapshot: { ...request.snapshot },
     ...overrides,
@@ -99,6 +107,41 @@ test("missing identity, version, or epistemic kind fails closed", () => {
     assert.equal(result.status, "non_ready");
     assert.deepEqual(result.admitted, []);
   }
+});
+
+test("missing producer provenance fails closed", () => {
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([
+    candidate({ producer: undefined }),
+  ]));
+  assert.equal(result.status, "non_ready");
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.rejected, [{ reason: "producer_provenance_incomplete" }]);
+});
+
+test("missing lifecycle dimensions fail closed without freezing owner-defined values", () => {
+  const incomplete = candidate({
+    lifecycle: {
+      content_disposition: "usable",
+      source_reconciliation: "current",
+      evidence_assessment: "unverified",
+      access_outcome: "allow",
+    },
+  });
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([incomplete]));
+  assert.equal(result.status, "non_ready");
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.rejected, [{ reason: "lifecycle_dimensions_incomplete" }]);
+
+  const ownerDefinedValues = candidate({
+    lifecycle: {
+      content_disposition: "owner-value-a",
+      source_reconciliation: "owner-value-b",
+      evidence_assessment: "owner-value-c",
+      access_outcome: "owner-value-d",
+      index_health: "owner-value-e",
+    },
+  });
+  assert.equal(evaluateMemoryCandidateAdmission(request, completeResult([ownerDefinedValues])).status, "ready");
 });
 
 test("missing or unknown content kind fails closed", () => {
