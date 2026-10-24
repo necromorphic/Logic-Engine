@@ -175,3 +175,48 @@ test('raw ingest survives a derived-index failure and becomes usable only after 
   assert.equal((await s.provider.reconcile('world-a')).status, 'current');
   assert.equal((await s.provider.retrieveCandidates(s.scope)).candidates.length, 0);
 });
+
+test('isolates identical record identities and grants across worlds', async (t) => {
+  const s = setup(t);
+  const otherScope = { world_id: 'world-b', subject_id: 'npc-b', purpose: 'npc_decision' };
+  const otherRecord = {
+    ...s.record,
+    ...otherScope,
+  };
+
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  s.provider.grantQuery(otherScope, true);
+  s.provider.grantRecord(otherScope, otherRecord.record_ref, otherRecord.record_version, true);
+  assert.equal(s.provider.putRecord(s.record).status, 'stored');
+  assert.equal(s.provider.putRecord(otherRecord).status, 'stored');
+
+  await s.provider.rebuildIndex('world-a');
+  await s.provider.rebuildIndex('world-b');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+  assert.equal((await s.provider.reconcile('world-b')).status, 'current');
+
+  const resultA = await s.provider.retrieveCandidates(s.scope);
+  const resultB = await s.provider.retrieveCandidates(otherScope);
+  assert.deepEqual(resultA.candidates.map((candidate) => candidate.world_id), ['world-a']);
+  assert.deepEqual(resultB.candidates.map((candidate) => candidate.world_id), ['world-b']);
+  assert.equal(resultA.candidates[0].subject_id, 'npc-a');
+  assert.equal(resultB.candidates[0].subject_id, 'npc-b');
+});
+
+test('distinguishes authorized complete-empty retrieval from denied query without leaking record details', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  await s.provider.rebuildIndex('world-a');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+
+  const empty = await s.provider.retrieveCandidates(s.scope);
+  assert.deepEqual(empty.candidates, []);
+  assert.equal(empty.completeness, 'complete');
+
+  const deniedScope = { world_id: 'world-a', subject_id: 'npc-denied', purpose: 'npc_decision' };
+  await assert.rejects(
+    () => s.provider.retrieveCandidates(deniedScope),
+    (error) => error.message === 'MEMORY_QUERY_DENIED',
+  );
+});
