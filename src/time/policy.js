@@ -61,10 +61,8 @@ export function createTimePolicy(input) {
   const version = str(input.version, 'version');
   const max_action_duration_ms = integer(input.max_action_duration_ms, 'max_action_duration_ms', true);
   const max_skip_duration_ms = integer(input.max_skip_duration_ms, 'max_skip_duration_ms', true);
-  const coreLimit = 604800000;
-  if (max_action_duration_ms > coreLimit || max_skip_duration_ms > coreLimit
-    || max_action_duration_ms % 1000 || max_skip_duration_ms % 1000) {
-    fail('INVALID_TIME_POLICY', 'Current runtime limits must be whole seconds and cannot exceed seven days.');
+  if (max_action_duration_ms % 1000 || max_skip_duration_ms % 1000) {
+    fail('INVALID_TIME_POLICY', 'Current runtime durations must be whole seconds.');
   }
   if (!Array.isArray(input.duration_rules) || input.duration_rules.length > 1000) fail('INVALID_TIME_POLICY', 'duration_rules must be an array.');
   const seen = new Set();
