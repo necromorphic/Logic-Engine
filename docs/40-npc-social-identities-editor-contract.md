@@ -40,13 +40,13 @@ The detailed categories below are a semantic checklist for interpreting the opti
 
 Each social identity may contain any relevant subset of the following information. Empty or absent fields remain unknown/unprovided; the engine must not fill them by invention.
 
-### 3.1 Display and claimed identity
+### 3.2 Display and claimed identity
 - Display name, family name, aliases, pronunciation or presentation notes.
 - Claimed age/date of birth, occupation, origin, affiliation, or other declared attributes.
 - Intended contexts, audience, and whether this identity is currently available/active, if the future editor/runtime supports such controls.
 - Author notes about how the character introduces or refers to themself.
 
-### 3.2 Claimed biography and social links
+### 3.3 Claimed biography and social links
 - Claimed history, education, residence, employment, origin, and life events.
 - Claimed relatives, contacts, memberships, or relationships.
 - For each important claim, optional status/notes identifying whether it is true, false, partly true, fabricated, borrowed from a real person, unverified, or deliberately left undecided.
@@ -54,7 +54,7 @@ Each social identity may contain any relevant subset of the following informatio
 
 Claimed relationships are not canonical family/relationship edges. A claim that the character is someone's twin does not create a real twin. If a real person is impersonated, link to that person only through an explicit author-specified relationship; do not conflate the two entities.
 
-### 3.3 Appearance differences and disguise
+### 3.4 Appearance differences and disguise
 - Only differences from the underlying character's stable appearance: wig, hair styling, contact lenses, makeup, prosthetics, clothing, voice/presentation, posture, accessories, or other setting-appropriate disguise.
 - Optional limits, failure conditions, detectability notes, and contexts where disguise is unavailable.
 - If no difference is specified, inherit the underlying character's appearance.
@@ -62,14 +62,14 @@ Claimed relationships are not canonical family/relationship edges. A claim that 
 
 The feature must not require a visual disguise: a social identity may rely only on a name, claimed biography, forged records, or a changed social role.
 
-### 3.4 Documents and supporting evidence
+### 3.5 Documents and supporting evidence
 - Optional references to documents, credentials, registrations, photographs, recordings, witnesses, or other evidence.
 - For each item, distinguish at minimum when applicable: author-declared to exist; proposed/needed; verified existing canonical item; forged/fabricated; missing; disputed; invalidated; or unknown.
 - Record source/reference and known limitations when supported by existing core identity/provenance mechanisms.
 
 A text note saying a document exists must not silently create a canonical document entity, official registration, event, or database record. The editor may record author intent, but existence/issuance/validity in the world must be established through the existing world configuration or approved core operation. If the current system cannot reference such evidence, mark it as an unresolved author declaration, not a verified document.
 
-### 3.5 Basis and rationale
+### 3.6 Basis and rationale
 - Why this social identity exists and what it is intended to accomplish.
 - Who created, supplied, or maintains it, if known.
 - How the claimed biography and supporting evidence could plausibly have arisen.
@@ -78,7 +78,7 @@ A text note saying a document exists must not silently create a canonical docume
 
 Rationale explains the author's model; it does not automatically establish the stated history as canonical fact.
 
-### 3.6 Weak points, contradictions, and free notes
+### 3.7 Weak points, contradictions, and free notes
 - Missing records, inconsistencies, dates that do not line up, implausible claims, unverified details, exposed links to the underlying person, or other vulnerabilities.
 - Free-form author notes for setting-specific requirements.
 
