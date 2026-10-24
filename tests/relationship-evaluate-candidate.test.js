@@ -661,7 +661,6 @@ test("does not treat duplicate evidence references as additional support", () =>
   assert.equal(result.reason, "duplicate_evidence_refs");
 });
 
-
 test("freezes the candidate envelope and all nested mutable collections", () => {
   const result = evaluateRelationshipCandidate({
     ...base,
@@ -676,7 +675,6 @@ test("freezes the candidate envelope and all nested mutable collections", () => 
   assert.equal(Object.isFrozen(result.evidenceRefs), true);
   assert.equal(Object.isFrozen(result.changedDimensions), true);
 });
-
 
 test("requires own input fields even when Object.prototype provides a fallback", () => {
   const previous = Object.getOwnPropertyDescriptor(Object.prototype, "subjectId");
@@ -743,5 +741,30 @@ test("does not interpret an inherited operation as an explicit clear request", (
   } finally {
     if (previous) Object.defineProperty(Object.prototype, "operation", previous);
     else delete Object.prototype.operation;
+  }
+});
+
+
+test("does not accept inherited permission for self-relations", () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, "allowSelfRelation");
+  Object.defineProperty(Object.prototype, "allowSelfRelation", {
+    value: true,
+    configurable: true,
+    writable: true,
+  });
+  try {
+    const result = evaluateRelationshipCandidate({
+      ...base,
+      subjectId: "A",
+      targetId: "A",
+      currentValues: { trust: "low" },
+      patch: { trust: "guarded" },
+    });
+
+    assert.equal(result.status, "invalid_candidate");
+    assert.equal(result.reason, "self_relation_not_enabled");
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, "allowSelfRelation", previous);
+    else delete Object.prototype.allowSelfRelation;
   }
 });
