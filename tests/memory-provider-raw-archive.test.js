@@ -273,3 +273,28 @@ test('raw archive reads fail closed when stored content no longer matches its in
     /MEMORY_RAW_CONTENT_CORRUPT/,
   );
 });
+
+test('raw read rechecks trusted authorization after loading content', async (t) => {
+  let versionChecks = 0;
+  const versionStore = setup(t, {
+    authorizeRawRead: async (request) => request.action === 'read_version' && ++versionChecks === 1,
+  });
+  versionStore.provider.captureRawMessage(capture());
+  await assert.rejects(
+    () => versionStore.provider.readRawMessageVersion(sourceKey()),
+    /MEMORY_RAW_READ_DENIED/,
+  );
+  assert.equal(versionChecks, 2);
+
+  let activeChecks = 0;
+  const activeStore = setup(t, {
+    authorizeRawRead: async (request) => request.action === 'read_active' && ++activeChecks === 1,
+  });
+  activeStore.provider.captureRawMessage(capture());
+  activeStore.provider.selectActiveRawVersion(sourceKey());
+  await assert.rejects(
+    () => activeStore.provider.readActiveRawMessages({ world_id: 'world-a', conversation_id: 'chat-a' }),
+    /MEMORY_RAW_READ_DENIED/,
+  );
+  assert.equal(activeChecks, 2);
+});
