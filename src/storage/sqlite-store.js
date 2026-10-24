@@ -10,6 +10,24 @@ import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidat
 const now = () => new Date().toISOString();
 const enc = (x) => JSON.stringify(x);
 const dec = (x) => x == null ? null : JSON.parse(x);
+const timeAdvanceOperation = (row) => row && ({
+  operation_id: row.operation_id,
+  world_id: row.world_id,
+  idempotency_key: row.idempotency_key,
+  from_coordinate: row.from_coordinate,
+  target_coordinate: row.target_coordinate,
+  confirmed_coordinate: row.confirmed_coordinate,
+  starting_world_revision: row.starting_world_revision,
+  current_world_revision: row.current_world_revision,
+  status: row.status,
+  next_segment_index: row.next_segment_index,
+  segment_count: JSON.parse(row.segments_json).length,
+  plan: dec(row.plan_json),
+  result: dec(row.result_json),
+  error: dec(row.error_json),
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+});
 const relationshipRef = (subjectId, targetId) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId);
 const parseRelationshipRef = (value) => {
   if (typeof value !== 'string' || !value.startsWith('relationship:')) return null;
@@ -331,6 +349,34 @@ export class SQLiteStore {
             }
             updateEventTime.run(coordinate, durationMs, row.world_id, row.event_id);
           }
+        },
+      },
+      {
+        version: 7,
+        apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS time_advance_operations(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            operation_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            request_hash TEXT NOT NULL,
+            from_coordinate INTEGER NOT NULL,
+            target_coordinate INTEGER NOT NULL,
+            confirmed_coordinate INTEGER NOT NULL,
+            starting_world_revision INTEGER NOT NULL,
+            current_world_revision INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('running','completed','interrupted','blocked','needs_review')),
+            next_segment_index INTEGER NOT NULL DEFAULT 0,
+            segments_json TEXT NOT NULL,
+            plan_json TEXT NOT NULL,
+            result_json TEXT,
+            error_json TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,operation_id),
+            UNIQUE(world_id,idempotency_key)
+          );
+          CREATE INDEX IF NOT EXISTS time_advance_operations_world_status
+            ON time_advance_operations(world_id,status,updated_at);`);
         },
       },
     ];
