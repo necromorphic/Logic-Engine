@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
-import { createApiServer } from '../src/api/server.js';
+import { createApiServer, createActiveMechanicPolicyValidator } from '../src/api/server.js';
 
 const TOKEN = 'test-token-long-enough-123456';
 const INTERNAL = 'internal-token-long-enough-123456';
@@ -1058,4 +1058,30 @@ test('event_type cannot bypass the internal credential boundary', async (t) => {
   });
   assert.equal(response.status, 403);
   assert.equal((await response.json()).error.code, 'DIRECT_COMMIT_DISABLED');
+});
+
+
+test('active mechanic policy validator resolves the current owner on every check and fails closed', () => {
+  let activeProvider = {
+    validateMechanicPolicy(identity) {
+      return identity.policyVersion === 'v1' && identity.authorizationScope === 'scope-a';
+    },
+  };
+  const validate = createActiveMechanicPolicyValidator(() => activeProvider);
+  const pinnedV1 = { policyVersion: 'v1', authorizationScope: 'scope-a' };
+  assert.equal(validate(pinnedV1), true);
+
+  // Rotating the deployment-owned provider must affect the next boundary check.
+  activeProvider = {
+    validateMechanicPolicy(identity) {
+      return identity.policyVersion === 'v2' && identity.authorizationScope === 'scope-b';
+    },
+  };
+  assert.equal(validate(pinnedV1), false);
+  assert.equal(validate({ policyVersion: 'v2', authorizationScope: 'scope-b' }), true);
+
+  assert.equal(createActiveMechanicPolicyValidator(() => null)(pinnedV1), false);
+  assert.equal(createActiveMechanicPolicyValidator(() => { throw new Error('owner unavailable'); })(pinnedV1), false);
+  assert.equal(createActiveMechanicPolicyValidator(() => ({ validateMechanicPolicy() { throw new Error('policy failure'); } }))(pinnedV1), false);
+  assert.throws(() => createActiveMechanicPolicyValidator(null), /trusted application callback/);
 });
