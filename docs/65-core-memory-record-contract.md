@@ -58,6 +58,19 @@ Do not treat the following as one mutually exclusive enum. They describe differe
 
 This is a proposed logical decomposition, not a frozen enum or database schema. Before implementation, define a transition table with trigger, owner, persisted change, allowed retrieval behavior, and recovery path. In particular, source retraction does not erase historical audit; it invalidates the source as current support. A derived record with any changed/unavailable source becomes non-current and must be withheld from ordinary retrieval until revalidated or recomputed under the approved derivation/access policy. A `disputed` assessment must not silently override a separate `retracted` disposition.
 
+### Minimum transition table (logical, pending Core approval)
+
+| Trigger | Owning authority | Required Memory behavior | Retrieval consequence |
+|---|---|---|---|
+| Referenced source version changes or cannot be reconciled | Memory reconciliation process detects it; canonical source owner defines source validity | Mark dependent records non-current; preserve prior version/lineage; enqueue recoverable review/re-derivation work if such mechanism is approved | Do not present as current; return an explicit stale/partial status or withhold according to caller policy |
+| Canonical event is rolled back or invalidated | Core owns event validity/rollback; Memory consumes the resulting source change | Never perform rollback itself; mark dependent evidence/summaries stale and re-evaluate support | Do not use invalidated source as current support |
+| Material evidence conflicts | Domain/Core policy owns resolution semantics; Memory records typed conflict links | Preserve both lineages and conflict state; do not choose a winner based on rank alone | Return conflict status where authorized; never silently flatten to consensus |
+| Reader's authorization to a source changes | Approved access policy owns authorization; Memory applies it to each retrieval and derived record | Re-evaluate access to dependent summaries; do not assume source filtering removes copied content | Withhold summary from that reader until safe re-derivation or explicit approved declassification |
+| Search index is stale or unavailable | Memory retrieval/index adapter | Report index status; recover/rebuild from authoritative records without changing canonical world state | Exact/structured fallback only where defined; semantic search must report partial/unavailable rather than empty |
+| Retention policy requires logical deletion/erasure | Core-approved retention policy and Memory storage owner within assigned scope | Apply defined tombstone/erasure semantics; preserve only legally/contractually permitted audit metadata | Do not claim erased content is still retrievable; do not leak tombstoned payload |
+
+The table is an acceptance target, not evidence these transitions already exist in `main`. Before implementation, each row needs a concrete trigger/signal, durable recovery point, idempotency rule, and test at the exact reviewed commit.
+
 ## 7. Errors
 
 The logical contract needs stable error classes for invalid shape/schema, unknown or cross-world references, untrusted provenance, unauthorized write, idempotency conflict, stale source revision, invalid lifecycle transition, source conflict, and storage unavailable. Public error details must not leak the existence or contents of inaccessible records.
