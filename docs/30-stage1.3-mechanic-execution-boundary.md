@@ -73,7 +73,7 @@ A `ready` result must include a deterministic evaluation fingerprint over the no
 
 Module manifests are declarative registrations, not proof that implementation code is safe or available.
 
-- A host-owned allowlist maps a registered module identity and exact version to an implementation explicitly enabled by the deployment.
+- A host-owned allowlist maps a registered module identity and exact version to an implementation explicitly enabled by the deployment. Each allowlist entry must also pin an immutable implementation digest or deployment build identity; a module-manifest hash identifies the declaration, not the executable code. Include that implementation identity in the evaluation fingerprint so replacing code without changing the declared module version cannot silently preserve a stale fingerprint.
 - Only operations/capabilities named in that module's contract may be invoked.
 - Input/output must pass bounded contract validation before results are consumed.
 - Unknown implementation IDs, versions, capabilities, incompatible core versions, timeout/failure, or invalid output fail closed to `unknown` or `needs_review` as specified by the module's validated failure policy.
