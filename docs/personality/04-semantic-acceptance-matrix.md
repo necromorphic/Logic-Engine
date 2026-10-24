@@ -79,3 +79,13 @@ The Personality block's semantic design is ready for core implementation review 
 5. the core's exact write/read/provenance/rollback contracts are linked as dependencies rather than guessed or duplicated here.
 
 Passing this exit criterion means the semantic specification is ready for review, not that runtime integration is unblocked.
+
+
+## 6. Detailed semantic templates
+
+The acceptance cases are supported by two authoring contracts:
+
+- [World Pack relationship dimension template](./05-world-pack-relationship-dimension-template.md) defines the required semantics for every supported relationship dimension without inventing universal dimensions or values.
+- [Stable trait lifecycle](./06-stable-trait-lifecycle.md) defines the default non-mutation rule for stable traits, separates observed behavior from canonical profile, and identifies the conditions for any future trait-development rule.
+
+These templates improve semantic readiness only. They do not remove the core integration blockers listed above or claim that the production runtime implements the required operations.
