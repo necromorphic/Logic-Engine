@@ -304,6 +304,7 @@ test('durable raw capture survives derived-index rebuild failure and provider re
   const raw = capture({ message_id: 'message-survives-index-failure', version_id: 'generation-raw' });
   s.provider.captureRawMessage(raw);
 
+  s.provider.grantQuery({ world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' }, true);
   s.provider.putRecord({
     world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision',
     record_ref: 'memory:index-failure', record_version: 'v1',
