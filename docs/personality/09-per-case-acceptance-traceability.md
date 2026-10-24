@@ -162,3 +162,7 @@ This section records concrete repository evidence observed on the named branches
 - **NPC consumer evidence is contract-only** in `docs/52-npc-relationship-consumer-compatibility.md` on `feat/npc-subsystem`. The document was found on that branch (not on the Personality branch); it is treated as an external contract and is not modified here. The inspected NPC branch tree contains no relationship-consumer runtime test file.
 - **Core integration remains blocked** for canonical write/read, atomicity, authorization, trusted provenance, audit/revision, commit idempotency, historical version selection/migration, and production rollback/replay. Do not relabel evaluator tests or contract prose as Core integration passes.
 - **Test execution status for this change:** not run by this documentation audit. No CI result is inferred from the presence of test source.
+
+## Issue #73 exact test evidence and boundary verdict
+
+The companion [`10-issue-73-executable-evidence-audit.md`](./10-issue-73-executable-evidence-audit.md) supplements this canonical per-ID crosswalk with exact test names found in the isolated Relationship evaluator suite, an individual disposition for each required case family, and explicit Core/NPC blockers. The audit inspected source only; it did not execute tests. Contract prose and pure-evaluator tests are not production integration evidence.
