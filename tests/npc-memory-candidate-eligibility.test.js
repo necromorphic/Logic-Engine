@@ -481,3 +481,47 @@ test("candidate admission does not mutate its request or result inputs", () => {
   assert.deepEqual(inputRequest, requestBefore);
   assert.deepEqual(inputResult, resultBefore);
 });
+
+
+test("snapshot pair rejects revision-only and sequence-only mismatches", () => {
+  // A rollback/validity change can matter even if commit_sequence does not
+  // increase. The oracle only compares the supplied pair; it does not
+  // discover rollback events or establish authoritative source validity.
+  for (const snapshot of [
+    { world_revision: 13, commit_sequence: 40 },
+    { world_revision: 12, commit_sequence: 41 },
+  ]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ snapshot }),
+    ]));
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.admitted, []);
+  }
+});
+
+test("non-finite numeric snapshot components fail closed", () => {
+  for (const snapshot of [
+    { world_revision: Number.NaN, commit_sequence: 40 },
+    { world_revision: 12, commit_sequence: Number.POSITIVE_INFINITY },
+    { world_revision: Number.NEGATIVE_INFINITY, commit_sequence: 40 },
+  ]) {
+    const result = evaluateMemoryCandidateAdmission(
+      { ...request, snapshot },
+      completeResult([candidate()]),
+    );
+    assert.equal(result.status, "non_ready");
+    assert.equal(result.reason, "trusted_snapshot_incomplete");
+    assert.deepEqual(result.admitted, []);
+  }
+
+  for (const snapshot of [
+    { world_revision: Number.NaN, commit_sequence: 40 },
+    { world_revision: 12, commit_sequence: Number.POSITIVE_INFINITY },
+  ]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ snapshot }),
+    ]));
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.admitted, []);
+  }
+});
