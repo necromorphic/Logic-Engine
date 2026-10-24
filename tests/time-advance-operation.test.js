@@ -293,3 +293,33 @@ test('durable trigger registration rejects deadlines at or before current time a
     && entry.target_id === 'cancel-me'), true);
   assert.equal(engine.cancelTimeTrigger('time-operation-world', registered.trigger_id).status, 'cancelled');
 });
+
+
+test('registered overdue triggers block further time advancement instead of being silently skipped', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.registerTimeTrigger('time-operation-world', {
+    trigger_id: 'missed-trigger',
+    due_coordinate: 10000,
+    payload: { event: { turn_id: 'missed-turn', event_type: 'action.completed', effects: [] } },
+  });
+  engine.commitEvent('time-operation-world', {
+    idempotency_key: 'advance-past-trigger',
+    turn_id: 'advance-past-trigger',
+    event_type: 'action.completed',
+    time_advance_seconds: 20,
+    expected_revision: 1,
+    effects: [],
+  });
+  const state = engine.getState('time-operation-world');
+  assert.equal(state.game_time_coordinate, 20000);
+  assert.throws(
+    () => engine.startTimeAdvance('time-operation-world', {
+      idempotency_key: 'blocked-by-overdue-trigger',
+      expected_revision: state.world_revision,
+      to_coordinate: 30000,
+    }),
+    (error) => error.code === 'TIME_TRIGGER_OVERDUE',
+  );
+  assert.equal(engine.getState('time-operation-world').game_time_coordinate, 20000);
+});
