@@ -147,6 +147,88 @@ test('time-trigger lifecycle is internal-only and registered triggers drive dura
   assert.equal((await cancelled.json()).trigger.status, 'cancelled');
 });
 
+test('timed-action API requires the internal capability and returns the durable action result', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL, adminToken: ADMIN });
+  assert.equal((await createWorld(base, 'api-timed-action-world')).status, 201);
+  const calendar_definition = {
+    calendar_id: 'api-timed-action.calendar',
+    version: '1.0.0',
+    day_length_ms: 86400000,
+    weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    year_cycle: [{ id: 'standard', name: 'Standard', months: [{ id: 'jan', name: 'January', days: 31 }] }],
+    epoch: { coordinate: 0, year_number: 2026, year_cycle_index: 0, month_id: 'jan', day_of_month: 1, weekday_index: 0, time_of_day_ms: 0 },
+    holidays: [],
+  };
+  const configuration = {
+    version: 'api-timed-action-policy',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    calendar_definition,
+    time_policy: {
+      policy_id: 'api-timed-action.policy',
+      version: '1.0.0',
+      max_action_duration_ms: 43200000,
+      max_skip_duration_ms: 604800000,
+      duration_rules: [{ event_type: 'travel.completed', rule: { kind: 'fixed', duration_ms: 30000 } }],
+    },
+  };
+  const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
+  assert.equal((await fetch(base + '/v1/worlds/api-timed-action-world/time-configurations', {
+    method: 'POST', headers: adminHeaders, body: json(configuration),
+  })).status, 200);
+
+  const triggerRequest = {
+    trigger_id: 'api-timed-action-trigger',
+    due_coordinate: 10000,
+    dependencies: [],
+    read_set: [],
+    write_set: ['entity:api-intermediate'],
+    processing_mode: 'exact',
+    interrupt_after_coordinate: false,
+    payload: { event: {
+      turn_id: 'api-timed-trigger-turn',
+      event_type: 'time.trigger',
+      effects: [{ kind: 'entity.upsert', entity_id: 'api-intermediate', entity_type: 'object', attributes: { reached: true } }],
+    } },
+  };
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  const registered = await fetch(base + '/v1/worlds/api-timed-action-world/time-triggers', {
+    method: 'POST', headers: internalHeaders, body: json(triggerRequest),
+  });
+  assert.equal(registered.status, 201);
+
+  const denied = await fetch(base + '/v1/worlds/api-timed-action-world/time-actions', {
+    method: 'POST', headers, body: json({
+      idempotency_key: 'api-timed-action-key', expected_revision: 2,
+      event: { turn_id: 'api-timed-action-turn', event_type: 'travel.completed', effects: [] },
+    }),
+  });
+  assert.equal(denied.status, 403);
+
+  const started = await fetch(base + '/v1/worlds/api-timed-action-world/time-actions', {
+    method: 'POST', headers: internalHeaders, body: json({
+      idempotency_key: 'api-timed-action-key',
+      expected_revision: 2,
+      event: {
+        turn_id: 'api-timed-action-turn',
+        event_type: 'travel.completed',
+        effects: [{ kind: 'entity.upsert', entity_id: 'api-traveller', entity_type: 'character', attributes: { arrived: true } }],
+      },
+    }),
+  });
+  assert.equal(started.status, 200);
+  const operation = (await started.json()).operation;
+  assert.equal(operation.status, 'completed');
+  assert.equal(operation.result.final_action_status, 'committed');
+  assert.deepEqual(operation.result.completed_trigger_ids, ['api-timed-action-trigger']);
+
+  const status = await fetch(base + '/v1/worlds/api-timed-action-world/time-actions/' + encodeURIComponent(operation.operation_id), {
+    headers: internalHeaders,
+  });
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).operation.operation_id, operation.operation_id);
+});
+
 test('time configuration authoring requires admin and calendar projection requires a trusted reader', async (t) => {
   const base = await setup(t, { adminToken: ADMIN });
   assert.equal((await createWorld(base, 'api-time-config-world')).status, 201);
