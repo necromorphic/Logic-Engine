@@ -42,7 +42,7 @@ function instrument(store) {
   return counts;
 }
 
-function seed(store, eventCount) {
+function seed(store, eventCount, operation) {
   const timestamp = '2005-12-29T10:00:00.000Z';
   const insert = store.db.prepare(`INSERT INTO world_events(
     event_id,world_id,turn_id,event_type,game_time,committed_revision,commit_sequence,validity,
@@ -74,9 +74,10 @@ function seed(store, eventCount) {
           patch: { trust: index },
         },
       ];
+      const causedBy = operation === 'rollback-cascade' && index > 0 ? ['seed-event-' + (index - 1)] : [];
       insert.run(
         'seed-event-' + index, 'bench-world', 'seed-turn-' + index, 'action.completed', timestamp,
-        index + 1, index + 1, 'valid', '[]', '[]', '[]', '[]',
+        index + 1, index + 1, 'valid', JSON.stringify(causedBy), '[]', '[]', '[]',
         JSON.stringify(effects), 0, timestamp,
       );
     }
@@ -95,7 +96,39 @@ function projectionCounts(store) {
   };
 }
 
-function measureOperation(eventCount, operation) {
+function performOperation(store, engine, eventCount, operation) {
+  if (operation === 'commit') {
+    engine.commitEvent('bench-world', {
+      idempotency_key: 'bench-commit-' + eventCount,
+      turn_id: 'bench-commit-' + eventCount,
+      event_type: 'action.completed',
+      expected_revision: eventCount,
+      effects: [
+        {
+          kind: 'entity.upsert',
+          entity_id: 'commit-added-entity',
+          entity_type: 'object',
+          attributes: { benchmark: true },
+        },
+        {
+          kind: 'fact.set',
+          fact_id: 'commit-added-fact',
+          predicate: 'benchmark.commit',
+          value: true,
+        },
+      ],
+    });
+  } else if (operation === 'rollback' || operation === 'rollback-cascade') {
+    engine.rollbackEvent('bench-world', {
+      root_event_id: 'seed-event-0',
+      idempotency_key: 'bench-rollback-' + operation + '-' + eventCount,
+    });
+  } else {
+    store.tx(() => store.rebuild('bench-world', eventCount));
+  }
+}
+
+function runScenario(eventCount, operation, collectSqlMetrics) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-engine-replay-bench-'));
   const dbPath = join(directory, 'benchmark.sqlite');
   let store;
@@ -108,59 +141,27 @@ function measureOperation(eventCount, operation) {
       world_pack_version: '1.0.0',
       game_time: '2005-12-29T10:00:00.000Z',
     });
-    seed(store, eventCount);
+    seed(store, eventCount, operation);
     const databaseSizeBeforeBytes = statSync(dbPath).size;
-    const counts = instrument(store);
-    const before = { ...counts };
+    const counts = collectSqlMetrics ? instrument(store) : null;
+    const before = counts ? { ...counts } : null;
     const started = performance.now();
-
-    if (operation === 'commit') {
-      engine.commitEvent('bench-world', {
-        idempotency_key: 'bench-commit-' + eventCount,
-        turn_id: 'bench-commit-' + eventCount,
-        event_type: 'action.completed',
-        expected_revision: eventCount,
-        effects: [
-          {
-            kind: 'entity.upsert',
-            entity_id: 'commit-added-entity',
-            entity_type: 'object',
-            attributes: { benchmark: true },
-          },
-          {
-            kind: 'fact.set',
-            fact_id: 'commit-added-fact',
-            predicate: 'benchmark.commit',
-            value: true,
-          },
-        ],
-      });
-    } else if (operation === 'rollback') {
-      engine.rollbackEvent('bench-world', {
-        root_event_id: 'seed-event-0',
-        idempotency_key: 'bench-rollback-' + eventCount,
-      });
-    } else {
-      store.tx(() => store.rebuild('bench-world', eventCount));
-    }
-
+    performOperation(store, engine, eventCount, operation);
     const durationMs = Number((performance.now() - started).toFixed(3));
     const databaseSizeAfterBytes = statSync(dbPath).size;
-    const operationCounts = {
+    const operationCounts = counts ? {
       sql_prepare_calls: counts.prepares - before.prepares,
       sql_statement_executions: counts.executions - before.executions,
       sql_exec_calls: counts.execCalls - before.execCalls,
       replayed_event_rows: counts.replayedEventRows - before.replayedEventRows,
-    };
+    } : null;
     const projectionsAfter = projectionCounts(store);
     return {
-      event_count_before: eventCount,
-      operation,
-      duration_ms: durationMs,
-      database_size_before_bytes: databaseSizeBeforeBytes,
-      database_size_after_bytes: databaseSizeAfterBytes,
-      ...operationCounts,
-      projection_counts_after: projectionsAfter,
+      durationMs,
+      databaseSizeBeforeBytes,
+      databaseSizeAfterBytes,
+      operationCounts,
+      projectionsAfter,
     };
   } finally {
     store?.close();
@@ -168,9 +169,25 @@ function measureOperation(eventCount, operation) {
   }
 }
 
+function measureOperation(eventCount, operation) {
+  // Keep SQL instrumentation out of the wall-time measurement. Query and replay
+  // counts are collected from an equivalent second fixture to avoid proxy cost.
+  const timing = runScenario(eventCount, operation, false);
+  const metrics = runScenario(eventCount, operation, true);
+  return {
+    event_count_before: eventCount,
+    operation,
+    duration_ms: timing.durationMs,
+    database_size_before_bytes: timing.databaseSizeBeforeBytes,
+    database_size_after_bytes: timing.databaseSizeAfterBytes,
+    ...metrics.operationCounts,
+    projection_counts_after: timing.projectionsAfter,
+    timing_note: 'wall time measured without SQL instrumentation; SQL counts measured on an equivalent fixture',
+  };
+}
 const results = [];
 for (const size of sizes) {
-  for (const operation of ['commit', 'rollback', 'rebuild']) {
+  for (const operation of ['commit', 'rollback', 'rollback-cascade', 'rebuild']) {
     results.push(measureOperation(size, operation));
   }
 }
