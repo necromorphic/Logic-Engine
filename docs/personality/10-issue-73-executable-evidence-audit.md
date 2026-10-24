@@ -97,3 +97,15 @@ GitHub Actions workflow **Runtime tests**, run [#618](https://github.com/necromo
 - Do not describe NPC's compatibility document as a test. Do not modify the NPC branch from this Personality task.
 - Do not label evaluator candidate rejection as proof of atomic canonical persistence.
 - The case table in `09-per-case-acceptance-traceability.md` remains the canonical per-ID map; this file supplements it with exact test names and an explicit evidence disposition for Issue #73.
+
+
+## Addendum — canonical crosswalk correction and latest CI (2026-10-24)
+
+The canonical synthetic scenario table in `09-per-case-acceptance-traceability.md` was directly corrected at commit `cd7b88d652e393e9f089e4ae408001c6af2cb05f`:
+
+- `PERS-SEM-008, PERS-SEM-020; REL-MOD-005` now covers only repeated evaluation without new causal evidence.
+- `REL-MOD-015` is a separate cross-block test-design row for acquiring knowledge about an existing canonical event. It has no direct existing `PERS-SEM-*` criterion and remains blocked on the NPC acquisition contract and Core event identity/deduplication, correction, versioning, and replay boundaries.
+
+Runtime tests run [#645](https://github.com/necromorphic/Logic-Engine/actions/runs/40059799538) completed successfully on that exact commit; job `test` and step `Run npm test` both concluded `success`. This confirms the configured repository test workflow for that commit only. It does not establish production NPC/Core integration, event deduplication, or any other integration gate listed in this audit.
+
+The correction is verified in the canonical table and the accompanying `12-relationship-crosswalk-correction.md`. No new Personality acceptance ID was introduced; no runtime/API/schema/Core/Relationship/NPC implementation was changed; the PR remains open and unmerged.
