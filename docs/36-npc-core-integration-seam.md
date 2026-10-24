@@ -197,9 +197,11 @@ The core owner has confirmed the semantic ownership split recorded in `docs/39-n
 - Reuse existing world/entity/event/fact identifiers and the existing snapshot pair `(world_revision, commit_sequence)`; do not add parallel identity, revision, event-log, causal-graph, or rollback mechanisms.
 - Host injection without a verified rendering signal remains `injected_unconfirmed`; `shown` is unsupported until an actual host signal is identified.
 
-The remaining design task is to identify the exact internal core-owned actor/purpose/snapshot-scoped read/filter interface, how authorized initial knowledge is represented at a real production boundary, and which tests can exercise that boundary. The current context-manifest registration remains only a reference manifest; it is not this query interface. No public endpoint or runtime/schema/storage change is authorized by the semantic decision alone.
+The remaining design task is to identify the exact internal core-owned actor/purpose/snapshot-scoped read/filter interface, how authorized initial knowledge is represented at a real production boundary, and which tests can exercise that boundary. The current context-manifest registration remains only a reference manifest; it is not this query interface.
+
+**Snapshot dependency status:** PR #45 proposes `LogicEngine.getSnapshot(...)` over a bounded, transaction-consistent canonical read view and reports passing Runtime tests on its current head, but it remains open/unmerged and is not present as a verified capability on `main` or this branch. Until it is reviewed, merged into the relevant base, and the target branch is rechecked, the NPC subsystem must treat the snapshot boundary as unavailable. Even after integration, this primitive alone does not provide actor authorization, initial-knowledge provenance, secret classification, belief state, or delivery evidence. No public endpoint or runtime/schema/storage change is authorized by the semantic decision alone.
 
 
-## 7. Relationship integration follow-up
+## 11. Relationship integration follow-up
 
 Relationship-specific ownership and the provisional typed-operation direction are tracked in `docs/42-npc-relationship-state-contract-proposal.md` and `docs/43-npc-relationship-core-integration-decision.md`. These are documentation-only proposals. Do not infer that a relationship effect, canonical relationship record, actor-authorized snapshot filter, or card projection has been implemented. Reconcile the open interfaces with the active core and character-card branches before runtime work.
