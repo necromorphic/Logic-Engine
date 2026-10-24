@@ -10,7 +10,7 @@ Memory must not mutate Core state, issue canonical events, determine rollback ou
 
 ## 2. Memory ↔ NPC/Core knowledge contract
 
-Memory exposes authorized candidate archival records and evidence metadata. It does not decide actor-specific knowledge, delivery, belief, or inference. The NPC proposal at `feat/npc-subsystem`, `docs/39-npc-core-knowledge-contract-proposal.md` (section 10), records a Core-owner decision that Core owns authoritative acquisition/provenance records, delivery attempts/receipt status, source reconciliation, and persistent subject-relative belief state. That branch is not merged into `main`; treat it as a cross-block contract candidate to reconcile, not as current runtime capability.
+Memory exposes authorized candidate archival records and evidence metadata. It does not decide actor-specific knowledge, delivery, belief, or inference. The NPC proposal at `feat/npc-subsystem`, `docs/39-npc-core-knowledge-contract-proposal.md` (section 10), records a Core-owner decision that Core owns authoritative acquisition/provenance records, delivery attempts/receipt status, source reconciliation, and persistent subject-relative belief state. The focused NPC consumer contract and failure matrix in `docs/52-npc-memory-consumption-contract-and-failure-matrix.md` now spells out candidate eligibility, fail-closed behavior, lifecycle distinctions, negative cases, and test layers. Both documents remain unmerged proposals on the NPC branch; neither is a Memory API nor current runtime capability.
 
 The storage implementation may eventually reuse Memory primitives for some Core-owned records only after Core explicitly approves the ownership, schema, and transaction boundary. It must not create a competing NPC knowledge store. A memory retrieval response, context manifest, or prompt inclusion is not proof that a character acquired, received, understood, or believes information.
 
@@ -23,7 +23,7 @@ Required agreement points with the NPC block:
 - who owns the knowledge entry and its causal dependencies;
 - whether NPC requests require an explicit purpose and visibility scope.
 
-Until these are agreed, expose no direct memory-to-belief mutation path.
+Until these are agreed, expose no direct memory-to-belief mutation path. Before implementation, reconcile the illustrative candidate shape in NPC `docs/52` with `docs/66-core-memory-retrieval-contract.md`; neither shape is frozen. Preserve record/source versions, trusted request binding, per-request access, producer provenance versus content lineage, freshness/reconciliation, orthogonal lifecycle dimensions, result completeness, and typed non-ready outcomes without leaking protected metadata.
 
 ## 3. Memory → Relations
 
@@ -49,4 +49,4 @@ Memory integration must be reviewed against the actual base branch and any appro
 
 ## 7. Open integration contract
 
-No sibling contract is presumed approved by this document. Record exact versions/PR references and resolve incompatible fields through a cross-block review before runtime integration.
+No sibling contract is presumed approved by this document. Record exact versions/PR references and resolve incompatible fields through a cross-block review before runtime integration. NPC follow-up Issue #70 tracks review of `docs/52`; it remains open until the NPC owner confirms the deliverable. Remaining Core/Memory gates include the approved authorized-read boundary, rollback-aware recoverable reconciliation, derived-summary access propagation, and the actual storage/transaction boundary for Core-owned semantic records.
