@@ -302,6 +302,7 @@ export class MemoryNpcConsumer {
         content_disposition: candidate.lifecycle?.content_disposition,
         evidence_assessment: candidate.lifecycle?.evidence_assessment,
         index_health: candidate.lifecycle?.index_health,
+        snapshot: candidate.snapshot,
       };
       const previous = identitySignatures.get(identity);
       if (previous) {
