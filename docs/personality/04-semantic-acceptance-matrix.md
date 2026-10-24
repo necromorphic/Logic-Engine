@@ -44,6 +44,7 @@ Status: semantic specification, not an executable runtime test suite. These case
 | PERS-SEM-027 | Character card is derived | A card summary reflects authorized canonical state and cannot independently mutate or become a duplicate source of truth. | Projection/card contract |
 | PERS-SEM-028 | Player agency | Personality rules do not authorize the model or engine to invent the player's voluntary actions, dialogue, or thoughts. | Player-control contract |
 | PERS-SEM-029 | Versioned relationship semantics | A meaning-changing World Pack rule update must not silently reinterpret historical transitions under the latest rules; it requires an explicit compatibility/migration policy or explicit incompatibility handling. Replay uses the applicable declared rule-set semantics. | World Pack version policy + Core version/replay boundary |
+| PERS-SEM-029 | Versioned relationship semantics | A meaning-changing World Pack rule update must not silently reinterpret historical transitions under the latest rules; it requires an explicit compatibility/migration policy or explicit incompatibility handling. Replay uses the applicable declared rule-set semantics. | World Pack version policy + Core version/replay boundary |
 
 ## 3. Readiness classification
 
@@ -53,6 +54,7 @@ Status: semantic specification, not an executable runtime test suite. These case
 - Specify stable traits versus mutable condition and behavior.
 - Define the difference between unset, explicit neutral, withheld, and cleared values; define conflict/insufficient-support as a separate reconciliation/read-result state.
 - Define the meaning of initial/imported state, in-world transition, and author correction.
+- Require explicit compatibility or migration handling for meaning-changing World Pack rule versions; do not silently reinterpret historical transitions under current rules.
 - Require explicit compatibility or migration handling for meaning-changing World Pack rule versions; do not silently reinterpret historical transitions under current rules.
 - Maintain semantic examples and pure acceptance rules without claiming runtime integration.
 
