@@ -11,6 +11,7 @@
 
 const EVIDENCE_STATUSES = new Set([
   "supported",
+  "withheld",
   "insufficient",
   "conflict",
   "unsupported",
@@ -84,6 +85,9 @@ export function evaluateRelationshipCandidate(input) {
   }
   if (!isRecord(evidence) || !EVIDENCE_STATUSES.has(evidence.status)) {
     return result("unsupported", { reason: "evidence_assessment_unavailable" });
+  }
+  if (evidence.status === "withheld") {
+    return result("withheld", { reason: "evidence_withheld" });
   }
   if (evidence.status === "insufficient") {
     return result("insufficient_evidence");
