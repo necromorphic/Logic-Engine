@@ -121,6 +121,69 @@ export function evaluateCondition(rule, context, depth = 0) {
   throw new EngineError('UNSUPPORTED_RULE_OPERATOR', 'Unsupported operator: ' + op);
 }
 
+
+/**
+ * Evaluate a declarative condition without collapsing unavailable context into false.
+ *
+ * The legacy evaluateCondition API intentionally retains its Boolean behavior for
+ * existing callers. This result API treats a missing path as unknown unless the
+ * caller explicitly proves that path is absent in the evaluation snapshot.
+ */
+export function evaluateConditionResult(rule, context, options = {}) {
+  if (!options || typeof options !== 'object' || Array.isArray(options)) {
+    throw new EngineError('INVALID_RULE_RESULT_OPTIONS', 'Condition result options must be an object.');
+  }
+  const allowedOptionKeys = new Set(['knownAbsentPaths']);
+  if (Object.keys(options).some((key) => !allowedOptionKeys.has(key))) {
+    throw new EngineError('INVALID_RULE_RESULT_OPTIONS', 'Condition result options contain an unsupported field.');
+  }
+  const rawKnownAbsent = options.knownAbsentPaths ?? [];
+  if (!Array.isArray(rawKnownAbsent) || rawKnownAbsent.length > 1000
+    || !rawKnownAbsent.every((path) => typeof path === 'string' && path.trim())) {
+    throw new EngineError('INVALID_RULE_RESULT_OPTIONS', 'knownAbsentPaths must be an array of at most 1000 non-empty paths.');
+  }
+  const knownAbsentPaths = new Set(rawKnownAbsent);
+  for (const path of knownAbsentPaths) readPath({}, path);
+
+  // Validate the complete rule tree and preserve existing type/error behavior.
+  // The returned Boolean is deliberately not trusted for missing context.
+  evaluateCondition(rule, context);
+
+  const unresolvedPaths = new Set();
+  const evaluate = (current, depth = 0) => {
+    if (depth > 24) throw new EngineError('RULE_DEPTH_EXCEEDED', 'Rule nesting exceeds 24 levels.');
+    if (current.op === 'all' || current.op === 'any') {
+      const children = nestedRules(current, current.op).map((child) => evaluate(child, depth + 1));
+      if (current.op === 'all') {
+        if (children.some((child) => child.status === 'false')) return { status: 'false' };
+        if (children.some((child) => child.status === 'unknown')) return { status: 'unknown' };
+        return { status: 'true' };
+      }
+      if (children.some((child) => child.status === 'true')) return { status: 'true' };
+      if (children.some((child) => child.status === 'unknown')) return { status: 'unknown' };
+      return { status: 'false' };
+    }
+    if (current.op === 'not') {
+      const child = evaluate(nestedRules(current, 'not')[0], depth + 1);
+      if (child.status === 'unknown') return child;
+      return { status: child.status === 'true' ? 'false' : 'true' };
+    }
+
+    const found = readPath(context, current.path);
+    if (!found.exists && !knownAbsentPaths.has(current.path)) {
+      unresolvedPaths.add(current.path);
+      return { status: 'unknown' };
+    }
+    return { status: evaluateCondition(current, context) ? 'true' : 'false' };
+  };
+
+  const result = evaluate(rule);
+  return {
+    status: result.status,
+    unknown_paths: [...unresolvedPaths].sort(),
+  };
+}
+
 export function validateEffects(effects) {
   if (!Array.isArray(effects) || effects.length > 200) {
     throw new EngineError('INVALID_EFFECTS', 'effects must contain at most 200 entries.');
