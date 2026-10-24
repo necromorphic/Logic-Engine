@@ -9,7 +9,7 @@ Related:
 - `docs/28-proposal-api-stage1.md`
 - `docs/50-core-trusted-mutation-origin-contract.md`
 - `docs/52-core-authorized-read-runtime-slice.md` (PR #65 merged; default read remains self-identity-only)
-- `docs/54-core-proposal-execution-authority-contract.md` (schema-neutral execution-authority proposal; pending Core owner review)
+- `docs/54-core-proposal-execution-authority-contract.md` (contract and current implementation status; PR #103 enforces the first-slice policy)
 - `docs/55-core-context-manifest-trust-contract.md` (schema-neutral trusted producer/generation binding proposal; current route remains untrusted)
 - PR #66 was closed unmerged; PR #83 now enforces the canonical rollback admin boundary
 
@@ -39,7 +39,7 @@ On the audited revision, these return canonical world state, event history, or a
 
 On the audited revision, the route calls `engine.rollbackEvent` after only the general bearer check, except that the current code has a narrow admin check for roots whose effects contain `mechanic.instance.*`. That condition does not make ordinary entity/fact rollback privileged, even though rollback changes the canonical valid-history projection.
 
-**Required closure:** require separate admin/correction authority for every HTTP rollback, independent of root event type. PR #66 proposes this and includes a normal-entity regression test. It remains unmerged. Direct in-process `engine.rollbackEvent` is still a trusted API and needs caller auditing.
+**Historical finding, closed by PR #83:** every HTTP rollback now requires separate admin/correction authority regardless of root event type. PR #66 was closed unmerged as superseded. Direct in-process `engine.rollbackEvent` remains a trusted API and still needs caller auditing.
 
 ### F-03 — Proposal payload reads are not owner-scoped on main
 
