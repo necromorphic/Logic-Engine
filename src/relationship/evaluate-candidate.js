@@ -20,8 +20,20 @@ const EVIDENCE_STATUSES = new Set([
 const own = (object, key) =>
   Object.prototype.hasOwnProperty.call(object, key);
 
-const isRecord = (value) =>
-  value !== null && typeof value === "object" && !Array.isArray(value);
+// Accept ordinary data records only. Accessor-backed fields could execute
+// caller code during evaluation, which would violate the evaluator's purity
+// boundary. Inputs are trusted in-process data, not hostile Proxy objects.
+const isRecord = (value) => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  return Reflect.ownKeys(value).every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return descriptor !== undefined && own(descriptor, "value");
+  });
+};
 
 const isNonEmptyString = (value) =>
   typeof value === "string" && value.trim().length > 0;
