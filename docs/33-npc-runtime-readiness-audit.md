@@ -4,6 +4,8 @@ Status: source-level audit performed against `main` as inspected on 2026-10-24. 
 
 ## 1. Executive finding
 
+For the concise cross-topic readiness summary, see [`docs/37-npc-kernel-readiness-gate.md`](docs/37-npc-kernel-readiness-gate.md). This audit is the source of truth for the detailed source-level findings; the readiness gate summarizes rather than supersedes those findings.
+
 The repository documents the intended NPC/autonomy and knowledge boundaries and has a declarative rule evaluator, context manifests, a generic event-proposal service, and a mechanic contract validator. These are useful existing building blocks, but they do not constitute a safe NPC decision pipeline.
 
 The critical gap is not a missing prompt. The rule evaluator returns booleans and maps a missing path to false (except for `exists`), while the context manifest records referenced world items and a snapshot cursor but does not itself prove that an NPC is authorized to know those items. The generic `ProposalService` can stage and validate an event proposal without immediately committing the canonical event, but its own validation metadata explicitly leaves actor authorization, semantic alignment, causal completeness, and player-agency policy unchecked. Therefore it is a candidate core boundary to reuse—not proof that NPC proposals are safe to commit.
