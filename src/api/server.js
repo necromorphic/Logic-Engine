@@ -2,6 +2,7 @@ import { createServer } from 'node:http';
 import { EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { ProposalService } from '../application/proposals.js';
+import { ActorBindingService } from '../application/actor-bindings.js';
 
 const MAX = 1048576;
 async function readBody(req) {
@@ -48,6 +49,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     return typeof id === 'string' && typeof secret === 'string' && adapterTokens[id] === secret ? id : null;
   };
   const proposals = new ProposalService(engine);
+  const actorBindings = new ActorBindingService(engine);
 
   return createServer(async (req, res) => {
     try {
@@ -86,6 +88,31 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       if (parts.length < 3 || parts[0] !== 'v1' || parts[1] !== 'worlds') return send(res, 404, { error: { code: 'ROUTE_NOT_FOUND', message: 'Route not found.' } });
       const worldId = decodeURIComponent(parts[2]);
       const action = parts[3] || 'state';
+
+      if (action === 'actor-bindings') {
+        if (parts.length === 4 && req.method === 'POST') {
+          if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
+          const body = await readBody(req);
+          if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => !['adapter_id', 'entity_id'].includes(key))) {
+            throw new EngineError('INVALID_ACTOR_BINDING', 'Binding accepts only adapter_id and entity_id.');
+          }
+          return send(res, 201, { binding: actorBindings.bind(worldId, body.adapter_id, body.entity_id) });
+        }
+        if (parts.length === 6 && req.method === 'DELETE') {
+          if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
+          return send(res, 200, { binding: actorBindings.revoke(worldId, decodeURIComponent(parts[4]), decodeURIComponent(parts[5])) });
+        }
+        if (parts.length === 5 && parts[4] === 'resolve' && req.method === 'POST') {
+          const adapterId = adapterIdFor(req);
+          if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required to resolve an actor.' } });
+          const body = await readBody(req);
+          if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => key !== 'entity_id')) {
+            throw new EngineError('INVALID_ACTOR_RESOLUTION', 'Actor resolution accepts only entity_id.');
+          }
+          return send(res, 200, { resolution: actorBindings.resolve(worldId, adapterId, body.entity_id) });
+        }
+        return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported actor-binding operation.' } });
+      }
 
       if (parts.length === 4 && action === 'mechanic-instances') {
         if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
