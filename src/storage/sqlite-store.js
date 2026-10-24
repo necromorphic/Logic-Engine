@@ -494,10 +494,13 @@ export class SQLiteStore {
       };
     };
 
-    // When called from an existing store transaction, reuse that transaction's
-    // read view. Otherwise create a read-only transaction; never fall back to
-    // assembling the snapshot from independent autocommit SELECT statements.
-    if (this.txDepth > 0) return read();
+    // Store transactions are write transactions (BEGIN IMMEDIATE). Refuse to
+    // expose their uncommitted projection as a canonical read snapshot.
+    if (this.txDepth > 0) {
+      throw new EngineError('SNAPSHOT_READ_DURING_WRITE_TRANSACTION', 'A canonical snapshot cannot be read from inside a store write transaction.', 409);
+    }
+    // Create one read transaction; never fall back to assembling the snapshot
+    // from independent autocommit SELECT statements.
     let began = false;
     try {
       this.db.exec('BEGIN');
