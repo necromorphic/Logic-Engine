@@ -94,12 +94,13 @@ export class MemoryNpcConsumer {
 
     if (!object(memoryResult)
       || memoryResult.completeness !== 'complete'
+      || memoryResult.index_health !== 'ready'
       || !Array.isArray(memoryResult.candidates)
       || memoryResult.candidates.length > 50
       || memoryResult.scope?.world_id !== scope.world_id
       || memoryResult.scope?.subject_id !== scope.subject_id
       || memoryResult.scope?.purpose !== scope.purpose) {
-      return nonReady('memory_result_incomplete_or_scope_mismatch');
+      return nonReady(memoryResult?.index_health === 'ready' ? 'memory_result_incomplete_or_scope_mismatch' : 'memory_index_not_ready');
     }
 
     if (memoryResult.candidates.length === 0) {
