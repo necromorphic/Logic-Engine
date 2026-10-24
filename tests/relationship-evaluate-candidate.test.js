@@ -110,6 +110,16 @@ test("uses an explicit clear operation, not omission or a sentinel value", () =>
   assert.deepEqual(result.patch, { trust: { operation: "clear" } });
 });
 
+test("rejects clear requests with undeclared extra fields", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    patch: { trust: { operation: "clear", reason: "cleanup" } },
+  });
+
+  assert.equal(result.status, "invalid_candidate");
+  assert.equal(result.reason, "unsupported_value");
+});
+
 test("rejects clearing where the active dimension rule disallows it", () => {
   const result = evaluateRelationshipCandidate({
     ...base,
