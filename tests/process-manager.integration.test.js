@@ -238,10 +238,13 @@ test('rollback invalidates the transitive completed prerequisite chain and survi
   const sourceEventId = process.milestones.find((milestone) => milestone.milestone_id === 'depart').completed_event_ids[0];
   assert.ok(sourceEventId);
 
-  engine.rollbackEvent('world-a', {
+  const rollback = engine.rollbackEvent('world-a', {
     root_event_id: sourceEventId,
     idempotency_key: 'rollback-source-for-chain',
   });
+  assert.equal(rollback.accepted, true);
+  assert.equal(rollback.rollback_outcome, 'resolved');
+  assert.equal(rollback.invalidated_event_ids.includes(sourceEventId), true);
   process = engine.getProcess('world-a', 'journey-1');
   assert.equal(process.status, 'needs_review');
   assert.equal(process.progress.completed, 0);
@@ -327,6 +330,10 @@ test('resume rejects a paused process whose milestone became overdue', (t) => wi
     (error) => error.code === 'PROCESS_RESUME_REQUIRES_REPLAN',
   );
   assert.equal(engine.getProcess('world-a', 'journey-1').status, 'paused');
+  assert.deepEqual(
+    engine.getProcess('world-a', 'journey-1').milestones.map((milestone) => [milestone.milestone_id, milestone.due_coordinate]),
+    paused.process.milestones.map((milestone) => [milestone.milestone_id, milestone.due_coordinate]),
+  );
   assert.equal(paused.process.version, current.version);
 }));
 
