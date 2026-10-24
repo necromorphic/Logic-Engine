@@ -45,6 +45,25 @@ Primary references:
 | PERS-SEM-028 | 01 §3; 06 §7 | Player-control contract; Personality/NPC must respect it | Specified | No runtime player-control test claimed |
 | PERS-SEM-029 | 05 §§2, 5–6; 03 rollback/version integration boundary | World Pack semantic version policy; Core for any version pinning/migration/replay enforcement | Specified: meaning-changing rules require explicit compatibility/migration or incompatibility handling; no Core mechanism is assumed | Blocked: historical rule-version pinning/migration and production replay policy unverified |
 
+## Synthetic boundary regression scenarios (reuse existing IDs)
+
+The scenarios below operationalize existing criteria; they intentionally introduce no new acceptance IDs. They are specifications for test design, not reports of executed tests.
+
+| Existing ID(s) | Input / action | Expected result | Test layer | Not proven by this layer |
+|---|---|---|---|---|
+| PERS-SEM-006, 007 | Evaluate keys `__proto__`, `constructor`, and `prototype` as separate keys and as members of a mixed patch. | Accept only if each is explicitly declared/supported; otherwise reject without inherited-property acceptance, prototype mutation, or silent normalization. | Pure evaluator/security regression | Core persistence, authorization, or atomic commit |
+| PERS-SEM-002, 004, 005 | Clear one established dimension while another is omitted and already has a value. | The requested dimension is cleared under its explicit rule; omitted dimensions remain unchanged. | Pure patch semantics | Canonical clear history/provenance and safe read |
+| PERS-SEM-006, 007 | Submit a patch with two valid changes and one unsupported key/value/transition. | Reject the whole candidate/operation; never return a partially accepted patch as if it were the requested operation. | Pure evaluator | Atomicity of a real canonical write |
+| PERS-SEM-001, 005; PERS-REL-001 | Change A→B while B→A has a different existing value. | Only A→B changes; the reverse direction remains untouched. | Pure domain plus directed-pair fixture | Correct direction persisted by Core |
+| PERS-SEM-003, 004, 023, 026 | Compare absent key, explicit neutral, explicit clear, withheld read, and conflict/insufficient-support result. | Preserve the semantic distinctions; a withheld result does not disclose whether a value exists. | Synthetic contract/read-result test | Actual authorized read and canonical history |
+| PERS-SEM-014, 016; PERS-REL-009 | Change a relationship dimension while the character has stable traits. | No stable trait changes unless a separately declared and authorized trait-lifecycle rule applies. | Personality semantic/consumer fixture | Runtime consumer behavior or canonical trait persistence |
+| PERS-SEM-017, 020; PERS-REL-010 | Provide behavior that is consistent with multiple motives or contradicts a stable trait. | Behavior is not treated as proof of motive, inner state, or causal relationship fact. | Consumer/NPC interpretation test | Production NPC decision path unless exercised directly |
+| PERS-SEM-018, 025, 026; PERS-REL-011, 015 | Give an NPC a relationship value but omit a separate fact from its authorized knowledge context; separately test a withheld value. | The relationship does not grant knowledge; withheld is not interpreted as unset. | NPC consumer test with explicit knowledge/read fixtures | Production authorization/filtering |
+| PERS-SEM-019; PERS-SEM-005; PERS-REL-011 | Provide attraction/trust without an explicit consent, obligation, or reciprocity rule. | No consent, obligation, or reciprocal state is inferred. | Pure semantic/consumer test | Any World Pack-specific cross-dimension rule not supplied in the fixture |
+| PERS-SEM-008, 020; REL-MOD-005 | Evaluate the same event repeatedly and separately present newly acquired knowledge about that old event. | No new world event or transition is created by repetition or knowledge acquisition alone; a separately declared rule may yield a candidate but does not itself prove a canonical commit. | Pure domain + consumer test | Commit idempotency or event deduplication |
+| PERS-SEM-024, 029; REL-MOD-012 | Replay the same history with identical pinned inputs/version; then test a historical transition after a meaning-changing version update. | Fixed-input replay is deterministic where supported; historical replay does not silently substitute latest semantics. | Fixture/unit test only if version selection is explicit | Actual Core version pinning, migration, replay, and rollback |
+| PERS-SEM-029 | Supply either an explicit migration plan or an explicit incompatibility declaration for a meaning-changing update. | No implicit migration; incompatibility blocks automatic reinterpretation. | World Pack authoring/validation test | Correct migration of persisted historical state |
+
 ## PERS-TRAIT case crosswalk
 
 These IDs are defined in `06-stable-trait-lifecycle.md`; this crosswalk makes each criterion individually traceable without implying runtime support.
