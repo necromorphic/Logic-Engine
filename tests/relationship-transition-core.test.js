@@ -207,6 +207,17 @@ test('invalid mixed patch commits nothing and idempotent retry does not duplicat
   }
 });
 
+test('source rollback invalidates a Relationship transition that cites the source', async () => {
+  const { store, engine } = await fixture();
+  try {
+    const source = engine.commitEvent('world-relationship-test', { idempotency_key: 'source-event', turn_id: 'source-event', event_type: 'evidence.note', expected_revision: 1, effects: [] });
+    const write = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(source, { expected_revision: 2, expected_commit_sequence: 2, idempotency_key: 'relationship-from-source' }));
+    const result = engine.rollbackEvent('world-relationship-test', { root_event_id: source.event_id, idempotency_key: 'rollback-source' });
+    assert.ok(result.invalidated_event_ids.includes(write.event_id));
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+  } finally { store.close(); }
+});
+
 test('clear remains distinct from unset and rollback restores the previous surviving value', async () => {
   const { store, engine, seed } = await fixture();
   try {
