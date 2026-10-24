@@ -81,6 +81,12 @@ A rollback that erases an event as never having happened differs from a later di
 
 For processes, record checkpoints and their inputs/outputs before attempting partial reconciliation. A process stage must not be preserved or discarded just because it is temporally before/after a rolled-back event.
 
+### T-11 boundary: unresolved branches and partial rollback
+
+The current runtime has regression coverage for an affected historical `REQUIRES` predicate that evaluates to unknown: it returns `requires_review` and applies no semantic changes. It also verifies that an unrelated unknown predicate does not block a separate rollback. Those cases do **not** implement the broader T-11 scenario in `docs/24-causality-test-matrix.md`.
+
+T-11 additionally requires representing an unresolved source/branch whose status may change the support projection, then proving which subset of classifications and projection updates is dependency-closed. The current event model does not provide a general unresolved event classification or a generic partial-resolution algorithm. Do not simulate this by marking a source valid/invalid speculatively, and do not begin partial commits until the atomicity rule in `docs/22-causality-semantics.md` §5 is promoted to a tested contract. Until then, the safe current-runtime behavior is the implemented no-op review result for the narrower unknown-`REQUIRES` case.
+
 ## 3. Existing implementation versus gaps
 
 ### Already present in the current runtime (verify against tests when changing)
