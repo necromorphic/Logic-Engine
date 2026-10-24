@@ -703,18 +703,39 @@ export class SQLiteStore {
   }
 
   state(id) {
-    const w = this.world(id);
-    if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-    const entities = this.db.prepare('SELECT * FROM entities WHERE world_id=? ORDER BY entity_id').all(id).map((r) => ({
-      entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
-      created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
-    }));
-    const facts = this.db.prepare('SELECT * FROM facts WHERE world_id=? ORDER BY fact_id').all(id).map((r) => ({
-      fact_id: r.fact_id, subject_ref: r.subject_ref, predicate: r.predicate, status: r.status,
-      value: dec(r.value_json), candidates: dec(r.candidates_json), source_event_ids: dec(r.source_event_ids_json),
-      updated_revision: r.updated_revision,
-    }));
-    return { ...w, entities, facts };
+    const read = () => {
+      const w = this.world(id);
+      if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const commitSequence = this.currentCommitSequence(id);
+      const entities = this.db.prepare('SELECT * FROM entities WHERE world_id=? ORDER BY entity_id').all(id).map((r) => ({
+        entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
+        created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
+      }));
+      const facts = this.db.prepare('SELECT * FROM facts WHERE world_id=? ORDER BY fact_id').all(id).map((r) => ({
+        fact_id: r.fact_id, subject_ref: r.subject_ref, predicate: r.predicate, status: r.status,
+        value: dec(r.value_json), candidates: dec(r.candidates_json), source_event_ids: dec(r.source_event_ids_json),
+        updated_revision: r.updated_revision,
+      }));
+      return { ...w, commit_sequence: commitSequence, entities, facts };
+    };
+
+    // Reuse the caller's transaction when present; otherwise pin all SELECTs
+    // to one SQLite read snapshot and return its composite freshness marker.
+    if (this.txDepth > 0) return read();
+    let began = false;
+    try {
+      this.db.exec('BEGIN');
+      began = true;
+      const snapshot = read();
+      this.db.exec('COMMIT');
+      began = false;
+      return snapshot;
+    } catch (error) {
+      if (began) {
+        try { this.db.exec('ROLLBACK'); } catch {}
+      }
+      throw error;
+    }
   }
 
   events(id, includeInvalid = false) {
