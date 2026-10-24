@@ -143,3 +143,17 @@ The REL scenarios in document 42 are semantic requirements, not current executab
 | REL-012 attributed author edit | Authorized authoring operation with distinct audit attribution | Blocked on authoring permission and audit-source contract |
 
 This matrix suggests a parallelizable path: NPC can write semantic tests for REL-004 and REL-010 and refine prompt/context acceptance rules; core can independently settle typed state mutation and rollback/read guarantees; card projection can keep its current minimal contract while specifying an optional relationship-summary input. Do not mark any scenario fully passed until executable tests exercise the integrated implementation, not only isolated pure helpers or documentation examples.
+
+
+## 11. Adjacent core decision already recorded: knowledge and belief
+
+The core owner has separately reviewed the knowledge contract in the PR #38 discussion. Treat these as confirmed semantic boundaries, not implemented capabilities:
+
+- The core owns authoritative acquisition/provenance records, delivery attempt/receipt status, and persistent subject-relative belief state. NPC must not duplicate them as a parallel source of truth.
+- Keep canonical world truth, acquisition history, and current subject belief as three distinct concepts. Acquisition does not force belief; belief does not prove acquisition or objective truth.
+- Prompt inclusion, vector retrieval, context manifests, or narrator mention alone do not prove acquisition or delivery. Unsupported acquisition paths must fail closed rather than be fabricated.
+- Use existing identities and the composite `(world_revision, commit_sequence)` from one consistent read view; do not create another revision cursor, event log, causal graph, or rollback system.
+- The first knowledge vertical slice is intended to be internal-only and narrowly limited to explicitly authorized author-initial/imported knowledge until real evidence paths exist. It remains blocked on a trusted initial-knowledge representation, actor assignment/provenance, and authoritative secret/access policy.
+- PR #45 proposes the bounded consistent snapshot primitive and has a reported passing Runtime CI run in the PR discussion, but it remains open/unmerged at the inspected state. It provides raw internal data, not actor authorization, knowledge filtering, or secret exclusion.
+
+This adjacent decision strongly constrains relationship reads: relationship state may inform a decision, but must not be treated as acquired knowledge; an actor-specific relationship context must still pass through the same trusted access boundary. Do not implement a second relationship-specific knowledge/access filter.
