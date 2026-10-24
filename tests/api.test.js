@@ -114,7 +114,9 @@ test('durable trigger API is internal-only and time advances consume registered 
 
   const listed = await fetch(base + '/v1/worlds/api-trigger-world/time-triggers', { headers: internalHeaders });
   assert.equal(listed.status, 200);
-  assert.equal((await listed.json()).triggers[0].status, 'completed');
+  const listedBody = await listed.json();
+  assert.equal(listedBody.triggers[0].status, 'completed');
+  assert.equal(Object.hasOwn(listedBody.triggers[0], 'payload'), false);
 
   const cancelled = await fetch(base + '/v1/worlds/api-trigger-world/time-triggers/api-durable-trigger/cancel', {
     method: 'POST', headers: internalHeaders, body: '{}',
