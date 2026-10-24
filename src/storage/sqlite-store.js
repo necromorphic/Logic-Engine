@@ -1873,27 +1873,40 @@ export class SQLiteStore {
       if (world.world_revision !== expectedRevision) {
         throw new EngineError('REVISION_CONFLICT', 'World changed before process transition.', 409, { expected_revision: expectedRevision, current_revision: world.world_revision });
       }
-      const pending = this.db.prepare("SELECT * FROM world_process_milestones WHERE world_id=? AND process_id=? AND status='pending' ORDER BY due_coordinate,milestone_id")
-        .all(worldId, processId);
+      const pendingQuery = action === 'cancel'
+        ? "SELECT * FROM world_process_milestones WHERE world_id=? AND process_id=? AND status IN ('pending','needs_review') ORDER BY due_coordinate,milestone_id"
+        : "SELECT * FROM world_process_milestones WHERE world_id=? AND process_id=? AND status='pending' ORDER BY due_coordinate,milestone_id";
+      const pending = this.db.prepare(pendingQuery).all(worldId, processId);
       if (action === 'pause' || action === 'cancel') {
-        if (!['scheduled','running','paused'].includes(row.status) || (action === 'pause' && row.status === 'paused')) {
+        const allowedStatuses = action === 'pause' ? ['scheduled','running'] : ['scheduled','running','paused','needs_review'];
+        if (!allowedStatuses.includes(row.status)) {
           throw new EngineError('INVALID_PROCESS_TRANSITION', 'The process cannot take this lifecycle transition from its current state.', 409, { process_id: processId, status: row.status, action });
         }
         for (const milestone of pending) {
           const trigger = this.db.prepare("SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?")
             .get(worldId, milestone.trigger_id);
           if (trigger?.claimed_by_operation_id) {
-            throw new EngineError('PROCESS_MILESTONE_CLAIMED', 'A process with claimed milestones cannot be paused or cancelled until the time-advance operation reaches a durable terminal boundary.', 409, {
-              process_id: processId, milestone_id: milestone.milestone_id, operation_id: trigger.claimed_by_operation_id,
-            });
+            const operation = this.db.prepare("SELECT status FROM time_advance_operations WHERE world_id=? AND operation_id=?")
+              .get(worldId, trigger.claimed_by_operation_id);
+            if (!operation || operation.status === 'running') {
+              throw new EngineError('PROCESS_MILESTONE_CLAIMED', 'A process with milestones claimed by an active time-advance operation cannot be paused or cancelled.', 409, {
+                process_id: processId, milestone_id: milestone.milestone_id, operation_id: trigger.claimed_by_operation_id,
+              });
+            }
           }
         }
         for (const milestone of pending) {
-          const trigger = this.db.prepare("SELECT status FROM world_time_triggers WHERE world_id=? AND trigger_id=?").get(worldId, milestone.trigger_id);
+          let trigger = this.db.prepare("SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?")
+            .get(worldId, milestone.trigger_id);
+          if (trigger?.claimed_by_operation_id) {
+            this.db.prepare("UPDATE world_time_triggers SET claimed_by_operation_id=NULL,updated_at=? WHERE world_id=? AND trigger_id=?")
+              .run(now(), worldId, milestone.trigger_id);
+            trigger = { ...trigger, claimed_by_operation_id: null };
+          }
           if (trigger?.status === 'pending') this.cancelTimeTrigger(worldId, milestone.trigger_id, action === 'pause' ? 'process_paused' : 'process_cancelled');
         }
         if (action === 'cancel') {
-          this.db.prepare("UPDATE world_process_milestones SET status='cancelled',updated_at=? WHERE world_id=? AND process_id=? AND status='pending'")
+          this.db.prepare("UPDATE world_process_milestones SET status='cancelled',updated_at=? WHERE world_id=? AND process_id=? AND status IN ('pending','needs_review')")
             .run(now(), worldId, processId);
         }
         this.db.prepare("UPDATE world_processes SET status=?,updated_at=? WHERE world_id=? AND process_id=?")
