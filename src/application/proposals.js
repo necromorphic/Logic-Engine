@@ -131,8 +131,12 @@ export class ProposalService {
     'INVALID_MECHANIC_EVALUATION_IDENTITY', 'Evaluation must include a complete world, snapshot, instance, and pinned-template identity.');
     assert(typeof evaluation.action_id === 'string' && evaluation.action_id.trim(), 'INVALID_MECHANIC_EVALUATION', 'action_id is required.');
     assert(object(evaluation.condition_result) && evaluation.condition_result.status === 'true', 'INVALID_MECHANIC_EVALUATION', 'Only evaluations with proven-true conditions may be proposed.');
+    assert(typeof evaluation.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.context_fingerprint)
+      && typeof evaluation.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.evaluation_fingerprint),
+    'INVALID_MECHANIC_EVALUATION_FINGERPRINT', 'Context and evaluation fingerprints are required.');
     assert(object(evaluation.guarantees) && evaluation.guarantees.read_only === true
       && evaluation.guarantees.context_provider_attested_snapshot === true
+      && evaluation.guarantees.context_policy_versioned === true
       && evaluation.guarantees.proposal_created === false && evaluation.guarantees.canonical_state_mutated === false,
     'INVALID_MECHANIC_EVALUATION', 'Evaluation must carry the read-only and snapshot-attestation guarantees.');
     assert(Array.isArray(evaluation.effects) && evaluation.effects.length > 0, 'INVALID_MECHANIC_EVALUATION', 'At least one translated effect is required.');
@@ -170,6 +174,8 @@ export class ProposalService {
     const mechanicExecution = {
       snapshot_identity: identity,
       action_id: evaluation.action_id,
+      context_fingerprint: evaluation.context_fingerprint,
+      evaluation_fingerprint: evaluation.evaluation_fingerprint,
       effect_provenance: provenance,
       dependency_completeness: 'not_proven',
       semantic_review_required: true,
