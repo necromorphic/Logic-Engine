@@ -343,6 +343,12 @@ test("summary lineage sources must match the requested world, subject, and purpo
     access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
     freshness: { status: "current" },
   };
+  const validSummary = candidate({
+    content_kind: "summary",
+    lineage: { status: "complete", sources: [baseSource] },
+  });
+  assert.equal(evaluateMemoryCandidateAdmission(request, completeResult([validSummary])).admitted.length, 1);
+
   for (const source of [
     { ...baseSource, world_id: "world-b" },
     { ...baseSource, access: { ...baseSource.access, subject_id: "actor-other" } },
@@ -351,6 +357,7 @@ test("summary lineage sources must match the requested world, subject, and purpo
     const summary = candidate({ content_kind: "summary", lineage: { status: "complete", sources: [source] } });
     const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
     assert.equal(result.status, "ready");
+    assert.deepEqual(result.admitted, []);
   }
 });
 
