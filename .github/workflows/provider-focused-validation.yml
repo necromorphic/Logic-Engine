@@ -1,0 +1,19 @@
+name: Provider focused validation (temporary evidence branch)
+on:
+  push:
+    branches: [work/provider-focused-validation-2026-10-25]
+jobs:
+  focused:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+      - name: Run raw archive, reconciliation interruption/race, and query revocation tests
+        run: >-
+          npm test --
+          tests/memory-provider-raw-archive.test.js
+          tests/memory-provider-reconcile-interruption.test.js
+          tests/memory-provider-reconcile-race.test.js
+          tests/memory-provider-query-revocation-race.test.js
