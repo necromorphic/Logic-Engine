@@ -577,15 +577,36 @@ export function evaluateMechanicActionAgainstSnapshot({
       effect_provenance: [],
     };
   }
-  const identity = {
+  if (translated.effects.length === 0) {
+    return {
+      status: 'no_match',
+      reason_code: 'MECHANIC_ACTION_HAS_NO_EFFECTS',
+      world_id: snapshot.world_id,
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+      instance_id: instance.instance_id,
+      template_id: template.template_id,
+      template_version: template.version,
+      action_id: actionId,
+      condition_results: conditions.condition_results,
+      effects: [],
+      effect_provenance: [],
+      commit_authority: 'none',
+    };
+  }
+  const snapshotIdentity = {
     world_id: snapshot.world_id,
     world_revision: snapshot.world_revision,
     commit_sequence: snapshot.commit_sequence,
     instance_id: instance.instance_id,
-    instance_revision: instance.updated_revision ?? null,
     template_id: template.template_id,
     template_version: template.version,
     template_hash: templateEntry.template_hash,
+  };
+  const identity = {
+    ...snapshotIdentity,
+    snapshot_identity: snapshotIdentity,
+    instance_revision: instance.updated_revision ?? null,
     action_id: actionId,
     context_fingerprint: contextFingerprint,
     condition_results: conditions.condition_results,
