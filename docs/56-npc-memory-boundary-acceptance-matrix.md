@@ -206,3 +206,55 @@ NPC-owned design and current-helper test traceability can be reviewed independen
 2. For each new NPC-only test, assert safe reference-only output, generic exclusion/no per-item diagnostic leakage, no input mutation, and no side effects where applicable. Use the real current-main helper for unit tests; label injected seams explicitly as fixtures.
 3. Cross-block tests must identify the actual Core/Memory/host implementation under test, not only a callback interface. Record source SHA, test name, exact-head CI, and whether authority comes from production owner code or a fixture.
 4. Production Memory→NPC remains disabled until Core approves authoritative source validity/version, complete inventory and rollback/reconciliation semantics, and Core/Memory/host approve final disclosure/revocation semantics. NPC cannot manufacture those guarantees in a local helper.
+
+
+## NPC consumer entry point and lifecycle-separated admission tests — 2026-10-24
+
+### Entry point in the current NPC slice
+
+The only implemented NPC-side decision point in this slice is `evaluateMemoryCandidateAdmission(request, result)` in `src/npc/memory-candidate-eligibility.js`. It is a pure eligibility/admission oracle called by an owner-approved caller; it is **not** the runtime Memory retrieval entry point, an authorization service, a Core adapter, or proof that the result came from Core. It returns a bounded list of reference/version projections and never returns candidate content.
+
+The decision is usable only when the upstream integration has already supplied trustworthy request bindings and an owner-authorized result. The helper's fields (`access.outcome`, scope, snapshot, lifecycle labels, and lineage) are input claims; this function cannot authenticate their origin. A fixture that says `allow` is not Core authorization evidence. Until Core defines and the host/adapter supplies the actual provenance-bound result, no production consumer may call this helper with arbitrary Memory/model/caller data.
+
+### Admission/fail-closed test coverage
+
+- Request scope and snapshot absent/malformed → `non_ready`, no admitted references.
+- Result unavailable/partial/rebuilding/unknown or malformed → `non_ready`; never equivalent to authorized complete-empty.
+- Request-level or per-candidate access denied/withheld/unknown, subject/purpose mismatch, wrong world, stale/retracted/unavailable source, unknown freshness, incomplete identity/version, malformed lifecycle, or mismatched snapshot → no candidate admitted.
+- Summary candidates require a nonempty complete lineage whose every source has identity/version, matching world, subject/purpose-bound allow, and current freshness. Sparse array slots must also be rejected explicitly (tracked by draft PR #177; not yet on main).
+- Identity collision pairs containing the separator must remain distinct (tracked by draft PR #174; not yet on main).
+- Rejected identifiers, contents, per-item reasons and rejection counts are not exposed.
+- The updated #246 branch adds synthetic fixture tests asserting that admission is a pure projection and does not mutate or set delivery/receipt/acquisition/belief lifecycle facts. These are local contract tests only; they do not establish host/Core integration.
+
+### State vocabulary — no implicit transitions
+
+| State | Meaning / authority | What does not prove it |
+|---|---|---|
+| captured | Host observed an input/event | A database row or index entry |
+| persisted | Provider durable write completed under its contract | Capture or in-memory candidate |
+| indexed | Search index contains a projection | Currentness, authorization, or complete inventory |
+| authorized | Core/approved policy boundary permits this exact subject, purpose, scope, and content/version | Caller-provided `allow`, candidate metadata, or fixture callback |
+| admitted | NPC helper accepted a reference projection for bounded context preparation | Delivery or any knowledge transition |
+| included in context | Content was actually inserted into a particular generation's context | Admission/reference alone |
+| rendered | Host UI rendered the output | Generation completion or adapter invocation |
+| delivered | An owner-defined host signal establishes delivery to the intended target | Context inclusion or a generated claim |
+| received | An explicit supported receipt/observation event exists | Rendered/delivered alone unless policy says so |
+| acquired | Core-owned policy records that the subject acquired a proposition from supported evidence | Retrieval, prompt inclusion, delivery attempt, or receipt alone |
+| believed | A separate subject-relative belief transition was justified and recorded under Core policy | Acquisition or canonical truth alone |
+
+No NPC-side test or helper should mutate, synthesize, or infer the later states. A successful admission test establishes only that the supplied fixture metadata passed the local predicate.
+
+### Required real Core-authorized result evidence before production use
+
+Core + trusted host/source adapter must provide evidence for all applicable items below, with stable semantics and owner approval:
+
+1. **Provenance and binding:** an unforgeable/owner-trusted indication that this result was produced by the approved Core authorized-read path, bound to the actual world/session, requesting actor, subject/recipient, purpose, and generation/context request. Caller labels or fixture booleans are insufficient.
+2. **Authorization:** the effective policy decision for the exact recipient, purpose, record/version, and every source in a derived summary; denied, withheld, ambiguous, or missing decisions fail closed.
+3. **Identity/version/lineage:** stable record identity and authoritative source version; complete, non-sparse, versioned lineage for derived summaries; collision-safe identity semantics.
+4. **Snapshot/freshness:** trusted snapshot provenance and currentness; a snapshot marker alone is not a durable edit/delete/swipe/rollback journal.
+5. **Inventory/completeness:** authoritative evidence that the result is complete for its scope, distinct from partial/unavailable/rebuilding/denied and distinct from authorized complete-empty.
+6. **Lifecycle/revocation:** authoritative deletion, edit, swipe, cancellation, rollback, retraction and reconciliation state; dependent indexes/summaries must be invalidated or re-authorized.
+7. **Disclosure-time check:** a Core/Memory/host-defined consistency guarantee that closes or explicitly blocks revocation between final authorization and content serialization/rendering. Sequential fixture callbacks do not prove the final-check/output race is closed.
+8. **Host outcome evidence:** actual host-owned signals for rendered/delivered/received, plus Core-owned policies and idempotent persistence boundaries for acquisition and belief. These are separate follow-on gates, not part of admission.
+
+Until these inputs and the end-to-end tests against the real approved adapter exist, the current helper remains NPC-only test code. **Production Memory retrieval / Memory→NPC remains disabled.**
