@@ -43,6 +43,7 @@ The following work does not require inventing missing Core interfaces:
 5. Record conflicts or unresolved decisions instead of silently resolving them.
 
 The traceability vocabulary and review checklist are in [08-semantic-traceability-and-review-workflow.md](./08-semantic-traceability-and-review-workflow.md).
+The individual acceptance-ID ownership and evidence mapping is in [09-per-case-acceptance-traceability.md](./09-per-case-acceptance-traceability.md).
 
 ## 5. Review sequence
 
