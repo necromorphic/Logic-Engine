@@ -93,6 +93,14 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(typeof result.evaluation_fingerprint, 'string');
   assert.equal(result.commit_authority, 'none');
   assert.equal(typeof result.snapshot_identity.template_hash, 'string');
+  assert.deepEqual(result.dependency_manifest.condition_paths, ['actor.hp', 'world.weather']);
+  assert.equal(result.dependency_manifest.condition_ast_dependencies_complete, true);
+  assert.deepEqual(result.dependency_manifest.effect_target_dependencies, [
+    { kind: 'entity_absence', target_id: 'entity.new' },
+  ]);
+  assert.equal(result.dependency_manifest.effect_target_dependencies_complete, true);
+  assert.equal(result.dependency_manifest.context_projection_dependencies_complete, false);
+  assert.equal(result.dependency_manifest.mechanic_dependencies_complete, false);
   assert.deepEqual(result.effects.map((effect) => effect.kind), ['entity.create']);
   assert.equal(result.guarantees.read_only, true);
   assert.equal(result.guarantees.proposal_created, false);
@@ -193,6 +201,7 @@ test('mechanic evaluation hands off through the ordinary durable proposal lifecy
   assert.equal(proposal.mechanic_execution.evaluation_fingerprint, evaluation.evaluation_fingerprint);
   assert.deepEqual(proposal.mechanic_execution.effect_provenance, evaluation.effect_provenance);
   assert.equal(proposal.mechanic_execution.context_policy_version, 'test-visibility-policy-v1');
+  assert.deepEqual(proposal.mechanic_execution.dependency_manifest, evaluation.dependency_manifest);
   const creationAudit = engine.getAudit(worldId).find((entry) => entry.action === 'proposal.created' && entry.target_id === proposal.proposal_id);
   assert.equal(creationAudit.payload.mechanic_execution.evaluation_fingerprint, evaluation.evaluation_fingerprint);
   assert.deepEqual(creationAudit.payload.mechanic_execution.effect_provenance, evaluation.effect_provenance);
