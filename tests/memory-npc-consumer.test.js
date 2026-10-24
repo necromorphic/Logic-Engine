@@ -75,6 +75,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
       index_health: 'ready',
       source_reconciliation: 'current',
       scope,
+      snapshot: { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence },
       candidates: candidateList,
     }),
     authorizeCandidate: async (input) => {
@@ -419,7 +420,24 @@ test('complete-empty is ready only when the Memory index explicitly reports read
   assert.equal(empty.reason, null);
   assert.deepEqual(empty.admitted, []);
   assert.deepEqual(empty.candidates, []);
-  assert.equal(empty.snapshot, null);
+  assert.deepEqual(empty.snapshot, {
+    world_revision: snapshot.world_revision,
+    commit_sequence: snapshot.commit_sequence,
+  });
+
+  provider.retrieveCandidates = async () => ({
+    completeness: 'complete',
+    index_health: 'ready',
+    source_reconciliation: 'current',
+    scope: { world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' },
+    snapshot: { world_revision: snapshot.world_revision - 1, commit_sequence: snapshot.commit_sequence },
+    candidates: [],
+  });
+  const staleEmpty = await consumer.retrieveForNpc(request());
+  assert.equal(staleEmpty.status, 'non_ready');
+  assert.equal(staleEmpty.reason, 'memory_snapshot_stale');
+  assert.deepEqual(staleEmpty.admitted, []);
+  assert.deepEqual(staleEmpty.candidates, []);
 });
 
 
