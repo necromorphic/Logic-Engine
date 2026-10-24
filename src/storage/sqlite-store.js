@@ -482,6 +482,63 @@ export class SQLiteStore {
             ON world_time_triggers(world_id,status,due_coordinate,trigger_id);`);
         },
       },
+      {
+        version: 10,
+        apply: () => {
+          this.db.exec(\`CREATE TABLE IF NOT EXISTS world_processes(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            process_id TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            request_hash TEXT NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('scheduled','running','paused','completed','cancelled','failed','needs_review')),
+            source_event_ids_json TEXT NOT NULL,
+            created_revision INTEGER NOT NULL,
+            last_operation_id TEXT,
+            error_json TEXT,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,process_id),
+            UNIQUE(world_id,idempotency_key)
+          );
+          CREATE INDEX IF NOT EXISTS world_processes_world_status
+            ON world_processes(world_id,status,updated_at);
+          CREATE TABLE IF NOT EXISTS world_process_milestones(
+            world_id TEXT NOT NULL,
+            process_id TEXT NOT NULL,
+            milestone_id TEXT NOT NULL,
+            trigger_id TEXT NOT NULL,
+            due_coordinate INTEGER NOT NULL,
+            status TEXT NOT NULL CHECK(status IN ('pending','completed','cancelled','needs_review')),
+            dependencies_json TEXT NOT NULL,
+            read_set_json TEXT NOT NULL,
+            write_set_json TEXT NOT NULL,
+            processing_mode TEXT NOT NULL CHECK(processing_mode IN ('exact','batch')),
+            interrupt_after_coordinate INTEGER NOT NULL CHECK(interrupt_after_coordinate IN (0,1)),
+            payload_json TEXT NOT NULL,
+            source_event_ids_json TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            trigger_generation INTEGER NOT NULL DEFAULT 0,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,process_id,milestone_id),
+            UNIQUE(world_id,trigger_id),
+            FOREIGN KEY(world_id,process_id) REFERENCES world_processes(world_id,process_id),
+            FOREIGN KEY(world_id,trigger_id) REFERENCES world_time_triggers(world_id,trigger_id)
+          );
+          CREATE INDEX IF NOT EXISTS world_process_milestones_trigger
+            ON world_process_milestones(world_id,trigger_id,status);
+          CREATE TABLE IF NOT EXISTS world_process_commands(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            idempotency_key TEXT NOT NULL,
+            request_hash TEXT NOT NULL,
+            process_id TEXT NOT NULL,
+            result_json TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,idempotency_key),
+            FOREIGN KEY(world_id,process_id) REFERENCES world_processes(world_id,process_id)
+          );\`);
+        },
+      },
     ];
     for (const migration of migrations) {
       const applied = this.db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
