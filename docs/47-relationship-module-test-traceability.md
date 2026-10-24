@@ -51,6 +51,9 @@ This fixture is a test design only. It is not a proposed storage schema or an as
 | REL-MOD-010 — No invented OR rule | Core rollback + domain | Remaining source is not treated as sufficient without an explicit domain sufficiency rule and Core representation | Blocked/deferred; multi-source reconciliation unimplemented/unspecified |
 | REL-MOD-011 — Player agency | NPC consumer | Relationship context never authors player voluntary dialogue, thought, decision, or action | Semantic requirement; runtime boundary must be verified |
 | REL-MOD-012 — Versioned semantics | Mechanic/World Pack lifecycle + Core replay | New version does not silently reinterpret previously committed transitions | Blocked on approved historical version/replay policy |
+| REL-MOD-013 — Relationship does not rewrite stable traits | Domain + Personality consumer | A change in trust/affection/hostility never mutates stable authored traits, values, or boundaries; Personality remains an input to interpretation, not a write target | Semantic contract only; no relationship-to-personality runtime mutation path is approved or tested |
+| REL-MOD-014 — No inferred consent, motive, obligation, knowledge, or reciprocity | Domain + NPC consumer + authorized read | A relationship value alone does not establish consent, motive, causal explanation, obligation, knowledge, loyalty, or reverse-direction state; each requires its own explicit rule/evidence/authorized knowledge | Specification/consumer contract only; executable consumer and authorized-read tests remain blockers |
+| REL-MOD-015 — New knowledge about an old event is not a new event | NPC/Core event lifecycle + domain | Newly acquired information about an existing event may trigger a separately justified reinterpretation only when the knowledge/acquisition contract permits it; it must not duplicate the original event or silently rewrite a prior committed transition | Blocked on approved acquisition, event identity/deduplication, correction, and replay contracts |
 
 ## 4. Current executable pure-evaluator coverage
 
@@ -73,6 +76,9 @@ The standalone evaluator in PR #62 is deliberately narrower than the full module
 | Alternative-source sufficiency and rollback | Not covered | Blocked until the domain sufficiency rule and Core-owned support/replay contracts are approved |
 | Player agency | Not covered by evaluator unit tests | Requires NPC consumer boundary tests |
 | Version changes across committed history | Only the rule-version label on a candidate is tested | Requires explicit historical version/replay policy and Core tests |
+| Relationship-to-Personality isolation | Not covered by the pure evaluator | Requires consumer/integration checks proving relationship transitions cannot mutate stable trait/value/boundary state; no alternate trait store or write workaround |
+| Non-implications (consent, motive, obligation, knowledge, reciprocity) | No direct evaluator coverage | Requires explicit semantic rules plus NPC/authorized-read tests; a relationship label alone must not satisfy these assertions |
+| New knowledge about an old event | Not covered by the pure evaluator | Requires event identity/deduplication and acquisition/reinterpretation policy; distinguish new evidence from a new canonical event and from correction/replay |
 
 This table is an implementation trace, not a claim that the full acceptance suite has passed. The pure evaluator must remain a candidate producer; missing context or host capability must not be simulated as a successful integration.
 
@@ -94,6 +100,9 @@ The Relationship module cases are distinct from NPC, Personality, and pre-existi
 | REL-MOD-010 — No invented OR rule | NPC-SEM-003; NPC-SEM-009; PERS-SEM-021; PERS-SEM-022; PERS-SEM-023; PERS-SEM-024 | Required-dependency rollback, alternative-support sufficiency, conflict/insufficient support, and deterministic replay are related; relationship sufficiency still requires an explicit domain rule plus Core-owned reconciliation. |
 | REL-MOD-011 — Player agency | NPC-SEM-011; PERS-SEM-028 | Shared player-agency boundary; relationship context must not author player voluntary dialogue, thought, decisions, or actions. |
 | REL-MOD-012 — Versioned semantics | NPC-SEM-009; NPC-SEM-020; PERS-SEM-029 for meaning-changing World Pack updates; PERS-SEM-024 only for deterministic replay within pinned inputs/rule versions | Causal reconciliation, deterministic replay, and persistence of significant information are adjacent concerns, not a historical relationship-rule migration policy. Old transitions require explicit version pinning or an approved migration/replay rule; `PERS-SEM-024` does not prove historical version pinning. |
+| REL-MOD-013 — Relationship does not rewrite stable traits | PERS-SEM-001; PERS-SEM-002; PERS-SEM-005; Personality stable-trait lifecycle contract | Relationship dimensions can affect interpretation but are not a mechanism for mutating stable authored personality traits, values, or boundaries. Cross-reference is semantic only until a real consumer/write boundary is tested. |
+| REL-MOD-014 — No inferred consent, motive, obligation, knowledge, or reciprocity | NPC-SEM-001; NPC-SEM-015; PERS-SEM-018; PERS-SEM-025; PERS-SEM-026 | A relationship label cannot grant knowledge, prove hidden motive, imply consent/obligation, or create reverse-direction state. Each implication needs an explicit authored rule and valid evidence/knowledge path. |
+| REL-MOD-015 — New knowledge about an old event is not a new event | NPC-SEM-009; NPC-SEM-020; PERS-SEM-024; PERS-SEM-029 | New acquisition can justify a new interpretation only under the acquisition contract; it must not duplicate the original canonical event or silently rewrite history. Determinism/version semantics do not supply event deduplication, correction, or migration. |
 
 No NPC acceptance ID is treated as a substitute for a Relationship test. Cross-block coverage is complete only when the relevant real consumer/Core boundary exists and its tests run against that boundary; documentation links alone do not satisfy the acceptance case.
 
@@ -116,6 +125,9 @@ The first real integration suite must include at least:
 13. **Atomicity:** force a supported failure during commit/projection/audit and verify no partial canonical mutation.
 14. **Disabled module:** no new relationship transitions are evaluated while disabled; existing canonical state and audit history remain.
 15. **Version pinning:** old committed transitions retain their declared semantic version or follow an explicit, tested migration policy.
+16. **Trait isolation:** changing any relationship dimension leaves stable Personality traits, values, and boundaries unchanged.
+17. **Non-implications:** relationship values do not independently prove consent, motive, obligation, knowledge, loyalty, or reciprocal state.
+18. **Old-event reacquisition:** acquiring new information about an existing event does not create a duplicate canonical event or silently rewrite a prior transition; any new interpretation is separately justified and versioned.
 
 Do not replace any of these with a mocked “successful” path when the corresponding production contract is absent.
 
