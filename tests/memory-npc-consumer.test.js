@@ -210,6 +210,21 @@ test('Memory record denial is indistinguishable from an authorized empty candida
   assert.deepEqual(staleButDenied, result);
 });
 
+test('authorized Memory record with missing canonical source is non-ready, not empty', async (t) => {
+  const { consumer } = setup(t);
+  const originalRead = consumer.authorizedReadService.readEntityFields.bind(consumer.authorizedReadService);
+  consumer.authorizedReadService.readEntityFields = (input) => ({
+    ...originalRead(input),
+    entities: [],
+  });
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'authorized_source_missing');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+});
+
 test('Core field denial removes the candidate content and does not disclose protected fields', async (t) => {
   const { consumer } = setup(t, { allowContent: false });
   const result = await consumer.retrieveForNpc(request());
