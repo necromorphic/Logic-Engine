@@ -12,6 +12,8 @@ Related documents:
 - [Core decision and integration gates](./03-core-decision-and-integration-gates.md) — accepted architecture decisions and remaining blockers.
 - [Core integration review request](./02-core-integration-review-request.md) — original request with the architecture response recorded.
 - [Semantic acceptance matrix](./04-semantic-acceptance-matrix.md) — semantic cases, ownership boundaries, and readiness criteria.
+- [World Pack relationship dimension template](./05-world-pack-relationship-dimension-template.md) — required per-dimension semantics, transitions, non-implications, and acceptance checks.
+- [Stable trait lifecycle](./06-stable-trait-lifecycle.md) — separation of stable traits, temporary conditions, goals, beliefs, behavior, and inference.
 
 ## 2. Responsibility boundary
 
