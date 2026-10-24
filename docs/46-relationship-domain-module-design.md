@@ -259,6 +259,20 @@ These scenarios extend the existing PERS-SEM cases; they do not replace or renum
 | Optional module lifecycle | Core mechanic runtime | **Lifecycle exists; relationship execution is not thereby implemented** | Verified host-allowlisted execution path and approved input/output contract |
 | Character-card projection | Card/Core owner | **Dependent on authorized read and canonical state** | Bounded read-only projection using approved filtered data |
 
+### Confirmed Core implementation inventory (current review)
+
+Core's latest review confirms the dependency statuses above against the inspected implementation:
+
+- `src/core/rules.js` / `validateEffects` currently accepts generic entity effects, `fact.set`, and mechanic-lifecycle effects; it has no typed relationship effect or relationship-dimension validator.
+- `src/application/engine.js` / `prepareEvent` and `commitEvent` provide the existing event preparation and canonical commit path. This is an extension point, not an already-approved relationship hook.
+- `src/storage/sqlite-store.js` / `commit`, `rebuild`, and `rollback` provide transactional event persistence, projection updates, audit/idempotency handling, rebuild, and rollback. SQLite transaction atomicity for generic commits does not establish atomic partial relationship updates until a typed operation and relationship-aware projection exist.
+- Generic effects must not be repurposed as a substitute: `entity.update` does not enforce directed-pair/dimension invariants, and `fact.set` does not define mutable multidimensional relationship-state semantics.
+- The existing adapter proposal/approval/commit path is not an approved trusted path for `initial_import` or `author_correction`. The open Trusted Mutation Origin proposal (PR #63) is documentation/proposal work, not an implemented authority boundary.
+- The open Authorized Read proposal (PR #65) is a narrow draft for actor metadata, not an authorized relationship read. `getSnapshot` is a consistent-snapshot primitive, not actor/purpose authorization or a model-safe relationship projection.
+- Existing tests for stale proposals, idempotency, failed-audit rollback, generic entity patches, rollback, fact claims, and character-card projection prove only those generic guarantees. They do not count as relationship integration tests.
+
+Consequently, no end-to-end relationship transition is currently verified across direction, dimension isolation, authorized read, trusted provenance, revision, idempotency, projection, and replay/rollback. Keep this inventory as a status snapshot; re-check the relevant Core branch and tests before changing any blocker to resolved.
+
 ### Safe work that can proceed without Core changes
 
 - Domain meaning and per-World-Pack dimension definitions.
