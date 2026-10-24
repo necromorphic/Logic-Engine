@@ -49,7 +49,7 @@ test('rejects duplicate, past, unknown, cyclic, or causally reversed milestones'
   }, 'world-a', 0), (error) => error.code === 'PROCESS_DEPENDENCY_CYCLE');
 
   assert.throws(() => normalizeProcessDefinition({
-    process_id: 'p', idempotency_key: 'k', milestones: [
+    process_id: 'p', idempotency_key: 'k', expected_revision: 0, milestones: [
       milestone('later', 10), milestone('earlier', 5, { dependencies: ['later'] }),
     ],
   }, 'world-a', 0), (error) => error.code === 'PROCESS_CAUSAL_TIME_ORDER_CONFLICT');
