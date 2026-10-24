@@ -339,3 +339,10 @@ Re-fetched PR #76 and its helper/test files after the NPC branch advanced. Curre
 This is not approval of a universal evidence policy: downstream policy still decides what each assessment means for a particular operation. The helper validates supplied metadata; it does not authenticate the source of that metadata or prove an approved Memory API exists.
 
 The exact-head workflow query for `c8f41407a064d88d0c6f54f13c9e640b0177ca20` returned zero PR-triggered workflow runs. Therefore test execution for this exact head remains unverified; this is neither a test failure nor a pass. PR #76 must remain Draft pending reproducible test evidence and contract review. No NPC runtime files were edited by Memory, no tests were claimed as executed, and no PR was merged.
+
+
+## NPC regression-test assertion review — MEM-036 — 2026-10-24
+
+A focused review of the current NPC test file found that the test named `summary lineage sources must match the requested world, subject, and purpose` creates foreign-world, mismatched-subject, and mismatched-purpose lineage fixtures but asserts only `result.status === "ready"`. Because safe candidate filtering intentionally keeps operation status `ready`, these assertions do not establish that the unsafe summary was excluded. The helper source appears to implement the checks, but the regression assertions are insufficient to prove it.
+
+Memory asked NPC Issue #70 to assert `result.admitted` is empty for each unsafe fixture, optionally alongside a valid same-scope positive control. This is a test-quality finding from source review, not an executed failing test. MEM-036 remains an acceptance requirement until the regression assertions verify exclusion and exact-head test execution is available.
