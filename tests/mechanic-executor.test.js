@@ -308,7 +308,7 @@ test('mechanic proposal handoff rejects incomplete or mismatched effect provenan
   const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   const proposals = new ProposalService(engine);
-  const tampered = attestMechanicEvaluation({ ...evaluation, effect_provenance: [] });
+  const tampered = { ...evaluation, effect_provenance: [] };
   tampered.evaluation_fingerprint = hashRequest({
     snapshot_identity: tampered.snapshot_identity,
     action_id: tampered.action_id,
@@ -321,6 +321,7 @@ test('mechanic proposal handoff rejects incomplete or mismatched effect provenan
     read_set: tampered.read_set,
     causal_links: tampered.causal_links,
   });
+  attestMechanicEvaluation(tampered);
   assert.throws(
     () => proposals.createFromMechanicEvaluation(worldId, tampered, {
       idempotencyKey: 'bad-provenance',
