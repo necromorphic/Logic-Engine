@@ -265,7 +265,8 @@ export function evaluateRelationshipCandidate(input) {
       });
     }
 
-    if (subjectId === targetId && rule.allowSelfRelation !== true) {
+    if (subjectId === targetId
+        && !(own(rule, "allowSelfRelation") && rule.allowSelfRelation === true)) {
       return result("invalid_candidate", {
         reason: "self_relation_not_enabled",
         dimension,
