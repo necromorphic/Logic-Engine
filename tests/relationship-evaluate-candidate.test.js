@@ -356,3 +356,20 @@ test("rejects malformed transition declarations as incomplete rules", () => {
   assert.equal(result.status, "unsupported");
   assert.equal(result.reason, "dimension_rule_incomplete");
 });
+
+test("rejects non-transitionable status tags in transition source rules", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    dimensionRules: {
+      trust: {
+        ...rules.trust,
+        transitions: [
+          { operation: "set", from: { status: "withheld" }, to: "guarded" },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "dimension_rule_incomplete");
+});
