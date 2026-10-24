@@ -435,7 +435,7 @@ The current pinned ST representation physically splices deleted swipes/messages 
 - Provider source/test head inspected: `0c7b4abd8a5b3547304f452380b310bb155aeb52`.
 - Test file blob: `1926af89dad7676b40b3cb84280885b098cdaea2`.
 - Frozen Provider source/test head: source blob `67c84de44ff2783d85a42fded1b583aa25abea99`, raw-archive test blob `1926af89dad7676b40b3cb84280885b098cdaea2`, package script blob `fb0851c43284e2709216a59c54e0df30506a7d4c`. These blobs are identical on the reviewed code head `0c7b4abd8a5b3547304f452380b310bb155aeb52` and the documentation branch commit below.
-- Re-run evidence: [Runtime tests #1793](https://github.com/necromorphic/Logic-Engine/actions/runs/40123262561), run against docs commit `ca3e2adcbf1f296828bb53ba03d4c08837973e0b`; the workflow ran `npm test` and completed successfully: **290/290 passed**. Because this commit changes only the canonical documentation file and the source/test/package blobs above are unchanged, it validates the same Provider code and test files at the frozen head. The focused command `npm test -- tests/memory-provider-raw-archive.test.js` was not separately invoked in the local shell.
+- Focused CI evidence: [run #1809](https://github.com/necromorphic/Logic-Engine/actions/runs/40124729340), using temporary workflow-only PR #267 (closed unmerged). The runner executed `npm test -- tests/memory-provider-raw-archive.test.js tests/memory-provider-reconcile-interruption.test.js tests/memory-provider-reconcile-race.test.js tests/memory-provider-query-revocation-race.test.js`: **19 passed, 0 failed, 0 skipped** ([focused job](https://github.com/necromorphic/Logic-Engine/actions/runs/40124729340/job/120963615491)). The same run's full `npm test` job passed **290/290** ([full-suite job](https://github.com/necromorphic/Logic-Engine/actions/runs/40124729340/job/120963615668)). The workflow-only commit was `9f55264881b10982a4fc1812a8273e4af457ff24`; Provider source, raw archive test, and package script blobs remained identical to the frozen blobs listed above. This is CI fixture-test evidence, not real Host/runtime integration.
 - Evidence class: **FIXTURE-TESTED** for Provider-local behavior; **SOURCE-INSPECTED** for the listed methods; **NOT REAL-RUNTIME-TESTED** for Android/Termux Host persistence, authoritative inventory/currentness, Host→Provider handoff, and final serialization/revocation race.
 
 #### Provider acceptance before any integration review
@@ -448,3 +448,48 @@ The current pinned ST representation physically splices deleted swipes/messages 
 6. Do not enable any Host caller or production Memory→NPC disclosure path until the exact implementation diff receives the second explicit Core review and real lifecycle/inventory/final-boundary acceptance evidence is supplied.
 
 **Provider status:** existing local archive operations can support exact immutable capture, active-pointer selection, reversible per-version tombstones, local dependent-copy invalidation, and guarded local reads. They do not currently establish Host identity authority, complete/current Host inventory, cross-store revocation atomicity, or production integration. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**; vectorization is untouched.
+
+
+### 11.6 Provider execution result and caller failure matrix (25 Oct 2026)
+
+This addendum records the completed Provider-local test run and makes the boundary between caller obligations and Provider guarantees explicit. It does not authorize a Host caller, add a runtime contract, or change the production gate.
+
+#### Caller-to-operation contract using existing operations only
+
+| Caller situation | Existing Provider operation | Provider-local result / invariant | Caller must do; fail-closed outcome |
+|---|---|---|---|
+| First capture of a completed immutable source version | `captureRawMessage(input)` | Validate required tuple and payload; persist raw row and digest. | Call only after approved scope and durable Host IDs are established. Missing/ambiguous identity or unapproved scope => do not call / NON_READY. |
+| Retry after timeout/restart with identical identity and payload | `captureRawMessage(input)` | Return duplicate for the exact same tuple/payload; do not create a second logical raw record. | Treat duplicate as idempotent acknowledgement, not proof that Host inventory is complete or the NPC received anything. |
+| Same tuple arrives with changed payload | `captureRawMessage(input)` | Throw `MEMORY_RAW_CAPTURE_CONFLICT`; preserve original bytes. | Stop processing that identity and surface a conflict; never overwrite or silently mint authority from the new payload. |
+| Host selects an existing alternate version | `selectActiveRawVersion(tuple)` | Change the Provider active pointer only; retain other immutable versions. Missing/tombstoned target fails. | Resolve the selected native swipe to its durable version ID before calling; never pass array index or native `swipe_id` as version identity. |
+| Host deletes one exact version | `markRawSourceDeleted(tuple)` | Tombstone exact known version, clear its active pointer, invalidate registered Provider-local dependent copies. | Must capture exact ID before Host mutation. `missing` means Provider did not know that tuple; it does not mean deletion/reconciliation succeeded. |
+| Host deletes a whole message/chat | Repeated `markRawSourceDeleted(tuple)` for every exact known affected version, only if permitted by approved contract | Can mark only supplied known tuples. | Do not claim whole-message/chat deletion complete unless Host supplies a complete authoritative affected-version set, including inactive/history scope; otherwise withhold and remain NON_READY. |
+| Read candidate raw source | `readRawMessageVersion(tuple)` or `readActiveRawMessages(scope)` | Injected authorization checks run around local DB read; local tombstone/integrity checks apply. | Treat injected callbacks as dependency seams, not proof of production Core authority. This read is not the final outbound disclosure boundary. |
+| Reconcile Provider records | `reconcile(worldId)` | Validates Provider canonical-entity records using injected snapshot/source/inventory checks and checks snapshot stability. | Do not reinterpret success as complete Host-source inventory. Host deletion, inactive versions, missing events, rollback/restore and external copies remain outside this guarantee. |
+
+#### Failure matrix
+
+| Failure / ambiguity | What current Provider code can establish | Required system result |
+|---|---|---|
+| Duplicate replay, same tuple and same payload | Idempotent duplicate; no overwrite | Continue only within already authorized scope; does not upgrade readiness |
+| Same tuple, different payload | Conflict error; original record remains | Reject conflicting candidate; scope/source NON_READY pending investigation |
+| Missing or unstable Host ID | Provider input validation can reject missing identity, but cannot repair Host identity | Do not synthesize ID from index/time/swipe position; NON_READY |
+| Unknown delete tuple | Provider reports missing/no matching record | Do not report deletion complete; reconcile against authoritative Host evidence when available |
+| Inactive or previously deleted version absent from Host JSON | Provider cannot discover a source object it never captured or one physically removed without durable history | Host inventory NON_READY; no complete-empty assertion |
+| Tombstone races a local Provider read | Local before/after authorization and tombstone checks are covered by fixture tests | Withhold on observed revocation; do not claim cross-store atomicity or eliminate post-check race |
+| Dependent copy not registered in Provider DB or held externally | Provider cannot invalidate unknown/external copy | No claim of global revocation; all consumers/stores need an approved shared invalidation boundary |
+| Restart/replay with stable identity | Provider-local archive and tests support durable duplicate/tombstone semantics | Host must independently prove IDs and lifecycle facts survive its own restart/replay |
+| Interrupted or concurrently mutated reconciliation snapshot | Focused tests exercise interruption and race behavior | Reconciliation must fail closed; this is Provider-record consistency, not Host completeness |
+| Restore/branch/import with ambiguous lineage or ID collision | Provider conflict rules can reject an identical-key/different-payload collision; no Host copy policy is enforced by Provider alone | Reject/withhold until approved remapping, ancestry and scope rules are demonstrated |
+| Candidate assembled, then revoked before outbound release | No real production serializer/transport path is established here | No production disclosure; final-boundary owner must prove immediate revalidation on the actual path |
+| Final revocation happens after a local final check | Local check alone cannot make separate stores atomic | Residual race remains unproven; production stays disabled until Core accepts an evidenced coordination/race bound |
+
+#### Test result, frozen inputs and limits
+
+- Frozen Provider source/test head: `0c7b4abd8a5b3547304f452380b310bb155aeb52`.
+- Frozen source blob: `67c84de44ff2783d85a42fded1b583aa25abea99`; raw archive test blob: `1926af89dad7676b40b3cb84280885b098cdaea2`; package script blob: `fb0851c43284e2709216a59c54e0df30506a7d4c`.
+- Focused command and results: 19 passed / 0 failed / 0 skipped, CI #1809; full suite 290 passed / 0 failed in the same run. Temporary workflow-only PR #267 was closed without merge; frozen code/test blobs were unchanged.
+- **FIXTURE-TESTED:** duplicate/conflict, active pointer, tombstone/dependent-copy invalidation, restart durability, local authorization recheck, tombstone during final Provider authorization check, reconciliation interruption and snapshot race.
+- **NOT PROVEN:** Android/Termux persistence, durable Host identity, real Host→Provider capture, exhaustive Host inventory, cross-store atomicity, complete invalidation of external copies, and actual serializer→transport revocation race.
+
+**Provider-owned next action:** keep existing operation semantics and tests frozen; review future Host/Core diffs against this caller matrix and report mismatches. No new API/schema/store/journal/cursor/outbox or production caller is introduced here. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**; vectorization remains untouched.
