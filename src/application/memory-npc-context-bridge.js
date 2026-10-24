@@ -18,7 +18,7 @@ export class MemoryNpcContextBridge {
     this.verifyCandidate = verifyCandidate;
   }
 
-  read(request) {
+  async read(request) {
     if (!request || typeof request !== 'object'
       || typeof request.world_id !== 'string' || !request.world_id.trim()
       || typeof request.subject_id !== 'string' || !request.subject_id.trim()
@@ -28,7 +28,7 @@ export class MemoryNpcContextBridge {
 
     let result;
     try {
-      result = this.retrieve(Object.freeze({ ...request }));
+      result = await this.retrieve(Object.freeze({ ...request }));
     } catch {
       return Object.freeze({ status: 'non_ready', admitted: Object.freeze([]), reason: 'retrieval_unavailable' });
     }
@@ -36,14 +36,14 @@ export class MemoryNpcContextBridge {
     // A result claiming "complete" is not sufficient. The trusted host
     // verifier must establish scope, access and completeness at the source.
     try {
-      if (this.verifyResult(Object.freeze({ ...request }), result) !== true) {
+      if (await this.verifyResult(Object.freeze({ ...request }), result) !== true) {
         return Object.freeze({ status: 'non_ready', admitted: Object.freeze([]), reason: 'authoritative_result_unconfirmed' });
       }
       if (!result || !Array.isArray(result.candidates)) {
         return Object.freeze({ status: 'non_ready', admitted: Object.freeze([]), reason: 'result_incomplete_or_unavailable' });
       }
       for (const candidate of result.candidates) {
-        if (this.verifyCandidate(Object.freeze({ ...request }), candidate) !== true) {
+        if (await this.verifyCandidate(Object.freeze({ ...request }), candidate) !== true) {
           // Do not silently turn an unverifiable hit into an authorized empty
           // result. Any unverifiable candidate makes this retrieval non-ready.
           return Object.freeze({ status: 'non_ready', admitted: Object.freeze([]), reason: 'authoritative_candidate_unconfirmed' });
