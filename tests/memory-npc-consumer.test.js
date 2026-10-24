@@ -27,6 +27,14 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
     ],
   });
   bindings.bind('memory-npc-world', 'adapter-a', 'npc-a');
+  engine.commitEvent('memory-npc-world', {
+    event_id: 'unrelated-memory-npc',
+    idempotency_key: 'unrelated-memory-npc',
+    turn_id: 'unrelated-memory-npc',
+    event_type: 'action.completed',
+    expected_revision: 1,
+    effects: [{ kind: 'entity.create', entity_id: 'unrelated-a', entity_type: 'object' }],
+  });
   const authorizedReadService = new AuthorizedReadService(
     engine,
     bindings,
@@ -227,4 +235,29 @@ test('duplicate Memory identity/version cannot be rebound to a different canonic
   assert.equal(result.reason, 'memory_record_identity_conflict');
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
+});
+
+
+test('rollback-only revision change invalidates a prior candidate without sequence growth', async (t) => {
+  const { consumer, engine, store, snapshot } = setup(t);
+  const beforeSequence = store.currentCommitSequence('memory-npc-world');
+  const beforeRevision = engine.getState('memory-npc-world').world_revision;
+  assert.equal(beforeRevision, snapshot.world_revision);
+
+  const before = await consumer.retrieveForNpc(request());
+  assert.equal(before.status, 'ready');
+  assert.equal(before.candidates.length, 1);
+
+  const rollback = engine.rollbackEvent('memory-npc-world', {
+    root_event_id: 'unrelated-memory-npc',
+    idempotency_key: 'rollback-unrelated-memory-npc',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.equal(store.currentCommitSequence('memory-npc-world'), beforeSequence);
+  assert.notEqual(engine.getState('memory-npc-world').world_revision, beforeRevision);
+
+  const after = await consumer.retrieveForNpc(request());
+  assert.equal(after.status, 'ready');
+  assert.deepEqual(after.admitted, []);
+  assert.deepEqual(after.candidates, []);
 });
