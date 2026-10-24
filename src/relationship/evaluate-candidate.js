@@ -139,8 +139,9 @@ function transitionFromToken(state) {
  * Evaluate a proposed partial patch against explicit World Pack rules.
  *
  * Input-shape precondition: records are ordinary objects (or null-prototype
- * records) with own data properties; arrays are dense standard arrays with data
- * elements. Accessor-backed and subclassed inputs are rejected. Proxy objects
+ * records) with enumerable own string data properties; arrays are dense standard
+ * arrays with data elements and no custom properties. Accessor-backed,
+ * non-enumerable, symbol-keyed, and subclassed inputs are rejected. Proxy objects
  * are outside this in-process domain contract and must not be supplied.
  *
  * Required input:
@@ -156,8 +157,9 @@ function transitionFromToken(state) {
  * - dimensionRules: dimension -> { values, allowClear, allowSelfRelation?,
  *   transitions: [{ operation: "set"|"clear", from: value|null|state-tag,
  *   to: value|null }] }. Use null for unset and {status:"cleared"} for cleared.
- * - evidence: { status, refs }; authorization and truth of those refs are
- *   upstream responsibilities. This function only checks declared status.
+ * - evidence: { status, refs }; supported refs must be non-empty, unique strings.
+ *   Authorization and truth of those refs are upstream responsibilities. This
+ *   function only checks declared status.
  * - ruleVersion: non-empty identifier for the pinned domain rules.
  *
  * No numeric scale, dimension list, default neutral, or implicit transition is
