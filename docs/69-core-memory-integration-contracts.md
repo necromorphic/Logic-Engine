@@ -41,7 +41,11 @@ Adapters call a bounded service contract, not SQLite or an index directly. Raw s
 
 ## 6. Authorized-read dependency
 
-PR #65 describes a fail-closed authorized-read service candidate, but is open and explicitly limited to self-only fields. It is not a complete memory visibility policy and must not be treated as merged. Memory integration must be reviewed against the actual base branch and any approved successor contract. If policy is unavailable or throws, deny the protected read.
+PR #65 describes a fail-closed authorized-read service candidate, but is open and explicitly limited to self-only fields. It is not a complete memory visibility policy and must not be treated as merged.
+
+The current `ActorBindingService` on `main` resolves an authenticated adapter to a canonical actor identity; its own code comment explicitly limits that authority to identity resolution, not knowledge reads, action semantics, approval, or commit. A valid actor binding is therefore necessary identity context where applicable, but is not authorization to retrieve any memory or secret.
+
+Memory integration must be reviewed against the actual base branch and any approved successor contract. It needs a separate approved actor/purpose/world/snapshot-scoped access decision that filters before content, snippets, counts, and diagnostics are exposed. If policy is unavailable or throws, deny the protected read.
 
 ## 7. Open integration contract
 
