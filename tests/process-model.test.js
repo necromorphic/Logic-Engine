@@ -56,7 +56,7 @@ test('rejects unknown fields and duplicate source references', () => {
 });
 
 test('transition proposals reject invalid completion, claimed cancellation, and unvalidated resume', () => {
-  const pending = { ...definition(), milestones: [{ milestone_id: 'a', status: 'pending' }] };
+  const pending = { ...definition(), status: 'running', milestones: [{ milestone_id: 'a', status: 'pending' }] };
   assert.throws(() => proposeProcessTransition(pending, 'complete'), (error) => error.code === 'PROCESS_NOT_COMPLETE');
   assert.throws(() => proposeProcessTransition(pending, 'cancel', { has_in_flight_claim: true }), (error) => error.code === 'PROCESS_MILESTONE_CLAIMED');
   assert.throws(() => proposeProcessTransition({ ...pending, status: 'paused' }, 'resume'), (error) => error.code === 'PROCESS_RESUME_REQUIRES_RESCHEDULE');
