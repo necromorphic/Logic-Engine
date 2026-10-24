@@ -4,15 +4,16 @@ Status: documentation-only cross-block audit, prepared 2026-10-24. This file sup
 
 ## Source basis
 
-- Relationship domain design: `feat/relationship-domain-module:docs/46-relationship-domain-module-design.md`, reported updated at commit `164582435cef8fb0b89a3b4f2ef454356ca69c25`.
-- Relationship test traceability: `feat/relationship-domain-module:docs/47-relationship-module-test-traceability.md`, reported updated at commit `61797d76f4256efad5f25a722d73713319ab3a03`.
+- Relationship test traceability: [`docs/47-relationship-module-test-traceability.md`](../47-relationship-module-test-traceability.md) on current `main` (ported through PR #80).
+- Relationship pure evaluation contract: [`docs/48-relationship-pure-evaluation-contract.md`](../48-relationship-pure-evaluation-contract.md) on current `main` (ported through PR #80).
+- Current domain-to-Core handoff: [`docs/49-relationship-to-core-typed-transition-handoff.md`](../49-relationship-to-core-typed-transition-handoff.md), tracked in Issue #130; proposal only, not a Core API.
 - Relationship crosswalk correction: commit `bfe2e67f0af9fc4fa43e88200acf0185c21d998b`.
 - Personality canonical acceptance matrix: `docs/personality/04-semantic-acceptance-matrix.md`.
 - Personality per-case traceability: `docs/personality/09-per-case-acceptance-traceability.md`.
 - Personality executable-evidence audit: `docs/personality/10-issue-73-executable-evidence-audit.md`.
 - NPC consumer compatibility: `feat/npc-subsystem:docs/52-npc-relationship-consumer-compatibility.md`, a contract document, not an executable test.
 
-The Relationship commits and NPC contract are cross-branch references. This audit does not assert that those commits are merged into `main`, nor that documentation in another branch constitutes a runtime test.
+The Relationship design/traceability documents are on current `main`; they remain documentation, not runtime consumer tests. The NPC compatibility contract remains a cross-branch contract reference only, not an executable test.
 
 ## Per-scenario disposition
 
@@ -43,3 +44,8 @@ This update satisfies the documentation crosswalk request by mapping REL-MOD-013
 - [Relationship domain design, reported commit 1645824](https://github.com/necromorphic/Logic-Engine/blob/164582435cef8fb0b89a3b4f2ef454356ca69c25/docs/46-relationship-domain-module-design.md)
 - [Relationship test traceability, reported commit 61797d7](https://github.com/necromorphic/Logic-Engine/blob/61797d76f4256efad5f25a722d73713319ab3a03/docs/47-relationship-module-test-traceability.md)
 - [Relationship crosswalk correction, commit bfe2e67](https://github.com/necromorphic/Logic-Engine/commit/bfe2e67f0af9fc4fa43e88200acf0185c21d998b)
+
+
+## Current-main status refresh (2026-10-24)
+
+Core Issue #77 is closed after shipping the privileged typed Relationship write/replay slice. The current-main `tests/relationship-transition-core.test.js` has 21 named production-path tests; see `10-issue-73-executable-evidence-audit.md`. These tests do not prove the downstream Personality/NPC consumer non-implications described here. General authorized reads, trusted initial/import/correction, safe card projection, and production NPC knowledge/motive/consent/obligation/reciprocity/player-agency behavior remain blocked or unverified. The domain handoff is separately tracked in #130; this file remains a crosswalk, not a duplicate implementation proposal.
