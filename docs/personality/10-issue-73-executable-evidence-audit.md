@@ -34,6 +34,48 @@ Status: repository-source audit; not a test-run report. Audited 2026-10-24 again
 | PERS-SEM-029 meaning-changing World Pack update, migration or incompatibility | Personality acceptance matrix §2/§2A and World Pack template define explicit compatibility/migration/incompatibility expectations; Relationship proposal docs describe the boundary | Specification only. No executable historical migration/version-selection test was found in the inspected evaluator suite. Core version pinning, migration and replay remain blocked. |
 | Canonical write atomicity, authorization, trusted provenance, audit/revision, rollback/replay | Personality Core integration gates and Relationship proposal contract identify these as Core-owned | **Core integration blocker**: evaluator tests do not execute these operations. No evidence here supports a pass claim. |
 
+## Complete PERS-SEM ID disposition
+
+This table closes the per-ID pass over the canonical matrix. “No executable test found” is an explicit disposition, not a claim that the behavior passed. Test names refer to `feat/relationship-pure-evaluator:tests/relationship-evaluate-candidate.test.js` at the audited evaluator ref unless otherwise stated.
+
+| ID | Executable evidence / explicit disposition | Boundary |
+|---|---|---|
+| PERS-SEM-001 | Test: `keeps direction explicit and does not create a reciprocal patch` | Pure candidate only; Core directional persistence blocked |
+| PERS-SEM-002 | Tests: `omitted dimensions remain omitted from the candidate patch`; `clearing one dimension leaves every other dimension outside the candidate patch` | Pure patch semantics; canonical partial-write atomicity blocked |
+| PERS-SEM-003 | Tests: `does not infer a neutral/default value for an unset dimension`; `distinguishes explicit domain values from unset state`; `keeps explicit neutral distinct from unset and treats an existing neutral value as a no-op` | Pure evaluator; production read representation unverified |
+| PERS-SEM-004 | Tests: `uses an explicit clear operation, not omission or a sentinel value`; `distinguishes unset from a previously cleared dimension` | Candidate/state distinction only; canonical clear history and authorized read blocked |
+| PERS-SEM-005 | Partial/clear tests establish candidate isolation; **no dedicated executable test found** for every cross-dimension non-implication (consent, knowledge, obligation, reciprocity) | World Pack/NPC semantic consumer test remains unimplemented |
+| PERS-SEM-006 | Tests: `rejects the whole candidate if any dimension is unsupported`; `returns a non-mutating unsupported result when dimension rules are incomplete`; special-key tests listed above | Evaluator validation only; Core enforcement blocked |
+| PERS-SEM-007 | Tests: `rejects clearing where the active dimension rule disallows it`; `does not silently apply a transition absent from the World Pack rules`; `rejects malformed transition declarations as incomplete rules`; `rejects a mixed valid/invalid patch without exposing partial output or mutating inputs` | Pure candidate rejection; canonical commit atomicity blocked |
+| PERS-SEM-008 | **No dedicated executable test found** for scene co-presence alone causing no transition | Future domain/consumer regression test; do not infer from deterministic evaluation |
+| PERS-SEM-009 | **No executable test found** for canonical participant-ID existence through the production write boundary | Core identity/typed-write integration blocker |
+| PERS-SEM-010 | Test: `self-relations are rejected unless each affected dimension explicitly allows them` | Pure evaluator; Core identity/write enforcement unverified |
+| PERS-SEM-011 | **No executable test found** for trusted initial/import provenance | Core trusted initialization/import boundary blocker |
+| PERS-SEM-012 | **No executable test found** for authorized author correction with audit and no historical rewrite | Core authorization/audit blocker |
+| PERS-SEM-013 | Tests reject inherited/undeclared input fields, but **no test found** proving caller-supplied origin cannot self-authorize a canonical operation | Core trusted authorization boundary blocker |
+| PERS-SEM-014 | **No executable NPC consumer test found** proving relationship/temporary-state changes do not mutate stable traits | Personality/NPC consumer test remains unimplemented |
+| PERS-SEM-015 | **No executable NPC decision test found** proving traits influence rather than dictate action across context | NPC decision orchestration test remains unimplemented |
+| PERS-SEM-016 | **No executable test found** for preventing a single observed behavior from automatically rewriting a stable profile | Personality/NPC consumer test remains unimplemented |
+| PERS-SEM-017 | **No executable NPC interpretation test found** for contradictory behavior without invented canonical motive | NPC consumer contract only |
+| PERS-SEM-018 | **No executable NPC consumer test found** proving relationship values do not grant facts/private beliefs; NPC contract only | Core authorized read and NPC knowledge-partition tests blocked |
+| PERS-SEM-019 | **No executable consumer test found** proving relationship values do not imply consent absent an explicit rule | Semantic/NPC contract only |
+| PERS-SEM-020 | Tests: `does not evaluate a transition when evidence is insufficient or conflicting`; `does not treat duplicate evidence references as additional support` | Pure evidence interpretation; production causal provenance blocked |
+| PERS-SEM-021 | **No executable Core rollback/rebuild test found** for revoking the only required dependency | Core causal rollback integration blocker |
+| PERS-SEM-022 | Explicitly deferred by the canonical matrix; **no executable test or accepted independent-support contract found** | Deferred pending Core representation and World Pack sufficiency rules |
+| PERS-SEM-023 | Tests: `does not evaluate a transition when evidence is insufficient or conflicting`; `preserves each non-value relationship state instead of treating it as unset` | Pure evaluator states only; production reconciliation blocked |
+| PERS-SEM-024 | Tests: `requires a pinned rule version`; `re-evaluating identical inputs is deterministic and side-effect-free` | Fixed-input deterministic evaluation only; historical version lookup/replay/rollback not proven |
+| PERS-SEM-025 | **No executable actor/purpose-authorized read test found** | Core authorized-read integration blocker |
+| PERS-SEM-026 | Tests distinguish withheld/current state from unset within evaluator inputs; **no executable authorized-read non-disclosure test found** | Core disclosure/filtering blocker |
+| PERS-SEM-027 | **No executable safe, read-only character-card projection test found** | Core authorized projection integration blocker |
+| PERS-SEM-028 | **No executable production player-agency test found** for preserving player dialogue, thoughts, decisions, and actions | NPC/player-control consumer test remains unimplemented |
+| PERS-SEM-029 | **No executable historical version-selection/migration test found**; template and matrix specify explicit migration or incompatibility for meaning-changing updates | Core historical versioning/migration blocker; keep distinct from PERS-SEM-024 |
+
+### Legacy ID and auxiliary acceptance families
+
+- `PERS-REL-001–003`, `PERS-REL-009`, `PERS-REL-010`, `PERS-REL-014–015` map to the PERS-SEM rows above; the exact evaluator tests are listed there where present. Legacy IDs do not create additional runtime evidence.
+- `PERS-REL-004` (co-presence only), `PERS-REL-005–006` (initial/correction provenance), `PERS-REL-007–008` (canonical identity/self-relation), `PERS-REL-011–013` (knowledge, card projection, rollback), and `PERS-REL-016` (player agency) have no complete production-boundary test evidence in the inspected branches. They remain mapped to the corresponding PERS-SEM criteria and the Core/NPC blockers above.
+- `PERS-TRAIT-001–013`: the Personality lifecycle document specifies these criteria, but the inspected NPC branch exposes only a consumer compatibility contract and no executable relationship-consumer runtime test. Therefore no PERS-TRAIT runtime pass is claimed; Core-owned authorization, audit, and rollback items remain integration blockers.
+
 ## Acceptance-criterion disposition
 
 - **Covered by source-level pure-evaluator tests:** candidate purity; omitted-dimension behavior; explicit clear; whole-candidate rejection; directedness; unset/neutral/cleared/withheld/conflict/unsupported distinctions; special property keys; pinned version input and deterministic repeat evaluation.
