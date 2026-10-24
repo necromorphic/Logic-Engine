@@ -17,7 +17,7 @@ Primary references:
 |---|---|---|---|---|
 | PERS-SEM-001 | 01 §4 | Personality semantics; Core typed write | Specified | Blocked: typed write unverified |
 | PERS-SEM-002 | 01 §4; 05 §2 | Personality patch meaning; Core operation | Specified | Blocked: atomic partial update unverified |
-| PERS-SEM-003 | 01 §4; 05 §3 | Personality meaning; Core representation | Specified | Blocked: production representation unverified |
+| PERS-SEM-003 | 01 §4; 05 §3 | Personality meaning; Core representation | Specified: unset (sometimes called unknown in this narrow sense) differs from neutral; conflict/insufficient-support unknown is separately defined by PERS-SEM-023 | Blocked: production representation unverified |
 | PERS-SEM-004 | 01 §4; 05 §3; 03 integration gates | Personality meaning; Core history/read authorization and representation | Specified: clear removes effective value while authorized history distinguishes explicit removal from never-set; exact representation unresolved | Blocked: typed write/read and disclosure policy unverified |
 | PERS-SEM-005 | 05 §4 | Personality / World Pack | Specified as default non-implication | World-specific rule per dimension still required |
 | PERS-SEM-006 | 05 §§2, 6 | World Pack validation; Core enforcement | Specified | Blocked: production validation unverified |
