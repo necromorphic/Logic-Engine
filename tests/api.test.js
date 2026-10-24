@@ -29,6 +29,43 @@ async function createWorld(base, worldId, extraHeaders = headers) {
   });
 }
 
+test('time-advance API is internal-only and exposes durable start/status/replay', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL });
+  assert.equal((await createWorld(base, 'api-time-world')).status, 201);
+  const request = {
+    idempotency_key: 'api-time-advance-key',
+    expected_revision: 0,
+    to_coordinate: 60000,
+    triggers: [],
+  };
+  const denied = await fetch(base + '/v1/worlds/api-time-world/time-advances', {
+    method: 'POST', headers, body: json(request),
+  });
+  assert.equal(denied.status, 403);
+
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  const started = await fetch(base + '/v1/worlds/api-time-world/time-advances', {
+    method: 'POST', headers: internalHeaders, body: json(request),
+  });
+  assert.equal(started.status, 200);
+  const first = (await started.json()).operation;
+  assert.equal(first.status, 'completed');
+  assert.equal(first.confirmed_coordinate, 60000);
+
+  const status = await fetch(base + '/v1/worlds/api-time-world/time-advances/' + encodeURIComponent(first.operation_id), {
+    headers: internalHeaders,
+  });
+  assert.equal(status.status, 200);
+  assert.equal((await status.json()).operation.operation_id, first.operation_id);
+
+  const replay = await fetch(base + '/v1/worlds/api-time-world/time-advances', {
+    method: 'POST', headers: internalHeaders, body: json(request),
+  });
+  assert.equal(replay.status, 200);
+  assert.equal((await replay.json()).operation.operation_id, first.operation_id);
+  assert.equal((await fetch(base + '/v1/worlds/api-time-world/events', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } })).status, 200);
+});
+
 test('health, auth, proposal approval, and canonical commit boundary', async (t) => {
   const base = await setup(t, { approvalToken: APPROVAL, internalToken: INTERNAL });
   assert.equal((await fetch(base + '/health')).status, 200);
