@@ -130,6 +130,14 @@ test('cancelling a process atomically cancels pending milestone triggers', (t) =
   });
   assert.equal(cancelled.process.status, 'cancelled');
   assert.equal(engine.listTimeTriggers('world-a').every((trigger) => trigger.status === 'cancelled'), true);
+  const cancelReplay = engine.transitionProcess('world-a', 'journey-1', {
+    action: 'cancel',
+    expected_version: created.process.version,
+    idempotency_key: 'cancel-journey-1',
+    reason: 'test_cancel',
+  });
+  assert.equal(cancelReplay.idempotent_replay, true);
+  assert.equal(cancelReplay.process.status, 'cancelled');
 
   const state = engine.getState('world-a');
   engine.startTimeAdvance('world-a', {
@@ -156,6 +164,21 @@ test('pause and resume rotate pending trigger identities when milestones remain 
     idempotency_key: 'pause-journey-1',
   });
   assert.equal(paused.process.status, 'paused');
+  const pauseReplay = engine.transitionProcess('world-a', 'journey-1', {
+    action: 'pause',
+    expected_version: created.process.version,
+    idempotency_key: 'pause-journey-1',
+  });
+  assert.equal(pauseReplay.idempotent_replay, true);
+  assert.equal(pauseReplay.process.status, 'paused');
+  assert.throws(
+    () => engine.transitionProcess('world-a', 'journey-1', {
+      action: 'cancel',
+      expected_version: created.process.version,
+      idempotency_key: 'pause-journey-1',
+    }),
+    (error) => error.code === 'IDEMPOTENCY_CONFLICT',
+  );
 
   const afterPause = engine.getState('world-a');
   engine.startTimeAdvance('world-a', {
@@ -172,6 +195,13 @@ test('pause and resume rotate pending trigger identities when milestones remain 
   });
   assert.equal(resumed.process.status, 'scheduled');
   assert.equal(resumed.process.milestones.every((milestone) => !oldTriggerIds.includes(milestone.trigger_id)), true);
+  const resumeReplay = engine.transitionProcess('world-a', 'journey-1', {
+    action: 'resume',
+    expected_version: beforeResume.version,
+    idempotency_key: 'resume-journey-1',
+  });
+  assert.equal(resumeReplay.idempotent_replay, true);
+  assert.equal(resumeReplay.process.status, 'scheduled');
 
   const afterResume = engine.getState('world-a');
   engine.startTimeAdvance('world-a', {
