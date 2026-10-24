@@ -121,6 +121,8 @@ export class MemoryNpcConsumer {
           ...scope,
           record_ref: candidate.record.ref,
           record_version: candidate.record.version,
+          source_kind: candidate.source.kind,
+          source_entity_id: candidate.source.entity_id,
         }) === true;
       } catch {
         recordAllowed = false;
