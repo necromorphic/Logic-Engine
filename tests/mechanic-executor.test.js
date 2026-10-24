@@ -901,3 +901,35 @@ test('canonical context provider rejects unsafe and duplicate condition-path bin
     canRead: () => true,
   }), /uniquely map a safe condition path/);
 });
+
+
+test('application executor rejects accessor-backed context without invoking getters', (t) => {
+  const { engine, worldId } = setup(t, 'executor-accessor-context-world');
+  enableFixture(engine, worldId);
+  let getterCalled = false;
+  const world = {};
+  Object.defineProperty(world, 'weather', {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return 'rain';
+    },
+  });
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: ({ snapshot }) => ({
+      context: { world, actor: { hp: 10 } },
+      knownAbsentPaths: [],
+      dependencyEvidence: [
+        { path: 'actor.hp', kind: 'entity_attribute', entity_id: 'entity.actor-context', attribute: 'hp' },
+        { path: 'world.weather', kind: 'entity_attribute', entity_id: 'entity.world-context', attribute: 'weather' },
+      ],
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+      policy_version: 'test-visibility-policy-v1',
+    }),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'INVALID_AUTHORIZED_CONTEXT');
+  assert.equal(getterCalled, false);
+  assert.deepEqual(result.effects, []);
+});
