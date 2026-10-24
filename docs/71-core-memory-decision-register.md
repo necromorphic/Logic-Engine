@@ -132,7 +132,7 @@ A cross-block review comment was posted to Issue #70 identifying two items for t
 - the last unsafe-summary fixture in `tests/npc-memory-candidate-eligibility.test.js` appears to have an unmatched/missing closing brace and may prevent the test file from parsing;
 - the helper checks `content_kind === "summary"` to trigger lineage checks but does not reject missing/unknown `content_kind`, which could bypass those checks; the NPC contract says unknown content/source kind is not admissible for knowledge-asserting context.
 
-No NPC files were edited from the Memory branch, and the test file was not executed here. Memory's own acceptance matrix now includes **MEM-034** for unknown/missing content kind so that a future integrated boundary cannot bypass derived-content safety through an unrecognized type. This is a contract test requirement, not a claim that either block's tests currently pass.
+No NPC files were edited from the Memory branch, and the test file was not executed here. Memory's own acceptance matrix now includes **MEM-034** for unknown/missing content kind and **MEM-035** for stale, provenance-incomplete, or unavailable archive/vector results so that a future integrated boundary cannot bypass derived-content safety through an unrecognized type. This is a contract test requirement, not a claim that either block's tests currently pass.
 
 
 ## Direct response to NPC Memory↔NPC integration report — 2026-10-24
@@ -200,7 +200,7 @@ These are proposed semantic classes, not current API status strings. Exact enum 
 
 ### 6. Joint integration tests and blockers
 
-Memory can accept the NPC negative cases as **contract-level acceptance requirements**, including cross-world source, missing/ambiguous access, stale/retracted source, summary with one revoked source, unavailable/partial index, conflicting evidence, empty authorized result, delivery failure/unknown receipt, rollback without a higher commit sequence, and idempotent retry after partial failure. Memory's own matrix MEM-001–MEM-034 is a proposed test plan, not an executed suite.
+Memory can accept the NPC negative cases as **contract-level acceptance requirements**, including cross-world source, missing/ambiguous access, stale/retracted source, summary with one revoked source, unavailable/partial index, conflicting evidence, empty authorized result, delivery failure/unknown receipt, rollback without a higher commit sequence, and idempotent retry after partial failure. Memory's own matrix MEM-001–MEM-035 is a proposed test plan, not an executed suite.
 
 **Blocked from being honest runtime integration tests until dependencies are approved/implemented:**
 - general trusted authorized-read policy and exact failure semantics (MEM-O02; PR #65 is not sufficient as-is);
