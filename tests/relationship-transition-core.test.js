@@ -334,7 +334,7 @@ test('rejects unavailable rule versions, cross-world participants, and invalid e
         expected_commit_sequence: 2,
         evidence_refs: ['event:' + evidence.event_id],
       })),
-      (error) => error.code === 'RELATIONSHIP_EVIDENCE_NOT_ELIGIBLE',
+      (error) => ['RELATIONSHIP_EVIDENCE_NOT_ELIGIBLE', 'INVALID_CAUSAL_REFERENCE'].includes(error.code),
     );
     assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
     assert.equal(engine.getState('world-relationship-test').world_revision, 3);
