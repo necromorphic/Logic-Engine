@@ -140,13 +140,15 @@ export class ProposalService {
     assert(object(evaluation.condition_result) && evaluation.condition_result.status === 'true', 'INVALID_MECHANIC_EVALUATION', 'Only evaluations with proven-true conditions may be proposed.');
     assert(typeof evaluation.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.context_fingerprint)
       && typeof evaluation.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.evaluation_fingerprint)
-      && typeof evaluation.context_policy_version === 'string' && evaluation.context_policy_version.trim(),
+      && typeof evaluation.context_policy_version === 'string' && evaluation.context_policy_version.trim()
+      && typeof evaluation.authorization_scope === 'string' && evaluation.authorization_scope.trim(),
     'INVALID_MECHANIC_EVALUATION_FINGERPRINT', 'Context and evaluation fingerprints are required.');
     const expectedEvaluationFingerprint = hashRequest({
       snapshot_identity: identity,
       action_id: evaluation.action_id,
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
+      authorization_scope: evaluation.authorization_scope,
       condition_result: evaluation.condition_result,
       dependency_manifest: evaluation.dependency_manifest,
       effects: evaluation.effects,
@@ -219,6 +221,7 @@ export class ProposalService {
       action_id: evaluation.action_id,
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
+      authorization_scope: evaluation.authorization_scope,
       evaluation_fingerprint: evaluation.evaluation_fingerprint,
       dependency_manifest: evaluation.dependency_manifest,
       effect_provenance: provenance,
