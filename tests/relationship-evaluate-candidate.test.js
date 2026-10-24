@@ -615,3 +615,17 @@ test("rejects sparse rule arrays as incomplete configuration", () => {
   assert.equal(result.status, "unsupported");
   assert.equal(result.reason, "dimension_rule_incomplete");
 });
+
+
+test("rejects non-enumerable patch dimensions instead of silently ignoring them", () => {
+  const patch = {};
+  Object.defineProperty(patch, "trust", {
+    value: "guarded",
+    enumerable: false,
+  });
+
+  const result = evaluateRelationshipCandidate({ ...base, patch });
+
+  assert.equal(result.status, "invalid_candidate");
+  assert.equal(result.reason, "state_patch_and_rules_must_be_objects");
+});
