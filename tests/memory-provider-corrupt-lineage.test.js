@@ -31,7 +31,7 @@ test('corrupt stored lineage cannot publish a ready reconciliation state', async
   provider.db.prepare('UPDATE memory_records SET lineage_json=? WHERE world_id=?')
     .run('{broken-json', 'lineage-world');
 
-  await assert.rejects(() => provider.reconcile('lineage-world'));
+  assert.equal((await provider.reconcile('lineage-world')).status, 'stale');
   const scope = { world_id: 'lineage-world', subject_id: 'lineage-npc', purpose: 'npc_decision' };
   provider.grantQuery(scope, true);
   await assert.rejects(
