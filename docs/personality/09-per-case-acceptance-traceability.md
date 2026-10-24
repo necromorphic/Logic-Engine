@@ -108,7 +108,7 @@ This crosswalk links the Relationship module's proposed `REL-MOD-*` cases to the
 | REL-MOD-009 — Unsupported Core write | PERS-SEM-001, 002, 006, 007, 011, 013 | Direction, partial update, domain validation, trusted provenance, and atomic rejection depend on the approved Core write boundary | Blocked on typed operation, provenance, authorization, and atomicity evidence |
 | REL-MOD-010 — No invented OR rule | PERS-SEM-021, 022, 023, 024 | Required dependency, independent support, conflict/insufficiency, and replay have distinct semantics | PERS-SEM-022 remains deferred; source IDs alone do not prove independent sufficient support |
 | REL-MOD-011 — Player agency | PERS-SEM-028 | Relationship context must not author voluntary player dialogue, thoughts, decisions, or actions | Semantic requirement specified; runtime consumer boundary not verified |
-| REL-MOD-012 — Versioned semantics | PERS-SEM-024; PERS-SEM-006 and 007 where rule/version validation is relevant | Replay must not silently reinterpret history under changed semantics; active rules determine supported values/transitions | Historical version pinning/migration and production replay policy remain blocked |
+| REL-MOD-012 — Versioned semantics | PERS-SEM-029; PERS-SEM-024 where deterministic replay is relevant; PERS-SEM-006 and 007 where rule/version validation is relevant | PERS-SEM-029 is the direct Personality criterion for meaning-changing World Pack rules; PERS-SEM-024 covers replay determinism only within its stated limits, while PERS-SEM-006/007 cover active-domain validation rather than historical version pinning | Historical version pinning/migration and production replay policy remain blocked |
 
 ### Crosswalk maintenance rules
 
