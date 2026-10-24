@@ -98,6 +98,9 @@ The Personality block's semantic design is ready for core implementation review 
 Passing this exit criterion means the semantic specification is ready for review, not that runtime integration is unblocked.
 
 
+
+Issue #73 evidence audit: [`10-issue-73-executable-evidence-audit.md`](./10-issue-73-executable-evidence-audit.md) records exact pure-evaluator test names and separates candidate-level evidence from Core integration blockers. It is a source audit, not a test-run report.
+
 ## 6. Detailed semantic templates
 
 The acceptance cases are supported by two authoring contracts:
