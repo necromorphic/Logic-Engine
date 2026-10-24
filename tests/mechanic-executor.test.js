@@ -242,3 +242,25 @@ test('mechanic proposal handoff rejects incomplete or mismatched effect provenan
   );
   assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
 });
+
+
+test('application executor rejects non-empty action input instead of ignoring it', (t) => {
+  const { engine, worldId } = setup(t, 'executor-input-world');
+  enableFixture(engine, worldId);
+  const executor = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() });
+  const result = executor.evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait', input: { target: 'entity.someone' } });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'UNSUPPORTED_ACTION_INPUT_SCHEMA');
+  assert.deepEqual(result.effects, []);
+});
+
+test('application executor refuses to create an entity that already exists in the same-world state', (t) => {
+  const { engine, worldId } = setup(t, 'executor-existing-target-world');
+  enableFixture(engine, worldId);
+  commit(engine, worldId, 'seed-existing-target', 2, [{ kind: 'entity.create', entity_id: 'entity.new', entity_type: 'character' }]);
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'MECHANIC_EFFECT_TARGET_ALREADY_EXISTS');
+  assert.deepEqual(result.effects, []);
+});
