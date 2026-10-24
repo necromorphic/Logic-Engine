@@ -70,7 +70,9 @@ function currentState(currentValues, dimension) {
       && own(raw, "value")) {
     return { status: "value", value: raw.value };
   }
-  if (isRecord(raw) && (raw.status === "unset" || raw.status === "cleared")
+  // Unset is represented only by an absent key; transition rules use null.
+  // Reject a tagged unset instead of accepting a shape that cannot match rules.
+  if (isRecord(raw) && raw.status === "cleared"
       && Object.keys(raw).length === 1) {
     return { status: raw.status };
   }
