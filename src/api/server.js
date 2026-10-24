@@ -3,6 +3,7 @@ import { EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { ProposalService } from '../application/proposals.js';
 import { ActorBindingService } from '../application/actor-bindings.js';
+import { AuthorizedReadService } from '../application/authorized-read-service.js';
 
 const MAX = 1048576;
 async function readBody(req) {
@@ -50,6 +51,11 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   };
   const proposals = new ProposalService(engine);
   const actorBindings = new ActorBindingService(engine);
+  // Until a canonical visibility schema exists, disclose only the bound actor's
+  // own non-attribute identity fields. This intentionally denies all attributes.
+  const authorizedReads = new AuthorizedReadService(engine, actorBindings,
+    (context, entity, field) => entity.entity_id === context.actor.entity_id
+      && ['entity_id', 'entity_type', 'status'].includes(field));
 
   return createServer(async (req, res) => {
     try {
@@ -88,6 +94,32 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       if (parts.length < 3 || parts[0] !== 'v1' || parts[1] !== 'worlds') return send(res, 404, { error: { code: 'ROUTE_NOT_FOUND', message: 'Route not found.' } });
       const worldId = decodeURIComponent(parts[2]);
       const action = parts[3] || 'state';
+
+      if (parts.length === 4 && action === 'authorized-read' && req.method === 'POST') {
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required for authorized reads.' } });
+        const body = await readBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => !['actor_entity_id', 'purpose', 'fields'].includes(key))) {
+          throw new EngineError('INVALID_AUTHORIZED_READ', 'Authorized read accepts only actor_entity_id, purpose and fields.');
+        }
+        const result = authorizedReads.readEntityFields({
+          worldId,
+          adapterId,
+          actorEntityId: body.actor_entity_id,
+          recipient: 'model',
+          purpose: body.purpose,
+          entityIds: [body.actor_entity_id],
+          fields: body.fields,
+        });
+        return send(res, 200, { read: result });
+      }
+
+      if (req.method === 'GET' && ['state', 'events', 'audit'].includes(action)) {
+        const trustedRead = (adminToken && req.headers['x-admin-token'] === adminToken)
+          || (internalToken && req.headers['x-engine-internal-token'] === internalToken);
+        if (!trustedRead) return send(res, 403, { error: { code: 'AUTHORIZED_READ_REQUIRED', message: 'Raw canonical reads require a separate trusted internal or administrative credential.' } });
+      }
 
       if (action === 'actor-bindings') {
         if (parts.length === 4 && req.method === 'POST') {
@@ -191,7 +223,13 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         return send(res, 201, { proposal: proposals.create(worldId, await readBody(req), adapterId) });
       }
       if (parts.length === 5 && action === 'proposals' && req.method === 'GET') {
-        return send(res, 200, { proposal: proposals.get(worldId, decodeURIComponent(parts[4])) });
+        const proposalId = decodeURIComponent(parts[4]);
+        if (adminToken && req.headers['x-admin-token'] === adminToken) {
+          return send(res, 200, { proposal: proposals.get(worldId, proposalId) });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required to read a proposal.' } });
+        return send(res, 200, { proposal: proposals.get(worldId, proposalId, adapterId) });
       }
       if (parts.length === 6 && action === 'proposals' && req.method === 'POST') {
         const proposalId = decodeURIComponent(parts[4]);

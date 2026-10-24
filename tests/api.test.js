@@ -70,7 +70,18 @@ test('health, auth, proposal approval, and canonical commit boundary', async (t)
   const fetchedProposal = await fetch(base + '/v1/worlds/api-world/proposals/' + proposal.proposal_id, { headers });
   assert.equal(fetchedProposal.status, 200);
   assert.equal((await fetchedProposal.json()).proposal.proposal_hash, proposal.proposal_hash);
-  assert.equal((await (await fetch(base + '/v1/worlds/api-world/state', { headers })).json()).state.world_revision, 0);
+  const otherAdapterProposalRead = await fetch(base + '/v1/worlds/api-world/proposals/' + proposal.proposal_id, {
+    headers: { ...headers, 'x-adapter-id': 'adapter-b', 'x-adapter-token': ADAPTER_B },
+  });
+  assert.equal(otherAdapterProposalRead.status, 404);
+  const inaccessibleProposalError = (await otherAdapterProposalRead.json()).error;
+  assert.equal(inaccessibleProposalError.code, 'PROPOSAL_NOT_FOUND');
+  const missingProposalRead = await fetch(base + '/v1/worlds/api-world/proposals/not-a-real-proposal', { headers });
+  assert.equal(missingProposalRead.status, 404);
+  assert.deepEqual((await missingProposalRead.json()).error, inaccessibleProposalError);
+  assert.equal((await fetch(base + '/v1/worlds/api-world/state', { headers })).status, 403);
+  const internalReadHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  assert.equal((await (await fetch(base + '/v1/worlds/api-world/state', { headers: internalReadHeaders })).json()).state.world_revision, 0);
 
   const duplicate = await fetch(base + '/v1/worlds/api-world/proposals', { method: 'POST', headers, body: json(proposalBody) });
   assert.equal(duplicate.status, 201);
@@ -92,7 +103,7 @@ test('health, auth, proposal approval, and canonical commit boundary', async (t)
   const result = await committed.json();
   assert.equal(result.proposal.status, 'committed');
   assert.equal(result.commit_result.world_revision, 1);
-  const state = await fetch(base + '/v1/worlds/api-world/state', { headers });
+  const state = await fetch(base + '/v1/worlds/api-world/state', { headers: internalReadHeaders });
   assert.equal((await state.json()).state.entities[0].attributes.name, 'Mira');
 
   const replay = await fetch(base + '/v1/worlds/api-world/proposals/' + proposal.proposal_id + '/commit', { method: 'POST', headers, body: '{}' });
@@ -209,7 +220,7 @@ test('proposal server-owned fields are rejected and cancelled proposals cannot c
 });
 
 test('proposal creation performs deterministic validation without mutating canonical state', async (t) => {
-  const base = await setup(t, { approvalToken: APPROVAL });
+  const base = await setup(t, { approvalToken: APPROVAL, adminToken: ADMIN });
   assert.equal((await createWorld(base, 'proposal-validation-world')).status, 201);
   const invalidBody = {
     idempotency_key: 'fixable-proposal',
@@ -218,7 +229,7 @@ test('proposal creation performs deterministic validation without mutating canon
   };
   const invalid = await fetch(base + '/v1/worlds/proposal-validation-world/proposals', { method: 'POST', headers, body: json(invalidBody) });
   assert.equal(invalid.status, 400);
-  const state = await fetch(base + '/v1/worlds/proposal-validation-world/state', { headers });
+  const state = await fetch(base + '/v1/worlds/proposal-validation-world/state', { headers: { ...headers, 'x-admin-token': ADMIN } });
   assert.equal((await state.json()).state.world_revision, 0);
 
   const corrected = await fetch(base + '/v1/worlds/proposal-validation-world/proposals', {
@@ -302,7 +313,7 @@ test('mechanic instance lifecycle API is admin-only, idempotent, and isolated fr
   assert.equal(createReplayAfterEnableBody.commit_result.idempotent_replay, true);
   assert.equal(createReplayAfterEnableBody.instance.status, 'disabled');
 
-  const beforeRollback = await fetch(base + '/v1/worlds/mechanic-api-world/state', { headers });
+  const beforeRollback = await fetch(base + '/v1/worlds/mechanic-api-world/state', { headers: adminHeaders });
   const revisionBeforeRollback = (await beforeRollback.json()).state.world_revision;
   const rollback = await fetch(base + '/v1/worlds/mechanic-api-world/rollback', {
     method: 'POST', headers: adminHeaders,
@@ -329,7 +340,7 @@ test('mechanic instance lifecycle API is admin-only, idempotent, and isolated fr
   assert.equal(enableReplayAfterRollbackBody.instance, null);
   assert.equal(enableReplayAfterRollbackBody.instance_current, false);
 
-  const afterReplay = await fetch(base + '/v1/worlds/mechanic-api-world/state', { headers });
+  const afterReplay = await fetch(base + '/v1/worlds/mechanic-api-world/state', { headers: adminHeaders });
   assert.equal((await afterReplay.json()).state.world_revision, rollbackBody.world_revision);
 });
 
@@ -496,7 +507,7 @@ test('mechanic lifecycle idempotency conflicts and sequential rollback preserve 
   const rollbackDisableReplayResult = await rollbackDisableReplay.json();
   assert.equal(rollbackDisableReplayResult.idempotent_replay, true);
   assert.equal(rollbackDisableReplayResult.world_revision, revisionAfterRollbackDisable);
-  const stateAfterRollbackReplay = await (await fetch(base + '/v1/worlds/' + worldId + '/state', { headers })).json();
+  const stateAfterRollbackReplay = await (await fetch(base + '/v1/worlds/' + worldId + '/state', { headers: adminHeaders })).json();
   assert.equal(stateAfterRollbackReplay.state.world_revision, revisionAfterRollbackDisable);
 
   const rollbackKeyConflict = await fetch(rollbackUrl, {
