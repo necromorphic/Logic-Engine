@@ -1,6 +1,6 @@
 # T5 — durable time-advance operation runtime slice
 
-**Status:** implementation slice in review. The operation manager is wired to the T4 planner and T3 segment commit, but trigger registration/completion reconciliation remains external.
+**Status:** T5 durable time-advance operation is merged in main. The operation manager is wired to the T4 planner and T3 segment commit, but trigger registration/completion reconciliation remains external.
 
 ## Contract
 
