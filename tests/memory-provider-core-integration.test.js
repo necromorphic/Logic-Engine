@@ -259,3 +259,33 @@ test('source validator outage makes the real Core/NPC consumer non-ready instead
   assert.equal(JSON.stringify(result).includes('private host validator details'), false);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
+
+test('query authorization outage is non-ready and does not become complete-empty', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.provider.authorizeQuery = async () => { throw new Error('private query authorization detail'); };
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes('private query authorization detail'), false);
+});
+
+test('source becoming stale after reconciliation is non-ready, not a filtered ready-empty result', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.provider.validateSourceVersion = async () => false;
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
