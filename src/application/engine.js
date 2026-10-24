@@ -231,6 +231,10 @@ export class LogicEngine {
     }
     assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision is required and must be non-negative.');
     assert(Number.isSafeInteger(x.expected_commit_sequence) && x.expected_commit_sequence >= 0, 'INVALID_COMMIT_SEQUENCE', 'expected_commit_sequence is required and must be non-negative.');
+    assert(Array.isArray(x.evidence_refs) && x.evidence_refs.length > 0 && x.evidence_refs.length <= 128
+      && x.evidence_refs.every((ref) => typeof ref === 'string' && ref.startsWith('event:') && ref.length > 'event:'.length && ref.length <= 206)
+      && new Set(x.evidence_refs).size === x.evidence_refs.length,
+    'INVALID_RELATIONSHIP_EVIDENCE_REFERENCE', 'evidence_refs must contain unique event:<event_id> references.');
     const operationKey = x.idempotency_key.trim();
     const requestIdentity = hashRequest({ operation: 'relationship.transition', world_id: id, idempotency_key: operationKey });
     const prepared = this.prepareEvent({
@@ -239,6 +243,7 @@ export class LogicEngine {
       event_type: 'relationship.transition',
       expected_revision: x.expected_revision,
       expected_commit_sequence: x.expected_commit_sequence,
+      caused_by: x.evidence_refs.map((ref) => ref.slice('event:'.length)),
       effects: [{
         kind: 'relationship.transition',
         subject_id: x.subject_id.trim(),

@@ -175,6 +175,10 @@ test('stale composite cursor and spoofed executor are rejected without mutation'
       () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, { executor_type: 'admin_credential' })),
       (error) => error.code === 'UNSUPPORTED_RELATIONSHIP_TRANSITION_FIELD',
     );
+    assert.throws(
+      () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, { evidence_status: 'supported' })),
+      (error) => error.code === 'UNSUPPORTED_RELATIONSHIP_TRANSITION_FIELD',
+    );
     assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
     assert.equal(engine.getState('world-relationship-test').world_revision, 1);
   } finally {
@@ -201,6 +205,17 @@ test('invalid mixed patch commits nothing and idempotent retry does not duplicat
   } finally {
     store.close();
   }
+});
+
+test('source rollback invalidates a Relationship transition that cites the source', async () => {
+  const { store, engine } = await fixture();
+  try {
+    const source = engine.commitEvent('world-relationship-test', { idempotency_key: 'source-event', turn_id: 'source-event', event_type: 'evidence.note', expected_revision: 1, effects: [] });
+    const write = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(source, { expected_revision: 2, expected_commit_sequence: 2, idempotency_key: 'relationship-from-source' }));
+    const result = engine.rollbackEvent('world-relationship-test', { root_event_id: source.event_id, idempotency_key: 'rollback-source' });
+    assert.ok(result.invalidated_event_ids.includes(write.event_id));
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+  } finally { store.close(); }
 });
 
 test('clear remains distinct from unset and rollback restores the previous surviving value', async () => {
@@ -258,6 +273,32 @@ test('rejects unavailable rule versions, cross-world participants, and invalid e
       (error) => error.code === 'RELATIONSHIP_RULE_VERSION_INCOMPATIBLE',
     );
 
+    engine.registerRuleModuleManifest({
+      module_id: 'relationship-rules-alternative-support',
+      version: '1.0.0',
+      contract_version: '1.0.0',
+      capabilities: [],
+      operations: ['validate_transition'],
+      input_schema: {},
+      output_schema: {},
+      failure_policy: 'fail_closed',
+      compatibility: { core_contract_versions: ['1.0.0'] },
+      metadata: {
+        relationship_domain: {
+          world_pack_id: 'test-pack',
+          world_pack_version: '1.0.0',
+          dimensions: rules,
+          alternative_supports: { mode: 'independent' },
+        },
+      },
+    });
+    assert.throws(
+      () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+        rule_module_id: 'relationship-rules-alternative-support',
+      })),
+      (error) => error.code === 'RELATIONSHIP_RULE_VERSION_INCOMPATIBLE',
+    );
+
     engine.createWorld({
       world_id: 'world-relationship-other',
       world_pack_id: 'test-pack',
@@ -293,7 +334,7 @@ test('rejects unavailable rule versions, cross-world participants, and invalid e
         expected_commit_sequence: 2,
         evidence_refs: ['event:' + evidence.event_id],
       })),
-      (error) => error.code === 'RELATIONSHIP_EVIDENCE_NOT_ELIGIBLE',
+      (error) => ['RELATIONSHIP_EVIDENCE_NOT_ELIGIBLE', 'INVALID_CAUSAL_REFERENCE'].includes(error.code),
     );
     assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
     assert.equal(engine.getState('world-relationship-test').world_revision, 3);
