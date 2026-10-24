@@ -1407,6 +1407,12 @@ export class SQLiteStore {
     return timeAdvanceOperation(row);
   }
 
+  getTimeAdvanceOperationByKey(worldId, idempotencyKey) {
+    const row = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND idempotency_key=?')
+      .get(worldId, idempotencyKey);
+    return row ? timeAdvanceOperation(row) : null;
+  }
+
   resumeTimeAdvanceOperation(worldId, operationId) {
     while (true) {
       const current = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
