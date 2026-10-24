@@ -8,7 +8,7 @@ The first slice must prove one safe boundary:
 
 > Given an explicitly prepared and validated decision context, an NPC decision step may return a bounded proposal without changing canonical world state.
 
-This is deliberately smaller than a persistent autonomous NPC process. It does not yet implement durable goals, schedules, long-running plans, knowledge storage, off-screen progression, or rollback reconciliation.
+This is deliberately smaller than a persistent autonomous NPC process. Following the core owner's later semantic decision in `docs/39`, the first supported knowledge path is narrower still: explicitly authorized `author_initial`/imported knowledge only, with provenance. Observation, communication, documents, inference, and rumor remain unsupported until their evidence paths are specified and tested. The slice does not implement durable goals, schedules, long-running plans, off-screen progression, or NPC-aware rollback reconciliation.
 
 ## 2. Ownership boundaries
 
@@ -225,7 +225,7 @@ Runtime implementation should not begin until all of the following are evidenced
 
 ## 9. Current decision
 
-**Proceed with specification and test-boundary discovery only.** The readiness audit found material gaps in context completeness, effect mapping, and rollback guarantees. Until those gaps are closed, the correct first vertical slice is a non-mutating contract—not autonomous runtime code.
+**Proceed with specification and test-boundary discovery only.** The core owner has since confirmed the knowledge ownership semantics and narrowed the first knowledge path to authorized author-initial/imported knowledge. The remaining gaps are production-interface and test-boundary gaps: actor/entity binding, source representation, context completeness/withholding, supported action mapping, and exact snapshot/input binding. The first slice remains a non-mutating contract—not autonomous runtime code.
 
 
 ## 10. Actor-relative context: what the current core does and does not establish
@@ -291,7 +291,7 @@ This sequence describes the responsibility boundary, not a requirement to add a 
 The following are intentionally unresolved, not hidden implementation assumptions:
 
 1. Which existing caller is trusted to assemble actor-relative context, and how its identity/permissions are established.
-2. Whether actor knowledge/beliefs already have an authoritative source in the wider application; if not, this slice must operate without inventing persistent NPC state.
+2. The production source/API for actor-relative acquisition and belief is not verified in the inspected runtime. Core ownership is semantically confirmed; if the required source is not implemented, this slice must operate without inventing persistent NPC state or an NPC-owned substitute.
 3. How to represent context completeness and withheld information without conflating it with core world absence.
 4. What exact binding exists between `generation_id`, the manifest, and the bytes actually sent to the model on the target branch.
 5. Which actions require actor capability/authorization checks, and which trusted component owns those checks.
