@@ -12,7 +12,7 @@ test('Memory/NPC cross-review names the clean NPC-owned evidence and its limits'
     'docs/56-npc-memory-boundary-acceptance-matrix.md',
     'not a real Memory source adapter or production consumer',
     'not independently authenticated by the oracle',
-    'production Memory → NPC remains disabled',
+    'Production Memory → NPC remains disabled',
   ]) {
     assert.ok(doc.includes(item), `cross-review must preserve: ${item}`);
   }
