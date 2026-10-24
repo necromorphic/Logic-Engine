@@ -240,6 +240,8 @@ export class ProcessStore {
         return { process, idempotent_replay: true };
       }
       const stamp = now();
+      const nextRevision = this.store.world(worldId).world_revision + 1;
+      this.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(nextRevision, worldId);
       this.db.prepare('UPDATE world_processes SET status=?,version=version+1,last_error_json=NULL,updated_at=? WHERE world_id=? AND process_id=?')
         .run(targetState, stamp, worldId, processId);
       if (targetState === 'cancelled') {
@@ -249,7 +251,7 @@ export class ProcessStore {
       }
       const process = this.get(worldId, processId);
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
-        .run(worldId, this.store.world(worldId).world_revision, 'process.lifecycle.transitioned', processId, enc({
+        .run(worldId, nextRevision, 'process.lifecycle.transitioned', processId, enc({
           from: current.status, to: targetState, version: process.version, idempotency_key: idempotencyKey,
         }), stamp);
       this.db.prepare('INSERT INTO world_process_operations(world_id,idempotency_key,process_id,request_hash,result_json,created_at) VALUES(?,?,?,?,?,?)')
