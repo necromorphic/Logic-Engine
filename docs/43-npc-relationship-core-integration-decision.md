@@ -234,10 +234,18 @@ The newly available core documentation sharpens—but does not remove—the rela
 PR #45 remains open/unmerged and provides, at most, a candidate consistent raw snapshot read. PR #32 remains open/unmerged and its candidate card projector does not yet consume a bounded relationship summary. The relationship implementation gate therefore remains closed until the core defines and verifies the typed canonical write/effect, participant resolution, authorized actor/purpose/snapshot read boundary, bounded read-only projection input, and rollback behavior under the actual causal guarantees. This addendum is documentation-only and does not authorize runtime, API, schema, storage, or card-projection changes.
 
 
-## 14. Typed-operation design proposal prepared (2026-10-24)
+## 14. Typed-operation design proposal and core-owner resolution (2026-10-24)
 
-The schema-neutral design proposal is now documented in [docs/45-npc-relationship-typed-operation-design.md](https://github.com/necromorphic/Logic-Engine/blob/feat/npc-subsystem/docs/45-npc-relationship-typed-operation-design.md).
+The schema-neutral design proposal is documented in [docs/45-npc-relationship-typed-operation-design.md](https://github.com/necromorphic/Logic-Engine/blob/feat/npc-subsystem/docs/45-npc-relationship-typed-operation-design.md). It separates effect transitions, required causal dependencies, alternative support/evidence, and audit provenance.
 
-It separates effect transitions, required causal dependencies, alternative support/evidence, and audit provenance. This distinction is necessary because the current event-level `caused_by` handling does not express “any one independent source is sufficient”: an invalidated referenced parent can invalidate the child event.
+The core-owner review in PR #38 comment 6377634483 resolves the previously open schema-neutral questions as follows:
 
-The proposal leaves the exact effect shape and causal mechanism open for main architecture review. It does not authorize runtime or schema changes. The multi-cause acceptance cases in docs/44 remain blocked until the approved production representation and rollback behavior are implemented and tested.
+- One typed relationship effect represents one directed pair and one logical transition. Its patch contains only changed dimensions; omission means unchanged, while clearing to unknown must be explicit.
+- Structural safety and canonical participant checks belong to the core effect validator. Dimension vocabulary, types/ranges, explicit neutral values, and domain transition rules belong to the active World Pack/domain validator. Missing rules fail closed.
+- Trusted authoring/import/correction authority cannot be represented by a caller-controlled origin string. A trusted command/authorization boundary and distinct audited operation classifications are required; that boundary is not yet present in the inspected runtime.
+- The existing `caused_by`/`depends_on` mechanism is not an OR-support model. The first slice may use independently replayable typed transitions only where domain semantics make replay correct. Generic alternative-support aggregation remains unsupported until its sufficiency rule, typed representation, reducer, and reconciliation tests are explicitly defined.
+- Commit, projection update, audit, idempotency result, and revision changes must share the canonical atomic boundary. Rejected transitions must not partially mutate canonical state or world-commit audit. Rollback must rebuild deterministically from surviving valid events.
+
+This resolves the direction of the contract, not implementation readiness. The remaining gates are a verified typed-effect/projector hook on the target core branch, a trusted authoring command/audit boundary, a real actor/purpose/snapshot filter that returns distinct `known`, `unknown/unset`, `withheld`, and `incomplete/unsupported` outcomes, and executable tests against canonical commit, idempotency, audit, projection, rollback, and authorized consumer output.
+
+PR #45 (snapshot) and PR #32 (character-card projection) remain separate, unmerged dependencies; neither provides actor authorization. Keep runtime relationship commits blocked until the required boundaries are integrated and tested. No runtime, API, schema, storage, character-card, prompt, or `main` changes are authorized by this documentation update.
