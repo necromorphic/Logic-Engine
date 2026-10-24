@@ -169,3 +169,17 @@ Unsupported semantics return `unknown` or `rejected`, with an empty effect list.
 `ProposalService.createFromMechanicEvaluation` is the internal handoff for a ready result. It rechecks the evaluation's world revision and commit sequence inside the same transaction that creates the ordinary durable proposal, validates effect-index and target provenance, and stores the exact evaluation identity, context fingerprint, evaluation fingerprint, policy version, and effect provenance with the proposal and `proposal.created` audit entry. Exact idempotent retries replay the existing proposal even if the world has since advanced; changed content under the same key conflicts. Proposal approval/commit remain on the existing service; semantic review remains required and the ordinary stale-proposal guard remains in force. This handoff is not exposed as a new HTTP route.
 
 This is a narrow executable vertical slice, not general production readiness. It does not prove that an injected context provider is correctly configured; it requires that provider to be trusted host code. It does not support action-input binding, modules, participant selection, interactions, automatic conflict resolution, full causal/read-set completeness, or A/B/C production recalculation. Do not widen the allowlist without closure tests and an explicit contract decision.
+
+
+### Trusted context-provider contract
+
+The current executor expects a trusted host function with this synchronous result shape:
+
+- `context`: JSON object containing only values the configured actor/recipient may read;
+- `knownAbsentPaths`: optional array of paths proven absent from the same snapshot under the same visibility policy, never model-supplied;
+- `world_revision` and `commit_sequence`: exact markers copied from the supplied immutable snapshot;
+- `policy_version`: non-empty stable identifier that changes when the context/visibility policy changes.
+
+The executor deep-freezes the snapshot before calling the provider, checks the two snapshot markers and policy version, computes a context fingerprint without returning the context itself, and withholds provider/condition exception details. The provider must not perform writes, must not infer global absence from a filtered view, and must not expose raw canonical state beyond its policy. A missing provider, mismatched marker, malformed absence declaration, thrown exception, or non-fingerprintable context produces `unknown` with no effects.
+
+This contract is structurally enforced where possible, but provider trust/purity and the correctness of its authorization policy remain host integration assumptions. Closure requires host-level tests showing that forbidden fields never enter the context, absent claims are snapshot-scoped, policy version changes invalidate fingerprints, and provider failures have no side effects.
