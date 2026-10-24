@@ -76,6 +76,26 @@ test('denies by default and immediately honors record revocation', async (t) => 
   assert.equal((await s.provider.retrieveCandidates(s.scope)).candidates.length, 0);
 });
 
+
+test('marks provider unavailable when the current Core snapshot cannot be read', async (t) => {
+  let snapshotUnavailable = false;
+  const s = setup(t, {
+    getSnapshot: async () => {
+      if (snapshotUnavailable) throw new Error('host snapshot unavailable');
+      return { world_revision: 4, commit_sequence: 2 };
+    },
+  });
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  await s.provider.rebuildIndex('world-a');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+
+  snapshotUnavailable = true;
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_SNAPSHOT_UNAVAILABLE/);
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+});
+
 test('does not report current when Core snapshot changes after reconciliation', async (t) => {
   const s = setup(t);
   s.provider.grantQuery(s.scope, true);
