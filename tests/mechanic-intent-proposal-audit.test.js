@@ -149,3 +149,33 @@ test('mechanic intent translation rejects unsafe object keys in nested attribute
     (error) => error.code === 'INVALID_MECHANIC_EFFECT_INTENT',
   );
 });
+
+test('proposal allowlist preserves duration_proposal for Core TimePolicy validation', (t) => {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  t.after(() => store.close());
+  engine.createWorld({
+    world_id: 'duration-proposal-allowlist-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  const proposals = new ProposalService(engine);
+  const beforeAudit = store.audit('duration-proposal-allowlist-world');
+
+  assert.throws(() => proposals.create('duration-proposal-allowlist-world', {
+    idempotency_key: 'duration-proposal-allowlist',
+    source_text: 'Travel to the next district.',
+    event: {
+      turn_id: 'duration-proposal-allowlist-turn',
+      event_type: 'travel.completed',
+      duration_proposal: { category: 'walking' },
+      effects: [],
+    },
+  }, 'adapter-a'), (error) => error.code === 'TIME_POLICY_REQUIRED');
+
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM event_proposals').get().n, 0);
+  assert.deepEqual(store.events('duration-proposal-allowlist-world', true), []);
+  assert.deepEqual(store.audit('duration-proposal-allowlist-world'), beforeAudit);
+  assert.equal(store.world('duration-proposal-allowlist-world').world_revision, 0);
+});
