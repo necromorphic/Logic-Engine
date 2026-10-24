@@ -518,21 +518,31 @@ export class LogicEngine {
 
   startTimeAdvance(id, x) {
     assert(obj(x), 'INVALID_TIME_ADVANCE_OPERATION', 'Time-advance request must be an object.');
-    const allowed = ['idempotency_key', 'expected_revision', 'to_coordinate', 'triggers', 'completed_trigger_ids'];
+    const allowed = ['idempotency_key', 'expected_revision', 'to_coordinate', 'trigger_source', 'triggers', 'completed_trigger_ids'];
     assert(Object.keys(x).every((key) => allowed.includes(key)), 'UNSUPPORTED_TIME_ADVANCE_FIELD', 'Time-advance request contains an unsupported field.');
     assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200,
       'IDEMPOTENCY_KEY_REQUIRED', 'Time-advance idempotency_key is required.');
     assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0,
       'INVALID_REVISION', 'Time-advance expected_revision must be a non-negative safe integer.');
     assert(Number.isSafeInteger(x.to_coordinate), 'INVALID_TIME_COORDINATE', 'to_coordinate must be a safe integer.');
+    const triggerSource = x.trigger_source ?? (x.triggers === undefined ? 'registered' : 'request');
+    assert(['registered', 'request'].includes(triggerSource), 'INVALID_TIME_TRIGGER_SOURCE', 'trigger_source must be registered or request.');
+    if (triggerSource === 'registered') {
+      assert(x.triggers === undefined && x.completed_trigger_ids === undefined,
+        'MIXED_TIME_TRIGGER_SOURCE', 'Registered trigger mode cannot also accept a caller-supplied trigger set.');
+    } else {
+      assert(x.completed_trigger_ids === undefined || Array.isArray(x.completed_trigger_ids),
+        'INVALID_COMPLETED_TRIGGER_IDS', 'completed_trigger_ids must be an array.');
+    }
     const requestHash = hashRequest({
       operation: 'time.advance',
       world_id: id,
       idempotency_key: x.idempotency_key.trim(),
       expected_revision: x.expected_revision,
       to_coordinate: x.to_coordinate,
-      triggers: x.triggers ?? [],
-      completed_trigger_ids: x.completed_trigger_ids ?? [],
+      trigger_source: triggerSource,
+      triggers: triggerSource === 'request' ? (x.triggers ?? []) : null,
+      completed_trigger_ids: triggerSource === 'request' ? (x.completed_trigger_ids ?? []) : [],
     });
     const existing = this.store.getTimeAdvanceOperationByKey(id, x.idempotency_key.trim());
     if (existing) {
@@ -568,13 +578,32 @@ export class LogicEngine {
       throw new EngineError('TIME_ADVANCE_SUBSECOND_UNSUPPORTED', 'Time-advance execution currently requires whole-second boundaries.', 400);
     }
     let plan;
+    let triggerSnapshot = [];
+    let completedTriggerSnapshot = [];
     try {
+      if (triggerSource === 'registered') {
+        triggerSnapshot = this.store.listTimeTriggers(id);
+        const overdue = triggerSnapshot
+          .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= from)
+          .map((trigger) => trigger.trigger_id);
+        if (overdue.length) {
+          throw new EngineError('TIME_TRIGGER_OVERDUE_NEEDS_REVIEW', 'One or more pending triggers are at or before the current coordinate and require explicit reconciliation.', 409, {
+            trigger_ids: overdue,
+            current_coordinate: from,
+          });
+        }
+        completedTriggerSnapshot = triggerSnapshot.filter((trigger) => trigger.status === 'completed')
+          .map((trigger) => trigger.trigger_id);
+      } else {
+        triggerSnapshot = x.triggers ?? [];
+        completedTriggerSnapshot = x.completed_trigger_ids ?? [];
+      }
       plan = planDueWork({
         world_id: id,
         from_coordinate: from,
         to_coordinate: x.to_coordinate,
-        triggers: x.triggers ?? [],
-        completed_trigger_ids: x.completed_trigger_ids ?? [],
+        triggers: triggerSnapshot,
+        completed_trigger_ids: completedTriggerSnapshot,
       });
     } catch (error) {
       if (error instanceof EngineError) throw error;
