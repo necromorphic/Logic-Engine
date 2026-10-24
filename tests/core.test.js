@@ -465,3 +465,49 @@ test('mechanic instance creation fails closed on missing or incompatible pinned 
   assert.equal(good.accepted, true);
   assert.equal(h.engine.getMechanicInstance('w', 'module-instance-good').status, 'disabled');
 });
+
+
+test('a failed rollback projection rebuild leaves canonical state and rollback metadata unchanged', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+
+  h.engine.commitEvent('w', cmd({
+    event_id: 'projection-rollback-root',
+    idempotency_key: 'projection-rollback-root-key',
+    effects: [{ kind: 'fact.set', fact_id: 'rollback-fact', predicate: 'present', value: true }],
+  }));
+  h.engine.commitEvent('w', cmd({
+    event_id: 'projection-survivor',
+    idempotency_key: 'projection-survivor-key',
+    turn_id: 'projection-survivor-turn',
+    expected_revision: 1,
+    effects: [{ kind: 'entity.upsert', entity_id: 'survivor', entity_type: 'object', attributes: { preserved: true } }],
+  }));
+
+  const auditBefore = h.engine.getAudit('w');
+  h.store.db.exec(`
+    CREATE TRIGGER fail_rollback_projection BEFORE INSERT ON entities
+    WHEN NEW.entity_id='survivor'
+    BEGIN SELECT RAISE(ABORT, 'forced rollback projection failure'); END;
+  `);
+
+  assert.throws(
+    () => h.engine.rollbackEvent('w', { root_event_id: 'projection-rollback-root', idempotency_key: 'projection-rollback-key' }),
+    /forced rollback projection failure/,
+  );
+
+  assert.equal(h.engine.getState('w').world_revision, 2);
+  assert.equal(h.engine.getState('w').facts.find((fact) => fact.fact_id === 'rollback-fact').value, true);
+  assert.equal(h.engine.getState('w').entities.find((entity) => entity.entity_id === 'survivor').attributes.preserved, true);
+  assert.equal(h.engine.getEvents('w', true).find((event) => event.event_id === 'projection-rollback-root').validity, 'valid');
+  assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 0);
+  assert.deepEqual(h.engine.getAudit('w'), auditBefore);
+
+  h.store.db.exec('DROP TRIGGER fail_rollback_projection');
+  const result = h.engine.rollbackEvent('w', { root_event_id: 'projection-rollback-root', idempotency_key: 'projection-rollback-key' });
+  assert.equal(result.accepted, true);
+  assert.equal(result.world_revision, 3);
+  assert.equal(h.engine.getState('w').facts.length, 0);
+  assert.equal(h.engine.getState('w').entities.length, 1);
+  assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 1);
+});
