@@ -77,19 +77,19 @@ This table is an implementation trace, not a claim that the full acceptance suit
 
 ## 5. Cross-block semantic crosswalk
 
-The Relationship module cases are distinct from NPC acceptance IDs. The links below identify shared acceptance concerns, not proof that one case satisfies another. NPC IDs remain owned by the NPC subsystem; this table supplements, and does not replace, its semantic matrix.
+The Relationship module cases are distinct from both NPC and pre-existing relationship acceptance IDs. The links below identify shared acceptance concerns, not proof that one case satisfies another. `NPC-SEM-*` IDs remain owned by the NPC subsystem; `REL-SEM-*` IDs remain in the existing NPC/Relationship contract set. This table supplements, and does not replace, either source matrix.
 
-| Relationship case | Related NPC acceptance | Relationship-specific distinction |
+| Relationship case | Related acceptance IDs | Relationship-specific distinction |
 |---|---|---|
 | REL-MOD-001 — Same event, different interpretation | NPC-SEM-007; NPC-SEM-017 | NPC-SEM-007 covers actor-specific reactions from knowledge/goals; REL-MOD-001 additionally requires distinct relationship candidates from the same event without copying an interpretation or inventing motives. |
 | REL-MOD-002 — Unequal knowledge | NPC-SEM-001; NPC-SEM-015 | Secret exclusion and reserved-secret policy are upstream requirements; relationship output must also avoid exposing or inferring a hidden stance/motive. |
 | REL-MOD-003 — Contradictory dimensions | NPC-SEM-016; NPC-SEM-017 | Coexisting dimensions and dimension-specific change are shared semantics; the Relationship evaluator must leave every omitted dimension untouched. |
 | REL-MOD-004 — Conduct hides state | NPC-SEM-002; NPC-SEM-007 | Belief and actor-specific reaction are related but do not make outward conduct proof of internal relationship state. |
-| REL-MOD-005 — No automatic drift | NPC-SEM-012; REL-SEM-004 | Chat turns do not advance world time, and co-presence alone does not justify change; neither permits scene-count or elapsed-turn drift. |
+| REL-MOD-005 — No automatic drift | NPC: `NPC-SEM-012`; existing relationship contract: `REL-SEM-004` | Chat turns do not advance world time, and co-presence alone does not justify change; neither permits scene-count or elapsed-turn drift. |
 | REL-MOD-006 — Repair is dimension-specific | NPC-SEM-017 | Proportionate change is shared; repair also needs an authored rule that identifies which dimensions may change and preserves history. |
 | REL-MOD-007 — Irreversibility is explicit | No direct equivalent identified | Requires a Relationship/World Pack rule or explicit author decision; do not infer irreversible locks from a general NPC case. |
 | REL-MOD-008 — Disabled capability | No direct equivalent identified | Requires optional-mechanic lifecycle and consumer behavior; absence/disabled state must not become neutral and history must remain intact. |
-| REL-MOD-009 — Unsupported Core write | NPC-SEM-008; NPC-SEM-010; REL-SEM-005–007 | Rejected operations and missing source data must not create canon; Relationship also depends on typed directional writes, trusted provenance, and resolved canonical participants. |
+| REL-MOD-009 — Unsupported Core write | NPC: `NPC-SEM-008`, `NPC-SEM-010`; existing relationship contract: `REL-SEM-005`–`REL-SEM-007` | Rejected operations and missing source data must not create canon; Relationship also depends on typed directional writes, trusted provenance, and resolved canonical participants. |
 | REL-MOD-010 — No invented OR rule | NPC-SEM-003; NPC-SEM-009 | Source survival and causal rollback are related, but relationship sufficiency still requires an explicit domain rule plus Core-owned alternative-support reconciliation. |
 | REL-MOD-011 — Player agency | NPC-SEM-011 | Shared player-agency boundary; relationship context must not author player voluntary dialogue, thought, decisions, or actions. |
 | REL-MOD-012 — Versioned semantics | NPC-SEM-009; NPC-SEM-020; Personality versioning contracts | Causal reconciliation and persistence of significant information are adjacent concerns, not a historical relationship-rule migration policy. Old transitions require explicit version pinning or an approved migration/replay rule. |
