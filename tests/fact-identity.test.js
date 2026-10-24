@@ -130,6 +130,31 @@ test('fact.set rejects empty and whitespace-only subject references', (t) => {
   assert.equal(engine.getState('fact-identity-world').world_revision, 0);
 });
 
+test('fact.set rejects surrounding whitespace in canonical identity fields before writes', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const invalidEffects = [
+    { kind: 'fact.set', fact_id: ' door', predicate: 'state', value: 'open' },
+    { kind: 'fact.set', fact_id: 'door ', predicate: 'state', value: 'open' },
+    { kind: 'fact.set', fact_id: 'door', predicate: ' state', value: 'open' },
+    { kind: 'fact.set', fact_id: 'door', predicate: 'state ', value: 'open' },
+    { kind: 'fact.set', fact_id: 'door', subject_ref: ' room', predicate: 'state', value: 'open' },
+    { kind: 'fact.set', fact_id: 'door', subject_ref: 'room ', predicate: 'state', value: 'open' },
+  ];
+
+  invalidEffects.forEach((effect, index) => {
+    assert.throws(() => engine.commitEvent('fact-identity-world', command({
+      idempotency_key: 'padded-identity-' + index,
+      event_id: 'padded-identity-event-' + index,
+      effects: [effect],
+    })), (error) => error.code === 'INVALID_EFFECT' && error.status === 400);
+  });
+  assert.equal(engine.getState('fact-identity-world').world_revision, 0);
+  assert.deepEqual(store.events('fact-identity-world', true), []);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM audit_entries').get().count, 0);
+});
+
 test('rollback rebuilds fact identity claims and projection from remaining valid events', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
