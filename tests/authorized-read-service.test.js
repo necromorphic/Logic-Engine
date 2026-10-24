@@ -133,7 +133,7 @@ test('actor binding is required and caller-supplied actor cannot replace the aut
 });
 
 test('internal mechanic attribute reads distinguish authorized absence from denied reads and pin the snapshot', (t) => {
-  const { service, engine, store } = setup((context, entity, field) =>
+  const { service, engine, store } = setup(t, (context, entity, field) =>
     context.actor.entity_id === 'actor-a'
       && context.recipient === 'model'
       && context.purpose === 'npc_decision'
