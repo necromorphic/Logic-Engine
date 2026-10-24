@@ -180,3 +180,34 @@ The relationship semantics can now be refined against these confirmed boundaries
 - preservation and tests for unknown/unset versus explicit neutral versus author-initial/imported origin.
 
 PR #45 (snapshot) and PR #32 (character-card projection) remain separate proposals, not integrated dependencies merely because they exist. Keep this document and the relationship work documentation-only until those gates are met. No runtime/schema/storage changes were made or authorized by the core response.
+
+
+## 13. Schema-neutral typed-operation candidate for core review
+
+This is a design sketch to make the next core review concrete. It is **not** a finalized JSON schema, API, storage layout, or implementation authorization.
+
+### Required semantics of one canonical relationship change
+
+A future typed operation must, at minimum, make the following information unambiguous to core validation and audit:
+
+- **Directed participants:** existing canonical source/subject and target/object `entity_id` references. Names, aliases, cover identities, and unresolved editor references are not canonical identity.
+- **Dimension patch:** an explicit set of dimension changes, not replacement of the whole relationship object. Omitted dimensions remain unchanged. A World Pack/domain validator defines accepted dimension keys and values.
+- **Unset vs value:** a dimension can be absent/unset without being assigned a neutral value. Explicit neutral is accepted only if the domain defines it. If explicit clearing is needed, its operation semantics must be distinct from omission.
+- **Origin:** distinguish at least author-initial/imported initialization, author correction, and in-world transition. Origin/authorship/provenance is metadata, not a relationship value.
+- **Canonical source/cause references:** in-world transitions refer to existing valid source/event identities through the approved core causal contract. Authoring provenance uses the approved audit/author identity path; it must not be fabricated as an in-world cause.
+- **Partial updates and validation:** invalid participant refs, unknown dimension keys, invalid values, or invalid transition shape fail closed; a rejected change must not partially mutate state.
+- **Canonical lifecycle:** the change is committed, versioned, audited, and rolled back through the existing core event/revision path. The operation must not create a second relationship store, event log, identity registry, or rollback graph.
+
+### Causal support is the unresolved hard part
+
+The contract must distinguish a transition with one supporting cause from a transition independently supported by multiple causes. On invalidation, support is recomputed from remaining valid causes. The core must decide whether this belongs in the existing event/effect causal metadata, in a typed relationship support representation, or requires an extension to the canonical causal contract. The NPC block must not invent that mechanism independently.
+
+### Questions for the core owner
+
+1. Should direction and dimension patch be represented as one typed effect kind, or does the core have a preferred typed domain-record pattern?
+2. Where should the three origin classes and author identity be recorded: canonical event metadata, typed effect fields, or a core-owned initialization/correction operation?
+3. What existing canonical causal representation can express multiple independent supports for one relationship transition? If none, what core contract extension is the smallest acceptable one?
+4. What validator/World Pack boundary should define dimension keys, value types, explicit neutral values, and explicit clearing to unknown?
+5. Can the core confirm the minimum atomicity and audit guarantees for a partial dimension update before any schema proposal is written?
+
+Until these questions are answered, keep the operation at semantic-contract level. No runtime, API, schema, or storage change is implied.
