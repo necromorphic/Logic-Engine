@@ -163,3 +163,43 @@ test('authorized-read API requires adapter credentials and rejects unknown field
   assert.equal(extraField.status, 400);
   assert.equal((await extraField.json()).error.code, 'INVALID_AUTHORIZED_READ');
 });
+
+
+test('host visibility revocation is re-evaluated on every authorized-read request', async (t) => {
+  let allowTargetName = true;
+  const base = await setup(t, (context, entity, field) =>
+    context.worldId === 'authorized-read-world'
+      && context.actor.entity_id === 'actor-a'
+      && context.recipient === 'model'
+      && context.purpose === 'npc_decision'
+      && entity.entity_id === 'other-a'
+      && (field === 'entity_id' || field === 'entity_type' || (field === 'attributes.name' && allowTargetName)));
+
+  const read = () => fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
+    method: 'POST',
+    headers,
+    body: json({
+      actor_entity_id: 'actor-a',
+      purpose: 'npc_decision',
+      entity_ids: ['other-a'],
+      fields: ['entity_id', 'entity_type', 'attributes.name', 'attributes.secret'],
+    }),
+  });
+
+  const allowed = await read();
+  assert.equal(allowed.status, 200);
+  const allowedBody = await allowed.json();
+  assert.equal(allowedBody.read.entities[0]['attributes.name'], 'Other');
+  assert.equal(JSON.stringify(allowedBody).includes('also-private'), false);
+
+  // Simulate a trusted host policy revocation between two requests. The policy
+  // remains host-owned configuration; no caller field can override it.
+  allowTargetName = false;
+  const revoked = await read();
+  assert.equal(revoked.status, 200);
+  const revokedBody = await revoked.json();
+  assert.deepEqual(revokedBody.read.entities, [{ entity_id: 'other-a', entity_type: 'character' }]);
+  assert.equal(JSON.stringify(revokedBody).includes('Other'), false);
+  assert.equal(JSON.stringify(revokedBody).includes('also-private'), false);
+  assert.equal(JSON.stringify(revokedBody).includes('must-not-leak'), false);
+});
