@@ -16,7 +16,7 @@ const headers = {
 };
 const json = (body) => JSON.stringify(body);
 
-async function setup(t) {
+async function setup(t, authorizedReadFieldPolicy = null) {
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const server = createApiServer({
@@ -24,6 +24,7 @@ async function setup(t) {
     token: TOKEN,
     adminToken: ADMIN,
     adapterTokens: { 'adapter-a': ADAPTER },
+    authorizedReadFieldPolicy,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -73,6 +74,35 @@ test('authorized-read API exposes only the bound actor identity and never arbitr
   assert.equal(JSON.stringify(body).includes('Actor'), false);
   assert.equal(Number.isSafeInteger(body.read.world_revision), true);
   assert.equal(Number.isSafeInteger(body.read.commit_sequence), true);
+});
+
+test('authorized-read API supports only explicitly host-authorized target fields when a trusted policy is configured', async (t) => {
+  const base = await setup(t, (context, entity, field) =>
+    context.worldId === 'authorized-read-world'
+      && context.actor.entity_id === 'actor-a'
+      && context.recipient === 'model'
+      && context.purpose === 'npc_decision'
+      && entity.entity_id === 'other-a'
+      && ['entity_id', 'entity_type', 'attributes.name'].includes(field));
+  const response = await fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
+    method: 'POST',
+    headers,
+    body: json({
+      actor_entity_id: 'actor-a',
+      purpose: 'npc_decision',
+      entity_ids: ['other-a'],
+      fields: ['entity_id', 'entity_type', 'attributes.name', 'attributes.secret'],
+    }),
+  });
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body.read.entities, [{
+    entity_id: 'other-a',
+    entity_type: 'character',
+    'attributes.name': 'Other',
+  }]);
+  assert.equal(JSON.stringify(body).includes('also-private'), false);
+  assert.equal(JSON.stringify(body).includes('must-not-leak'), false);
 });
 
 test('authorized-read API cannot use a different or unbound actor to read another entity', async (t) => {
