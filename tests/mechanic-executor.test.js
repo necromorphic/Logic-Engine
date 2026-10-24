@@ -834,7 +834,9 @@ test('canonical entity-attribute provider fails closed for denied or unbound con
   assert.deepEqual(deniedResult.effects, []);
 
   const unboundTemplate = template({ applicability: [{ op: 'eq', path: 'world.time', value: 'night' }] });
-  const unbound = new CanonicalEntityAttributeContextProvider(engine, {
+  const unboundSetup = setup(t, 'executor-canonical-provider-unbound-world');
+  enableFixture(unboundSetup.engine, unboundSetup.worldId, unboundTemplate);
+  const unbound = new CanonicalEntityAttributeContextProvider(unboundSetup.engine, {
     policyVersion: 'visibility-policy-v1',
     bindings: [
       { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
@@ -842,9 +844,9 @@ test('canonical entity-attribute provider fails closed for denied or unbound con
     ],
     canRead: () => true,
   });
-  const unboundResult = new MechanicExecutor(engine, {
+  const unboundResult = new MechanicExecutor(unboundSetup.engine, {
     resolveAuthorizedContext: (args) => unbound.resolve(args),
-  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  }).evaluate({ worldId: unboundSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(unboundResult.status, 'unknown');
   assert.equal(unboundResult.reason_code, 'AUTHORIZED_CONTEXT_RESOLUTION_FAILED');
   assert.deepEqual(unboundResult.effects, []);
