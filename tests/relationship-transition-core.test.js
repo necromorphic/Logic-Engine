@@ -651,6 +651,58 @@ test('Relationship projection survives store restart and deterministic rebuild f
   }
 });
 
+test('historical Relationship rule pin survives rebuild when its rule module is unavailable', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-relationship-historical-pin-'));
+  const databasePath = join(directory, 'core.sqlite');
+  let store;
+  try {
+    const fixtureState = await fixture(databasePath);
+    store = fixtureState.store;
+    const { engine, seed } = fixtureState;
+    const result = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed));
+    assert.equal(result.accepted, true);
+
+    const eventBeforeRebuild = engine.getEvents('world-relationship-test')
+      .find((event) => event.event_id === result.event_id);
+    const effectBeforeRebuild = eventBeforeRebuild.effects.find((effect) => effect.kind === 'relationship.transition');
+    assert.equal(effectBeforeRebuild.rule_module_id, 'relationship-rules');
+    assert.equal(effectBeforeRebuild.rule_module_version, '1.0.0');
+
+    // Simulate a historical module that is no longer available. Replay must
+    // rebuild the committed projection from the event, not re-evaluate it
+    // against whichever rule module happens to be registered now.
+    store.db.prepare('DELETE FROM rule_module_manifests WHERE module_id=? AND version=?')
+      .run('relationship-rules', '1.0.0');
+    store.close();
+    store = null;
+
+    const reopened = new SQLiteStore(databasePath);
+    store = reopened;
+    assert.throws(
+      () => reopened.getRuleModuleManifest('relationship-rules', '1.0.0'),
+      (error) => error.code === 'RULE_MODULE_NOT_FOUND',
+    );
+
+    reopened.tx(() => reopened.rebuild('world-relationship-test', 2));
+
+    assert.equal(reopened.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
+    assert.deepEqual(reopened.getRelationshipPair('world-relationship-test', 'B', 'A').dimensions, {});
+    const eventAfterRebuild = reopened.events('world-relationship-test')
+      .find((event) => event.event_id === result.event_id);
+    const effectAfterRebuild = eventAfterRebuild.effects.find((effect) => effect.kind === 'relationship.transition');
+    assert.equal(effectAfterRebuild.rule_module_id, 'relationship-rules');
+    assert.equal(effectAfterRebuild.rule_module_version, '1.0.0');
+    assert.equal(
+      reopened.db.prepare("SELECT COUNT(*) AS count FROM world_events WHERE world_id=? AND event_type='relationship.transition' AND validity='valid'")
+        .get('world-relationship-test').count,
+      1,
+    );
+  } finally {
+    if (store) store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('trusted state read pins world, entities and composite cursor across a concurrent writer', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-state-snapshot-race-'));
   const databasePath = join(directory, 'core.sqlite');
