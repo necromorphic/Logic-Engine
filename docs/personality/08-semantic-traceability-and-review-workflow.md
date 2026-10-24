@@ -99,7 +99,7 @@ As of this document's creation, the Personality-side semantic contracts are docu
 - any multi-source alternative-support/conflict reconciliation beyond the declared replay-only subset;
 - production-boundary tests and a read-only authorized character-card projection.
 
-PR #45's bounded snapshot primitive is not an authorized-read interface. No new Core or NPC behavior is inferred from this status summary. Update this section only when evidence changes.
+PR #45 (bounded consistent snapshot) and PR #46 (opt-in tri-state condition results) are merged into `main`; the snapshot/context extension was merged via PR #49. These primitives do not constitute an actor/purpose-authorized read/filter interface or establish NPC behavior. No new Core or NPC behavior is inferred from this status summary. Update this section only when evidence changes.
 
 ## 8. Related documents
 
