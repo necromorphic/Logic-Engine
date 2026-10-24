@@ -28,6 +28,12 @@ const KNOWN_EPISTEMIC_KINDS = new Set([
   "authored_initial",
   "imported",
 ]);
+const KNOWN_EVIDENCE_ASSESSMENTS = new Set([
+  "unassessed",
+  "supported",
+  "disputed",
+  "insufficient",
+]);
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
@@ -120,6 +126,7 @@ function candidateRejection(candidate, request) {
   if (!KNOWN_EPISTEMIC_KINDS.has(candidate.epistemic_kind)) return "epistemic_kind_unknown";
   if (!producerIsPresent(candidate)) return "producer_provenance_incomplete";
   if (!lifecycleIsPresent(candidate)) return "lifecycle_dimensions_incomplete";
+  if (!KNOWN_EVIDENCE_ASSESSMENTS.has(candidate.lifecycle.evidence_assessment)) return "evidence_assessment_unknown";
   if (!lifecycleIsAdmissible(candidate)) return "lifecycle_not_admissible";
   if (!READY_SOURCE_STATES.has(candidate.freshness?.status)) return "source_not_current";
   if (!sameSnapshot(candidate, request)) return "snapshot_mismatch";
@@ -204,6 +211,7 @@ export function evaluateMemoryCandidateAdmission(request, result) {
       record_ref: candidate.record.ref,
       record_version: candidate.record.version,
       epistemic_kind: candidate.epistemic_kind,
+      evidence_assessment: candidate.lifecycle.evidence_assessment,
     }));
   }
 
