@@ -1751,6 +1751,9 @@ export class SQLiteStore {
       }
       const world = this.world(worldId);
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (world.world_revision !== input.process.expected_revision) {
+        throw new EngineError('REVISION_CONFLICT', 'World changed before process creation.', 409, { expected_revision: input.process.expected_revision, current_revision: world.world_revision });
+      }
       if (this.db.prepare("SELECT 1 FROM world_processes WHERE world_id=? AND process_id=?").get(worldId, input.process.process_id)) {
         throw new EngineError('PROCESS_ID_CONFLICT', 'The process ID is already in use in this world.', 409);
       }
@@ -1840,7 +1843,7 @@ export class SQLiteStore {
     return { ...dec(row.result_json), idempotent_replay: true };
   }
 
-  transitionProcess(worldId, processId, action, idempotencyKey, requestHash, replacementItems = []) {
+  transitionProcess(worldId, processId, action, idempotencyKey, requestHash, expectedRevision, replacementItems = []) {
     return this.tx(() => {
       const oldCommand = this.db.prepare("SELECT request_hash,result_json FROM world_process_commands WHERE world_id=? AND idempotency_key=?")
         .get(worldId, idempotencyKey);
@@ -1852,6 +1855,9 @@ export class SQLiteStore {
       if (!row) throw new EngineError('PROCESS_NOT_FOUND', 'Process not found.', 404);
       const world = this.world(worldId);
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (world.world_revision !== expectedRevision) {
+        throw new EngineError('REVISION_CONFLICT', 'World changed before process transition.', 409, { expected_revision: expectedRevision, current_revision: world.world_revision });
+      }
       const pending = this.db.prepare("SELECT * FROM world_process_milestones WHERE world_id=? AND process_id=? AND status='pending' ORDER BY due_coordinate,milestone_id")
         .all(worldId, processId);
       if (action === 'pause' || action === 'cancel') {
@@ -1921,7 +1927,7 @@ export class SQLiteStore {
     });
   }
 
-  markProcessRollback(worldId, rootEventId) {
+  markProcessRollback(worldId, rootEventId, rollbackRevision = null) {
     return this.tx(() => {
       const processes = this.db.prepare("SELECT * FROM world_processes WHERE world_id=? AND status NOT IN ('cancelled','failed')")
         .all(worldId);
@@ -1958,7 +1964,7 @@ export class SQLiteStore {
             stamp, worldId, process.process_id);
         const worldAfter = this.world(worldId);
         this.db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)")
-          .run(worldId, worldAfter.world_revision, 'process.rollback_review_required', process.process_id,
+          .run(worldId, rollbackRevision ?? worldAfter.world_revision, 'process.rollback_review_required', process.process_id,
             enc({ root_event_id: rootEventId, invalidated_milestone_ids: [...invalidated] }), stamp);
         affected.push(process.process_id);
       }
@@ -2294,7 +2300,7 @@ export class SQLiteStore {
       const ids = [...invalid];
       const update = this.db.prepare('UPDATE world_events SET validity=?,rollback_id=? WHERE world_id=? AND event_id=?');
       for (const eventId of ids) update.run(eventId === rootId ? 'retracted' : 'invalidated', rollbackId, id, eventId);
-      this.markProcessRollback(id, rootId);
+      this.markProcessRollback(id, rootId, revision);
       this.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(revision, id);
       this.db.prepare('INSERT INTO rollbacks(rollback_id,world_id,root_event_id,invalidated_event_ids_json,world_revision,created_at,idempotency_key) VALUES(?,?,?,?,?,?,?)')
         .run(rollbackId, id, rootId, enc(ids), revision, createdAt, key);
