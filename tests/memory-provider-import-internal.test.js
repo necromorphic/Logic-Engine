@@ -65,3 +65,28 @@ test('internal import facade refuses an object without the provider import opera
     /requires a provider with putRecord/,
   );
 });
+
+test('internal import facade does not grant query or record access', (t) => {
+  const { provider, record, scope } = setup(t);
+  const importer = createInternalMemoryImportFacadeForTest(provider);
+
+  assert.equal(importer.importRecord(record).status, 'stored');
+  assert.equal(provider.authorizeQuery(scope), false);
+  assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_record_grants WHERE world_id=?')
+    .get(scope.world_id).count, 0);
+});
+
+test('rejected import leaves no record behind', (t) => {
+  const { provider, record, scope } = setup(t);
+  const importer = createInternalMemoryImportFacadeForTest(provider);
+
+  assert.throws(
+    () => importer.importRecord({
+      ...record,
+      lineage: [{ source_kind: 'canonical_entity', entity_id: 'different-entity', source_version: 'source-v1' }],
+    }),
+    /Invalid direct-source Memory record/,
+  );
+  assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+    .get(scope.world_id).count, 0);
+});
