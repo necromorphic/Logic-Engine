@@ -859,3 +859,18 @@ test("preserves all special dimension keys together in a mixed set patch", () =>
   assert.equal(Object.getPrototypeOf(result.patch), Object.prototype);
 });
 
+
+test("clearing one dimension leaves every other dimension outside the candidate patch", () => {
+  const currentValues = { trust: "low", affection: "warm" };
+  const patch = { trust: { operation: "clear" } };
+  const input = { ...base, currentValues, patch };
+
+  const result = evaluateRelationshipCandidate(input);
+
+  assert.equal(result.status, "candidate");
+  assert.deepEqual(result.patch, { trust: { operation: "clear" } });
+  assert.deepEqual(result.changedDimensions, ["trust"]);
+  assert.equal(Object.hasOwn(result.patch, "affection"), false);
+  assert.deepEqual(currentValues, { trust: "low", affection: "warm" });
+  assert.deepEqual(patch, { trust: { operation: "clear" } });
+});
