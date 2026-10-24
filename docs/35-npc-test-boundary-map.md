@@ -371,3 +371,21 @@ The full semantic definitions for NPC-AUTH-001–010 are in `docs/46-npc-authori
 | NPC-AUTH-010 — Compact summary preserves uncertainty | Projection that consumes typed status/completeness information | Summary preserves material conflict/uncertainty or omits unsafe claim | Blocked: completeness-aware card projection not verified |
 
 These rows are specification-to-boundary mappings, not test results. Reuse the canonical history, audit, authorization, and projection mechanisms when they exist; do not introduce NPC-local correction logs, card revision counters, or alternate truth stores.
+
+
+## 9. Causal rollback/reconciliation acceptance map
+
+The detailed scenario definitions for NPC-CAUSE-001–008 are in `docs/47-npc-causal-rollback-reconciliation-test-matrix.md`. This map records the required real boundary and current gate status.
+
+| Case | Required real boundary | Acceptance assertion | Status |
+|---|---|---|---|
+| NPC-CAUSE-001 — Required cause invalidated | Canonical rollback/dependency reconciliation | Required dependent effects reconcile; audit remains; current projection excludes invalid branch | Blocked pending target-commit verification and production-path evidence |
+| NPC-CAUSE-002 — One of two independent supports invalidated | Typed support provenance plus approved domain sufficiency/reducer, or valid deterministic replay | Surviving support preserves only the conclusion it independently suffices to establish | Hard blocker: generic OR-support semantics not established |
+| NPC-CAUSE-003 — All support invalidated | Canonical multi-cause reconciliation and projection refresh | Conclusion and solely dependent consequences are removed/recomputed | Blocked pending causal sufficiency contract |
+| NPC-CAUSE-004 — New source after completed rollback | Separate canonical rollback and later source commit, fresh snapshots, idempotency | New source is evaluated against current state; no invalid-history resurrection; stale retries rejected | Hard blocker until multi-step production-path test exists |
+| NPC-CAUSE-005 — Duplicate source is not independent | Canonical provenance identity/deduplication contract | Duplicate records or delivery do not create false independent support | Blocked pending provenance semantics |
+| NPC-CAUSE-006 — Separate required dependency | Canonical dependency model and replay/reconciliation | Conclusion may survive while a downstream effect fails its own required dependency | Blocked pending production-path evidence |
+| NPC-CAUSE-007 — Knowledge source invalidation | Core-owned acquisition/belief records plus canonical event history | Source validity and past experience/committed actions are not conflated | Blocked: acquisition/belief path unimplemented or unverified |
+| NPC-CAUSE-008 — Deterministic replay/snapshot safety | Canonical rollback/replay, audit/revision, idempotency, actor-authorized read boundary | Same valid inputs yield same projection; no mixed-snapshot or stale context | Blocked pending end-to-end production test |
+
+Do not close these gates with mocks, prose checks, or a test that hides rollback and later source creation in one batch. The report must show state after each step, canonical markers, audit/revision effects, duplicate retry, and the actual authorized consumer result.
