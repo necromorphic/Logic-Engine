@@ -1,5 +1,5 @@
 import { EngineError } from './errors.js';
-import { SUPPORTED_RULE_OPERATORS } from './rules.js';
+import { SUPPORTED_RULE_OPERATORS, collectConditionDependencies } from './rules.js';
 
 const obj = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$/;
@@ -205,4 +205,37 @@ export function validateRuleModuleManifest(value) {
   if (value.compatibility.required_capabilities !== undefined) stringArray(value.compatibility.required_capabilities, 'compatibility.required_capabilities', capabilityPattern);
   if (value.metadata !== undefined) assertObject(value.metadata, 'metadata');
   return value;
+}
+
+
+/**
+ * Collect potential reads from every declarative condition in a validated
+ * mechanic template. This is intentionally explicit about its boundary:
+ * effect-intent payload binding and executable module inputs are not yet
+ * specified as dependency-bearing semantics, so the returned condition set
+ * must not be used as a proof of complete mechanic dependencies.
+ */
+export function collectMechanicConditionDependencies(value) {
+  const template = validateMechanicTemplate(value);
+  const paths = new Set();
+  const addRules = (rules = []) => {
+    for (const rule of rules) {
+      for (const path of collectConditionDependencies(rule)) paths.add(path);
+    }
+  };
+
+  addRules(template.applicability);
+  for (const participant of template.eligible_participants ?? []) addRules(participant.constraints);
+  for (const action of template.actions) {
+    addRules(action.preconditions);
+    addRules(action.constraints);
+  }
+  for (const interaction of template.interactions ?? []) addRules(interaction.conditions);
+
+  return {
+    condition_paths: [...paths].sort(),
+    condition_dependencies_complete: true,
+    mechanic_dependencies_complete: false,
+    unresolved_sources: ['effect-intent payload binding', 'registered module inputs and reads'],
+  };
 }
