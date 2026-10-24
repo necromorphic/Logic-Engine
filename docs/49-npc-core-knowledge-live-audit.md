@@ -66,3 +66,7 @@ The current Core implementation plan is `docs/43-core-npc-knowledge-runtime-impl
 ## Current Core status refresh (2026-10-24)
 
 Core PRs #94–#96 are merged and exact-head Runtime tests passed. They provide an admin-credential-only `relationship.transition` writer with directed projection, deterministic replay, idempotency/audit, and rollback dependencies. They do **not** provide a general actor-authorized Relationship read, a Memory retrieval boundary, an NPC mutation capability, or a durable Memory source-change/reconciliation signal. The original audit findings about NPC/Memory production readiness remain valid, but any statement that canonical typed Relationship writes do not exist is superseded by this status refresh.
+
+## Current Core boundary extension (2026-10-24)
+
+PR #101 adds an opt-in trusted host field policy for bounded authorized reads, while the default remains self-identity-only; PR #102 tests non-self denial without leakage. PR #103 binds public proposal commit to the creating adapter. PR #106 requires the internal-host credential to register context manifests. These reduce specific trust-boundary gaps but do not establish a concrete Memory/NPC visibility policy, prove which context was actually prepared/used, or create Core-owned acquisition/provenance records, Memory source-change reconciliation, delivery/receipt evidence, or belief persistence. Production knowledge reads remain blocked.
