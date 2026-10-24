@@ -53,7 +53,7 @@ Input:
 - `remove_attributes`: optional array of unique, non-empty attribute names (maximum 200 entries).
 - `status`: optional value from the entity status set listed above.
 
-Output uses `kind: "entity.update"` and `entity_id: target_ref`, copying only supplied fields from the allowed payload set. An attribute name must not appear in both `attributes` and `remove_attributes`; reject the whole batch on overlap. Empty patches are invalid. The translator does not read the entity, decide whether it exists, or infer deletion semantics. The canonical event validator also requires an event-level `REQUIRES(entity_exists)` causal link for `entity.update`; the proposal caller must supply that precondition explicitly or canonical validation rejects the translated event. The translator must not infer or synthesize this link from `target_ref`.
+Output uses `kind: "entity.update"` and `entity_id: target_ref`, copying only supplied fields from the allowed payload set. An attribute name must not appear in both `attributes` and `remove_attributes`; reject the whole batch on overlap. Empty patches are invalid. The translator does not read the entity, decide whether it exists, or infer deletion semantics. The canonical event validator also requires an event-level `REQUIRES(entity_exists)` causal link for `entity.update`; the proposal caller must supply that precondition explicitly or canonical validation rejects the translated event. The translator must not infer or synthesize this link from `target_ref`. The canonical event validator also requires an event-level `REQUIRES(entity_exists)` causal link for `entity.update`; the proposal caller must supply that precondition explicitly or canonical validation rejects the translated event. The translator must not infer or synthesize this link from `target_ref`.
 
 ### 3.3 `assert_fact` → `fact.set`
 
@@ -64,7 +64,7 @@ Input:
 - `value`: required JSON-serializable value; `null` is a value, not a request to retract the fact.
 - `subject_ref`: optional string or null.
 
-Output uses `kind: "fact.set"`, `fact_id: target_ref`, and copies `predicate`, `value`, and optional `subject_ref`. The translator does not invent a fact ID or infer a fact-identity policy. Whether a given fact ID already exists and what replacement means are determined by the canonical store contract.
+Output uses `kind: "fact.set"`, `fact_id: target_ref`, and copies `predicate`, `value`, and optional `subject_ref`. The translator does not invent a fact ID or query storage. The canonical commit boundary enforces stable identity per `fact_id` within a world: `predicate` and normalized `subject_ref` must match existing valid claims; absent and explicit-null `subject_ref` are equivalent; non-null identity strings must be non-empty and have no surrounding whitespace. Identity mismatches fail with `FACT_IDENTITY_MISMATCH` before durable writes. At most one `fact.set` effect for a given `fact_id` is allowed per event; duplicates fail before writes. Claims remain append-only and conflict-aware, not last-write-wins, and rollback reconstructs the projection from valid event history.
 
 ## 4. Batch atomicity, identity, and provenance
 
@@ -104,8 +104,9 @@ Failure must be all-or-nothing and side-effect free. The caller may turn a failu
 
 This contract does not implement mechanic evaluation, actor authorization, semantic alignment with source text, causal completeness, relation/knowledge/process/task/goal stores, automatic ID allocation, conflict resolution, NPC behavior, character-card logic, or a new commit API. It does not authorize SQLite, HTTP API, schema, or canonical-effect-vocabulary changes.
 
-## 8. Open decisions intentionally deferred
+## 8. Deferred scope
 
-- The canonical identity and replacement/idempotency policy for `fact.set` under an existing `fact_id`.
-- A typed mapping from intent provenance to event-level causal/context fields.
+- A typed mapping from intent provenance to event-level causal/context fields. Until approved, non-empty provenance remains fail-closed as specified above.
 - Whether a future translator should support additional canonical effect kinds after their event, rollback, and audit semantics are independently specified.
+
+The candidate integration adds the canonical fact-identity guard at the commit boundary; it does not authorize the translator to implement a second identity policy or query storage.

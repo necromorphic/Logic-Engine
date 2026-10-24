@@ -187,12 +187,16 @@ export function validateEffects(effects) {
       }
     } else if (effect.kind === 'fact.set') {
       if (typeof effect.fact_id !== 'string' || !effect.fact_id.trim()
+        || effect.fact_id !== effect.fact_id.trim()
         || typeof effect.predicate !== 'string' || !effect.predicate.trim()
+        || effect.predicate !== effect.predicate.trim()
         || !Object.hasOwn(effect, 'value')) {
-        throw new EngineError('INVALID_EFFECT', 'fact.set requires fact_id, predicate and value.');
+        throw new EngineError('INVALID_EFFECT', 'fact.set requires fact_id and predicate without surrounding whitespace, and value.');
       }
-      if (effect.subject_ref !== undefined && effect.subject_ref !== null && typeof effect.subject_ref !== 'string') {
-        throw new EngineError('INVALID_EFFECT', 'subject_ref must be a string or null.');
+      if (effect.subject_ref !== undefined && effect.subject_ref !== null
+        && (typeof effect.subject_ref !== 'string' || !effect.subject_ref.trim()
+          || effect.subject_ref !== effect.subject_ref.trim())) {
+        throw new EngineError('INVALID_EFFECT', 'subject_ref must be a non-empty string or null without surrounding whitespace.');
       }
     } else if (effect.kind === 'mechanic.instance.create') {
       for (const key of ['instance_id', 'template_id', 'template_version']) {
