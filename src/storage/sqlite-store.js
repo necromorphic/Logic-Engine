@@ -1570,11 +1570,30 @@ export class SQLiteStore {
           const terminal = nextIndex >= segments.length;
           const plan = dec(fresh.plan_json);
           const status = terminal ? (plan.status === 'interrupted' ? 'interrupted' : 'completed') : 'running';
+          const completedFromSegments = segments.slice(0, nextIndex)
+            .flatMap((item) => Array.isArray(item.trigger_ids) ? item.trigger_ids : []);
+          const hasSegmentTriggerMetadata = segments.some((item) => Array.isArray(item.trigger_ids));
+          const completedTriggerIds = terminal && !hasSegmentTriggerMetadata
+            ? (plan.completed_trigger_ids || [])
+            : completedFromSegments;
+          for (const triggerId of segment.trigger_ids ?? []) {
+            const trigger = this.db.prepare('SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+              .get(worldId, triggerId);
+            if (!trigger || trigger.status !== 'pending' || trigger.claimed_by_operation_id !== operationId) {
+              throw new EngineError('TIME_TRIGGER_CHECKPOINT_CONFLICT', 'A trigger claim no longer matches the segment being committed.', 409, {
+                trigger_id: triggerId, status: trigger?.status ?? null,
+                claimed_by_operation_id: trigger?.claimed_by_operation_id ?? null,
+              });
+            }
+            this.db.prepare(`UPDATE world_time_triggers SET status='completed',claimed_by_operation_id=NULL,
+              completed_operation_id=?,updated_at=? WHERE world_id=? AND trigger_id=?`)
+              .run(operationId, now(), worldId, triggerId);
+          }
           const result = {
             operation_id: operationId, world_id: worldId, status,
             from_coordinate: fresh.from_coordinate, target_coordinate: fresh.target_coordinate,
             confirmed_coordinate: segment.coordinate, world_revision: worldAfter.world_revision,
-            last_segment: commitResult, completed_trigger_ids: plan.completed_trigger_ids || [],
+            last_segment: commitResult, completed_trigger_ids: completedTriggerIds,
           };
           this.db.prepare(`UPDATE time_advance_operations SET
             confirmed_coordinate=?,current_world_revision=?,next_segment_index=?,status=?,result_json=?,error_json=NULL,updated_at=?
