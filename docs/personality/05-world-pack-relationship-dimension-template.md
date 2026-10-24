@@ -116,3 +116,7 @@ Do not treat a deterministic replay result under one fixed version as proof of h
 ## 7. Unresolved core dependencies
 
 World Pack authors must not invent the core's exact payload/API, storage encoding, revision behavior, event shape, authorized-read interface, or author-operation permission mechanism. These remain governed by the core integration gates in [03-core-decision-and-integration-gates.md](./03-core-decision-and-integration-gates.md). A World Pack can define the intended semantics while clearly marking runtime integration as blocked.
+
+## Issue #73 evidence cross-reference
+
+For exact evaluator test names and the boundary between pure candidate validation and Core persistence/versioning evidence, see [`10-issue-73-executable-evidence-audit.md`](./10-issue-73-executable-evidence-audit.md). This cross-reference does not claim historical migration or Core enforcement is implemented.
