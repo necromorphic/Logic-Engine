@@ -317,3 +317,52 @@ The smallest executable acceptance path should test these boundaries in order:
 7. proposal creation leaves canonical state, knowledge/acquisition state, belief state, delivery state, world revision, and commit sequence unchanged.
 
 Until the core exposes the real actor binding and initial-acquisition representation, these remain design acceptance targets, not executable integration tests. The first implementation PR should begin only after the core owner reviews this interface candidate and confirms that it maps to real source/storage boundaries without duplicating canonical ownership.
+
+
+## 16. Core-owner review outcome and implementation gates — 2026-10-24
+
+**Review outcome: B — accept this candidate contract after concrete clarifications.** The core review confirms the ownership split and the actor-relative context boundary in §15 are architecturally sound. This is approval of the direction, not approval of an executable API, schema, or runtime implementation.
+
+### 16.1 Confirmed by review
+
+- The core remains the authority for canonical world state and any future canonical acquisition/belief records; the NPC subsystem remains a decision-making consumer.
+- LogicEngine.getSnapshot(...) is an available bounded, transaction-consistent read primitive on the reviewed main commit. It is not a model-safe projection.
+- evaluateConditionResult(...) is an available opt-in tri-state primitive. knownAbsentPaths must be based on trusted evidence from the same complete, authorized decision context; it is not an access-control mechanism.
+- ProposalService.create(...) can stage a pending, non-committing proposal. Proposal creation changes proposal/audit records, but does not itself commit canonical world state or advance the world revision/commit sequence. It does not prove actor authorization or player-agency compliance.
+- facts.source_event_ids, context manifests, profile/card text, vector retrieval, and adapter authentication are not proof that a particular NPC acquired or is authorized to know a proposition.
+
+### 16.2 Three required core contracts
+
+The first NPC slice remains blocked until the following are designed against actual core storage and trust boundaries and then implemented/reviewed in the core-owned workstream:
+
+1. **Trusted actor binding.** A trusted integration boundary resolves the authenticated caller/context to a canonical actor entity_id in the requested world. Model-supplied identity, card names, and adapter identity cannot establish or override this binding. Unknown, ambiguous, cross-world, or unauthorized actors fail closed.
+2. **Core-owned initial acquisition.** A minimal real representation records explicitly authorized author_initial/imported knowledge assigned to a subject, with canonical proposition/source references, provenance, and validity/reconciliation semantics. Do not invent a second event store or NPC-local knowledge database. The exact storage/event model remains a core design decision; this proposal does not preselect a table or public API.
+3. **Snapshot-bound actor/purpose filter.** A core-owned internal read operation selects only the resolved actor's authorized initial knowledge for a declared bounded purpose, ties all canonical and acquisition records to the same (world_revision, commit_sequence) marker, and excludes reserved secrets before any model-bound serialization. It must distinguish unknown, withheld, incomplete, known absent, invalid, and unsupported without exposing withheld content in diagnostics. If completeness or authorization cannot be proven, the result is non-ready; there is no raw-snapshot fallback.
+
+### 16.3 Non-ready semantics and first-slice scope
+
+Use invalid_actor, stale_snapshot, withheld, incomplete, and unsupported as minimum non-ready categories, while preserving unknown as an epistemic condition rather than converting it into a refusal or a negative fact. Known absent is valid only within the exact trusted, complete, authorized scope that established absence.
+
+The first vertical slice supports only explicitly authorized author_initial/imported knowledge. Observation, communication, documents, inference, rumors, persistent belief changes, delivery/receipt, relationships, schedules, and autonomous off-screen effects remain out of scope until their own real core contracts exist.
+
+### 16.4 Proposal boundary
+
+The NPC adapter may submit a proposal only after context admission and safe condition evaluation. Creation must remain separate from approval and commit. The proposal lifecycle may mutate proposal/audit records, but the first-slice acceptance test must prove no mutation to canonical state, acquisition/knowledge state, belief state, delivery state, world_revision, or commit_sequence. Approval/commit authorization and player-agency policy remain separate core/integration gates; ordinary effect validation is not sufficient evidence.
+
+### 16.5 Required evidence before implementation
+
+Before the first NPC runtime PR, the core workstream must identify actual source paths and stable internal interfaces for all three contracts above, then add production-path tests for:
+
+- actor A/B separation and rejection of actor substitution, unknown entities, and cross-world entities;
+- subject-assigned author_initial/imported records with provenance and validity;
+- proof that canonical facts, retrieval, manifests, and prompt inclusion do not create acquisition;
+- reserved-secret exclusion before serialization and safe diagnostics;
+- distinct unknown / known-absent / withheld / incomplete / unsupported outcomes;
+- exact snapshot matching and stale/mixed snapshot rejection;
+- use of the exact filtered envelope by the decision adapter;
+- proposal creation with state-before/state-after checks and no canonical/knowledge mutation;
+- approval and commit remaining on the existing validated lifecycle.
+
+These are acceptance targets, not tests that can be satisfied by mocks of missing production interfaces. Keep runtime/API/schema/storage work in the core-owned branch or PR. The NPC branch must not implement a workaround that duplicates actor authorization, knowledge persistence, revisions, causality, rollback, or proposal lifecycle.
+
+**Decision for §15:** accepted as a schema-neutral candidate after the clarifications in this section. It is not yet an executable interface, and the NPC runtime remains blocked.
