@@ -191,6 +191,10 @@ test('mechanic evaluation hands off through the ordinary durable proposal lifecy
   assert.equal(proposal.mechanic_execution.context_policy_version, evaluation.context_policy_version);
   assert.equal(proposal.mechanic_execution.evaluation_fingerprint, evaluation.evaluation_fingerprint);
   assert.deepEqual(proposal.mechanic_execution.effect_provenance, evaluation.effect_provenance);
+  assert.equal(proposal.mechanic_execution.context_policy_version, 'test-visibility-policy-v1');
+  const creationAudit = engine.getAudit(worldId).find((entry) => entry.action === 'proposal.created' && entry.target_id === proposal.proposal_id);
+  assert.equal(creationAudit.payload.mechanic_execution.evaluation_fingerprint, evaluation.evaluation_fingerprint);
+  assert.deepEqual(creationAudit.payload.mechanic_execution.effect_provenance, evaluation.effect_provenance);
   assert.equal(proposal.validation_result.status, 'needs_review');
   assert.equal(engine.getState(worldId).world_revision, 2);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
@@ -202,6 +206,15 @@ test('mechanic evaluation hands off through the ordinary durable proposal lifecy
   assert.equal(engine.getState(worldId).world_revision, 3);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
   assert.deepEqual(proposals.get(worldId, proposal.proposal_id).mechanic_execution.effect_provenance, evaluation.effect_provenance);
+  const replay = proposals.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: 'mechanic-proposal-1',
+    turnId: 'turn-mechanic-1',
+    sourceText: 'The deterministic mechanic proposes creating a character.',
+    adapterId: 'test-adapter',
+  });
+  assert.equal(replay.status, 'committed');
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(engine.getState(worldId).world_revision, 3);
 });
 
 test('mechanic proposal handoff rejects a stale evaluation before creating a proposal', (t) => {
