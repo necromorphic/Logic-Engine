@@ -22,7 +22,7 @@ function candidate(overrides = {}) {
     lifecycle: {
       content_disposition: "usable",
       source_reconciliation: "current",
-      evidence_assessment: "unverified",
+      evidence_assessment: "unassessed",
       access_outcome: "allow",
       index_health: "ready",
     },
@@ -56,7 +56,7 @@ test("admits only the safe reference metadata, never content", () => {
     record_ref: "memory:claim-1",
     record_version: "v3",
     epistemic_kind: "acquired_report",
-    evidence_assessment: "unverified",
+    evidence_assessment: "unassessed",
   }]);
   assert.equal(JSON.stringify(result).includes("restricted raw text"), false);
   assert.equal(JSON.stringify(result).includes("secret title"), false);
@@ -262,7 +262,7 @@ test("conflicting eligible claims remain distinct and are not adjudicated by adm
     record: { ref: "memory:claim-b", version: "v7" },
     content_kind: "report",
     epistemic_kind: "rumor",
-    lifecycle: { ...candidate().lifecycle, evidence_assessment: "contradicted" },
+    lifecycle: { ...candidate().lifecycle, evidence_assessment: "insufficient" },
   });
   const result = evaluateMemoryCandidateAdmission(request, completeResult([first, second]));
   assert.equal(result.status, "ready");
