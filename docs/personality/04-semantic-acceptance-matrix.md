@@ -37,7 +37,7 @@ Status: semantic specification, not an executable runtime test suite. These case
 | PERS-SEM-020 | Relationship does not prove cause | A current value alone does not establish the event or evidence that caused it. | Provenance boundary |
 | PERS-SEM-021 | Required dependency rollback | If a transition is invalidated because its only required basis is revoked, the current projection is recomputed without unsupported state. | Core rollback integration |
 | PERS-SEM-022 | Surviving independent support | A result is preserved after rollback only when surviving support is actually sufficient under declared rules. Different source IDs alone do not prove independence or sufficiency. | Core rollback + domain rule |
-| PERS-SEM-023 | Conflicting/insufficient support | The system applies an explicit domain rule or exposes a conflict/unknown state; it does not guess. | Core reconciliation |
+| PERS-SEM-023 | Conflicting/insufficient support | The system applies an explicit domain rule or exposes conflict/unknown as a reconciliation or read-result state; it must not silently turn that result into a relationship-dimension value unless the active domain explicitly models it as one. It does not guess. | Core reconciliation + World Pack policy |
 | PERS-SEM-024 | Deterministic replay | Replaying the same surviving valid transition history produces the same relationship projection. | Core projection/replay |
 | PERS-SEM-025 | Authorized actor read | A decision context receives only data permitted for that actor and purpose. A snapshot alone does not authorize access. | Core authorized read |
 | PERS-SEM-026 | Withheld versus unset | A caller cannot infer that a dimension is canonically unset merely because the read boundary withheld it. | Core authorized read |
