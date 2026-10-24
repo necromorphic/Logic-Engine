@@ -211,3 +211,27 @@ Memory can accept the NPC negative cases as **contract-level acceptance requirem
 - approved summary access propagation/declassification and lifecycle/retention transitions (MEM-O07/MEM-O10).
 
 Until then, tests can validate pure helpers and static contract fixtures, but cannot prove authorization, revocation races, durable reconciliation, real index completeness, or persisted delivery/acquisition/belief semantics. No tests are claimed as executed by this report. The NPC test syntax and unknown/missing `content_kind` review notes remain for the NPC owner to verify on the exact branch head; Memory has not modified NPC files.
+
+## Vectorization boundary audit — MEM-O08, 2026-10-24
+
+This pass narrows the evidence available for MEM-O08 without pretending the existing vectorization patch has been fully inspected.
+
+### Repository evidence
+
+- `docs/13-sillytavern-adapter-contract.md` on `main` is explicitly a requirements document; it says the vectorization patch is a separately owned archive/retrieval system, requires read-only discovery first, prohibits engine schema migrations/writes during initial integration, and says a vector result is not authoritative truth.
+- The same contract requires source message/document IDs where available, and filtering by world, branch validity, source validity, subject access, and privacy before use. Canonical structured state wins over stale archive text; provenance-free fragments may be unverified context only.
+- Searches of the repository's indexed default-branch code for `vectorization`, `vector`, `embedding`, and `Ollama` did not surface an implementation file. This is not proof that no patch exists in another branch, extension, local deployment, or unindexed path; it means this pass cannot honestly identify its concrete storage schema, update hooks, embedding model, or freshness guarantees.
+- No vectorization implementation was modified, migrated, or replaced by this Memory branch. No duplicate index was introduced.
+
+### Recommendation (not yet an implementation decision)
+
+1. Keep the existing archive/index owned by its current component. Memory should depend on a narrow read-only retrieval adapter rather than own a second embedding pipeline or write into the archive.
+2. Require the adapter to return source identity and whatever source-version/branch-validity metadata the host can actually prove. Missing metadata must be represented as unknown/unverified, not synthesized from text or similarity score.
+3. Treat vector hits as candidate discovery only. Resolve each candidate against authoritative source/currentness and the approved request-scoped authorization boundary before returning content; stale or unverifiable candidates cannot be represented as current canonical facts.
+4. Keep exact/structured lookup against the authoritative Memory record store conceptually separate from semantic archive search. If the existing backend is unavailable or stale, return the agreed typed partial/unavailable outcome; never translate backend failure into a successful empty result.
+5. Before coding the adapter, inspect the actual patch/extension and record its repository/location, owner, stable source identifiers, write/update lifecycle, deletion/rollback behavior, and test command. This requires the patch location or source to be visible to the repository audit; until then, MEM-O08 stays open.
+
+### Decision status
+
+MEM-O08 is **partially evidenced, unresolved**. The safe integration boundary is clear at the documentation level, but the concrete existing backend and its lifecycle are not established by the inspected `main` source. This section does not claim the vectorization patch is absent, broken, or tested.
+
