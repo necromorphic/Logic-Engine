@@ -33,6 +33,25 @@ function stringSet(value, name, max = 1000) {
   return normalized.sort();
 }
 
+function cloneJson(value, name) {
+  let encoded;
+  try { encoded = JSON.stringify(value); } catch {}
+  if (encoded === undefined) fail('INVALID_TRIGGER_PAYLOAD', name + ' must be JSON-serializable.');
+  try { return JSON.parse(encoded); } catch { fail('INVALID_TRIGGER_PAYLOAD', name + ' must be JSON-serializable.'); }
+}
+
+function validateReferenceKinds(values, name, allowMechanic) {
+  const supported = allowMechanic
+    ? ['entity:', 'fact:', 'relationship:', 'mechanic:']
+    : ['entity:', 'fact:', 'relationship:'];
+  for (const value of values) {
+    if (!supported.some((prefix) => value.startsWith(prefix) && value.length > prefix.length)) {
+      fail('INVALID_TRIGGER_REFERENCE', name + ' contains an unsupported projection reference: ' + value);
+    }
+  }
+  return values;
+}
+
 function intersects(left, right) {
   for (const value of left) if (right.has(value)) return value;
   return null;
@@ -59,11 +78,11 @@ function normalizeTrigger(input, worldId) {
     due_coordinate: safeInteger(input.due_coordinate, 'due_coordinate'),
     status: input.status ?? 'pending',
     dependencies: stringSet(input.dependencies, 'dependencies'),
-    read_set: stringSet(input.read_set, 'read_set'),
-    write_set: stringSet(input.write_set, 'write_set'),
+    read_set: validateReferenceKinds(stringSet(input.read_set, 'read_set'), 'read_set', false),
+    write_set: validateReferenceKinds(stringSet(input.write_set, 'write_set'), 'write_set', true),
     processing_mode: input.processing_mode ?? 'exact',
     interrupt_after_coordinate: input.interrupt_after_coordinate ?? false,
-    payload: input.payload ?? null,
+    payload: cloneJson(input.payload ?? null, 'payload'),
   };
   if (trigger.world_id !== worldId) fail('CROSS_WORLD_TRIGGER', 'A due-work plan cannot mix triggers from different worlds.', { trigger_id: trigger.trigger_id });
   if (!['pending', 'completed', 'cancelled'].includes(trigger.status)) fail('INVALID_TRIGGER_STATUS', 'Trigger status must be pending, completed, or cancelled.');
