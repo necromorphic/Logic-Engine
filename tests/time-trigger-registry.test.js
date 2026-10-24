@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 
@@ -92,6 +95,50 @@ test('registered due triggers complete atomically with their event segment and o
   assert.equal(replay.operation_id, operation.operation_id);
   assert.equal(replay.status, 'completed');
   assert.deepEqual(replay.result.completed_trigger_ids, ['at-ten', 'at-twenty']);
+});
+
+test('registered trigger state and completion survive a SQLite restart without re-firing', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-time-trigger-recovery-'));
+  const path = join(directory, 'state.sqlite');
+  let store = new SQLiteStore(path);
+  let engine = new LogicEngine(store);
+  engine.createWorld({
+    world_id: 'time-trigger-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  engine.registerTimeTrigger('time-trigger-world', trigger('durable', 10000, 'durable-entity'));
+  store.close();
+  store = new SQLiteStore(path);
+  engine = new LogicEngine(store);
+  assert.equal(engine.getTimeTrigger('time-trigger-world', 'durable').status, 'pending');
+
+  const operation = engine.startTimeAdvance('time-trigger-world', {
+    idempotency_key: 'durable-trigger-operation',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(operation.status, 'completed');
+  store.close();
+  store = new SQLiteStore(path);
+  engine = new LogicEngine(store);
+  assert.equal(engine.getTimeTrigger('time-trigger-world', 'durable').status, 'completed');
+  assert.equal(engine.getTimeTrigger('time-trigger-world', 'durable').completed_operation_id, operation.operation_id);
+
+  const eventCount = engine.getEvents('time-trigger-world').filter((event) => event.event_type === 'time.trigger').length;
+  const replay = engine.startTimeAdvance('time-trigger-world', {
+    idempotency_key: 'durable-trigger-operation',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(replay.operation_id, operation.operation_id);
+  assert.equal(engine.getEvents('time-trigger-world').filter((event) => event.event_type === 'time.trigger').length, eventCount);
 });
 
 test('blocked registered work does not claim triggers or advance canonical time', (t) => {
