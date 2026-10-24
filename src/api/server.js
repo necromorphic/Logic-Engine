@@ -283,7 +283,15 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         const relationship = engine.store.getRelationshipPair(worldId, subject_id, target_id);
         return send(res, commit_result.idempotent_replay ? 200 : 201, { commit_result, relationship });
       }
-      if (req.method === 'POST' && action === 'context-manifests') return send(res, 201, { context_manifest: engine.registerContextManifest(worldId, await readBody(req)) });
+      if (req.method === 'POST' && action === 'context-manifests') {
+        // A context manifest is a host assertion about the exact context
+        // prepared for a generation. A general API/adapter bearer is not
+        // sufficient authority to register that assertion.
+        if (!internalToken || req.headers['x-engine-internal-token'] !== internalToken) {
+          return send(res, 403, { error: { code: 'INTERNAL_REQUIRED', message: 'A separately authenticated internal host is required to register context manifests.' } });
+        }
+        return send(res, 201, { context_manifest: engine.registerContextManifest(worldId, await readBody(req)) });
+      }
       if (req.method === 'GET' && action === 'state') return send(res, 200, { state: engine.getState(worldId) });
       if (req.method === 'GET' && action === 'events') return send(res, 200, { events: engine.getEvents(worldId, url.searchParams.get('include_invalid') === 'true') });
       if (req.method === 'GET' && action === 'audit') return send(res, 200, { audit: engine.getAudit(worldId) });
