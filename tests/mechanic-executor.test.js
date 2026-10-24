@@ -851,3 +851,35 @@ test('canonical entity-attribute provider fails closed for denied or unbound con
   assert.equal(unboundResult.reason_code, 'AUTHORIZED_CONTEXT_RESOLUTION_FAILED');
   assert.deepEqual(unboundResult.effects, []);
 });
+
+
+test('application executor rejects accessor-bearing trusted context without invoking getters', (t) => {
+  const { engine, worldId } = setup(t, 'executor-context-accessor-world');
+  enableFixture(engine, worldId);
+  let getterRead = false;
+  const context = { world: { weather: 'rain' }, actor: { hp: 10 } };
+  Object.defineProperty(context.actor, 'secret', {
+    enumerable: true,
+    get() {
+      getterRead = true;
+      throw new Error('accessor must not execute');
+    },
+  });
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: ({ snapshot }) => ({
+      context,
+      knownAbsentPaths: [],
+      dependencyEvidence: [
+        { path: 'actor.hp', kind: 'entity_attribute', entity_id: 'entity.actor-context', attribute: 'hp' },
+        { path: 'world.weather', kind: 'entity_attribute', entity_id: 'entity.world-context', attribute: 'weather' },
+      ],
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+      policy_version: 'test-visibility-policy-v1',
+    }),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'INVALID_AUTHORIZED_CONTEXT');
+  assert.equal(getterRead, false);
+  assert.deepEqual(result.effects, []);
+});
