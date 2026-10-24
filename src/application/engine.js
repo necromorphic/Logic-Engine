@@ -412,7 +412,8 @@ export class LogicEngine {
     try {
       targetCoordinate = addTimeDuration(world.game_time_coordinate, durationMs);
     } catch (error) {
-      throw new EngineError(error.code || 'INVALID_TIME_COORDINATE', error.message || 'Timed event target is outside the coordinate range.', 400);
+      const code = error.code === 'COORDINATE_OVERFLOW' ? 'TIME_COORDINATE_OVERFLOW' : (error.code || 'INVALID_TIME_COORDINATE');
+      throw new EngineError(code, error.message || 'Timed event target is outside the coordinate range.', 400);
     }
     const due = this.store.listTimeTriggers(id)
       .filter((trigger) => trigger.status === 'pending'
@@ -851,6 +852,7 @@ export class LogicEngine {
       plan.action_request_hash = actionRequestHash;
       plan.final_action_event_id = preparedFinalEvent.event_id;
       plan.final_action_duration_ms = finalEventEnvelope.duration_decision?.duration_ms ?? 0;
+      plan.final_action_duration_decision = finalEventEnvelope.duration_decision ?? null;
       if (plan.status === 'blocked') {
         plan.final_action_status = 'not_executed_blocked';
       } else if (plan.status === 'interrupted') {
