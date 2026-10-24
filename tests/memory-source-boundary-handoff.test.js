@@ -54,7 +54,7 @@ test('Memory source-boundary handoff preserves fail-closed and owner-decision li
     'Core + Memory',
     'Core owns',
     'No new API, schema, store/table, outbox, cursor',
-    'does not authorize broad production reads or production Memory→NPC wiring',
+    'authorize broad production reads or production Memory→NPC wiring',
     'reopen completed Issue #129',
     'These are **future Memory integration acceptance tests**',
   ]) {
