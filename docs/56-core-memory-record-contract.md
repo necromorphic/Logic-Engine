@@ -22,7 +22,11 @@ A durable record should carry the following logical fields. Physical representat
 - `relations[]`: typed links such as `derived_from`, `supersedes`, `disputes`, `supports`, or `references`; links are not truth decisions.
 - `audit_ref`: pointer to the memory operation audit record, if audit is stored separately.
 
-## 2. Confidence and uncertainty
+## 2. Boundary with Core-owned acquisition, delivery, and belief records
+
+A generic Memory record is not a substitute for the Core-owned semantic records defined by the NPC knowledge proposal. Acquisition history, delivery attempts/status, current belief stance, and canonical proposition truth are distinct concepts. The memory store may be used as a persistence primitive only if Core explicitly assigns that storage path and preserves the required semantics; Memory must not invent parallel acquisition IDs, belief state, delivery ledgers, revision counters, or rollback logic. Search or prompt inclusion never establishes acquisition or delivery.
+
+## 3. Confidence and uncertainty
 
 Do not introduce a generic 0–1 confidence field. Its calibration, comparability, and authority are undefined. Represent uncertainty using explicit epistemic kind, source provenance, verification state, conflict links, and a typed assessment only where a domain contract defines its semantics. A model-generated confidence value is an assertion, not a verified score.
 
