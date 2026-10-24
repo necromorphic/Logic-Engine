@@ -50,7 +50,7 @@ diff --git a/public/script.js b/public/script.js
 +
      if (Array.isArray(alternateGreetings) && alternateGreetings.length > 0) {
          const swipes = [message.mes, ...(alternateGreetings.map(greeting => getRegexedString(greeting, regex_placement.AI_OUTPUT)))];
-@@ -7741,6 +7752,7 @@ function getFirstMessage() {
+@@ -7733,6 +7743,7 @@ function getFirstMessage() {
          message.swipe_info = swipes.map(_ => ({
              send_date: message.send_date,
              gen_started: void 0,
@@ -66,7 +66,7 @@ diff --git a/public/script.js b/public/script.js
          chat.push(newMessage);
          newMessage.extra = {};
          newMessage.name = name2;
-@@ -6790,6 +6791,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+@@ -6793,6 +6794,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
          const swipeId = item.swipe_id;
          item.swipes[swipeId] = item.mes;
          item.swipe_info[swipeId] = {
@@ -74,7 +74,7 @@ diff --git a/public/script.js b/public/script.js
              send_date: item.send_date,
              gen_started: item.gen_started,
              gen_finished: item.gen_finished,
-@@ -6805,7 +6807,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+@@ -6822,7 +6824,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
              reasoning_duration: null,
          };
          const swipeInfo = {
