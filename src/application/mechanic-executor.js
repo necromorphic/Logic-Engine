@@ -102,7 +102,7 @@ export class MechanicExecutor {
     try {
       resolved = this.resolveAuthorizedContext({ worldId, snapshot, instance, template, action });
     } catch (error) {
-      return unknown('AUTHORIZED_CONTEXT_RESOLUTION_FAILED', 'Trusted context resolution failed: ' + error.message, identity);
+      return unknown('AUTHORIZED_CONTEXT_RESOLUTION_FAILED', 'Trusted context resolution failed; details are retained only in host-side diagnostics.', identity);
     }
     if (!object(resolved) || !object(resolved.context)
       || resolved.world_revision !== snapshot.world_revision
@@ -120,7 +120,7 @@ export class MechanicExecutor {
         knownAbsentPaths,
       });
     } catch (error) {
-      return unknown('MECHANIC_CONDITION_EVALUATION_FAILED', 'Condition evaluation failed closed: ' + error.message, identity);
+      return unknown('MECHANIC_CONDITION_EVALUATION_FAILED', 'Condition evaluation failed closed; details are retained only in host-side diagnostics.', identity);
     }
     if (conditionResult.status !== 'true') {
       return {
