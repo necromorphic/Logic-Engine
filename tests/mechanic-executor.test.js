@@ -7,6 +7,8 @@ import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { MechanicExecutor } from '../src/application/mechanic-executor.js';
 import { CanonicalEntityAttributeContextProvider } from '../src/application/entity-attribute-context-provider.js';
+import { ActorBindingService } from '../src/application/actor-bindings.js';
+import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { ProposalService } from '../src/application/proposals.js';
 import { collectMechanicConditionDependencies } from '../src/core/mechanics.js';
 import { hashRequest } from '../src/core/request-hash.js';
@@ -111,6 +113,45 @@ function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10
     };
   };
 }
+
+test('mechanic context provider can enforce actor binding and field policy through AuthorizedReadService', (t) => {
+  const { engine, worldId } = setup(t, 'executor-authorized-read-provider-world');
+  enableFixture(engine, worldId);
+
+  const actorBindings = new ActorBindingService(engine);
+  actorBindings.bind(worldId, 'test-adapter', 'entity.actor-context');
+  const authorizedReads = new AuthorizedReadService(engine, actorBindings, (context, entity, field) =>
+    context.authenticatedAdapterId === 'test-adapter'
+      && context.actor.entity_id === 'entity.actor-context'
+      && context.recipient === 'model'
+      && context.purpose === 'npc_decision'
+      && ((entity.entity_id === 'entity.world-context' && field === 'attributes.weather')
+        || (entity.entity_id === 'entity.actor-context' && field === 'attributes.hp')));
+
+  const provider = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'test-read-policy-v1',
+    authorizationScope: 'test-adapter:entity.actor-context:model:npc_decision',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    authorizedReadService: authorizedReads,
+    adapterId: 'test-adapter',
+    actorEntityId: 'entity.actor-context',
+    recipient: 'model',
+    purpose: 'npc_decision',
+  });
+
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => provider.resolve(args),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+
+  assert.equal(result.status, 'ready');
+  assert.equal(result.context_policy_version, provider.policyFingerprint);
+  assert.equal(result.authorization_scope, 'test-adapter:entity.actor-context:model:npc_decision');
+  assert.equal(result.dependency_manifest.context_projection_dependencies_complete, true);
+  assert.equal(engine.getState(worldId).world_revision, 2);
+});
 
 test('application executor pins one enabled instance and exact template to a consistent snapshot', (t) => {
   const { engine, worldId } = setup(t);
