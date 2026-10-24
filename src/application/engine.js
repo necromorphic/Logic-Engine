@@ -477,7 +477,7 @@ export class LogicEngine {
     );
   }
 
-  registerTimeTrigger(id, input) {
+  prepareTimeTrigger(id, input) {
     assert(obj(input), 'INVALID_TIME_TRIGGER', 'Time-trigger registration must be an object.');
     const allowed = ['trigger_id', 'due_coordinate', 'dependencies', 'read_set', 'write_set', 'processing_mode', 'interrupt_after_coordinate', 'payload'];
     assert(Object.keys(input).every((key) => allowed.includes(key)),
@@ -545,7 +545,11 @@ export class LogicEngine {
       interrupt_after_coordinate: trigger.interrupt_after_coordinate,
       payload: trigger.payload,
     });
-    return this.store.registerTimeTrigger(id, { ...trigger, content_hash });
+    return { ...trigger, content_hash };
+  }
+
+  registerTimeTrigger(id, input) {
+    return this.store.registerTimeTrigger(id, this.prepareTimeTrigger(id, input));
   }
 
   listTimeTriggers(id) {
