@@ -44,6 +44,7 @@ Use isolated test worlds and deterministic fixtures. Assert both the returned re
 | MEM-034 | Candidate has missing/unknown content kind while carrying otherwise admissible metadata; an unknown kind could conceal a derived summary | Reject as non-ready before prompt serialization; derived-summary lineage/access checks cannot be bypassed by an absent or unrecognized kind; rejection metadata reveals no protected candidate details |
 | MEM-035 | Existing vector/archive adapter returns stale, provenance-incomplete, or unavailable results | Preserve source identity and uncertainty; stale/unverified hits cannot be represented as current canonical facts; backend outage is typed unavailable/partial rather than successful empty; no archive write/schema migration or duplicate index is introduced by Memory |
 | MEM-036 | A summary candidate is scoped to world A but its lineage contains a source from world B, or lineage does not prove source world scope | Reject before prompt serialization unless the approved source reference contract proves same-world membership; do not infer world scope from a bare ID or similarity result |
+| MEM-037 | Rollback-aware full reconciliation cannot enumerate the complete source inventory or fails midway | Do not advance the durable reconciliation marker or claim currentness; preserve pending/stale status and retry without losing the previous completed manifest |
 
 ## Threat review checklist
 
