@@ -181,4 +181,26 @@ export class CanonicalEntityAttributeContextProvider {
       policy_version: this.policyFingerprint,
     });
   }
+
+  /**
+   * ProposalService validator for the currently active context provider.
+   * The caller must delegate to the same provider instance/configuration used
+   * for fresh evaluations; replacing that provider on policy rotation makes
+   * proposals pinned to the previous policy fail closed.
+   */
+  validateMechanicPolicy(identity) {
+    if (!object(identity)
+      || typeof identity.worldId !== 'string' || !identity.worldId.trim()
+      || typeof identity.policyVersion !== 'string' || !identity.policyVersion.trim()
+      || typeof identity.authorizationScope !== 'string' || !identity.authorizationScope.trim()
+      || !object(identity.snapshotIdentity)
+      || identity.snapshotIdentity.world_id !== identity.worldId
+      || !Number.isSafeInteger(identity.snapshotIdentity.world_revision)
+      || !Number.isSafeInteger(identity.snapshotIdentity.commit_sequence)) {
+      return false;
+    }
+
+    return identity.policyVersion === this.policyFingerprint
+      && identity.authorizationScope === this.authorizationScope;
+  }
 }
