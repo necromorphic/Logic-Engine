@@ -359,7 +359,7 @@ test("preserves the exact caller-supplied rule version label on a candidate", ()
 });
 
 test("requires a pinned rule version", () => {
-  for (const ruleVersion of ["", "   ", null, 0, false]) {
+  for (const ruleVersion of ["", "   ", null, 0, false, {}, []]) {
     const result = evaluateRelationshipCandidate({
       ...base,
       ruleVersion,
