@@ -284,3 +284,19 @@ test('source validator outage is not collapsed into ordinary record denial', asy
       && !error.message.includes('private host'),
   );
 });
+
+test('provider rejects derived summaries until lineage-wide authorization is implemented', (t) => {
+  const s = setup(t);
+  assert.throws(
+    () => s.provider.putRecord({
+      ...s.record,
+      record_ref: 'memory:derived-summary',
+      content_kind: 'summary',
+      lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-source-a', source_version: 'source-v1' }],
+    }),
+    /Invalid direct-source Memory record/,
+  );
+  assert.equal(s.provider.db.prepare(
+    'SELECT COUNT(*) AS count FROM memory_records WHERE world_id=? AND record_ref=?',
+  ).get(s.scope.world_id, 'memory:derived-summary').count, 0);
+});
