@@ -177,3 +177,119 @@ test('recovery resumes after the last persisted segment checkpoint without repla
   assert.equal(store.db.prepare('SELECT next_segment_index FROM time_advance_operations WHERE operation_id=?')
     .get('recovery-operation').next_segment_index, 2);
 });
+
+
+test('durable triggers are claimed and completed with their segment and cannot execute in a second operation', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  const registered = engine.registerTimeTrigger('time-operation-world', {
+    trigger_id: 'durable-at-ten',
+    due_coordinate: 10000,
+    dependencies: [],
+    read_set: [],
+    write_set: ['entity:durable-ten'],
+    processing_mode: 'exact',
+    interrupt_after_coordinate: false,
+    payload: {
+      event: {
+        turn_id: 'durable-trigger-turn',
+        event_type: 'action.completed',
+        effects: [{ kind: 'entity.upsert', entity_id: 'durable-ten', entity_type: 'object' }],
+      },
+    },
+  });
+  assert.equal(registered.status, 'pending');
+  assert.equal(engine.getState('time-operation-world').world_revision, 1);
+
+  const firstRequest = {
+    idempotency_key: 'registry-advance-one',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  };
+  const first = engine.startTimeAdvance('time-operation-world', firstRequest);
+  assert.equal(first.status, 'completed');
+  assert.deepEqual(first.result.completed_trigger_ids, ['durable-at-ten']);
+  const afterFirst = engine.listTimeTriggers('time-operation-world').find((item) => item.trigger_id === 'durable-at-ten');
+  assert.equal(afterFirst.status, 'completed');
+  assert.equal(afterFirst.claimed_operation_id, null);
+  assert.equal(afterFirst.completed_operation_id, first.operation_id);
+  assert.equal(engine.getAudit('time-operation-world').some((entry) => entry.action === 'time.trigger.completed'
+    && entry.target_id === 'durable-at-ten'), true);
+
+  const replay = engine.startTimeAdvance('time-operation-world', firstRequest);
+  assert.equal(replay.operation_id, first.operation_id);
+  assert.equal(replay.status, 'completed');
+
+  const second = engine.startTimeAdvance('time-operation-world', {
+    idempotency_key: 'registry-advance-two',
+    expected_revision: engine.getState('time-operation-world').world_revision,
+    to_coordinate: 20000,
+  });
+  assert.equal(second.status, 'completed');
+  assert.equal(engine.getEvents('time-operation-world').filter((item) => item.event_type === 'action.completed').length, 1);
+  assert.equal(engine.getState('time-operation-world').game_time_coordinate, 20000);
+});
+
+test('failed durable trigger execution remains claimed for review and cannot be silently cancelled', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.commitEvent('time-operation-world', {
+    idempotency_key: 'existing-entity-key',
+    turn_id: 'existing-entity-turn',
+    event_type: 'action.completed',
+    effects: [{ kind: 'entity.create', entity_id: 'occupied', entity_type: 'object' }],
+  });
+  const revision = engine.getState('time-operation-world').world_revision;
+  engine.registerTimeTrigger('time-operation-world', {
+    trigger_id: 'durable-failure',
+    due_coordinate: 10000,
+    dependencies: [],
+    read_set: [],
+    write_set: ['entity:occupied'],
+    payload: {
+      event: {
+        turn_id: 'durable-failure-turn',
+        event_type: 'action.completed',
+        effects: [{ kind: 'entity.create', entity_id: 'occupied', entity_type: 'object' }],
+      },
+    },
+  });
+
+  const operation = engine.startTimeAdvance('time-operation-world', {
+    idempotency_key: 'durable-failure-advance',
+    expected_revision: revision + 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(operation.status, 'needs_review');
+  assert.equal(engine.getState('time-operation-world').game_time_coordinate, 0);
+  const trigger = engine.listTimeTriggers('time-operation-world').find((item) => item.trigger_id === 'durable-failure');
+  assert.equal(trigger.status, 'pending');
+  assert.equal(trigger.claimed_operation_id, operation.operation_id);
+  assert.throws(
+    () => engine.cancelTimeTrigger('time-operation-world', 'durable-failure'),
+    (error) => error.code === 'TIME_TRIGGER_CLAIMED',
+  );
+});
+
+test('durable trigger registration rejects deadlines at or before current time and cancellation is audited', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  assert.throws(
+    () => engine.registerTimeTrigger('time-operation-world', {
+      trigger_id: 'already-due',
+      due_coordinate: 0,
+      payload: { event: { turn_id: 'unused', event_type: 'action.completed', effects: [] } },
+    }),
+    (error) => error.code === 'TIME_TRIGGER_NOT_FUTURE',
+  );
+  const registered = engine.registerTimeTrigger('time-operation-world', {
+    trigger_id: 'cancel-me',
+    due_coordinate: 10000,
+    payload: { event: { turn_id: 'cancel-turn', event_type: 'action.completed', effects: [] } },
+  });
+  const cancelled = engine.cancelTimeTrigger('time-operation-world', registered.trigger_id);
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(engine.getAudit('time-operation-world').some((entry) => entry.action === 'time.trigger.cancelled'
+    && entry.target_id === 'cancel-me'), true);
+  assert.equal(engine.cancelTimeTrigger('time-operation-world', registered.trigger_id).status, 'cancelled');
+});
