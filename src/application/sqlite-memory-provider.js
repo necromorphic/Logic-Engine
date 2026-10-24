@@ -27,7 +27,7 @@ const encode = (value) => JSON.stringify(value);
  * refuses retrieval until rebuild + reconciliation complete.
  */
 export class SQLiteMemoryProvider {
-  constructor({ path = ':memory:', getSnapshot, validateSourceVersion, validateInventory }) {
+  constructor({ path = ':memory:', getSnapshot, validateSourceVersion, validateInventory, authorizeRawRead }) {
     if (typeof getSnapshot !== 'function') throw new TypeError('SQLiteMemoryProvider requires trusted getSnapshot');
     if (typeof validateSourceVersion !== 'function') {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateSourceVersion');
@@ -38,6 +38,7 @@ export class SQLiteMemoryProvider {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateInventory');
     }
     this.validateInventory = validateInventory;
+    this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA foreign_keys = ON;
@@ -135,6 +136,58 @@ export class SQLiteMemoryProvider {
       VALUES(?,?,?,?,?,?,?,?,?,NULL)`)
       .run(...key, input.role, input.content, digest, metadataJson, new Date().toISOString());
     return { status: 'captured', content_sha256: digest };
+  }
+
+  async #assertRawReadAllowed(request) {
+    if (!this.authorizeRawRead) throw new Error('MEMORY_RAW_READ_DENIED');
+    let allowed = false;
+    try { allowed = await this.authorizeRawRead(Object.freeze({ ...request })) === true; } catch { allowed = false; }
+    if (!allowed) throw new Error('MEMORY_RAW_READ_DENIED');
+  }
+
+  /**
+   * Read one captured version only after an explicitly injected trusted host
+   * authorization callback approves this exact request. No default policy exists.
+   */
+  async readRawMessageVersion(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.version_id)) {
+      throw new TypeError('Invalid raw Memory read target');
+    }
+    await this.#assertRawReadAllowed({ action: 'read_version', ...input });
+    const row = this.db.prepare(`SELECT * FROM memory_raw_captures
+      WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+      .get(input.world_id, input.conversation_id, input.message_id, input.version_id);
+    if (!row || row.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
+    return Object.freeze({
+      world_id: row.world_id, conversation_id: row.conversation_id, message_id: row.message_id,
+      version_id: row.version_id, role: row.role, content: row.content_text,
+      content_sha256: row.content_sha256, metadata: Object.freeze(decode(row.metadata_json)),
+      captured_at: row.captured_at,
+    });
+  }
+
+  /**
+   * Read only the selected, non-deleted version for each message in a
+   * conversation. Authorization is delegated to a trusted host callback.
+   */
+  async readActiveRawMessages(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)) {
+      throw new TypeError('Invalid raw Memory conversation read');
+    }
+    await this.#assertRawReadAllowed({ action: 'read_active', ...input });
+    const rows = this.db.prepare(`SELECT c.* FROM memory_raw_active_versions a
+      JOIN memory_raw_captures c ON c.world_id=a.world_id
+        AND c.conversation_id=a.conversation_id AND c.message_id=a.message_id
+        AND c.version_id=a.version_id
+      WHERE a.world_id=? AND a.conversation_id=? AND c.deleted_at IS NULL
+      ORDER BY c.message_id`).all(input.world_id, input.conversation_id);
+    return rows.map((row) => Object.freeze({
+      world_id: row.world_id, conversation_id: row.conversation_id, message_id: row.message_id,
+      version_id: row.version_id, role: row.role, content: row.content_text,
+      content_sha256: row.content_sha256, metadata: Object.freeze(decode(row.metadata_json)),
+      captured_at: row.captured_at,
+    }));
   }
 
   /**
