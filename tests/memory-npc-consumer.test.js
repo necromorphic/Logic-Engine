@@ -374,7 +374,7 @@ test('stale Memory-owned freshness and rebuilding index state are non-ready, not
 
 
 test('complete-empty is ready only when the Memory index explicitly reports ready', async (t) => {
-  const { consumer, provider, setCandidates } = setup(t);
+  const { consumer, provider, setCandidates, snapshot } = setup(t);
   setCandidates([]);
   const originalRetrieve = provider.retrieveCandidates;
   provider.retrieveCandidates = async () => ({
