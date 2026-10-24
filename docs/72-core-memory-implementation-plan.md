@@ -4,6 +4,15 @@ Status: proposed plan; runtime implementation is gated on repository and cross-b
 
 ## Phase 0 — repository and dependency audit
 
+### MEM-O08 code evidence checkpoint
+
+- The host-neutral adapter contract on `main` explicitly treats vectorization as a separately owned archive/retrieval system: initial discovery is read-only, no engine-owned archive writes/migrations, and vector hits are not canonical truth.
+- The inspected `src/storage/sqlite-store.js` current-main schema contains canonical worlds/events/entities/facts, audit, idempotency, rollbacks, context manifests, and engine registries; no Memory archive, embedding/index, or durable Memory source-change outbox table was identified in that schema.
+- The store's `tx(fn)` provides `BEGIN IMMEDIATE`/commit and nested savepoints. This is a usable local transaction primitive, not proof that Memory records can be atomically coupled to every canonical source mutation or external vector index.
+- The rollback path runs transactionally, updates source-event validity and world revision/projections, and persists rollback metadata. Therefore a poller keyed only to increasing `commit_sequence` is insufficient.
+- The exact vectorization extension/repository and its owner are still unknown from this source audit. Do not implement a second embedding store or infer that the extension is absent. Obtain its concrete location/API before implementing an adapter.
+
+
 - Inspect SQLite schema/transactions, event and fact storage, source IDs, world revision and commit-sequence semantics, rollback implementation, and current tests.
 - Inspect the open Core authorized-read/trusted-origin PRs and identify what is actually in `main`.
 - Review NPC knowledge/acquisition contracts, Relations and Personality boundaries, and the existing vectorization patch. In particular, reconcile the Core-owned acquisition/delivery/belief semantics recorded by `feat/npc-subsystem:docs/39-npc-core-knowledge-contract-proposal.md` before choosing record ownership or schema.
@@ -15,7 +24,7 @@ Status: proposed plan; runtime implementation is gated on repository and cross-b
 
 - Finalize record envelope, provenance classes, lifecycle transitions, query/result/error shapes.
 - Add schema-level validation helpers only if they can be isolated without changing runtime behavior.
-- Turn MEM-001 through MEM-034 into test fixtures and test-oracle specifications, identifying which cases require authorization, Core rollback, or NPC integration.
+- Turn MEM-001 through MEM-035 into test fixtures and test-oracle specifications, identifying which cases require authorization, Core rollback, or NPC integration.
 
 **Exit:** contracts and acceptance tests are internally consistent; sibling owners have reviewed integration fields.
 
