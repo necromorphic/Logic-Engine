@@ -239,3 +239,70 @@ Tests must not use mocks to simulate a missing production boundary. No public AP
 | D — full acceptance through real interfaces | Blocked | Depends on A–C and an approved author-edit/provenance boundary. |
 
 Do not interpret this table as a request to implement all gates in the NPC branch. Core-owned interfaces and cross-block approval must precede runtime/schema changes.
+
+## 12. NPC-owned semantic checks that can be prepared before core runtime exists
+
+This section separates NPC decision semantics that can be specified without relationship storage from integration assertions that must wait for core-owned interfaces. These are test cases for a future real NPC decision boundary, not claims that an executable NPC runtime or relationship evaluator currently exists.
+
+### NPC-SEM-REL-004 — Co-presence is not a cause
+
+**Fixture**
+- Two canonical characters share a scene.
+- Their relationship state is absent/unknown or has a known baseline.
+- No meaningful interaction, disclosure, conflict, assistance, commitment, or other supported relationship-relevant event occurs.
+- No author instruction explicitly changes their relationship.
+
+**Action under test**
+Evaluate the NPC decision/relationship-transition policy for the scene.
+
+**Required assertions**
+- Mere co-presence does not propose or commit a relationship change.
+- Existing relationship dimensions remain unchanged; unknown dimensions remain unknown.
+- The system does not invent a conversation, observation, prior interaction, motive, or emotional reaction to justify a change.
+- If some other explicit supported event exists, any proposed change must identify that event as its rationale and remain subject to normal validation; scene membership alone is not the rationale.
+
+**Boundary**
+This can be specified as an NPC policy acceptance case now. It becomes an executable integration test only when the real decision/transition boundary exists. Do not create a fake relationship store or infer state from generated prose.
+
+### NPC-SEM-REL-010 — Missing rationale remains unresolved
+
+**Fixture**
+- An NPC is asked to explain a relationship state or a change.
+- The available authorized context contains no supporting interaction, event, source, or author instruction explaining it.
+- The relationship value itself may be known, but its cause is not.
+
+**Action under test**
+Generate an explanation or decision rationale using only the authorized context.
+
+**Required assertions**
+- The NPC may state that the reason is unknown, offer a clearly marked hypothesis only if the task permits hypotheses, or request adjudication where required.
+- It must not invent a past interaction, secret motive, event, promise, betrayal, or evidence and present it as established history.
+- A relationship value is not itself proof of the event or motive that caused it.
+- Any hypothesis remains distinct from canonical truth and from a persisted belief unless the real core contract explicitly records it as such.
+
+**Boundary**
+This is an NPC output/decision-semantic requirement. Textual conformance alone does not prove provenance correctness; the eventual integration test must verify the actual authorized context and any structured rationale/source references.
+
+### NPC-SEM-REL-006 — Unresolved person reference does not create a character
+
+**Fixture**
+- An authoring note or source refers to a person by a name/alias.
+- No canonical `entity_id` has been resolved for that person.
+- The person reference is included in a read-only projection or decision-context candidate.
+
+**Action under test**
+Resolve/project the reference without an explicit, authorized entity-creation operation.
+
+**Required assertions**
+- The reference remains unresolved/claimed data; it does not create a canonical entity, NPC, card, relationship participant, or independent identity record.
+- Name, alias, claimed biography, or apparent relationship is insufficient to merge the reference with an existing entity.
+- A canonical relationship write involving the unresolved reference is rejected until participants are resolved under the approved core contract.
+- Read-only projection has no canonical side effects.
+
+**Boundary**
+The no-creation rule can be asserted at the actual pure projection/reference-resolution boundary when one is available. Relationship-write rejection requires the typed core operation and is blocked until that interface exists. Do not implement a second identity registry to make this test pass.
+
+### Evidence required before marking any case passed
+
+For each eventual executable test, record the production function/interface invoked, the actual authorized inputs, canonical state before and after, and the observed proposal/event/revision effects. A prompt-only example, mocked missing interface, or documentation-only assertion is not an integration pass. These cases do not unblock relationship persistence, actor-specific access filtering, or causal rollback.
+
