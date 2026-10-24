@@ -654,3 +654,14 @@ test("rejects a non-boolean self-relation rule flag", () => {
   assert.equal(result.status, "unsupported");
   assert.equal(result.reason, "dimension_rule_incomplete");
 });
+
+
+test("does not treat duplicate evidence references as additional support", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    evidence: { status: "supported", refs: ["event:E1", "event:E1"] },
+  });
+
+  assert.equal(result.status, "insufficient_evidence");
+  assert.equal(result.reason, "duplicate_evidence_refs");
+});
