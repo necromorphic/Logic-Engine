@@ -540,6 +540,52 @@ test('Relationship projection survives store restart and deterministic rebuild f
   }
 });
 
+test('trusted state read pins world, entities and composite cursor across a concurrent writer', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-state-snapshot-race-'));
+  const databasePath = join(directory, 'core.sqlite');
+  let store;
+  let concurrentStore;
+  try {
+    const fixtureState = await fixture(databasePath);
+    store = fixtureState.store;
+    store.db.exec('PRAGMA journal_mode=WAL');
+    concurrentStore = new SQLiteStore(databasePath);
+    const concurrentEngine = new LogicEngine(concurrentStore);
+    const originalWorld = store.world.bind(store);
+    let concurrentCommitDone = false;
+    store.world = (worldId) => {
+      const snapshotWorld = originalWorld(worldId);
+      if (!concurrentCommitDone) {
+        concurrentCommitDone = true;
+        concurrentEngine.commitEvent(worldId, {
+          idempotency_key: 'concurrent-state-snapshot-writer',
+          turn_id: 'concurrent-state-snapshot-writer',
+          event_type: 'entity.upsert',
+          expected_revision: 1,
+          expected_commit_sequence: 1,
+          effects: [{ kind: 'entity.upsert', entity_id: 'A', entity_type: 'character', attributes: { concurrent_write: true } }],
+        });
+      }
+      return snapshotWorld;
+    };
+
+    const snapshot = store.state('world-relationship-test');
+    assert.equal(snapshot.world_revision, 1);
+    assert.equal(snapshot.commit_sequence, 1);
+    assert.equal(snapshot.entities.find((entity) => entity.entity_id === 'A').attributes.concurrent_write, undefined);
+
+    store.world = originalWorld;
+    const latest = store.state('world-relationship-test');
+    assert.equal(latest.world_revision, 2);
+    assert.equal(latest.commit_sequence, 2);
+    assert.equal(latest.entities.find((entity) => entity.entity_id === 'A').attributes.concurrent_write, true);
+  } finally {
+    if (concurrentStore) concurrentStore.close();
+    if (store) store.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('trusted state read returns one composite freshness marker across rollback', async () => {
   const { store, engine, seed } = await fixture();
   try {
