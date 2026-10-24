@@ -71,6 +71,7 @@ Output uses `kind: "fact.set"`, `fact_id: target_ref`, and copies `predicate`, `
 - Require a non-empty batch of 1–128 intents. An explicitly empty batch is invalid and must fail with `INVALID_MECHANIC_EFFECT_INTENT`.
 - Validate the complete batch before returning any output. If one intent is invalid or unsupported, reject the whole batch; never return a translated prefix.
 - Require unique, non-empty `effect_id` values within a batch. Preserve input order in the translated output; do not deduplicate intents by guessing semantic equivalence.
+- Treat `effect_id`, `kind`, `target_ref`, `predicate`, and `subject_ref` as exact identifiers/tokens; reject surrounding whitespace rather than silently trimming or preserving a padded identifier.
 - Preserve deterministic mapping: identical validated inputs produce byte-equivalent canonical effect arrays.
 - Do not copy `effect_id`, `source_refs`, or `caused_by` into canonical effect objects; those fields are not accepted by the canonical effect schema.
 - Do not silently discard provenance. Until an explicit mapping from intent-level `source_refs`/`caused_by` to event-level `read_set`/`causal_links`/ `caused_by` is defined, any non-empty `source_refs` or `caused_by` on an intent must fail with a stable `TRANSLATION_REQUIRES_PROVENANCE_MAPPING` result. Empty or absent arrays are allowed.
