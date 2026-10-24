@@ -74,3 +74,21 @@ Required rollback outcomes:
 ### 6. Explicit non-claims
 
 This request does not claim that the proposed typed operation, authorized read, alternative-support model, or complete rollback algorithm already exists. It does not authorize changes to runtime code, public API, schema, SQLite storage, prompts, or character-card output. Until the decisions and tests exist, the Personality block remains in semantic-contract and acceptance-design work.
+
+
+---
+
+## 7. Architecture response and disposition (2026-10-24)
+
+The main architecture decision has answered the six questions above. This file is retained as the original review request; the authoritative consolidated decision and implementation gates are recorded in [`03-core-decision-and-integration-gates.md`](./03-core-decision-and-integration-gates.md).
+
+Disposition:
+
+1. **Ownership split — approved.** World Pack defines world-specific relationship dimensions and semantics; core owns universal canonical guarantees; NPC consumes authorized projections; character cards are derived read-only views.
+2. **Typed relationship operation — required.** Generic entity attributes and `fact.set` are not substitutes. Exact effect payload/name, API, and storage remain unapproved.
+3. **Causality — limited Option A first.** Deterministic replay of surviving valid typed transitions is the first design target only where it is sufficient. `caused_by` and `depends_on` are not OR-support lists. Multi-evidence sufficiency/conflict cases may require a narrow Option C extension; no universal alternative-support store is approved.
+4. **Authorized read — blocking.** A consistent snapshot is not authorization. No ready actor/purpose-filtered relationship read interface has been confirmed.
+5. **Initial/import and author correction — separate authorized operations.** Provenance must be auditable and cannot be trusted merely because a caller supplied an `origin` field.
+6. **Production tests — required before implementation readiness.** Atomic typed writes, partial updates, identity/direction, provenance, authorized reads, deterministic rebuild, dependent rollback, independent support, conflict handling, and read-only card projection must be tested against real production boundaries.
+
+No runtime, API, schema, storage, prompt, or UI change is authorized by this response. Personality semantic design may continue; implementation remains blocked until the contracts and tests described in document 03 are agreed.
