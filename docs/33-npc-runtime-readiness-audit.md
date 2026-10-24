@@ -110,12 +110,12 @@ During this audit, no files on `main` were changed. No public API, SQLite schema
 
 ## 7. Dependency status refresh — 2026-10-24
 
-A live check confirms the NPC implementation gate is still blocked, not because the semantic direction is undecided, but because the core candidates remain unmerged:
+A live check confirms the NPC implementation gate is still blocked, not because the semantic direction is undecided, but because the core candidates remain unmerged. The current documentation-only PR #38 head is `7ddfe47d49bd3dd136e22a0c0cf63f789326fe1a`; GitHub Actions Runtime tests run #375 passed on that exact head. This is CI confirmation of repository regression tests only, not NPC runtime integration.
 
 - PR #45 (`09e48c2fd764c8e3f7b1e8f96e485a58ea34c793`) is open and its Runtime tests passed on that exact head. It provides a consistent internal read view only.
 - PR #47 (`3417a28f8a99663a9834f733bb842558259bc2e4`) is open and stacked on #45; Runtime tests passed on code/test head `ba701653b4fa629bde26c1188173039c08de993f`. It extends the read view to mechanic configuration and explicitly requested context manifests, but does not authorize actor access.
 - PR #46 (`a35f9fd20bff9a21ce5faa3c55f42ae350984651`) is open; Runtime tests passed on code/test head `f5ff93a79d9f9a84bb3bf602d36bd47360c3aa09`. It adds an opt-in tri-state condition API without implementing the NPC context pipeline.
-- PR #38 (`9d7a2eaa22188b74f839fa0c7762d38547752cdf`) remains documentation-only and its Runtime tests passed on that exact head.
+- PR #38 remains documentation-only; Runtime tests #375 passed on its current head `7ddfe47d49bd3dd136e22a0c0cf63f789326fe1a`.
 
 These test results are accurately scoped to their reported commits; they do not establish that the unmerged code is on `main`, and they do not establish NPC runtime readiness. The NPC branch is three commits behind current `main`; no rebase, merge, or force-update was performed. Continue source/contract reconciliation only until the real actor binding, authorized initial-source representation, and model-safe actor/purpose filter exist at reviewed core boundaries. See `docs/37-npc-kernel-readiness-gate.md` §18 for the exact dependency table and decision.
 
