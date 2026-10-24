@@ -247,6 +247,36 @@ These scenarios extend the existing PERS-SEM cases; they do not replace or renum
 
 **Acceptance crosswalk:** this case directly reuses Personality criterion `PERS-SEM-029` for meaning-changing World Pack updates. `PERS-SEM-024` covers deterministic replay only within the same explicitly pinned inputs and rule versions; it is not a substitute for historical version pinning or migration policy.
 
+### REL-MOD-013 — Relationship changes do not rewrite stable traits
+
+**Given** a character's stable authored traits, values, and boundaries are supplied as interpretation inputs.
+
+**When** a supported relationship transition changes trust, affection, hostility, or another relationship dimension.
+
+**Then** stable Personality state remains unchanged. Relationship values may influence interpretation but are not a write target for the Personality block. Any trait-development path requires its own explicitly supported rule and authorized authoring/development operation.
+
+**Acceptance crosswalk:** directly related to `PERS-SEM-014` (stable trait versus temporary condition), `PERS-SEM-016` (behavior does not auto-rewrite profile), and `PERS-SEM-005` (dimension isolation). This is a semantic/consumer requirement; no production relationship-to-personality mutation path is currently verified.
+
+### REL-MOD-014 — Relationship values do not imply consent, motive, obligation, knowledge, or reciprocity
+
+**Given** A has an established relationship value toward B, while consent, motive, obligation, knowledge, loyalty, and B's reverse-direction state are separate or unknown.
+
+**When** an NPC or narrator consumes the relationship projection.
+
+**Then** the consumer must not infer any of those separate claims solely from the relationship value. Each requires its own explicit domain rule and valid evidence/authorized knowledge path. A → B does not establish B → A.
+
+**Acceptance crosswalk:** directly related to `PERS-SEM-001`, `PERS-SEM-005`, `PERS-SEM-018`, `PERS-SEM-019`, and `PERS-SEM-020`. Actor/purpose read rules `PERS-SEM-025` and `PERS-SEM-026` remain separate access gates. Consumer behavior and authorized reads are not proven by the pure evaluator.
+
+### REL-MOD-015 — New knowledge about an old event is not a new event
+
+**Given** event E already exists in canonical history, and subject A later validly acquires additional information about E.
+
+**When** the host decides whether the new information warrants a relationship re-evaluation.
+
+**Then** acquisition of the new information must not duplicate E or silently rewrite an already committed transition. A new interpretation is permitted only when the acquisition/re-evaluation contract allows it and must remain distinguishable from a new canonical event, an author correction, and a replay/rebuild. If the host cannot establish the event identity and permitted operation, the relationship module must not guess.
+
+**Acceptance crosswalk:** no direct Personality criterion was identified for event identity/deduplication on reacquisition. `PERS-SEM-024` and `PERS-SEM-029` are adjacent replay/version concerns only; they do not supply event deduplication, correction, or acquisition semantics. This remains blocked on approved NPC/knowledge and Core event lifecycle contracts.
+
 ## 10. Integration dependencies and readiness
 
 | Dependency | Owner | Current status | What closes it |
