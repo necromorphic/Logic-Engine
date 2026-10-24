@@ -1,4 +1,5 @@
 import { EngineError } from './errors.js';
+import { hashRequest } from './request-hash.js';
 import { SUPPORTED_RULE_OPERATORS, collectConditionDependencies, evaluateConditionResult, validateEffects } from './rules.js';
 
 const obj = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -468,14 +469,13 @@ export function translateMechanicEffectIntents(value, actionId) {
  * participant binding, interactions, non-trivial action input schemas). It
  * never reads storage or mutates canonical state.
  */
-export async function evaluateMechanicActionAgainstSnapshot({
+export function evaluateMechanicActionAgainstSnapshot({
   snapshot,
   instanceId,
   actionId,
   authorizedContext,
   knownAbsentPaths = [],
 }) {
-  const { hashRequest } = await import('./request-hash.js');
   if (!obj(snapshot) || typeof snapshot.world_id !== 'string'
     || !Number.isSafeInteger(snapshot.world_revision) || snapshot.world_revision < 0
     || !Number.isSafeInteger(snapshot.commit_sequence) || snapshot.commit_sequence < 0
