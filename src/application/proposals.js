@@ -328,7 +328,7 @@ export class ProposalService {
         ...payload,
         idempotency_key: 'proposal:' + row.proposal_id,
         expected_revision: row.base_world_revision,
-      });
+      }, row.mechanic_execution_json ? { mechanicExecution: dec(row.mechanic_execution_json) } : undefined);
       const committedAt = now();
       this.db.prepare("UPDATE event_proposals SET status='committed',committed_at=?,commit_result_json=? WHERE proposal_id=? AND status='approved'")
         .run(committedAt, enc(result), proposalId);
