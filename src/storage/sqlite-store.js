@@ -425,8 +425,10 @@ export class SQLiteStore {
   /**
    * Read a bounded canonical snapshot from one SQLite read view.
    * Returned attributes/facts are raw internal source data, not actor-authorized
-   * or model-safe context; callers must apply an approved access/knowledge filter
-   * before exposing any result to a model, player, or host adapter.
+   * or model-safe context. When mechanic evaluation state is requested, instance
+   * parameters/state and template/module manifests are also raw internal data.
+   * Callers must apply an approved access/knowledge filter before exposing any
+   * result to a model, player, or host adapter.
    */
   readSnapshot(id, request = {}) {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
