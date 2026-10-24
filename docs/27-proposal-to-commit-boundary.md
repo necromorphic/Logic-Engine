@@ -12,6 +12,7 @@ The proposal API is implemented as a narrow lifecycle boundary:
 - `POST /v1/worlds/:world_id/proposals/:proposal_id/cancel` is scoped to the adapter that created the proposal.
 - The internal events route, when enabled, accepts only an already-approved proposal ID; it does not accept an arbitrary event payload.
 - Mechanic template and rule-module registry writes require the separate admin credential.
+- Canonical rollback is a privileged correction and requires the separate admin credential for every event type; the event payload is not an authority source.
 
 Proposal creation runs supported validation in a rollback-only transaction preview and does not mutate canonical world state. Canonical event commit, proposal finalization, and proposal commit audit are atomic in SQLite. Proposal creation and commit are idempotent under their documented keys.
 

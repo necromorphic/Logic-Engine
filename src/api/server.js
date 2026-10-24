@@ -283,16 +283,13 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         return send(res, 200, { proposal: publicProposal, commit_result: commitResult });
       }
       if (req.method === 'POST' && action === 'rollback') {
-        const body = await readBody(req);
-        const rootEventId = typeof body?.root_event_id === 'string' ? body.root_event_id.trim() : '';
-        if (rootEventId) {
-          const rootEvent = engine.getEvents(worldId, true).find((event) => event.event_id === rootEventId);
-          if (rootEvent?.effects?.some((effect) => typeof effect?.kind === 'string' && effect.kind.startsWith('mechanic.instance.'))) {
-            if (!adminToken || req.headers['x-admin-token'] !== adminToken) {
-              return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required to roll back mechanic lifecycle events.' } });
-            }
-          }
+        // Rollback invalidates canonical history and is a privileged correction,
+        // regardless of the event type. Do not let an API/adapter bearer bypass
+        // the authoring boundary merely because the target is not a mechanic event.
+        if (!adminToken || req.headers['x-admin-token'] !== adminToken) {
+          return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required to roll back canonical events.' } });
         }
+        const body = await readBody(req);
         return send(res, 200, engine.rollbackEvent(worldId, body));
       }
       return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported method for route.' } });
