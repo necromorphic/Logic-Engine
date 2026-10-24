@@ -175,6 +175,10 @@ test('stale composite cursor and spoofed executor are rejected without mutation'
       () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, { executor_type: 'admin_credential' })),
       (error) => error.code === 'UNSUPPORTED_RELATIONSHIP_TRANSITION_FIELD',
     );
+    assert.throws(
+      () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, { evidence_status: 'supported' })),
+      (error) => error.code === 'UNSUPPORTED_RELATIONSHIP_TRANSITION_FIELD',
+    );
     assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
     assert.equal(engine.getState('world-relationship-test').world_revision, 1);
   } finally {
