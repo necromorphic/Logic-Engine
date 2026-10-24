@@ -482,6 +482,7 @@ test('application executor freezes the complete evaluation snapshot before trust
         ],
         world_revision: snapshot.world_revision,
         commit_sequence: snapshot.commit_sequence,
+        authorization_scope: 'test-principal',
         policy_version: 'test-immutable-snapshot-v1',
       };
     },
@@ -602,6 +603,7 @@ test('application executor refuses context whose canonical dependency evidence i
       dependencyEvidence: [],
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
+      authorization_scope: 'test-principal',
       policy_version: 'test-policy-v1',
     }),
   }).evaluate({ worldId: missingSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -621,6 +623,7 @@ test('application executor refuses context whose canonical dependency evidence i
       ],
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
+      authorization_scope: 'test-principal',
       policy_version: 'test-policy-v1',
     }),
   }).evaluate({ worldId: mismatchSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -758,6 +761,7 @@ test('mechanic context and evaluation fingerprints change when the visibility po
   const second = new MechanicExecutor(engine, {
     resolveAuthorizedContext: (args) => ({
       ...contextProvider()(args),
+      authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v2',
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
