@@ -165,12 +165,16 @@ test('Core field denial removes the candidate content and does not disclose prot
 
 test('stale snapshot candidates and derived summaries are never admitted', async (t) => {
   const { consumer, setCandidates, candidate, snapshot } = setup(t);
-  setCandidates([candidate({
-    snapshot: {
-      world_revision: snapshot.world_revision - 1,
-      commit_sequence: snapshot.commit_sequence,
-    },
-  })]);
+  setCandidates([
+    candidate(),
+    candidate({
+      record: { ref: 'memory:claim-2', version: 'v1' },
+      snapshot: {
+        world_revision: snapshot.world_revision - 1,
+        commit_sequence: snapshot.commit_sequence,
+      },
+    }),
+  ]);
   const stale = await consumer.retrieveForNpc(request());
   assert.equal(stale.status, 'non_ready');
   assert.equal(stale.reason, 'memory_snapshot_stale');
