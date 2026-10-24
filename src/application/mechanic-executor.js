@@ -220,7 +220,9 @@ export class MechanicExecutor {
       };
     }
 
-    const existingEntities = new Set(targetEntities.map((entity) => entity.entity_id));
+    const entityById = new Map(targetEntities.map((entity) => [entity.entity_id, entity]));
+    const existingEntities = new Set(entityById.keys());
+    const existingFacts = new Map(targetFacts.map((fact) => [fact.fact_id, fact]));
     const createdEntities = new Set();
     const writtenEntityIds = new Set();
     const writtenFactIds = new Set();
@@ -243,12 +245,14 @@ export class MechanicExecutor {
         }
         createdEntities.add(effect.entity_id);
       } else if (effect.kind === 'entity.update') {
-        if (!existingEntities.has(effect.entity_id)) {
-          return unknown('MECHANIC_EFFECT_TARGET_NOT_FOUND', 'An update_attribute target must exist in the same-world snapshot.', identity);
+        const target = entityById.get(effect.entity_id);
+        if (!target || target.status === 'destroyed') {
+          return unknown('MECHANIC_EFFECT_TARGET_NOT_FOUND', 'An update_attribute target must be an existing, non-destroyed entity in the same-world snapshot.', identity);
         }
       } else if (effect.kind === 'fact.set' && effect.subject_ref !== undefined && effect.subject_ref !== null) {
-        if (!existingEntities.has(effect.subject_ref) && !createdEntities.has(effect.subject_ref)) {
-          return unknown('MECHANIC_EFFECT_SUBJECT_NOT_FOUND', 'An assert_fact subject_ref must identify an entity in this world or an entity created earlier in this action.', identity);
+        const subject = entityById.get(effect.subject_ref);
+        if ((!subject || subject.status === 'destroyed') && !createdEntities.has(effect.subject_ref)) {
+          return unknown('MECHANIC_EFFECT_SUBJECT_NOT_FOUND', 'An assert_fact subject_ref must identify a non-destroyed entity in this world or an entity created earlier in this action.', identity);
         }
       }
     }
@@ -256,7 +260,17 @@ export class MechanicExecutor {
     const effectTargetDependencies = translated.effects.flatMap((effect) => {
       if (effect.kind === 'entity.create') return [{ kind: 'entity_absence', target_id: effect.entity_id }];
       if (effect.kind === 'entity.update') return [{ kind: 'entity_exists', target_id: effect.entity_id }];
-      if (effect.kind === 'fact.set') return [{ kind: 'fact_write_target', target_id: effect.fact_id }];
+      if (effect.kind === 'fact.set') {
+        const dependencies = [{
+          kind: existingFacts.has(effect.fact_id) ? 'fact_exists' : 'fact_absence',
+          target_id: effect.fact_id,
+        }];
+        if (effect.subject_ref) dependencies.push({
+          kind: createdEntities.has(effect.subject_ref) ? 'entity_created_in_action' : 'entity_exists',
+          target_id: effect.subject_ref,
+        });
+        return dependencies;
+      }
       return [];
     }).sort((a, b) => a.kind.localeCompare(b.kind) || a.target_id.localeCompare(b.target_id));
 
