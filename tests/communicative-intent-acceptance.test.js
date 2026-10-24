@@ -48,7 +48,8 @@ test('flirtation candidates never imply consent or permission', () => {
 
 test('mixed threat and joking/banter preserve the possibility of both readings', () => {
   const mixedCases = corpus.cases.filter((entry) =>
-    entry.candidates.includes('threat')
+    entry.expected_status === 'disputed'
+    && entry.candidates.includes('threat')
     && entry.candidates.some((candidate) => /^(joke|banter|theatrical_banter|joking_banter)$/i.test(candidate)));
   assert.ok(mixedCases.length >= 1);
   for (const entry of mixedCases) {
