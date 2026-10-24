@@ -235,3 +235,66 @@ test('mechanic action condition preflight rejects an unknown action id without s
   assert.equal(result.reason_code, 'MECHANIC_ACTION_NOT_FOUND');
   assert.deepEqual(result.condition_results, []);
 });
+
+
+test('mechanic action condition preflight accepts only caller-attested absence and does not mutate frozen inputs', async () => {
+  const { evaluateMechanicActionConditions } = await import('../src/core/mechanics.js');
+  const template = Object.freeze({
+    template_id: 'test.preflight.absence',
+    version: '1.0.0',
+    schema_version: 'core-1',
+    display_name: 'Absence preflight fixture',
+    required_capabilities: [],
+    applicability: Object.freeze([]),
+    actions: Object.freeze([Object.freeze({
+      action_id: 'act',
+      input_schema: Object.freeze({ type: 'object' }),
+      preconditions: Object.freeze([{ op: 'exists', path: 'claims.curse', value: false }].map(Object.freeze)),
+      effects: Object.freeze([]),
+      ambiguity_policy: 'deterministic_only',
+    })]),
+    conflict_policy: Object.freeze({ mode: 'manual' }),
+    lifecycle_policy: Object.freeze({ on_disable: 'require_author_decision' }),
+    unknown_policy: 'mark_unknown',
+  });
+  const context = Object.freeze({ world: Object.freeze({ phase: 'night' }) });
+  const unknown = evaluateMechanicActionConditions(template, 'act', context);
+  assert.equal(unknown.status, 'unknown');
+  assert.deepEqual(unknown.unknown_paths, ['claims.curse']);
+
+  const knownAbsent = evaluateMechanicActionConditions(template, 'act', context, {
+    knownAbsentPaths: ['claims.curse'],
+  });
+  assert.equal(knownAbsent.status, 'true');
+  assert.deepEqual(knownAbsent.unknown_paths, []);
+  assert.deepEqual(context, { world: { phase: 'night' } });
+  assert.equal(template.actions[0].effects.length, 0);
+});
+
+test('mechanic action condition preflight rejects contradictory trusted absence claims', async () => {
+  const { evaluateMechanicActionConditions } = await import('../src/core/mechanics.js');
+  const template = {
+    template_id: 'test.preflight.contradiction',
+    version: '1.0.0',
+    schema_version: 'core-1',
+    display_name: 'Contradiction fixture',
+    required_capabilities: [],
+    applicability: [],
+    actions: [{
+      action_id: 'act',
+      input_schema: { type: 'object' },
+      preconditions: [{ op: 'exists', path: 'actor.id', value: true }],
+      effects: [],
+      ambiguity_policy: 'deterministic_only',
+    }],
+    conflict_policy: { mode: 'manual' },
+    lifecycle_policy: { on_disable: 'require_author_decision' },
+    unknown_policy: 'mark_unknown',
+  };
+  assert.throws(
+    () => evaluateMechanicActionConditions(template, 'act', { actor: { id: 'actor.1' } }, {
+      knownAbsentPaths: ['actor.id'],
+    }),
+    (error) => error.code === 'CONTRADICTORY_KNOWN_ABSENCE',
+  );
+});
