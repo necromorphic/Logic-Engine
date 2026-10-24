@@ -132,6 +132,7 @@ const world = (r) => r && ({
   game_time: r.game_time,
   initial_game_time_coordinate: r.initial_game_time_coordinate,
   game_time_coordinate: r.game_time_coordinate,
+  time_config_version: r.time_config_version ?? null,
   world_revision: r.world_revision,
   status: r.status,
   created_at: r.created_at,
@@ -378,6 +379,30 @@ export class SQLiteStore {
           );
           CREATE INDEX IF NOT EXISTS time_advance_operations_world_status
             ON time_advance_operations(world_id,status,updated_at);`);
+        },
+      },
+      {
+        version: 8,
+        apply: () => {
+          const worldColumns = this.db.prepare('PRAGMA table_info(worlds)').all();
+          if (!worldColumns.some((column) => column.name === 'time_config_version')) {
+            this.db.exec('ALTER TABLE worlds ADD COLUMN time_config_version TEXT');
+          }
+          this.db.exec(`CREATE TABLE IF NOT EXISTS world_time_configurations(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            version TEXT NOT NULL,
+            world_pack_id TEXT NOT NULL,
+            world_pack_version TEXT NOT NULL,
+            calendar_definition_json TEXT NOT NULL,
+            time_policy_json TEXT NOT NULL,
+            content_hash TEXT NOT NULL,
+            created_by TEXT NOT NULL,
+            created_revision INTEGER NOT NULL,
+            created_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,version)
+          );
+          CREATE INDEX IF NOT EXISTS world_time_configurations_pack
+            ON world_time_configurations(world_pack_id,world_pack_version,version);`);
         },
       },
     ];
