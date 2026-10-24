@@ -100,7 +100,7 @@ diff --git a/public/script.js b/public/script.js
 -            extra: {},
 +            gen_finished: void 0,
 +            logic_engine_version_id: uuidv4(),
-+            extra: {}
++            extra: {},
          }));
      }
  
