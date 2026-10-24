@@ -53,6 +53,8 @@ The application service must execute these steps in order:
 8. **Validate proposed effects through the existing core event/effect validator.** The evaluator may not write canonical storage or bypass event attribution, revision checks, audit, idempotency, or rollback metadata.
 9. **Hand off without committing.** Convert an accepted result into a proposal for the existing proposal API/application pipeline. A resolver's output is also only a proposal. Approval and commit remain separate operations.
 
+The trusted context provider is host code and may race with concurrent writes. After it returns, the executor must re-read the canonical world revision and commit sequence and reject the evaluation if either differs from the captured snapshot; provider-supplied revision markers alone are not proof of freshness. The ordinary proposal transaction must independently repeat the revision/cursor check, because a race can still occur after evaluation returns.
+
 Any failure before step 9 must leave canonical world state, active instance state, process records, audit history, and idempotency state unchanged, except for an explicitly defined non-canonical diagnostic/review record.
 
 ## 4. Result contract
