@@ -322,3 +322,25 @@ The first supported acquisition path is limited to explicitly authorized `author
 | K-008 — Unsupported acquisition paths fail closed | Acquisition-path matrix in docs/32, §§13.1–13.4 | Observation, communication, document reading, inference, and rumor cannot be recorded as supported acquisition until their evidence paths and acceptance tests are approved and implemented. | Deferred by decision; not a first-slice capability |
 
 These are acceptance targets, not executable test names or evidence of passing behavior. The linked NPC-SEM scenarios remain the normative semantic requirements; the K-cases make their first-slice core dependencies explicit. Do not add test doubles that simulate missing production interfaces and then report the cases as integration passes. Once the core owner exposes the real source and read/filter boundary, bind each case to the exact production function, actor identity, snapshot marker, state-before/state-after assertions, and trusted model-input boundary. Keep the implementation gate closed until those real boundaries exist.
+
+
+## 14. Relationship acceptance cases after core decision (2026-10-24)
+
+The main architecture chat has confirmed the semantic boundaries for relationship work. The detailed, schema-neutral cases are now collected in [docs/44-npc-relationship-semantic-acceptance.md](https://github.com/necromorphic/Logic-Engine/blob/feat/npc-subsystem/docs/44-npc-relationship-semantic-acceptance.md).
+
+The cases cover:
+- directional asymmetry and no inferred reciprocity;
+- partial dimension updates without collateral changes;
+- unknown/unset versus explicit World Pack-defined neutral;
+- co-presence not being a cause;
+- separate author-initial/imported, author-correction, and in-world origins;
+- rejection of unresolved participants and unsupported self-relations;
+- dependent rollback and independently surviving causal support;
+- snapshot consistency versus actor/purpose authorization;
+- bounded, read-only character-card projection;
+- relationship state not granting knowledge;
+- no invented explanation for an unsupported relationship value.
+
+**Current status:** semantic cases may be refined now, but they are not executable coverage and do not establish runtime readiness. Keep the existing relationship gates A–D blocked until the typed canonical operation, authorized read/filter boundary, causal support representation, and authoring provenance path exist and are tested through production interfaces. Multi-cause rollback remains a hard blocker if the core causal model cannot prove independent support.
+
+Do not simulate missing production behavior with prompt instructions, arbitrary entity attributes, `fact.set`, a parallel NPC store, a second causal graph, or mocks reported as integration passes.
