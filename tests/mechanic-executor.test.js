@@ -408,3 +408,28 @@ test('application executor freezes the complete evaluation snapshot before trust
   assert.equal(result.effects[0].entity_id, 'entity.new');
   assert.equal(engine.getState(worldId).world_revision, 2);
 });
+
+
+test('application executor rejects fact subjects that are absent from the same world', (t) => {
+  const { engine, worldId } = setup(t, 'executor-fact-subject-world');
+  const value = template({
+    actions: [{
+      action_id: 'wait',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [{
+        effect_id: 'assert-missing-subject',
+        kind: 'assert_fact',
+        target_ref: 'fact.known',
+        payload: { subject_ref: 'entity.from-other-world', predicate: 'known', value: true },
+      }],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'MECHANIC_EFFECT_SUBJECT_NOT_FOUND');
+  assert.deepEqual(result.effects, []);
+});
