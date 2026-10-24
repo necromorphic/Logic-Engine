@@ -80,7 +80,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   return {
     store, engine, consumer, provider, scope, snapshot,
     setCandidates(next) { candidateList = next; },
-    get lastCandidateAuthorization() { return lastCandidateAuthorization; },
+    getLastCandidateAuthorization() { return lastCandidateAuthorization; },
     candidate,
   };
 }
@@ -92,7 +92,7 @@ const request = () => ({
 });
 
 test('joins trusted Memory record authorization, Core authorized source read, and NPC admission without exposing provider content', async (t) => {
-  const { consumer, engine, store } = setup(t);
+  const { consumer, engine, store, getLastCandidateAuthorization } = setup(t);
   const before = {
     revision: engine.getState('memory-npc-world').world_revision,
     sequence: store.currentCommitSequence('memory-npc-world'),
@@ -108,7 +108,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     'attributes.public_note': 'authorized source text',
   });
   assert.equal(result.candidates[0].record_ref, 'memory:claim-1');
-  assert.deepEqual(consumer.lastCandidateAuthorization, {
+  assert.deepEqual(getLastCandidateAuthorization(), {
     ...{ world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' },
     record_ref: 'memory:claim-1',
     record_version: 'v1',
