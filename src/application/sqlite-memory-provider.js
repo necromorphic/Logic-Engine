@@ -289,8 +289,18 @@ export class SQLiteMemoryProvider {
     if (!state || state.index_health !== 'ready' || state.source_reconciliation !== 'current') {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
-    const current = snapshotOf(await this.getSnapshot(scope.world_id));
-    if (!current || String(current.world_revision) !== state.snapshot_revision
+    let current;
+    try {
+      current = snapshotOf(await this.getSnapshot(scope.world_id));
+    } catch {
+      this.#setState(scope.world_id, 'unavailable', 'stale');
+      throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
+    }
+    if (!current) {
+      this.#setState(scope.world_id, 'unavailable', 'stale');
+      throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
+    }
+    if (String(current.world_revision) !== state.snapshot_revision
       || String(current.commit_sequence) !== state.snapshot_sequence) {
       this.#setState(scope.world_id, 'stale', 'stale');
       throw new Error('MEMORY_SNAPSHOT_STALE');
