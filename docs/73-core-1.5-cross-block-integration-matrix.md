@@ -193,3 +193,13 @@ The Core branch's detailed audit proposal is [PR #67, `docs/53-core-http-service
 - **CORE-CAP-06 — capability classification is incomplete:** world creation, mechanic-registry audit, and template/rule-module metadata reads use the general bearer. Whether each should be admin/internal-only is a deployment policy decision, not something to infer by granting broad admin rights. Record and enforce an explicit capability matrix before exposing these routes to untrusted adapters.
 
 For closure tracking, use the detailed finding IDs in PR #67 (F-01 through F-07) as the primary traceability set; the CORE-* labels above are only this matrix's cross-block references. Do not implement duplicate fixes on sibling branches without reconciling the ownership and dependency order in PR #67.
+
+
+## 8. Follow-up test-only candidates (not merged into main)
+
+Two independent test-only PRs were opened after the recorded baseline audit. Their checks must be evaluated at the current head SHA; neither PR changes runtime behavior.
+
+- [PR #72 — canonical commit and rollback atomicity](https://github.com/necromorphic/Logic-Engine/pull/72): injects failures during rollback projection rebuild, rollback replay-record persistence, and canonical commit replay-record persistence. The latest recorded head passed Runtime tests. The tests assert failed operations leave no partial canonical revision, event validity, projection, audit, rollback row, or replay key, and that retry succeeds after removing the injected fault.
+- [PR #74 — context-manifest snapshot boundaries](https://github.com/necromorphic/Logic-Engine/pull/74): covers expansion only at the exact composite marker, stale-manifest non-expansion after ordinary commits and rollback-only revision changes, missing/cross-world manifest IDs, and the bounded per-kind snapshot limit. The initial CI run exposed a test-fixture violation of the 200-effects-per-event limit; the fixture was corrected to seed entities in two commits. Recheck CI on the latest head before treating this candidate as green.
+
+These candidates improve regression coverage only. Until merged, main guarantees must be described using its own tests and implementation, not these branch-local tests.
