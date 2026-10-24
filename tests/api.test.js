@@ -263,7 +263,11 @@ test('author-range duration can be approved only through the proposal approval b
   assert.equal(committed.status, 200);
   const committedBody = await committed.json();
   assert.equal(committedBody.commit_result.game_time_coordinate, 3600000);
-  assert.equal(committedBody.commit_result.duration_decision.source, 'author_approved_range');
+  const committedAuditResponse = await fetch(base + '/v1/worlds/author-duration-world/audit', { headers: adminHeaders });
+  const committedAudit = (await committedAuditResponse.json()).audit.find((entry) =>
+    entry.action === 'event.committed' && entry.target_id === committedBody.commit_result.event_id);
+  assert.equal(committedAudit.payload.duration_decision.source, 'author_approved_range');
+  assert.equal(committedAudit.payload.duration_decision.duration_ms, 3600000);
 });
 test('health, auth, proposal approval, and canonical commit boundary', async (t) => {
   const base = await setup(t, { approvalToken: APPROVAL, internalToken: INTERNAL });
