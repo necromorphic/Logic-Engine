@@ -1085,6 +1085,13 @@ test('active mechanic policy validator resolves the current owner on every check
   assert.equal(createActiveMechanicPolicyValidator(() => { throw new Error('owner unavailable'); })(pinnedV1), false);
   assert.equal(createActiveMechanicPolicyValidator(() => ({ validateMechanicPolicy() { throw new Error('policy failure'); } }))(pinnedV1), false);
   assert.throws(() => createActiveMechanicPolicyValidator(null), /trusted application callback/);
+
+  const store = new SQLiteStore(':memory:');
+  try {
+    assert.throws(() => createApiServer({ engine: new LogicEngine(store), token: TOKEN, getActiveMechanicContextProvider: null }), /trusted application callback/);
+  } finally {
+    store.close();
+  }
 });
 
 
