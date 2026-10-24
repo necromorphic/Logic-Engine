@@ -211,7 +211,7 @@ process.stdout.write(JSON.stringify({
   benchmark: 'logic-engine-replay-rollback-growth',
   workload: {
     effects_per_seed_event: ['entity.upsert', 'fact.set', 'relationship.transition'],
-    note: 'Synthetic independent events; relationship/fact/entity projection rebuild is exercised, but workload mix is not a claim about production traffic.',
+    note: 'Synthetic event histories with entity/fact/relationship effects; commit, independent rollback, and rebuild use independent events, while rollback-cascade uses a causal chain. This is not a claim about production traffic.',
   },
   node: process.version,
   platform: process.platform + '/' + process.arch,
