@@ -200,7 +200,7 @@ These are proposed semantic classes, not current API status strings. Exact enum 
 
 ### 6. Joint integration tests and blockers
 
-Memory can accept the NPC negative cases as **contract-level acceptance requirements**, including cross-world source, missing/ambiguous access, stale/retracted source, summary with one revoked source, unavailable/partial index, conflicting evidence, empty authorized result, delivery failure/unknown receipt, rollback without a higher commit sequence, and idempotent retry after partial failure. Memory's own matrix MEM-001–MEM-036 is a proposed test plan, not an executed suite.
+Memory can accept the NPC negative cases as **contract-level acceptance requirements**, including cross-world source, missing/ambiguous access, stale/retracted source, summary with one revoked source, unavailable/partial index, conflicting evidence, empty authorized result, delivery failure/unknown receipt, rollback without a higher commit sequence, and idempotent retry after partial failure. Memory's own matrix MEM-001–MEM-037 is a proposed test plan, not an executed suite.
 
 **Blocked from being honest runtime integration tests until dependencies are approved/implemented:**
 - general trusted authorized-read policy and exact failure semantics (MEM-O02; PR #65 is not sufficient as-is);
