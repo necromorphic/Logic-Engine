@@ -456,6 +456,17 @@ test("candidate rejection output does not leak rejected record identifiers", () 
   assert.equal(serialized.includes("sensitive title"), false);
 });
 
+test("admission result and nested reference projections are immutable", () => {
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([candidate()]));
+  assert.equal(Object.isFrozen(result), true);
+  assert.equal(Object.isFrozen(result.admitted), true);
+  assert.equal(Object.isFrozen(result.admitted[0]), true);
+  assert.throws(() => { result.status = "non_ready"; }, TypeError);
+  assert.throws(() => { result.admitted.push({ record_ref: "forged", record_version: "v1" }); }, TypeError);
+  assert.throws(() => { result.admitted[0].record_ref = "forged"; }, TypeError);
+  assert.equal(result.admitted[0].record_ref, "memory:claim-1");
+});
+
 test("candidate admission does not mutate its request or result inputs", () => {
   const inputRequest = structuredClone(request);
   const inputResult = completeResult([
