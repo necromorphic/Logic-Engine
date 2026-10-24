@@ -1830,6 +1830,16 @@ export class SQLiteStore {
     return this.getProcess(worldId, milestone.process_id);
   }
 
+  getProcessCommandResult(worldId, idempotencyKey, requestHash) {
+    const row = this.db.prepare("SELECT request_hash,result_json FROM world_process_commands WHERE world_id=? AND idempotency_key=?")
+      .get(worldId, idempotencyKey);
+    if (!row) return null;
+    if (row.request_hash !== requestHash) {
+      throw new EngineError('IDEMPOTENCY_CONFLICT', 'The process command key was already used with different content.', 409);
+    }
+    return { ...dec(row.result_json), idempotent_replay: true };
+  }
+
   transitionProcess(worldId, processId, action, idempotencyKey, requestHash, replacementItems = []) {
     return this.tx(() => {
       const oldCommand = this.db.prepare("SELECT request_hash,result_json FROM world_process_commands WHERE world_id=? AND idempotency_key=?")
