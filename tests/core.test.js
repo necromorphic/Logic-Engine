@@ -501,6 +501,7 @@ test('a failed rollback projection rebuild leaves canonical state and rollback m
   assert.equal(h.engine.getState('w').entities.find((entity) => entity.entity_id === 'survivor').attributes.preserved, true);
   assert.equal(h.engine.getEvents('w', true).find((event) => event.event_id === 'projection-rollback-root').validity, 'valid');
   assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 0);
+  assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key='projection-rollback-key'").get().count, 0);
   assert.deepEqual(h.engine.getAudit('w'), auditBefore);
 
   h.store.db.exec('DROP TRIGGER fail_rollback_projection');
@@ -510,6 +511,7 @@ test('a failed rollback projection rebuild leaves canonical state and rollback m
   assert.equal(h.engine.getState('w').facts.length, 0);
   assert.equal(h.engine.getState('w').entities.length, 1);
   assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 1);
+  assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key='projection-rollback-key'").get().count, 1);
 });
 
 
@@ -565,11 +567,16 @@ test('a failed canonical commit replay-record write rolls back the event and pro
   const request = cmd({
     event_id: 'commit-replay-atomicity',
     idempotency_key: 'commit-replay-key',
-    effects: [{ kind: 'entity.upsert', entity_id: 'must-not-commit', entity_type: 'object' }],
+    effects: [
+      { kind: 'entity.upsert', entity_id: 'must-not-commit', entity_type: 'object' },
+      { kind: 'fact.set', fact_id: 'must-not-commit-fact', predicate: 'present', value: true },
+    ],
   });
   assert.throws(() => h.engine.commitEvent('w', request), /forced commit replay-record failure/);
   assert.equal(h.engine.getState('w').world_revision, 0);
   assert.equal(h.engine.getState('w').entities.length, 0);
+  assert.equal(h.engine.getState('w').facts.length, 0);
+  assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM fact_claims WHERE fact_id='must-not-commit-fact'").get().count, 0);
   assert.equal(h.engine.getEvents('w', true).length, 0);
   assert.deepEqual(h.engine.getAudit('w'), auditBefore);
   assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key='commit-replay-key'").get().count, 0);
@@ -578,6 +585,8 @@ test('a failed canonical commit replay-record write rolls back the event and pro
   const result = h.engine.commitEvent('w', request);
   assert.equal(result.world_revision, 1);
   assert.equal(h.engine.getState('w').entities.length, 1);
+  assert.equal(h.engine.getState('w').facts.length, 1);
+  assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM fact_claims WHERE fact_id='must-not-commit-fact'").get().count, 1);
   assert.equal(h.engine.getEvents('w', true).length, 1);
   assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key='commit-replay-key'").get().count, 1);
 });
