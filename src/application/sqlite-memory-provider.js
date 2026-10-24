@@ -140,14 +140,25 @@ export class SQLiteMemoryProvider {
       .get(input.world_id, input.record_ref, input.record_version);
     if (!row || row.subject_id !== input.subject_id || row.purpose !== input.purpose
       || row.source_kind !== input.source_kind || row.source_entity_id !== input.source_entity_id) return false;
+    let sourceValid = false;
     try {
-      return await this.validateSourceVersion(Object.freeze({
+      sourceValid = await this.validateSourceVersion(Object.freeze({
         world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
         record_ref: row.record_ref, record_version: row.record_version,
         source_kind: row.source_kind, source_entity_id: row.source_entity_id,
         source_version: row.source_version, lineage: Object.freeze(decode(row.lineage_json)),
       })) === true;
     } catch { return false; }
+    if (!sourceValid) return false;
+
+    // Source validation may await a host/Core read. Recheck provider-owned grants
+    // after that await so a revocation during validation cannot reuse the earlier
+    // allow. This narrows the race; it is not a cross-store atomicity guarantee.
+    if (!this.authorizeQuery(scope)) return false;
+    const currentGrant = this.db.prepare(`SELECT allowed FROM memory_record_grants
+      WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
+      .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
+    return currentGrant?.allowed === 1;
   }
 
   putRecord(record) {
