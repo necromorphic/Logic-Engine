@@ -237,6 +237,6 @@ test('proposal commit audit failure rolls back proposal, canonical event, marker
   assert.equal(afterProposal.committed_at, null);
   assert.equal(afterProposal.commit_result_json, null);
   assert.equal(afterIdempotency, beforeIdempotency);
-  assert.equal(store.entity('proposal-commit-audit-rollback-world', 'fault-target'), null);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM entities WHERE world_id = ? AND entity_id = ?').get('proposal-commit-audit-rollback-world', 'fault-target').n, 0);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM audit_entries WHERE action = ? AND target_id = ?').get('proposal.committed', created.proposal_id).n, 0);
 });
