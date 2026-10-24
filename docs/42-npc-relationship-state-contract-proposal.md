@@ -21,8 +21,8 @@ The relationship block is a distinct domain capability. It is not a universal nu
 
 Separate domain meaning from runtime authority:
 
-- **NPC subsystem contract:** defines what a relationship means, how participants and relationship dimensions are interpreted, and how relationship state informs NPC decisions.
-- **Core engine:** remains authoritative for canonical simulation state, entity/event identities, validated commits, world revisions/time, causal provenance, audit, and rollback. Any persistent relationship change must ultimately pass through the core's approved state/event path.
+- **NPC relationship contract:** defines what a relationship means, how participants and relationship dimensions are interpreted, and how relationship state informs NPC decisions. It does not own a parallel canonical store.
+- **Core engine:** remains authoritative for canonical simulation state and any persisted authoritative relationship state, entity/event identities, validated commits, world revisions/time, causal provenance, audit, and rollback. Any persistent relationship change must ultimately pass through the core's approved state/event path.
 - **World Pack / author configuration:** may define which dimensions matter in a setting, their meanings, permitted transitions, and any setting-specific rules. It must not silently change universal core semantics.
 - **Character card:** presents a read-only projection or summary of relationship data. It is not a second writable copy.
 - **Narration/model:** may propose an interpretation or a relationship change, but prose alone does not make that change canonical.
@@ -112,7 +112,7 @@ Relationship information supplied to an NPC decision must be limited to what tha
 
 The character card may show a short, read-only relationship summary for quick reference, with a link or navigation path to the full relationship block.
 
-- The relationship block / authoritative simulation records own the data.
+- The core's authoritative records own persisted canonical relationship state; the NPC relationship contract defines its semantics, and any domain projection is derived rather than a second source of truth.
 - The card summary is derived from those records and cannot be edited as an independent copy.
 - The summary must preserve direction (e.g. “A's trust in B”), avoid presenting one side as mutual, and avoid turning unknown dimensions into neutral values.
 - The summary should be concise and selective. It need not list every person or every dimension in the character's full relationship state.
