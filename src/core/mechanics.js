@@ -334,13 +334,23 @@ export function evaluateMechanicActionConditions(value, actionId, context, optio
  * The entire batch fails closed: unsupported or malformed entries never yield a
  * partial effects list.
  */
-export function translateMechanicEffectIntents(value) {
+export function translateMechanicEffectIntents(value, actionId) {
   const template = validateMechanicTemplate(value);
+  if (typeof actionId !== 'string' || !actionId.trim()) {
+    fail('INVALID_MECHANIC_ACTION', 'actionId must be a non-empty string.');
+  }
+  const action = template.actions.find((candidate) => candidate.action_id === actionId);
+  if (!action) {
+    return { status: 'rejected', reason_code: 'MECHANIC_ACTION_NOT_FOUND', template_id: template.template_id, template_version: template.version, action_id: actionId, effects: [], effect_provenance: [] };
+  }
   const effects = [];
   const effectProvenance = [];
   const seenIds = new Set();
+  if (action.ambiguity_policy !== 'deterministic_only') {
+    return { status: 'unknown', reason_code: 'UNSUPPORTED_ACTION_AMBIGUITY_POLICY', template_id: template.template_id, template_version: template.version, action_id: actionId, effects: [], effect_provenance: [] };
+  }
 
-  for (const action of template.actions) {
+  {
     for (let index = 0; index < action.effects.length; index += 1) {
       const intent = action.effects[index];
       const location = action.action_id + '.effects[' + index + ']';
@@ -440,6 +450,7 @@ export function translateMechanicEffectIntents(value) {
     reason_code: null,
     template_id: template.template_id,
     template_version: template.version,
+    action_id: action.action_id,
     effects,
     effect_provenance: effectProvenance,
   };
