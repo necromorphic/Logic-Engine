@@ -71,17 +71,36 @@ export class ProposalService {
     const proposalId = randomUUID();
     const createdAt = now();
     const eventPayload = { ...body.event, event_id: randomUUID() };
-    const validation = this.engine.validateEvent(worldId, {
-      ...eventPayload,
-      idempotency_key: 'proposal-validation:' + randomUUID(),
-      expected_revision: world.world_revision,
-    });
+    const validationKey = 'proposal-validation:' + randomUUID();
+    let validation;
+    let timePolicyValidation;
+    try {
+      const prepared = this.engine.prepareEventForWorld(worldId, {
+        ...eventPayload,
+        idempotency_key: validationKey,
+        expected_revision: world.world_revision,
+      });
+      validation = this.engine.store.validateCommit(worldId, prepared);
+      timePolicyValidation = {
+        status: prepared.duration_decision ? 'resolved' : 'not_configured',
+        decision: prepared.duration_decision ?? null,
+      };
+    } catch (error) {
+      if (error.code !== 'DURATION_NEEDS_AUTHOR') throw error;
+      validation = this.engine.validateEvent(worldId, {
+        ...eventPayload,
+        idempotency_key: validationKey,
+        expected_revision: world.world_revision,
+      });
+      timePolicyValidation = { status: 'needs_author', code: error.code, decision: error.details };
+    }
     const validationResult = {
       status: ((eventPayload.effects ?? []).length > 0 && body.source_text.trim().length > 0) ? 'needs_review' : 'passed',
       requires_manual_semantic_review: ((eventPayload.effects ?? []).length > 0 && body.source_text.trim().length > 0),
       checked_at: createdAt,
       world_revision: world.world_revision,
-      checks: ['payload_schema', 'supported_effects', 'causal_references', 'requires_preconditions', 'revision_consistency'],
+      checks: ['payload_schema', 'supported_effects', 'causal_references', 'requires_preconditions', 'revision_consistency', 'time_policy'],
+      time_policy: timePolicyValidation,
       not_checked: ['semantic_alignment_with_source_text', 'causal_completeness', 'actor_authorization', 'player_agency_policy'],
       preview_event_id: validation.event_id,
     };
