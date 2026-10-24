@@ -155,7 +155,9 @@ export function evaluateMemoryCandidateAdmission(request, result) {
     });
   }
 
-  if (request.snapshot != null && !validSnapshot(request.snapshot)) {
+  // Snapshot evidence is mandatory for admission. Without it, a caller could
+  // bypass candidate/request snapshot comparison by omitting the request marker.
+  if (!validSnapshot(request.snapshot)) {
     return Object.freeze({
       status: "non_ready",
       admitted: Object.freeze([]),

@@ -284,7 +284,7 @@ test("stale, retracted, unavailable, and unknown freshness are not current knowl
 });
 
 test("malformed trusted or candidate snapshots fail closed", () => {
-  for (const snapshot of [{}, { world_revision: 12 }, { world_revision: "", commit_sequence: 40 }]) {
+  for (const snapshot of [undefined, null, {}, { world_revision: 12 }, { world_revision: "", commit_sequence: 40 }]) {
     const result = evaluateMemoryCandidateAdmission(
       { ...request, snapshot },
       completeResult([candidate()]),
@@ -480,4 +480,61 @@ test("candidate admission does not mutate its request or result inputs", () => {
 
   assert.deepEqual(inputRequest, requestBefore);
   assert.deepEqual(inputResult, resultBefore);
+});
+
+
+test("synthetic Core-authorized-result fixture: admission does not imply later lifecycle states", () => {
+  // This is a contract fixture, not proof of real Core authorization or host integration.
+  const lifecycleFacts = {
+    captured: true,
+    persisted: true,
+    indexed: true,
+    authorized: true,
+    admitted: false,
+    included_in_context: false,
+    rendered: false,
+    delivered: false,
+    received: false,
+    acquired: false,
+    believed: false,
+  };
+  const inputRequest = structuredClone(request);
+  const inputResult = completeResult([
+    candidate({ lifecycle_facts: lifecycleFacts }),
+  ]);
+  const beforeRequest = structuredClone(inputRequest);
+  const beforeResult = structuredClone(inputResult);
+
+  const decision = evaluateMemoryCandidateAdmission(inputRequest, inputResult);
+
+  assert.equal(decision.status, "ready");
+  assert.equal(decision.admitted.length, 1);
+  assert.deepEqual(inputRequest, beforeRequest);
+  assert.deepEqual(inputResult, beforeResult);
+  assert.equal(Object.hasOwn(decision, "delivered"), false);
+  assert.equal(Object.hasOwn(decision, "received"), false);
+  assert.equal(Object.hasOwn(decision, "acquired"), false);
+  assert.equal(Object.hasOwn(decision, "believed"), false);
+});
+
+test("revoked or no-longer-current synthetic candidates are excluded without side effects", () => {
+  const variants = [
+    candidate({ access: { outcome: "deny", subject_id: request.subject_id, purpose: request.purpose } }),
+    candidate({ lifecycle: { ...candidate().lifecycle, access_outcome: "deny" } }),
+    candidate({ lifecycle: { ...candidate().lifecycle, content_disposition: "retracted" } }),
+    candidate({ lifecycle: { ...candidate().lifecycle, source_reconciliation: "pending_reconciliation" } }),
+    candidate({ freshness: { status: "unknown" } }),
+    candidate({ record: { ref: "memory:claim-1" } }),
+  ];
+
+  for (const revoked of variants) {
+    const inputResult = completeResult([revoked]);
+    const before = structuredClone(inputResult);
+    const decision = evaluateMemoryCandidateAdmission(request, inputResult);
+
+    assert.equal(decision.status, "ready");
+    assert.deepEqual(decision.admitted, []);
+    assert.deepEqual(inputResult, before);
+    assert.equal(JSON.stringify(decision).includes("memory:claim-1"), false);
+  }
 });
