@@ -4,6 +4,7 @@ import { once } from 'node:events';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { createApiServer, createActiveMechanicPolicyValidator } from '../src/api/server.js';
+import { ProposalService } from '../src/application/proposals.js';
 
 const TOKEN = 'test-token-long-enough-123456';
 const INTERNAL = 'internal-token-long-enough-123456';
@@ -1084,4 +1085,40 @@ test('active mechanic policy validator resolves the current owner on every check
   assert.equal(createActiveMechanicPolicyValidator(() => { throw new Error('owner unavailable'); })(pinnedV1), false);
   assert.equal(createActiveMechanicPolicyValidator(() => ({ validateMechanicPolicy() { throw new Error('policy failure'); } }))(pinnedV1), false);
   assert.throws(() => createActiveMechanicPolicyValidator(null), /trusted application callback/);
+});
+
+
+test('proposal policy boundary rejects a proposal pinned to a rotated active provider', () => {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  let activeProvider = {
+    validateMechanicPolicy(identity) {
+      return identity.policyVersion === 'policy-v1' && identity.authorizationScope === 'npc:alice';
+    },
+  };
+  const proposals = new ProposalService(engine, {
+    validateMechanicPolicy: createActiveMechanicPolicyValidator(() => activeProvider),
+  });
+  const row = {
+    world_id: 'policy-rotation-world',
+    mechanic_execution_json: JSON.stringify({
+      context_policy_version: 'policy-v1',
+      authorization_scope: 'npc:alice',
+      snapshot_identity: { world_id: 'policy-rotation-world' },
+    }),
+  };
+  try {
+    assert.doesNotThrow(() => proposals.assertMechanicPolicyCurrent(row, 'approval'));
+    activeProvider = {
+      validateMechanicPolicy(identity) {
+        return identity.policyVersion === 'policy-v2' && identity.authorizationScope === 'npc:alice';
+      },
+    };
+    assert.throws(
+      () => proposals.assertMechanicPolicyCurrent(row, 'commit'),
+      (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'commit',
+    );
+  } finally {
+    store.close();
+  }
 });
