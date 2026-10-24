@@ -140,6 +140,7 @@ Until these closure criteria are met, the Personality block must not claim end-t
 - `docs/personality/05-world-pack-relationship-dimension-template.md` — per-dimension World Pack semantics and authoring readiness.
 - `docs/personality/06-stable-trait-lifecycle.md` — stable trait versus mutable state and inference lifecycle.
 - `docs/personality/07-cross-block-readiness-and-handoff.md` — cross-block readiness matrix and current PR #45 boundary.
+- `docs/personality/08-semantic-traceability-and-review-workflow.md` — requirement-to-acceptance traceability and specification-versus-implementation status vocabulary.
 - `docs/21-stage1-causality-contract.md` — current limited rollback/causality boundary.
 - `docs/18-rollback-and-causality.md` — target rollback architecture, not proof of current runtime support.
 - `docs/23-character-and-control-architecture.md` — character cards as derived views.
