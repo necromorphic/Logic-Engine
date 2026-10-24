@@ -8,31 +8,6 @@ function freezeDeep(value, seen = new WeakSet()) {
   seen.add(value);
   for (const child of Object.values(value)) freezeDeep(child, seen);
   return Object.freeze(value);
-
-  /**
-   * Evaluate and, only for a ready supported result, create a proposal through
-   * the existing proposal service. The proposal service rechecks the exact
-   * revision/cursor in its write transaction and retains effect provenance.
-   * This method never approves or commits.
-   */
-  async evaluateAndPropose({
-    worldId, instanceId, actionId, actorContext = null,
-    idempotencyKey, turnId, sourceText, adapterId,
-  }) {
-    if (!this.proposalService) {
-      throw new TypeError('A ProposalService is required for evaluateAndPropose().');
-    }
-    const evaluation = await this.evaluate({ worldId, instanceId, actionId, actorContext });
-    if (evaluation.status !== 'ready') return { evaluation, proposal: null };
-    const proposal = this.proposalService.createFromMechanicEvaluation(worldId, evaluation, {
-      idempotencyKey,
-      turnId,
-      sourceText,
-      adapterId,
-    });
-    return { evaluation, proposal };
-  }
-
 }
 
 /**
@@ -41,8 +16,7 @@ function freezeDeep(value, seen = new WeakSet()) {
  * The service owns canonical snapshot capture. A deployment must inject a
  * trusted context provider that projects only authorized data from that exact
  * snapshot and supplies a versioned policy identity. No HTTP/model-provided
- * context provider is accepted. This service does not create proposals or
- * commit effects.
+ * context provider is accepted. This service does not directly mutate state.
  */
 export class MechanicEvaluationService {
   constructor(engine, { contextProvider, proposalService = null } = {}) {
@@ -128,5 +102,29 @@ export class MechanicEvaluationService {
         ...(projected.manifestId ? { manifest_id: projected.manifestId } : {}),
       },
     });
+  }
+
+  /**
+   * Evaluate and, only for a ready supported result, create a proposal through
+   * the existing proposal service. That service rechecks exact revision/cursor
+   * in its write transaction and persists effect provenance. Approval and
+   * commit remain separate mandatory operations.
+   */
+  async evaluateAndPropose({
+    worldId, instanceId, actionId, actorContext = null,
+    idempotencyKey, turnId, sourceText, adapterId,
+  }) {
+    if (!this.proposalService) {
+      throw new TypeError('A ProposalService is required for evaluateAndPropose().');
+    }
+    const evaluation = await this.evaluate({ worldId, instanceId, actionId, actorContext });
+    if (evaluation.status !== 'ready') return { evaluation, proposal: null };
+    const proposal = this.proposalService.createFromMechanicEvaluation(worldId, evaluation, {
+      idempotencyKey,
+      turnId,
+      sourceText,
+      adapterId,
+    });
+    return { evaluation, proposal };
   }
 }
