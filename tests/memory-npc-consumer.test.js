@@ -200,12 +200,16 @@ test('stale snapshot candidates and derived summaries are never admitted', async
     lifecycle: { ...candidate().lifecycle, source_reconciliation: 'stale' },
   })]);
   const staleLifecycle = await consumer.retrieveForNpc(request());
-  assert.equal(staleLifecycle.status, 'ready');
+  assert.equal(staleLifecycle.status, 'non_ready');
+  assert.equal(staleLifecycle.reason, 'memory_source_not_current');
+  assert.deepEqual(staleLifecycle.admitted, []);
   assert.deepEqual(staleLifecycle.candidates, []);
 
   setCandidates([candidate({ freshness: { status: 'stale' } })]);
   const staleFreshness = await consumer.retrieveForNpc(request());
-  assert.equal(staleFreshness.status, 'ready');
+  assert.equal(staleFreshness.status, 'non_ready');
+  assert.equal(staleFreshness.reason, 'memory_source_not_current');
+  assert.deepEqual(staleFreshness.admitted, []);
   assert.deepEqual(staleFreshness.candidates, []);
 });
 
