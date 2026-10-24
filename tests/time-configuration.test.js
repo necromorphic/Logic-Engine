@@ -188,6 +188,27 @@ test('explicit skip is a canonical time.advance operation and cannot carry an ac
   assert.equal(engine.getState('time-config-world').world_revision, 1);
 });
 
+test('durable time-advance segments carry the active skip policy decision into canonical audit', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  register(engine);
+
+  const operation = engine.startTimeAdvance('time-config-world', {
+    idempotency_key: 'policy-bound-advance',
+    expected_revision: 1,
+    to_coordinate: 10000,
+    triggers: [],
+    completed_trigger_ids: [],
+  });
+  assert.equal(operation.status, 'completed');
+  const event = engine.getEvents('time-config-world')[0];
+  assert.equal(event.event_type, 'time.advance');
+  assert.equal(event.time_advance_seconds, 10);
+  const audit = engine.getAudit('time-config-world').find((entry) => entry.action === 'event.committed');
+  assert.equal(audit.payload.duration_decision.source, 'explicit_skip_policy');
+  assert.equal(audit.payload.duration_decision.time_config_version, 'config-1');
+});
+
 test('time-advance operation enforces the active skip limit on the whole requested interval', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
