@@ -187,3 +187,30 @@ test('internal snapshot refuses to expose uncommitted state from a store write t
   );
   assert.equal(engine.getState('snapshot-world').world_revision, 0);
 });
+
+test('internal snapshot returns no partial result and cleans up after a mid-read query failure', (t) => {
+  const { store, engine } = setup(t);
+  seedCharacter(engine, 'snapshot-world', 'npc-a');
+  store.db.exec('DROP TABLE facts');
+
+  assert.throws(
+    () => engine.getSnapshot('snapshot-world', { entityIds: ['npc-a'], factIds: ['fact-a'] }),
+  );
+
+  store.db.exec(`CREATE TABLE facts(
+    world_id TEXT NOT NULL REFERENCES worlds(world_id),
+    fact_id TEXT NOT NULL,
+    subject_ref TEXT,
+    predicate TEXT NOT NULL,
+    status TEXT NOT NULL,
+    value_json TEXT,
+    candidates_json TEXT NOT NULL,
+    source_event_ids_json TEXT NOT NULL,
+    updated_revision INTEGER NOT NULL,
+    PRIMARY KEY(world_id,fact_id)
+  )`);
+
+  const recovered = engine.getSnapshot('snapshot-world', { entityIds: ['npc-a'] });
+  assert.equal(recovered.entities[0].entity_id, 'npc-a');
+  assert.equal(recovered.world_revision, 1);
+});
