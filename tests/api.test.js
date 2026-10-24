@@ -48,6 +48,20 @@ test('API capability policy separates world creation and registry audit from gen
   assert.equal(deniedAudit.status, 403);
   assert.equal((await deniedAudit.json()).error.code, 'ADMIN_REQUIRED');
   assert.equal((await fetch(base + '/v1/mechanics/audit', { headers: adminHeaders })).status, 200);
+
+  // A configured admin credential is required; a missing configuration fails closed.
+  const noAdminBase = await setup(t, { adminToken: null });
+  const noAdminConfigured = await createWorld(noAdminBase, 'world-admin-not-configured', headers);
+  assert.equal(noAdminConfigured.status, 403);
+  assert.equal((await noAdminConfigured.json()).error.code, 'ADMIN_REQUIRED');
+
+  // Admin credentials do not replace the route-wide bearer authentication.
+  const noBearer = await fetch(base + '/v1/worlds', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-admin-token': ADMIN },
+    body: json({ world_id: 'world-no-bearer', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2026-01-01T00:00:00Z' }),
+  });
+  assert.equal(noBearer.status, 401);
 });
 
 test('health, auth, proposal approval, and canonical commit boundary', async (t) => {
