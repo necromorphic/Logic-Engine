@@ -69,3 +69,36 @@ The NPC branch proposal `feat/npc-subsystem:docs/39-npc-core-knowledge-contract-
 ## Change policy
 
 Every resolved open question must record the evidence, selected option, alternatives rejected, compatibility impact, and required tests. Do not mark a decision accepted merely because a draft PR exists.
+
+## Cross-block reconciliation — NPC Memory consumption follow-up, 2026-10-24
+
+The NPC branch now contains `docs/52-npc-memory-consumption-contract-and-failure-matrix.md` on `feat/npc-subsystem`, referenced by Issue #70. Treat it as a sibling proposal/acceptance oracle only: it is not on `main`, does not approve a Memory API, and does not establish a production Memory↔NPC integration. Issue #70 remains the coordination record until its owner closes or updates it.
+
+### What the NPC proposal resolves independently
+
+- NPC candidate admission must fail closed when actor/world/purpose access, lineage, source freshness, or completeness is absent or ambiguous.
+- Retrieval, ranking, context inclusion, summary generation, and context manifests do not themselves establish acquisition, delivery/receipt, comprehension, belief, or canonical truth.
+- Producer provenance is distinct from source/content lineage; derived content without complete lineage or safely evaluable source permissions is not admitted as current model context.
+- Lifecycle concerns are orthogonal: content disposition, source reconciliation, evidence assessment, request-scoped access, index health, lineage completeness, and query-result completeness must not be collapsed into a single status.
+- Negative-case and transition matrices distinguish retrieval, delivery attempt, host acceptance, confirmed visibility, receipt, acquisition, and belief; retries preserve unknown outcomes rather than assuming success.
+- Rollback/source invalidation must not be inferred solely from a larger maximum `commit_sequence`.
+
+These are consumer-side rules and test oracles. They do not supply the missing Core/Memory authority, persistence, authorization, or source-change signal.
+
+### Remaining Core/Memory gates
+
+1. Approve and implement the actor/world/purpose/snapshot-scoped authorized-read boundary and its safe denial/withheld/partial semantics.
+2. Define the real candidate/result contract, including record and source versions, lineage completeness, lifecycle dimensions, and safe error metadata.
+3. Select and implement a recoverable source-change/reconciliation signal that detects rollback and validity changes even when `commit_sequence` does not increase.
+4. Approve derived-summary source-permission propagation and any explicit declassification path.
+5. Establish the actual storage/transaction boundary for generic Memory records and any Core-owned semantic acquisition/delivery/belief records, without parallel ledgers.
+6. Reconcile the existing vectorization/host integration before selecting or duplicating an index backend.
+
+### Compatibility note
+
+The NPC candidate shape in `docs/52` uses illustrative labels that are not identical to the Memory candidate example in `docs/66`. Do not freeze either example as the API. Before implementation, normalize the semantics in a single reviewed result contract: at minimum preserve record ref/version, world, trusted request binding, per-request access outcome, producer provenance, source lineage and versions, freshness/reconciliation, orthogonal lifecycle dimensions, result completeness, and typed non-ready/error outcomes. Keep access and index health request/operation scoped where appropriate; do not serialize protected candidate metadata on denied/withheld paths.
+
+### Decision status
+
+The NPC follow-up substantially closes the requested NPC-side documentation deliverables, subject to the NPC owner reviewing/closing Issue #70. It does **not** close Core-owned decisions MEM-O01, MEM-O02, MEM-O05, MEM-O06, MEM-O08, MEM-O10, or MEM-O11, nor authorize runtime implementation. No runtime behavior or test execution is claimed by this reconciliation.
+
