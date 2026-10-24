@@ -63,11 +63,6 @@ function validReference(record) {
     && isNonEmptyString(record.version);
 }
 
-function hasOwnerMetadata(value) {
-  // Require the semantic dimensions without freezing owner-defined enum values.
-  return value != null && value !== "" && value !== false;
-}
-
 function producerIsPresent(candidate) {
   return candidate.producer != null
     && isNonEmptyString(candidate.producer.kind);
