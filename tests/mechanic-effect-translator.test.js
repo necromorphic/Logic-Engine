@@ -160,6 +160,25 @@ test('translation is deterministic, does not mutate inputs, and returns detached
   assert.deepEqual(input, before);
 });
 
+test('empty batches and unsafe nested object keys are rejected', () => {
+  assert.throws(
+    () => translateMechanicEffectIntents([]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+  for (const key of ['__proto__', 'constructor', 'prototype']) {
+    const value = JSON.parse('{"nested":{' + JSON.stringify(key) + ':true}}');
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({
+        kind: 'assert_fact',
+        target_ref: 'fact.example',
+        payload: { predicate: 'p', value },
+      })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+      key,
+    );
+  }
+});
+
 test('target identifiers and batch size are bounded', () => {
   assert.throws(
     () => translateMechanicEffectIntents([intent({ target_ref: 'x'.repeat(201) })]),
