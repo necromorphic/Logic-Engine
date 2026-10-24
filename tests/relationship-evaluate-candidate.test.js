@@ -744,7 +744,6 @@ test("does not interpret an inherited operation as an explicit clear request", (
   }
 });
 
-
 test("does not accept inherited permission for self-relations", () => {
   const previous = Object.getOwnPropertyDescriptor(Object.prototype, "allowSelfRelation");
   Object.defineProperty(Object.prototype, "allowSelfRelation", {
@@ -766,5 +765,26 @@ test("does not accept inherited permission for self-relations", () => {
   } finally {
     if (previous) Object.defineProperty(Object.prototype, "allowSelfRelation", previous);
     else delete Object.prototype.allowSelfRelation;
+  }
+});
+
+
+test("rejects empty or duplicate values in a dimension domain", () => {
+  const cases = [
+    { values: [] },
+    { values: ["low", ""] },
+    { values: ["low", "low"] },
+  ];
+
+  for (const override of cases) {
+    const result = evaluateRelationshipCandidate({
+      ...base,
+      dimensionRules: {
+        trust: { ...rules.trust, ...override },
+      },
+    });
+
+    assert.equal(result.status, "unsupported");
+    assert.equal(result.reason, "dimension_rule_incomplete");
   }
 });
