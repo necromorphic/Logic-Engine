@@ -42,7 +42,9 @@ function validTransitionFrom(value) {
   if (value === null || typeof value === "string") return true;
   // Only cleared is a transitionable tagged state. Unset is represented by
   // null; withheld/conflict/insufficient/unsupported states stop evaluation.
-  return isRecord(value) && value.status === "cleared";
+  return isRecord(value)
+    && value.status === "cleared"
+    && Object.keys(value).length === 1;
 }
 
 function transitionAllowed(rule, from, to, operation) {
