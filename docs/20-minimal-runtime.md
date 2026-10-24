@@ -8,7 +8,7 @@ Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in su
 
 ## Endpoints
 
-- `POST /v1/worlds` — create a world with a pinned World Pack ID/version and explicit in-world time.
+- `POST /v1/worlds` — create a world with a pinned World Pack ID/version and explicit in-world time (requires `x-admin-token`).
 - `POST /v1/worlds/:id/proposals` — create an adapter-owned proposal (requires configured adapter credentials).
 - `GET /v1/worlds/:id/proposals/:proposal_id` — retrieve a proposal as its creating adapter or a trusted administrator.
 - `POST /v1/worlds/:id/proposals/:proposal_id/approve` — approve a proposal (requires `x-approval-token`; valid body is `{}`).
@@ -23,13 +23,13 @@ Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in su
 - `GET /v1/worlds/:id/mechanic-instances` — list mechanic instances (requires `x-admin-token`).
 - `POST /v1/worlds/:id/mechanic-instances` — create a mechanic instance from an exact registered template version (requires `x-admin-token`).
 - `POST /v1/worlds/:id/mechanic-instances/:instance_id/enable` and `/disable` — change instance lifecycle (requires `x-admin-token`).
-- `GET /v1/mechanic-templates` — list immutable mechanic-template versions.
+- `GET /v1/mechanic-templates` — list immutable mechanic-template versions (requires `x-admin-token`).
 - `POST /v1/mechanic-templates` — validate and register an immutable template version (requires `x-admin-token`).
-- `GET /v1/mechanic-templates/:template_id/:version` — retrieve one exact template version.
-- `GET /v1/rule-modules` — list registered versioned rule-module manifests.
+- `GET /v1/mechanic-templates/:template_id/:version` — retrieve one exact template version (requires `x-admin-token`).
+- `GET /v1/rule-modules` — list registered versioned rule-module manifests (requires `x-admin-token`).
 - `POST /v1/rule-modules` — validate and register a versioned rule-module manifest (requires `x-admin-token`).
-- `GET /v1/rule-modules/:module_id/:version` — retrieve one exact module manifest.
-- `GET /v1/mechanics/audit` — append-only registry audit records.
+- `GET /v1/rule-modules/:module_id/:version` — retrieve one exact module manifest (requires `x-admin-token`).
+- `GET /v1/mechanics/audit` — append-only registry audit records (requires `x-admin-token`).
 - `GET /v1/worlds/:id/state` — canonical entity/fact projections; raw reads require trusted internal/admin credentials.
 - `GET /v1/worlds/:id/events` — valid events; add `?include_invalid=true` to include retracted events (trusted internal/admin credentials required).
 - `GET /v1/worlds/:id/audit` — append-only audit (trusted internal/admin credentials required).
