@@ -65,6 +65,8 @@ On the audited revision, any holder of the general bearer can register a context
 
 **Required closure:** define the trusted producer and generation binding for manifests. The route/service must derive producer authority server-side and verify the manifest's world, generation, base revision/commit sequence, and ownership against a trusted host-side generation record. Until that generation record exists, fail closed or restrict registration to a dedicated internal capability. Do not accept a caller-supplied origin/producer label as proof. Add tests for wrong-world, stale-cursor, foreign-generation, duplicate, and untrusted-caller attempts.
 
+**Current-main disposition:** PR #106 now requires the separately configured internal-host credential for registration. This closes the general-bearer route gate only; the trusted host-side generation record and server-derived binding described above remain unimplemented. The stored manifest is not proof that a trusted generation used it.
+
 ### F-07 — Raw state read is not the canonical consistent-snapshot API
 
 **Observed path:** `GET /v1/worlds/:world_id/state` → `LogicEngine.getState` → `SQLiteStore.state`.
@@ -77,6 +79,8 @@ The audited `SQLiteStore.state` reads the world row, entity projection, and fact
 
 **Acceptance tests:** concurrent writer/read snapshot test; verify a returned snapshot's rows, world revision, and commit cursor share one SQLite read transaction; verify authorized consumers carry the cursor forward and reject stale use at commit.
 
+**Current-main disposition:** PR #114 closes the `SQLiteStore.state()` consistency defect for the trusted operational state response: it now reads the world/entity/fact projection in one SQLite read transaction and returns `commit_sequence` with `world_revision`. The route remains privileged-only and this change does not grant model-facing authorization. Bounded actor-authorized reads remain a separate policy boundary.
+
 ### F-06 — World creation and registry reads need explicit capability classification
 
 **Observed routes:** `POST /v1/worlds`, `GET /v1/mechanics/audit`, list/detail reads for mechanic templates and rule-module manifests.
@@ -84,6 +88,8 @@ The audited `SQLiteStore.state` reads the world row, entity projection, and fact
 These routes use the general bearer. World creation is a canonical administrative operation; registry metadata may reveal implementation/configuration details. The current code does not express distinct capabilities for these operations.
 
 This is a **policy decision to close**, not a claim that every such route is necessarily exploitable. Define which operations are available to a deployment API client, which require admin/internal access, and whether registry metadata is considered public to all authenticated adapters. Enforce the chosen policy consistently and test it. Do not broaden admin permission to unrelated mutation classes by default.
+
+**Decision artifact:** `docs/56-core-api-capability-matrix-proposal.md` (PR #115) records the current gates, recommended dispositions, and the explicit deployment-owner decisions. The unresolved routes remain unchanged until those decisions are approved.
 
 ## 3. In-process APIs and serializers
 
