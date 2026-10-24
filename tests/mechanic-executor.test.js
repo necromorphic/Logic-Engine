@@ -137,6 +137,7 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(result.dependency_manifest.mechanic_dependencies_complete, true);
   assert.equal(result.guarantees.complete_global_mechanic_dependencies, false);
   assert.deepEqual(result.dependency_manifest.unresolved_sources, []);
+  assert.deepEqual(result.dependency_manifest.assumptions, ['trusted_provider_correctly_maps_condition_paths_to_canonical_attributes']);
   assert.deepEqual(result.read_set, ['entity:entity.actor-context', 'entity:entity.world-context']);
   assert.ok(result.causal_links.some((link) => link.relation === 'READS_ENTITY' && link.target_id === 'entity.actor-context'));
   assert.equal(typeof result.snapshot_identity.template_hash, 'string');
