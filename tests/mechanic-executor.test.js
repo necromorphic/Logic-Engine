@@ -742,3 +742,23 @@ test('mechanic proposal rollback restores the prior projection and a fresh evalu
   proposals.commit(worldId, recoveryProposal.proposal_id);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
 });
+
+
+test('mechanic context and evaluation fingerprints change when the visibility policy version changes', (t) => {
+  const { engine, worldId } = setup(t, 'executor-policy-fingerprint-world');
+  enableFixture(engine, worldId);
+  const first = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  const second = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => ({
+      ...contextProvider()(args),
+      policy_version: 'test-visibility-policy-v2',
+    }),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(first.status, 'ready');
+  assert.equal(second.status, 'ready');
+  assert.notEqual(first.context_fingerprint, second.context_fingerprint);
+  assert.notEqual(first.evaluation_fingerprint, second.evaluation_fingerprint);
+  assert.equal(first.snapshot_identity.world_revision, second.snapshot_identity.world_revision);
+  assert.equal(engine.getState(worldId).world_revision, 2);
+});
