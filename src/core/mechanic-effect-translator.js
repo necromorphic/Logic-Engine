@@ -32,6 +32,13 @@ function text(value, label, max = MAX_ID) {
   return value.trim();
 }
 
+function identityText(value, label, max = MAX_ID) {
+  if (typeof value !== 'string' || !value.trim() || value.length > max || value !== value.trim()) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be a non-empty identifier of at most ' + max + ' characters without surrounding whitespace.');
+  }
+  return value;
+}
+
 function object(value, label) {
   if (!isObject(value) || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
     fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be a plain JSON object.');
@@ -115,9 +122,9 @@ function translateOne(effect, index, jsonBudget) {
   for (const key of ['effect_id', 'kind', 'target_ref']) {
     if (!Object.hasOwn(effect, key)) fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' is missing ' + key + '.');
   }
-  text(effect.effect_id, label + '.effect_id', 128);
-  const kind = text(effect.kind, label + '.kind', 128);
-  const targetRef = text(effect.target_ref, label + '.target_ref', MAX_ID);
+  identityText(effect.effect_id, label + '.effect_id', 128);
+  const kind = identityText(effect.kind, label + '.kind', 128);
+  const targetRef = identityText(effect.target_ref, label + '.target_ref', MAX_ID);
 
   if (!KNOWN_INTENTS.has(kind)) {
     fail('INVALID_MECHANIC_EFFECT_INTENT', label + '.kind is not a declared mechanic intent kind.');
@@ -185,7 +192,7 @@ function translateOne(effect, index, jsonBudget) {
     }
   } else {
     exactKeys(payload, new Set(['predicate', 'value', 'subject_ref']), label + '.payload');
-    const predicate = text(payload.predicate, label + '.payload.predicate', 200);
+    const predicate = identityText(payload.predicate, label + '.payload.predicate', 200);
     if (!Object.hasOwn(payload, 'value')) fail('INVALID_MECHANIC_EFFECT_INTENT', label + '.payload.value is required.');
     translated = {
       kind: 'fact.set',
@@ -197,7 +204,7 @@ function translateOne(effect, index, jsonBudget) {
       if (payload.subject_ref !== null && typeof payload.subject_ref !== 'string') {
         fail('INVALID_MECHANIC_EFFECT_INTENT', label + '.payload.subject_ref must be a string or null.');
       }
-      translated.subject_ref = payload.subject_ref === null ? null : text(payload.subject_ref, label + '.payload.subject_ref');
+      translated.subject_ref = payload.subject_ref === null ? null : identityText(payload.subject_ref, label + '.payload.subject_ref');
     }
   }
 
