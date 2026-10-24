@@ -150,7 +150,7 @@ export class SQLiteMemoryProvider {
     if (!object(record) || !validId(record.world_id) || !validId(record.subject_id)
       || !validId(record.purpose) || !validId(record.record_ref) || !validId(record.record_version)
       || record.source_kind !== 'canonical_entity' || !validId(record.source_entity_id)
-      || !validId(record.source_version) || !validId(record.content_kind)
+      || !validId(record.source_version) || !validId(record.content_kind) || record.content_kind === 'summary'
       || !validId(record.epistemic_kind) || !validId(record.producer_kind)
       || !validId(record.content_disposition) || !validId(record.evidence_assessment)
       || !Array.isArray(record.lineage) || record.lineage.length !== 1
