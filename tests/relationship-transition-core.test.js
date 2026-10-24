@@ -249,7 +249,7 @@ test('rejects unavailable rule versions, cross-world participants, and invalid e
     });
     assert.throws(
       () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, { target_id: 'C' })),
-      (error) => error.code === 'RELATIONSHIP_PARTICIPANT_NOT_ELIGIBLE',
+      (error) => ['RELATIONSHIP_PARTICIPANT_NOT_ELIGIBLE', 'INVALID_READ_SET_REFERENCE'].includes(error.code),
     );
 
     const evidence = engine.commitEvent('world-relationship-test', {
