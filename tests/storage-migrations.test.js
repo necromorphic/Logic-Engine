@@ -67,7 +67,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   assert.ok(idempotencyColumns.includes('request_hash'));
   assert.ok(manifestColumns.includes('base_world_revision'));
   assert.deepEqual(
-    store.db.prepare('SELECT event_id,commit_sequence FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world'),
+    store.db.prepare('SELECT event_id,commit_sequence FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world').map((row) => ({ event_id: row.event_id, commit_sequence: row.commit_sequence })),
     [{ event_id: 'legacy-event-1', commit_sequence: 1 }, { event_id: 'legacy-event-2', commit_sequence: 2 }],
   );
   assert.equal(store.db.prepare('SELECT response_json FROM idempotency_keys WHERE world_id=? AND idempotency_key=?').get('legacy-world', 'legacy-key').response_json, '{"accepted":true}');
@@ -79,7 +79,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   store.close();
   store = new SQLiteStore(path);
   assert.deepEqual(
-    store.db.prepare('SELECT event_id,commit_sequence FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world'),
+    store.db.prepare('SELECT event_id,commit_sequence FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world').map((row) => ({ event_id: row.event_id, commit_sequence: row.commit_sequence })),
     [{ event_id: 'legacy-event-1', commit_sequence: 1 }, { event_id: 'legacy-event-2', commit_sequence: 2 }],
   );
   assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5]);
