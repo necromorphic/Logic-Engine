@@ -796,10 +796,32 @@ test('projection rebuild preserves the exact historical rule-version pin when it
       },
     });
     assert.equal(reopenedEngine.getRuleModuleManifest('relationship-rules', '2.0.0').manifest.version, '2.0.0');
+    // Exact-version lookup failure is a read-only boundary. It must not
+    // mutate canonical events, the world cursor, relationship projection, or audit.
+    const beforeFailedHistoricalLookup = {
+      events: reopenedEngine.getEvents('world-relationship-test'),
+      state: reopenedEngine.getState('world-relationship-test'),
+      pair: reopenedStore.getRelationshipPair('world-relationship-test', 'A', 'B'),
+      commitSequence: reopenedStore.currentCommitSequence('world-relationship-test'),
+      audit: reopenedEngine.getAudit('world-relationship-test'),
+      projectionPin: reopenedStore.db.prepare(
+        'SELECT rule_module_id, rule_module_version, last_event_id FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? AND dimension=?',
+      ).get('world-relationship-test', 'A', 'B', 'trust'),
+    };
     assert.throws(
       () => reopenedEngine.getRuleModuleManifest('relationship-rules', '1.0.0'),
       (error) => error.code === 'RULE_MODULE_NOT_FOUND',
     );
+    assert.deepEqual({
+      events: reopenedEngine.getEvents('world-relationship-test'),
+      state: reopenedEngine.getState('world-relationship-test'),
+      pair: reopenedStore.getRelationshipPair('world-relationship-test', 'A', 'B'),
+      commitSequence: reopenedStore.currentCommitSequence('world-relationship-test'),
+      audit: reopenedEngine.getAudit('world-relationship-test'),
+      projectionPin: reopenedStore.db.prepare(
+        'SELECT rule_module_id, rule_module_version, last_event_id FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? AND dimension=?',
+      ).get('world-relationship-test', 'A', 'B', 'trust'),
+    }, beforeFailedHistoricalLookup);
 
     reopenedStore.rebuild('world-relationship-test', 2);
 
