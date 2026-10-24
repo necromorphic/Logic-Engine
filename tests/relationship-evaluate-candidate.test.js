@@ -359,13 +359,26 @@ test("preserves the exact caller-supplied rule version label on a candidate", ()
 });
 
 test("requires a pinned rule version", () => {
-  const result = evaluateRelationshipCandidate({
-    ...base,
-    ruleVersion: "",
-  });
+  for (const ruleVersion of ["", "   ", null, 0, false]) {
+    const result = evaluateRelationshipCandidate({
+      ...base,
+      ruleVersion,
+    });
 
-  assert.equal(result.status, "unsupported");
-  assert.equal(result.reason, "rule_version_required");
+    assert.equal(result.status, "unsupported", String(ruleVersion));
+    assert.equal(result.reason, "rule_version_required", String(ruleVersion));
+  }
+});
+
+test("rejects a missing ruleVersion field instead of treating it as a pinned version", () => {
+  const input = { ...base };
+  delete input.ruleVersion;
+
+  const result = evaluateRelationshipCandidate(input);
+
+  assert.equal(result.status, "invalid_candidate");
+  assert.equal(result.reason, "input_fields_required");
+  assert.equal(Object.hasOwn(result, "ruleVersion"), false);
 });
 
 test("returns a non-mutating unsupported result when dimension rules are incomplete", () => {
