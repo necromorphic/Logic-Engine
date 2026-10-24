@@ -88,7 +88,7 @@ function lifecycleIsAdmissible(candidate) {
     && lifecycle.index_health === "ready";
 }
 
-function lineageIsSafe(candidate) {
+function lineageIsSafe(candidate, request) {
   if (candidate.content_kind !== "summary") return true;
   if (candidate.lineage?.status !== "complete") return false;
   if (!Array.isArray(candidate.lineage.sources) || candidate.lineage.sources.length === 0) {
@@ -99,7 +99,10 @@ function lineageIsSafe(candidate) {
     source != null
       && isNonEmptyString(source.ref)
       && isNonEmptyString(source.version)
+      && source.world_id === request.world_id
       && source.access?.outcome === ALLOW
+      && source.access?.subject_id === request.subject_id
+      && source.access?.purpose === request.purpose
       && READY_SOURCE_STATES.has(source.freshness?.status)
   );
 }
@@ -116,7 +119,7 @@ function candidateRejection(candidate, request) {
   if (!lifecycleIsAdmissible(candidate)) return "lifecycle_not_admissible";
   if (!READY_SOURCE_STATES.has(candidate.freshness?.status)) return "source_not_current";
   if (!sameSnapshot(candidate, request)) return "snapshot_mismatch";
-  if (!lineageIsSafe(candidate)) return "lineage_not_safe";
+  if (!lineageIsSafe(candidate, request)) return "lineage_not_safe";
   return null;
 }
 
