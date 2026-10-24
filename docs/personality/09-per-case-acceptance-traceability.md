@@ -161,7 +161,7 @@ This section records concrete repository evidence observed on the named branches
 
 - **Executable pure-domain evidence exists** in `tests/relationship-evaluate-candidate.test.js` on `feat/relationship-pure-evaluator` for candidate validation, partial patch/clear semantics, directionality, non-value states, special keys, and deterministic side-effect-free evaluation. This audit read the test source; it did not execute the suite.
 - **NPC consumer evidence is contract-only** in `docs/52-npc-relationship-consumer-compatibility.md` on `feat/npc-subsystem`. The document was found on that branch (not on the Personality branch); it is treated as an external contract and is not modified here. The inspected NPC branch tree contains no relationship-consumer runtime test file.
-- **Core integration remains blocked** for canonical write/read, atomicity, authorization, trusted provenance, audit/revision, commit idempotency, historical version selection/migration, and production rollback/replay. Do not relabel evaluator tests or contract prose as Core integration passes.
+- **Historical status superseded by the current-main runtime addendum below:** privileged canonical write, transaction atomicity, audit/idempotency, directed projection/rebuild, and rollback/replay now have Core real-path implementation/tests. General authorized reads, NPC/model-facing writes, generic import/correction, and historical World Pack migration remain blocked. Do not relabel evaluator tests or contract prose as production integration evidence.
 - **Test execution status for this change:** not run by this documentation audit. No CI result is inferred from the presence of test source.
 
 ## Issue #73 exact test evidence and boundary verdict
@@ -184,3 +184,40 @@ The following links pin the evidence to the branch/ref inspected during this aud
 - [Issue #73 executable-evidence audit](./10-issue-73-executable-evidence-audit.md)
 
 Link scope note: the evaluator test and CI links are pinned to an exact commit; the NPC and Relationship proposal links intentionally identify branch-head documents and may evolve. Recheck these branch-head references when those branches change. The current audit does not claim that CI run #591 validates the current PR head.
+
+
+## Superseding addendum — Core Relationship runtime slice on current main (2026-10-24)
+
+This addendum supersedes earlier statements in this document that treated every canonical write/atomicity/idempotency/rollback path as wholly unimplemented. Core PRs #94, #95, and #96 are merged to `main`. The Relationships evidence audit must now distinguish the implemented **privileged first slice** from still-blocked general consumer and authoring paths.
+
+### Current-main production-path evidence
+
+Source of truth: `tests/relationship-transition-core.test.js` at blob `086cfb0db38c3398979d9609a368c8642f19b680` (12 named tests).
+
+| Requirement / acceptance boundary | Exact Core test(s) | Evidence and remaining limit |
+|---|---|---|
+| Canonical directed transition, event, revision, audit, atomic commit | `admin-gated typed transition commits directed state, event, revision and audit atomically`; `admin route commits through the canonical event lifecycle and returns the current directed projection` | Real Core path for the separate-admin-credential slice; not NPC/model authority or a general read API. |
+| Mutation authorization and no generic-effect smuggling | `API rejects ordinary bearer without the separate admin credential and does not mutate state`; `generic event preparation cannot smuggle a Relationship effect`; `stale composite cursor and spoofed executor are rejected without mutation` | Admin credential is the only approved mutation authority in this slice; trusted NPC/player writer remains unavailable. |
+| Mixed-patch atomic rejection and idempotent retry | `invalid mixed patch commits nothing and idempotent retry does not duplicate a transition` | Canonical commit path is covered; independent-support/alternative evidence remains unsupported and fails closed. |
+| Composite freshness | `stale composite cursor and spoofed executor are rejected without mutation` | Uses both `world_revision` and `commit_sequence`; rollback may change revision without increasing commit sequence. |
+| Source evidence validity, world scope, immutable rule version | `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation` | Only the registered immutable World Pack rule-module version is accepted; does not implement historical migration or a general import/correction operation. |
+| Rollback of evidence dependency and deterministic surviving projection | `source rollback invalidates a Relationship transition that cites the source`; `rollback invalidates later transition dependent on the same directed pair and rebuilds surviving state` | Core first-slice rollback/rebuild is tested for these dependencies; not proof of all possible causal/alternative-support semantics. |
+| Clear distinct from unset and rollback restores surviving value | `clear remains distinct from unset and rollback restores the previous surviving value` | Canonical clear and tested rollback behavior; downstream authorized visibility remains blocked. |
+| Transaction failure atomicity | `event insert and audit failures roll back the entire Relationship transition`; `projection and idempotency persistence failures roll back Relationship event, state, revision and audit` | Failure injection covers event/audit/projection/idempotency persistence in the canonical transaction. |
+| Unsupported metadata and caller-supplied epistemic status | PR #96 exact-head regression suite / current `npm test` workflow | Unapproved alternative-support metadata and caller-supplied evidence status fail closed; do not infer support-ledger semantics. |
+
+### Current Core boundaries (do not overclaim)
+
+- **Implemented/tested:** dedicated `relationship.transition` effect; admin-credential-only route; canonical event-backed directed projection/rebuild; exact immutable rule-module/World Pack version matching; event evidence validation; composite freshness; transaction-scoped event/projection/revision/audit/idempotency; rollback dependency handling.
+- **Still blocked:** general Relationship authorized reads (the existing route is self-identity-only); NPC/model-facing Relationship mutation; generic initial import or author correction; a multi-source alternative-support ledger; downstream Personality/NPC consumer tests for stable-trait, knowledge, motive, consent, obligation and reciprocity non-implications; historical World Pack version selection/migration beyond the pinned replayable slice.
+- A successful Core test does not automatically pass a separate Personality/NPC consumer criterion. Those need a direct consumer-boundary test.
+- `PERS-SEM-024` remains deterministic evaluation/replay for fixed, pinned inputs within the supported slice. `PERS-SEM-029` remains meaning-changing World Pack update, migration, or explicit incompatibility. The new pinned-version runtime path does not by itself prove historical migration.
+
+### CI evidence
+
+Core reported exact-head successful Runtime tests for:
+- PR #94, SHA `1aa59e6d4b7921646ed44727de21ba610eb6da39`, [run #705](https://github.com/necromorphic/Logic-Engine/actions/runs/40063961970).
+- PR #95, SHA `6b8c4e6fade8d01d15039e8d278d57e4b2c78aa8`, [run #707](https://github.com/necromorphic/Logic-Engine/actions/runs/40064048816).
+- PR #96, SHA `79deb588e1f6321826dc3316085aaab6fdb010b7`, [run #717](https://github.com/necromorphic/Logic-Engine/actions/runs/40064276520).
+
+These are repository CI results for those exact PR heads. They are not evidence that general authorized reads, NPC/model-facing writes, generic import/correction, or downstream consumer integration exists.
