@@ -669,10 +669,12 @@ export class LogicEngine {
 
   processCommand(id, processId, action, input) {
     assert(obj(input), 'INVALID_PROCESS_COMMAND', 'Process command must be an object.');
-    const allowed = action === 'resume' ? ['idempotency_key', 'milestones'] : ['idempotency_key'];
+    const allowed = action === 'resume' ? ['idempotency_key', 'expected_revision', 'milestones'] : ['idempotency_key', 'expected_revision'];
     assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_PROCESS_COMMAND_FIELD', 'Process command contains an unsupported field.');
     assert(typeof input.idempotency_key === 'string' && input.idempotency_key.trim() && input.idempotency_key.length <= 200,
       'IDEMPOTENCY_KEY_REQUIRED', 'Process command idempotency_key is required.');
+    assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0,
+      'INVALID_REVISION', 'Process command expected_revision must be a non-negative safe integer.');
     const key = input.idempotency_key.trim();
     const requestHash = hashRequest({ operation: 'process.' + action, world_id: id, process_id: processId, request: input });
     const replay = this.store.getProcessCommandResult(id, key, requestHash);
@@ -700,7 +702,7 @@ export class LogicEngine {
         'INVALID_PROCESS_RESUME_PLAN', 'Resume may reschedule only pending milestones.');
       replacementItems = this._prepareProcessTriggerItems(id, process, { pendingOnly: true, dueOverrides: overrides });
     }
-    return this.store.transitionProcess(id, processId, action, key, requestHash, replacementItems);
+    return this.store.transitionProcess(id, processId, action, key, requestHash, input.expected_revision, replacementItems);
   }
 
   pauseProcess(id, processId, input) {
