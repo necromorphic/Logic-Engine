@@ -183,7 +183,7 @@ export class MemoryNpcConsumer {
       });
     }
 
-    const authorizedCandidates = [];
+    let authorizedCandidates = [];
     for (const candidate of memoryResult.candidates) {
       // A result declared complete must not silently turn malformed records
       // into an apparently valid empty result. Scope/identity/snapshot
