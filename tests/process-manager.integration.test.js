@@ -269,5 +269,5 @@ test('resume rejects a paused process whose milestone became overdue', (t) => wi
     (error) => error.code === 'PROCESS_RESUME_REQUIRES_REPLAN',
   );
   assert.equal(engine.getProcess('world-a', 'journey-1').status, 'paused');
-  assert.ok(paused.process.version < current.version);
+  assert.equal(paused.process.version, current.version);
 }));
