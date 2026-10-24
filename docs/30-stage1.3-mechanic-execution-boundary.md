@@ -55,6 +55,8 @@ The application service must execute these steps in order:
 
 The trusted context provider is host code and may race with concurrent writes. After it returns, the executor must re-read the canonical world revision and commit sequence and reject the evaluation if either differs from the captured snapshot; provider-supplied revision markers alone are not proof of freshness. The ordinary proposal transaction must independently repeat the revision/cursor check, because a race can still occur after evaluation returns.
 
+For mechanic proposals, the existing `ProposalService` now requires a trusted synchronous `validateMechanicPolicy` callback at both approval and commit. The callback receives the pinned policy fingerprint, authorization scope, world/snapshot identity, and lifecycle stage. Missing, throwing, or non-`true` decisions fail closed; a policy change after approval therefore blocks commit. This is a freshness/revocation seam, not proof that the deployment's policy is semantically correct: the host must bind the callback to the same authoritative policy source used by context resolution, and it must not mutate canonical state.
+
 Any failure before step 9 must leave canonical world state, active instance state, process records, audit history, and idempotency state unchanged, except for an explicitly defined non-canonical diagnostic/review record.
 
 ## 4. Result contract
