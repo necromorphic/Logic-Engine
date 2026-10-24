@@ -300,3 +300,26 @@ test('provider rejects derived summaries until lineage-wide authorization is imp
     'SELECT COUNT(*) AS count FROM memory_records WHERE world_id=? AND record_ref=?',
   ).get(s.scope.world_id, 'memory:derived-summary').count, 0);
 });
+
+test('source version becoming unverifiable at candidate authorization is not filtered as ordinary denial', async (t) => {
+  let sourceCurrent = true;
+  const s = setup(t, {
+    validateSourceVersion: async (record) => sourceCurrent
+      && record.source_version === 'source-v1'
+      && record.source_entity_id === 'entity-source-a',
+  });
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  await s.provider.rebuildIndex('world-a');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+
+  sourceCurrent = false;
+  await assert.rejects(
+    () => s.provider.authorizeCandidate({
+      ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
+      source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    }),
+    (error) => error.message === 'MEMORY_SOURCE_VERSION_UNVERIFIABLE',
+  );
+});
