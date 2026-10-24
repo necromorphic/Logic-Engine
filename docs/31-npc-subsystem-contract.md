@@ -208,3 +208,8 @@ These are semantic requirements only. They do not authorize an editor/runtime, n
 ## Causal rollback and reconciliation test matrix
 
 The schema-neutral multi-step rollback/reconciliation scenarios are specified in `docs/47-npc-causal-rollback-reconciliation-test-matrix.md`. They sharpen the existing invariant that invalidating one cause must not erase independently supported state, while surviving support must not preserve consequences with other invalid prerequisites. The matrix includes a source committed only after an earlier rollback has completed, duplicate-source handling, and snapshot-safe deterministic replay. These are blocked acceptance targets, not claims that the current core supports OR-style causal sufficiency or NPC knowledge reconciliation.
+
+
+## Delivery and acquisition evidence boundary
+
+`docs/48-npc-delivery-acquisition-boundary-matrix.md` specifies NPC-DELIV-001–010 for the future Core-owned delivery/acquisition path. It separates payload preparation, attempt, host acceptance, visible rendering, acknowledgement, comprehension, acquisition, belief, and canonical truth. These distinctions are mandatory semantics, not current runtime capabilities; do not treat prompt inclusion or host injection as proof that an NPC learned or believed something.
