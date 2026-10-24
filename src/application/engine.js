@@ -608,6 +608,15 @@ export class LogicEngine {
       } else {
         triggerSnapshot = x.triggers ?? [];
         completedTriggerSnapshot = x.completed_trigger_ids ?? [];
+        const registeredDue = this.store.listTimeTriggers(id)
+          .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= x.to_coordinate)
+          .map((trigger) => trigger.trigger_id);
+        if (registeredDue.length) {
+          throw new EngineError('TIME_TRIGGER_SOURCE_CONFLICT', 'Request-scoped planning cannot advance across registered pending triggers; use registered trigger mode or explicitly cancel/reconcile them.', 409, {
+            trigger_ids: registeredDue,
+            target_coordinate: x.to_coordinate,
+          });
+        }
       }
       plan = planDueWork({
         world_id: id,
