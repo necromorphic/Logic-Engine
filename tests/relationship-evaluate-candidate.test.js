@@ -893,3 +893,33 @@ test("rejects a mixed valid/invalid patch without exposing partial output or mut
   assert.deepEqual(patch, beforePatch);
   assert.deepEqual(dimensionRules, rules);
 });
+
+test("keeps explicit neutral distinct from unset and treats an existing neutral value as a no-op", () => {
+  const neutralRules = {
+    stance: {
+      values: ["neutral", "positive"],
+      allowClear: true,
+      transitions: [
+        { operation: "set", from: null, to: "neutral" },
+        { operation: "set", from: "neutral", to: "positive" },
+      ],
+    },
+  };
+  const fromUnset = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: {},
+    patch: { stance: "neutral" },
+    dimensionRules: neutralRules,
+  });
+  const alreadyNeutral = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: { stance: "neutral" },
+    patch: { stance: "neutral" },
+    dimensionRules: neutralRules,
+  });
+
+  assert.equal(fromUnset.status, "candidate");
+  assert.deepEqual(fromUnset.patch, { stance: "neutral" });
+  assert.equal(alreadyNeutral.status, "no_change");
+  assert.equal(alreadyNeutral.reason, "patch_matches_current_state");
+});
