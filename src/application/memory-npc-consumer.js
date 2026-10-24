@@ -130,6 +130,15 @@ export class MemoryNpcConsumer {
         continue;
       }
 
+      // Memory-owned freshness and index-health signals must come from the
+      // trusted provider. A stale/rebuilding candidate is not a complete-empty
+      // result, and the Core snapshot cursor cannot upgrade it to current.
+      if (candidate.freshness?.status !== 'current'
+        || candidate.lifecycle?.source_reconciliation !== 'current'
+        || candidate.lifecycle?.index_health !== 'ready') {
+        return nonReady('memory_source_not_current');
+      }
+
       let recordAllowed;
       try {
         recordAllowed = await this.memoryProvider.authorizeCandidate({
