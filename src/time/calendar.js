@@ -3,6 +3,11 @@ import { assertTimeCoordinate, differenceTimeCoordinates, TIME_UNITS_PER_DAY } f
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const positiveInteger = (value) => Number.isSafeInteger(value) && value > 0;
 const mod = (value, divisor) => ((value % divisor) + divisor) % divisor;
+const floorDivBigInt = (value, divisor) => {
+  const quotient = value / divisor;
+  const remainder = value % divisor;
+  return remainder < 0n ? quotient - 1n : quotient;
+};
 
 function validateCalendar(definition) {
   if (!object(definition)) throw new TypeError('calendar definition must be an object.');
@@ -94,8 +99,11 @@ export function projectFixedCalendar(coordinate, definition) {
   assertTimeCoordinate(coordinate);
   const { unitsPerDay, daysPerYear } = validateCalendar(definition);
   const delta = differenceTimeCoordinates(coordinate, definition.epoch.coordinate);
-  const dayOffset = Math.floor(delta / unitsPerDay);
-  const timeOfDayUnits = delta - dayOffset * unitsPerDay;
+  const deltaBig = BigInt(delta);
+  const dayOffsetBig = floorDivBigInt(deltaBig, BigInt(unitsPerDay));
+  const dayOffset = Number(dayOffsetBig);
+  if (!Number.isSafeInteger(dayOffset)) throw new RangeError('Calendar day offset exceeds the safe integer range.');
+  const timeOfDayUnits = Number(deltaBig - dayOffsetBig * BigInt(unitsPerDay));
 
   let epochDayIndex = definition.epoch.day - 1;
   for (let i = 0; i < definition.epoch.month - 1; i += 1) {
