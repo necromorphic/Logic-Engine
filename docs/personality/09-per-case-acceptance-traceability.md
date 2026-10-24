@@ -179,7 +179,7 @@ The following links pin the evidence to the branch/ref inspected during this aud
 - [Pure evaluator test source at audited commit `b2697e77ac0e97b1f7022656c08da5776fa29685`](https://github.com/necromorphic/Logic-Engine/blob/b2697e77ac0e97b1f7022656c08da5776fa29685/tests/relationship-evaluate-candidate.test.js)
 - [Successful Runtime tests run #591 for that exact evaluator commit](https://github.com/necromorphic/Logic-Engine/actions/runs/40058497617)
 
-- [Successful Runtime tests run #618 for the current Issue #73 PR head `cfa4ff604f9ade802ecbd83e8a94f49466cb08b7`](https://github.com/necromorphic/Logic-Engine/actions/runs/40059045655) — repository CI evidence for the PR head; does not imply Core/NPC integration is implemented.
+- [Successful Runtime tests run #618 for prior PR commit `cfa4ff604f9ade802ecbd83e8a94f49466cb08b7`](https://github.com/necromorphic/Logic-Engine/actions/runs/40059045655) — historical repository CI evidence for that exact commit, not the latest documentation head; does not imply Core/NPC integration is implemented.
 - [NPC consumer compatibility contract on `feat/npc-subsystem`](https://github.com/necromorphic/Logic-Engine/blob/feat/npc-subsystem/docs/52-npc-relationship-consumer-compatibility.md) — documentation-only contract, not an executable test.
 - [Relationship proposal test traceability on `feat/relationship-domain-module`](https://github.com/necromorphic/Logic-Engine/blob/feat/relationship-domain-module/docs/47-relationship-module-test-traceability.md)
 - [Relationship pure evaluation contract on `feat/relationship-domain-module`](https://github.com/necromorphic/Logic-Engine/blob/feat/relationship-domain-module/docs/48-relationship-pure-evaluation-contract.md)
