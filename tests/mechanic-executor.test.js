@@ -381,3 +381,30 @@ test('application executor does not expose malformed-condition exception details
   assert.equal(JSON.stringify(result).includes('Unsafe or empty rule path'), false);
   assert.deepEqual(result.effects, []);
 });
+
+
+test('application executor freezes the complete evaluation snapshot before trusted-provider access', (t) => {
+  const { engine, worldId } = setup(t, 'executor-immutable-snapshot-world');
+  enableFixture(engine, worldId);
+  let observedFrozen = false;
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext({ snapshot }) {
+      observedFrozen = Object.isFrozen(snapshot)
+        && Object.isFrozen(snapshot.entities)
+        && Object.isFrozen(snapshot.mechanic_evaluation_snapshot)
+        && Object.isFrozen(snapshot.mechanic_evaluation_snapshot.templates[0].template.actions[0]);
+      assert.throws(() => { snapshot.mechanic_evaluation_snapshot.templates[0].template.actions[0].effects[0].target_ref = 'entity.tampered'; }, TypeError);
+      return {
+        context: { world: { weather: 'rain' }, actor: { hp: 10 } },
+        knownAbsentPaths: [],
+        world_revision: snapshot.world_revision,
+        commit_sequence: snapshot.commit_sequence,
+        policy_version: 'test-immutable-snapshot-v1',
+      };
+    },
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(observedFrozen, true);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.effects[0].entity_id, 'entity.new');
+  assert.equal(engine.getState(worldId).world_revision, 2);
+});
