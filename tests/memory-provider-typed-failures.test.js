@@ -40,6 +40,7 @@ const record = {
 
 test('incomplete inventory persists a typed internal reason without exposing it in retrieval errors', async (t) => {
   const s = setup(t, { validateInventory: async () => false });
+  s.provider.grantQuery({ world_id: record.world_id, subject_id: record.subject_id, purpose: record.purpose }, true);
   s.provider.putRecord(record);
   await s.provider.rebuildIndex(record.world_id);
   assert.deepEqual(await s.provider.reconcile(record.world_id), {
@@ -77,6 +78,7 @@ test('source validation failure and unavailable Core snapshot have distinct pers
 
 test('failed index rebuild reason survives restart and remains internal-only', async (t) => {
   const s = setup(t);
+  s.provider.grantQuery({ world_id: record.world_id, subject_id: record.subject_id, purpose: record.purpose }, true);
   s.provider.putRecord(record);
   s.provider.db.exec(`CREATE TRIGGER fail_rebuild BEFORE INSERT ON memory_index_entries
     BEGIN SELECT RAISE(ABORT, 'injected failure'); END;`);
