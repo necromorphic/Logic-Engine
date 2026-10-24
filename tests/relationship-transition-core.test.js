@@ -774,6 +774,33 @@ test('projection rebuild preserves the exact historical rule-version pin when it
     reopenedStore.db.prepare(
       'DELETE FROM rule_module_manifests WHERE module_id=? AND version=?',
     ).run('relationship-rules', '1.0.0');
+
+    // A newer version may be registered, but exact historical lookup must not
+    // silently substitute it for the event's pinned 1.0.0 module.
+    reopenedEngine.registerRuleModuleManifest({
+      module_id: 'relationship-rules',
+      version: '2.0.0',
+      contract_version: '1.0.0',
+      capabilities: [],
+      operations: ['validate_transition'],
+      input_schema: {},
+      output_schema: {},
+      failure_policy: 'fail_closed',
+      compatibility: { core_contract_versions: ['1.0.0'] },
+      metadata: {
+        relationship_domain: {
+          world_pack_id: 'test-pack',
+          world_pack_version: '1.0.0',
+          dimensions: rules,
+        },
+      },
+    });
+    assert.equal(reopenedEngine.getRuleModuleManifest('relationship-rules', '2.0.0').manifest.version, '2.0.0');
+    assert.throws(
+      () => reopenedEngine.getRuleModuleManifest('relationship-rules', '1.0.0'),
+      (error) => error.code === 'RULE_MODULE_NOT_FOUND',
+    );
+
     reopenedStore.rebuild('world-relationship-test', 2);
 
     const eventAfterRestart = reopenedEngine.getEvents('world-relationship-test')
