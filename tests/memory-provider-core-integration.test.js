@@ -50,6 +50,7 @@ function setup(t, { twoRecords = false } = {}) {
     path: ':memory:',
     getSnapshot: snapshotReader,
     validateSourceVersion: sourceVersionValidator,
+    validateInventory: async () => true,
   });
   const scope = { world_id: worldId, subject_id: actorId, purpose: 'npc_decision' };
   provider.grantQuery(scope, true);
