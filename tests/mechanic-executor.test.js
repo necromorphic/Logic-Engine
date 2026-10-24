@@ -612,3 +612,29 @@ test('application executor refuses context whose canonical dependency evidence i
   assert.equal(mismatch.reason_code, 'DEPENDENCY_EVIDENCE_VALUE_MISMATCH');
   assert.deepEqual(mismatch.effects, []);
 });
+
+
+test('mechanic proposal cannot commit after an intervening world change', (t) => {
+  const { engine, worldId } = setup(t, 'executor-stale-commit-world');
+  enableFixture(engine, worldId);
+  const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  const proposals = new ProposalService(engine);
+  const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: 'mechanic-stale-commit',
+    turnId: 'turn-mechanic-stale-commit',
+    sourceText: 'This proposal must be rejected after the world changes.',
+    adapterId: 'test-adapter',
+  });
+  proposals.approve(worldId, proposal.proposal_id);
+  commit(engine, worldId, 'competing-world-change', 2, [{
+    kind: 'entity.create', entity_id: 'entity.competing', entity_type: 'object',
+  }]);
+  assert.throws(
+    () => proposals.commit(worldId, proposal.proposal_id),
+    (error) => error.code === 'STALE_PROPOSAL' && error.status === 409,
+  );
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.competing'), true);
+  assert.equal(proposals.get(worldId, proposal.proposal_id).status, 'approved');
+});
