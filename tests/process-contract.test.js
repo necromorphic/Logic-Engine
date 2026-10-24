@@ -62,6 +62,16 @@ test('rejects duplicate identities and missing prerequisites before scheduling',
   );
 });
 
+test('rejects a prerequisite scheduled after the milestone that depends on it', () => {
+  assert.throws(
+    () => normalizeProcessDefinition(processDefinition({ milestones: [
+      { milestone_id: 'child', trigger_id: 't-child', due_coordinate: 10, prerequisites: ['parent'], event: {} },
+      { milestone_id: 'parent', trigger_id: 't-parent', due_coordinate: 20, prerequisites: [], event: {} },
+    ] })),
+    (error) => error.code === 'PROCESS_MILESTONE_CAUSAL_TIME_ORDER',
+  );
+});
+
 test('rejects prerequisite cycles without choosing an order from timestamps', () => {
   assert.throws(
     () => normalizeProcessDefinition(processDefinition({ milestones: [
