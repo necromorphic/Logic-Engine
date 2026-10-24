@@ -220,7 +220,11 @@ export function evaluateRelationshipCandidate(input) {
     }
 
     const rule = dimensionRules[dimension];
-    if (!isRecord(rule) || !isDataArray(rule.values)
+    if (!isRecord(rule)
+        || !Object.keys(rule).every((key) =>
+          ["values", "allowClear", "allowSelfRelation", "transitions"].includes(key))
+        || (own(rule, "allowSelfRelation") && typeof rule.allowSelfRelation !== "boolean")
+        || !isDataArray(rule.values)
         || !Array.prototype.every.call(rule.values, (value) => typeof value === "string")
         || typeof rule.allowClear !== "boolean"
         || !isDataArray(rule.transitions)
