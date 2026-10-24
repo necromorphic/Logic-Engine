@@ -516,3 +516,32 @@ test('complete-empty result becomes non-ready when Core changes after the indexe
   assert.deepEqual(after.admitted, []);
   assert.deepEqual(after.candidates, []);
 });
+
+
+test('mutable provider candidate cannot rebind its source during asynchronous record authorization', async (t) => {
+  const { consumer, provider, setCandidates } = setup(t);
+  const original = candidateForMutation(provider, setCandidates);
+  provider.authorizeCandidate = async () => {
+    original.source.entity_id = 'unapproved-source';
+    return true;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'ready');
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].source_entity_id, 'source-a');
+  assert.equal(result.candidates[0].content['attributes.public_note'], 'authorized source text');
+});
+
+function candidateForMutation(provider, setCandidates) {
+  const result = provider.retrieveCandidates;
+  let candidate;
+  provider.retrieveCandidates = async () => {
+    const retrieved = await result();
+    candidate = retrieved.candidates[0];
+    return retrieved;
+  };
+  return {
+    get source() { return candidate.source; },
+  };
+}
