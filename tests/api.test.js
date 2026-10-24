@@ -157,7 +157,7 @@ test('proposal must be approved and cannot commit against a stale snapshot', asy
   assert.equal((await staleCommit.json()).error.code, 'STALE_PROPOSAL');
 });
 
-test('API registers a generation-bound context manifest and commits against it through the internal route', async (t) => {
+test('API registers a context manifest and commits against a matching generation label through the internal route', async (t) => {
   const base = await setup(t, { internalToken: INTERNAL, approvalToken: APPROVAL });
   assert.equal((await createWorld(base, 'manifest-api-world')).status, 201);
   const manifestBody = json({ generation_id: 'api-generation-1', base_commit_sequence: 0, base_world_revision: 0, items: [] });
