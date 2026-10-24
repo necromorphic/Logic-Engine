@@ -38,10 +38,17 @@ function transitionFromMatches(expected, current) {
   return expected === current;
 }
 
+function validTransitionFrom(value) {
+  if (value === null || typeof value === "string") return true;
+  if (!isRecord(value)) return false;
+  if (value.status === "value") return typeof value.value === "string";
+  return ["unset", "cleared", "withheld", "conflict", "insufficient_support",
+    "unsupported", "incomplete"].includes(value.status);
+}
+
 function transitionAllowed(rule, from, to, operation) {
-  return Array.isArray(rule.transitions) && rule.transitions.some((transition) =>
-    isRecord(transition)
-    && transition.operation === operation
+  return rule.transitions.some((transition) =>
+    transition.operation === operation
     && transitionFromMatches(transition.from, from)
     && transition.to === to
   );
@@ -167,8 +174,11 @@ export function evaluateRelationshipCandidate(input) {
           isRecord(transition)
           && (transition.operation === "set" || transition.operation === "clear")
           && own(transition, "from")
+          && validTransitionFrom(transition.from)
           && own(transition, "to")
-          && (typeof transition.to === "string" || transition.to === null)
+          && (transition.operation === "set"
+            ? typeof transition.to === "string" && rule.values.includes(transition.to)
+            : transition.to === null)
         )) {
       return result("unsupported", {
         reason: "dimension_rule_incomplete",
