@@ -2,7 +2,7 @@
 
 **Status:** evidence-based integration audit, documentation only.  
 **Audit date:** 2026-10-24.  
-**Main baseline checked:** `6cf496a4f7d4000e7f10f6b963e873d260c1b17a`.  
+**Main baseline checked:** `378123fec5fc07dd4251ebe2028831da51a30fff`.  
 **Purpose:** keep parallel Core, Memory, Relationships, NPC, and Personality work compatible without treating an open PR or a branch-local proposal as shipped runtime behavior.
 
 This document records observed repository state and integration gates. It does not approve a new API, schema, storage model, authorization policy, or merge. Re-check branch heads before acting on this snapshot.
@@ -33,7 +33,7 @@ This document records observed repository state and integration gates. It does n
 | Pure relationship candidate evaluation | [PR #62](https://github.com/necromorphic/Logic-Engine/pull/62) | Main runtime; exact-head tests passed before merge | The evaluator returns a candidate only. It does not resolve identities, authorize evidence, write state, create events, or provide rollback. Its input shape is not a Core API or wire format. |
 | Relationship module boundary and test traceability | [PR #80](https://github.com/necromorphic/Logic-Engine/pull/80), [PR #91](https://github.com/necromorphic/Logic-Engine/pull/91) | Selected Relationship boundary and Core handoff docs are integrated on main; source PR #60 was closed unmerged | Domain semantics can be reviewed independently; the docs do not imply a consumer runtime. Canonical writing is implemented separately in #94–#96. |
 | Memory record/retrieval/summary contracts | [PR #81](https://github.com/necromorphic/Logic-Engine/pull/81), [PR #97](https://github.com/necromorphic/Logic-Engine/pull/97) | Memory contracts and Memory→NPC reconciliation are integrated on main; runtime retrieval/auth remains unimplemented | Retrieval must remain separate from access authorization and NPC knowledge acquisition. Memory must not become a second canonical or belief store. |
-| NPC knowledge acquisition, delivery, and belief boundary | [NPC proposal](https://github.com/necromorphic/Logic-Engine/blob/feat/npc-subsystem/docs/39-npc-core-knowledge-contract-proposal.md), current branch head `dba4bd9c` (see also [PR #76](https://github.com/necromorphic/Logic-Engine/pull/76)) | Branch-local proposal; branch diverges from main (200 ahead / 17 behind at audit) | The semantic boundary is specified, but no claim of NPC production runtime integration is supported by this branch document. Avoid merging/rebasing the branch as a shortcut. |
+| NPC knowledge acquisition, delivery, and belief boundary | [PR #98](https://github.com/necromorphic/Logic-Engine/pull/98), legacy divergent [PR #76](https://github.com/necromorphic/Logic-Engine/pull/76) | Current NPC-owned contract docs are integrated on main; PR #76 remains Draft/unmerged and divergent | Semantic contract is available on main, but no NPC production runtime integration is supported. Do not merge/rebase the divergent branch as a shortcut. |
 | Personality traits and relationship interpretation | [PR #79](https://github.com/necromorphic/Logic-Engine/pull/79), [PR #93](https://github.com/necromorphic/Logic-Engine/pull/93) | Selected cross-block docs and per-case executable evidence traceability are integrated on main | Personality owns stable-trait semantics and interpretation; it does not own canonical persistence, authorization, or rollback. Keep its acceptance IDs and crosswalks; do not duplicate relationship acceptance systems. |
 | Older Personality subsystem branch | `feat/personality-subsystem` | Diverged (62 ahead / 14 behind at audit) | Do not base a new integration PR on this branch without explicit reconciliation; use the ahead-only crosswalk branch as the safer review reference for its listed docs, subject to owner review. |
 
@@ -89,7 +89,7 @@ Required:
 
 ### Gate 4 — Define Memory-to-NPC knowledge lifecycle
 
-Evidence: PR #68 is docs-only. NPC `docs/39` is a proposal on a divergent branch. The Memory decision register leaves authorization, source-change notification/reconciliation, storage transaction boundary, and NPC-owned actor/delivery identifiers open.
+Evidence: Memory contracts are integrated through PR #81 and the Memory↔NPC reconciliation through PR #97; the current NPC contract package is integrated through PR #98. These are documentation-only. The actual authorized retrieval boundary, source-change/reconciliation signal, persistence transaction boundary, and NPC-owned actor/delivery runtime remain open.
 
 Required before Memory runtime finalization:
 1. Approve the minimal retrieval response and the owner of each field.
