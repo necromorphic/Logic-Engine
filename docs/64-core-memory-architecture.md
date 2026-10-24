@@ -61,3 +61,11 @@ No automatic NPC belief update; no universal numeric confidence score; no automa
 ## 7. Implementation gate
 
 Before runtime work, confirm the storage transaction boundary, canonical event/revision hooks, available authorization service, repository migration conventions, and NPC acquisition contract. Open PRs are proposals, not integrated dependencies. Any new API/schema or Core mutation semantics require review by the owning block.
+
+## Current-main runtime checkpoint — Issue #129, 2026-10-24
+
+The authoritative post-Core-change audit is [docs/73-memory-current-main-core-boundary-handoff.md](73-memory-current-main-core-boundary-handoff.md), based on `main` SHA `908d9b8a157d374f8a72491d9f57878693f01452`. It supersedes older statements in this document about whether Core PRs #65, #101, #102, #103, #106, or #114 are open, merged, or absent from main.
+
+Current state: PRs #65/#101/#102/#103/#106/#114 are merged runtime changes, but #101's trusted `authorizedReadFieldPolicy` is opt-in and no production Memory policy is configured. The default HTTP read remains self-identity-only. PR #114 makes a trusted operational state snapshot revision-bound and exposes `world_revision` with `commit_sequence`; it does not supply Memory with a durable source-change feed or general authorized retrieval. The Memory record/retrieval/index/summary runtime remains unimplemented. Rollback-aware reconciliation, complete retrieval status, source/version lineage, summary permission propagation, and Memory persistence/transaction ownership remain blocked or proposal-only. See the handoff for exact owners, fail-closed rules, and acceptance tests.
+
+This checkpoint does not approve a new runtime API/schema/store/outbox/cursor/permission enum and does not close NPC Issue #70 or Core Issue #77.
