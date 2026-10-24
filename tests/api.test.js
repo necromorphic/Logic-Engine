@@ -782,3 +782,58 @@ test('translated fact intents use the same canonical fact-identity guard as dire
   assert.equal((await retry.json()).proposal.status, 'pending');
   assert.equal((await (await fetch(base + '/v1/worlds/intent-fact-identity-world/state', { headers })).json()).state.world_revision, 1);
 });
+
+test('translated duplicate fact IDs are rejected by the canonical commit guard without durable writes', async (t) => {
+  const base = await setup(t, { approvalToken: APPROVAL });
+  assert.equal((await createWorld(base, 'translated-duplicate-facts-world')).status, 201);
+
+  const created = await fetch(base + '/v1/worlds/translated-duplicate-facts-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'translated-duplicate-facts-proposal',
+      source_text: 'The same fact is asserted twice.',
+      event: {
+        turn_id: 'translated-duplicate-facts-turn',
+        event_type: 'action.completed',
+        effect_intents: [
+          {
+            effect_id: 'first-claim',
+            kind: 'assert_fact',
+            target_ref: 'same-fact',
+            payload: { predicate: 'status', subject_ref: 'mira', value: 'alive' },
+          },
+          {
+            effect_id: 'second-claim',
+            kind: 'assert_fact',
+            target_ref: 'same-fact',
+            payload: { predicate: 'status', subject_ref: 'mira', value: 'missing' },
+          },
+        ],
+      },
+    }),
+  });
+  assert.equal(created.status, 201);
+  const proposal = (await created.json()).proposal;
+  const approved = await fetch(base + '/v1/worlds/translated-duplicate-facts-world/proposals/' + proposal.proposal_id + '/approve', {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  });
+  assert.equal(approved.status, 200);
+
+  const stateBefore = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/state', { headers })).json()).state;
+  const eventsBefore = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/events', { headers })).json()).events;
+  const auditBefore = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/audit', { headers })).json()).audit;
+  const committed = await fetch(base + '/v1/worlds/translated-duplicate-facts-world/proposals/' + proposal.proposal_id + '/commit', {
+    method: 'POST', headers, body: '{}',
+  });
+  assert.equal(committed.status, 400);
+  assert.equal((await committed.json()).error.code, 'DUPLICATE_FACT_EFFECT');
+
+  const stateAfter = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/state', { headers })).json()).state;
+  const eventsAfter = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/events', { headers })).json()).events;
+  const auditAfter = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/audit', { headers })).json()).audit;
+  assert.equal(stateAfter.world_revision, stateBefore.world_revision);
+  assert.deepEqual(stateAfter.facts, stateBefore.facts);
+  assert.deepEqual(eventsAfter, eventsBefore);
+  assert.equal(auditAfter.length, auditBefore.length);
+});
+
