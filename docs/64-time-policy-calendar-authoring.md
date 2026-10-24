@@ -37,5 +37,5 @@ The API requires the general bearer token in addition to the separate admin/inte
 - TimePolicy limits cannot exceed the existing seven-day per-event safety ceiling.
 - The active TimePolicy is per-world and pinned to the world's World Pack ID/version, but this slice does not fetch or parse World Pack files itself.
 - Calendar configuration changes alter future projections only; they never mutate the canonical coordinate.
-- Author-required duration decisions currently return a typed conflict. A dedicated author-resolution workflow is not implemented.
+- Author-required duration decisions use the existing proposal approval boundary: a proposal may suggest `duration_proposal: { duration_ms }`, Core reports `time_policy.status = needs_author` at proposal creation, and the separate approval credential can approve only a candidate within the configured range. Approval revalidates against the current world revision and active configuration, records the resolved decision in audit, and commit rechecks the same version. Direct event commits cannot assert author approval.
 - NPC knowledge, player delivery, and persistent trigger registration remain separate systems.
