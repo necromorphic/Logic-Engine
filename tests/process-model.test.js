@@ -39,7 +39,7 @@ test('rejects duplicate, past, unknown, cyclic, or causally reversed milestones'
   }, 'world-a', 0), (error) => error.code === 'PROCESS_MILESTONE_NOT_FUTURE');
 
   assert.throws(() => normalizeProcessDefinition({
-    process_id: 'p', idempotency_key: 'k', milestones: [milestone('a', 1, { dependencies: ['missing'] })],
+    process_id: 'p', idempotency_key: 'k', expected_revision: 0, milestones: [milestone('a', 1, { dependencies: ['missing'] })],
   }, 'world-a', 0), (error) => error.code === 'PROCESS_DEPENDENCY_NOT_FOUND');
 
   assert.throws(() => normalizeProcessDefinition({
