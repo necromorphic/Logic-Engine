@@ -13,6 +13,14 @@ const ALLOW = "allow";
 const SAFE_RESULT_COMPLETENESS = "complete";
 const READY_SOURCE_STATES = new Set(["current"]);
 const READY_LINEAGE_STATES = new Set(["complete"]);
+const KNOWN_CONTENT_KINDS = new Set([
+  "claim",
+  "report",
+  "summary",
+  "author_initial",
+  "imported",
+  "inference",
+]);
 const KNOWN_EPISTEMIC_KINDS = new Set([
   "canonical",
   "acquired_report",
@@ -66,6 +74,7 @@ function candidateRejection(candidate, request) {
   if (!matchesRequest(candidate, request)) return "scope_mismatch";
   if (candidate.access?.outcome !== ALLOW) return "access_not_allowed";
   if (!validReference(candidate.record)) return "record_identity_incomplete";
+  if (!KNOWN_CONTENT_KINDS.has(candidate.content_kind)) return "content_kind_unknown";
   if (!KNOWN_EPISTEMIC_KINDS.has(candidate.epistemic_kind)) return "epistemic_kind_unknown";
   if (!READY_SOURCE_STATES.has(candidate.freshness?.status)) return "source_not_current";
   if (!sameSnapshot(candidate, request)) return "snapshot_mismatch";
