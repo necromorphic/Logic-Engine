@@ -906,6 +906,12 @@ export class SQLiteStore {
         if (!factId || !this.db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, factId)) {
           throw new EngineError('INVALID_DEPENDENCY_REFERENCE', 'depends_on references a fact that does not exist in this world: ' + ref, 400, { reference: ref });
         }
+      } else if (ref.startsWith('relationship:')) {
+        const pair = parseRelationshipRef(ref);
+        if (!pair || !this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, pair.subjectId)
+          || !this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, pair.targetId)) {
+          throw new EngineError('INVALID_DEPENDENCY_REFERENCE', 'depends_on Relationship reference must identify two entities in this world.', 400, { reference: ref });
+        }
       } else {
         this.validateEventReference(worldId, ref, nextRevision, 'depends_on');
       }
@@ -913,14 +919,19 @@ export class SQLiteStore {
     for (const ref of event.read_set) {
       const isEntity = ref.startsWith('entity:') && ref.length > 'entity:'.length;
       const isFact = ref.startsWith('fact:') && ref.length > 'fact:'.length;
-      if (!isEntity && !isFact) {
-        throw new EngineError('INVALID_READ_SET_REFERENCE', 'This runtime supports read_set references of the form entity:id or fact:id.', 400, { reference: ref });
+      const relationshipPair = parseRelationshipRef(ref);
+      if (!isEntity && !isFact && !relationshipPair) {
+        throw new EngineError('INVALID_READ_SET_REFERENCE', 'read_set references must identify an entity, fact, or directed Relationship pair.', 400, { reference: ref });
       }
       if (isEntity && !this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, ref.slice('entity:'.length))) {
         throw new EngineError('INVALID_READ_SET_REFERENCE', 'read_set entity must exist in the current world at commit time: ' + ref, 400, { reference: ref });
       }
       if (isFact && !this.db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, ref.slice('fact:'.length))) {
         throw new EngineError('INVALID_READ_SET_REFERENCE', 'read_set fact must exist in the current world at commit time: ' + ref, 400, { reference: ref });
+      }
+      if (relationshipPair && (!this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, relationshipPair.subjectId)
+        || !this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, relationshipPair.targetId))) {
+        throw new EngineError('INVALID_READ_SET_REFERENCE', 'read_set Relationship pair must identify two entities in this world.', 400, { reference: ref });
       }
     }
     for (const link of event.causal_links ?? []) {
@@ -1180,6 +1191,13 @@ export class SQLiteStore {
           const after = this.factProjectionAtCursor(id, event.commit_sequence, invalid).get(factId);
           return !sameFactProjection(before, after);
         }
+        if (ref.startsWith('relationship:')) {
+          const pair = parseRelationshipRef(ref);
+          if (!pair) return false;
+          const before = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, event.commit_sequence);
+          const after = this.relationshipProjectionAtCursor(id, pair.subjectId, pair.targetId, event.commit_sequence, invalid);
+          return !isDeepStrictEqual(before, after);
+        }
         return false;
       };
       let changed = true;
@@ -1305,11 +1323,48 @@ export class SQLiteStore {
       needs_review_reason: row.needs_review_reason, last_event_id: row.last_event_id };
   }
 
+
+  relationshipProjectionAtCursor(worldId, subjectId, targetId, cursor, excluded = new Set()) {
+    const values = new Map();
+    const rows = this.db.prepare("SELECT event_id,commit_sequence,effects_json FROM world_events WHERE world_id=? AND validity='valid' AND commit_sequence<? ORDER BY commit_sequence")
+      .all(worldId, cursor);
+    for (const row of rows) {
+      if (excluded.has(row.event_id)) continue;
+      for (const effect of dec(row.effects_json)) {
+        if (effect.kind !== 'relationship.transition' || effect.subject_id !== subjectId || effect.target_id !== targetId) continue;
+        for (const [dimension, value] of Object.entries(effect.patch)) {
+          const cleared = value && typeof value === 'object' && value.operation === 'clear';
+          values.set(dimension, cleared ? { status: 'cleared' } : { status: 'value', value });
+        }
+      }
+    }
+    return Object.fromEntries([...values.entries()].sort(([a], [b]) => a.localeCompare(b)));
+  }
+
+  getRelationshipPair(worldId, subjectId, targetId) {
+    const w = this.world(worldId);
+    if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    const rows = this.db.prepare('SELECT dimension,status,value_json,rule_module_id,rule_module_version,last_event_id,updated_revision FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? ORDER BY dimension')
+      .all(worldId, subjectId, targetId);
+    const dimensions = {};
+    for (const row of rows) {
+      Object.defineProperty(dimensions, row.dimension, {
+        value: row.status === 'cleared' ? { status: 'cleared' } : dec(row.value_json),
+        enumerable: true, configurable: true, writable: true,
+      });
+    }
+    return {
+      world_id: worldId, subject_id: subjectId, target_id: targetId, dimensions,
+      world_revision: w.world_revision, commit_sequence: this.currentCommitSequence(worldId),
+    };
+  }
+
   rebuild(id, revision) {
     this.db.prepare('DELETE FROM mechanic_instances WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM entities WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM facts WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM fact_claims WHERE world_id=?').run(id);
+    this.db.prepare('DELETE FROM relationships WHERE world_id=?').run(id);
     const events = this.db.prepare("SELECT * FROM world_events WHERE world_id=? AND validity='valid' ORDER BY commit_sequence").all(id);
     const upsertEntity = this.db.prepare(`INSERT INTO entities(
       world_id,entity_id,entity_type,status,attributes_json,created_by_event_id,updated_revision
@@ -1322,7 +1377,18 @@ export class SQLiteStore {
     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL,?)`);
     for (const event of events) {
       for (const effect of dec(event.effects_json)) {
-        if (effect.kind === 'mechanic.instance.create') {
+        if (effect.kind === 'relationship.transition') {
+          const upsertRelationship = this.db.prepare(`INSERT INTO relationships(
+            world_id,subject_id,target_id,dimension,status,value_json,rule_module_id,rule_module_version,last_event_id,updated_revision
+          ) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(world_id,subject_id,target_id,dimension) DO UPDATE SET
+            status=excluded.status,value_json=excluded.value_json,rule_module_id=excluded.rule_module_id,
+            rule_module_version=excluded.rule_module_version,last_event_id=excluded.last_event_id,updated_revision=excluded.updated_revision`);
+          for (const [dimension, value] of Object.entries(effect.patch)) {
+            const cleared = value && typeof value === 'object' && value.operation === 'clear';
+            upsertRelationship.run(id, effect.subject_id, effect.target_id, dimension, cleared ? 'cleared' : 'value',
+              cleared ? null : enc(value), effect.rule_module_id, effect.rule_module_version, event.event_id, event.committed_revision);
+          }
+        } else if (effect.kind === 'mechanic.instance.create') {
           insertMechanic.run(id, effect.instance_id, effect.template_id, effect.template_version, 'disabled', enc(effect.parameters || {}), enc(effect.state || {}), event.event_id, event.committed_revision, event.committed_revision, event.committed_revision, event.event_id);
         } else if (effect.kind === 'mechanic.instance.enable' || effect.kind === 'mechanic.instance.disable') {
           const current = this.db.prepare('SELECT status FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(id, effect.instance_id);
