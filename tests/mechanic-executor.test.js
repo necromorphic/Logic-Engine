@@ -496,3 +496,14 @@ test('application executor rejects a snapshot when the world changes during targ
   assert.deepEqual(result.effects, []);
   assert.equal(engine.getState(worldId).world_revision, 3);
 });
+
+
+test('application executor rejects required capabilities without a grant contract', (t) => {
+  const { engine, worldId } = setup(t, 'executor-capability-world');
+  enableFixture(engine, worldId, template({ required_capabilities: ['world.write'] }));
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'UNSUPPORTED_MECHANIC_CAPABILITIES');
+  assert.deepEqual(result.effects, []);
+});
