@@ -71,7 +71,7 @@ export class MechanicExecutor {
     // Require the same revision/cursor as the mechanic snapshot to avoid mixing
     // two different world states.
     const entityIds = [...new Set(action.effects
-      .filter((effect) => effect.kind === 'update_attribute')
+      .filter((effect) => ['create_entity', 'update_attribute'].includes(effect.kind))
       .map((effect) => effect.target_ref))];
     let targetEntities = [];
     if (entityIds.length) {
@@ -113,10 +113,11 @@ export class MechanicExecutor {
       return unknown('AUTHORIZED_CONTEXT_SNAPSHOT_MISMATCH', 'Trusted context must identify the exact world revision and commit sequence and policy version used by this evaluation.', identity);
     }
 
+    const knownAbsentPaths = [...new Set(resolved.knownAbsentPaths ?? [])].sort();
     let conditionResult;
     try {
       conditionResult = evaluateMechanicActionConditions(template, actionId, resolved.context, {
-        knownAbsentPaths: resolved.knownAbsentPaths ?? [],
+        knownAbsentPaths,
       });
     } catch (error) {
       return unknown('MECHANIC_CONDITION_EVALUATION_FAILED', 'Condition evaluation failed closed: ' + error.message, identity);
@@ -154,7 +155,7 @@ export class MechanicExecutor {
 
     const contextFingerprint = hashRequest({
       context: resolved.context,
-      knownAbsentPaths: resolved.knownAbsentPaths ?? [],
+      knownAbsentPaths,
       policy_version: resolved.policy_version,
     });
     const evaluationIdentity = {
