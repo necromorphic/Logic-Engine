@@ -1097,6 +1097,12 @@ test('committed mechanic execution provenance survives SQLite close and reopen',
     assert.ok(reopenedEvent);
     assert.deepEqual(reopenedEvent.mechanic_execution, expectedMetadata);
     assert.deepEqual(reopenedEvent.mechanic_execution.effect_provenance, evaluation.effect_provenance);
+    const reopenedProposals = new ProposalService(reopenedEngine);
+    const reopenedProposal = reopenedProposals.get(worldId, proposal.proposal_id);
+    assert.deepEqual(reopenedProposal.mechanic_execution, expectedMetadata);
+    const replayedCommit = reopenedProposals.commit(worldId, proposal.proposal_id);
+    assert.equal(replayedCommit.status, 'committed');
+    assert.equal(replayedCommit.commit_result.idempotent_replay, true);
     assert.equal(reopenedEngine.getState(worldId).world_revision, 3);
   } finally {
     store?.close();
