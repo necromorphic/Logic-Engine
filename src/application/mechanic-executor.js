@@ -77,9 +77,13 @@ export class MechanicExecutor {
     // checks. It is never passed to the context provider or returned to callers.
     // Require the same revision/cursor as the mechanic snapshot to avoid mixing
     // two different world states.
-    const entityIds = [...new Set(action.effects
-      .filter((effect) => ['create_entity', 'update_attribute'].includes(effect.kind))
-      .map((effect) => effect.target_ref))];
+    const entityIds = [...new Set(action.effects.flatMap((effect) => {
+      if (['create_entity', 'update_attribute'].includes(effect.kind)) return [effect.target_ref];
+      if (effect.kind === 'assert_fact' && typeof effect.payload?.subject_ref === 'string' && effect.payload.subject_ref.trim()) {
+        return [effect.payload.subject_ref];
+      }
+      return [];
+    }))];
     let targetEntities = [];
     if (entityIds.length) {
       const targetState = this.engine.getState(worldId);
@@ -170,6 +174,10 @@ export class MechanicExecutor {
       } else if (effect.kind === 'entity.update') {
         if (!existingEntities.has(effect.entity_id)) {
           return unknown('MECHANIC_EFFECT_TARGET_NOT_FOUND', 'An update_attribute target must exist in the same-world snapshot.', identity);
+        }
+      } else if (effect.kind === 'fact.set' && effect.subject_ref !== undefined && effect.subject_ref !== null) {
+        if (!existingEntities.has(effect.subject_ref) && !createdEntities.has(effect.subject_ref)) {
+          return unknown('MECHANIC_EFFECT_SUBJECT_NOT_FOUND', 'An assert_fact subject_ref must identify an entity in this world or an entity created earlier in this action.', identity);
         }
       }
     }
