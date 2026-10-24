@@ -8,14 +8,14 @@ Related:
 - `docs/27-proposal-to-commit-boundary.md`
 - `docs/28-proposal-api-stage1.md`
 - `docs/50-core-trusted-mutation-origin-contract.md` (the proposal from PR #63 was ported to main via PR #82; trusted import/correction runtime remains unimplemented)
-- `docs/53-core-http-service-boundary-audit.md` (proposed in PR #67; not merged)
+- `docs/53-core-http-service-boundary-audit.md` (integrated on main via PR #104; current-main disposition included)
 - `docs/55-core-context-manifest-trust-contract.md` (trusted producer and generation-binding proposal)
 
 ## 1. Verified current boundary
 
 The current proposal lifecycle records the creating adapter, requires a separate shared approval credential to approve, rechecks the captured world revision and commit sequence before commit, and records the commit through the canonical event path.
 
-The current HTTP contract does not require the creating adapter identity on `POST /v1/worlds/:world_id/proposals/:proposal_id/commit`. A caller with the general API bearer who knows an approved proposal ID can therefore trigger its commit. This does not bypass the approved-state or stale-proposal checks, but it does separate execution authority from proposal ownership without an explicit policy.
+Historical finding at the pre-PR-103 audit baseline: the public commit route did not require the creating adapter identity, allowing a general-bearer caller who knew an approved proposal ID to trigger commit. PR #103 closes this gap by requiring adapter authentication and a creator match; the separate internal-token route remains the trusted orchestration path.
 
 The internal events route is a distinct path: when enabled, it requires the general API bearer plus the internal credential and accepts only the ID of an already-approved proposal. It is not arbitrary event injection. Neither fact establishes a complete policy for every possible executor.
 
@@ -86,7 +86,7 @@ Tests must exercise the actual HTTP routes and service/transaction path, not onl
 
 ## 7. Open decision and implementation gate
 
-The recommended policy above remains **pending Core owner review**. Before runtime work, confirm whether the product requires any adapter to execute another adapter's approved proposal. If yes, specify the trusted orchestrator identity and capability boundary explicitly.
+The first-slice policy is implemented by PR #103 as described in the runtime-status addendum. The product may still choose to introduce a central cross-adapter orchestrator later, but it must be an explicit capability decision rather than a general-bearer side effect.
 
 Until this decision is approved, keep the current behavior documented as a known boundary; do not silently change API/schema semantics or treat this proposal as authorization to merge a runtime patch.
 
