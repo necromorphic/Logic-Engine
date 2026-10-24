@@ -230,6 +230,17 @@ test('nested JSON payloads are bounded by depth, container size, and total node 
     () => translateMechanicEffectIntents(largeBatch),
     code('INVALID_MECHANIC_EFFECT_INTENT'),
   );
+
+  const largeUpdateBatch = Array.from({ length: 11 }, (_, index) => intent({
+    effect_id: 'update-' + index,
+    kind: 'update_attribute',
+    target_ref: 'entity.' + index,
+    payload: { attributes: Object.fromEntries(Array.from({ length: 1000 }, (__, fieldIndex) => ['field' + fieldIndex, fieldIndex])) },
+  }));
+  assert.throws(
+    () => translateMechanicEffectIntents(largeUpdateBatch),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
 });
 
 test('target identifiers and batch size are bounded', () => {
