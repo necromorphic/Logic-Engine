@@ -60,6 +60,9 @@ These IDs are defined in `06-stable-trait-lifecycle.md`; this crosswalk makes ea
 | PERS-TRAIT-008 | 06 §7; 01 §3 | Project player-control contract; Personality/NPC must respect it | Specified | No runtime player-control test claimed |
 | PERS-TRAIT-009 | 06 §7; 03 §4 | Core actor/purpose-authorized read | Specified | Integration blocked |
 | PERS-TRAIT-010 | 06 §8; 03 §6 | Core rollback/rebuild for supported trait-development event | Conditional target | Integration blocked |
+| PERS-TRAIT-011 | 06 §§2, 7 | Personality category semantics; underlying record support where applicable | Specified | Classification boundary not runtime-tested |
+| PERS-TRAIT-012 | 06 §§2, 9 | Authoring/review boundary; preserve unresolved ambiguity | Specified | Authoring workflow not runtime-tested |
+| PERS-TRAIT-013 | 06 §§5, 9 | Personality semantics; author review for consequential unresolved conflict | Specified | No automatic motive inference claimed |
 
 ## Legacy relationship acceptance-ID crosswalk
 
