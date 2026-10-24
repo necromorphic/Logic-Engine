@@ -436,7 +436,7 @@ Reviewed the NPC-owned proposal `docs/53-npc-memory-lifecycle-vocabulary-crosswa
 
 ### Branch synchronization and sequence
 
-Current comparison against `main` reports Memory `feat/core-memory-contracts` as 100 commits ahead / 2 behind, and NPC `feat/npc-subsystem` as 251 ahead / 19 behind. These branches have diverged histories; do not equate commit counts with the number of feature changes or attempt a blind merge. `main` already contains merged PR #72 (merge commit `506d3a6376a3b0209afb8622db61cbbb4ef98c0a`) and PR #74 (merge commit `683cbc3866468585173da8ad3e717d87be9e570a`); do not port their changes a second time.
+At the initial comparison for this checkpoint, `main` reported Memory `feat/core-memory-contracts` as 100 commits ahead / 2 behind, and NPC `feat/npc-subsystem` as 251 ahead / 19 behind. Branch counts are time-sensitive; re-run the comparison immediately before synchronization. These branches have diverged histories; do not equate commit counts with the number of feature changes or attempt a blind merge. `main` already contains merged PR #72 (merge commit `506d3a6376a3b0209afb8622db61cbbb4ef98c0a`) and PR #74 (merge commit `683cbc3866468585173da8ad3e717d87be9e570a`); do not port their changes a second time.
 
 Recommended integration order, conditional on explicit review/approval:
 
@@ -449,3 +449,6 @@ Recommended integration order, conditional on explicit review/approval:
 ### Disposition
 
 Memory docs PR #68 has current-head CI success; Core PR #65 also has current-head CI success. Those are positive test results for their own heads, not integration readiness. NPC PR #76 has no confirmed CI for its current head. The production Memory→NPC path, approved general authorized-read policy, rollback-aware source reconciliation contract, and cross-owner transition/persistence boundary remain unresolved. No merge is recommended at this checkpoint, and no PR was merged by this work.
+### Post-update CI and moving-main correction — 2026-10-24
+
+After this audit commit, PR #68 advanced to `fb4c8b5d88981becd99f44cd9c21fc8beac2da45`. Runtime-tests run [40061844383](https://github.com/necromorphic/Logic-Engine/actions/runs/40061844383) was queued at the time of recheck; therefore the new head's CI is **pending**, while the previous head `2857c507...` remains CI-successful. The latest comparison against the moving `main` now reports this Memory branch 101 commits ahead / 5 behind, so the earlier 2-behind figure is historical only. Reconcile against the then-current `main` immediately before any integration. No PR was merged.
