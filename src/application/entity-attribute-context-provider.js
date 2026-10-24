@@ -86,8 +86,8 @@ export class CanonicalEntityAttributeContextProvider {
     this.canRead = canRead ?? null;
     this.authorizedReadService = authorizedReadService ?? null;
     this.readPrincipal = useAuthorizedReadService ? Object.freeze({
-      adapter_id: adapterId.trim(),
-      actor_entity_id: actorEntityId.trim(),
+      adapterId: adapterId.trim(),
+      actorEntityId: actorEntityId.trim(),
       recipient,
       purpose,
     }) : null;
