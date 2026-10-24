@@ -321,3 +321,12 @@ After recording the access-binding resolution, PR metadata advanced again to `6c
 A new source-level concern was sent to NPC Issue #70: `evidence_assessment` is required to be non-empty but is not considered by `lifecycleIsAdmissible()`, and it is omitted from the admitted reference projection. Core Memory's proposal lists `unassessed`, `supported`, `disputed`, and `insufficient` where a typed policy defines their semantics. Memory acceptance case **MEM-039** now requires the admission boundary to preserve this distinction for downstream handling or fail closed where semantics are not approved. This is a contract review finding, not an executed test failure.
 
 The exact-head workflow query for `6cf3b704d625e7098fa3ca98beb6323bf21d28a3` returned no PR-triggered runs. No pass/fail conclusion is established. PR #76 must remain Draft until exact-head test evidence and contract review are available.
+
+
+## Exact-head refresh — NPC PR #76, 2026-10-24 (MEM-039 still open after side-channel fix)
+
+The newest observed PR #76 head is `382311db34a8e0662cfd47f773756dcad6684b9a`, open Draft/unmerged. Current source confirms the request/candidate access-decision binding and summary-lineage scope gates. The NPC owner also removed candidate-level rejection diagnostics and status differences that could reveal whether filtered candidates existed; this closes that particular consumer-side side-channel at the helper output boundary.
+
+**MEM-039 remains a review gate.** At this exact head, `evidence_assessment` is required to be non-empty, but `lifecycleIsAdmissible()` does not interpret it and the admitted metadata omits it. The test file has no dedicated supported/disputed/insufficient/unassessed cases. NPC has been asked to preserve the assessment in safe admitted metadata for downstream policy handling, or fail closed where semantics are not approved, with tests for those states. This does not prescribe a universal policy and is a source-review finding, not an executed test failure.
+
+Exact-head workflow query for `382311db34a8e0662cfd47f773756dcad6684b9a` returned zero PR-triggered runs. Current-head test status remains unverified. Keep PR #76 Draft until this contract question and reproducible test validation are resolved.
