@@ -35,10 +35,10 @@ function createLegacyDatabase(path) {
     );
     INSERT INTO worlds(world_id,world_pack_id,world_pack_version,initial_game_time,game_time,world_revision,status,created_at)
       VALUES('legacy-world','test.world','1.0.0','2005-12-29T10:00:00.000Z','2005-12-29T10:05:00.000Z',2,'active','2005-12-29T10:00:00.000Z');
-    INSERT INTO world_events(event_id,world_id,turn_id,event_type,game_time,committed_revision,validity,caused_by_json,depends_on_json,read_set_json,effects_json,created_at)
+    INSERT INTO world_events(event_id,world_id,turn_id,event_type,game_time,committed_revision,validity,caused_by_json,depends_on_json,read_set_json,effects_json,time_advance_seconds,created_at)
       VALUES
-        ('legacy-event-1','legacy-world','turn-1','action.completed','2005-12-29T10:01:00.000Z',1,'valid','[]','[]','[]','[]','2005-12-29T10:01:00.000Z'),
-        ('legacy-event-2','legacy-world','turn-2','action.completed','2005-12-29T10:05:00.000Z',2,'valid','[]','[]','[]','[]','2005-12-29T10:05:00.000Z');
+        ('legacy-event-1','legacy-world','turn-1','action.completed','2005-12-29T10:01:00.000Z',1,'valid','[]','[]','[]','[]',60,'2005-12-29T10:01:00.000Z'),
+        ('legacy-event-2','legacy-world','turn-2','action.completed','2005-12-29T10:05:00.000Z',2,'valid','[]','[]','[]','[]',0,'2005-12-29T10:05:00.000Z');
     INSERT INTO idempotency_keys(world_id,idempotency_key,response_json,created_at)
       VALUES('legacy-world','legacy-key','{"accepted":true}','2005-12-29T10:05:00.000Z');
     INSERT INTO context_manifests(manifest_id,world_id,generation_id,base_commit_sequence,items_json,manifest_hash,created_at)
@@ -73,7 +73,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   assert.deepEqual(
     store.db.prepare('SELECT event_id,game_time_coordinate,time_advance_ms FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world').map((row) => ({ ...row })),
     [
-      { event_id: 'legacy-event-1', game_time_coordinate: 60000, time_advance_ms: 0 },
+      { event_id: 'legacy-event-1', game_time_coordinate: 60000, time_advance_ms: 60000 },
       { event_id: 'legacy-event-2', game_time_coordinate: 300000, time_advance_ms: 0 },
     ],
   );
