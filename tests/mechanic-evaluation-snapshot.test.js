@@ -211,6 +211,33 @@ test('mechanic evaluation snapshot fails closed on a non-event-backed review rea
   );
 });
 
+test('context-manifest expansion refuses more than the bounded per-kind snapshot limit', (t) => {
+  const { engine, worldId } = setup(t, 'manifest-overflow-world');
+  const firstBatch = Array.from({ length: 200 }, (_, index) => ({
+    kind: 'entity.create',
+    entity_id: 'entity.' + String(index).padStart(3, '0'),
+    entity_type: 'character',
+  }));
+  commit(engine, worldId, 'create-entities-a', 0, firstBatch);
+  commit(engine, worldId, 'create-entities-b', 1, [
+    { kind: 'entity.create', entity_id: 'entity.200', entity_type: 'character' },
+  ]);
+  const items = Array.from({ length: 201 }, (_, index) => ({
+    kind: 'entity',
+    target_id: 'entity.' + String(index).padStart(3, '0'),
+  }));
+  const manifest = engine.registerContextManifest(worldId, {
+    generation_id: 'generation-overflow',
+    base_commit_sequence: 2,
+    base_world_revision: 2,
+    items,
+  });
+  assert.throws(
+    () => engine.getSnapshot(worldId, { contextManifestIds: [manifest.manifest_id] }),
+    (error) => error.code === 'SNAPSHOT_TOO_LARGE' && error.status === 409,
+  );
+});
+
 test('mechanic evaluation snapshot rejects malformed options and refuses a truncated active set', (t) => {
   const { engine, worldId } = setup(t);
   assert.throws(
