@@ -181,7 +181,6 @@ function measureOperation(eventCount, operation) {
     database_size_before_bytes: timing.databaseSizeBeforeBytes,
     database_size_after_bytes: timing.databaseSizeAfterBytes,
     ...metrics.operationCounts,
-    replayed_event_rows: metrics.operationCounts.replayed_event_rows,
     projection_counts_after: timing.projectionsAfter,
     timing_note: 'wall time measured without SQL instrumentation; SQL counts measured on an equivalent fixture',
   };
