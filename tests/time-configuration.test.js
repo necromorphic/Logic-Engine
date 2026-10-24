@@ -152,6 +152,42 @@ test('ambiguous duration and unknown nonzero duration fail closed', (t) => {
   assert.equal(engine.getState('time-config-world').world_revision, 1);
 });
 
+test('explicit skip is a canonical time.advance operation and cannot carry an action duration proposal', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  register(engine);
+
+  assert.throws(
+    () => engine.commitEvent('time-config-world', {
+      idempotency_key: 'invalid-skip-type',
+      turn_id: 'invalid-skip-type-turn',
+      event_type: 'action.completed',
+      time_mode: 'explicit_skip',
+      time_advance_seconds: 30,
+      expected_revision: 1,
+      effects: [],
+    }),
+    (error) => error.code === 'INVALID_TIME_SKIP_EVENT_TYPE',
+  );
+
+  assert.throws(
+    () => engine.commitEvent('time-config-world', {
+      idempotency_key: 'invalid-skip-proposal',
+      turn_id: 'invalid-skip-proposal-turn',
+      event_type: 'time.advance',
+      time_mode: 'explicit_skip',
+      time_advance_seconds: 30,
+      duration_proposal: { category: 'complex' },
+      expected_revision: 1,
+      effects: [],
+    }),
+    (error) => error.code === 'UNEXPECTED_DURATION_PROPOSAL',
+  );
+
+  assert.equal(engine.getState('time-config-world').game_time_coordinate, 0);
+  assert.equal(engine.getState('time-config-world').world_revision, 1);
+});
+
 test('activating a new config version preserves the old version and invalidates prior revision-bound requests', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
