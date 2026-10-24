@@ -207,6 +207,9 @@ export function evaluateRelationshipCandidate(input) {
       || !Array.prototype.every.call(evidence.refs, isNonEmptyString)) {
     return result("insufficient_evidence", { reason: "supported_evidence_refs_required" });
   }
+  if (new Set(evidence.refs).size !== evidence.refs.length) {
+    return result("insufficient_evidence", { reason: "duplicate_evidence_refs" });
+  }
 
   const candidatePatch = {};
   const changes = [];
