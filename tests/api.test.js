@@ -36,7 +36,6 @@ test('time-advance API is internal-only and exposes durable start/status/replay'
     idempotency_key: 'api-time-advance-key',
     expected_revision: 0,
     to_coordinate: 60000,
-    triggers: [],
   };
   const denied = await fetch(base + '/v1/worlds/api-time-world/time-advances', {
     method: 'POST', headers, body: json(request),
@@ -64,6 +63,71 @@ test('time-advance API is internal-only and exposes durable start/status/replay'
   assert.equal(replay.status, 200);
   assert.equal((await replay.json()).operation.operation_id, first.operation_id);
   assert.equal((await fetch(base + '/v1/worlds/api-time-world/events', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } })).status, 200);
+});
+
+test('time-trigger registry is internal-only and completion is persisted with the advance', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL });
+  assert.equal((await createWorld(base, 'api-time-trigger-world')).status, 201);
+  const triggerRequest = {
+    trigger_id: 'api-trigger-one',
+    due_coordinate: 10000,
+    dependencies: [],
+    read_set: [],
+    write_set: ['entity:api-trigger-entity'],
+    processing_mode: 'exact',
+    interrupt_after_coordinate: false,
+    payload: { event: {
+      turn_id: 'api-trigger-turn',
+      event_type: 'action.completed',
+      effects: [{ kind: 'entity.upsert', entity_id: 'api-trigger-entity', entity_type: 'object', attributes: { from_trigger: true } }],
+    } },
+  };
+  const denied = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', {
+    method: 'POST', headers, body: json(triggerRequest),
+  });
+  assert.equal(denied.status, 403);
+
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  const registered = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', {
+    method: 'POST', headers: internalHeaders, body: json(triggerRequest),
+  });
+  assert.equal(registered.status, 201);
+  assert.equal((await registered.json()).trigger.status, 'pending');
+
+  const listed = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', { headers: internalHeaders });
+  assert.equal(listed.status, 200);
+  assert.deepEqual((await listed.json()).triggers.map((trigger) => trigger.trigger_id), ['api-trigger-one']);
+
+  const started = await fetch(base + '/v1/worlds/api-time-trigger-world/time-advances', {
+    method: 'POST', headers: internalHeaders, body: json({
+      idempotency_key: 'api-trigger-advance',
+      expected_revision: 0,
+      to_coordinate: 20000,
+    }),
+  });
+  assert.equal(started.status, 200);
+  const operation = (await started.json()).operation;
+  assert.equal(operation.status, 'completed');
+  assert.deepEqual(operation.result.completed_trigger_ids, ['api-trigger-one']);
+
+  const after = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', { headers: internalHeaders });
+  const persisted = (await after.json()).triggers[0];
+  assert.equal(persisted.status, 'completed');
+  assert.equal(persisted.completed_by_operation_id, operation.operation_id);
+  assert.equal(persisted.completed_coordinate, 10000);
+
+  const replay = await fetch(base + '/v1/worlds/api-time-trigger-world/time-advances', {
+    method: 'POST', headers: internalHeaders, body: json({
+      idempotency_key: 'api-trigger-advance-again',
+      expected_revision: operation.world_revision,
+      to_coordinate: 30000,
+    }),
+  });
+  assert.equal(replay.status, 200);
+  assert.deepEqual((await replay.json()).operation.result.completed_trigger_ids, []);
+  const events = await fetch(base + '/v1/worlds/api-time-trigger-world/events', { headers: internalHeaders });
+  const eventRows = (await events.json()).events;
+  assert.equal(eventRows.filter((event) => event.event_type === 'action.completed').length, 1);
 });
 
 test('time configuration authoring requires admin and calendar projection requires a trusted reader', async (t) => {
