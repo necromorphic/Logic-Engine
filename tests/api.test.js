@@ -16,13 +16,13 @@ const json = (body) => JSON.stringify(body);
 
 async function setup(t, options = {}) {
   const store = new SQLiteStore(':memory:');
-  const server = createApiServer({ engine: new LogicEngine(store), token: TOKEN, adapterTokens: { 'adapter-a': ADAPTER_A, 'adapter-b': ADAPTER_B }, ...options });
+  const server = createApiServer({ engine: new LogicEngine(store), token: TOKEN, adminToken: ADMIN, adapterTokens: { 'adapter-a': ADAPTER_A, 'adapter-b': ADAPTER_B }, ...options });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => { server.close(); store.close(); });
   return 'http://127.0.0.1:' + server.address().port;
 }
-async function createWorld(base, worldId, extraHeaders = headers) {
+async function createWorld(base, worldId, extraHeaders = { ...headers, 'x-admin-token': ADMIN }) {
   return fetch(base + '/v1/worlds', {
     method: 'POST', headers: extraHeaders,
     body: json({ world_id: worldId, world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2026-01-01T00:00:00Z' }),
@@ -458,7 +458,7 @@ test('API rejects a proposal whose generation label does not match the registere
 
 test('API exposes authenticated immutable mechanics registry endpoints', async (t) => {
   const base = await setup(t, { adminToken: ADMIN });
-  const empty = await fetch(base + '/v1/mechanic-templates', { headers });
+  const empty = await fetch(base + '/v1/mechanic-templates', { headers: { ...headers, 'x-admin-token': ADMIN } });
   assert.equal(empty.status, 200);
   assert.deepEqual((await empty.json()).templates, []);
 
@@ -473,7 +473,7 @@ test('API exposes authenticated immutable mechanics registry endpoints', async (
   const registered = await fetch(base + '/v1/mechanic-templates', { method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN }, body: json(body) });
   assert.equal(registered.status, 201);
   assert.equal((await registered.json()).template.template_id, 'api.mechanic');
-  const fetched = await fetch(base + '/v1/mechanic-templates/api.mechanic/1.0.0', { headers });
+  const fetched = await fetch(base + '/v1/mechanic-templates/api.mechanic/1.0.0', { headers: { ...headers, 'x-admin-token': ADMIN } });
   assert.equal(fetched.status, 200);
   assert.equal((await fetched.json()).template.version, '1.0.0');
   assert.equal((await fetch(base + '/v1/rule-modules')).status, 401);
