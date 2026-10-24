@@ -2,6 +2,19 @@
 
 Status: repository-source audit; not a test-run report. Audited 2026-10-24 against the named refs below. Test names are quoted as found in source. A source-level test mapping does not establish that the suite passes or that another subsystem implements the same behavior.
 
+## Current-main supersession notice (2026-10-24)
+
+**Read this section as authoritative for current implementation status.** The evaluator-only tables below were authored against the earlier pure-evaluator branch/ref and preserve that evidence boundary; they are not a complete current-main Core inventory. Where their older wording says canonical typed writes, mixed-patch atomicity, idempotent commit, clear/unset/neutral replay, persistence-failure atomicity, restart/rebuild, or required-dependency rollback are wholly unimplemented, that wording is historical and superseded for the privileged admin-gated first slice.
+
+Current source: `main:tests/relationship-transition-core.test.js`, blob `9cf9020c554028f89dc8d8f97d6f7422f357fba1`, contains 21 named production-path tests for the privileged operation, directed projection, identity/world/rule/evidence validation, atomic mixed patches, idempotency, clear/unset/neutral replay, transaction-failure atomicity, restart/rebuild, and required-dependency rollback. This source evidence is distinct from the pure evaluator tests and must not be generalized beyond the privileged operation and replayable subset.
+
+Accordingly, current-main evidence narrows the blockers as follows:
+- **Implemented/tested only for the privileged first slice:** directed canonical projection; supported typed transition validation; partial/mixed patch atomic rejection; commit idempotency; explicit clear/unset/neutral behavior and replay; transaction-failure atomicity; restart/rebuild; required-dependency rollback.
+- **Still blocked/unproven:** general actor/recipient/purpose/field-authorized reads and withheld-value non-disclosure; trusted initial/import and author-correction operations; non-admin/NPC mutation authority; production Personality/NPC consumer behavior (traits, knowledge, motive, consent, obligation, reciprocity, player agency); safe authorized character-card projection; historical World Pack version selection/migration; independent alternative-support semantics; event acquisition/deduplication/correction contracts outside the tested first slice.
+- `PERS-SEM-024` remains only deterministic replay under identical pinned inputs/version within the supported replayable subset. `PERS-SEM-029` remains historical semantic version selection/migration or explicit incompatibility; passing replay tests do not close it.
+
+The old evaluator-specific rows below remain valid as evidence about the pure evaluator, but any phrase claiming the above first-slice Core operations have no tests must be read as referring to the earlier audited ref, not current `main`. The current-main Core CI run recorded on PR #137 is separate evidence and does not close the remaining integration blockers.
+
 ## Scope and evidence rules
 
 - Personality acceptance source: `docs/personality/04-semantic-acceptance-matrix.md`, `05-world-pack-relationship-dimension-template.md`, `08-semantic-traceability-and-review-workflow.md`, and `09-per-case-acceptance-traceability.md`.
