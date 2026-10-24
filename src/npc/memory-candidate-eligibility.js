@@ -65,11 +65,21 @@ function producerIsPresent(candidate) {
 function lifecycleIsPresent(candidate) {
   const lifecycle = candidate.lifecycle;
   return lifecycle != null
-    && hasOwnerMetadata(lifecycle.content_disposition)
-    && hasOwnerMetadata(lifecycle.source_reconciliation)
-    && hasOwnerMetadata(lifecycle.evidence_assessment)
-    && hasOwnerMetadata(lifecycle.access_outcome)
-    && hasOwnerMetadata(lifecycle.index_health);
+    && isNonEmptyString(lifecycle.content_disposition)
+    && isNonEmptyString(lifecycle.source_reconciliation)
+    && isNonEmptyString(lifecycle.evidence_assessment)
+    && isNonEmptyString(lifecycle.access_outcome)
+    && isNonEmptyString(lifecycle.index_health);
+}
+
+function lifecycleIsAdmissible(candidate) {
+  const lifecycle = candidate.lifecycle;
+  // These are the positive semantic states shown by the proposal contract.
+  // Unknown owner-defined states fail closed until their meaning is approved.
+  return lifecycle.content_disposition === "usable"
+    && lifecycle.source_reconciliation === "current"
+    && lifecycle.access_outcome === ALLOW
+    && lifecycle.index_health === "ready";
 }
 
 function lineageIsSafe(candidate) {
@@ -97,6 +107,7 @@ function candidateRejection(candidate, request) {
   if (!KNOWN_EPISTEMIC_KINDS.has(candidate.epistemic_kind)) return "epistemic_kind_unknown";
   if (!producerIsPresent(candidate)) return "producer_provenance_incomplete";
   if (!lifecycleIsPresent(candidate)) return "lifecycle_dimensions_incomplete";
+  if (!lifecycleIsAdmissible(candidate)) return "lifecycle_not_admissible";
   if (!READY_SOURCE_STATES.has(candidate.freshness?.status)) return "source_not_current";
   if (!sameSnapshot(candidate, request)) return "snapshot_mismatch";
   if (!lineageIsSafe(candidate)) return "lineage_not_safe";
