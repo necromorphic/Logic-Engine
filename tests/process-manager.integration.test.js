@@ -215,3 +215,27 @@ test('process identities and milestones are isolated by world', (t) => withDatab
   );
   assert.equal(engine.listProcesses('world-b').length, 0);
 }));
+
+test('failure between canonical segment commit and process checkpoint rolls back the entire segment', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput());
+  const before = engine.getState('world-a');
+  const complete = engine.processStore.completeTrigger.bind(engine.processStore);
+  engine.processStore.completeTrigger = () => {
+    const error = new Error('injected checkpoint failure');
+    error.code = 'INJECTED_PROCESS_CHECKPOINT_FAILURE';
+    throw error;
+  };
+  const operation = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-with-injected-failure',
+    expected_revision: before.world_revision,
+    to_coordinate: 1000,
+  });
+  engine.processStore.completeTrigger = complete;
+
+  assert.equal(operation.status, 'needs_review');
+  assert.equal(engine.getState('world-a').game_time_coordinate, 0);
+  const process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.progress.completed, 0);
+  assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'pending');
+}));
