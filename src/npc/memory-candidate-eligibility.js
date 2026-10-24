@@ -39,9 +39,20 @@ function matchesRequest(candidate, request) {
     && candidate.purpose === request.purpose;
 }
 
+function isSnapshotComponent(value) {
+  return (typeof value === "string" && value.trim().length > 0)
+    || (typeof value === "number" && Number.isFinite(value));
+}
+
+function validSnapshot(snapshot) {
+  return snapshot != null
+    && isSnapshotComponent(snapshot.world_revision)
+    && isSnapshotComponent(snapshot.commit_sequence);
+}
+
 function sameSnapshot(candidate, request) {
   if (request.snapshot == null) return true;
-  if (candidate.snapshot == null) return false;
+  if (!validSnapshot(request.snapshot) || !validSnapshot(candidate.snapshot)) return false;
   return candidate.snapshot.world_revision === request.snapshot.world_revision
     && candidate.snapshot.commit_sequence === request.snapshot.commit_sequence;
 }
@@ -133,6 +144,15 @@ export function evaluateMemoryCandidateAdmission(request, result) {
       admitted: Object.freeze([]),
       rejected: Object.freeze([]),
       reason: "trusted_scope_incomplete",
+    });
+  }
+
+  if (request.snapshot != null && !validSnapshot(request.snapshot)) {
+    return Object.freeze({
+      status: "non_ready",
+      admitted: Object.freeze([]),
+      rejected: Object.freeze([]),
+      reason: "trusted_snapshot_incomplete",
     });
   }
 
