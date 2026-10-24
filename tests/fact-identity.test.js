@@ -134,6 +134,7 @@ test('fact.set rejects surrounding whitespace in canonical identity fields befor
   const { store, engine } = setup();
   t.after(() => store.close());
 
+  const auditBefore = store.db.prepare('SELECT COUNT(*) AS count FROM audit_entries').get().count;
   const invalidEffects = [
     { kind: 'fact.set', fact_id: ' door', predicate: 'state', value: 'open' },
     { kind: 'fact.set', fact_id: 'door ', predicate: 'state', value: 'open' },
@@ -152,7 +153,7 @@ test('fact.set rejects surrounding whitespace in canonical identity fields befor
   });
   assert.equal(engine.getState('fact-identity-world').world_revision, 0);
   assert.deepEqual(store.events('fact-identity-world', true), []);
-  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM audit_entries').get().count, 0);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM audit_entries').get().count, auditBefore);
 });
 
 test('rollback rebuilds fact identity claims and projection from remaining valid events', (t) => {
