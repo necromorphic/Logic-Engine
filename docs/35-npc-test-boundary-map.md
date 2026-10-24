@@ -198,7 +198,7 @@ Generic entity.update and fact.set tests are not substitutes for this contract.
 
 ### Gate B — consistent snapshot plus trusted actor/purpose filter
 
-PR #45 currently proposes a bounded, transaction-consistent internal snapshot read and remains open/unmerged. Even after integration, its raw canonical output is not an NPC/player read contract. Before REL-005, REL-007, or actor-relative decision-context tests can pass, define and test a core-owned filter scoped to the actor, purpose, and exact snapshot marker:
+PR #45 merged into `main` at `2bbdbff4e4d4c4c56601ed5ac18e2083aa99c48b`; the bounded, transaction-consistent snapshot primitive is available on `main`. The NPC branch has not incorporated the seven main-side commits recorded in `docs/37` §19, so verify the exact target branch before relying on the implementation. Even after integration, raw canonical output is not an NPC/player read contract. Before REL-005, REL-007, or actor-relative decision-context tests can pass, define and test a core-owned filter scoped to the actor, purpose, and exact snapshot marker:
 - two actors receive only the relationship/context data authorized for each;
 - author-reserved or otherwise restricted material is excluded before it reaches a model/player boundary;
 - unknown, withheld, missing, and explicit neutral remain distinguishable where the contract permits that distinction;
@@ -234,7 +234,7 @@ Tests must not use mocks to simulate a missing production boundary. No public AP
 | Gate | Status at this branch review | Reason |
 |---|---|---|
 | A — typed canonical relationship operation | Blocked | No suitable relationship-specific effect/record was found in inspected core primitives; exact contract remains to be designed. |
-| B — authorized relationship read/projection | Blocked | PR #45 is open/unmerged and raw-only; no verified actor/purpose/snapshot relationship filter exists. |
+| B — authorized relationship read/projection | Blocked | PR #45 has merged into `main`, but the NPC branch has not incorporated its main-side dependency commits. The snapshot remains raw canonical data; no verified actor/purpose/snapshot relationship filter exists. |
 | C — multi-cause rollback reconciliation | Blocked | Current generic rollback is insufficient to promise relationship support reconciliation; no relationship-specific causal mapping/tests verified. |
 | D — full acceptance through real interfaces | Blocked | Depends on A–C and an approved author-edit/provenance boundary. |
 
