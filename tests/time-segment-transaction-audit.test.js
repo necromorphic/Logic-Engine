@@ -72,3 +72,41 @@ test('outer SQLite transaction can atomically roll back multiple nested event co
   assert.equal(committedSecond.game_time, '2005-12-29T10:03:00.000Z');
   assert.equal(engine.getEvents('segment-world').length, 2);
 });
+
+test('outer SQLite transaction publishes the complete segment with per-event history', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const first = event({
+    idempotency_key: 'success-segment-key-1',
+    event_id: 'success-segment-event-1',
+    turn_id: 'success-segment-turn-1',
+    expected_revision: 0,
+    time_advance_seconds: 60,
+  });
+  const second = event({
+    idempotency_key: 'success-segment-key-2',
+    event_id: 'success-segment-event-2',
+    turn_id: 'success-segment-turn-2',
+    expected_revision: 1,
+    time_advance_seconds: 120,
+  });
+
+  const result = store.tx(() => ({
+    first: engine.commitEvent('segment-world', first),
+    second: engine.commitEvent('segment-world', second),
+  }));
+
+  assert.equal(result.first.world_revision, 1);
+  assert.equal(result.second.world_revision, 2);
+  assert.equal(engine.getState('segment-world').world_revision, 2);
+  assert.equal(engine.getState('segment-world').game_time, '2005-12-29T10:03:00.000Z');
+  assert.equal(engine.getEvents('segment-world').length, 2);
+
+  const replayFirst = engine.commitEvent('segment-world', first);
+  const replaySecond = engine.commitEvent('segment-world', second);
+  assert.equal(replayFirst.idempotent_replay, true);
+  assert.equal(replaySecond.idempotent_replay, true);
+  assert.equal(engine.getEvents('segment-world').length, 2);
+  assert.equal(engine.getState('segment-world').world_revision, 2);
+});
