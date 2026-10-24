@@ -95,7 +95,39 @@ These cases can be implemented as pure consumer/domain tests using synthetic inp
 
 These tests should reuse the existing REL-MOD and NPC acceptance identifiers where they cover the same invariant; the new IDs are consumer-boundary traceability labels, not replacements for existing identifiers.
 
-## 6. Tests blocked on real Core interfaces
+## 6. Acceptance-ID crosswalk — reuse before adding tests
+
+The consumer cases above are traceability labels, not a second semantic acceptance system. Where an existing acceptance case already owns the invariant, implementation and reporting should cite that existing ID. Keep a consumer-specific case only where it tests a distinct NPC boundary or adds a negative assertion.
+
+| Consumer case | Existing canonical case(s) to reuse | Additional consumer-specific assertion |
+|---|---|---|
+| NPC-REL-CONS-001 — Directionality | REL-SEM-001 | The NPC context selects the requested direction only |
+| NPC-REL-CONS-002 — Partial dimensions | REL-SEM-002; REL-MOD-003 | Omitted dimensions do not leak into decision rationale |
+| NPC-REL-CONS-003 — Status separation | REL-SEM-003; REL-MOD-008 where capability is unavailable | Consumer preserves the distinction and fails closed |
+| NPC-REL-CONS-004 — No knowledge from state | REL-SEM-013; REL-MOD-002 | No secret/cause enters the NPC context without a valid acquisition path |
+| NPC-REL-CONS-005 — Same event, different interpretation | REL-MOD-001 | Different candidates remain tied to explicit subject-specific inputs |
+| NPC-REL-CONS-006 — Co-presence is not a cause | REL-SEM-004; REL-MOD-005 | No consumer-side drift from scene count or turns |
+| NPC-REL-CONS-007 — Duplicate evaluation | REL-MOD-005 for no automatic drift; REL-MOD-001 only where different interpretations are in scope | Same explicit input/version yields the same pure candidate; commit idempotency remains a Core test |
+| NPC-REL-CONS-008 — New acquisition about old event | NPC-CAUSE-007; NPC-CAUSE-008; acquisition contract in docs/50–51 | A new acquisition is not silently treated as a new event or an implicit rewrite |
+| NPC-REL-CONS-009 — No invented causal explanation | REL-SEM-014; REL-MOD-010 only for the narrower alternative-support rule | Rationale text is not evidence and cannot create a causal link |
+| NPC-REL-CONS-010 — Capability unavailable | REL-MOD-008; REL-SEM-003 | No neutral fallback, shadow store, or implicit catch-up |
+| NPC-REL-CONS-011 — Player agency | REL-SEM-011 for access; REL-MOD-011 for agency | Relationship context cannot author voluntary player output |
+| NPC-REL-CONS-012 — Read-only summary | REL-SEM-012; docs/46 card-summary contract | Summary generation/editing does not mutate canonical state |
+| Rollback of required cause | REL-SEM-009; NPC-CAUSE-001 and NPC-CAUSE-006 | NPC context/card must not consume a stale projection after reconciliation |
+| Alternative independent support | REL-SEM-010; NPC-CAUSE-002–005 | Fail closed unless sufficiency is explicitly established |
+| Identity and self-pair validation | REL-SEM-007–008 | No entity creation or alias-based identity resolution |
+| Rule/version compatibility | REL-MOD-012 | No silent reinterpretation of committed transitions |
+
+### Test ownership and reporting
+
+- **Relationship-domain pure tests** own candidate-transition semantics and World Pack rule validation.
+- **NPC consumer tests** own bounded context use, status handling, no knowledge leakage, no player agency, and no fabricated rationale.
+- **Core integration tests** own canonical identity, authorization, trusted origin, typed write, atomicity, idempotency, revision/audit, and production replay/rollback.
+- **End-to-end tests** own consistency across committed state, authorized actor context, and card/narrative projection after reconciliation.
+
+Do not report the same invariant as independently passed in multiple suites without identifying the different boundary each suite proves. A pure test and a production-path test for the same case are complementary, not interchangeable. A missing production interface is **blocked/unsupported**, not a failed mock test and not a pass.
+
+## 7. Tests blocked on real Core interfaces
 
 The following cannot be marked passing using mocks of missing production interfaces:
 
@@ -112,7 +144,7 @@ The following cannot be marked passing using mocks of missing production interfa
 
 For each future production-path test, record the exact Core commit, interfaces actually exercised, canonical state and snapshot basis before/after, audit/revision effects, actor-authorized consumer output, and whether the behavior is passed, failed, or unsupported. A mocked seam is design evidence only.
 
-## 7. Current cross-branch disposition
+## 8. Current cross-branch disposition
 
 At the time of this review:
 
@@ -123,7 +155,7 @@ At the time of this review:
 
 Therefore, NPC can proceed with semantic consumer tests and contract traceability. It must not claim full integration readiness, introduce a shadow relationship store, change the Relationship branch, or work around missing Core interfaces with generic facts or prompt-only policy.
 
-## 8. Readiness decision
+## 9. Readiness decision
 
 **Consumer semantics:** ready for independent pure tests and review.
 
