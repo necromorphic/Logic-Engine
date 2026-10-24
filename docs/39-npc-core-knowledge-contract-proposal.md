@@ -407,3 +407,10 @@ Current status remains **blocked pending Core implementation and real-boundary t
 `docs/51-npc-acquisition-source-reconciliation.md` cross-checks the initial-acquisition proposal against current Core source/causality contracts and the parallel relationship proposals. It records which primitives are reusable, why they do not constitute acquisition, and the remaining Core-owner decisions on author/import assignment, replay, alternative support, restrictions, and result completeness.
 
 The same actor/purpose/snapshot access boundary must govern relationship context. A canonical relationship transition, relationship summary, or card projection does not itself prove that a subject acquired or believes the information. Relationship semantics can proceed in parallel, but runtime integration remains dependent on the Core-owned safe read and the relationship-specific canonical operation.
+
+## 20. Memory↔NPC consumption contract and failure matrix
+
+The focused follow-up `docs/52-npc-memory-consumption-contract-and-failure-matrix.md` resolves NPC-side candidate eligibility, access/freshness/lineage fail-closed behavior, the retrieval-to-knowledge lifecycle, orthogonal lifecycle dimensions, negative-case semantics, transition ownership, and the contract test plan requested by Issue #70.
+
+This is a documentation-only companion. It does not supersede the Core-owned implementation gates in §§16–19, approve a Memory API, or establish runtime support. In particular, general authorized reads, source-lineage permission propagation, durable rollback/reconciliation signals, semantic persistence/transaction boundaries, and verified host delivery evidence remain owner-approved prerequisites. Proposed candidate fields and idempotency-key ingredients are not current API contracts.
+
