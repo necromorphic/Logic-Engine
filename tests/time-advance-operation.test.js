@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 
@@ -108,4 +111,67 @@ test('time advance rejects sub-second execution rather than rounding a due bound
     (error) => error.code === 'TIME_ADVANCE_SUBSECOND_UNSUPPORTED',
   );
   assert.equal(engine.getState('time-operation-world').game_time_coordinate, 0);
+});
+
+test('recovery resumes after the last persisted segment checkpoint without replaying it', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-time-advance-recovery-'));
+  const path = join(directory, 'state.sqlite');
+  let store = new SQLiteStore(path);
+  let engine = new LogicEngine(store);
+  engine.createWorld({
+    world_id: 'recovery-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00.000Z',
+  });
+  t.after(() => {
+    store?.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const makeEvent = (index) => engine.prepareEvent({
+    event_id: 'recovery-time-event-' + index,
+    idempotency_key: 'recovery-time-key-' + index,
+    turn_id: 'recovery-time-turn-' + index,
+    event_type: 'time.advance',
+    time_advance_seconds: 10,
+    time_mode: 'explicit_skip',
+    effects: [],
+  });
+  const segments = [1, 2].map((index) => ({
+    coordinate: index * 10000,
+    idempotency_key: 'recovery-segment-key-' + index,
+    request_hash: 'recovery-segment-hash-' + index,
+    events: [makeEvent(index)],
+  }));
+  store.createTimeAdvanceOperation({
+    world_id: 'recovery-world',
+    operation_id: 'recovery-operation',
+    idempotency_key: 'recovery-operation-key',
+    request_hash: 'recovery-operation-hash',
+    from_coordinate: 0,
+    target_coordinate: 20000,
+    starting_world_revision: 0,
+    status: 'running',
+    segments,
+    plan: { status: 'planned', completed_trigger_ids: [] },
+  });
+
+  store.commitSegment('recovery-world', segments[0].events, segments[0].idempotency_key,
+    segments[0].request_hash, 0, 0);
+  store.db.prepare(`UPDATE time_advance_operations SET next_segment_index=1,
+    confirmed_coordinate=10000,current_world_revision=1 WHERE world_id=? AND operation_id=?`)
+    .run('recovery-world', 'recovery-operation');
+  store.close();
+
+  store = new SQLiteStore(path);
+  engine = new LogicEngine(store);
+  const recovered = engine.resumeTimeAdvance('recovery-world', 'recovery-operation');
+  assert.equal(recovered.status, 'completed');
+  assert.equal(recovered.confirmed_coordinate, 20000);
+  assert.equal(engine.getState('recovery-world').game_time_coordinate, 20000);
+  assert.deepEqual(engine.getEvents('recovery-world').map((event) => event.event_id), [
+    'recovery-time-event-1', 'recovery-time-event-2',
+  ]);
+  assert.equal(store.db.prepare('SELECT next_segment_index FROM time_advance_operations WHERE operation_id=?')
+    .get('recovery-operation').next_segment_index, 2);
 });
