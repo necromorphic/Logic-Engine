@@ -12,7 +12,8 @@ This document is complementary to, not a replacement for:
 - `docs/personality/01-personality-and-relationship-semantics.md` — shared semantic invariants;
 - `docs/personality/05-world-pack-relationship-dimension-template.md` — per-dimension authoring requirements;
 - `docs/personality/04-semantic-acceptance-matrix.md` — existing PERS-SEM acceptance IDs;
-- `docs/25-universal-mechanics-system.md` and `docs/26-mechanics-contracts.md` — optional mechanic lifecycle and module boundaries.
+- `docs/25-universal-mechanics-system.md` and `docs/26-mechanics-contracts.md` — optional mechanic lifecycle and module boundaries;
+- `docs/47-relationship-module-test-traceability.md` — case-to-test mapping, synthetic fixtures, negative tests, and readiness criteria.
 
 Where this document summarizes an existing rule, the referenced contract remains the canonical detailed source. Where it proposes additional behavior, that behavior remains a proposal until reviewed by the relevant owner.
 
