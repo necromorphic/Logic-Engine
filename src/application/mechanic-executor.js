@@ -18,7 +18,7 @@ function isCanonicalJsonValue(value, active = new WeakSet()) {
       && Object.getOwnPropertyNames(value).length === value.length + 1
       && keys.every((key) => {
         const descriptor = Object.getOwnPropertyDescriptor(value, key);
-        return /^\\d+$/.test(key) && Number(key) < value.length
+        return /^\d+$/.test(key) && Number(key) < value.length
           && descriptor?.enumerable === true && Object.hasOwn(descriptor, 'value')
           && isCanonicalJsonValue(descriptor.value, active);
       });
