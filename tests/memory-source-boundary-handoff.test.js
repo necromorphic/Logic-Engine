@@ -67,3 +67,12 @@ test('Memory source-boundary handoff preserves fail-closed and owner-decision li
     assert.ok(doc.includes(boundary), `handoff must preserve boundary: ${boundary}`);
   }
 });
+
+test('Memory source-boundary handoff uses unique, increasing top-level section numbers', async () => {
+  const doc = await readFile(handoffPath, 'utf8');
+  const numbers = [...doc.matchAll(/^## (\\d+)\\. /gm)].map((match) => Number(match[1]));
+
+  assert.ok(numbers.length > 0, 'handoff must contain numbered top-level sections');
+  assert.equal(new Set(numbers).size, numbers.length, 'top-level section numbers must be unique');
+  assert.deepEqual(numbers, [...numbers].sort((a, b) => a - b), 'top-level section numbers must increase in document order');
+});
