@@ -233,6 +233,30 @@ test('rejects unavailable rule versions, cross-world participants, and invalid e
       () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, { rule_module_version: '9.9.9' })),
       (error) => error.code === 'RELATIONSHIP_RULE_VERSION_NOT_FOUND',
     );
+    engine.registerRuleModuleManifest({
+      module_id: 'relationship-rules-wrong-pack',
+      version: '1.0.0',
+      contract_version: '1.0.0',
+      capabilities: [],
+      operations: ['validate_transition'],
+      input_schema: {},
+      output_schema: {},
+      failure_policy: 'fail_closed',
+      compatibility: { core_contract_versions: ['1.0.0'] },
+      metadata: {
+        relationship_domain: {
+          world_pack_id: 'test-pack',
+          world_pack_version: '9.9.9',
+          dimensions: rules,
+        },
+      },
+    });
+    assert.throws(
+      () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+        rule_module_id: 'relationship-rules-wrong-pack',
+      })),
+      (error) => error.code === 'RELATIONSHIP_RULE_VERSION_INCOMPATIBLE',
+    );
 
     engine.createWorld({
       world_id: 'world-relationship-other',
