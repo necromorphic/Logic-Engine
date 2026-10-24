@@ -84,6 +84,7 @@ function validTransitionFrom(value) {
   // Only cleared is a transitionable tagged state. Unset is represented by
   // null; withheld/conflict/insufficient/unsupported states stop evaluation.
   return isRecord(value)
+    && own(value, "status")
     && value.status === "cleared"
     && Object.keys(value).length === 1;
 }
@@ -107,7 +108,8 @@ const NON_VALUE_STATES = new Map([
 function currentState(currentValues, dimension) {
   if (!own(currentValues, dimension)) return { status: "unset" };
   const raw = currentValues[dimension];
-  if (isRecord(raw) && raw.status === "value"
+  if (isRecord(raw) && own(raw, "status") && own(raw, "value")
+      && raw.status === "value"
       && typeof raw.value === "string"
       && Object.keys(raw).length === 2
       && own(raw, "value")) {
@@ -115,11 +117,11 @@ function currentState(currentValues, dimension) {
   }
   // Unset is represented only by an absent key; transition rules use null.
   // Reject a tagged unset instead of accepting a shape that cannot match rules.
-  if (isRecord(raw) && raw.status === "cleared"
+  if (isRecord(raw) && own(raw, "status") && raw.status === "cleared"
       && Object.keys(raw).length === 1) {
     return { status: raw.status };
   }
-  if (isRecord(raw) && NON_VALUE_STATES.has(raw.status)
+  if (isRecord(raw) && own(raw, "status") && NON_VALUE_STATES.has(raw.status)
       && Object.keys(raw).length === 1) {
     return { status: raw.status };
   }
@@ -166,6 +168,14 @@ export function evaluateRelationshipCandidate(input) {
     return result("invalid_candidate", { reason: "input_must_be_object" });
   }
 
+  const requiredInputFields = [
+    "subjectId", "targetId", "currentValues", "patch",
+    "dimensionRules", "evidence", "ruleVersion",
+  ];
+  if (!requiredInputFields.every((key) => own(input, key))) {
+    return result("invalid_candidate", { reason: "input_fields_required" });
+  }
+
   const {
     subjectId,
     targetId,
@@ -188,7 +198,8 @@ export function evaluateRelationshipCandidate(input) {
   if (Object.keys(patch).length === 0) {
     return result("no_change", { reason: "empty_patch" });
   }
-  if (!isRecord(evidence) || !EVIDENCE_STATUSES.has(evidence.status)) {
+  if (!isRecord(evidence) || !own(evidence, "status")
+      || !EVIDENCE_STATUSES.has(evidence.status)) {
     return result("unsupported", { reason: "evidence_assessment_unavailable" });
   }
   if (evidence.status === "withheld") {
@@ -203,7 +214,7 @@ export function evaluateRelationshipCandidate(input) {
   if (evidence.status === "unsupported") {
     return result("unsupported", { reason: "evidence_contract_unsupported" });
   }
-  if (!isDataArray(evidence.refs) || evidence.refs.length === 0
+  if (!own(evidence, "refs") || !isDataArray(evidence.refs) || evidence.refs.length === 0
       || !Array.prototype.every.call(evidence.refs, isNonEmptyString)) {
     return result("insufficient_evidence", { reason: "supported_evidence_refs_required" });
   }
@@ -224,6 +235,7 @@ export function evaluateRelationshipCandidate(input) {
 
     const rule = dimensionRules[dimension];
     if (!isRecord(rule)
+        || !own(rule, "values") || !own(rule, "allowClear") || !own(rule, "transitions")
         || !Object.keys(rule).every((key) =>
           ["values", "allowClear", "allowSelfRelation", "transitions"].includes(key))
         || (own(rule, "allowSelfRelation") && typeof rule.allowSelfRelation !== "boolean")
@@ -282,6 +294,7 @@ export function evaluateRelationshipCandidate(input) {
 
     const from = transitionFromToken(state);
     const clearing = isRecord(requested)
+      && own(requested, "operation")
       && requested.operation === "clear"
       && Object.keys(requested).length === 1;
     const operation = clearing ? "clear" : "set";
