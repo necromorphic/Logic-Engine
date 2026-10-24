@@ -493,3 +493,54 @@ test('snapshot-bound mechanic evaluation refuses unsupported modules and input b
   assert.equal(moduleUnsupported.reason_code, 'MODULE_EXECUTION_NOT_IMPLEMENTED');
   assert.deepEqual(moduleUnsupported.effects, []);
 });
+
+
+test('snapshot-bound mechanic evaluation fingerprint changes with snapshot identity and pinned template hash', async () => {
+  const { evaluateMechanicActionAgainstSnapshot } = await import('../src/core/mechanics.js');
+  const snapshot = {
+    world_id: 'world.test', world_revision: 2, commit_sequence: 5,
+    mechanic_evaluation_snapshot: {
+      instances: [{ instance_id: 'instance.test', status: 'enabled', template_id: 'test.fingerprint', template_version: '1.0.0' }],
+      templates: [{ template_hash: 'c'.repeat(64), template: {
+        template_id: 'test.fingerprint', version: '1.0.0', schema_version: 'core-1', display_name: 'Fingerprint fixture',
+        required_capabilities: [], applicability: [], actions: [{ action_id: 'act', input_schema: { type: 'object' }, preconditions: [], effects: [
+          { effect_id: 'e1', kind: 'create_entity', target_ref: 'entity.new', payload: { entity_type: 'test' } },
+        ], ambiguity_policy: 'deterministic_only' }],
+        conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'require_author_decision' }, unknown_policy: 'mark_unknown',
+      } }],
+      modules: [],
+    },
+  };
+  const evaluate = () => evaluateMechanicActionAgainstSnapshot({
+    snapshot, instanceId: 'instance.test', actionId: 'act', authorizedContext: {},
+  });
+  const first = evaluate();
+  snapshot.world_revision += 1;
+  const changedRevision = evaluate();
+  snapshot.mechanic_evaluation_snapshot.templates[0].template_hash = 'd'.repeat(64);
+  const changedTemplateHash = evaluate();
+  assert.notEqual(first.evaluation_fingerprint, changedRevision.evaluation_fingerprint);
+  assert.notEqual(changedRevision.evaluation_fingerprint, changedTemplateHash.evaluation_fingerprint);
+});
+
+test('snapshot-bound mechanic evaluation never returns effects for a false condition', () => {
+  const { evaluateMechanicActionAgainstSnapshot } = require('../src/core/mechanics.js');
+  const snapshot = {
+    world_id: 'world.test', world_revision: 2, commit_sequence: 5,
+    mechanic_evaluation_snapshot: {
+      instances: [{ instance_id: 'instance.test', status: 'enabled', template_id: 'test.false', template_version: '1.0.0' }],
+      templates: [{ template_hash: 'e'.repeat(64), template: {
+        template_id: 'test.false', version: '1.0.0', schema_version: 'core-1', display_name: 'False fixture',
+        required_capabilities: [], applicability: [], actions: [{ action_id: 'act', input_schema: { type: 'object' }, preconditions: [
+          { op: 'eq', path: 'actor.status', value: 'alive' },
+        ], effects: [{ effect_id: 'e1', kind: 'create_entity', target_ref: 'entity.new', payload: { entity_type: 'test' } }], ambiguity_policy: 'deterministic_only' }],
+        conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'require_author_decision' }, unknown_policy: 'mark_unknown',
+      } }],
+      modules: [],
+    },
+  };
+  const result = evaluateMechanicActionAgainstSnapshot({ snapshot, instanceId: 'instance.test', actionId: 'act', authorizedContext: { actor: { status: 'dead' } } });
+  assert.equal(result.status, 'no_match');
+  assert.deepEqual(result.effects, []);
+  assert.equal(Object.hasOwn(result, 'evaluation_fingerprint'), false);
+});
