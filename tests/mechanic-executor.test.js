@@ -1349,7 +1349,7 @@ test('proposal commit rolls back canonical state when committed-audit insertion 
   const afterFailure = engine.getState(worldId);
   const proposalAfterFailure = proposals.get(worldId, proposal.proposal_id);
   assert.equal(proposalAfterFailure.status, 'approved');
-  assert.equal(proposalAfterFailure.commit_result, null);
+  assert.equal(proposalAfterFailure.committed_at, null);
   assert.equal(afterFailure.world_revision, beforeState.world_revision);
   assert.equal(afterFailure.commit_sequence, beforeState.commit_sequence);
   assert.deepEqual(engine.getEvents(worldId), beforeEvents);
