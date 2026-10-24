@@ -8,6 +8,16 @@ import { AuthorizedReadService } from '../application/authorized-read-service.js
 
 const MAX = 1048576;
 
+/** Resolve the active deployment-owned policy on every boundary check. */
+export function createActiveMechanicPolicyValidator(getActiveMechanicContextProvider) {
+  return (identity) => {
+    let provider;
+    try { provider = getActiveMechanicContextProvider(); } catch { return false; }
+    try { return provider?.validateMechanicPolicy?.(identity) === true; } catch { return false; }
+  };
+}
+
+
 // Hash both inputs to a fixed-length digest before timingSafeEqual so a
 // mismatched secret length does not create a length-dependent comparison path.
 function secretMatches(provided, expected) {
@@ -71,11 +81,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   // or replace this callback. With no configured owner, mechanic proposals stay
   // blocked by the ProposalService's fail-closed validator.
   const proposals = new ProposalService(engine, {
-    validateMechanicPolicy(identity) {
-      let provider;
-      try { provider = getActiveMechanicContextProvider(); } catch { return false; }
-      return provider?.validateMechanicPolicy?.(identity) === true;
-    },
+    validateMechanicPolicy: createActiveMechanicPolicyValidator(getActiveMechanicContextProvider),
   });
   const actorBindings = new ActorBindingService(engine);
   // Until a canonical visibility schema exists, disclose only the bound actor's
