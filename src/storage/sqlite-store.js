@@ -923,6 +923,7 @@ export class SQLiteStore {
       caused_by: dec(r.caused_by_json), depends_on: dec(r.depends_on_json), read_set: dec(r.read_set_json),
       causal_links: dec(r.causal_links_json ?? '[]'), effects: dec(r.effects_json), time_advance_seconds: r.time_advance_seconds, time_advance_ms: r.time_advance_ms,
       source_message_id: r.source_message_id, created_at: r.created_at, rollback_id: r.rollback_id,
+      ...(r.mechanic_execution_json ? { mechanic_execution: dec(r.mechanic_execution_json) } : {}),
     }));
   }
 
