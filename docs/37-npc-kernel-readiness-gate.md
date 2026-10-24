@@ -206,3 +206,5 @@ On 2026-10-24, the core owner reviewed all eight questions in `docs/39-npc-core-
 - **No authorization implied:** no public endpoint, schema, SQLite, vectorization, prompt, host adapter, or runtime change is authorized by the semantic decision alone.
 
 The next engineering action is to reconcile the confirmed contract with actual source/test boundaries, then propose the narrow internal interface and acceptance tests before any implementation.
+
+**Snapshot dependency note:** PR #45 (`feat: add consistent internal snapshot read boundary`) proposes a bounded internal snapshot read and reports passing Runtime tests on its current head, but it remains open and unmerged. Do not count `getSnapshot(...)` as available production behavior on `main` or this branch until its review/merge and target-branch presence are verified. That primitive would address only read-view consistency; actor-specific authorization, a trusted secret/access policy source, authorized initial-knowledge representation/provenance, belief/delivery records, and NPC acceptance tests remain separate blockers.
