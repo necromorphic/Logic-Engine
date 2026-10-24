@@ -250,6 +250,30 @@ export class MemoryNpcConsumer {
       authorizedCandidates.push(candidate);
     }
 
+    // Revalidate Memory access after the full initial authorization pass. A
+    // later candidate's asynchronous authorization may take long enough for
+    // access to an earlier candidate to be revoked. Do not carry that earlier
+    // allow straight into the Core content read without a final access check.
+    // This narrows the TOCTOU window; atomic revocation guarantees still depend
+    // on a future owner-approved provider snapshot/lease contract.
+    const initiallyAuthorizedCandidates = authorizedCandidates;
+    authorizedCandidates = [];
+    for (const candidate of initiallyAuthorizedCandidates) {
+      let stillAllowed;
+      try {
+        stillAllowed = await this.memoryProvider.authorizeCandidate({
+          ...scope,
+          record_ref: candidate.record.ref,
+          record_version: candidate.record.version,
+          source_kind: candidate.source.kind,
+          source_entity_id: candidate.source.entity_id,
+        }) === true;
+      } catch {
+        return nonReady('memory_record_authorization_unavailable');
+      }
+      if (stillAllowed) authorizedCandidates.push(candidate);
+    }
+
     if (authorizedCandidates.length === 0) {
       // A result that becomes empty only after authorization/filtering still
       // needs a current Core snapshot. Otherwise a stale Memory index can be
