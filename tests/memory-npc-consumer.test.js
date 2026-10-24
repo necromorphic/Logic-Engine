@@ -537,6 +537,21 @@ test('malformed and cross-scope candidate rows cannot be silently converted to c
   assert.deepEqual(crossScope.candidates, []);
 });
 
+test('filtered-empty result still validates the current Core snapshot after record denial', async (t) => {
+  const { consumer, engine, provider } = setup(t, { authorizeCandidate: false });
+  const rollback = engine.rollbackEvent('memory-npc-world', {
+    root_event_id: 'unrelated-memory-npc',
+    idempotency_key: 'rollback-denied-memory-npc',
+  });
+  assert.equal(rollback.accepted, true);
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_snapshot_stale');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+});
+
 test('complete-empty result becomes non-ready when Core changes after the indexed snapshot', async (t) => {
   const { consumer, setCandidates, engine, store, snapshot } = setup(t);
   setCandidates([]);
