@@ -390,16 +390,11 @@ test('duplicate Memory identity/version cannot be rebound to a different canonic
 });
 
 
-test('duplicate record identity with conflicting index snapshots fails closed', async (t) => {
-  const { consumer, setCandidates, candidate, snapshot } = setup(t);
+test('duplicate record identity with conflicting semantic metadata fails closed', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
   setCandidates([
     candidate(),
-    candidate({
-      snapshot: {
-        world_revision: snapshot.world_revision - 1,
-        commit_sequence: snapshot.commit_sequence,
-      },
-    }),
+    candidate({ epistemic_kind: 'rumor' }),
   ]);
 
   const result = await consumer.retrieveForNpc(request());
