@@ -9,6 +9,7 @@ Related:
 - `docs/28-proposal-api-stage1.md`
 - `docs/50-core-trusted-mutation-origin-contract.md` (proposed in PR #63; not merged)
 - `docs/53-core-http-service-boundary-audit.md` (proposed in PR #67; not merged)
+- `docs/55-core-context-manifest-trust-contract.md` (trusted producer and generation-binding proposal)
 
 ## 1. Verified current boundary
 
