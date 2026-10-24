@@ -24,7 +24,7 @@ The SQLite provider now has an isolated raw-message archive slice in its provide
 
 ### Remaining limits
 
-This is a provider-local persistence/lifecycle API, not a SillyTavern capture hook, public HTTP route, source-change feed, or production Memory→NPC integration. No active-message read API or search/vector index over raw message bodies is wired. Only dependent copies explicitly registered in this database are invalidated/purged; external stores and indexes are not managed by this operation. Retention duration, encryption-at-rest, and host authorization for capture/read remain host/deployment policy questions and are not inferred here.
+This is a provider-local persistence/lifecycle API, not a SillyTavern capture hook, public HTTP route, source-change feed, or production Memory→NPC integration. Raw reads are available only through `readRawMessageVersion` / `readActiveRawMessages` when a trusted `authorizeRawRead` callback is injected; absent, denying, or throwing callbacks fail closed with `MEMORY_RAW_READ_DENIED`. No search/vector index over raw message bodies is wired. Only dependent copies explicitly registered in this database are invalidated/purged; external stores and indexes are not managed by this operation. Retention duration, encryption-at-rest, and host authorization for capture remain host/deployment policy questions and are not inferred here.
 
 Do not infer source deletion or canonical freshness from `world_revision + commit_sequence`. The source identity/version and complete-inventory production gates remain blocked by Core #140.
 
