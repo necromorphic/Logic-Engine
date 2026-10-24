@@ -422,6 +422,98 @@ export class SQLiteStore {
     }));
   }
 
+  readSnapshot(id, request = {}) {
+    if (!request || typeof request !== 'object' || Array.isArray(request)) {
+      throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request must be an object.', 400);
+    }
+    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds']);
+    if (Object.keys(request).some((key) => !allowedKeys.has(key))) {
+      throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request contains an unsupported field.', 400);
+    }
+    const normalizeIds = (value, fieldName) => {
+      if (value === undefined) return [];
+      if (!Array.isArray(value) || value.length > 200
+        || !value.every((item) => typeof item === 'string' && item.trim() && item.length <= 200)) {
+        throw new EngineError('INVALID_SNAPSHOT_REQUEST', fieldName + ' must be an array of at most 200 non-empty IDs.', 400, { field: fieldName });
+      }
+      if (new Set(value).size !== value.length) {
+        throw new EngineError('INVALID_SNAPSHOT_REQUEST', fieldName + ' must not contain duplicate IDs.', 400, { field: fieldName });
+      }
+      return value;
+    };
+    const entityIds = normalizeIds(request.entityIds, 'entityIds');
+    const factIds = normalizeIds(request.factIds, 'factIds');
+    const eventIds = normalizeIds(request.eventIds, 'eventIds');
+
+    const read = () => {
+      const w = this.world(id);
+      if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+
+      const entities = entityIds.length
+        ? this.db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + entityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...entityIds).map((r) => ({
+          entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
+          created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
+        }))
+        : [];
+      const missingEntityIds = entityIds.filter((entityId) => !entities.some((entity) => entity.entity_id === entityId));
+      if (missingEntityIds.length) {
+        throw new EngineError('ENTITY_NOT_FOUND', 'One or more requested entities were not found in this world snapshot.', 404, { entity_ids: missingEntityIds });
+      }
+
+      const facts = factIds.length
+        ? this.db.prepare('SELECT * FROM facts WHERE world_id=? AND fact_id IN (' + factIds.map(() => '?').join(',') + ') ORDER BY fact_id').all(id, ...factIds).map((r) => ({
+          fact_id: r.fact_id, subject_ref: r.subject_ref, predicate: r.predicate, status: r.status,
+          value: dec(r.value_json), candidates: dec(r.candidates_json), source_event_ids: dec(r.source_event_ids_json),
+          updated_revision: r.updated_revision,
+        }))
+        : [];
+      const missingFactIds = factIds.filter((factId) => !facts.some((fact) => fact.fact_id === factId));
+
+      const events = eventIds.length
+        ? this.db.prepare('SELECT event_id,turn_id,generation_id,context_manifest_id,event_type,game_time,committed_revision,commit_sequence,validity,caused_by_json,depends_on_json,read_set_json,causal_links_json,source_message_id,created_at,rollback_id FROM world_events WHERE world_id=? AND event_id IN (' + eventIds.map(() => '?').join(',') + ') ORDER BY commit_sequence').all(id, ...eventIds).map((r) => ({
+          event_id: r.event_id, turn_id: r.turn_id, generation_id: r.generation_id, context_manifest_id: r.context_manifest_id ?? null,
+          event_type: r.event_type, game_time: r.game_time, committed_revision: r.committed_revision,
+          commit_sequence: r.commit_sequence, validity: r.validity, caused_by: dec(r.caused_by_json),
+          depends_on: dec(r.depends_on_json), read_set: dec(r.read_set_json), causal_links: dec(r.causal_links_json ?? '[]'),
+          source_message_id: r.source_message_id, created_at: r.created_at, rollback_id: r.rollback_id,
+        }))
+        : [];
+      const missingEventIds = eventIds.filter((eventId) => !events.some((event) => event.event_id === eventId));
+
+      // The world revision, event cursor, and all selected rows are read inside
+      // one SQLite read transaction (or the caller's already-open store tx).
+      const commitSequence = this.currentCommitSequence(id);
+      return {
+        ...w,
+        commit_sequence: commitSequence,
+        entities,
+        facts,
+        events,
+        missing_fact_ids: missingFactIds,
+        missing_event_ids: missingEventIds,
+      };
+    };
+
+    // When called from an existing store transaction, reuse that transaction's
+    // read view. Otherwise create a read-only transaction; never fall back to
+    // assembling the snapshot from independent autocommit SELECT statements.
+    if (this.txDepth > 0) return read();
+    let began = false;
+    try {
+      this.db.exec('BEGIN');
+      began = true;
+      const snapshot = read();
+      this.db.exec('COMMIT');
+      began = false;
+      return snapshot;
+    } catch (error) {
+      if (began) {
+        try { this.db.exec('ROLLBACK'); } catch {}
+      }
+      throw error;
+    }
+  }
+
   state(id) {
     const w = this.world(id);
     if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
