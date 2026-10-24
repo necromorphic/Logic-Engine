@@ -135,7 +135,7 @@ export class SQLiteStore {
         commit_sequence INTEGER NOT NULL, validity TEXT NOT NULL CHECK(validity IN ('valid','retracted','invalidated')),
         caused_by_json TEXT NOT NULL, depends_on_json TEXT NOT NULL, read_set_json TEXT NOT NULL,
         causal_links_json TEXT NOT NULL DEFAULT '[]', effects_json TEXT NOT NULL, time_advance_seconds INTEGER NOT NULL DEFAULT 0, source_message_id TEXT,
-        created_at TEXT NOT NULL, rollback_id TEXT
+        created_at TEXT NOT NULL, rollback_id TEXT, mechanic_execution_json TEXT
       );
       CREATE INDEX IF NOT EXISTS events_revision ON world_events(world_id,committed_revision);
       CREATE TABLE IF NOT EXISTS entities(
@@ -282,6 +282,15 @@ export class SQLiteStore {
               FOREIGN KEY(world_id,created_by_event_id) REFERENCES world_events(world_id,event_id),
               FOREIGN KEY(world_id,last_event_id) REFERENCES world_events(world_id,event_id)
             );`);
+        },
+      },
+      {
+        version: 7,
+        apply: () => {
+          const columns = this.db.prepare('PRAGMA table_info(world_events)').all();
+          if (!columns.some((column) => column.name === 'mechanic_execution_json')) {
+            this.db.exec('ALTER TABLE world_events ADD COLUMN mechanic_execution_json TEXT');
+          }
         },
       },
       {
@@ -794,6 +803,7 @@ export class SQLiteStore {
       caused_by: dec(r.caused_by_json), depends_on: dec(r.depends_on_json), read_set: dec(r.read_set_json),
       causal_links: dec(r.causal_links_json ?? '[]'), effects: dec(r.effects_json), time_advance_seconds: r.time_advance_seconds, time_advance_ms: r.time_advance_ms,
       source_message_id: r.source_message_id, created_at: r.created_at, rollback_id: r.rollback_id,
+      ...(r.mechanic_execution_json ? { mechanic_execution: dec(r.mechanic_execution_json) } : {}),
     }));
   }
 
@@ -1212,11 +1222,11 @@ export class SQLiteStore {
       const createdAt = now();
       this.db.prepare(`INSERT INTO world_events(
         event_id,world_id,turn_id,generation_id,context_manifest_id,event_type,game_time,game_time_coordinate,committed_revision,commit_sequence,validity,
-        caused_by_json,depends_on_json,read_set_json,causal_links_json,effects_json,time_advance_seconds,time_advance_ms,source_message_id,created_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,?,'valid',?,?,?,?,?,?,?,?,?)`).run(
+        caused_by_json,depends_on_json,read_set_json,causal_links_json,effects_json,time_advance_seconds,time_advance_ms,source_message_id,mechanic_execution_json,created_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,'valid',?,?,?,?,?,?,?,?,?,?)`).run(
         eventId, id, x.turn_id, x.generation_id || null, x.context_manifest_id || null, x.event_type, time, gameTimeCoordinate, revision, commitSequence,
         enc(x.caused_by), enc(x.depends_on), enc(x.read_set), enc(x.causal_links ?? []), enc(x.effects), x.time_advance_seconds, durationMs,
-        x.source_message_id || null, createdAt,
+        x.source_message_id || null, x.mechanic_execution ? enc(x.mechanic_execution) : null, createdAt,
       );
       this.db.prepare('UPDATE worlds SET world_revision=?,game_time=?,game_time_coordinate=? WHERE world_id=?')
         .run(revision, time, gameTimeCoordinate, id);
