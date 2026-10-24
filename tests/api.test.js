@@ -103,7 +103,9 @@ test('time-trigger lifecycle is internal-only and registered triggers drive dura
 
   const listed = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', { headers: internalHeaders });
   assert.equal(listed.status, 200);
-  assert.equal((await listed.json()).triggers.length, 1);
+  const listedBody = await listed.json();
+  assert.equal(listedBody.triggers.length, 1);
+  assert.equal(Object.hasOwn(listedBody.triggers[0], 'payload'), false);
 
   const started = await fetch(base + '/v1/worlds/api-time-trigger-world/time-advances', {
     method: 'POST',
