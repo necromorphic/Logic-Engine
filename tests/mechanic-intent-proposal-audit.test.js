@@ -211,7 +211,7 @@ test('proposal commit audit failure rolls back proposal, canonical event, marker
   const beforeEvents = store.events('proposal-commit-audit-rollback-world', true);
   const beforeAudit = store.audit('proposal-commit-audit-rollback-world');
   const beforeProposal = store.db.prepare('SELECT * FROM event_proposals WHERE proposal_id=?').get(created.proposal_id);
-  const beforeIdempotency = store.db.prepare('SELECT COUNT(*) AS n FROM idempotency_keys WHERE world_id = 'proposal-commit-audit-rollback-world'').get().n;
+  const beforeIdempotency = store.db.prepare('SELECT COUNT(*) AS n FROM idempotency_keys WHERE world_id = ?').get('proposal-commit-audit-rollback-world').n;
   store.db.exec(`
     CREATE TRIGGER fail_proposal_commit_audit
     BEFORE INSERT ON audit_entries
@@ -228,7 +228,7 @@ test('proposal commit audit failure rolls back proposal, canonical event, marker
   const afterEvents = store.events('proposal-commit-audit-rollback-world', true);
   const afterAudit = store.audit('proposal-commit-audit-rollback-world');
   const afterProposal = store.db.prepare('SELECT * FROM event_proposals WHERE proposal_id=?').get(created.proposal_id);
-  const afterIdempotency = store.db.prepare('SELECT COUNT(*) AS n FROM idempotency_results').get().n;
+  const afterIdempotency = store.db.prepare('SELECT COUNT(*) AS n FROM idempotency_keys WHERE world_id = ?').get('proposal-commit-audit-rollback-world').n;
   assert.equal(afterWorld.world_revision, beforeWorld.world_revision);
   assert.equal(afterWorld.commit_sequence, beforeWorld.commit_sequence);
   assert.deepEqual(afterEvents, beforeEvents);
