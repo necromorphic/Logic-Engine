@@ -512,6 +512,7 @@ export class SQLiteStore {
         }
         return combined;
       };
+      // The combined set remains bounded even when a manifest references more rows than the caller explicitly requested.
       const snapshotEntityIds = combineIds(entityIds, derivedEntityIds, 'entityIds');
       const snapshotFactIds = combineIds(factIds, derivedFactIds, 'factIds');
       const snapshotEventIds = combineIds(eventIds, derivedEventIds, 'eventIds');
