@@ -7,7 +7,7 @@
 - Provider implementation: `src/application/sqlite-memory-provider.js` in PR #182.
 - Provider tests: `tests/sqlite-memory-provider.test.js`.
 - Internal import seam: `src/application/memory-provider-import-internal.js`, tested by `tests/memory-provider-import-internal.test.js` in stacked PR #201.
-- Repository-native command: `npm test` (`node --test`). Exact-head Runtime CI [run #1096 passed](https://github.com/necromorphic/Logic-Engine/actions/runs/40089709790) at `3a2ae89a77217c3e934cd1a3709303a2e76c222b`: 263 passed, 0 failed, including cross-world isolation, complete-empty/denied distinction, partial-result boundary, and interrupted-rebuild recovery.
+- Repository-native command: `npm test` (`node --test`). Exact-head Runtime CI [run #1103 passed](https://github.com/necromorphic/Logic-Engine/actions/runs/40090030120) at `c22d09200ee4b971d3a5e9c8a1681e1cdb63236a`: 265 passed, 0 failed, including cross-world isolation, complete-empty/denied distinction, partial-result boundary, interrupted-rebuild recovery, query-revocation race, and reconciliation snapshot race.
 - Existing CI evidence is not end-to-end provider → Core authorization → NPC admission evidence.
 
 ## Acceptance traceability
@@ -17,8 +17,8 @@
 | Durable record identity/version, lineage and restart recovery | SQLite provider persistence/reopen/rebuild test | Provider-local slice implemented; no raw message-body archive |
 | Idempotent duplicate ingest; conflicting identity rejected | Provider duplicate-ingest test; import-facade idempotency test | Covered for supported direct canonical-entity records |
 | Raw ingest survives derived-index failure | Injected index insert failure, raw row survives, rebuild restores readiness | Provider-local behavior covered |
-| Query denial and per-record revocation | Default-deny/revocation test; authorization rechecks grant after awaited source validation | Provider-local boundary covered; not a Core authorization decision |
-| Snapshot unavailable/stale and inventory incomplete | Tests assert fail-closed behavior | Covered as adapter-fixture behavior; snapshot pair is not a source change journal |
+| Query denial and per-record revocation | Default-deny/revocation tests; per-record and query grants are rechecked after awaited source validation | Provider-local boundary covered; not a Core authorization decision |
+| Snapshot unavailable/stale and inventory incomplete | Tests assert fail-closed behavior, including snapshot changing during inventory validation | Covered as adapter-fixture behavior; snapshot pair is not a source change journal |
 | Cross-world record/grant isolation | Added test: same record ref/version in two worlds, separate subjects, independent retrieval | Covered; exact-head CI passed |
 | Authorized complete-empty vs denied | Added test: ready empty result vs `MEMORY_QUERY_DENIED` | Added in this branch; pending exact-head CI |
 | Partial result semantics | Retrieval caps candidates at 50 and returns `partial` when a 51st exists | Covered by a 51-record regression test; exact-head CI passed |
