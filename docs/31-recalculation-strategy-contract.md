@@ -48,6 +48,13 @@ The contract must distinguish **declared potential dependencies** from **reads o
 
 The initial production slice should not support arbitrary executable code or model-supplied callbacks. Any future escape hatch requires a separate effect/resource boundary and must not silently participate in incremental execution.
 
+
+### Implemented prerequisite on the work branch
+
+`src/core/rules.js` now exports `collectConditionDependencies(rule)`. It validates the bounded rule structure and returns a sorted, deduplicated union of every path in every branch, including `not`, legacy nested-rule aliases, and paths that are absent in the current context. `tests/condition-dependencies.test.js` covers branch-union behavior, absence dependencies, deterministic output, malformed ASTs, unsupported operators, and unsafe paths.
+
+**Boundary:** this helper is not yet wired into mechanic execution or proposal creation. It proves only the syntactic potential-read set for the supported condition AST. It does not provide authorization, assemble a trusted context, infer dependencies from template prose/modules, or prove that other computation stages have no additional dependencies. Production incremental strategy B must remain disabled until the executor uses this helper (and covers every other input-bearing stage) under the same snapshot.
+
 ## 4. Strategies
 
 The three strategies are independent test choices. None is declared the production default by this proposal.
