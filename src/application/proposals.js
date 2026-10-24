@@ -148,6 +148,8 @@ export class ProposalService {
       condition_result: evaluation.condition_result,
       dependency_manifest: evaluation.dependency_manifest,
       effects: evaluation.effects,
+      read_set: evaluation.read_set,
+      causal_links: evaluation.causal_links,
       effect_provenance: evaluation.effect_provenance,
       read_set: evaluation.read_set,
       causal_links: evaluation.causal_links,
