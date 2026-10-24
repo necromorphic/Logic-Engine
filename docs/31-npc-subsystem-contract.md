@@ -89,6 +89,8 @@ A reaction should be based on what the NPC plausibly knows, their characterizati
 
 An event may motivate a reaction, but causation must be supported by the actual simulation history or explicit adjudication; narrative coincidence alone is not proof.
 
+The dedicated relationship-state boundary, participant-reference questions, card-summary projection, causal reconciliation requirements, and proposed REL-001–012 acceptance scenarios are collected in `docs/42-npc-relationship-state-contract-proposal.md`. That document is a proposal only; it does not imply that relationship records or card projections are implemented.
+
 ## 8. Autonomy and off-screen continuity
 
 NPCs may pursue valid goals when the player is absent or focused elsewhere. Their progress must be driven by world time, defined triggers, or explicit simulation operations—not by real operating-system time or the mere passage of chat turns.
