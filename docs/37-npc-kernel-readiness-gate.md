@@ -223,3 +223,30 @@ The intervening main changes add or revise core contracts and mechanic-effect su
 - `docs/44-npc-relationship-semantic-acceptance.md` now specifies fourteen relationship cases, and `docs/45-npc-relationship-typed-operation-design.md` provides a schema-neutral proposal distinguishing required causal dependencies from alternative support. Neither document constitutes runtime or schema approval.
 
 **Implementation gate unchanged:** semantic knowledge ownership is agreed, but the real authorized initial-knowledge representation, persistent acquisition/belief records, trusted actor/purpose/snapshot read filter, and observable delivery evidence are not verified as available. Typed relationship mutation, participant resolution, bounded authorized reads/projection, and multi-cause rollback reconciliation are also not available as an integrated NPC capability. Continue documentation/test-boundary work only; do not make NPC runtime or storage changes based on the newer core documents alone.
+
+
+## 16. Next execution queue — first NPC vertical slice (2026-10-24)
+
+This queue is deliberately ordered by dependency. It is not permission to implement core-owned runtime, API, or storage changes from the NPC branch. Update the queue only when a real core contract or implementation changes the evidence.
+
+### Slice target
+
+The first useful vertical slice is **one named canonical NPC receiving a bounded, authorized decision context built from explicitly authorized author-initial/imported knowledge, then returning a non-committing proposal**. It must not yet persist general observation, communication, inference, rumor, belief changes, relationships, goals, schedules, or off-screen world effects.
+
+### Ordered gates
+
+| Order | Gate / owner | Required evidence before proceeding | If absent |
+|---|---|---|---|
+| 1 | Consistent canonical snapshot — core | Review and integrate the bounded read primitive from PR #45 (or an approved equivalent); verify its exact composite marker and requested-row behavior on the target base. | Do not assemble a decision snapshot from unrelated raw reads. |
+| 2 | Trusted actor binding — core + host adapter | A real, trusted mapping from the decision subject to an existing canonical entity, and a declared purpose; neither may be accepted as an untrusted model-supplied identity. | Reject the request as unsupported; do not infer identity from display name/card text. |
+| 3 | Initial acquisition representation — core | Executable, audited record for explicitly authorized author-initial/imported knowledge, with canonical source references and explicit ownership; the contract in docs/39 §4.1 must be approved against real code. | Do not treat profile text, retrieval, manifest inclusion, or prompt text as acquired knowledge. |
+| 4 | Actor/purpose/snapshot filter — core | A bounded result tied to the same (world_revision, commit_sequence) marker, preserving known, unknown/unset, withheld, and incomplete/unsupported distinctly and excluding restricted content before model input. | Raw snapshot rows must not enter any NPC, narrator, player, or host-visible context. |
+| 5 | Condition evaluation semantics — core | The decision path must not convert missing/incomplete/unavailable values into ordinary false. Either a reviewed tri-state result contract is implemented, or the first slice avoids evaluating any condition whose required paths are absent/incomplete. | No NPC decision may depend on a false result produced by missing data. |
+| 6 | Proposal-only NPC adapter — NPC/integration | Build a pure adapter over the approved filtered envelope and existing proposal lifecycle. It can propose only supported existing effects and cannot commit, mutate belief/acquisition, or bypass approval. | Keep the output as a non-persistent draft/specification; do not add an NPC-owned proposal store. |
+| 7 | Production-path acceptance — shared | Tests invoke the real actor binding, authorized read/filter, context builder, and proposal creation path; assert source references, state-before/state-after, snapshot marker, excluded secrets, and no mutation. | Unit mocks can help design but cannot mark the slice integrated or ready. |
+
+### Implementation rule
+
+Do not treat this queue as a requirement to land all gates in one PR. Core-owned work should stay in the core's reviewed branch/PR; NPC-specific work should consume only merged or explicitly approved stable interfaces. Keep the first NPC slice small enough that every visible claim can be traced to authorized source evidence.
+
+The snapshot primitive is necessary but not sufficient. In particular, it does not by itself solve actor/entity binding, acquisition, belief, delivery, authorization, or safe condition evaluation. The relationship typed-operation design in docs/45-npc-relationship-typed-operation-design.md is a separate later capability and must not be pulled into the first knowledge slice merely because both need snapshots.
