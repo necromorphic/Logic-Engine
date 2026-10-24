@@ -235,3 +235,26 @@ This pass narrows the evidence available for MEM-O08 without pretending the exis
 
 MEM-O08 is **partially evidenced, unresolved**. The safe integration boundary is clear at the documentation level, but the concrete existing backend and its lifecycle are not established by the inspected `main` source. This section does not claim the vectorization patch is absent, broken, or tested.
 
+## Current-main storage and rollback evidence — MEM-O01, MEM-O03, MEM-O08, 2026-10-24
+
+This is a source-level audit of the current `main` branch, not a runtime test report.
+
+### Files and observed guarantees
+
+- `src/storage/sqlite-store.js`: the inspected schema includes canonical `worlds`, `world_events`, `entities`, `fact_claims`/`facts`, `audit_entries`, `idempotency_keys`, `rollbacks`, and `context_manifests`, plus mechanic/rule registries. No Memory record table, embedding/vector index, or durable Memory source-change outbox table was identified in this schema.
+- The same store's `tx(fn)` uses `BEGIN IMMEDIATE`/commit/rollback for outer writes and savepoints for nested writes. This is a local SQLite transaction primitive; it does not establish a cross-subsystem transaction with a separately owned archive or an atomic outbox that does not exist.
+- The `rollback(...)` path is transactional. It reads canonical events, determines invalidated descendants, persists rollback metadata, changes event validity and rebuilds affected projections/revision state. Consumers must not assume rollback always creates a larger maximum `commit_sequence`.
+- `src/application/actor-bindings.js`: actor binding is explicitly identity resolution only, not authorization for knowledge reads, action semantics, approval, or commit. It must not be reused as a Memory visibility policy.
+- `docs/13-sillytavern-adapter-contract.md` on `main`: the vectorization patch is separately owned; initial integration is read-only; no engine schema migrations/writes; vector hits are not canonical truth; source identity, branch validity, source validity, subject access and privacy must be checked where available.
+- `docs/39-npc-core-knowledge-contract-proposal.md` on `feat/npc-subsystem` is a proposal, not merged runtime. It assigns authoritative acquisition records, delivery attempts/receipts, source reconciliation and persistent subject-relative belief state to Core, and forbids parallel NPC-owned stores for these concepts.
+
+### Consequences for implementation gates
+
+1. **MEM-O01:** no durable Memory outbox is present in the inspected schema. Do not add one until Core chooses the canonical source-change contract and transaction ownership.
+2. **MEM-O03:** Memory persistence placement remains open. The existing transaction helper alone does not justify coupling new Memory tables to canonical writes.
+3. **MEM-O05/MEM-O06:** trusted source binding and NPC actor/recipient/delivery identifiers remain prerequisites for an honest persistent acquisition/delivery contract.
+4. **MEM-O08:** do not implement vector storage or assume the extension is absent. The concrete vectorization patch/repository, API, owner and lifecycle are still not discoverable from this source audit; a read-only adapter remains the only safe candidate after that code is located.
+5. **MEM-O11:** reconciliation must detect rollback/revision/validity changes, not only newly increasing event sequences. A recoverable poll/reconciliation strategy can be designed, but its cursor and freshness guarantee are not approved yet.
+
+No runtime files were changed. No test suite was executed by this documentation pass. These findings should be rechecked against the exact `main` head before runtime implementation.
+
