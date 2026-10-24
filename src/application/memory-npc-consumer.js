@@ -18,6 +18,7 @@ const validSnapshot = (value) => object(value)
 const sameSnapshot = (left, right) => validSnapshot(left) && validSnapshot(right)
   && left.world_revision === right.world_revision
   && left.commit_sequence === right.commit_sequence;
+const recordIdentityKey = (ref, version) => JSON.stringify([ref, version]);
 
 const nonReady = (reason) => Object.freeze({
   status: 'non_ready',
@@ -228,7 +229,7 @@ export class MemoryNpcConsumer {
     const uniqueCandidates = [];
     const identitySignatures = new Map();
     for (const candidate of authorizedCandidates) {
-      const identity = candidate.record.ref + '\u0000' + candidate.record.version;
+      const identity = recordIdentityKey(candidate.record.ref, candidate.record.version);
       const signature = {
         source_entity_id: candidate.source.entity_id,
         content_kind: candidate.content_kind,
@@ -320,7 +321,7 @@ export class MemoryNpcConsumer {
         },
       };
       oracleCandidates.push(trustedCandidate);
-      const identity = candidate.record.ref + '\u0000' + candidate.record.version;
+      const identity = recordIdentityKey(candidate.record.ref, candidate.record.version);
       contentByIdentity.set(identity, {
         record_ref: candidate.record.ref,
         record_version: candidate.record.version,
@@ -350,7 +351,7 @@ export class MemoryNpcConsumer {
     if (decision.status !== 'ready') return nonReady(decision.reason || 'candidate_admission_not_ready');
 
     const admitted = decision.admitted
-      .map((item) => contentByIdentity.get(item.record_ref + '\u0000' + item.record_version))
+      .map((item) => contentByIdentity.get(recordIdentityKey(item.record_ref, item.record_version)))
       .filter(Boolean);
 
     return Object.freeze({
