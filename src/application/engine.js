@@ -92,7 +92,7 @@ const causalLinks = (value) => {
 
 const segmentRelationshipRef = (subjectId, targetId) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId);
 const isTypedProjectionRef = (ref) => typeof ref === 'string'
-  && (ref.startsWith('entity:') || ref.startsWith('fact:') || ref.startsWith('relationship:') || ref.startsWith('mechanic:'));
+  && (ref.startsWith('entity:') || ref.startsWith('fact:') || ref.startsWith('relationship:'));
 
 function segmentAccess(event) {
   const reads = new Set(event.read_set || []);
@@ -108,6 +108,7 @@ function segmentAccess(event) {
     }
   }
   for (const effect of event.effects || []) {
+    if (typeof effect.subject_ref === 'string' && isTypedProjectionRef(effect.subject_ref)) reads.add(effect.subject_ref);
     if (effect.kind === 'relationship.transition') {
       writes.add(segmentRelationshipRef(effect.subject_id, effect.target_id));
       reads.add('entity:' + effect.subject_id);
