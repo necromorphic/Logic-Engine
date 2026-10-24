@@ -1,25 +1,30 @@
 # Memory Provider acceptance traceability — follow-up addendum
 
-**Applies to:** PR #201. Test commit: `cb4cc33ec9627e35b073c68af76bfaa346a64345`; current documentation head at the time of this update is tracked by PR #201.
+**Applies to:** PR #201. Provider test/code head verified by Runtime CI run #1585: `9fa6d6183db24bbbf6f08300af466eb162ddf716`.
 
-This addendum supersedes the two completed Provider-owned items still listed as future work in the original `memory-provider-acceptance-traceability.md` checklist. The original file could not be safely replaced through the connected repository write path during this pass, so this explicit addendum preserves the correction without changing or hiding the original audit history.
+This addendum corrects the two completed Provider-owned items still listed as future work in the original `memory-provider-acceptance-traceability.md` checklist and records the raw archive lifecycle slice. The original register is retained as historical context rather than silently rewritten.
 
-## Completed Provider-owned tests
+## Completed Provider-owned regressions
 
-- The 51-record retrieval boundary regression is already present in `tests/sqlite-memory-provider.test.js`: 50 candidates are returned and completeness is `partial` when a 51st authorized candidate exists.
-- Interrupted index rebuild followed by reopen is already covered in `tests/sqlite-memory-provider.test.js`: retrieval remains unavailable after the injected rebuild failure and provider restart.
-- New: `tests/memory-provider-reconcile-interruption.test.js` interrupts reconciliation at an awaited source-validation boundary, closes the provider, reopens the same SQLite database, verifies retrieval fails with `MEMORY_INDEX_NOT_READY`, then verifies a complete successful reconciliation is required before retrieval resumes.
+- The 51-record retrieval boundary is covered in `tests/sqlite-memory-provider.test.js`: only 50 candidates are returned and completeness is `partial` when a 51st authorized candidate exists.
+- Interrupted index rebuild followed by reopen is covered in `tests/sqlite-memory-provider.test.js`: retrieval remains unavailable after the injected rebuild failure and provider restart.
+- Interrupted reconciliation is covered in `tests/memory-provider-reconcile-interruption.test.js`: the test pauses at an awaited source-validation boundary, closes/reopens the same SQLite database, confirms retrieval fails with `MEMORY_INDEX_NOT_READY`, and then requires a successful complete reconciliation before retrieval resumes.
+- Raw archive lifecycle is covered in `tests/memory-provider-raw-archive.test.js`: durable capture and digest, idempotent retry versus identity conflict, active-version switching without deleting alternatives, source deletion and dependent-copy invalidation, explicit purge with dependent-copy cascade, world isolation, fail-closed reads without trusted host authorization, active-version-only reads, restart persistence of deletion/invalidation, and integrity mismatch rejection.
 
-## Exact-head verification
+## Exact-head test evidence
 
-- Test commit: `cb4cc33ec9627e35b073c68af76bfaa346a64345`
-- Runtime CI run #1190: **success** — https://github.com/necromorphic/Logic-Engine/actions/runs/40093202393
-- Documentation follow-up commit `5081175ad8088fab7822f13a796e9f1b43c6463b` also passed Runtime CI run #1194: https://github.com/necromorphic/Logic-Engine/actions/runs/40093261912
-- PR #201 remains open and draft. This is Provider-local evidence only, not proof of a real Core → Provider → NPC integration.
+- Runtime CI run #1585: **success, 278/278 tests**, code/test HEAD `9fa6d6183db24bbbf6f08300af466eb162ddf716`.
+- Run: https://github.com/necromorphic/Logic-Engine/actions/runs/40100622470
+- This is Provider-local evidence. It is not evidence that a SillyTavern hook, external archive/index purge, authoritative Core source-version API, or production Core → Provider → NPC integration exists.
 
-## Still open — do not mark complete
+## Implementation boundary and remaining gates
 
-- The existing test simulates interruption at an awaited adapter callback and reopen of the persisted SQLite state. It does not prove every operating-system/process-crash timing or cross-store atomicity guarantee.
-- Source-version authority, complete production inventory, rollback/retraction signaling, and disclosure-time revocation semantics remain blocked by Core issue #140 and require the actual host adapter/approved contract.
-- Source deletion, dependent-copy invalidation/purge, derived-summary authorization, public diagnostic projection, and end-to-end NPC admission remain unimplemented or separately blocked.
-- No production wiring, merge, new runtime API, schema contract, cursor, outbox, or source-change journal is authorized by this addendum.
+- The SQLite provider stores exact raw UTF-8 message text, role, metadata, capture time, and SHA-256 digest under world/conversation/message/version identity. Raw reads fail closed unless the trusted host injects `authorizeRawRead`.
+- Selecting another swipe/generation changes only the active pointer; alternatives remain retained.
+- Source deletion excludes that version from active reads and invalidates only dependent copies explicitly registered in this provider database. Permanent purge is a separate operation and cascades to those registered copies.
+- No public HTTP route, default-runtime wiring, SillyTavern capture hook, raw-body search/vector index, retention scheduler, or cross-store purge is implemented. Host authorization for capture, retention duration, and encryption-at-rest are not inferred by this provider slice.
+- Source-specific authoritative validity/version, complete consistent source inventory, rollback/retraction reconciliation policy, and cross-store disclosure/revocation semantics remain blocked by Core Issue #140. Callback-backed fixtures remain fixture evidence, not source authority.
+- Summary admission and NPC knowledge side effects remain excluded. Retrieval/context inclusion does not create belief, acquisition, receipt, or delivery.
+- No universal source schema/version field, API, outbox, cursor, source-change journal, or parallel canonical store is introduced.
+
+PR #201 remains draft and unmerged, stacked on PR #182. Production Memory→NPC stays disabled until the owners approve the missing source/inventory/reconciliation/disclosure contract and real-adapter acceptance tests pass.
