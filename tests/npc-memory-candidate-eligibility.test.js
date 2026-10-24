@@ -56,6 +56,7 @@ test("admits only the safe reference metadata, never content", () => {
     record_ref: "memory:claim-1",
     record_version: "v3",
     epistemic_kind: "acquired_report",
+    evidence_assessment: "unverified",
   }]);
   assert.equal(JSON.stringify(result).includes("restricted raw text"), false);
   assert.equal(JSON.stringify(result).includes("secret title"), false);
@@ -177,6 +178,29 @@ test("every missing lifecycle dimension fails closed", () => {
   });
   const unknownResult = evaluateMemoryCandidateAdmission(request, completeResult([unknownLifecycleValues]));
   assert.equal(unknownResult.status, "ready");
+});
+
+test("known evidence assessments are preserved; unknown assessments fail closed", () => {
+  for (const evidence_assessment of ["unassessed", "supported", "disputed", "insufficient"]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ lifecycle: { ...candidate().lifecycle, evidence_assessment } }),
+    ]));
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.admitted, [{
+      record_ref: "memory:claim-1",
+      record_version: "v3",
+      epistemic_kind: "acquired_report",
+      evidence_assessment,
+    }]);
+  }
+
+  for (const evidence_assessment of ["", "unknown", "verified_truth", undefined]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ lifecycle: { ...candidate().lifecycle, evidence_assessment } }),
+    ]));
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.admitted, []);
+  }
 });
 
 test("lifecycle deny, stale source, unusable content, and unhealthy index fail closed", () => {
