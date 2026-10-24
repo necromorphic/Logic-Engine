@@ -19,6 +19,9 @@ const sameSnapshot = (left, right) => validSnapshot(left) && validSnapshot(right
   && left.world_revision === right.world_revision
   && left.commit_sequence === right.commit_sequence;
 const recordIdentityKey = (ref, version) => JSON.stringify([ref, version]);
+const CONTENT_KINDS = new Set(['claim', 'report', 'summary', 'author_initial', 'imported', 'inference']);
+const EPISTEMIC_KINDS = new Set(['canonical', 'acquired_report', 'rumor', 'inference', 'authored_initial', 'imported']);
+const EVIDENCE_ASSESSMENTS = new Set(['unassessed', 'supported', 'disputed', 'insufficient']);
 
 const nonReady = (reason) => Object.freeze({
   status: 'non_ready',
@@ -217,6 +220,18 @@ export class MemoryNpcConsumer {
         return nonReady('memory_record_authorization_unavailable');
       }
       if (!recordAllowed) continue;
+
+      // Once the provider confirms this record is visible, required semantic
+      // metadata must be present and use known vocabularies. Otherwise the
+      // admission oracle could filter a malformed row and make it look like a
+      // legitimate empty result. Denied rows are skipped before this check.
+      if (!CONTENT_KINDS.has(candidate.content_kind)
+        || !EPISTEMIC_KINDS.has(candidate.epistemic_kind)
+        || !validId(candidate.producer?.kind)
+        || !validId(candidate.lifecycle?.content_disposition)
+        || !EVIDENCE_ASSESSMENTS.has(candidate.lifecycle?.evidence_assessment)) {
+        return nonReady('memory_candidate_metadata_incomplete');
+      }
 
       // Check Memory-owned currentness only after record authorization, so a
       // denied record cannot change the result shape based on its freshness.
