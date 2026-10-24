@@ -211,3 +211,39 @@ test('host seam rejects a rollback-only revision change before NPC admission', a
   assert.equal(output.reason, 'authoritative_result_unconfirmed');
   assert.deepEqual(output.admitted, []);
 });
+
+
+test('host seam rejects a Memory candidate when its Core source access is revoked during verification', async (t) => {
+  const { sourceRead, snapshot, revokeSource } = setup(t);
+  const request = {
+    world_id: 'memory-bridge-world',
+    subject_id: 'actor-a',
+    purpose: 'npc_decision',
+    snapshot: { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence },
+  };
+  const bridge = new MemoryNpcContextBridge({
+    retrieve: () => memoryResult(snapshot),
+    verifyResult: (scope, retrieved) => {
+      const authorized = sourceRead();
+      const current = retrieved.completeness === 'complete'
+        && retrieved.scope.world_id === scope.world_id
+        && authorized.world_revision === scope.snapshot.world_revision
+        && authorized.commit_sequence === scope.snapshot.commit_sequence;
+      // Model a host-side access revocation after the result-level check but
+      // before candidate lineage is revalidated. Candidate verification must
+      // consult the current Core boundary rather than trust cached allow labels.
+      revokeSource();
+      return current;
+    },
+    verifyCandidate: (scope, item) => {
+      if (item.lineage?.status !== 'complete') return false;
+      const source = sourceRead();
+      return source.entities[0].entity_id === 'source-a'
+        && source.world_revision === scope.snapshot.world_revision;
+    },
+  });
+  const output = await bridge.read(request);
+  assert.equal(output.status, 'non_ready');
+  assert.equal(output.reason, 'authoritative_verification_unavailable');
+  assert.deepEqual(output.admitted, []);
+});
