@@ -3,7 +3,7 @@ import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
-import { planDueWork } from '../time/scheduler.js';
+import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
@@ -444,6 +444,76 @@ export class LogicEngine {
       x.expected_revision,
       x.expected_commit_sequence ?? null,
     );
+  }
+
+  registerTimeTrigger(id, input) {
+    assert(obj(input), 'INVALID_TIME_TRIGGER', 'Time-trigger registration must be an object.');
+    const allowed = ['trigger_id', 'due_coordinate', 'dependencies', 'read_set', 'write_set', 'processing_mode', 'interrupt_after_coordinate', 'payload'];
+    assert(Object.keys(input).every((key) => allowed.includes(key)),
+      'UNSUPPORTED_TIME_TRIGGER_FIELD', 'Time-trigger registration contains an unsupported field.');
+    const world = this.getState(id);
+    let trigger;
+    try {
+      trigger = normalizeTimeTrigger({ ...input, world_id: id, status: 'pending' }, id);
+    } catch (error) {
+      throw new EngineError(error.code || 'INVALID_TIME_TRIGGER', error.message || 'Time-trigger validation failed.', 400, error.details);
+    }
+    assert(trigger.due_coordinate > world.game_time_coordinate,
+      'TIME_TRIGGER_NOT_FUTURE', 'A new time trigger must be scheduled strictly after the current world coordinate.', 409);
+    assert(trigger.due_coordinate % 1000 === 0,
+      'TIME_TRIGGER_SUBSECOND_UNSUPPORTED', 'Time-trigger execution currently requires whole-second coordinates.', 400);
+    const proposal = trigger.payload?.event;
+    assert(obj(proposal), 'TRIGGER_EVENT_PROPOSAL_REQUIRED', 'A persisted time trigger payload must contain an event proposal.');
+    assert(proposal.expected_revision === undefined && proposal.expected_commit_sequence === undefined,
+      'INVALID_TRIGGER_EVENT_CURSOR', 'A persisted trigger cannot choose its own revision or commit cursor.');
+    assert(proposal.duration_proposal === undefined || proposal.duration_proposal === null,
+      'INVALID_TRIGGER_DURATION_PROPOSAL', 'A scheduled trigger effect cannot include an action-duration proposal.');
+    assert(proposal.time_mode === undefined || proposal.time_mode === 'action',
+      'INVALID_TRIGGER_TIME_MODE', 'A scheduled trigger effect cannot request an explicit time skip.');
+    assert(proposal.time_advance_seconds === undefined || proposal.time_advance_seconds === 0,
+      'INVALID_TRIGGER_EVENT_DURATION', 'Scheduled trigger effects must execute at their due coordinate with zero additional duration.');
+    const identity = hashRequest({ world_id: id, trigger_id: trigger.trigger_id }).slice(0, 32);
+    const event = {
+      ...proposal,
+      event_id: 'time-trigger-' + identity,
+      idempotency_key: 'time-trigger:' + identity,
+      turn_id: proposal.turn_id ?? ('time-trigger-turn:' + identity),
+      time_advance_seconds: 0,
+      time_mode: 'action',
+    };
+    try {
+      this.prepareEvent(event);
+    } catch (error) {
+      if (error instanceof EngineError) throw error;
+      throw new EngineError(error.code || 'INVALID_TRIGGER_EVENT_PROPOSAL', error.message || 'Trigger event proposal validation failed.', 400);
+    }
+    trigger.payload = { ...trigger.payload, event };
+    const content_hash = hashRequest({
+      world_id: id,
+      trigger_id: trigger.trigger_id,
+      due_coordinate: trigger.due_coordinate,
+      dependencies: trigger.dependencies,
+      read_set: trigger.read_set,
+      write_set: trigger.write_set,
+      processing_mode: trigger.processing_mode,
+      interrupt_after_coordinate: trigger.interrupt_after_coordinate,
+      payload: trigger.payload,
+    });
+    return this.store.registerTimeTrigger(id, { ...trigger, content_hash });
+  }
+
+  listTimeTriggers(id) {
+    return this.store.listTimeTriggers(id);
+  }
+
+  getTimeTrigger(id, triggerId) {
+    return this.store.getTimeTrigger(id, triggerId);
+  }
+
+  cancelTimeTrigger(id, triggerId, reason = 'author_cancelled') {
+    assert(typeof reason === 'string' && reason.trim() && reason.length <= 200,
+      'INVALID_TIME_TRIGGER_CANCELLATION', 'reason must be a non-empty string of at most 200 characters.');
+    return this.store.cancelTimeTrigger(id, triggerId, reason.trim());
   }
 
   startTimeAdvance(id, x) {
