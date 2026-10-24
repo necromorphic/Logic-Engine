@@ -177,6 +177,8 @@ function segmentAtCoordinate(triggers, dependencies) {
   let currentIds = new Set();
   let currentReads = new Set();
   let currentWrites = new Set();
+  const priorWriters = new Map();
+  const priorReaders = new Map();
 
   const close = () => {
     if (current.length) {
@@ -197,7 +199,25 @@ function segmentAtCoordinate(triggers, dependencies) {
     currentWrites = new Set();
   };
 
+  const directlyOrdered = (leftId, rightId) => (dependencies.get(leftId) || []).includes(rightId)
+    || (dependencies.get(rightId) || []).includes(leftId);
+  const assertNoUnorderedConflict = (trigger, reference, existingId) => {
+    if (!directlyOrdered(trigger.trigger_id, existingId)) {
+      fail('TRIGGER_CONFLICT_NEEDS_REVIEW', 'Same-coordinate triggers conflict without an explicit direct dependency order.', {
+        trigger_ids: [existingId, trigger.trigger_id], reference,
+      });
+    }
+  };
+
   for (const trigger of triggers) {
+    for (const ref of trigger.write_set) {
+      for (const existingId of priorWriters.get(ref) || []) assertNoUnorderedConflict(trigger, ref, existingId);
+      for (const existingId of priorReaders.get(ref) || []) assertNoUnorderedConflict(trigger, ref, existingId);
+    }
+    for (const ref of trigger.read_set) {
+      for (const existingId of priorWriters.get(ref) || []) assertNoUnorderedConflict(trigger, ref, existingId);
+    }
+
     const dependsOnCurrent = (dependencies.get(trigger.trigger_id) || []).some((dependencyId) => currentIds.has(dependencyId));
     if (dependsOnCurrent) close();
 
@@ -213,12 +233,23 @@ function segmentAtCoordinate(triggers, dependencies) {
 
     current.push(trigger);
     currentIds.add(trigger.trigger_id);
-    for (const ref of trigger.read_set) currentReads.add(ref);
-    for (const ref of trigger.write_set) currentWrites.add(ref);
+    for (const ref of trigger.read_set) {
+      currentReads.add(ref);
+      const readers = priorReaders.get(ref) || [];
+      readers.push(trigger.trigger_id);
+      priorReaders.set(ref, readers);
+    }
+    for (const ref of trigger.write_set) {
+      currentWrites.add(ref);
+      const writers = priorWriters.get(ref) || [];
+      writers.push(trigger.trigger_id);
+      priorWriters.set(ref, writers);
+    }
   }
   close();
   return segments;
 }
+
 /**
  * Plan due triggers on (from_coordinate, to_coordinate]. This is planning only:
  * returned segments are proposals and must be committed through Core.
