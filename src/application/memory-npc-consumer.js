@@ -53,8 +53,11 @@ export class MemoryNpcConsumer {
       throw new TypeError('MemoryNpcConsumer requires trusted Memory query, retrieval, and record authorization functions');
     }
     if (!Array.isArray(contentFields) || contentFields.length === 0 || contentFields.length > 20
-      || contentFields.some((field) => typeof field !== 'string' || !/^[a-zA-Z][a-zA-Z0-9_.-]{0,99}$/.test(field)
-        || field === 'entity_id')
+      || contentFields.some((field) => typeof field !== 'string'
+        || !/^[a-zA-Z][a-zA-Z0-9_.-]{0,99}$/.test(field)
+        || field === 'entity_id'
+        || !(field === 'entity_type' || field === 'status'
+          || (field.startsWith('attributes.') && field.length > 'attributes.'.length)))
       || new Set(contentFields).size !== contentFields.length) {
       throw new TypeError('contentFields must be a non-empty, unique trusted field allowlist');
     }
