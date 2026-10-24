@@ -64,13 +64,18 @@ const NON_VALUE_STATES = new Map([
 function currentState(currentValues, dimension) {
   if (!own(currentValues, dimension)) return { status: "unset" };
   const raw = currentValues[dimension];
-  if (isRecord(raw) && raw.status === "value" && typeof raw.value === "string") {
+  if (isRecord(raw) && raw.status === "value"
+      && typeof raw.value === "string"
+      && Object.keys(raw).length === 2
+      && own(raw, "value")) {
     return { status: "value", value: raw.value };
   }
-  if (isRecord(raw) && (raw.status === "unset" || raw.status === "cleared")) {
+  if (isRecord(raw) && (raw.status === "unset" || raw.status === "cleared")
+      && Object.keys(raw).length === 1) {
     return { status: raw.status };
   }
-  if (isRecord(raw) && NON_VALUE_STATES.has(raw.status)) {
+  if (isRecord(raw) && NON_VALUE_STATES.has(raw.status)
+      && Object.keys(raw).length === 1) {
     return { status: raw.status };
   }
   if (typeof raw === "string") return { status: "value", value: raw };
