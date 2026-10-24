@@ -30,13 +30,51 @@ function result(status, details = {}) {
   return Object.freeze({ status, ...details });
 }
 
+function transitionFromMatches(expected, current) {
+  if (isRecord(expected) && isRecord(current)) {
+    return expected.status === current.status
+      && (expected.status !== "value" || expected.value === current.value);
+  }
+  return expected === current;
+}
+
 function transitionAllowed(rule, from, to, operation) {
   return Array.isArray(rule.transitions) && rule.transitions.some((transition) =>
     isRecord(transition)
     && transition.operation === operation
-    && transition.from === from
+    && transitionFromMatches(transition.from, from)
     && transition.to === to
   );
+}
+
+const NON_VALUE_STATES = new Map([
+  ["withheld", { status: "withheld", result: "withheld", reason: "relationship_value_withheld" }],
+  ["conflict", { status: "conflict_review_required", reason: "relationship_state_conflict" }],
+  ["insufficient_support", { status: "insufficient_evidence", reason: "relationship_state_insufficiently_supported" }],
+  ["unsupported", { status: "unsupported", reason: "relationship_state_unsupported" }],
+  ["incomplete", { status: "unsupported", reason: "relationship_state_incomplete" }],
+]);
+
+function currentState(currentValues, dimension) {
+  if (!own(currentValues, dimension)) return { status: "unset" };
+  const raw = currentValues[dimension];
+  if (isRecord(raw) && raw.status === "value" && typeof raw.value === "string") {
+    return { status: "value", value: raw.value };
+  }
+  if (isRecord(raw) && (raw.status === "unset" || raw.status === "cleared")) {
+    return { status: raw.status };
+  }
+  if (isRecord(raw) && NON_VALUE_STATES.has(raw.status)) {
+    return { status: raw.status };
+  }
+  if (typeof raw === "string") return { status: "value", value: raw };
+  return { status: "unsupported", reason: "relationship_state_shape_unsupported" };
+}
+
+function transitionFromToken(state) {
+  if (state.status === "unset") return null;
+  if (state.status === "value") return state.value;
+  return { status: state.status };
 }
 
 /**
@@ -45,10 +83,16 @@ function transitionAllowed(rule, from, to, operation) {
  * Required input:
  * - subjectId / targetId: opaque references already resolved by the caller.
  * - currentValues: effective values for this directed pair; absent keys are
- *   unset. An explicit neutral is represented as an ordinary domain value.
+ *   unset. Ordinary strings are domain values (including explicit neutral).
+ *   For a present dimension, tagged states may express {status:"cleared"},
+ *   {status:"withheld"}, {status:"conflict"}, {status:"insufficient_support"},
+ *   {status:"unsupported"}, or {status:"incomplete"}. A tagged value may be
+ *   expressed as {status:"value", value:"..."}. These are internal evaluator
+ *   inputs, not a public API or storage schema.
  * - patch: dimension -> domain value, or { operation: "clear" }.
  * - dimensionRules: dimension -> { values, allowClear, allowSelfRelation?,
- *   transitions: [{ operation: "set"|"clear", from: value|null, to: value|null }] }.
+ *   transitions: [{ operation: "set"|"clear", from: value|null|state-tag,
+ *   to: value|null }] }. Use null for unset and {status:"cleared"} for cleared.
  * - evidence: { status, refs }; authorization and truth of those refs are
  *   upstream responsibilities. This function only checks declared status.
  * - ruleVersion: non-empty identifier for the pinned domain rules.
@@ -130,8 +174,23 @@ export function evaluateRelationshipCandidate(input) {
       });
     }
 
-    const currentExists = own(currentValues, dimension);
-    const from = currentExists ? currentValues[dimension] : null;
+    const state = currentState(currentValues, dimension);
+    if (state.status === "unsupported") {
+      return result("unsupported", {
+        reason: state.reason ?? NON_VALUE_STATES.get(state.status)?.reason
+          ?? "relationship_state_shape_unsupported",
+        dimension,
+      });
+    }
+    const nonValue = NON_VALUE_STATES.get(state.status);
+    if (nonValue) {
+      return result(nonValue.result ?? nonValue.status, {
+        reason: nonValue.reason,
+        dimension,
+      });
+    }
+
+    const from = transitionFromToken(state);
     const clearing = isRecord(requested) && requested.operation === "clear";
     const operation = clearing ? "clear" : "set";
     const to = clearing ? null : requested;
@@ -149,10 +208,10 @@ export function evaluateRelationshipCandidate(input) {
       });
     }
 
-    if (clearing && !currentExists) {
+    if (clearing && (state.status === "unset" || state.status === "cleared")) {
       continue;
     }
-    if (!clearing && currentExists && from === to) {
+    if (!clearing && state.status === "value" && state.value === to) {
       continue;
     }
 
