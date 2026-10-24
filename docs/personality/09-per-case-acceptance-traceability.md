@@ -64,3 +64,28 @@ IDs are defined in `06-stable-trait-lifecycle.md`; this summary does not replace
 4. Do not close a Core-owned row without explicit contract/implementation evidence from Core.
 5. Do not invent universal relationship dimensions or infer runtime behavior from narrative examples.
 6. This is documentation only; no runtime code or executable tests were added.
+
+## Legacy relationship acceptance-ID crosswalk
+
+The semantic contract in `01-personality-and-relationship-semantics.md` also retains the older `PERS-REL-001–016` identifiers. These IDs are not deleted or renumbered; use the following crosswalk when tracing older references to the current `PERS-SEM` matrix.
+
+| Legacy ID | Current semantic acceptance ID(s) | Meaning |
+|---|---|---|
+| PERS-REL-001 | PERS-SEM-001 | Directionality |
+| PERS-REL-002 | PERS-SEM-002 | Partial update |
+| PERS-REL-003 | PERS-SEM-003 | Unknown versus neutral |
+| PERS-REL-004 | PERS-SEM-008 | Co-presence alone causes no transition |
+| PERS-REL-005 | PERS-SEM-011 | Initialization/import provenance |
+| PERS-REL-006 | PERS-SEM-012 | Author-correction provenance |
+| PERS-REL-007 | PERS-SEM-009 | Canonical participant identity |
+| PERS-REL-008 | PERS-SEM-010 | Self-relationship policy |
+| PERS-REL-009 | PERS-SEM-014, PERS-SEM-016 | Stable-trait lifecycle and no automatic rewrite |
+| PERS-REL-010 | PERS-SEM-015, PERS-SEM-017 | Context-sensitive behavior and non-canonical inference |
+| PERS-REL-011 | PERS-SEM-018 | Relationship does not grant knowledge |
+| PERS-REL-012 | PERS-SEM-027 | Character card is derived/read-only |
+| PERS-REL-013 | PERS-SEM-021 | Required-dependency rollback |
+| PERS-REL-014 | PERS-SEM-022, PERS-SEM-023 | Independent support and conflict/insufficiency |
+| PERS-REL-015 | PERS-SEM-025, PERS-SEM-026 | Authorized reads and withheld-versus-unset |
+| PERS-REL-016 | PERS-SEM-028 | Player agency |
+
+The legacy IDs remain valid aliases for traceability, not additional scenarios that supersede the PERS-SEM matrix. If the semantic outcome changes, update the canonical PERS-SEM case and this mapping together.
