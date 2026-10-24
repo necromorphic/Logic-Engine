@@ -285,15 +285,6 @@ export class SQLiteStore {
         },
       },
       {
-        version: 7,
-        apply: () => {
-          const columns = this.db.prepare('PRAGMA table_info(world_events)').all();
-          if (!columns.some((column) => column.name === 'mechanic_execution_json')) {
-            this.db.exec('ALTER TABLE world_events ADD COLUMN mechanic_execution_json TEXT');
-          }
-        },
-      },
-      {
         version: 6,
         apply: () => {
           const worldColumns = this.db.prepare('PRAGMA table_info(worlds)').all();
@@ -338,6 +329,15 @@ export class SQLiteStore {
               throw new Error('TIME_COORDINATE_MIGRATION_INVALID_EVENT_TIME: ' + row.world_id + '/' + row.event_id);
             }
             updateEventTime.run(coordinate, durationMs, row.world_id, row.event_id);
+          }
+        },
+      },
+      {
+        version: 7,
+        apply: () => {
+          const columns = this.db.prepare('PRAGMA table_info(world_events)').all();
+          if (!columns.some((column) => column.name === 'mechanic_execution_json')) {
+            this.db.exec('ALTER TABLE world_events ADD COLUMN mechanic_execution_json TEXT');
           }
         },
       },
