@@ -176,3 +176,17 @@ test('conflicts across segment boundaries still require a direct dependency orde
     (error) => error.code === 'TRIGGER_CONFLICT_NEEDS_REVIEW',
   );
 });
+
+
+test('completed trigger IDs cannot contradict pending trigger records', () => {
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      completed_trigger_ids: ['same-id'],
+      triggers: [trigger('same-id', 5, { status: 'pending' })],
+    }),
+    (error) => error.code === 'CONFLICTING_TRIGGER_STATUS',
+  );
+});
