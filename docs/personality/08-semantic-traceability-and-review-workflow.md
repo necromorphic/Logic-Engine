@@ -34,12 +34,13 @@ If two sources conflict, do not silently choose a winner. Record the conflict, p
 | Dimension values and transitions | `05-world-pack-relationship-dimension-template.md`, §§2, 5–6 | PERS-SEM-006–007 | World Pack defines domain; Core enforces approved boundary | Authoring requirements specified; runtime readiness is per-dimension and remains unverified |
 | Scene co-presence and implicit transitions | `01-personality-and-relationship-semantics.md`, §4; `04-semantic-acceptance-matrix.md`, §2 | PERS-SEM-008; PERS-REL-004 | Personality semantics; Core typed write boundary | Specified; typed write remains blocked |
 | Initial/imported, in-world, correction provenance | `01-personality-and-relationship-semantics.md`, §4.1; `03-core-decision-and-integration-gates.md`, §5 | PERS-SEM-011–013; PERS-TRAIT-004 | Core for trusted operation, authorization, and audit | Semantic distinction approved; trusted boundary unresolved |
-| Stable traits and development | `06-stable-trait-lifecycle.md`, §§2–6 | PERS-SEM-014–017; PERS-TRAIT-001–010 | Personality for semantics; Core for canonical mutation; NPC for decision use | Semantic contract specified; no automatic inference/runtime support claimed |
+| Stable traits, category separation, and development | `06-stable-trait-lifecycle.md`, §§2–6, 9 | PERS-SEM-014–017; PERS-TRAIT-001–013 | Personality for semantic classification and author review; Core for canonical mutation/read/rollback; NPC for decision use | Semantic contract specified; category-classification and author-review workflows are not runtime-tested; no automatic inference/runtime support claimed |
 | Cross-dimension isolation and relationship non-implications | `01-personality-and-relationship-semantics.md`, §§3–5; `05-world-pack-relationship-dimension-template.md`, §4 | PERS-SEM-005, 018–020 | Personality/World Pack | Semantic contract specified; each World Pack must declare any intentional cross-dimension rule explicitly |
 | Rollback and causal support | `03-core-decision-and-integration-gates.md`, §§3, 6 | PERS-SEM-021–024; PERS-REL-013–014 | Core for causal representation/rebuild; World Pack for domain sufficiency | Conditional replay target only; relationship-specific guarantees unverified |
 | Actor-authorized reads and withheld values | `03-core-decision-and-integration-gates.md`, §4 | PERS-SEM-025–026; PERS-TRAIT-009 | Core | Blocking; snapshot consistency does not equal authorization |
 | Character-card projection | `01-personality-and-relationship-semantics.md`, §§2, 4; `07-cross-block-readiness-and-handoff.md` | PERS-SEM-027; PERS-REL-012 | Core/card owner for view; Core for authorized read | Read-only semantic target; safe runtime projection unverified |
 | Player agency | `01-personality-and-relationship-semantics.md`, §3; `06-stable-trait-lifecycle.md`, §7 | PERS-SEM-028; PERS-TRAIT-008 | Project-level player-control contract, respected by Personality/NPC | Semantic invariant specified |
+| Versioned relationship semantics | `04-semantic-acceptance-matrix.md`, §2A; `05-world-pack-relationship-dimension-template.md`, §§2, 5–6; `09-per-case-acceptance-traceability.md`, synthetic boundary scenarios | PERS-SEM-029 is the direct meaning-changing-version criterion; PERS-SEM-024 covers deterministic replay only within its conditional scope; PERS-SEM-006–007 cover active-rule validation, not historical pinning | World Pack owns semantic version/compatibility policy; Core owns any version-pinning, migration, and replay mechanism | Authoring and synthetic test expectations specified; historical version selection, migration, and production replay remain unverified/blocked |
 
 Acceptance IDs are stable references. If a scenario is split, renamed, or retired, preserve a redirect/cross-reference so downstream docs do not silently lose traceability.
 
@@ -100,6 +101,9 @@ As of this document's creation, the Personality-side semantic contracts are docu
 - production-boundary tests and a read-only authorized character-card projection.
 
 PR #45 (bounded consistent snapshot) and PR #46 (opt-in tri-state condition results) are merged into `main`; the snapshot/context extension was merged via PR #49. These primitives do not constitute an actor/purpose-authorized read/filter interface or establish NPC behavior. No new Core or NPC behavior is inferred from this status summary. Update this section only when evidence changes.
+
+
+Issue #73 executable-evidence audit: [`10-issue-73-executable-evidence-audit.md`](./10-issue-73-executable-evidence-audit.md) provides exact source-level test names and per-criterion evidence boundaries; it does not claim tests were executed.
 
 ## 8. Related documents
 
