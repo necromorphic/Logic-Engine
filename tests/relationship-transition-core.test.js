@@ -905,9 +905,9 @@ test('Relationship HTTP response uses normalized participant IDs for the committ
     });
     assert.equal(response.status, 201);
     const payload = await response.json();
+    assert.equal(payload.relationship.dimensions.trust, 'low');
     assert.equal(payload.relationship.subject_id, 'A');
     assert.equal(payload.relationship.target_id, 'B');
-    assert.equal(payload.relationship.dimensions.trust, 'low');
   } finally {
     await new Promise((resolve) => server.close(resolve));
     store.close();
