@@ -462,37 +462,7 @@ export class SQLiteStore {
       const w = this.world(id);
       if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
 
-      const entities = entityIds.length
-        ? this.db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + entityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...entityIds).map((r) => ({
-          entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
-          created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
-        }))
-        : [];
-      const missingEntityIds = entityIds.filter((entityId) => !entities.some((entity) => entity.entity_id === entityId));
-      if (missingEntityIds.length) {
-        throw new EngineError('ENTITY_NOT_FOUND', 'One or more requested entities were not found in this world snapshot.', 404, { entity_ids: missingEntityIds });
-      }
-
-      const facts = factIds.length
-        ? this.db.prepare('SELECT * FROM facts WHERE world_id=? AND fact_id IN (' + factIds.map(() => '?').join(',') + ') ORDER BY fact_id').all(id, ...factIds).map((r) => ({
-          fact_id: r.fact_id, subject_ref: r.subject_ref, predicate: r.predicate, status: r.status,
-          value: dec(r.value_json), candidates: dec(r.candidates_json), source_event_ids: dec(r.source_event_ids_json),
-          updated_revision: r.updated_revision,
-        }))
-        : [];
-      const missingFactIds = factIds.filter((factId) => !facts.some((fact) => fact.fact_id === factId));
-
-      const events = eventIds.length
-        ? this.db.prepare('SELECT event_id,turn_id,generation_id,context_manifest_id,event_type,game_time,committed_revision,commit_sequence,validity,caused_by_json,depends_on_json,read_set_json,causal_links_json,source_message_id,created_at,rollback_id FROM world_events WHERE world_id=? AND event_id IN (' + eventIds.map(() => '?').join(',') + ') ORDER BY commit_sequence').all(id, ...eventIds).map((r) => ({
-          event_id: r.event_id, turn_id: r.turn_id, generation_id: r.generation_id, context_manifest_id: r.context_manifest_id ?? null,
-          event_type: r.event_type, game_time: r.game_time, committed_revision: r.committed_revision,
-          commit_sequence: r.commit_sequence, validity: r.validity, caused_by: dec(r.caused_by_json),
-          depends_on: dec(r.depends_on_json), read_set: dec(r.read_set_json), causal_links: dec(r.causal_links_json ?? '[]'),
-          source_message_id: r.source_message_id, created_at: r.created_at, rollback_id: r.rollback_id,
-        }))
-        : [];
-      const missingEventIds = eventIds.filter((eventId) => !events.some((event) => event.event_id === eventId));
-
+      const commitSequence = this.currentCommitSequence(id);
       const contextManifests = contextManifestIds.length
         ? this.db.prepare('SELECT manifest_id,world_id,generation_id,base_commit_sequence,base_world_revision,items_json,manifest_hash,created_at FROM context_manifests WHERE world_id=? AND manifest_id IN (' + contextManifestIds.map(() => '?').join(',') + ') ORDER BY manifest_id')
           .all(id, ...contextManifestIds).map((row) => ({
@@ -507,6 +477,87 @@ export class SQLiteStore {
           }))
         : [];
       const missingContextManifestIds = contextManifestIds.filter((manifestId) => !contextManifests.some((manifest) => manifest.manifest_id === manifestId));
+      const currentContextManifests = contextManifests.filter((manifest) =>
+        manifest.base_world_revision === w.world_revision && manifest.base_commit_sequence === commitSequence);
+      const derivedEntityIds = [];
+      const derivedFactIds = [];
+      const derivedEventIds = [];
+      const currentManifestFactIds = new Set();
+      const currentManifestEventIds = new Set();
+      for (const manifest of currentContextManifests) {
+        if (!Array.isArray(manifest.items)) {
+          throw new EngineError('INVALID_CONTEXT_MANIFEST', 'A requested context manifest has malformed items.', 409, { manifest_id: manifest.manifest_id });
+        }
+        for (const item of manifest.items) {
+          if (!item || typeof item.target_id !== 'string' || !item.target_id.trim()) {
+            throw new EngineError('INVALID_CONTEXT_MANIFEST', 'A requested context manifest contains a malformed item.', 409, { manifest_id: manifest.manifest_id });
+          }
+          if (item.kind === 'entity') derivedEntityIds.push(item.target_id);
+          else if (item.kind === 'fact') {
+            derivedFactIds.push(item.target_id);
+            currentManifestFactIds.add(item.target_id);
+          } else if (item.kind === 'event') {
+            derivedEventIds.push(item.target_id);
+            currentManifestEventIds.add(item.target_id);
+          } else if (!['entity_absence', 'fact_absence'].includes(item.kind)) {
+            throw new EngineError('INVALID_CONTEXT_MANIFEST', 'A requested context manifest contains an unsupported item kind.', 409, { manifest_id: manifest.manifest_id, kind: item.kind });
+          }
+        }
+      }
+      const combineIds = (requested, derived, label) => {
+        const combined = [...new Set([...requested, ...derived])];
+        if (combined.length > 200) {
+          throw new EngineError('SNAPSHOT_TOO_LARGE', 'The requested ' + label + ' plus context-manifest references exceed the 200-ID snapshot bound.', 409, { field: label });
+        }
+        return combined;
+      };
+      const snapshotEntityIds = combineIds(entityIds, derivedEntityIds, 'entityIds');
+      const snapshotFactIds = combineIds(factIds, derivedFactIds, 'factIds');
+      const snapshotEventIds = combineIds(eventIds, derivedEventIds, 'eventIds');
+
+      const entities = snapshotEntityIds.length
+        ? this.db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...snapshotEntityIds).map((r) => ({
+          entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
+          created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
+        }))
+        : [];
+      const missingEntityIds = snapshotEntityIds.filter((entityId) => !entities.some((entity) => entity.entity_id === entityId));
+      if (missingEntityIds.length) {
+        throw new EngineError('ENTITY_NOT_FOUND', 'One or more requested entities were not found in this world snapshot.', 404, { entity_ids: missingEntityIds });
+      }
+
+      const facts = snapshotFactIds.length
+        ? this.db.prepare('SELECT * FROM facts WHERE world_id=? AND fact_id IN (' + snapshotFactIds.map(() => '?').join(',') + ') ORDER BY fact_id').all(id, ...snapshotFactIds).map((r) => ({
+          fact_id: r.fact_id, subject_ref: r.subject_ref, predicate: r.predicate, status: r.status,
+          value: dec(r.value_json), candidates: dec(r.candidates_json), source_event_ids: dec(r.source_event_ids_json),
+          updated_revision: r.updated_revision,
+        }))
+        : [];
+      const missingFactIds = snapshotFactIds.filter((factId) => !facts.some((fact) => fact.fact_id === factId));
+      const inconsistentManifestFacts = [...currentManifestFactIds].filter((factId) => missingFactIds.includes(factId));
+      if (inconsistentManifestFacts.length) {
+        throw new EngineError('CONTEXT_MANIFEST_SNAPSHOT_MISMATCH', 'A current context manifest references a fact missing from the same snapshot.', 409, { fact_ids: inconsistentManifestFacts });
+      }
+
+      const events = snapshotEventIds.length
+        ? this.db.prepare('SELECT event_id,turn_id,generation_id,context_manifest_id,event_type,game_time,committed_revision,commit_sequence,validity,caused_by_json,depends_on_json,read_set_json,causal_links_json,source_message_id,created_at,rollback_id FROM world_events WHERE world_id=? AND event_id IN (' + snapshotEventIds.map(() => '?').join(',') + ') ORDER BY commit_sequence').all(id, ...snapshotEventIds).map((r) => ({
+          event_id: r.event_id, turn_id: r.turn_id, generation_id: r.generation_id, context_manifest_id: r.context_manifest_id ?? null,
+          event_type: r.event_type, game_time: r.game_time, committed_revision: r.committed_revision,
+          commit_sequence: r.commit_sequence, validity: r.validity, caused_by: dec(r.caused_by_json),
+          depends_on: dec(r.depends_on_json), read_set: dec(r.read_set_json), causal_links: dec(r.causal_links_json ?? '[]'),
+          source_message_id: r.source_message_id, created_at: r.created_at, rollback_id: r.rollback_id,
+        }))
+        : [];
+      const missingEventIds = snapshotEventIds.filter((eventId) => !events.some((event) => event.event_id === eventId));
+      const inconsistentManifestEvents = events.filter((event) => currentManifestEventIds.has(event.event_id)
+        && (event.validity !== 'valid' || event.commit_sequence > commitSequence));
+      const missingManifestEvents = [...currentManifestEventIds].filter((eventId) => missingEventIds.includes(eventId));
+      if (inconsistentManifestEvents.length || missingManifestEvents.length) {
+        throw new EngineError('CONTEXT_MANIFEST_SNAPSHOT_MISMATCH', 'A current context manifest references an event that is missing or not valid in the same snapshot.', 409, {
+          missing_event_ids: missingManifestEvents,
+          invalid_event_ids: inconsistentManifestEvents.map((event) => event.event_id),
+        });
+      }
 
       let mechanicEvaluationSnapshot;
       if (request.includeMechanicEvaluationState === true) {
@@ -578,9 +629,9 @@ export class SQLiteStore {
         mechanicEvaluationSnapshot = { instances, templates, modules };
       }
 
-      // The world revision, event cursor, selected rows, active mechanic set,
-      // and exact immutable definitions all share this read transaction.
-      const commitSequence = this.currentCommitSequence(id);
+      // The world revision, event cursor, selected rows, requested context
+      // manifests, active mechanic set, and exact immutable definitions all
+      // share this read transaction.
       return {
         ...w,
         commit_sequence: commitSequence,
