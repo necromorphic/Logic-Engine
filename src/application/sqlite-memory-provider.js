@@ -586,7 +586,7 @@ export class SQLiteMemoryProvider {
       throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
     }
     if (!current) {
-      this.#setState(scope.world_id, 'unavailable', 'stale');
+      this.#setState(scope.world_id, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
       throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
     }
     if (String(current.world_revision) !== state.snapshot_revision
