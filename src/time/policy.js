@@ -10,9 +10,21 @@ const integer = (v, name, positive = false) => {
   if (!Number.isSafeInteger(v) || v < (positive ? 1 : 0)) fail('INVALID_TIME_POLICY', name + ' must be a safe integer in range.');
   return v;
 };
+const exactKeys = (value, allowed, name) => {
+  if (Object.keys(value).some((key) => !allowed.includes(key))) {
+    fail('INVALID_TIME_POLICY', name + ' contains an unsupported field.');
+  }
+};
 
 function ruleOf(input, limit) {
   if (!obj(input)) fail('INVALID_TIME_POLICY', 'Duration rule must be an object.');
+  const allowedByKind = {
+    fixed: ['kind', 'duration_ms'],
+    range: ['kind', 'min_duration_ms', 'max_duration_ms', 'resolution'],
+    category_map: ['kind', 'categories'],
+  };
+  if (!allowedByKind[input.kind]) fail('INVALID_TIME_POLICY', 'Unsupported duration rule kind.');
+  exactKeys(input, allowedByKind[input.kind], input.kind + ' duration rule');
   if (input.kind === 'fixed') {
     const duration_ms = integer(input.duration_ms, 'duration_ms');
     if (duration_ms > limit) fail('INVALID_TIME_POLICY', 'Fixed duration exceeds policy limit.');
@@ -30,6 +42,7 @@ function ruleOf(input, limit) {
     const seen = new Set();
     const categories = input.categories.map((entry) => {
       if (!obj(entry)) fail('INVALID_TIME_POLICY', 'Duration category must be an object.');
+      exactKeys(entry, ['category', 'duration_ms'], 'Duration category');
       const category = str(entry.category, 'category');
       const duration_ms = integer(entry.duration_ms, 'category duration_ms');
       if (duration_ms > limit || seen.has(category)) fail('INVALID_TIME_POLICY', 'Duration categories must be unique and within policy limits.');
@@ -38,7 +51,6 @@ function ruleOf(input, limit) {
     }).sort((a, b) => a.category.localeCompare(b.category));
     return { kind: 'category_map', categories };
   }
-  fail('INVALID_TIME_POLICY', 'Unsupported duration rule kind.');
 }
 
 export function createTimePolicy(input) {
