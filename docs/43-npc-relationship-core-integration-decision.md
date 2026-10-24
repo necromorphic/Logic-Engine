@@ -157,3 +157,26 @@ The core owner has separately reviewed the knowledge contract in the PR #38 disc
 - PR #45 proposes the bounded consistent snapshot primitive and has a reported passing Runtime CI run in the PR discussion, but it remains open/unmerged at the inspected state. It provides raw internal data, not actor authorization, knowledge filtering, or secret exclusion.
 
 This adjacent decision strongly constrains relationship reads: relationship state may inform a decision, but must not be treated as acquired knowledge; an actor-specific relationship context must still pass through the same trusted access boundary. Do not implement a second relationship-specific knowledge/access filter.
+
+
+## 12. Core-owner response to relationship integration review
+
+The core owner answered the five questions in [PR #38 comment 6377468310](https://github.com/necromorphic/Logic-Engine/pull/38#issuecomment-6377468310). Treat this as a confirmed semantic/integration boundary, **not** as evidence that the capability is implemented or authorization to change runtime/schema/storage.
+
+1. **Typed relationship operation — confirmed as the design direction.** No suitable relationship-specific operation exists in the inspected primitives. Design a typed relationship record/effect through the canonical event/revision/audit path. Do not store production relationship state as arbitrary entity attributes or mutable reinterpretations of append-only `fact.set` claims. Exact schema/effect shape still requires review against canonical effect architecture.
+2. **Canonical participants only.** Use existing `entity_id` for committed canonical relationship participants. Unresolved references can remain in authoring/import data but cannot be committed as canonical participants until explicitly resolved, unless a separately approved typed unresolved-reference contract is introduced. No automatic entity/NPC creation and no parallel identity registry.
+3. **Snapshot is not authorization.** PR #45's consistent snapshot is a dependency, not an actor-access filter; it remains a separate, unmerged proposal at the reviewed state. Raw canonical rows must not be passed directly to NPCs or players. After snapshot integration, define and implement a core-owned actor/purpose/snapshot access boundary. Card projection stays read-only and consumes a bounded relationship summary rather than raw records, arbitrary attributes, or facts.
+4. **Multi-cause rollback is a blocker.** The generic rollback contract alone cannot promise correct relationship reconciliation. Transitions need canonical event/effect and source/cause references; rollback must recompute support from remaining valid independent causes. Do not add a second NPC causal graph/log. If current causal representation cannot distinguish independent causes, keep relationship commits blocked until the contract is extended and tested.
+5. **Unknown, neutral, and author-initial are distinct.** Unset/unknown must not be normalized to neutral/zero. Neutral is an explicit domain value only when defined by the World Pack. Author-initial/imported state carries explicit origin/authorship/provenance separately from the value and from in-world transitions. Unknown/withheld read results remain access/query outcomes, not false, neutral, or beliefs.
+
+### Updated readiness gate
+
+The relationship semantics can now be refined against these confirmed boundaries, but implementation remains blocked on all of the following:
+
+- canonical typed relationship effect/record and transition semantics reconciled with the actual target core effect architecture;
+- canonical participant resolution and rejection of unresolved references at commit time;
+- integrated consistent snapshot plus trusted actor/purpose/snapshot filtering and bounded relationship projection;
+- explicit source/cause representation and executable multi-cause rollback/reconciliation tests;
+- preservation and tests for unknown/unset versus explicit neutral versus author-initial/imported origin.
+
+PR #45 (snapshot) and PR #32 (character-card projection) remain separate proposals, not integrated dependencies merely because they exist. Keep this document and the relationship work documentation-only until those gates are met. No runtime/schema/storage changes were made or authorized by the core response.
