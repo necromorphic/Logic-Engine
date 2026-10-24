@@ -8,6 +8,11 @@ The Personality block is not the NPC runtime and does not own the canonical worl
 
 The character card is a view over authoritative records, not a parallel source of truth.
 
+Related documents:
+- [Core decision and integration gates](./03-core-decision-and-integration-gates.md) — accepted architecture decisions and remaining blockers.
+- [Core integration review request](./02-core-integration-review-request.md) — original request with the architecture response recorded.
+- [Semantic acceptance matrix](./04-semantic-acceptance-matrix.md) — semantic cases, ownership boundaries, and readiness criteria.
+
 ## 2. Responsibility boundary
 
 ### Personality block owns
