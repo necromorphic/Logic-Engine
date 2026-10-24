@@ -271,3 +271,37 @@ test('resume rejects a paused process whose milestone became overdue', (t) => wi
   assert.equal(engine.getProcess('world-a', 'journey-1').status, 'paused');
   assert.equal(paused.process.version, current.version);
 }));
+
+test('interrupted time advance resumes a running process after SQLite close and reopen', (t) => withDatabase(t, ({ engine, store, reopen }) => {
+  store.createWorld(worldInput());
+  const definition = processInput();
+  definition.milestones[0].interrupt_after_coordinate = true;
+  engine.createProcess('world-a', definition);
+
+  const before = engine.getState('world-a');
+  const interrupted = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-interrupted-process',
+    expected_revision: before.world_revision,
+    to_coordinate: 2000,
+  });
+  assert.equal(interrupted.status, 'interrupted');
+  assert.equal(interrupted.confirmed_coordinate, 1000);
+  let process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'running');
+  assert.equal(process.progress.completed, 1);
+  assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'arrive').status, 'pending');
+
+  ({ engine } = reopen());
+  process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'running');
+  const afterRestart = engine.getState('world-a');
+  const resumed = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-resumed-process',
+    expected_revision: afterRestart.world_revision,
+    to_coordinate: 2000,
+  });
+  assert.equal(resumed.status, 'completed');
+  process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'completed');
+  assert.equal(process.progress.completed, 2);
+}));
