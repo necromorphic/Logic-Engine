@@ -373,3 +373,22 @@ These are acceptance targets, not tests that can be satisfied by mocks of missin
 The cross-cutting causal acceptance matrix is in `docs/47-npc-causal-rollback-reconciliation-test-matrix.md`, especially NPC-CAUSE-004 and NPC-CAUSE-007. For knowledge reconciliation, the critical sequence is not only “invalidate one of two sources”: it is also “complete rollback/reconciliation, then commit a new source, then reconcile again.” Tests must prove that the later source is evaluated against a fresh canonical marker, does not revive the invalid source, is idempotent under retry, and does not automatically restore downstream effects whose own dependencies remain invalid.
 
 This remains a test requirement, not an assertion that source reconciliation or persistent belief updates already exist. The core-owned acquisition/provenance and actor/purpose filter contracts remain prerequisites; the NPC branch must not implement substitute causal or knowledge persistence.
+
+
+## 18. Delivery/acquisition production-path matrix
+
+`docs/48-npc-delivery-acquisition-boundary-matrix.md` expands delivery and acquisition requirements into NPC-DELIV-001–010 with explicit evidence thresholds and test sequences. It distinguishes context inclusion, delivery attempt, host acceptance, visible rendering, acknowledgement, comprehension, acquisition, belief, and canonical truth. Target isolation, idempotent retry, and source invalidation are separate requirements. These are semantic requirements, not current runtime claims.
+
+## 19. Initial-acquisition and source-reconciliation crosswalk
+
+Use `docs/50-npc-initial-knowledge-acquisition-contract.md` for NKA-01–NKA-14 and `docs/51-npc-acquisition-source-reconciliation.md` for source validity, versioning, rollback, and later-source reconciliation. `docs/52-npc-memory-consumption-contract-and-failure-matrix.md` and `docs/53-npc-memory-lifecycle-vocabulary-crosswalk.md` define the NPC-side Memory boundary; `docs/54-npc-memory-boundary-assumptions-and-integration-gates.md` lists real-path acceptance tests. These documents refine the semantic target but do not create an approved Memory API, acquisition store, delivery ledger, or NPC belief runtime.
+
+The same actor/purpose/snapshot access boundary must govern relationship context. A canonical Relationship transition, summary, or card projection does not itself prove that a subject acquired or believes information. NPC must not create parallel acquisition, causality, delivery, belief, or rollback storage.
+
+## 20. Current Core dependency status (2026-10-24)
+
+- Core has trusted adapter-to-canonical-actor binding and bounded snapshots.
+- PR #101 adds an opt-in trusted host field-policy hook for bounded authorized reads; PR #102 verifies that non-self targets remain unavailable by default. No concrete Memory/NPC visibility policy is configured.
+- PR #106 requires the internal-host credential for context-manifest registration, but does not prove the exact context was prepared or used by a trusted generation record.
+- PRs #94–#96 implement the privileged admin-authored Relationship write/projection/replay slice; that operation does not authorize NPC/Memory reads or prove character knowledge.
+- The Core-owned initial-acquisition/provenance path, Memory source-change/reconciliation signal, delivery/receipt evidence, belief persistence, and safe pre-model filter remain implementation gates. No parallel NPC-local mechanism may substitute for them.
