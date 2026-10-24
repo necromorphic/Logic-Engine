@@ -259,15 +259,21 @@ test('rollback invalidates the transitive completed prerequisite chain and survi
     (error) => error.code === 'PROCESS_REQUIRES_RECONCILIATION',
   );
   const audit = engine.getAudit('world-a');
-  assert.equal(audit.some((entry) => entry.action === 'process.rollback.needs_review'
-    && entry.target_id === 'journey-1'
-    && entry.payload.affected_milestone_ids?.length === 3), true);
+  const rollbackAudit = audit.filter((entry) => entry.action === 'process.rollback.needs_review'
+    && entry.target_id === 'journey-1');
+  assert.equal(rollbackAudit.length, 1);
+  assert.deepEqual(rollbackAudit[0].payload.affected_milestone_ids.slice().sort(), ['arrive', 'depart', 'inspect']);
+  assert.equal(rollbackAudit[0].world_revision, engine.getState('world-a').world_revision);
 
   ({ engine } = reopen());
   process = engine.getProcess('world-a', 'journey-1');
   assert.equal(process.status, 'needs_review');
   assert.equal(process.progress.completed, 0);
   assert.equal(process.milestones.every((milestone) => milestone.status === 'needs_review'), true);
+  const auditAfterRestart = engine.getAudit('world-a').filter((entry) => entry.action === 'process.rollback.needs_review'
+    && entry.target_id === 'journey-1');
+  assert.equal(auditAfterRestart.length, 1);
+  assert.deepEqual(auditAfterRestart[0].payload.affected_milestone_ids.slice().sort(), ['arrive', 'depart', 'inspect']);
 }));
 
 test('process identities and milestones are isolated by world', (t) => withDatabase(t, ({ engine, store }) => {
@@ -463,4 +469,56 @@ test('competing lifecycle commands against one checkpoint allow only one transit
     && entry.target_id === 'journey-1').length, 1);
   assert.equal(audit.some((entry) => entry.action === 'process.lifecycle.transitioned'
     && entry.target_id === 'journey-1' && entry.payload.to === 'cancelled'), false);
+}));
+
+
+test('stale Core revision rejects process creation without partial checkpoints or audit', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  const created = engine.createProcess('world-a', processInput());
+  const beforeState = engine.getState('world-a');
+  const beforeTriggers = engine.listTimeTriggers('world-a');
+  const beforeAudit = engine.getAudit('world-a');
+
+  const staleDefinition = processInput({
+    process_id: 'journey-stale',
+    idempotency_key: 'create-journey-stale',
+    expected_revision: 0,
+  });
+  assert.throws(
+    () => engine.createProcess('world-a', staleDefinition),
+    (error) => error.code === 'REVISION_CONFLICT',
+  );
+  assert.equal(engine.getState('world-a').world_revision, beforeState.world_revision);
+  assert.deepEqual(engine.listProcesses('world-a').map((process) => process.process_id), [created.process.process_id]);
+  assert.deepEqual(engine.listTimeTriggers('world-a'), beforeTriggers);
+  assert.deepEqual(engine.getAudit('world-a'), beforeAudit);
+}));
+
+test('competing lifecycle checkpoints reject stale version and keep process, triggers and audit consistent', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  const created = engine.createProcess('world-a', processInput());
+  const beforeVersion = created.process.version;
+  const paused = engine.transitionProcess('world-a', 'journey-1', {
+    action: 'pause',
+    expected_version: beforeVersion,
+    idempotency_key: 'competing-pause',
+  });
+  assert.equal(paused.process.status, 'paused');
+  const revisionAfterWinner = engine.getState('world-a').world_revision;
+  const auditAfterWinner = engine.getAudit('world-a');
+
+  assert.throws(
+    () => engine.transitionProcess('world-a', 'journey-1', {
+      action: 'cancel',
+      expected_version: beforeVersion,
+      idempotency_key: 'competing-cancel-stale-version',
+    }),
+    (error) => error.code === 'PROCESS_VERSION_CONFLICT',
+  );
+  const process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'paused');
+  assert.equal(process.version, paused.process.version);
+  assert.equal(engine.getState('world-a').world_revision, revisionAfterWinner);
+  assert.deepEqual(engine.getAudit('world-a'), auditAfterWinner);
+  assert.equal(engine.listTimeTriggers('world-a').every((trigger) => trigger.status === 'cancelled'), true);
 }));
