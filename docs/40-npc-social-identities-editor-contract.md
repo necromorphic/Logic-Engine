@@ -130,7 +130,7 @@ Author-reserved secrets must remain excluded before model input according to the
 The eventual character editor should:
 - show the primary identity and an optional list of additional social identities;
 - allow zero, one, or many entries;
-- support add, rename, edit, duplicate-as-draft, and remove actions, subject to the editor's eventual persistence/confirmation design;
+- support add, rename, edit, duplicate-as-draft, and activate/deactivate actions, subject to the editor's eventual persistence/confirmation design; runtime-created identities are retained as cards and are not routinely deleted when no longer in use;
 - present the sections above as optional/collapsible groups rather than one mandatory questionnaire;
 - distinguish author-entered claims from references to verified world entities/documents;
 - show unresolved contradictions and missing support without auto-correcting them;
