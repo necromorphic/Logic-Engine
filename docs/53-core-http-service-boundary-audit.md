@@ -87,6 +87,19 @@ This is a **policy decision to close**, not a claim that every such route is nec
 
 ## 3. In-process APIs and serializers
 
+### Repository source inventory (audited `main`)
+
+The `src/` tree contains the HTTP server, engine, proposal service, actor-binding service, character-card projector, core validators, and SQLite store. It does not contain a separate production SillyTavern/host adapter or another model-context serializer in this revision. The concrete external serialization boundary found in this repository is therefore `src/api/server.js`; this is not evidence that an out-of-repository host integration is safe.
+
+The route inventory additionally confirms:
+- `GET /v1/mechanics/audit` returns mechanic registry audit through the general API bearer;
+- mechanic template and rule-module list/detail routes return registry metadata through the general API bearer, while their writes require admin authority;
+- `GET .../state` uses `getState`, not the revision-bound `getSnapshot` path;
+- the character-card projector is a pure projection helper and is not called as an authorization layer by the audited API server.
+
+These are source-level observations, not claims that a model has already received the data. Actual exposure depends on which credentials and endpoints a deployment gives to each consumer.
+
+
 `LogicEngine.getSnapshot`, `getState`, `getEvents`, `getAudit`, and `rollbackEvent` do not authenticate callers themselves. That is appropriate for a core library only if they are treated as trusted in-process interfaces and every boundary that exposes their output is audited. `character-card-projection.js` is a pure projector over a supplied snapshot, not an authorization layer.
 
 The repository's API route is one such boundary; it is not proof about consumers outside this repository. Before enabling NPC, narrator, player, or adapter integrations, inventory each production caller/serializer and record:
