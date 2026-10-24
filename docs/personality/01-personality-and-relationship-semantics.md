@@ -1,6 +1,6 @@
 # Personality Block — Scope and Relationship Semantics
 
-Status: documentation-only proposal on `feat/personality-subsystem`. This document defines the Personality block's own scope and its integration boundaries. It does not authorize runtime, API, schema, storage, prompt, or UI changes.
+Status: semantic contract maintained by the Personality block; documentation-only. The contract defines scope and integration boundaries and does not authorize runtime, API, schema, storage, prompt, or UI changes. This document defines the Personality block's own scope and its integration boundaries. It does not authorize runtime, API, schema, storage, prompt, or UI changes.
 
 ## 1. Why this block is separate
 
