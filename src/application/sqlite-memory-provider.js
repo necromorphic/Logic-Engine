@@ -26,13 +26,17 @@ const encode = (value) => JSON.stringify(value);
  * refuses retrieval until rebuild + reconciliation complete.
  */
 export class SQLiteMemoryProvider {
-  constructor({ path = ':memory:', getSnapshot, validateSourceVersion }) {
+  constructor({ path = ':memory:', getSnapshot, validateSourceVersion, validateInventory }) {
     if (typeof getSnapshot !== 'function') throw new TypeError('SQLiteMemoryProvider requires trusted getSnapshot');
     if (typeof validateSourceVersion !== 'function') {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateSourceVersion');
     }
     this.getSnapshot = getSnapshot;
     this.validateSourceVersion = validateSourceVersion;
+    if (typeof validateInventory !== 'function') {
+      throw new TypeError('SQLiteMemoryProvider requires trusted validateInventory');
+    }
+    this.validateInventory = validateInventory;
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA foreign_keys = ON;
@@ -241,6 +245,21 @@ export class SQLiteMemoryProvider {
         this.#setState(worldId, 'stale', 'stale');
         return { status: 'stale' };
       }
+    }
+    // Per-record validation cannot prove that the inventory itself is complete.
+    // A trusted source adapter must explicitly confirm completeness for this
+    // world/source domain before the provider can publish a current marker.
+    let inventoryComplete = false;
+    try {
+      inventoryComplete = await this.validateInventory(worldId, Object.freeze(records.map((row) => Object.freeze({
+        record_ref: row.record_ref, record_version: row.record_version,
+        source_kind: row.source_kind, source_entity_id: row.source_entity_id,
+        source_version: row.source_version,
+      })))) === true;
+    } catch { inventoryComplete = false; }
+    if (!inventoryComplete) {
+      this.#setState(worldId, 'stale', 'stale');
+      return { status: 'stale' };
     }
     let after;
     try { after = snapshotOf(await this.getSnapshot(worldId)); } catch { after = null; }
