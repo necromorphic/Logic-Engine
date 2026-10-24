@@ -130,20 +130,29 @@ export class ProposalService {
       && typeof identity.template_hash === 'string' && /^[a-f0-9]{64}$/i.test(identity.template_hash),
     'INVALID_MECHANIC_EVALUATION_IDENTITY', 'Evaluation must include a complete world, snapshot, instance, and pinned-template identity.');
     assert(typeof evaluation.action_id === 'string' && evaluation.action_id.trim(), 'INVALID_MECHANIC_EVALUATION', 'action_id is required.');
+    assert(object(evaluation.condition_result) && evaluation.condition_result.status === 'true', 'INVALID_MECHANIC_EVALUATION', 'Only evaluations with proven-true conditions may be proposed.');
+    assert(object(evaluation.guarantees) && evaluation.guarantees.read_only === true
+      && evaluation.guarantees.context_provider_attested_snapshot === true
+      && evaluation.guarantees.proposal_created === false && evaluation.guarantees.canonical_state_mutated === false,
+    'INVALID_MECHANIC_EVALUATION', 'Evaluation must carry the read-only and snapshot-attestation guarantees.');
     assert(Array.isArray(evaluation.effects) && evaluation.effects.length > 0, 'INVALID_MECHANIC_EVALUATION', 'At least one translated effect is required.');
     assert(Array.isArray(evaluation.effect_provenance) && evaluation.effect_provenance.length === evaluation.effects.length,
       'INVALID_MECHANIC_EFFECT_PROVENANCE', 'Every translated effect must have exactly one provenance entry.');
     const provenance = evaluation.effect_provenance;
     const indexes = new Set();
+    const effectIds = new Set();
+    const translatedKinds = { create_entity: 'entity.create', update_attribute: 'entity.update', assert_fact: 'fact.set' };
     for (let i = 0; i < provenance.length; i += 1) {
       const item = provenance[i];
       assert(object(item) && item.effect_index === i && item.action_id === evaluation.action_id
         && typeof item.effect_id === 'string' && item.effect_id.trim()
         && typeof item.intent_kind === 'string' && item.intent_kind.trim()
         && typeof item.target_ref === 'string' && item.target_ref.trim()
-        && !indexes.has(item.effect_index),
+        && !indexes.has(item.effect_index) && !effectIds.has(item.effect_id)
+        && translatedKinds[item.intent_kind] === evaluation.effects[i]?.kind,
       'INVALID_MECHANIC_EFFECT_PROVENANCE', 'Effect provenance must be ordered, complete, and action-scoped.');
       indexes.add(item.effect_index);
+      effectIds.add(item.effect_id);
       const effect = evaluation.effects[i];
       const actualTarget = effect?.kind === 'entity.create' || effect?.kind === 'entity.update'
         ? effect.entity_id
