@@ -2,7 +2,11 @@ import { isDeepStrictEqual } from 'node:util';
 import { evaluateMemoryCandidateAdmission } from '../npc/memory-candidate-eligibility.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
-const validId = (value) => typeof value === 'string' && value === value.trim() && value.length > 0 && value.length <= 200;
+const validId = (value) => typeof value === 'string'
+  && value === value.trim()
+  && value.length > 0
+  && value.length <= 200
+  && !/[\\u0000-\\u001f\\u007f]/.test(value);
 const validCursorPart = (value) => (typeof value === 'string' && value.trim().length > 0)
   || (typeof value === 'number' && Number.isFinite(value));
 const validSnapshot = (value) => object(value)
