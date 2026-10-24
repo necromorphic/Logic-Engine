@@ -75,7 +75,7 @@ The general `ENGINE_API_TOKEN` authenticates a caller to the HTTP API; it does n
 | Create a world | `x-admin-token` | Administrative setup operation; adapter credentials alone are insufficient. |
 | Read immutable mechanic-template and rule-module definitions | None | Intentionally available to authenticated API clients for version discovery. Definitions contain configuration, not credentials or world state. |
 | Read registry audit history | `x-admin-token` | Operational history is restricted to administrators. |
-| Register/replace neither definitions nor versions | `x-admin-token` | Registry writes are administrative; existing immutable versions cannot be overwritten with different content. |
+| Register immutable mechanic-template or rule-module definitions | `x-admin-token` | Registry writes are administrative; existing immutable versions cannot be overwritten with different content. |
 | Create/cancel/read an adapter proposal | Configured `x-adapter-id` + `x-adapter-token` | Proposal ownership is enforced per adapter. |
 | Approve a proposal | `x-approval-token` | Shared-secret approval gate; not a named human identity or a complete multi-user authorization system. |
 | Register context manifests or use the restricted internal commit/read path | `x-engine-internal-token` | Trusted host-only operation; commits still require an approved proposal. |
