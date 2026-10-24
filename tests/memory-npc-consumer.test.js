@@ -234,6 +234,23 @@ test('Core field denial removes the candidate content and does not disclose prot
   assert.equal(JSON.stringify(result).includes('authorized source text'), false);
 });
 
+test('stale unsupported candidate cannot be filtered into a ready-empty result', async (t) => {
+  const { consumer, setCandidates, candidate, snapshot } = setup(t);
+  setCandidates([candidate({
+    content_kind: 'summary',
+    snapshot: {
+      world_revision: snapshot.world_revision - 1,
+      commit_sequence: snapshot.commit_sequence,
+    },
+  })]);
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_snapshot_stale');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+});
+
 test('stale snapshot candidates and derived summaries are never admitted', async (t) => {
   const { consumer, provider, setCandidates, candidate, snapshot } = setup(t);
   setCandidates([
