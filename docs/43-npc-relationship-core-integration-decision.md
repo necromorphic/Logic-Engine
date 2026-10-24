@@ -154,7 +154,7 @@ The core owner has separately reviewed the knowledge contract in the PR #38 disc
 - Prompt inclusion, vector retrieval, context manifests, or narrator mention alone do not prove acquisition or delivery. Unsupported acquisition paths must fail closed rather than be fabricated.
 - Use existing identities and the composite `(world_revision, commit_sequence)` from one consistent read view; do not create another revision cursor, event log, causal graph, or rollback system.
 - The first knowledge vertical slice is intended to be internal-only and narrowly limited to explicitly authorized author-initial/imported knowledge until real evidence paths exist. It remains blocked on a trusted initial-knowledge representation, actor assignment/provenance, and authoritative secret/access policy.
-- PR #45 proposes the bounded consistent snapshot primitive and has a reported passing Runtime CI run in the PR discussion, but it remains open/unmerged at the inspected state. It provides raw internal data, not actor authorization, knowledge filtering, or secret exclusion.
+- PR #45 has merged into `main` at `2bbdbff4e4d4c4c56601ed5ac18e2083aa99c48b`; PR #49 merged the mechanic/context snapshot extension at `8602a9ed41f13f536d87b1103a02e8fd12de3b03`. These primitives are not yet incorporated into this NPC branch and do not provide actor authorization, knowledge filtering, or secret exclusion.
 
 This adjacent decision strongly constrains relationship reads: relationship state may inform a decision, but must not be treated as acquired knowledge; an actor-specific relationship context must still pass through the same trusted access boundary. Do not implement a second relationship-specific knowledge/access filter.
 
@@ -165,7 +165,7 @@ The core owner answered the five questions in [PR #38 comment 6377468310](https:
 
 1. **Typed relationship operation — confirmed as the design direction.** No suitable relationship-specific operation exists in the inspected primitives. Design a typed relationship record/effect through the canonical event/revision/audit path. Do not store production relationship state as arbitrary entity attributes or mutable reinterpretations of append-only `fact.set` claims. Exact schema/effect shape still requires review against canonical effect architecture.
 2. **Canonical participants only.** Use existing `entity_id` for committed canonical relationship participants. Unresolved references can remain in authoring/import data but cannot be committed as canonical participants until explicitly resolved, unless a separately approved typed unresolved-reference contract is introduced. No automatic entity/NPC creation and no parallel identity registry.
-3. **Snapshot is not authorization.** PR #45's consistent snapshot is a dependency, not an actor-access filter; it remains a separate, unmerged proposal at the reviewed state. Raw canonical rows must not be passed directly to NPCs or players. After snapshot integration, define and implement a core-owned actor/purpose/snapshot access boundary. Card projection stays read-only and consumes a bounded relationship summary rather than raw records, arbitrary attributes, or facts.
+3. **Snapshot is not authorization.** PR #45's consistent snapshot is a dependency, not an actor-access filter. It has merged into `main` but is not yet incorporated into this NPC branch. Raw canonical rows must not be passed directly to NPCs or players. Raw canonical rows must not be passed directly to NPCs or players. After snapshot integration, define and implement a core-owned actor/purpose/snapshot access boundary. Card projection stays read-only and consumes a bounded relationship summary rather than raw records, arbitrary attributes, or facts.
 4. **Multi-cause rollback is a blocker.** The generic rollback contract alone cannot promise correct relationship reconciliation. Transitions need canonical event/effect and source/cause references; rollback must recompute support from remaining valid independent causes. Do not add a second NPC causal graph/log. If current causal representation cannot distinguish independent causes, keep relationship commits blocked until the contract is extended and tested.
 5. **Unknown, neutral, and author-initial are distinct.** Unset/unknown must not be normalized to neutral/zero. Neutral is an explicit domain value only when defined by the World Pack. Author-initial/imported state carries explicit origin/authorship/provenance separately from the value and from in-world transitions. Unknown/withheld read results remain access/query outcomes, not false, neutral, or beliefs.
 
@@ -179,7 +179,7 @@ The relationship semantics can now be refined against these confirmed boundaries
 - explicit source/cause representation and executable multi-cause rollback/reconciliation tests;
 - preservation and tests for unknown/unset versus explicit neutral versus author-initial/imported origin.
 
-PR #45 (snapshot) and PR #32 (character-card projection) remain separate proposals, not integrated dependencies merely because they exist. Keep this document and the relationship work documentation-only until those gates are met. No runtime/schema/storage changes were made or authorized by the core response.
+PR #45 is merged into `main` but not incorporated into this NPC branch. PR #32 (character-card projection) is closed without merge. Neither is an integrated dependency in this branch merely because its proposal exists. Keep this document and the relationship work documentation-only until those gates are met. No runtime/schema/storage changes were made or authorized by the core response.
 
 
 ## 13. Status after core decision (2026-10-24)
@@ -217,13 +217,13 @@ All cases remain specifications, not executable coverage. Do not mark a gate pas
 
 ### Readiness decision
 
-Semantic design and test planning may continue. Runtime relationship commits remain blocked until the typed write contract, authorized read boundary, authoring provenance, and multi-cause rollback guarantees are specified and tested. PR #45 (snapshot) and PR #32 (character-card projection) remain unmerged proposals and must not be treated as integrated dependencies.
+Semantic design and test planning may continue. Runtime relationship commits remain blocked until the typed write contract, authorized read boundary, authoring provenance, and multi-cause rollback guarantees are specified and tested. PR #45 is merged into `main` but not incorporated into this branch; PR #32 is closed without merge and does not supply an available card projection.
 
 No runtime code, API, storage schema, or `main` changes are authorized or implied by this status update.
 
 ## 14. Refreshed core-main dependency check — 2026-10-24
 
-The current core main is `cb4ad189f12484ca5458c30b1d176cbd9f7d4ccc`, three commits ahead of the merge base shared with this NPC branch. This relationship proposal was not rebased onto those commits. For the refreshed core readiness inventory, see `docs/37-npc-kernel-readiness-gate.md` §15.
+Historical snapshot: at the time this section was first written, core `main` was `cb4ad189f12484ca5458c30b1d176cbd9f7d4ccc`. The later verified core status is recorded in `docs/37-npc-kernel-readiness-gate.md` §19 and §23; do not use this old SHA/count as current. For the refreshed core readiness inventory, see `docs/37-npc-kernel-readiness-gate.md` §15.
 
 The newly available core documentation sharpens—but does not remove—the relationship blocker:
 
@@ -231,7 +231,7 @@ The newly available core documentation sharpens—but does not remove—the rela
 - [`docs/30-stage1.3-mechanic-execution-boundary.md` on main](https://github.com/necromorphic/Logic-Engine/blob/main/docs/30-stage1.3-mechanic-execution-boundary.md) describes a proposed deterministic mechanic-evaluation slice, explicitly outside NPC relationship persistence and behavior.
 - [`docs/31-mechanic-effect-intent-support-matrix.md` on main](https://github.com/necromorphic/Logic-Engine/blob/main/docs/31-mechanic-effect-intent-support-matrix.md) states that generic relationship operations are unsupported by the current canonical effect validator. Do not map relationship changes to generic attributes or `fact.set` as a workaround.
 
-PR #45 remains open/unmerged and provides, at most, a candidate consistent raw snapshot read. PR #32 remains open/unmerged and its candidate card projector does not yet consume a bounded relationship summary. The relationship implementation gate therefore remains closed until the core defines and verifies the typed canonical write/effect, participant resolution, authorized actor/purpose/snapshot read boundary, bounded read-only projection input, and rollback behavior under the actual causal guarantees. This addendum is documentation-only and does not authorize runtime, API, schema, storage, or card-projection changes.
+Current status supersedes this earlier sentence: PR #45 merged the consistent snapshot into `main`; PR #49 merged the mechanic/context snapshot extension; PR #32 is closed without merge. The NPC branch still lacks these main-side commits until deliberate reconciliation, and the relationship implementation gate remains closed until typed canonical writes, participant resolution, authorized actor/purpose/snapshot reads, bounded projection, and rollback behavior are verified. The relationship implementation gate therefore remains closed until the core defines and verifies the typed canonical write/effect, participant resolution, authorized actor/purpose/snapshot read boundary, bounded read-only projection input, and rollback behavior under the actual causal guarantees. This addendum is documentation-only and does not authorize runtime, API, schema, storage, or card-projection changes.
 
 
 ## 14. Typed-operation design proposal and core-owner resolution (2026-10-24)
@@ -249,3 +249,16 @@ The core-owner review in PR #38 comment 6377634483 resolves the previously open 
 This resolves the direction of the contract, not implementation readiness. The remaining gates are a verified typed-effect/projector hook on the target core branch, a trusted authoring command/audit boundary, a real actor/purpose/snapshot filter that returns distinct `known`, `unknown/unset`, `withheld`, and `incomplete/unsupported` outcomes, and executable tests against canonical commit, idempotency, audit, projection, rollback, and authorized consumer output.
 
 PR #45 (snapshot) is merged into `main` at `2bbdbff4e4d4c4c56601ed5ac18e2083aa99c48b`, and PR #49 merged the mechanic/context snapshot extension at `8602a9ed41f13f536d87b1103a02e8fd12de3b03`. The current NPC branch has not incorporated those main-side commits. PR #32 (character-card projection) is closed without merge. None of these facts supplies actor authorization. Keep runtime relationship commits blocked until the required boundaries are integrated and tested. No runtime, API, schema, storage, character-card, prompt, or `main` changes are authorized by this documentation update.
+
+
+## 16. Current dependency-status correction — 2026-10-24
+
+This section supersedes stale PR-state and core-commit statements in the earlier historical sections above.
+
+- Core `main` last verified for this review is `8602a9ed41f13f536d87b1103a02e8fd12de3b03`; Runtime tests #378 passed on that exact commit.
+- PR #45 merged the consistent snapshot primitive at `2bbdbff4e4d4c4c56601ed5ac18e2083aa99c48b`; PR #46 merged tri-state condition results at `e796896fc40fa8e782f574e13298682a4e6fb813`; the reviewed PR #47 delta merged through PR #49 at `8602a9ed41f13f536d87b1103a02e8fd12de3b03`.
+- PR #32 is closed without merge. Its minimal character-card projector must not be treated as a current dependency.
+- The NPC branch has not incorporated the seven main-side commits identified in `docs/37` §23. No rebase, force-update, or merge was performed as part of this consistency pass.
+- The remaining relationship blockers are unchanged: typed canonical relationship write/effect; trusted authoring/correction boundary; actor/purpose/snapshot filtering before model input; bounded authorized read-only projection; and domain-correct causal rollback/reconciliation. The merged snapshot and tri-state primitives do not satisfy these gates by themselves.
+
+All relationship acceptance cases remain design targets until verified through real production interfaces. Passing CI on this documentation branch does not establish runtime relationship readiness.
