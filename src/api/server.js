@@ -38,7 +38,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -53,6 +53,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   if (authorizedReadFieldPolicy !== null && typeof authorizedReadFieldPolicy !== 'function') {
     throw new TypeError('Authorized-read field policy must be trusted application configuration.');
   }
+  if (typeof getActiveMechanicContextProvider !== 'function') {
+    throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
+  }
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
   if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) || new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) {
     throw new TypeError('Adapter tokens must map non-empty adapter IDs to unique, distinct secrets of at least 16 characters');
@@ -62,7 +65,18 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     const secret = req.headers['x-adapter-token'];
     return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
-  const proposals = new ProposalService(engine);
+  // Resolve the policy owner at each approval/commit check, not once at server
+  // startup. A deployment can atomically rotate its active provider; proposals
+  // pinned to the previous fingerprint then fail closed. No HTTP input can set
+  // or replace this callback. With no configured owner, mechanic proposals stay
+  // blocked by the ProposalService's fail-closed validator.
+  const proposals = new ProposalService(engine, {
+    validateMechanicPolicy(identity) {
+      let provider;
+      try { provider = getActiveMechanicContextProvider(); } catch { return false; }
+      return provider?.validateMechanicPolicy?.(identity) === true;
+    },
+  });
   const actorBindings = new ActorBindingService(engine);
   // Until a canonical visibility schema exists, disclose only the bound actor's
   // own non-attribute identity fields. This intentionally denies all attributes.
