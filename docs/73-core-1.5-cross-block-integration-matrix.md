@@ -121,3 +121,64 @@ Independent semantic work can continue now:
 - **Can proceed independently:** pure Relationship evaluator and tests; Relationship/Personality semantic review; Memory record/retrieval contract review; NPC acquisition/delivery semantic design; Core trust-boundary audit and negative-test specification.
 - **Not integration-ready:** actor-authorized multi-entity reads; trusted import/correction; canonical typed relationship writes; relationship-specific replay/rollback; Memory/NPC production knowledge lifecycle; authorized freshness-aware relationship/card projection.
 - **No merges or mainline changes are implied by this matrix.** Open Draft PRs and sibling branches remain separate until their contracts and runtime evidence are reviewed together.
+
+
+## 7. Core production-path audit (main baseline)
+
+**Audited files:** `src/api/server.js`, `src/application/proposals.js`, `src/application/actor-bindings.js`, `src/application/engine.js`, and `src/storage/sqlite-store.js` on the recorded `main` baseline. This is static source review, not a local runtime reproduction.
+
+### Finding CORE-AUTH-01 — proposal commit authority is broader than proposal ownership
+
+**Severity: High; confirmed in source.**
+
+- In `src/api/server.js`, the `POST .../proposals/:proposal_id/commit` branch calls `proposals.commit(worldId, proposalId)` without requiring a configured adapter identity or matching the proposal's `created_by_adapter_id`.
+- `ProposalService.commit()` enforces that the proposal exists, has been approved, and is not stale; it does not bind the executor to the proposal creator.
+- The separate internal route is restricted to an approved proposal ID, but that does not narrow the ordinary public commit route.
+
+**Impact:** a caller with the general API bearer token who learns an approved proposal ID can execute its commit even when it is not the adapter that created it. Approval and stale-revision checks remain in place; the finding is an execution-authority mismatch, not arbitrary event injection.
+
+**Candidate fix for review:** preserve the existing adapter credential and require its authenticated adapter ID to match `created_by_adapter_id` on the public commit route. Keep the existing internal orchestrator path separately capability-gated. Do not use a request-body adapter ID as authority. Add cross-adapter denial, creator success, internal-path success, committed replay, and no-state-change-on-denial tests.
+
+**Related proposal:** [PR #67 — trust-boundary audit](https://github.com/necromorphic/Logic-Engine/pull/67) / [PR #65 — authorized read service](https://github.com/necromorphic/Logic-Engine/pull/65). No fix is assumed merged.
+
+### Finding CORE-AUTH-02 — raw canonical reads are available to any caller with the general API bearer
+
+**Severity: High for deployments where the API bearer is shared with adapters or model-facing services; confirmed in source.**
+
+- `src/api/server.js` authenticates the general bearer globally.
+- The `GET .../state`, `GET .../events`, and `GET .../audit` branches then return raw canonical snapshots/history/audit without requiring the separate internal or administrative credential.
+- `SQLiteStore.readSnapshot()` explicitly documents that attributes, facts, events, manifests, and mechanic evaluation state are raw internal data and are not actor-authorized or model-safe context.
+- `ActorBindingService.resolve()` establishes adapter-to-actor identity binding only; its class contract explicitly disclaims knowledge-read authorization.
+
+**Impact:** the HTTP boundary does not currently enforce the distinction between general API access and trusted raw-state inspection. Whether exploitable depends on credential distribution, but the code itself does not enforce the intended boundary.
+
+**Candidate fix for review:** the narrow route gate proposed in PR #65—separate internal/admin credential for raw state/events/audit—is a reasonable first hardening slice. It is not a substitute for actor/recipient/purpose/field policy, nor does it secure direct in-process serializers. Add API tests for general bearer denied and separately trusted credential accepted, plus an inventory of host/model-facing snapshot consumers.
+
+### Finding CORE-AUTH-03 — rollback authorization is conditional on effect kind
+
+**Severity: High for deployments exposing the general API token to non-admin adapters; confirmed in source.**
+
+- In `src/api/server.js`, `POST .../rollback` checks the separate admin credential only when the target root event contains a `mechanic.instance.*` effect.
+- All other canonical event types proceed to `engine.rollbackEvent()` under the global general bearer check alone.
+- Rollback changes event validity, world revision, derived projections, rollback history, and audit.
+
+**Candidate fix for review:** require the distinct admin credential for every canonical rollback, independent of event payload. [PR #66](https://github.com/necromorphic/Logic-Engine/pull/66) proposes exactly this route-level hardening and includes a representative API test; it remains unmerged in this audit snapshot.
+
+### Verified positive invariants — do not replace existing lifecycle
+
+The current Core write path has useful safeguards that the future typed Relationship operation should reuse rather than bypass:
+
+- `SQLiteStore.tx()` uses `BEGIN IMMEDIATE` for the outer transaction and savepoints for nested calls; thrown errors roll back the relevant transaction scope.
+- `SQLiteStore.commit()` checks idempotency before new writes, validates expected world revision, rejects duplicate event IDs, validates causal metadata and relevant entity/mechanic preconditions, then writes the event, advances world revision/game time, rebuilds projections, writes audit, and saves the idempotent result in the same transaction.
+- `ProposalService.commit()` wraps canonical commit, proposal status transition, and proposal audit in the existing transaction; stale world revision **or** commit-sequence mismatch rejects the commit.
+- `SQLiteStore.rollback()` performs causal invalidation, revision update, event-validity changes, projection rebuild, rollback row, audit, and replay result in one transaction. A `requires_review` outcome stores its idempotent diagnostic response without applying a semantic rollback or incrementing world revision.
+- The event cursor is `MAX(commit_sequence)`; rollback advances `world_revision` but does not create a new world event or advance `commit_sequence`. Consumers must therefore use the composite freshness marker `(world_revision, commit_sequence)`, not the event cursor alone.
+
+These are source-level findings. The exact production-path guarantees still need regression tests for injected projection failure, audit failure, replay persistence failure, stale revision/cursor races, and rollback retries on the target integration branch before the new Relationship operation can claim them.
+
+### Core implementation order after this audit
+
+1. Close the execution/read/rollback HTTP trust-boundary findings with small independently reviewable changes, preserving proposal approval and commit lifecycle.
+2. Keep the authorized-read service fail-closed and narrow until a trusted field visibility schema and recipient/purpose contract are approved.
+3. Add a Core-owned typed Relationship commit operation only after its request shape, domain-version pinning, identity checks, and audit attribution are approved. Reuse `SQLiteStore.tx()` and canonical event commit; do not write relationship projections directly from the evaluator.
+4. Add transaction-failure and composite-cursor tests before claiming relationship rollback/replay readiness.
