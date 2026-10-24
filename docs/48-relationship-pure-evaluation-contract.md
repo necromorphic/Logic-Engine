@@ -1,6 +1,6 @@
 # Relationship Module — Pure Domain Evaluation Contract
 
-Status: **schema-neutral proposal for the Relationship block**. This document defines the boundary of a side-effect-free domain evaluation. It is not a runtime API, wire schema, Core operation, storage contract, or claim that the evaluator exists.
+Status: **schema-neutral proposal for the Relationship block**. This document defines the conceptual boundary of a side-effect-free domain evaluation. It is not a runtime API, wire schema, Core operation, storage contract, or claim that the full Relationship module is implemented. Any standalone pure evaluator developed separately is a narrower candidate-producing slice and does not, by itself, satisfy this full contract or establish runtime integration.
 
 Related:
 - `docs/46-relationship-domain-module-design.md` — module ownership, lifecycle, and domain rules.
