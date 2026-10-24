@@ -805,3 +805,31 @@ test('authorized-read HTTP route requires a configured adapter and keeps the def
   assert.equal(missingRead.status, 404);
   assert.deepEqual((await missingRead.json()).error, crossActorError);
 });
+
+
+test('authorized-read HTTP route rejects caller-supplied policy and identity overrides', async (t) => {
+  const base = await setup(t);
+  assert.equal((await createWorld(base, 'authorized-read-no-policy-injection')).status, 201);
+  const url = base + '/v1/worlds/authorized-read-no-policy-injection/authorized-read';
+  const baseBody = {
+    actor_entity_id: 'actor-a',
+    purpose: 'npc_decision',
+    entity_ids: ['actor-a'],
+    fields: ['entity_id'],
+  };
+
+  for (const extra of [
+    { field_policy: { allow_all: true } },
+    { authenticated_adapter_id: 'adapter-b' },
+    { recipient: 'admin' },
+    { authorization: true },
+  ]) {
+    const response = await fetch(url, {
+      method: 'POST',
+      headers,
+      body: json({ ...baseBody, ...extra }),
+    });
+    assert.equal(response.status, 400);
+    assert.equal((await response.json()).error.code, 'INVALID_AUTHORIZED_READ');
+  }
+});
