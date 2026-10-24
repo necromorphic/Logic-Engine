@@ -167,7 +167,7 @@ The provider is deployment-owned application code, not request data. This create
 
 ## 11. Snapshot-bound application executor slice
 
-The branch now contains `src/application/mechanic-executor.js`, a read-only application-layer path that consumes the existing `getSnapshot(worldId, { includeMechanicEvaluationState: true })` seam. It pins world revision, commit sequence, instance ID, exact template ID/version/hash, resolves literal entity targets through a second bounded snapshot, and refuses to continue if the revision/cursor or pinned definition changes between reads.
+The branch now contains `src/application/mechanic-executor.js`, a read-only application-layer path that consumes the existing `getSnapshot(worldId, { includeMechanicEvaluationState: true })` seam. It pins world revision, commit sequence, instance ID, exact template ID/version/hash, resolves literal entity-target existence through the existing consistent state projection and requires its revision/cursor to match the mechanic snapshot before using the result.
 
 The slice deliberately supports only:
 - enabled instances and the exact pinned template;
