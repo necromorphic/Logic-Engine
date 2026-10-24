@@ -6,7 +6,10 @@ const validId = (value) => typeof value === 'string'
   && value === value.trim()
   && value.length > 0
   && value.length <= 200
-  && !/[\\u0000-\\u001f\\u007f]/.test(value);
+  && ![...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || code === 127;
+  });
 const validCursorPart = (value) => (typeof value === 'string' && value.trim().length > 0)
   || (typeof value === 'number' && Number.isFinite(value));
 const validSnapshot = (value) => object(value)
