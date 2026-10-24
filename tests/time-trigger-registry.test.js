@@ -182,7 +182,7 @@ test('timed action resolves duration through TimePolicy and processes due trigge
   ]);
   const actionEvent = events.find((event) => event.event_type === 'travel.completed');
   assert.equal(actionEvent.time_advance_seconds, 0);
-  assert.equal(actionEvent.duration_decision.duration_ms, 30000);
+  assert.equal(operation.plan.final_action_duration_decision.duration_ms, 30000);
 
   const replay = engine.startTimedAction('time-trigger-world', request);
   assert.equal(replay.operation_id, operation.operation_id);
