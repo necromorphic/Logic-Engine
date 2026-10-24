@@ -73,7 +73,7 @@ A `ready` result must include a deterministic evaluation fingerprint over the no
 
 Module manifests are declarative registrations, not proof that implementation code is safe or available.
 
-- A host-owned allowlist maps a registered module identity and exact version to an implementation explicitly enabled by the deployment.
+- A host-owned allowlist maps a registered module identity and exact version to an implementation explicitly enabled by the deployment. Each allowlist entry must also pin an immutable implementation digest or deployment build identity; a module-manifest hash identifies the declaration, not the executable code. Include that implementation identity in the evaluation fingerprint so replacing code without changing the declared module version cannot silently preserve a stale fingerprint.
 - Only operations/capabilities named in that module's contract may be invoked.
 - Input/output must pass bounded contract validation before results are consumed.
 - Unknown implementation IDs, versions, capabilities, incompatible core versions, timeout/failure, or invalid output fail closed to `unknown` or `needs_review` as specified by the module's validated failure policy.
@@ -143,17 +143,18 @@ Test profiles should include (a) no body/money/faction fields, (b) a fictional-r
 
 The initial code audit found a concrete contract mismatch that must be resolved before mechanic execution is connected:
 
-- `src/core/mechanics.js` validates a rule-operator set that includes `contains`, `status_is`, `ref_exists`, `time_before`, `time_after`, and `needs_review` in addition to the basic comparisons and boolean combinators.
-- `src/core/rules.js` currently evaluates only `eq`, `neq`, `exists`, `gt`, `gte`, `lt`, `lte`, `in`, `all`, `any`, and `not`. The wider validator allowlist is therefore not equivalent to executable evaluator support.
-- `evaluateCondition` returns a boolean and treats a missing path as `false` (except for `exists`). It does not currently express a tri-state `true` / `false` / `unknown` result. Mechanic evaluation must not interpret missing required context as a proven false predicate or as proof that a rule is inapplicable. Add context-completeness preflight or a tri-state evaluation contract before using this evaluator for mechanics.
-- The declarative schema, runtime contract validator, and evaluator must share a tested support matrix. A schema-valid rule is not necessarily executable by the current runtime.
+- The current `src/core/mechanics.js` imports `SUPPORTED_RULE_OPERATORS` from `src/core/rules.js`; the inspected `tests/mechanics-operator-matrix.test.js` also compares that set against `schemas/declarative-rule.schema.json`. The earlier concern that the validator independently accepts extra operators is stale for this source revision. Re-run the matrix test whenever either declaration changes.
+- The legacy `evaluateCondition` API returns a Boolean and treats a missing path as `false` for ordinary comparison operators (with `exists` using its explicit absence behavior). It cannot distinguish an actually absent field from context that was not retrieved, is incomplete, or is withheld.
+- The opt-in `evaluateConditionResult` API on the `feat/tri-state-condition-results` branch preserves the legacy API and returns `true`, `false`, or `unknown`. It propagates unknown through `not`, `all`, and `any`; a path is considered known absent only when the trusted caller explicitly supplies it in `knownAbsentPaths`. The returned `status` is authoritative for the condition result; `unknown_paths` is diagnostic and may list unresolved leaves even when the overall result is decisively `true` or `false` (for example, `all(false, unknown)` returns `false` with a diagnostic path). Consumers must not let a non-empty diagnostic list override a decisive status. `knownAbsentPaths` is a trusted-caller assertion and must be derived from the same consistent, authorized snapshot as the condition context, never directly from model/user input. This is a candidate primitive on an unmerged branch, not yet the evaluator used by a mechanic-execution service. Its `unknown_paths` field is diagnostic and can remain non-empty when a decisive `all`/`any` branch determines the final status; consumers must branch on `status`, not infer the result from list emptiness. For a path explicitly declared absent, `exists` resolves to false by default, `eq` and membership/numeric comparisons resolve to false, and `neq` resolves to true. The helper validates that a declared-absent path is not simultaneously present in the supplied context.
+- Operator-name alignment does not solve effect-intent mapping, module implementation allowlisting, context completeness, or the absence of a Stage 1.3 application service. A schema-valid rule is not by itself proof that the full mechanic execution pipeline exists.
+- `schemas/mechanic-instance.schema.json` allows `status: "needs_review"`, but the SQLite `mechanic_instances.status` constraint and event-rebuilt lifecycle projection support only `disabled`/`enabled`; no canonical lifecycle effect sets a durable review status. Treat `needs_review` as a transient evaluation result only until the project either removes it from the persisted instance schema or defines an event-backed transition. Do not silently treat the schema enum as implemented storage behavior.
 
 Implementation order:
 
-1. Reconcile `src/core/mechanics.js`, `src/core/rules.js`, `schemas/declarative-rule.schema.json`, effect kinds, and existing tests into one explicit operator/effect support matrix.
-2. Decide and test missing-path semantics: distinguish a known absent field from context that was not retrieved or is not authorized. Return `unknown` when the engine cannot prove the predicate either way.
-3. Resolve discrepancies between supported declarative operators, effect kinds, and the result contract before writing execution code.
-4. Implement pure/read-only evaluation and result validation.
+1. Keep the schema, mechanic validator, and evaluator on one tested operator support matrix; the current source already shares the operator constant, so preserve that invariant rather than duplicating lists.
+2. Approve and test missing-path semantics: distinguish a known absent field from context that was not retrieved or is not authorized. Return `unknown` when the engine cannot prove the predicate either way.
+3. Reconcile declarative rule results, mechanic effect intents, canonical effect kinds, and the result contract before connecting evaluation to proposals.
+4. Implement the full pure/read-only evaluation service and structured result validation against a consistent snapshot.
 5. Add the acceptance tests above, including failure injection and cross-world isolation.
 6. Connect validated results to the existing proposal API without introducing a second commit path.
 7. Implement explicit lifecycle policy handling for active processes only after the core process contract is executable.
