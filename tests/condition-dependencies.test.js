@@ -67,3 +67,56 @@ test('rejects malformed nested rules rather than returning a partial dependency 
     /Condition must be an object/,
   );
 });
+
+
+test('mechanic dependency summary covers all condition-bearing template sections but marks whole-mechanic completeness unknown', async () => {
+  const { collectMechanicConditionDependencies } = await import('../src/core/mechanics.js');
+  const template = {
+    template_id: 'test.dependencies',
+    version: '1.0.0',
+    schema_version: 'core-1',
+    display_name: 'Dependency fixture',
+    required_capabilities: [],
+    applicability: [{ op: 'eq', path: 'world.weather', value: 'rain' }],
+    eligible_participants: [{
+      role_id: 'actor',
+      constraints: [{ op: 'exists', path: 'actor.id', value: true }],
+    }],
+    actions: [{
+      action_id: 'act',
+      input_schema: { type: 'object' },
+      preconditions: [{ op: 'gt', path: 'actor.hp', value: 0 }],
+      constraints: [{ op: 'neq', path: 'actor.status', value: 'dead' }],
+      effects: [{
+        effect_id: 'effect-1',
+        kind: 'emit_event',
+        target_ref: 'world',
+        payload: { message: 'rain action' },
+      }],
+      ambiguity_policy: 'deterministic_only',
+    }],
+    interactions: [{
+      interaction_id: 'interaction-1',
+      other_template_id: 'test.other',
+      policy: 'compatible',
+      conditions: [{ op: 'eq', path: 'world.phase', value: 'night' }],
+    }],
+    conflict_policy: { mode: 'manual' },
+    lifecycle_policy: { on_disable: 'require_author_decision' },
+    unknown_policy: 'mark_unknown',
+  };
+  const result = collectMechanicConditionDependencies(template);
+  assert.deepEqual(result.condition_paths, [
+    'actor.hp',
+    'actor.id',
+    'actor.status',
+    'world.phase',
+    'world.weather',
+  ]);
+  assert.equal(result.condition_dependencies_complete, true);
+  assert.equal(result.mechanic_dependencies_complete, false);
+  assert.deepEqual(result.unresolved_sources, [
+    'effect-intent payload binding',
+    'registered module inputs and reads',
+  ]);
+});
