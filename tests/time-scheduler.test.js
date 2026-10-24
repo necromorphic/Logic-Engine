@@ -159,3 +159,20 @@ test('world isolation and malformed intervals fail closed', () => {
     (error) => error.code === 'REVERSED_INTERVAL',
   );
 });
+
+
+test('conflicts across segment boundaries still require a direct dependency order', () => {
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers: [
+        trigger('writer-a', 5, { write_set: ['entity:shared'] }),
+        trigger('bridge', 5, { dependencies: ['writer-a'] }),
+        trigger('writer-c', 5, { dependencies: ['bridge'], write_set: ['entity:shared'] }),
+      ],
+    }),
+    (error) => error.code === 'TRIGGER_CONFLICT_NEEDS_REVIEW',
+  );
+});
