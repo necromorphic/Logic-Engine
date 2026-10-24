@@ -111,14 +111,14 @@ function buildDependencyOrder(due, allById, completedIds) {
         blocked.push({ trigger_id: trigger.trigger_id, dependency_id: dependencyId, reason: 'dependency_cancelled' });
         continue;
       }
-      if (!dueIds.has(dependencyId)) {
-        blocked.push({ trigger_id: trigger.trigger_id, dependency_id: dependencyId, reason: 'dependency_not_due_in_interval' });
-        continue;
-      }
       if (dependency.due_coordinate > trigger.due_coordinate) {
         fail('CAUSAL_TIME_ORDER_CONFLICT', 'A trigger cannot depend on work scheduled later in game time.', {
           trigger_id: trigger.trigger_id, dependency_id: dependencyId,
         });
+      }
+      if (!dueIds.has(dependencyId)) {
+        blocked.push({ trigger_id: trigger.trigger_id, dependency_id: dependencyId, reason: 'dependency_not_due_in_interval' });
+        continue;
       }
       required.push(dependencyId);
       const children = dependents.get(dependencyId) || [];
@@ -221,8 +221,13 @@ export function planDueWork(input) {
     allById.set(trigger.trigger_id, trigger);
   }
 
-  const due = triggers.filter((trigger) => trigger.status === 'pending'
+  const allDue = triggers.filter((trigger) => trigger.status === 'pending'
     && trigger.due_coordinate > from && trigger.due_coordinate <= to);
+  const interruptCoordinates = allDue.filter((trigger) => trigger.interrupt_after_coordinate).map((trigger) => trigger.due_coordinate);
+  const firstInterruptCoordinate = interruptCoordinates.length ? Math.min(...interruptCoordinates) : null;
+  const due = firstInterruptCoordinate === null
+    ? allDue
+    : allDue.filter((trigger) => trigger.due_coordinate <= firstInterruptCoordinate);
   const dependencyPlan = buildDependencyOrder(due, allById, completedIds);
   if (dependencyPlan.blocked.length) {
     return {
@@ -258,7 +263,7 @@ export function planDueWork(input) {
 
   const plannedUntil = stopCoordinate ?? to;
   const plannedIds = new Set(segments.flatMap((segment) => segment.trigger_ids));
-  const remainingTriggerIds = due
+  const remainingTriggerIds = allDue
     .filter((trigger) => !plannedIds.has(trigger.trigger_id))
     .map((trigger) => trigger.trigger_id)
     .sort();
