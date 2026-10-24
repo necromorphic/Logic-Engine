@@ -85,3 +85,30 @@ The semantic contract in `01-personality-and-relationship-semantics.md` also ret
 | PERS-REL-016 | PERS-SEM-028 | Player agency |
 
 The legacy IDs remain valid aliases for traceability, not additional scenarios that supersede the PERS-SEM matrix. If the semantic outcome changes, update the canonical PERS-SEM case and this mapping together.
+
+
+## Relationship-module case crosswalk (REL-MOD)
+
+This crosswalk links the Relationship module's proposed `REL-MOD-*` cases to the existing canonical Personality acceptance cases. It is a documentation-only traceability aid: it does not transfer ownership, replace IDs, or imply that runtime tests exist or pass. Relationship case definitions are in `docs/47-relationship-module-test-traceability.md` on the Relationship proposal branch.
+
+| Relationship case | Related Personality acceptance case(s) | Why they are related | Boundary / status note |
+|---|---|---|---|
+| REL-MOD-001 — Same event, different interpretation | PERS-SEM-014, 015, 017, 020; PERS-SEM-018 where unequal knowledge is involved | Stable traits shape but do not dictate interpretation; inferred motives are not canonical facts; relationship value alone does not prove cause; knowledge is actor-specific | Domain/NPC semantics can be specified independently; production knowledge filtering remains blocked on authorized reads |
+| REL-MOD-002 — Unequal knowledge | PERS-SEM-018, 025, 026 | Relationship does not grant knowledge; actor/purpose authorization and withheld-versus-unset behavior must be preserved | Blocked on production authorized-read and knowledge-acquisition contracts |
+| REL-MOD-003 — Contradictory dimensions | PERS-SEM-005, 002, 006, 007 | Dimensions remain isolated; partial updates preserve omitted dimensions; unsupported values/transitions must be rejected | Domain semantics specified; typed write/atomic validation not verified |
+| REL-MOD-004 — Conduct hides state | PERS-SEM-017, 020, 018 | Conduct or narrative presentation is not relationship state, proof of cause, or automatic knowledge transfer | Domain/consumer boundary; acquisition and authorized-read dependencies remain |
+| REL-MOD-005 — No automatic drift | PERS-SEM-008, 020 | Scene count/co-presence alone cannot cause a transition; repeated evaluation is not new causal evidence | Pure-domain target; no runtime claim |
+| REL-MOD-006 — Repair is dimension-specific | PERS-SEM-005, 006, 007 | Repair rules may affect only declared dimensions and supported transitions; no universal reset is implied | Requires authored World Pack repair semantics; production enforcement unverified |
+| REL-MOD-007 — Irreversibility is explicit | PERS-SEM-012, 021, 022, 024 | Author correction, causal dependencies, independent support, and replay must follow explicit policies | Core causal/correction contracts remain blocked or deferred as stated in the canonical matrix |
+| REL-MOD-008 — Disabled capability | No direct one-to-one PERS-SEM case; related to PERS-SEM-006 and 007 only where disabling makes a rule/capability unavailable | Unavailable capability must not be silently replaced with a fabricated neutral value or unsupported transition | Relationship lifecycle/consumer contract; no direct canonical PERS-SEM equivalent should be invented |
+| REL-MOD-009 — Unsupported Core write | PERS-SEM-001, 002, 006, 007, 011, 013 | Direction, partial update, domain validation, trusted provenance, and atomic rejection depend on the approved Core write boundary | Blocked on typed operation, provenance, authorization, and atomicity evidence |
+| REL-MOD-010 — No invented OR rule | PERS-SEM-021, 022, 023, 024 | Required dependency, independent support, conflict/insufficiency, and replay have distinct semantics | PERS-SEM-022 remains deferred; source IDs alone do not prove independent sufficient support |
+| REL-MOD-011 — Player agency | PERS-SEM-028 | Relationship context must not author voluntary player dialogue, thoughts, decisions, or actions | Semantic requirement specified; runtime consumer boundary not verified |
+| REL-MOD-012 — Versioned semantics | PERS-SEM-024; PERS-SEM-006 and 007 where rule/version validation is relevant | Replay must not silently reinterpret history under changed semantics; active rules determine supported values/transitions | Historical version pinning/migration and production replay policy remain blocked |
+
+### Crosswalk maintenance rules
+
+- Keep `REL-MOD-*` and `PERS-SEM-*` identifiers stable; the mapping is many-to-many, not a renumbering scheme.
+- A relationship case may have no direct Personality case. Do not manufacture a semantic ID just to force one-to-one coverage.
+- A shared case reference does not transfer ownership: Core closes Core contracts, Personality owns personality semantics, the World Pack declares world-specific dimensions/rules, and NPC owns decision orchestration/consumer behavior.
+- Update this crosswalk only when the source case or its expected outcome changes. Keep specification status separate from implementation and test evidence.
