@@ -139,9 +139,9 @@ Do not select C as default or choose a fixed fallback threshold without represen
 4. Which invariant owners and versions are authoritative for each world/mechanic.
 5. Whether any cyclic evaluation is in scope for the first production slice.
 6. Exact module sandbox/resource enforcement and implementation digest source.
-7. Commit-time stale-result rejection behavior and the existing proposal API seam to use.
+7. A/B/C recalculation integration, independent oracle coverage, and measured fallback thresholds.
 
-Until these are resolved and tested, the isolated harness remains experimental and must not be exposed as a production mechanic executor.
+The bounded application executor and guarded proposal handoff now exist on this branch, but the isolated A/B/C harness remains experimental. Production use is still limited to the explicitly supported executor slice; unresolved semantics must continue to fail closed.
 
 
 ### Bounded effect-intent translation primitive
@@ -149,20 +149,6 @@ Until these are resolved and tested, the isolated harness remains experimental a
 `translateMechanicEffectIntents(template, actionId)` translates only the selected action, and maps only three literal intent kinds to existing Core effects: `create_entity` → `entity.create`, `update_attribute` → `entity.update`, and `assert_fact` → `fact.set`. It rejects unsupported kinds, unknown payload fields, empty patches, duplicate effect IDs, non-empty `source_refs`/`caused_by`, and invalid Core effects. Failure is atomic at the adapter boundary: it returns no partial effects. The result includes an ordered `effect_provenance` mapping from output effect indices to action/intent/effect IDs.
 
 This is an opt-in pure adapter, not a proposal or executor. It does not resolve targets, prove target existence/world ownership, pin a snapshot, bind action inputs, enforce access policy, create a proposal, or preserve provenance in the event pipeline. Callers must not commit its effects unless the proposal path can carry the provenance and all remaining guards.
-
-
-### Snapshot-bound bounded evaluation primitive
-
-`evaluateMechanicActionAgainstSnapshot({ snapshot, instanceId, actionId, authorizedContext, knownAbsentPaths })` now combines the condition preflight and literal effect-intent translator for a narrow no-input declarative action. It requires the enabled instance and its exact pinned template/hash to exist in the same supplied `mechanic_evaluation_snapshot`, records `world_revision` and `commit_sequence`, and emits a deterministic evaluation fingerprint over the selected instance/template identity, condition results, translated effects, and provenance. It returns no effects unless all conditions are decisively true and the supported literal effect subset validates.
-
-It fails closed for registered module execution, automatic conflict resolution, participant binding, interaction semantics, and non-trivial action input schemas. It is synchronous, read-only, does not access storage, does not create a proposal, and has no commit authority. `authorizedContext` and `knownAbsentPaths` must already be assembled by a trusted caller from the same authorized immutable snapshot; this primitive does not prove that caller obligation. The fingerprint is not a signature and does not itself reject stale results. Production integration remains blocked until the trusted context boundary and proposal handoff can carry/check the exact snapshot identity and effect provenance.
-
-
-### Trusted application evaluation seam
-
-`src/application/mechanic-evaluation.js` adds `MechanicEvaluationService`. The service captures the canonical snapshot itself with `includeMechanicEvaluationState: true`, deeply freezes it before passing it to an injected trusted context provider, requires that provider to return a context, snapshot-scoped known-absence claims, and a non-empty policy version, and fails closed if the provider errors or violates the contract. The policy version and optional context-manifest identity participate in the evaluation fingerprint.
-
-The provider is deployment-owned application code, not request data. This creates a real injection seam for the future authorized-read policy, but it does not implement the policy by itself. The service returns only a non-committing evaluation result. It does not create a proposal, persist effect provenance through the event pipeline, or enforce freshness at later acceptance; those remain required integration work.
 
 
 ## 11. Snapshot-bound application executor slice
@@ -173,10 +159,10 @@ The slice deliberately supports only:
 - enabled instances and the exact pinned template;
 - `manual` conflict policy, no rule modules, no participant selection, and no declared mechanic interactions;
 - `deterministic_only` actions with an empty object input and the exact `input_schema: { type: "object" }`;
-- context returned by a trusted injected provider that attests the same world revision and commit sequence;
+- context returned by a trusted injected provider that attests the same world revision and commit sequence and declares a non-empty `policy_version`;
 - the three literal effect mappings documented above.
 
-Unsupported semantics return `unknown` or `rejected`, with an empty effect list. The executor does not write canonical state.
+Unsupported semantics return `unknown` or `rejected`, with an empty effect list. The executor does not write canonical state. Ready results carry `context_fingerprint` and `evaluation_fingerprint` over snapshot identity, versioned policy/context, condition results, translated effects and effect provenance; these fingerprints are audit identities, not signatures.
 
 `ProposalService.createFromMechanicEvaluation` is the internal handoff for a ready result. It rechecks the evaluation's world revision and commit sequence inside the same transaction that creates the ordinary durable proposal, validates effect-index provenance, and stores the exact evaluation identity and provenance with the proposal. Proposal approval/commit remain on the existing service; semantic review remains required and the ordinary stale-proposal guard remains in force. This handoff is not exposed as a new HTTP route.
 
