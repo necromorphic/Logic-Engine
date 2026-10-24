@@ -576,6 +576,8 @@ export class LogicEngine {
     assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0,
       'INVALID_REVISION', 'Timed action expected_revision must be a non-negative safe integer.');
     assert(obj(x.event), 'INVALID_TIME_ACTION_EVENT', 'Timed action event must be an object.');
+    assert(x.event.event_type !== 'time.advance', 'INVALID_TIME_ACTION_EVENT_TYPE',
+      'Timed actions cannot submit the Core-owned time.advance event type.');
     const eventAllowed = ['turn_id', 'event_type', 'generation_id', 'context_manifest_id', 'source_message_id',
       'duration_proposal', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
     assert(Object.keys(x.event).every((key) => eventAllowed.includes(key)),
