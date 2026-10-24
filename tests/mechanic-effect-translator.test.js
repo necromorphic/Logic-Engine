@@ -179,6 +179,37 @@ test('empty batches and unsafe nested object keys are rejected', () => {
   }
 });
 
+test('nested JSON payloads are bounded by depth, container size, and total node count', () => {
+  const deeplyNested = {};
+  let cursor = deeplyNested;
+  for (let i = 0; i < 34; i += 1) {
+    cursor.child = {};
+    cursor = cursor.child;
+  }
+  const oversizedArray = Array.from({ length: 1001 }, (_, index) => index);
+  const oversizedObject = Object.fromEntries(Array.from({ length: 1001 }, (_, index) => ['field' + index, index]));
+  for (const value of [deeplyNested, oversizedArray, oversizedObject]) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({
+        kind: 'assert_fact',
+        target_ref: 'fact.example',
+        payload: { predicate: 'p', value },
+      })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+  const largeBatch = Array.from({ length: 11 }, (_, index) => intent({
+    effect_id: 'effect-' + index,
+    kind: 'assert_fact',
+    target_ref: 'fact.' + index,
+    payload: { predicate: 'p', value: Array.from({ length: 1000 }, (__, childIndex) => childIndex) },
+  }));
+  assert.throws(
+    () => translateMechanicEffectIntents(largeBatch),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+});
+
 test('target identifiers and batch size are bounded', () => {
   assert.throws(
     () => translateMechanicEffectIntents([intent({ target_ref: 'x'.repeat(201) })]),
