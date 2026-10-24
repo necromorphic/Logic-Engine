@@ -77,7 +77,13 @@ export class MemoryNpcConsumer {
     // happen even for complete-empty results, which otherwise bypass the later
     // AuthorizedReadService call entirely.
     try {
-      this.actorBindingService.resolve(worldId, adapterId, actorEntityId);
+      const binding = this.actorBindingService.resolve(worldId, adapterId, actorEntityId);
+      if (!object(binding)
+        || binding.world_id !== worldId
+        || binding.adapter_id !== adapterId
+        || binding.actor?.entity_id !== actorEntityId) {
+        return nonReady('actor_binding_unavailable');
+      }
     } catch {
       return nonReady('actor_binding_unavailable');
     }
