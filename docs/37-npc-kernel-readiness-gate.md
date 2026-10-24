@@ -401,3 +401,10 @@ This section is the current status reference for older dependency tables elsewhe
 The merged snapshot and tri-state primitives reduce specific core gaps, but they do not supply trusted actor binding, authorized per-NPC initial acquisition/provenance, an actor/purpose/snapshot-bound pre-model secret filter, persistent belief/delivery semantics, typed relationship operations, or alternative-support reconciliation. Those remain implementation gates. Passing general core CI is not proof of NPC readiness.
 
 Cross-document corrections made in this pass: `docs/35` no longer describes PR #45 as open/unmerged; `docs/42` now distinguishes the merged core dependency from its absence in the unreconciled NPC branch and correctly records PR #32 as closed without merge. Continue to treat `docs/33` as the source-level audit, `docs/35` as the test-boundary map, and this document as the concise readiness/status reference.
+
+
+## 24. Delivery/acquisition evidence gate — 2026-10-24
+
+`docs/48-npc-delivery-acquisition-boundary-matrix.md` defines NPC-DELIV-001–010 and `docs/35-npc-test-boundary-map.md` maps them to implementation boundaries. The key invariant is that payload preparation, delivery attempt, host acceptance, visible rendering, acknowledgement, comprehension, acquisition, belief, and canonical truth are separate states with separate evidence thresholds.
+
+Core review already confirmed that host injection without a documented rendering signal remains `injected_unconfirmed`; `shown` remains unsupported until a real host signal is identified and verified. The first NPC slice therefore cannot claim communication-based acquisition. No local delivery store, inferred receipt, or mock-host success path may be added on the NPC branch.
