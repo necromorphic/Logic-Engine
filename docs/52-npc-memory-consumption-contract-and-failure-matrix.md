@@ -351,3 +351,6 @@ The tests cover: incomplete trusted scope; foreign world; missing/denied/withhel
 ## Vocabulary crosswalk follow-up
 
 The compact NPC↔Memory lifecycle/type vocabulary crosswalk is maintained in [`docs/53-npc-memory-lifecycle-vocabulary-crosswalk.md`](53-npc-memory-lifecycle-vocabulary-crosswalk.md). It separates record type from epistemic kind and lifecycle dimensions, marks exact/conditional/lossy/invalid mappings, identifies fail-closed states and owner decisions, and lists future boundary tests. It is a proposal only; it does not approve enums, add an adapter, or establish runtime integration.
+
+
+See also: `docs/54-npc-memory-boundary-assumptions-and-integration-gates.md` for the field trust classification and production-boundary acceptance tests.
