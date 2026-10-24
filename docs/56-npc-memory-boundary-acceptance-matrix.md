@@ -258,3 +258,42 @@ Core + trusted host/source adapter must provide evidence for all applicable item
 8. **Host outcome evidence:** actual host-owned signals for rendered/delivered/received, plus Core-owned policies and idempotent persistence boundaries for acquisition and belief. These are separate follow-on gates, not part of admission.
 
 Until these inputs and the end-to-end tests against the real approved adapter exist, the current helper remains NPC-only test code. **Production Memory retrieval / Memory→NPC remains disabled.**
+
+
+## Follow-up: Core/Memory/Host contract gate and collision-safe NPC oracle — 24 Oct 2026
+
+### Existing entry point and hard limit
+
+`evaluateMemoryCandidateAdmission(request, result)` remains the only existing NPC-owned pure decision point. It is **not** a production Core-result receiver and the current repo does not define an approved versioned Core→Memory→NPC result contract. Do not invent a `contract_version` field, a new inventory protocol, or a fake adapter just to make the NPC predicate appear complete.
+
+Therefore the NPC oracle can validate only the proposal-shaped fields already used by its tests. It cannot honestly verify a contract version, authenticate Core provenance, prove complete source inventory, or distinguish a trusted snapshot from a caller-supplied imitation. These are production blockers, not optional defaults. Production wiring must remain absent/disabled until Core and Provider owners approve and implement the actual contract.
+
+### Additional NPC-only hardening
+
+- Summary lineage now checks every numeric array slot explicitly; sparse arrays fail closed rather than bypassing `Array.prototype.every()`.
+- Candidate identity tuples are encoded as a JSON pair, avoiding delimiter-based pair collisions.
+- If a result repeats the same `record.ref + record.version` pair, all occurrences are excluded. The approved contract does not currently supply a canonical immutable payload digest that lets NPC prove repeated answers are identical; first-wins deduplication would be unsafe.
+- Re-evaluation of the same supplied result is tested for deterministic output and no mutation / lifecycle side effects.
+- Exclusion output remains content-free and does not reveal denied IDs, snippets, rejection reasons, or rejection counts.
+
+These are pure NPC helper/unit-test guarantees only. They do not establish that the supplied identity, version, lineage, snapshot, freshness, or access claims are authoritative.
+
+### Owner-contract reconciliation
+
+- **Core #140:** no approved universal Memory source identity/version contract or durable source-change feed; `world_revision + commit_sequence` is a snapshot freshness marker, not a source-specific journal. Rollback can invalidate data without a higher commit sequence. Core must approve source-type-specific version/validity proof, result-contract versioning, and authorized-read binding.
+- **Host/Adapter #258:** the observed SillyTavern 1.19.0-1-g06bde939f event samples establish event presence/shapes only. Array indices and swipe IDs remain host-local; no production capture/persistence mapping, stable source version, or complete restart/replay inventory is proven. Host + Provider must establish the real lifecycle-to-persisted-source mapping before any result can be considered production input.
+- **Memory Provider #181:** a real Provider vertical slice and durable inventory/reconciliation/access contract are still required. SQLite/provider tests and injected `validateSourceVersion` / `validateInventory` callbacks are not production authority. Provider must supply authoritative record version/lineage, index health, reconciliation status and complete inventory evidence, or mark the result non-ready.
+
+### Required result distinctions and fail-closed behavior
+
+- **Non-ready:** contract/version unknown or unsupported; provenance not trusted; snapshot absent/stale/unverifiable; inventory incomplete/unknown/rebuilding; lineage incomplete/sparse; source identity/version missing or conflicting; freshness unknown; source retracted/revoked; authorization unavailable. No candidate content or counts escape.
+- **Authorized complete-empty:** only possible after an approved real contract proves authorized scope plus complete inventory and current snapshot. The current helper's `completeness: "complete"` fixture field is not that proof.
+- **Ordinary access denial/withheld:** must remain distinct from complete-empty. Current helper maps request-level unconfirmed/denied access to a generic `non_ready` decision to avoid disclosing which condition occurred; it does not expose a separate public denial diagnostic. If Core requires a typed outward denial, Core must define its safe public semantics first.
+- **Retrieval/admission/context inclusion:** are not render, delivery, receipt, acquisition, or belief. The NPC oracle returns references only and creates none of those downstream facts.
+- **Repeated answers and races:** repeated same identity/version within one candidate set is excluded; repeated invocation is deterministic. The helper cannot detect a source change/rollback that leaves the supplied snapshot marker unchanged, and cannot close the last authorization-check→serialization race. Those require authoritative Core/Provider/Host contracts and real-path tests.
+
+### Production gate remains closed
+
+Do not call the pure oracle from production with arbitrary Provider/model/caller data. Required real path remains: pinned Host capture with durable identity → Provider persistence and complete reconciliation → Core-authorized result with approved contract version, trusted provenance, per-source version/lineage and complete inventory → NPC admission → owner-defined disclosure-time boundary → actual host serialization evidence. Repeat after restart and exercise edit, swipe, delete, cancel, rollback, revocation-after-check and duplicate/conflicting responses.
+
+No Core, Memory Provider, Host/Adapter, Personality or Relationships files were changed by this NPC work.
