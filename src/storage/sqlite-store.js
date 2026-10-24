@@ -1463,6 +1463,21 @@ export class SQLiteStore {
         || worldAtStart.world_revision !== input.starting_world_revision) {
         throw new EngineError('TIME_ADVANCE_START_STALE', 'World time or revision changed before the time-advance operation was recorded.', 409);
       }
+      const triggerIds = input.claimed_trigger_ids ?? [];
+      if (!Array.isArray(triggerIds) || new Set(triggerIds).size !== triggerIds.length
+        || triggerIds.some((triggerId) => typeof triggerId !== 'string' || !triggerId.trim())) {
+        throw new EngineError('INVALID_TIME_TRIGGER_CLAIM', 'claimed_trigger_ids must be a unique list of non-empty trigger IDs.', 400);
+      }
+      for (const triggerId of triggerIds) {
+        const trigger = this.db.prepare('SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+          .get(input.world_id, triggerId);
+        if (!trigger) throw new EngineError('TIME_TRIGGER_NOT_FOUND', 'A planned trigger no longer exists.', 409, { trigger_id: triggerId });
+        if (trigger.status !== 'pending' || trigger.claimed_by_operation_id !== null) {
+          throw new EngineError('TIME_TRIGGER_CLAIM_CONFLICT', 'A planned trigger is no longer available for this operation.', 409, {
+            trigger_id: triggerId, status: trigger.status, claimed_by_operation_id: trigger.claimed_by_operation_id,
+          });
+        }
+      }
       const stamp = now();
       this.db.prepare(`INSERT INTO time_advance_operations(
         world_id,operation_id,idempotency_key,request_hash,from_coordinate,target_coordinate,confirmed_coordinate,
@@ -1474,6 +1489,10 @@ export class SQLiteStore {
         0, enc(input.segments), enc(input.plan), input.result ? enc(input.result) : null,
         input.error ? enc(input.error) : null, stamp, stamp,
       );
+      for (const triggerId of triggerIds) {
+        this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=?,updated_at=? WHERE world_id=? AND trigger_id=?')
+          .run(input.operation_id, stamp, input.world_id, triggerId);
+      }
       return timeAdvanceOperation(this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
         .get(input.world_id, input.operation_id));
     });
