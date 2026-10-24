@@ -14,7 +14,7 @@ The ownership split is approved:
 
 This split has no identified ownership conflict. Relationship semantics remain outside the generic core; the core must enforce their approved contract.
 
-## 2. Typed relationship operation: required, not implemented
+## 2. Typed relationship operation: privileged first slice implemented; broader contract incomplete
 
 The relationship state must not be implemented through generic entity attributes or repurposed `fact.set` claims. A separate typed canonical operation is required.
 
@@ -29,15 +29,15 @@ The approved semantic direction is:
 - successful changes use the canonical event, audit, and revision lifecycle;
 - changing one dimension does not implicitly change trust, attraction, consent, knowledge, reciprocity, or another dimension.
 
-**Current status:** no typed relationship effect/operation is exposed by the inspected runtime. The exact effect payload/name, public API, storage representation, and implementation are not approved. Core structural validation is responsible for participant existence, world scope, operation integrity, safe references, and atomic commit. The active World Pack/domain validator owns allowed dimension keys, types/ranges, neutral values, and domain transition rules.
+**Current-main evidence (2026-10-24):** `tests/relationship-transition-core.test.js` (blob `9cf9020c554028f89dc8d8f97d6f7422f357fba1`) contains 21 production-path tests for a privileged, admin-gated typed Relationship operation. The tested first slice includes directed canonical projection; participant/world/rule/evidence validation; partial and mixed-patch atomicity; idempotent retry; explicit neutral/clear/unset replay; transaction-failure atomicity; restart/rebuild; and required-dependency rollback. This is not a general actor/NPC write authority or authorized-read contract. Do not describe the typed operation as wholly absent; describe the tested scope narrowly.
 
 A rejected operation must not mutate canonical projection, world revision, commit sequence, committed events, or commit audit, except for a separately documented rejection diagnostic. An accepted operation must have a replayable canonical event/effect identity and share the existing atomic commit boundary with projection, audit, and idempotency outcome.
 
-**Remaining Core gates:** finish the first-slice causal representation and the trusted authoring/import/correction command boundary before finalizing the schema-neutral operation contract and production tests.
+**Remaining Core gates:** general actor/NPC mutation authority; trusted initial/import and author-correction paths; actor/purpose/field-authorized reads and withheld-value non-disclosure; safe authorized character-card projection; historical World Pack version selection/migration; and independent alternative-support semantics. These are not proven by the privileged first slice.
 
 ## 3. Causality: conditional Option A target, not a closed implementation choice
 
-**Approved direction:** deterministic replay of surviving valid typed relationship transitions (Option A) is the first-stage target **only where replay is semantically sufficient** to reconstruct the intended state. This does not settle the representation for every relationship transition, and it is not proof that the current runtime already supports typed relationship replay.
+**Approved direction:** deterministic replay of surviving valid typed relationship transitions (Option A) is the first-stage target **only where replay is semantically sufficient** to reconstruct the intended state. Current `main` has production-path tests for deterministic rebuild/replay of the supported privileged subset; this does not settle the representation for every relationship transition or prove historical per-transition version selection/migration.
 
 Constraints:
 
@@ -86,7 +86,7 @@ Origin and attribution are provenance, not values the caller can freely assert. 
 
 **Implemented for the existing event/effect model:** the canonical event path records `caused_by`, `depends_on`, `read_set`, causal links, and effects; rollback invalidates dependent events using recorded relationships and rebuilds projections by replaying valid events. This is not a typed relationship implementation and is not a separate NPC-memory rollback system.
 
-**Not implemented/established:** typed relationship effects, relationship-specific rollback behavior, and OR/alternative-support reconciliation.
+**Implemented/tested for the privileged first slice:** typed Relationship transition effects, supported-subset rollback/rebuild, and required-dependency invalidation. **Not established:** general actor/NPC authority, authoring/import/correction, authorized reads, historical World Pack migration/version selection, and OR/alternative-support reconciliation.
 
 The first-slice target may use deterministic replay only where it is semantically correct. If a required cause is invalidated, dependent state must be recomputed without unsupported state. If multiple sources are claimed to be independently sufficient, their sufficiency must be explicit rather than inferred from multiple IDs. If remaining support is conflicting or insufficient, use a declared domain rule or expose conflict/unknown rather than guessing.
 
@@ -116,7 +116,7 @@ These are required future tests, not claims that the current runtime already pas
 4. **Core architecture:** specify the typed relationship operation against existing effect conventions and prove atomicity, provenance, and replay/rollback on the real canonical path.
 5. **Implementation discussion:** only after the contracts and production tests are agreed, decide runtime changes.
 
-Integration remains blocked until typed write, provenance, authorized read, and the applicable replay/rollback guarantees are specified and tested. This record is a contract/design boundary, not permission to implement.
+Full integration remains blocked despite the tested privileged first slice: trusted provenance paths, authorized reads, NPC/Personality consumer behavior, safe projections, historical version selection/migration, and alternative-support semantics still require approved contracts and production tests. This record is a contract/design boundary, not permission to implement.
 
 ## 8. Exact remaining questions for Core
 
