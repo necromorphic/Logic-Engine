@@ -37,3 +37,16 @@ The shared contract is:
 5. Durable interruption + SQLite close/reopen + continuation of the same process is covered by the integration test in #248; Time's scheduler tests are complementary, not a replacement for that real-path test.
 
 The existing generic scheduler tests already cover these rules at the trigger layer. The added Time tests bind the process contract's `prerequisites` vocabulary to those trigger-level semantics without adding runtime code. The #248 integration suite now includes an A→B→C rollback/restart test and lifecycle idempotent retries. This proves only within-process prerequisite closure, not cross-process causal rebuild. The overall issue remains open until the cross-PR review and all required acceptance evidence are complete.
+
+
+## Overdue resume and explicit replan contract (review proposal; no runtime API added)
+
+- **Resume is not replan.** If any pending milestone's persisted `due_coordinate` is at or behind the world's confirmed game-time coordinate, resume returns `PROCESS_RESUME_REQUIRES_REPLAN`, leaves the process paused, and preserves every due coordinate and checkpoint version. It must not catch up by wall clock or silently shift dates.
+- **Replan must be explicit and separately authorized.** It is not part of `resume`, does not run automatically after restart, and does not add a second scheduler. It must use the existing process definition + registered-trigger + Core transaction path, with Time validating the proposed temporal plan and Core validating current world revision and atomically committing any approved canonical/checkpoint changes.
+- **Inputs/validation required before implementation:** current process identity and checkpoint version; current world revision/confirmed coordinate; explicit proposed due-coordinate changes for named pending milestones; unchanged/approved definition version semantics; prerequisite order, scheduler conflicts, interruption boundaries, and due coordinates all revalidated against the existing scheduler. No timestamps alone may infer causal ordering.
+- **Required outcome:** stale process version/revision, missing causal inputs, invalid prerequisites, or unresolved conflicts fail closed with no mutation. A successful replan must preserve the prior plan in audit, record old/new coordinates and the accepted plan identity/version under a Core-approved audit contract, and be idempotent for an identical request; key reuse with changed content conflicts. The old plan is not overwritten without retained audit provenance.
+- **Not implemented / needs approval:** there is no replan endpoint or operation contract in the current runtime slice. The bullets above are acceptance requirements for owner review, not an invented API/schema. Until Core and Process Manager approve the exact operation/identity/version semantics, overdue processes remain paused and overdue resume remains rejected.
+
+## Acceptance status after Core integration tests
+
+PR #248's current integration branch adds explicit stale-revision rejection and competing lifecycle checkpoint tests through the existing runtime path. These tests must assert no process/trigger/audit side effects on stale revision and exactly one successful audited transition when two commands target the same checkpoint version. They do not prove multi-process causal closure or automatic rebuild/replanning.
