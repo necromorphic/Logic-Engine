@@ -4,6 +4,26 @@ function parseIsoInstant(value, name) {
   if (typeof value !== 'string' || !value.trim()) {
     throw new TypeError(name + ' must be a non-empty ISO date-time string.');
   }
+  const match = /^(\d{4}|[+-]\d{6})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(?:\.(\d{1,3}))?(Z|[+-]\d{2}:\d{2})$/.exec(value);
+  if (!match) throw new TypeError(name + ' must use ISO date-time syntax with an explicit timezone and at most millisecond precision.');
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const hour = Number(match[4]);
+  const minute = Number(match[5]);
+  const second = Number(match[6]);
+  const zone = match[8];
+  const leap = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+  const monthDays = [31, leap ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+  if (month < 1 || month > 12 || day < 1 || day > monthDays[month - 1]
+    || hour > 23 || minute > 59 || second > 59) {
+    throw new TypeError(name + ' contains an out-of-range date or time component.');
+  }
+  if (zone !== 'Z') {
+    const offsetHour = Number(zone.slice(1, 3));
+    const offsetMinute = Number(zone.slice(4, 6));
+    if (offsetHour > 23 || offsetMinute > 59) throw new TypeError(name + ' contains an invalid timezone offset.');
+  }
   const milliseconds = Date.parse(value);
   if (!Number.isSafeInteger(milliseconds)) {
     throw new TypeError(name + ' must be a valid date-time within the platform ISO range.');
