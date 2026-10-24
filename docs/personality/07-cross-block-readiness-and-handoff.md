@@ -16,7 +16,7 @@ Core's response in [PR #38, comment 6377879793](https://github.com/necromorphic/
 
 - A typed canonical relationship operation is required, but no such runtime operation has been verified.
 - Partial updates, directionality, and distinct unset/neutral/clear semantics are semantic requirements; exact payload/API/storage representation remains unapproved.
-- PR #45 adds a bounded consistent snapshot primitive, not actor authorization or secret filtering. It remains open and unmerged in the reviewed state.
+- PR #45 (bounded consistent snapshot) and PR #46 (opt-in tri-state condition results) are merged into `main`; the snapshot/context extension was merged via PR #49. These primitives improve consistency and condition-result representation but do not provide actor/purpose authorization, visibility filtering, or secret exclusion. Raw snapshot output must not be passed directly to a model.
 - Generic event/audit and rollback infrastructure exists, but the trusted authoring/import/correction boundary and relationship-specific replay guarantees are not established.
 - Deterministic replay is a conditional first-stage target only where it semantically reconstructs the intended state. Alternative-source support is not implied by event IDs.
 
