@@ -73,7 +73,7 @@ Until those decisions are resolved, the safe implementation boundary is the pure
 - **Implemented on NPC branch:** pure metadata admission checks, negative fixtures, no-content output projection, candidate exclusion non-disclosure behavior, and proposal documentation/crosswalk.
 - **Not established by the oracle:** authentic authorization, authorization-before-disclosure, race-free revocation, authoritative currentness, actual Memory retrieval, host delivery/receipt, acquisition/belief persistence, rollback-aware source reconciliation, or cross-subsystem transactionality.
 - **CI evidence:** a successful repository-native Actions run on an earlier exact head is not evidence for a later head. Report CI only with the exact tested SHA and run URL. An isolated compatible test harness is not native `npm test` or GitHub Actions.
-- **Merge posture:** keep PR #76 Draft/unmerged until current-head native CI, owner-approved contracts, and applicable boundary tests are evidenced. No Core/Memory branch or file is modified by this document.
+- **Merge posture (current):** PR #76 is closed unmerged as superseded. Its pure helper/tests are already on main via #78 and the NPC contract package is on main via #98. Production Memory→NPC integration remains blocked until the real authorized retrieval and reconciliation boundaries/tests exist.
 
 
 ## 5. Current Core security baseline — refreshed 2026-10-24
