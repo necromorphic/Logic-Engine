@@ -177,6 +177,30 @@ test('translation is deterministic, does not mutate inputs, and returns detached
   assert.deepEqual(input, before);
 });
 
+test('identifier fields reject surrounding whitespace instead of silently changing identity', () => {
+  const cases = [
+    intent({ target_ref: ' entity.example ' }),
+    intent({ effect_id: ' effect-001 ' }),
+    intent({ kind: ' create_entity ' }),
+    intent({
+      kind: 'assert_fact',
+      target_ref: 'fact.example',
+      payload: { predicate: ' status ', value: true },
+    }),
+    intent({
+      kind: 'assert_fact',
+      target_ref: 'fact.example',
+      payload: { predicate: 'status', value: true, subject_ref: ' entity.example ' },
+    }),
+  ];
+  for (const value of cases) {
+    assert.throws(
+      () => translateMechanicEffectIntents([value]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+});
+
 test('nested JSON payloads are bounded by depth, container size, and total node count', () => {
   const deeplyNested = {};
   let cursor = deeplyNested;
