@@ -68,7 +68,14 @@ export class MemoryNpcConsumer {
   }
 
   async retrieveForNpc(request) {
-    const { worldId, adapterId, actorEntityId } = object(request) ? request : {};
+    let worldId;
+    let adapterId;
+    let actorEntityId;
+    try {
+      if (object(request)) ({ worldId, adapterId, actorEntityId } = request);
+    } catch {
+      return nonReady('trusted_scope_incomplete');
+    }
     if (!validId(worldId) || !validId(adapterId) || !validId(actorEntityId)) {
       return nonReady('trusted_scope_incomplete');
     }
