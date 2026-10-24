@@ -253,7 +253,7 @@ test('a failed audit write rolls back the entire event transaction', (t) => {
   assert.equal(h.engine.getState('w').world_revision, 0);
   assert.equal(h.engine.getState('w').entities.length, 0);
   assert.equal(h.engine.getEvents('w', true).length, 0);
-  assert.equal(h.engine.getAudit('w').length, 1);
+  assert.deepEqual(h.engine.getAudit('w'), auditBefore);
 });
 
 test('legacy SQLite migration preserves existing world and idempotency rows', (t) => {
@@ -553,6 +553,8 @@ test('a failed rollback replay-record write rolls back the canonical rollback', 
 test('a failed canonical commit replay-record write rolls back the event and projection', (t) => {
   const h = setup();
   t.after(() => h.store.close());
+
+  const auditBefore = h.engine.getAudit('w');
 
   h.store.db.exec(`
     CREATE TRIGGER fail_commit_replay BEFORE INSERT ON idempotency_keys
