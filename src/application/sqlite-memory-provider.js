@@ -73,7 +73,7 @@ export class SQLiteMemoryProvider {
       CREATE TABLE IF NOT EXISTS memory_index_state (
         world_id TEXT PRIMARY KEY, index_health TEXT NOT NULL,
         source_reconciliation TEXT NOT NULL, snapshot_revision TEXT,
-        snapshot_sequence TEXT, updated_at TEXT NOT NULL
+        snapshot_sequence TEXT, failure_code TEXT, updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS memory_raw_captures (
         world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
@@ -102,6 +102,11 @@ export class SQLiteMemoryProvider {
           ON DELETE CASCADE
       );
     `);
+    const indexStateColumns = new Set(this.db.prepare('PRAGMA table_info(memory_index_state)').all()
+      .map((column) => column.name));
+    if (!indexStateColumns.has('failure_code')) {
+      this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+    }
   }
 
   #withImmediateTransaction(work) {
@@ -346,16 +351,37 @@ export class SQLiteMemoryProvider {
     return scope;
   }
 
-  #setState(worldId, indexHealth, reconciliation, snapshot = null) {
+  #setState(worldId, indexHealth, reconciliation, snapshot = null, failureCode = null) {
     this.db.prepare(`INSERT INTO memory_index_state
-      (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,updated_at)
-      VALUES(?,?,?,?,?,?)
+      (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
+      VALUES(?,?,?,?,?,?,?)
       ON CONFLICT(world_id) DO UPDATE SET index_health=excluded.index_health,
       source_reconciliation=excluded.source_reconciliation,
       snapshot_revision=excluded.snapshot_revision,snapshot_sequence=excluded.snapshot_sequence,
-      updated_at=excluded.updated_at`).run(worldId, indexHealth, reconciliation,
+      failure_code=excluded.failure_code,updated_at=excluded.updated_at`).run(worldId, indexHealth, reconciliation,
       snapshot ? String(snapshot.world_revision) : null,
-      snapshot ? String(snapshot.commit_sequence) : null, new Date().toISOString());
+      snapshot ? String(snapshot.commit_sequence) : null, failureCode, new Date().toISOString());
+  }
+
+  /**
+   * Provider-internal diagnostics only. Do not project this state, its reason
+   * codes, or any derived counts into NPC-facing results or public API envelopes.
+   */
+  getIndexStatusForDiagnostics(worldId) {
+    if (!validId(worldId)) throw new TypeError('Invalid world_id');
+    const row = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(worldId);
+    if (!row) return Object.freeze({
+      index_health: 'unavailable', source_reconciliation: 'stale',
+      snapshot: null, failure_code: 'INDEX_STATE_MISSING',
+    });
+    return Object.freeze({
+      index_health: row.index_health,
+      source_reconciliation: row.source_reconciliation,
+      snapshot: row.snapshot_revision === null || row.snapshot_sequence === null ? null : {
+        world_revision: row.snapshot_revision, commit_sequence: row.snapshot_sequence,
+      },
+      failure_code: row.failure_code ?? null,
+    });
   }
 
   grantQuery(scope, allowed) {
@@ -464,7 +490,7 @@ export class SQLiteMemoryProvider {
       this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
         .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString());
     } catch (error) {
-      this.#setState(record.world_id, 'unavailable', 'stale');
+      this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
       throw error;
     }
     return { status: 'stored', record_ref: record.record_ref, record_version: record.record_version };
@@ -483,7 +509,7 @@ export class SQLiteMemoryProvider {
       }
       return { status: 'rebuilt', count: records.length };
     } catch (error) {
-      this.#setState(worldId, 'unavailable', 'stale');
+      this.#setState(worldId, 'unavailable', 'stale', null, 'INDEX_REBUILD_FAILED');
       throw error;
     }
   }
@@ -494,8 +520,8 @@ export class SQLiteMemoryProvider {
     let before;
     try { before = snapshotOf(await this.getSnapshot(worldId)); } catch { before = null; }
     if (!before) {
-      this.#setState(worldId, 'unavailable', 'stale');
-      return { status: 'unavailable' };
+      this.#setState(worldId, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
+      return { status: 'unavailable', reason: 'CORE_SNAPSHOT_UNAVAILABLE' };
     }
     const records = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
     for (const row of records) {
@@ -503,8 +529,8 @@ export class SQLiteMemoryProvider {
         WHERE world_id=? AND record_ref=? AND record_version=?`)
         .get(worldId, row.record_ref, row.record_version);
       if (!entry) {
-        this.#setState(worldId, 'rebuilding', 'stale');
-        return { status: 'rebuilding' };
+        this.#setState(worldId, 'rebuilding', 'stale', null, 'INDEX_ENTRY_MISSING');
+        return { status: 'rebuilding', reason: 'INDEX_ENTRY_MISSING' };
       }
       let valid = false;
       try {
@@ -516,8 +542,8 @@ export class SQLiteMemoryProvider {
         })) === true;
       } catch { valid = false; }
       if (!valid) {
-        this.#setState(worldId, 'stale', 'stale');
-        return { status: 'stale' };
+        this.#setState(worldId, 'stale', 'stale', null, 'SOURCE_VALIDATION_FAILED');
+        return { status: 'stale', reason: 'SOURCE_VALIDATION_FAILED' };
       }
     }
     // Per-record validation cannot prove that the inventory itself is complete.
@@ -532,14 +558,14 @@ export class SQLiteMemoryProvider {
       })))) === true;
     } catch { inventoryComplete = false; }
     if (!inventoryComplete) {
-      this.#setState(worldId, 'stale', 'stale');
-      return { status: 'stale' };
+      this.#setState(worldId, 'stale', 'stale', null, 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE');
+      return { status: 'stale', reason: 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE' };
     }
     let after;
     try { after = snapshotOf(await this.getSnapshot(worldId)); } catch { after = null; }
     if (!sameSnapshot(before, after)) {
-      this.#setState(worldId, 'stale', 'stale');
-      return { status: 'stale' };
+      this.#setState(worldId, 'stale', 'stale', null, 'SNAPSHOT_CHANGED_DURING_RECONCILIATION');
+      return { status: 'stale', reason: 'SNAPSHOT_CHANGED_DURING_RECONCILIATION' };
     }
     this.#setState(worldId, 'ready', 'current', after);
     return { status: 'current', snapshot: after, records_checked: records.length };
@@ -556,7 +582,7 @@ export class SQLiteMemoryProvider {
     try {
       current = snapshotOf(await this.getSnapshot(scope.world_id));
     } catch {
-      this.#setState(scope.world_id, 'unavailable', 'stale');
+      this.#setState(scope.world_id, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
       throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
     }
     if (!current) {
@@ -565,7 +591,7 @@ export class SQLiteMemoryProvider {
     }
     if (String(current.world_revision) !== state.snapshot_revision
       || String(current.commit_sequence) !== state.snapshot_sequence) {
-      this.#setState(scope.world_id, 'stale', 'stale');
+      this.#setState(scope.world_id, 'stale', 'stale', null, 'SNAPSHOT_STALE');
       throw new Error('MEMORY_SNAPSHOT_STALE');
     }
     const rows = this.db.prepare(`SELECT r.* FROM memory_records r
