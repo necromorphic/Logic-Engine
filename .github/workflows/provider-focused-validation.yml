@@ -2,6 +2,8 @@ name: Provider focused validation (temporary evidence branch)
 on:
   push:
     branches: [work/provider-focused-validation-2026-10-25]
+  pull_request:
+    branches: [main]
 jobs:
   focused:
     runs-on: ubuntu-latest
