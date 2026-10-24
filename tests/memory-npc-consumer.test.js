@@ -616,3 +616,24 @@ test('Memory query and retrieval failures fail closed without leaking provider e
   assert.equal(invalidClone.reason, 'memory_retrieval_unavailable');
   assert.equal(JSON.stringify(invalidClone).includes('must not escape'), false);
 });
+
+
+test('mismatched Core actor binding result fails before Memory query', async (t) => {
+  const { consumer, provider } = setup(t);
+  let queryCalled = false;
+  provider.authorizeQuery = async () => {
+    queryCalled = true;
+    return true;
+  };
+  consumer.actorBindingService.resolve = () => ({
+    world_id: 'memory-npc-world',
+    adapter_id: 'adapter-a',
+    actor: { entity_id: 'different-actor' },
+  });
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'actor_binding_unavailable');
+  assert.deepEqual(result.admitted, []);
+  assert.equal(queryCalled, false);
+});
