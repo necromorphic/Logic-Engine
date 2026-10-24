@@ -25,7 +25,7 @@ The planner validates world isolation, safe integer coordinates, duplicate IDs/r
 - `interrupted`: the plan stops after all planned work at an interrupt coordinate; later due trigger IDs are returned as remaining work.
 - `needs_review` is represented by a typed error for same-coordinate conflicts without a declared dependency order.
 
-A segment groups only same-coordinate triggers whose declared read/write sets are independent. Explicit dependency edges create segment boundaries because T3's bounded segment commit does not accept intra-segment dependencies. If conflicting triggers have no dependency path, the planner does not choose a winner.
+A segment groups only same-coordinate triggers whose declared read/write sets are independent. Explicit dependency edges create segment boundaries because T3's bounded segment commit does not accept intra-segment dependencies. If conflicting triggers lack a direct dependency edge ordering the pair, the planner does not choose a winner. This conservative rule prevents an unrelated dependency chain from accidentally imposing an order on two conflicting triggers.
 
 Trigger IDs are the deterministic final tie-break after due coordinate. Ordering never creates causality. A dependency scheduled after its dependent is rejected as a causal-time-order conflict.
 
