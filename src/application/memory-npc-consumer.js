@@ -124,16 +124,22 @@ export class MemoryNpcConsumer {
 
     const authorizedCandidates = [];
     for (const candidate of memoryResult.candidates) {
+      // A result declared complete must not silently turn malformed records
+      // into an apparently valid empty result. Scope/identity/snapshot
+      // violations invalidate the provider response as a whole. Well-formed
+      // but unsupported source kinds (including summaries) remain excluded.
       if (!object(candidate)
         || candidate.world_id !== scope.world_id
         || candidate.subject_id !== scope.subject_id
         || candidate.purpose !== scope.purpose
-        || candidate.content_kind === 'summary'
-        || candidate.source?.kind !== 'canonical_entity'
-        || !validId(candidate.source?.entity_id)
         || !validSnapshot(candidate.snapshot)
         || !validId(candidate.record?.ref)
         || !validId(candidate.record?.version)) {
+        return nonReady('memory_candidate_invalid_or_scope_mismatch');
+      }
+      if (candidate.content_kind === 'summary'
+        || candidate.source?.kind !== 'canonical_entity'
+        || !validId(candidate.source?.entity_id)) {
         // Do not report item-level rejection reasons or counts to the caller.
         continue;
       }
