@@ -58,6 +58,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
     ...overrides,
   });
   let candidateList = [candidate()];
+  let lastCandidateAuthorization = null;
   const provider = {
     authorizeQuery: async () => authorizeQuery,
     retrieveCandidates: async () => ({
@@ -65,7 +66,10 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
       scope,
       candidates: candidateList,
     }),
-    authorizeCandidate: async () => authorizeCandidate,
+    authorizeCandidate: async (input) => {
+      lastCandidateAuthorization = input;
+      return authorizeCandidate;
+    },
   };
   const consumer = new MemoryNpcConsumer({
     authorizedReadService,
@@ -76,6 +80,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   return {
     store, engine, consumer, provider, scope, snapshot,
     setCandidates(next) { candidateList = next; },
+    get lastCandidateAuthorization() { return lastCandidateAuthorization; },
     candidate,
   };
 }
@@ -103,6 +108,13 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     'attributes.public_note': 'authorized source text',
   });
   assert.equal(result.candidates[0].record_ref, 'memory:claim-1');
+  assert.deepEqual(consumer.lastCandidateAuthorization, {
+    ...{ world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' },
+    record_ref: 'memory:claim-1',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'source-a',
+  });
   assert.equal(JSON.stringify(result).includes('must never leak'), false);
   assert.equal(JSON.stringify(result).includes('private_note'), false);
   assert.deepEqual(result.snapshot, {
