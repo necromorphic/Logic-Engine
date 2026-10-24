@@ -113,7 +113,9 @@ function buildDependencyOrder(due, allById, completedIds) {
   const degree = new Map([...dependencies].map(([id, refs]) => [id, refs.length]));
   const ready = due.filter((trigger) => degree.get(trigger.trigger_id) === 0);
   const ordered = [];
-  const compare = (a, b) => a.due_coordinate - b.due_coordinate || a.trigger_id.localeCompare(b.trigger_id);
+  const compare = (a, b) => a.due_coordinate < b.due_coordinate ? -1
+    : a.due_coordinate > b.due_coordinate ? 1
+      : a.trigger_id < b.trigger_id ? -1 : a.trigger_id > b.trigger_id ? 1 : 0;
   ready.sort(compare);
 
   while (ready.length) {
@@ -139,7 +141,6 @@ function segmentAtCoordinate(triggers, dependencies) {
     if (current.length) {
       segments.push({
         due_coordinate: current[0].due_coordinate,
-        processing_mode: current.length === 1 ? current[0].processing_mode : 'exact',
         trigger_ids: current.map((trigger) => trigger.trigger_id),
         triggers: current.map((trigger) => ({
           trigger_id: trigger.trigger_id,
