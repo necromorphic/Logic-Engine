@@ -217,8 +217,17 @@ export class LogicEngine {
     };
   }
 
-  commitEvent(id, x) {
-    return this.store.commit(id, this.prepareEvent(x));
+  commitEvent(id, x, options = {}) {
+    const prepared = this.prepareEvent(x);
+    if (options.mechanicExecution !== undefined && options.mechanicExecution !== null) {
+      assert(obj(options.mechanicExecution), 'INVALID_MECHANIC_EXECUTION_METADATA', 'Mechanic execution metadata must be an object.');
+      prepared.mechanic_execution = options.mechanicExecution;
+      prepared.request_hash = hashRequest({
+        event_request_hash: prepared.request_hash,
+        mechanic_execution: options.mechanicExecution,
+      });
+    }
+    return this.store.commit(id, prepared);
   }
 
 
