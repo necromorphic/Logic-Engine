@@ -26,9 +26,25 @@ export class MemoryNpcContextBridge {
       return Object.freeze({ status: 'non_ready', admitted: Object.freeze([]), reason: 'trusted_scope_incomplete' });
     }
 
+    // Snapshot values are part of the trusted request scope. A shallow copy
+    // alone would let a retriever mutate request.snapshot through the shared
+    // nested object and then make stale candidates appear current to the oracle.
+    const trustedRequest = Object.freeze({
+      world_id: request.world_id,
+      subject_id: request.subject_id,
+      purpose: request.purpose,
+      ...(request.snapshot == null
+        ? {}
+        : {
+          snapshot: request.snapshot !== null && typeof request.snapshot === 'object' && !Array.isArray(request.snapshot)
+            ? Object.freeze({ ...request.snapshot })
+            : request.snapshot,
+        }),
+    });
+
     let result;
     try {
-      result = await this.retrieve(Object.freeze({ ...request }));
+      result = await this.retrieve(trustedRequest);
     } catch {
       return Object.freeze({ status: 'non_ready', admitted: Object.freeze([]), reason: 'retrieval_unavailable' });
     }
@@ -36,14 +52,14 @@ export class MemoryNpcContextBridge {
     // A result claiming "complete" is not sufficient. The trusted host
     // verifier must establish scope, access and completeness at the source.
     try {
-      if (await this.verifyResult(Object.freeze({ ...request }), result) !== true) {
+      if (await this.verifyResult(trustedRequest, result) !== true) {
         return Object.freeze({ status: 'non_ready', admitted: Object.freeze([]), reason: 'authoritative_result_unconfirmed' });
       }
       if (!result || !Array.isArray(result.candidates)) {
         return Object.freeze({ status: 'non_ready', admitted: Object.freeze([]), reason: 'result_incomplete_or_unavailable' });
       }
       for (const candidate of result.candidates) {
-        if (await this.verifyCandidate(Object.freeze({ ...request }), candidate) !== true) {
+        if (await this.verifyCandidate(trustedRequest, candidate) !== true) {
           // Do not silently turn an unverifiable hit into an authorized empty
           // result. Any unverifiable candidate makes this retrieval non-ready.
           return Object.freeze({ status: 'non_ready', admitted: Object.freeze([]), reason: 'authoritative_candidate_unconfirmed' });
@@ -55,6 +71,6 @@ export class MemoryNpcContextBridge {
 
     // The existing NPC oracle remains a second-stage semantic filter. It emits
     // reference metadata only; content projection remains a separate boundary.
-    return evaluateMemoryCandidateAdmission(request, result);
+    return evaluateMemoryCandidateAdmission(trustedRequest, result);
   }
 }
