@@ -60,6 +60,8 @@ test('interval uses open start and closed end boundary', () => {
 test('calendar projection supports custom year lengths, weekdays, and negative coordinates', () => {
   const definition = createCalendarDefinition(calendar());
   assert.equal(definition.calendar_id, 'test.cycle');
+  assert.equal(Object.isFrozen(definition.year_cycle), true);
+  assert.equal(Object.isFrozen(definition.year_cycle[0].months[0]), true);
   const projected = projectCalendarDate(definition, 4000);
   assert.deepEqual(
     { year_number: projected.year_number, month_id: projected.month_id, day_of_month: projected.day_of_month, weekday: projected.weekday },
@@ -105,6 +107,10 @@ test('calendar validation rejects invalid epoch, dates, duplicate holidays, and 
       { id: 'same', name: 'Two', month_id: 'last', day_of_month: 1 },
     ] }),
     (error) => error.code === 'DUPLICATE_HOLIDAY_ID',
+  );
+  assert.throws(
+    () => createCalendarDefinition({ ...calendar(), year_cycle: [calendar().year_cycle[0], { ...calendar().year_cycle[1], id: 'short' }] }),
+    (error) => error.code === 'DUPLICATE_YEAR_ID',
   );
   assert.throws(
     () => projectCalendarDate(calendar(), Number.MAX_SAFE_INTEGER + 1),
