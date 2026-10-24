@@ -312,3 +312,12 @@ Re-fetched the live PR #76 head: `52f9ad8f9945c6e2e203298f53247d42c734c3ee`. The
 Exact-head workflow query for `52f9ad8f9945c6e2e203298f53247d42c734c3ee` returned no PR-triggered workflow runs. No pass/fail conclusion can be drawn; PR #76 remains Draft/open/unmerged.
 
 **Next review question:** `lifecycleIsPresent()` requires a non-empty `evidence_assessment`, but `lifecycleIsAdmissible()` does not evaluate that dimension and the admitted projection omits it. Core Memory proposal `docs/65` identifies `unassessed`, `supported`, `disputed`, and `insufficient` assessments where a typed policy defines their semantics. Ask NPC to preserve the assessment for downstream handling or fail closed for states whose admission semantics are not approved, with negative tests. This is a source-review finding/question, not an executed failing test. Do not prescribe a new enum policy in the NPC block.
+
+
+## Exact-head refresh — NPC PR #76, 2026-10-24 (MEM-039)
+
+After recording the access-binding resolution, PR metadata advanced again to `6cf3b704d625e7098fa3ca98beb6323bf21d28a3` (open Draft/unmerged). The helper and tests were re-fetched after that update. Candidate-level and request-level access decisions now require subject/purpose binding, and the corresponding negative fixtures are present. The lineage source world/subject/purpose checks also remain present. These are pure-oracle protections, not proof of authentic authorization or an approved Memory runtime interface.
+
+A new source-level concern was sent to NPC Issue #70: `evidence_assessment` is required to be non-empty but is not considered by `lifecycleIsAdmissible()`, and it is omitted from the admitted reference projection. Core Memory's proposal lists `unassessed`, `supported`, `disputed`, and `insufficient` where a typed policy defines their semantics. Memory acceptance case **MEM-039** now requires the admission boundary to preserve this distinction for downstream handling or fail closed where semantics are not approved. This is a contract review finding, not an executed test failure.
+
+The exact-head workflow query for `6cf3b704d625e7098fa3ca98beb6323bf21d28a3` returned no PR-triggered runs. No pass/fail conclusion is established. PR #76 must remain Draft until exact-head test evidence and contract review are available.
