@@ -2,7 +2,7 @@
 
 **Status:** evidence-based integration audit, documentation only.  
 **Audit date:** 2026-10-24.  
-**Main baseline checked:** `37b05c38b15eda1743fb6fce08a8ccc2f1d2e672`.  
+**Main baseline checked:** `6c58769e03717d18c57d061bbd33fdcba0cf5694`.  
 **Purpose:** keep parallel Core, Memory, Relationships, NPC, and Personality work compatible without treating an open PR or a branch-local proposal as shipped runtime behavior.
 
 This document records observed repository state and integration gates. It does not approve a new API, schema, storage model, authorization policy, or merge. Re-check branch heads before acting on this snapshot.
