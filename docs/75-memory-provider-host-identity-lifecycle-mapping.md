@@ -342,8 +342,8 @@ Exact source anchors at pinned ST commit `06bde939fb1e9c4c8d8641d810f0a916b5bce1
 
 ### 11.3 Executable acceptance plan and evidence labels
 
-**Provider-local tests (already available; run against the exact reviewed Provider head):**
-1. Run `npm test -- tests/memory-provider-raw-archive.test.js` from the Logic-Engine repository.
+**Provider-local tests (completed in CI against frozen source/test blobs; see §11.6):**
+1. **Completed:** CI #1809 ran the raw archive, reconciliation interruption/race, and query-revocation race test files together: 19/19 passed; the same run's full suite passed 290/290. Re-run only if Provider source/test blobs change.
 2. Exact duplicate tuple + payload after Provider restart yields one logical raw record.
 3. Same tuple + different role/content/metadata is rejected as a conflict; prior bytes are unchanged.
 4. Select another captured version changes only the active pointer; alternatives remain.
@@ -440,7 +440,7 @@ The current pinned ST representation physically splices deleted swipes/messages 
 
 #### Provider acceptance before any integration review
 
-1. Re-run `npm test -- tests/memory-provider-raw-archive.test.js` and the relevant reconciliation-interruption/race and revocation tests against one frozen code head; record that exact head and CI run together.
+1. **Completed for the frozen Provider source/test blobs:** focused CI #1809 passed 19/19 and full suite passed 290/290 (§11.6). If any Provider source/test blob changes, repeat against the new exact head before claiming continued coverage.
 2. Review the resulting diff against this table and correct any mismatch between documented and actual method behavior.
 3. Keep Host-supplied IDs untrusted until Core-approved scope/source authorization exists; reject conflicting identity reuse.
 4. Do not mark Host inventory ready from Provider-local row counts, `validateInventory`, or snapshot equality alone.
