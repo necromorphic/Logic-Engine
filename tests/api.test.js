@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { once } from 'node:events';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
+import { ProposalService } from '../src/application/proposals.js';
 import { createApiServer } from '../src/api/server.js';
 
 const TOKEN = 'test-token-long-enough-123456';
@@ -971,6 +972,391 @@ test('trusted context registration and proposal creator checks compose without u
   assert.equal(ownerCommit.status, 200);
   assert.equal((await ownerCommit.json()).proposal.status, 'committed');
 });
+
+test('API registers a generation-bound context manifest and commits against it through the internal route', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL, approvalToken: APPROVAL });
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  assert.equal((await createWorld(base, 'manifest-api-world')).status, 201);
+  const registered = await fetch(base + '/v1/worlds/manifest-api-world/context-manifests', {
+    method: 'POST', headers: internalHeaders,
+    body: json({ generation_id: 'api-generation-1', base_commit_sequence: 0, base_world_revision: 0, items: [] }),
+  });
+  assert.equal(registered.status, 201);
+  const manifest = (await registered.json()).context_manifest;
+  assert.ok(manifest.manifest_id);
+
+  const proposed = await fetch(base + '/v1/worlds/manifest-api-world/proposals', { method: 'POST', headers, body: json({ idempotency_key: 'api-manifest-event', source_text: '', event: { turn_id: 'api-manifest-turn', event_type: 'action.completed', generation_id: 'api-generation-1', context_manifest_id: manifest.manifest_id, effects: [] } }) });
+  const proposal = (await proposed.json()).proposal;
+  const approved = await fetch(base + '/v1/worlds/manifest-api-world/proposals/' + proposal.proposal_id + '/approve', { method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}' });
+  assert.equal(approved.status, 200);
+  const committed = await fetch(base + '/v1/worlds/manifest-api-world/proposals/' + proposal.proposal_id + '/commit', { method: 'POST', headers, body: '{}' });
+  assert.equal(committed.status, 200);
+  assert.equal((await committed.json()).commit_result.commit_sequence, 1);
+});
+
+test('mechanic effect intents translate into canonical effects inside the proposal lifecycle', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL, approvalToken: APPROVAL });
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  assert.equal((await createWorld(base, 'intent-world')).status, 201);
+  const body = {
+    idempotency_key: 'intent-proposal-1',
+    source_text: 'Create Mira as a character.',
+    event: {
+      turn_id: 'intent-turn-1',
+      event_type: 'action.completed',
+      effect_intents: [{
+        effect_id: 'effect-1',
+        kind: 'create_entity',
+        target_ref: 'mira',
+        payload: { entity_type: 'character', attributes: { name: 'Mira' } },
+      }],
+    },
+  };
+  const createUrl = base + '/v1/worlds/intent-world/proposals';
+  const response = await fetch(createUrl, { method: 'POST', headers, body: json(body) });
+  assert.equal(response.status, 201);
+  const proposal = (await response.json()).proposal;
+  assert.equal(proposal.status, 'pending');
+  assert.deepEqual(proposal.event.effects, [{
+    kind: 'entity.create',
+    entity_id: 'mira',
+    entity_type: 'character',
+    attributes: { name: 'Mira' },
+  }]);
+  assert.equal(Object.hasOwn(proposal.event, 'effect_intents'), false);
+  assert.equal((await (await fetch(base + '/v1/worlds/intent-world/state', { headers: internalHeaders })).json()).state.world_revision, 0);
+  assert.equal((await (await fetch(base + '/v1/worlds/intent-world/events', { headers: internalHeaders })).json()).events.length, 0);
+
+  const replay = await fetch(createUrl, { method: 'POST', headers, body: json(body) });
+  assert.equal(replay.status, 201);
+  assert.equal((await replay.json()).proposal.proposal_id, proposal.proposal_id);
+  const changedIntent = structuredClone(body);
+  changedIntent.event.effect_intents[0].payload.attributes.name = 'Different';
+  const conflict = await fetch(createUrl, { method: 'POST', headers, body: json(changedIntent) });
+  assert.equal(conflict.status, 409);
+  assert.equal((await conflict.json()).error.code, 'IDEMPOTENCY_KEY_CONFLICT');
+
+  const invalidChangedIntent = structuredClone(body);
+  invalidChangedIntent.event.effect_intents[0].kind = 'create_relation';
+  const invalidConflict = await fetch(createUrl, { method: 'POST', headers, body: json(invalidChangedIntent) });
+  assert.equal(invalidConflict.status, 409);
+  assert.equal((await invalidConflict.json()).error.code, 'IDEMPOTENCY_KEY_CONFLICT');
+
+  const approvalUrl = base + '/v1/worlds/intent-world/proposals/' + proposal.proposal_id + '/approve';
+  const approved = await fetch(approvalUrl, {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  });
+  assert.equal(approved.status, 200);
+  assert.equal((await approved.json()).proposal.status, 'approved');
+  const committed = await fetch(base + '/v1/worlds/intent-world/proposals/' + proposal.proposal_id + '/commit', {
+    method: 'POST', headers, body: '{}',
+  });
+  assert.equal(committed.status, 200);
+  const result = await committed.json();
+  assert.equal(result.proposal.status, 'committed');
+  assert.equal(result.commit_result.world_revision, 1);
+  const state = (await (await fetch(base + '/v1/worlds/intent-world/state', { headers: internalHeaders })).json()).state;
+  assert.equal(state.entities.find((entity) => entity.entity_id === 'mira').attributes.name, 'Mira');
+});
+
+test('mechanic intent translation rejects ambiguous or invalid batches without creating proposal or audit side effects', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL });
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  assert.equal((await createWorld(base, 'intent-reject-world')).status, 201);
+  const common = {
+    idempotency_key: 'intent-reject-1',
+    source_text: 'Attempt a change.',
+    event: { turn_id: 'intent-reject-turn', event_type: 'action.completed' },
+  };
+  const post = (event) => fetch(base + '/v1/worlds/intent-reject-world/proposals', {
+    method: 'POST', headers, body: json({ ...common, event: { ...common.event, ...event } }),
+  });
+  const both = await post({
+    effects: [],
+    effect_intents: [{ effect_id: 'x', kind: 'create_entity', target_ref: 'x', payload: { entity_type: 'character' } }],
+  });
+  assert.equal(both.status, 400);
+  assert.equal((await both.json()).error.code, 'MUTUALLY_EXCLUSIVE_EFFECT_FIELDS');
+
+  const unsupported = await post({
+    effect_intents: [{ effect_id: 'x', kind: 'create_relation', target_ref: 'x', payload: {} }],
+  });
+  assert.equal(unsupported.status, 400);
+  assert.equal((await unsupported.json()).error.code, 'UNSUPPORTED_MECHANIC_EFFECT_INTENT');
+
+  const provenance = await post({
+    effect_intents: [{ effect_id: 'x', kind: 'create_entity', target_ref: 'x', source_refs: ['source-1'], payload: { entity_type: 'character' } }],
+  });
+  assert.equal(provenance.status, 400);
+  assert.equal((await provenance.json()).error.code, 'TRANSLATION_REQUIRES_PROVENANCE_MAPPING');
+
+  const partial = await post({
+    effect_intents: [
+      { effect_id: 'good', kind: 'create_entity', target_ref: 'x', payload: { entity_type: 'character' } },
+      { effect_id: 'bad', kind: 'update_attribute', target_ref: 'x', payload: {} },
+    ],
+  });
+  assert.equal(partial.status, 400);
+  assert.equal((await partial.json()).error.code, 'INVALID_MECHANIC_EFFECT_INTENT');
+
+  const state = (await (await fetch(base + '/v1/worlds/intent-reject-world/state', { headers: internalHeaders })).json()).state;
+  const events = (await (await fetch(base + '/v1/worlds/intent-reject-world/events', { headers: internalHeaders })).json()).events;
+  const audit = (await (await fetch(base + '/v1/worlds/intent-reject-world/audit', { headers: internalHeaders })).json()).audit;
+  assert.equal(state.world_revision, 0);
+  assert.deepEqual(state.entities, []);
+  assert.deepEqual(events, []);
+  assert.equal(audit.length, 1);
+  assert.equal(audit[0].action, 'world.created');
+
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  t.after(() => store.close());
+  engine.createWorld({ world_id: 'intent-db-world', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2026-01-01T00:00:00Z' });
+  const proposals = new ProposalService(engine);
+  const beforeProposals = store.db.prepare('SELECT COUNT(*) AS n FROM event_proposals').get().n;
+  const beforeAudit = store.db.prepare('SELECT COUNT(*) AS n FROM audit_entries').get().n;
+  assert.throws(() => proposals.create('intent-db-world', {
+    ...common,
+    event: {
+      turn_id: 'intent-db-turn',
+      event_type: 'action.completed',
+      effect_intents: [
+        { effect_id: 'good', kind: 'create_entity', target_ref: 'x', payload: { entity_type: 'character' } },
+        { effect_id: 'bad', kind: 'create_relation', target_ref: 'x', payload: {} },
+      ],
+    },
+  }, 'adapter-a'), (error) => error.code === 'UNSUPPORTED_MECHANIC_EFFECT_INTENT');
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM event_proposals').get().n, beforeProposals);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM audit_entries').get().n, beforeAudit);
+  assert.equal(store.world('intent-db-world').world_revision, 0);
+  assert.deepEqual(store.events('intent-db-world', true), []);
+});
+
+test('translated fact intents use the same canonical fact-identity guard as direct effects', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL, approvalToken: APPROVAL });
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  assert.equal((await createWorld(base, 'intent-fact-identity-world')).status, 201);
+
+  const createProposal = await fetch(base + '/v1/worlds/intent-fact-identity-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'canonical-fact-seed',
+      source_text: 'Mira is alive.',
+      event: {
+        turn_id: 'canonical-fact-seed-turn',
+        event_type: 'action.completed',
+        effects: [{ kind: 'fact.set', fact_id: 'mira-status', predicate: 'status', subject_ref: 'mira', value: 'alive' }],
+      },
+    }),
+  });
+  assert.equal(createProposal.status, 201);
+  const canonical = (await createProposal.json()).proposal;
+  const approved = await fetch(base + '/v1/worlds/intent-fact-identity-world/proposals/' + canonical.proposal_id + '/approve', {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  });
+  assert.equal(approved.status, 200);
+  assert.equal((await fetch(base + '/v1/worlds/intent-fact-identity-world/proposals/' + canonical.proposal_id + '/commit', {
+    method: 'POST', headers, body: '{}',
+  })).status, 200);
+
+  const auditBefore = (await (await fetch(base + '/v1/worlds/intent-fact-identity-world/audit', { headers: internalHeaders })).json()).audit;
+  const eventsBefore = (await (await fetch(base + '/v1/worlds/intent-fact-identity-world/events', { headers: internalHeaders })).json()).events;
+  const rejected = await fetch(base + '/v1/worlds/intent-fact-identity-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'translated-fact-identity-mismatch',
+      source_text: 'Mira lives in Kamurocho.',
+      event: {
+        turn_id: 'translated-fact-identity-turn',
+        event_type: 'action.completed',
+        effect_intents: [{
+          effect_id: 'assert-location',
+          kind: 'assert_fact',
+          target_ref: 'mira-status',
+          payload: { predicate: 'location', subject_ref: 'mira', value: 'Kamurocho' },
+        }],
+      },
+    }),
+  });
+  assert.equal(rejected.status, 409);
+  assert.equal((await rejected.json()).error.code, 'FACT_IDENTITY_MISMATCH');
+
+  const state = (await (await fetch(base + '/v1/worlds/intent-fact-identity-world/state', { headers: internalHeaders })).json()).state;
+  const eventsAfter = (await (await fetch(base + '/v1/worlds/intent-fact-identity-world/events', { headers: internalHeaders })).json()).events;
+  const auditAfter = (await (await fetch(base + '/v1/worlds/intent-fact-identity-world/audit', { headers: internalHeaders })).json()).audit;
+  assert.equal(state.world_revision, 1);
+  assert.deepEqual(eventsAfter, eventsBefore);
+  assert.equal(auditAfter.length, auditBefore.length);
+
+  const retry = await fetch(base + '/v1/worlds/intent-fact-identity-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'translated-fact-identity-mismatch',
+      source_text: 'Mira lives in Kamurocho.',
+      event: {
+        turn_id: 'translated-fact-identity-retry-turn',
+        event_type: 'action.completed',
+        effect_intents: [{
+          effect_id: 'assert-location-valid',
+          kind: 'assert_fact',
+          target_ref: 'mira-location',
+          payload: { predicate: 'location', subject_ref: 'mira', value: 'Kamurocho' },
+        }],
+      },
+    }),
+  });
+  assert.equal(retry.status, 201);
+  assert.equal((await retry.json()).proposal.status, 'pending');
+  assert.equal((await (await fetch(base + '/v1/worlds/intent-fact-identity-world/state', { headers: internalHeaders })).json()).state.world_revision, 1);
+});
+
+test('translated duplicate fact IDs fail before proposal or event writes', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL, approvalToken: APPROVAL });
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  assert.equal((await createWorld(base, 'translated-duplicate-facts-world')).status, 201);
+
+  const stateBefore = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/state', { headers: internalHeaders })).json()).state;
+  const eventsBefore = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/events', { headers: internalHeaders })).json()).events;
+  const auditBefore = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/audit', { headers: internalHeaders })).json()).audit;
+  const rejected = await fetch(base + '/v1/worlds/translated-duplicate-facts-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'translated-duplicate-facts-proposal',
+      source_text: 'The same fact is asserted twice.',
+      event: {
+        turn_id: 'translated-duplicate-facts-turn',
+        event_type: 'action.completed',
+        effect_intents: [
+          {
+            effect_id: 'first-claim',
+            kind: 'assert_fact',
+            target_ref: 'same-fact',
+            payload: { predicate: 'status', subject_ref: 'mira', value: 'alive' },
+          },
+          {
+            effect_id: 'second-claim',
+            kind: 'assert_fact',
+            target_ref: 'same-fact',
+            payload: { predicate: 'status', subject_ref: 'mira', value: 'missing' },
+          },
+        ],
+      },
+    }),
+  });
+  assert.equal(rejected.status, 400);
+  assert.equal((await rejected.json()).error.code, 'DUPLICATE_FACT_EFFECT');
+
+  const stateAfter = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/state', { headers: internalHeaders })).json()).state;
+  const eventsAfter = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/events', { headers: internalHeaders })).json()).events;
+  const auditAfter = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/audit', { headers: internalHeaders })).json()).audit;
+  assert.equal(stateAfter.world_revision, stateBefore.world_revision);
+  assert.deepEqual(stateAfter.facts, stateBefore.facts);
+  assert.deepEqual(eventsAfter, eventsBefore);
+  assert.equal(auditAfter.length, auditBefore.length);
+
+  const retry = await fetch(base + '/v1/worlds/translated-duplicate-facts-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'translated-duplicate-facts-proposal',
+      source_text: 'The fact is asserted once.',
+      event: {
+        turn_id: 'translated-duplicate-facts-retry-turn',
+        event_type: 'action.completed',
+        effect_intents: [{
+          effect_id: 'single-claim',
+          kind: 'assert_fact',
+          target_ref: 'single-fact',
+          payload: { predicate: 'status', subject_ref: 'mira', value: 'alive' },
+        }],
+      },
+    }),
+  });
+  assert.equal(retry.status, 201);
+  assert.equal((await retry.json()).proposal.status, 'pending');
+  assert.equal((await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/state', { headers: internalHeaders })).json()).state.world_revision, 0);
+});
+
+test('translated update intents require an explicit existence precondition and never synthesize one', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL, approvalToken: APPROVAL });
+  assert.equal((await createWorld(base, 'translated-update-precondition-world')).status, 201);
+
+  const seed = await fetch(base + '/v1/worlds/translated-update-precondition-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'translated-update-seed',
+      source_text: 'Create the guard entity.',
+      event: {
+        turn_id: 'translated-update-seed-turn',
+        event_type: 'action.completed',
+        effects: [{ kind: 'entity.create', entity_id: 'guard', entity_type: 'character', attributes: { role: 'rookie' } }],
+      },
+    }),
+  });
+  assert.equal(seed.status, 201);
+  const seedProposal = (await seed.json()).proposal;
+  assert.equal((await fetch(base + '/v1/worlds/translated-update-precondition-world/proposals/' + seedProposal.proposal_id + '/approve', {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  })).status, 200);
+  assert.equal((await fetch(base + '/v1/worlds/translated-update-precondition-world/proposals/' + seedProposal.proposal_id + '/commit', {
+    method: 'POST', headers, body: '{}',
+  })).status, 200);
+
+  const beforeEvents = (await (await fetch(base + '/v1/worlds/translated-update-precondition-world/events', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } })).json()).events;
+  const beforeAudit = (await (await fetch(base + '/v1/worlds/translated-update-precondition-world/audit', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } })).json()).audit;
+  const rejected = await fetch(base + '/v1/worlds/translated-update-precondition-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'translated-update-no-precondition',
+      source_text: 'Update the guard.',
+      event: {
+        turn_id: 'translated-update-no-precondition-turn',
+        event_type: 'action.completed',
+        effect_intents: [{
+          effect_id: 'update-guard',
+          kind: 'update_attribute',
+          target_ref: 'guard',
+          payload: { attributes: { role: 'captain' } },
+        }],
+      },
+    }),
+  });
+  assert.equal(rejected.status, 400);
+  assert.equal((await rejected.json()).error.code, 'ENTITY_UPDATE_PRECONDITION_REQUIRED');
+
+  const accepted = await fetch(base + '/v1/worlds/translated-update-precondition-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'translated-update-with-precondition',
+      source_text: 'Update the guard.',
+      event: {
+        turn_id: 'translated-update-with-precondition-turn',
+        event_type: 'action.completed',
+        causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'guard' } }],
+        effect_intents: [{
+          effect_id: 'update-guard-valid',
+          kind: 'update_attribute',
+          target_ref: 'guard',
+          payload: { attributes: { role: 'captain' } },
+        }],
+      },
+    }),
+  });
+  assert.equal(accepted.status, 201);
+  const acceptedProposal = (await accepted.json()).proposal;
+  assert.deepEqual(acceptedProposal.event.effects, [{
+    kind: 'entity.update',
+    entity_id: 'guard',
+    attributes: { role: 'captain' },
+  }]);
+  assert.deepEqual(acceptedProposal.event.causal_links, [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'guard' } }]);
+
+  const eventsAfter = (await (await fetch(base + '/v1/worlds/translated-update-precondition-world/events', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } })).json()).events;
+  const auditAfter = (await (await fetch(base + '/v1/worlds/translated-update-precondition-world/audit', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } })).json()).audit;
+  assert.deepEqual(eventsAfter, beforeEvents);
+  assert.equal(auditAfter.length, beforeAudit.length + 1);
+  assert.equal(auditAfter.at(-1).action, 'proposal.created');
+});
+
 
 
 test('approval endpoint rejects a JSON null body with a client error instead of an internal error', async (t) => {
