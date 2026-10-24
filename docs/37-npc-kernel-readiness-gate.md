@@ -161,7 +161,7 @@ The responsibilities must remain separate:
 - A trusted context-preparation caller selects and filters a decision-time subset for a particular actor using approved access and acquisition evidence.
 - The NPC decision step may reason over that supplied context but cannot create authoritative knowledge by retrieval, prompt inclusion, or generated prose.
 
-Do not describe the trusted caller as the canonical knowledge owner, and do not create an NPC-side substitute store. Before implementation, the core owner must confirm how the documented ownership target maps to current or planned core APIs and which capabilities remain deferred.
+Do not describe the trusted caller as the canonical knowledge owner, and do not create an NPC-side substitute store. The core owner has confirmed the semantic ownership target in `docs/39`. Before implementation, reconcile that target with current or planned core interfaces and record which capabilities remain deferred; do not treat semantic approval as proof of an implemented API or runtime.
 
 
 ## 12. Knowledge and delivery contract proposal — 2026-10-24
