@@ -55,7 +55,7 @@ test('Memory source-boundary handoff preserves fail-closed and owner-decision li
     'Core owns',
     'No new API, schema, store/table, outbox, cursor',
     'does not authorize broad production reads or production Memory→NPC wiring',
-    'do not reopen completed Issue #129',
+    'reopen completed Issue #129',
     'These are **future Memory integration acceptance tests**',
   ]) {
     assert.ok(doc.includes(boundary), `handoff must preserve boundary: ${boundary}`);
