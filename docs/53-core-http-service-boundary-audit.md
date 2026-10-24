@@ -106,8 +106,9 @@ Do not claim the authorized-read system complete until this inventory and its en
 3. Resolve the policy gate in `docs/54-core-proposal-execution-authority-contract.md`; if approved, implement and test F-04 proposal commit actor policy. This is not closed by read scoping.
 4. Resolve the trust-chain gates in `docs/55-core-context-manifest-trust-contract.md`; implement and test trusted context-manifest producer/generation binding, or explicitly keep the route internal-only until the generation registry exists.
 5. Resolve F-06 as a deployment capability policy; avoid unnecessary privilege expansion.
-6. Audit all external host serializers and direct in-process callers before declaring authorized reads or causal rollback safe for NPC integration.
-7. Run tests against exact final heads. A green run on an earlier commit is not validation of later changes.
+6. Close F-07 by making state-read consistency explicit; raw-route authentication alone does not make a multi-query response an atomic snapshot.
+7. Audit all external host serializers and direct in-process callers before declaring authorized reads or causal rollback safe for NPC integration.
+8. Run tests against exact final heads. A green run on an earlier commit is not validation of later changes.
 
 ## 5. Non-goals and constraints
 
