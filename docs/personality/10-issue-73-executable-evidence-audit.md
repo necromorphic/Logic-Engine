@@ -173,3 +173,22 @@ The correction is verified in the canonical table and the accompanying `12-relat
 ## Core status refresh (2026-10-24)
 
 This audit's pure-evaluator mappings remain distinct from production-path evidence. Core PRs #94–#96 are merged; exact-head Runtime CI passed on PR #96 head `79deb588e1f6321826dc3316085aaab6fdb010b7` (run #717). Real-path Relationship write/rollback tests now exist, but no general actor-authorized Relationship read or NPC-facing mutation path is established.
+
+### Exact Core test inventory (current main)
+
+Source: `tests/relationship-transition-core.test.js` at blob `086cfb0db38c3398979d9609a368c8642f19b680` contains these 12 tests:
+
+1. `admin-gated typed transition commits directed state, event, revision and audit atomically`
+2. `API rejects ordinary bearer without the separate admin credential and does not mutate state`
+3. `admin route commits through the canonical event lifecycle and returns the current directed projection`
+4. `generic event preparation cannot smuggle a Relationship effect`
+5. `stale composite cursor and spoofed executor are rejected without mutation`
+6. `invalid mixed patch commits nothing and idempotent retry does not duplicate a transition`
+7. `source rollback invalidates a Relationship transition that cites the source`
+8. `clear remains distinct from unset and rollback restores the previous surviving value`
+9. `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation`
+10. `event insert and audit failures roll back the entire Relationship transition`
+11. `projection and idempotency persistence failures roll back Relationship event, state, revision and audit`
+12. `rollback invalidates later transition dependent on the same directed pair and rebuilds surviving state`
+
+These prove only the privileged first slice. General actor/purpose-authorized reads, NPC/model-facing writes, generic initial import/author correction, historical World Pack migration, alternative independent-support accounting, and downstream Personality/NPC consumer behavior remain separate blockers. The existing authorized-read route remains self-identity-only by default; PR #101 adds an opt-in trusted host policy seam but no default visibility policy.
