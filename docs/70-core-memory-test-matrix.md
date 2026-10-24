@@ -35,7 +35,7 @@ Use isolated test worlds and deterministic fixtures. Assert both the returned re
 | MEM-025 | Remove/disable memory adapter | Core startup and unrelated canonical operations still work |
 | MEM-026 | Model output claims higher confidence than its sources | Epistemic status is not promoted; claim remains attributed as derived/unverified |
 | MEM-027 | Retry after partial failure at each persistence boundary | Transaction and recovery invariants hold; no duplicate record or lost pending index task |
-| MEM-028 | Revoke one source from a multi-source record | Record remains supported only if the declared typed policy says sufficient valid support remains; otherwise disputed/stale |
+| MEM-028 | Revoke one source from a multi-source record | Record remains supported only if the declared typed policy says sufficient valid support remains; otherwise disputed/stale |\n| MEM-029 | Reconcile canonical rollback when no new event is appended and max `commit_sequence` is unchanged | Source invalidation is detected through an approved revision/rollback/validity comparison; dependent records and summaries are marked stale or re-evaluated; cursor never falsely claims currentness |
 
 ## Threat review checklist
 
