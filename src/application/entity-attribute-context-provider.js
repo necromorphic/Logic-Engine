@@ -38,6 +38,8 @@ function freeze(value) {
  * the projected values, evidence records, and snapshot markers.
  */
 export class CanonicalEntityAttributeContextProvider {
+  #bindings;
+
   constructor(engine, { policyVersion, bindings, canRead } = {}) {
     if (!engine || typeof engine.getState !== 'function') throw new TypeError('A LogicEngine is required.');
     if (typeof policyVersion !== 'string' || !policyVersion.trim()) throw new TypeError('policyVersion must be a non-empty version identifier.');
@@ -60,7 +62,7 @@ export class CanonicalEntityAttributeContextProvider {
     }
     this.engine = engine;
     this.policyVersion = policyVersion.trim();
-    this.bindings = byPath;
+    this.#bindings = byPath;
     this.canRead = canRead;
     this.policyFingerprint = hashRequest({
       policy_version: this.policyVersion,
@@ -88,7 +90,7 @@ export class CanonicalEntityAttributeContextProvider {
     const knownAbsentPaths = [];
     const dependencyEvidence = [];
     for (const path of conditionPaths) {
-      const binding = this.bindings.get(path);
+      const binding = this.#bindings.get(path);
       if (!binding) throw new Error('A condition path has no registered canonical binding.');
       const entity = state.entities.find((candidate) => candidate.entity_id === binding.entity_id && candidate.status !== 'destroyed');
       if (!entity || !object(entity.attributes)) throw new Error('A condition binding target is unavailable in this world.');
