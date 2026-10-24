@@ -252,3 +252,10 @@ The cases define acceptance semantics, not a schema. They do not choose table la
 Until the relevant gate is approved and implemented, retain the corresponding cases as blocked specifications. In particular, do not claim generic OR-style alternative-support handling in the first relationship slice: `caused_by`/`depends_on` expresses required dependency, not “any one source is enough.” Test deterministic replay of surviving independently attributable transitions only where domain semantics justify it; leave alternative-support cases blocked until a domain sufficiency rule and core-owned reducer are specified and tested. Do not fake missing behavior with prompt text, arbitrary entity attributes, `fact.set`, a parallel NPC store, a separate causal graph, or mocks presented as integration tests.
 
 No runtime code, API, storage schema, or `main` changes are implied by this document.
+
+
+## 5. Cross-cutting causal reconciliation matrix
+
+The shared multi-step rollback cases are specified in `docs/47-npc-causal-rollback-reconciliation-test-matrix.md`. In addition to REL-SEM-009–010, NPC-CAUSE-001–008 explicitly test required dependencies, independent sufficient support, loss of all support, a new source committed after a completed rollback, duplicate sources, downstream required dependencies, knowledge-source invalidation, and deterministic replay.
+
+These are not extra relationship runtime claims. Relationship-specific survival remains conditional on an approved domain sufficiency rule; a later source cannot implicitly resurrect invalidated history or every downstream consequence. The causal integration gate remains closed until production-path behavior is established.
