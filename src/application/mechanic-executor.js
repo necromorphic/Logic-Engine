@@ -64,37 +64,21 @@ export class MechanicExecutor {
     let action = template.actions.find((candidate) => candidate.action_id === actionId);
     if (!action) return { status: 'rejected', reason_code: 'MECHANIC_ACTION_NOT_FOUND', snapshot_identity: identity, effects: [], effect_provenance: [] };
 
-    // The canonical snapshot API selects entity rows explicitly. Discover the
-    // selected action's literal entity targets, then take a second bounded
-    // snapshot and require the same revision/cursor before using those rows.
+    // The public snapshot API intentionally rejects missing requested IDs, so
+    // use the existing consistent state projection internally for existence
+    // checks. It is never passed to the context provider or returned to callers.
+    // Require the same revision/cursor as the mechanic snapshot to avoid mixing
+    // two different world states.
     const entityIds = [...new Set(action.effects
       .filter((effect) => ['create_entity', 'update_attribute'].includes(effect.kind))
       .map((effect) => effect.target_ref))];
+    let targetEntities = [];
     if (entityIds.length) {
-      const firstRevision = snapshot.world_revision;
-      const firstSequence = snapshot.commit_sequence;
-      const detailed = this.engine.getSnapshot(worldId, {
-        includeMechanicEvaluationState: true,
-        entityIds,
-      });
-      if (detailed.world_revision !== firstRevision || detailed.commit_sequence !== firstSequence) {
+      const targetState = this.engine.getState(worldId);
+      if (targetState.world_revision !== snapshot.world_revision || targetState.commit_sequence !== snapshot.commit_sequence) {
         return unknown('SNAPSHOT_CHANGED_DURING_PREPARATION', 'World revision or commit sequence changed while resolving literal effect targets.', identity);
       }
-      snapshot = detailed;
-      state = snapshot.mechanic_evaluation_snapshot;
-      instance = state.instances.find((candidate) => candidate.instance_id === instanceId);
-      const refreshedEntry = state.templates.find(({ template: candidate }) =>
-        candidate.template_id === instance?.template_id && candidate.version === instance?.template_version);
-      if (!instance || instance.status !== 'enabled' || !refreshedEntry
-        || instance.template_id !== identity.template_id
-        || instance.template_version !== identity.template_version
-        || refreshedEntry.template_hash !== identity.template_hash) {
-        return unknown('PINNED_MECHANIC_CHANGED_DURING_PREPARATION', 'The enabled instance or exact template identity changed while resolving effect targets.', identity);
-      }
-      template = refreshedEntry.template;
-      action = template.actions.find((candidate) => candidate.action_id === actionId);
-      if (!action) return { status: 'rejected', reason_code: 'MECHANIC_ACTION_NOT_FOUND', snapshot_identity: identity, effects: [], effect_provenance: [] };
-      identity = snapshotIdentity(worldId, snapshot, instance, refreshedEntry);
+      targetEntities = targetState.entities;
     }
 
     if ((template.rule_modules?.length ?? 0) > 0 || template.conflict_policy?.mode !== 'manual') {
@@ -149,7 +133,7 @@ export class MechanicExecutor {
       return { ...translated, snapshot_identity: identity, condition_result: conditionResult, effects: [], effect_provenance: [] };
     }
 
-    const existingEntities = new Set(snapshot.entities.map((entity) => entity.entity_id));
+    const existingEntities = new Set(targetEntities.map((entity) => entity.entity_id));
     const createdEntities = new Set();
     for (const effect of translated.effects) {
       if (effect.kind === 'entity.create') {
