@@ -48,6 +48,8 @@ Use isolated test worlds and deterministic fixtures. Assert both the returned re
 
 | MEM-038 | Candidate-level or result-level `access.outcome=allow` is present but its subject/purpose binding is absent or mismatched | Fail closed before admission/prompt use; do not reuse an allow decision across recipients or purposes; no protected content or record-specific diagnostics are emitted |
 
+| MEM-039 | A candidate has `evidence_assessment=disputed`, `insufficient`, or `unassessed`, but the admission projection drops that dimension | Do not silently flatten assessment semantics; preserve the assessment for downstream interpretation or fail closed where handling is not approved; test each assessment state and keep it distinct from source freshness/access |
+
 ## Threat review checklist
 
 - [ ] authorization before content serialization;
