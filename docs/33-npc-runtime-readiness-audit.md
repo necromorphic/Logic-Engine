@@ -8,7 +8,7 @@ For the concise cross-topic readiness summary, see [`docs/37-npc-kernel-readines
 
 The repository documents the intended NPC/autonomy and knowledge boundaries and has a declarative rule evaluator, context manifests, a generic event-proposal service, and a mechanic contract validator. These are useful existing building blocks, but they do not constitute a safe NPC decision pipeline.
 
-The critical gap is not a missing prompt. The rule evaluator returns booleans and maps a missing path to false (except for `exists`), while the context manifest records referenced world items and a snapshot cursor but does not itself prove that an NPC is authorized to know those items. The generic `ProposalService` can stage and validate an event proposal without immediately committing the canonical event, but its own validation metadata explicitly leaves actor authorization, semantic alignment, causal completeness, and player-agency policy unchecked. Therefore it is a candidate core boundary to reuse—not proof that NPC proposals are safe to commit.
+The critical gap is not a missing prompt. The legacy `evaluateCondition(...)` path still returns booleans and can collapse missing data into ordinary results; `main` now also provides opt-in `evaluateConditionResult(...)` with tri-state semantics, but that primitive does not establish context completeness or actor access. The context manifest records referenced world items and a snapshot cursor but does not prove that an NPC is authorized to know those items. The generic `ProposalService` can stage and validate an event proposal without immediately committing the canonical event, but its own validation metadata explicitly leaves actor authorization, semantic alignment, causal completeness, and player-agency policy unchecked. Therefore it is candidate infrastructure to reuse—not proof that NPC proposals are safe to commit.
 
 No NPC-specific runtime record model, actor-knowledge/access filter, or end-to-end autonomous decision cycle was verified in this audit. This agrees with the repository's Stage 1.3 boundary, which explicitly excludes NPC goals/plans/autonomy/knowledge records.
 
@@ -32,11 +32,11 @@ This audit inspected source files through the GitHub connector, including the ap
 
 ### NPC-AUDIT-001 — Missing path and unknown context are collapsed
 
-**Observed:** `src/core/rules.js` exports `evaluateCondition(rule, context)` with a boolean result. Its internal path reader returns `{ exists: false }` when a path is absent, and non-`exists` operators return `false` for that case. For `exists`, a missing path is treated as a known negative result.
+**Observed:** the legacy `evaluateCondition(rule, context)` path returns a boolean. Its internal path reader returns `{ exists: false }` when a path is absent, and non-`exists` operators return `false` for that case; `exists` also returns an ordinary boolean. Current `main` additionally exports `evaluateConditionResult(...)`, an opt-in tri-state API that preserves `unknown` unless a trusted caller proves known absence.
 
 **Risk:** An incomplete context and a genuinely absent field are indistinguishable to the evaluator. In NPC decisions this can turn missing permissions, unknown capabilities, unretrieved facts, or unavailable state into a seemingly proven negative.
 
-**Required before NPC decision integration:** define how the context declares completeness and accessibility. Either preflight every required path against a trusted completeness/access manifest, or introduce a tested tri-state result (`true`, `false`, `unknown`) while preserving compatibility for existing callers. Do not globally change the current evaluator without a separate core change and regression tests.
+**Required before NPC decision integration:** use the real tri-state API when evaluating conditions that may encounter missing paths, and define how the trusted context proves completeness, known absence, and accessibility. The tri-state API is not an access-control system; do not mark paths known-absent without evidence from the same trusted decision context. Preserve the legacy Boolean contract for existing callers.
 
 ### NPC-AUDIT-002 — Effect vocabularies are not yet a single safe integration contract
 
@@ -86,7 +86,7 @@ This audit inspected source files through the GitHub connector, including the ap
 | Goals/plans/tasks | Proposed architecture docs | Not verified in runtime |
 | NPC knowledge/beliefs | Proposed architecture docs; no end-to-end runtime verified | Not ready |
 | Access filtering before model context | Required by docs; no complete integration verified | Not ready |
-| Unknown vs false for rule context | Current rule evaluator is boolean | Blocking gap |
+| Unknown vs false for rule context | Opt-in `evaluateConditionResult(...)` exists; trusted completeness/absence evidence is still required | Primitive available; NPC-safe context still blocked |
 | Generic proposal lifecycle | `ProposalService` stages/validates/approves/commits events; several semantic checks are explicitly not performed | Candidate infrastructure, not NPC-safe by itself |
 | Context manifest | Snapshot cursor and world-item references exist; actor access is not proven by the manifest | Partial primitive, access filtering missing |
 | Validated NPC action effects | Core effect validator exists but domain mapping is incomplete | Not ready |
