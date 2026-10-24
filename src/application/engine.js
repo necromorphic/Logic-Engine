@@ -485,7 +485,7 @@ export class LogicEngine {
     };
     let preparedEvent;
     try {
-      preparedEvent = this.prepareEvent(event);
+      preparedEvent = this.prepareEventForWorld(id, event);
     } catch (error) {
       if (error instanceof EngineError) throw error;
       throw new EngineError(error.code || 'INVALID_TRIGGER_EVENT_PROPOSAL', error.message || 'Trigger event proposal validation failed.', 400);
@@ -699,7 +699,7 @@ export class LogicEngine {
             idempotency_key: proposal.idempotency_key ?? ('time-trigger:' + identity.slice(0, 48)),
             time_advance_seconds: 0,
           };
-          return this.prepareEvent(event);
+          return this.prepareEventForWorld(id, event);
         });
         let offset = 0;
         while (offset < triggerEvents.length) {
