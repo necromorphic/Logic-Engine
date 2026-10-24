@@ -344,3 +344,10 @@ The cases cover:
 **Current status:** semantic cases may be refined now, but they are not executable coverage and do not establish runtime readiness. Keep the existing relationship gates A–D blocked until the typed canonical operation, authorized read/filter boundary, causal support representation, and authoring provenance path exist and are tested through production interfaces. Multi-cause rollback remains a hard blocker if the core causal model cannot prove independent support.
 
 Do not simulate missing production behavior with prompt instructions, arbitrary entity attributes, `fact.set`, a parallel NPC store, a second causal graph, or mocks reported as integration passes.
+
+
+## 15. Typed-operation design and causal review dependency (2026-10-24)
+
+See [docs/45-npc-relationship-typed-operation-design.md](https://github.com/necromorphic/Logic-Engine/blob/feat/npc-subsystem/docs/45-npc-relationship-typed-operation-design.md) for the schema-neutral design proposal. It distinguishes required event dependencies from alternative relationship support and explains why the current `caused_by` list cannot be treated as OR-support semantics.
+
+REL-SEM-009 and REL-SEM-010 remain blocked. In particular, do not claim that the current generic rollback proves independent relationship support. A real implementation must pass rollback/replay tests through the canonical production path after the main architecture chat approves the typed-effect and causal boundary.
