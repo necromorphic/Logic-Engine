@@ -168,3 +168,8 @@ These decisions must be closed before implementation. This document closes the s
 ## 9. Non-goals
 
 This contract does not implement a general role-based access-control system, semantic truth verification, causal-completeness proof, NPC knowledge/memory, relationship effects, arbitrary state repair, or automatic approval. It does not authorize changes to public API, storage schema, prompt/UI, or the existing SillyTavern vectorization patch.
+
+
+## Current proposal execution boundary (2026-10-24)
+
+PR #103 closes the public proposal-commit ownership gap: a public adapter commit requires the stored creator adapter identity; a different adapter receives non-enumerating `PROPOSAL_NOT_FOUND`. Trusted orchestration uses the separate internal-token route. This does not implement trusted initial/imported-state provenance or authorized author correction; those remain separate Core-owned gates. PR #106 separately restricts context-manifest registration to the internal host but does not prove actual context-generation binding.
