@@ -64,3 +64,22 @@ When remote access is explicitly enabled with `ENGINE_ALLOW_REMOTE=true`:
 - Review proxy forwarding headers and access logs so they do not capture authorization headers or secret-bearing custom headers.
 
 The runtime compares request credentials using fixed-length SHA-256 digests and Node's `timingSafeEqual`; this reduces content-dependent comparison timing but does not replace TLS, rate limiting, access controls, or secret rotation. Timing behavior is not a complete security guarantee.
+
+
+## 7. API capability policy — Core 1.x
+
+The general `ENGINE_API_TOKEN` authenticates a caller to the HTTP API; it does not by itself grant administrative, internal, approval, or adapter identity. Privileged routes require their separate credential in addition to the bearer token.
+
+| Capability | Required credential beyond the general bearer | Contract |
+| --- | --- | --- |
+| Create a world | `x-admin-token` | Administrative setup operation; adapter credentials alone are insufficient. |
+| Read immutable mechanic-template and rule-module definitions | None | Intentionally available to authenticated API clients for version discovery. Definitions contain configuration, not credentials or world state. |
+| Read registry audit history | `x-admin-token` | Operational history is restricted to administrators. |
+| Register/replace neither definitions nor versions | `x-admin-token` | Registry writes are administrative; existing immutable versions cannot be overwritten with different content. |
+| Create/cancel/read an adapter proposal | Configured `x-adapter-id` + `x-adapter-token` | Proposal ownership is enforced per adapter. |
+| Approve a proposal | `x-approval-token` | Shared-secret approval gate; not a named human identity or a complete multi-user authorization system. |
+| Register context manifests or use the restricted internal commit/read path | `x-engine-internal-token` | Trusted host-only operation; commits still require an approved proposal. |
+| Read raw canonical world state/events/audit | `x-admin-token` or `x-engine-internal-token` | General bearer and adapter identity alone do not authorize raw canonical reads. |
+| Roll back a world, manage actor bindings, relationship transitions, or mechanic instances | `x-admin-token` | Explicit administrative mutation. |
+
+The service fails closed for privileged routes if the corresponding credential is not configured. Keep credentials distinct, scoped to the smallest set of processes, and outside model-visible context. This matrix describes API capabilities, not human identity or a multi-user role system. Registry definitions are intentionally discoverable by any authenticated API client; if a deployment treats those definitions as confidential, that deployment needs an additional policy rather than assuming the bearer token is an admin credential.
