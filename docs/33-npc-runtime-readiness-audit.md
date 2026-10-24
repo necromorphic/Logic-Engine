@@ -58,7 +58,7 @@ This audit inspected source files through the GitHub connector, including the ap
 
 **Risk:** Adding only prompt instructions would create apparent autonomy without durable state, validated effects, or off-screen continuity.
 
-**Required before implementation:** choose a minimal NPC semantic slice and identify the existing core services it can use. Do not create a parallel event store, world revision, knowledge permission layer, scheduler, or rollback engine.
+**Current position:** the first semantic slice is now agreed in `docs/39`: explicitly authorized author-initial/imported knowledge with provenance, actor-specific read/filter, separation of canonical truth/acquisition/belief, reserved-secret exclusion, and non-mutating proposal behavior. The remaining gate is to map this scope to real production interfaces and verify actor binding, initial-source representation, and observable test boundaries. Do not create a parallel event store, world revision, knowledge permission layer, scheduler, or rollback engine.
 
 ### NPC-AUDIT-005 — Search/retrieval cannot serve as a permission or provenance system
 
@@ -95,12 +95,12 @@ This audit inspected source files through the GitHub connector, including the ap
 
 ## 5. Recommended implementation sequence
 
-1. **Freeze semantics for the first vertical slice.** Choose one bounded use case that can be validated without inventing a full NPC database. Suggested candidate: prepare an NPC decision context from an explicit, already validated snapshot and return a non-committing action proposal.
-2. **Define the context envelope.** Specify snapshot identity, actor identity, allowed facts, omitted/unknown paths, source references, viewpoint, and player-agency constraints. Retrieval results alone cannot populate trusted fields.
-3. **Define the proposal boundary.** A proposal must be non-committing, bounded, attributed, and validated by existing core operations. Unsupported domain effects return unknown/review rather than being translated by guesswork.
-4. **Write pure semantic tests.** Cover forbidden knowledge, incomplete context, false beliefs, invalid preconditions, and player-agency violations without introducing storage.
-5. **Check rollback feasibility.** If the selected slice requires persistent NPC state, stop and design the causal contract before implementation; do not fake rollback through prompt rewriting.
-6. **Only then consider API or persistence.** This requires explicit review and authorization; it is not authorized by this audit.
+1. **Reconcile the approved first slice with actual code.** Inspect the exact target branch and identify the real actor/entity binding, the existing representation for explicitly authorized author-initial/imported knowledge, and the current snapshot read boundary. If any part cannot be represented without inventing a new store or schema, record it as blocked and send the specific interface question to the core owner.
+2. **Define the internal read/filter contract against those real types.** It must be actor-, purpose-, and snapshot-scoped; preserve canonical truth, acquisition history, and belief as separate concepts; exclude author-reserved secrets before model input; and fail closed for unresolved actor/source/snapshot. `registerContextManifest(...)` is not by itself this query.
+3. **Keep the proposal path non-committing.** Reuse existing proposal services only for their documented lifecycle. Do not treat proposal validation as proof of actor authorization, semantic alignment, causal completeness, or player-agency compliance.
+4. **Add tests only at real boundaries.** The agreed targets include actor separation, provenance, unknown/withheld handling, secret exclusion, and proposal non-mutation. Do not create a mock context builder that pretends missing production behavior exists.
+5. **Keep acquisition paths narrow.** The first slice supports only explicitly authorized `author_initial`/imported knowledge. Observation, communication, documents, inference, and rumor remain unsupported until their evidence paths are specified and tested.
+6. **Defer broader persistence/runtime work.** Goals/plans, report delivery, autonomous off-screen execution, social-identity persistence, and NPC-aware rollback remain blocked until their own production state and causal boundaries are established. API/schema/SQLite work requires separate authorization.
 
 ## 6. Explicit non-actions
 
