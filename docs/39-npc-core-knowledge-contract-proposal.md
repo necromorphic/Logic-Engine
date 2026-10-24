@@ -400,3 +400,10 @@ That document narrows the supported acquisition kinds to `author_initial` and `i
 The relationship subsystem may use the resulting actor-relative knowledge boundary as a dependency, but must not create or own a parallel acquisition record or infer that a relationship fact, canonical fact, prompt inclusion, or context manifest means an NPC knows something.
 
 Current status remains **blocked pending Core implementation and real-boundary tests**. This specification is documentation and does not establish runtime readiness.
+
+
+## 19. Source and relationship reconciliation
+
+`docs/51-npc-acquisition-source-reconciliation.md` cross-checks the initial-acquisition proposal against current Core source/causality contracts and the parallel relationship proposals. It records which primitives are reusable, why they do not constitute acquisition, and the remaining Core-owner decisions on author/import assignment, replay, alternative support, restrictions, and result completeness.
+
+The same actor/purpose/snapshot access boundary must govern relationship context. A canonical relationship transition, relationship summary, or card projection does not itself prove that a subject acquired or believes the information. Relationship semantics can proceed in parallel, but runtime integration remains dependent on the Core-owned safe read and the relationship-specific canonical operation.
