@@ -178,3 +178,12 @@ test('SQLite read transaction retains its established snapshot when a WAL writer
   assert.equal(fresh.world_revision, initialWorld.world_revision + 1);
   assert.equal(fresh.entities[0].status, 'inactive');
 });
+
+test('internal snapshot refuses to expose uncommitted state from a store write transaction', (t) => {
+  const { store, engine } = setup(t);
+  assert.throws(
+    () => store.tx(() => engine.getSnapshot('snapshot-world')),
+    (error) => error.code === 'SNAPSHOT_READ_DURING_WRITE_TRANSACTION' && error.status === 409,
+  );
+  assert.equal(engine.getState('snapshot-world').world_revision, 0);
+});
