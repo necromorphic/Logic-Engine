@@ -676,3 +676,72 @@ test("freezes the candidate envelope and all nested mutable collections", () => 
   assert.equal(Object.isFrozen(result.evidenceRefs), true);
   assert.equal(Object.isFrozen(result.changedDimensions), true);
 });
+
+
+test("requires own input fields even when Object.prototype provides a fallback", () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, "subjectId");
+  Object.defineProperty(Object.prototype, "subjectId", {
+    value: "A",
+    configurable: true,
+    writable: true,
+  });
+  try {
+    const input = { ...base };
+    delete input.subjectId;
+
+    const result = evaluateRelationshipCandidate(input);
+
+    assert.equal(result.status, "invalid_candidate");
+    assert.equal(result.reason, "input_fields_required");
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, "subjectId", previous);
+    else delete Object.prototype.subjectId;
+  }
+});
+
+test("does not accept inherited status as a tagged transition source", () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, "status");
+  Object.defineProperty(Object.prototype, "status", {
+    value: "cleared",
+    configurable: true,
+    writable: true,
+  });
+  try {
+    const result = evaluateRelationshipCandidate({
+      ...base,
+      dimensionRules: {
+        trust: {
+          ...rules.trust,
+          transitions: [{ operation: "set", from: { legacy: "tag" }, to: "guarded" }],
+        },
+      },
+    });
+
+    assert.equal(result.status, "unsupported");
+    assert.equal(result.reason, "dimension_rule_incomplete");
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, "status", previous);
+    else delete Object.prototype.status;
+  }
+});
+
+test("does not interpret an inherited operation as an explicit clear request", () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, "operation");
+  Object.defineProperty(Object.prototype, "operation", {
+    value: "clear",
+    configurable: true,
+    writable: true,
+  });
+  try {
+    const result = evaluateRelationshipCandidate({
+      ...base,
+      patch: { trust: { note: "not a clear operation" } },
+    });
+
+    assert.equal(result.status, "invalid_candidate");
+    assert.equal(result.reason, "unsupported_value");
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, "operation", previous);
+    else delete Object.prototype.operation;
+  }
+});
