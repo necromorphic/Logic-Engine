@@ -1,4 +1,5 @@
 import { createServer } from 'node:http';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { ProposalService } from '../application/proposals.js';
@@ -6,6 +7,15 @@ import { ActorBindingService } from '../application/actor-bindings.js';
 import { AuthorizedReadService } from '../application/authorized-read-service.js';
 
 const MAX = 1048576;
+
+// Hash both inputs to a fixed-length digest before timingSafeEqual so a
+// mismatched secret length does not create a length-dependent comparison path.
+function secretMatches(provided, expected) {
+  if (typeof provided !== 'string' || typeof expected !== 'string') return false;
+  const providedDigest = createHash('sha256').update(provided, 'utf8').digest();
+  const expectedDigest = createHash('sha256').update(expected, 'utf8').digest();
+  return timingSafeEqual(providedDigest, expectedDigest);
+}
 async function readBody(req) {
   const chunks = []; let size = 0;
   for await (const chunk of req) {
@@ -50,7 +60,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   const adapterIdFor = (req) => {
     const id = req.headers['x-adapter-id'];
     const secret = req.headers['x-adapter-token'];
-    return typeof id === 'string' && typeof secret === 'string' && adapterTokens[id] === secret ? id : null;
+    return typeof id === 'string' && Object.hasOwn(adapterTokens, id) && secretMatches(secret, adapterTokens[id]) ? id : null;
   };
   const proposals = new ProposalService(engine);
   const actorBindings = new ActorBindingService(engine);
@@ -68,12 +78,14 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     try {
       const url = new URL(req.url || '/', 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname === '/health') return send(res, 200, { ok: true, service: 'logic-engine', protocol_version: 'v1' });
-      if (req.headers.authorization !== 'Bearer ' + token) return send(res, 401, { error: { code: 'UNAUTHORIZED', message: 'A valid bearer token is required.' } });
+      const authorization = req.headers.authorization;
+      const bearerToken = typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : null;
+      if (!secretMatches(bearerToken, token)) return send(res, 401, { error: { code: 'UNAUTHORIZED', message: 'A valid bearer token is required.' } });
 
       if (req.method === 'GET' && url.pathname === '/v1/mechanics/audit') return send(res, 200, { audit: engine.getMechanicRegistryAudit() });
       if (url.pathname === '/v1/mechanic-templates') {
         if (req.method === 'POST') {
-          if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
+          if (!secretMatches(req.headers['x-admin-token'], adminToken)) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
           return send(res, 201, { ...engine.registerMechanicTemplate(await readBody(req)) });
         }
         if (req.method === 'GET') return send(res, 200, { templates: engine.listMechanicTemplates() });
@@ -81,7 +93,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       }
       if (url.pathname === '/v1/rule-modules') {
         if (req.method === 'POST') {
-          if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
+          if (!secretMatches(req.headers['x-admin-token'], adminToken)) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
           return send(res, 201, { ...engine.registerRuleModuleManifest(await readBody(req)) });
         }
         if (req.method === 'GET') return send(res, 200, { modules: engine.listRuleModuleManifests() });
@@ -123,14 +135,14 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       }
 
       if (req.method === 'GET' && ['state', 'events', 'audit'].includes(action)) {
-        const trustedRead = (adminToken && req.headers['x-admin-token'] === adminToken)
-          || (internalToken && req.headers['x-engine-internal-token'] === internalToken);
+        const trustedRead = secretMatches(req.headers['x-admin-token'], adminToken)
+          || secretMatches(req.headers['x-engine-internal-token'], internalToken);
         if (!trustedRead) return send(res, 403, { error: { code: 'AUTHORIZED_READ_REQUIRED', message: 'Raw canonical reads require a separate trusted internal or administrative credential.' } });
       }
 
       if (action === 'actor-bindings') {
         if (parts.length === 4 && req.method === 'POST') {
-          if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
+          if (!secretMatches(req.headers['x-admin-token'], adminToken)) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
           const body = await readBody(req);
           if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => !['adapter_id', 'entity_id'].includes(key))) {
             throw new EngineError('INVALID_ACTOR_BINDING', 'Binding accepts only adapter_id and entity_id.');
@@ -138,7 +150,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           return send(res, 201, { binding: actorBindings.bind(worldId, body.adapter_id, body.entity_id) });
         }
         if (parts.length === 6 && req.method === 'DELETE') {
-          if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
+          if (!secretMatches(req.headers['x-admin-token'], adminToken)) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
           return send(res, 200, { binding: actorBindings.revoke(worldId, decodeURIComponent(parts[4]), decodeURIComponent(parts[5])) });
         }
         if (parts.length === 5 && parts[4] === 'resolve' && req.method === 'POST') {
@@ -155,7 +167,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
 
 
       if (parts.length === 4 && action === 'mechanic-instances') {
-        if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
+        if (!secretMatches(req.headers['x-admin-token'], adminToken)) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
         if (req.method === 'GET') return send(res, 200, { instances: engine.listMechanicInstances(worldId) });
         if (req.method === 'POST') {
           const body = await readBody(req);
@@ -187,7 +199,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported method for route.' } });
       }
       if (parts.length === 6 && action === 'mechanic-instances' && (parts[5] === 'enable' || parts[5] === 'disable') && req.method === 'POST') {
-        if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
+        if (!secretMatches(req.headers['x-admin-token'], adminToken)) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
         const instanceId = decodeURIComponent(parts[4]);
         const body = await readBody(req);
         if (!body || typeof body !== 'object' || Array.isArray(body)) throw new EngineError('INVALID_MECHANIC_INSTANCE_REQUEST', 'Request body must be a JSON object.');
@@ -231,7 +243,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       }
       if (parts.length === 5 && action === 'proposals' && req.method === 'GET') {
         const proposalId = decodeURIComponent(parts[4]);
-        if (adminToken && req.headers['x-admin-token'] === adminToken) {
+        if (secretMatches(req.headers['x-admin-token'], adminToken)) {
           return send(res, 200, { proposal: proposals.get(worldId, proposalId) });
         }
         const adapterId = adapterIdFor(req);
@@ -242,7 +254,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         const proposalId = decodeURIComponent(parts[4]);
         const operation = parts[5];
         if (operation === 'approve') {
-          if (!approvalToken || req.headers['x-approval-token'] !== approvalToken) {
+          if (!secretMatches(req.headers['x-approval-token'], approvalToken)) {
             return send(res, 403, { error: { code: 'APPROVAL_REQUIRED', message: 'A separate approval credential is required.' } });
           }
           const body = await readBody(req);
@@ -277,7 +289,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       }
 
       if (parts.length === 4 && action === 'relationship-transitions' && req.method === 'POST') {
-        if (!adminToken || req.headers['x-admin-token'] !== adminToken) {
+        if (!secretMatches(req.headers['x-admin-token'], adminToken)) {
           return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required for canonical Relationship transitions.' } });
         }
         const body = await readBody(req);
@@ -293,7 +305,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         // A context manifest is a host assertion about the exact context
         // prepared for a generation. A general API/adapter bearer is not
         // sufficient authority to register that assertion.
-        if (!internalToken || req.headers['x-engine-internal-token'] !== internalToken) {
+        if (!secretMatches(req.headers['x-engine-internal-token'], internalToken)) {
           return send(res, 403, { error: { code: 'INTERNAL_REQUIRED', message: 'A separately authenticated internal host is required to register context manifests.' } });
         }
         return send(res, 201, { context_manifest: engine.registerContextManifest(worldId, await readBody(req)) });
@@ -302,7 +314,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       if (req.method === 'GET' && action === 'events') return send(res, 200, { events: engine.getEvents(worldId, url.searchParams.get('include_invalid') === 'true') });
       if (req.method === 'GET' && action === 'audit') return send(res, 200, { audit: engine.getAudit(worldId) });
       if (req.method === 'POST' && action === 'events') {
-        if (!internalToken || req.headers['x-engine-internal-token'] !== internalToken) {
+        if (!secretMatches(req.headers['x-engine-internal-token'], internalToken)) {
           return send(res, 403, { error: { code: 'DIRECT_COMMIT_DISABLED', message: 'Direct event commit is restricted to the separately configured internal credential.' } });
         }
         const body = await readBody(req);
@@ -324,7 +336,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         // Rollback invalidates canonical history and is a privileged correction,
         // regardless of the event type. Do not let an API/adapter bearer bypass
         // the authoring boundary merely because the target is not a mechanic event.
-        if (!adminToken || req.headers['x-admin-token'] !== adminToken) {
+        if (!secretMatches(req.headers['x-admin-token'], adminToken)) {
           return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required to roll back canonical events.' } });
         }
         const body = await readBody(req);

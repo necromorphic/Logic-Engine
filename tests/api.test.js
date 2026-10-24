@@ -750,3 +750,45 @@ test('approval endpoint rejects a JSON null body with a client error instead of 
   assert.equal(afterMalformedApproval.status, 200);
   assert.equal((await afterMalformedApproval.json()).proposal.status, 'pending');
 });
+
+
+test('credential checks reject malformed and length-mismatched request secrets', async (t) => {
+  const base = await setup(t, { adminToken: ADMIN, internalToken: INTERNAL, approvalToken: APPROVAL });
+  await createWorld(base, 'credential-check-world');
+
+  const wrongBearer = await fetch(base + '/v1/worlds/credential-check-world/state', {
+    headers: { ...headers, authorization: 'Bearer x' },
+  });
+  assert.equal(wrongBearer.status, 401);
+  assert.equal((await wrongBearer.json()).error.code, 'UNAUTHORIZED');
+
+  const wrongAdmin = await fetch(base + '/v1/worlds/credential-check-world/state', {
+    headers: { ...headers, 'x-admin-token': 'x' },
+  });
+  assert.equal(wrongAdmin.status, 403);
+  assert.equal((await wrongAdmin.json()).error.code, 'AUTHORIZED_READ_REQUIRED');
+
+  const wrongInternal = await fetch(base + '/v1/worlds/credential-check-world/state', {
+    headers: { ...headers, 'x-engine-internal-token': 'wrong-internal-secret' },
+  });
+  assert.equal(wrongInternal.status, 403);
+  assert.equal((await wrongInternal.json()).error.code, 'AUTHORIZED_READ_REQUIRED');
+
+  const validAdmin = await fetch(base + '/v1/worlds/credential-check-world/state', {
+    headers: { ...headers, 'x-admin-token': ADMIN },
+  });
+  assert.equal(validAdmin.status, 200);
+
+  const validInternal = await fetch(base + '/v1/worlds/credential-check-world/state', {
+    headers: { ...headers, 'x-engine-internal-token': INTERNAL },
+  });
+  assert.equal(validInternal.status, 200);
+
+  const wrongAdapter = await fetch(base + '/v1/worlds/credential-check-world/authorized-read', {
+    method: 'POST',
+    headers: { ...headers, 'x-adapter-token': 'x' },
+    body: json({ actor_entity_id: 'npc', purpose: 'credential-check', fields: ['entity_id'] }),
+  });
+  assert.equal(wrongAdapter.status, 403);
+  assert.equal((await wrongAdapter.json()).error.code, 'ADAPTER_REQUIRED');
+});

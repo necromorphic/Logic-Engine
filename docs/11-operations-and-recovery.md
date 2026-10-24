@@ -48,3 +48,19 @@ Never commit:
 - runtime logs containing private content.
 
 Use repository ignore rules before the first runtime database is created.
+
+
+## 6. Remote deployment security boundary
+
+The built-in HTTP listener is not a TLS endpoint and does not provide request rate limiting. The default loopback binding is intentional and must not be weakened.
+
+When remote access is explicitly enabled with `ENGINE_ALLOW_REMOTE=true`:
+
+- Place the service behind a TLS-terminating reverse proxy or another explicitly approved encrypted transport boundary. Do not send bearer, admin, internal, approval, or adapter credentials over an unencrypted network.
+- Enforce request-rate and connection limits at that boundary. The built-in server currently has no rate limiter; remote exposure without upstream limits is unsupported.
+- Restrict network reachability to the intended trusted clients; do not expose the listener directly to the public internet.
+- Keep all credential classes distinct and out of model-visible context and logs. The service does not treat a general bearer token as proof of adapter, admin, or internal identity.
+- Treat `/health` as a non-secret liveness response. Do not add configuration, identity, database, or credential details to it.
+- Review proxy forwarding headers and access logs so they do not capture authorization headers or secret-bearing custom headers.
+
+The runtime compares request credentials using fixed-length SHA-256 digests and Node's `timingSafeEqual`; this reduces content-dependent comparison timing but does not replace TLS, rate limiting, access controls, or secret rotation. Timing behavior is not a complete security guarantee.
