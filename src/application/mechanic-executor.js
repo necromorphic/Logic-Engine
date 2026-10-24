@@ -114,7 +114,9 @@ export class MechanicExecutor {
     if ((template.rule_modules?.length ?? 0) > 0 || template.conflict_policy?.mode !== 'manual') {
       return unknown('UNSUPPORTED_MECHANIC_MODULE_OR_CONFLICT_POLICY', 'This executor slice does not invoke registered modules or automatic conflict resolvers.', identity);
     }
-    if ((template.eligible_participants?.length ?? 0) > 0 || (template.interactions?.length ?? 0) > 0) {
+    if ((template.eligible_participants?.length ?? 0) > 0
+      || (template.participant_constraints?.length ?? 0) > 0
+      || (template.interactions?.length ?? 0) > 0) {
       return unknown('UNSUPPORTED_PARTICIPANT_OR_INTERACTION_POLICY', 'Participant selection and mechanic interactions are not implemented in this executor slice.', identity);
     }
     if (action.ambiguity_policy !== 'deterministic_only') {
