@@ -157,7 +157,7 @@ Historical GitHub Actions workflow **Runtime tests**, run [#591](https://github.
 
 ## CI evidence for prior PR heads (not the latest documentation commit)
 
-Historical GitHub Actions workflow **Runtime tests**, run [#618](https://github.com/necromorphic/Logic-Engine/actions/runs/40059045655), completed successfully for commit `cfa4ff604f9ade802ecbd83e8a94f49466cb08b7` on the earlier `fix/personality-issue-73-test-traceability` branch. This is historical CI evidence only; it is not evidence for the current PR head and does not close Core/NPC integration blockers. Exact-head CI for PR #137 head `95f42ab8369c04fbb4acb1b6360f375ef83d02e8` was checked separately and Runtime tests run #854 passed. Any subsequent documentation commit must be rechecked; do not treat run #854 as proof for a newer head.
+Historical GitHub Actions workflow **Runtime tests**, run [#618](https://github.com/necromorphic/Logic-Engine/actions/runs/40059045655), completed successfully for commit `cfa4ff604f9ade802ecbd83e8a94f49466cb08b7` on the earlier `fix/personality-issue-73-test-traceability` branch. This is historical CI evidence only; it is not evidence for the current PR head and does not close Core/NPC integration blockers. Historical exact-head CI for PR #137 head `95f42ab8369c04fbb4acb1b6360f375ef83d02e8` passed on Runtime tests run #854. That run does not validate the reconciled current PR head. Check Runtime CI against the exact current SHA; any subsequent documentation commit requires a fresh exact-head check.
 
 ## Cross-document consistency checks
 
