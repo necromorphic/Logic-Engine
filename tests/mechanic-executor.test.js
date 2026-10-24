@@ -660,12 +660,11 @@ test('application executor accepts only same-snapshot canonical absence evidence
   const provider = (knownAbsentPaths) => ({ snapshot }) => ({
     context: { world: { weather: 'rain' }, actor: { hp: 10 } },
     knownAbsentPaths,
-    dependencyEvidence: [{
-      path: 'actor.injury',
-      kind: 'entity_attribute',
-      entity_id: 'entity.actor-context',
-      attribute: 'injury',
-    }],
+    dependencyEvidence: [
+      { path: 'actor.hp', kind: 'entity_attribute', entity_id: 'entity.actor-context', attribute: 'hp' },
+      { path: 'actor.injury', kind: 'entity_attribute', entity_id: 'entity.actor-context', attribute: 'injury' },
+      { path: 'world.weather', kind: 'entity_attribute', entity_id: 'entity.world-context', attribute: 'weather' },
+    ],
     world_revision: snapshot.world_revision,
     commit_sequence: snapshot.commit_sequence,
     policy_version: 'test-visibility-policy-v1',
