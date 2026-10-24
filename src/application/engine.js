@@ -4,6 +4,8 @@ import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
+import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
+import { ProcessStore } from '../storage/process-store.js';
 import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
@@ -163,6 +165,177 @@ function validateIndependentSegment(events) {
 export class LogicEngine {
   constructor(store) {
     this.store = store;
+    this.processStore = new ProcessStore(store);
+    this.store.processStore = this.processStore;
+  }
+
+  createProcess(id, input) {
+    assert(obj(input), 'INVALID_PROCESS_REQUEST', 'Process creation request must be an object.');
+    const allowed = ['process_id', 'definition_version', 'title', 'metadata', 'milestones', 'expected_revision', 'idempotency_key'];
+    assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_PROCESS_FIELD', 'Process creation contains an unsupported field.');
+    assert(typeof input.idempotency_key === 'string' && input.idempotency_key.trim() && input.idempotency_key.length <= 200,
+      'IDEMPOTENCY_KEY_REQUIRED', 'Process idempotency_key is required.');
+    assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0,
+      'INVALID_REVISION', 'Process expected_revision must be a non-negative safe integer.');
+    let definition;
+    try {
+      definition = normalizeProcessDefinition({
+        process_id: input.process_id,
+        world_id: id,
+        definition_version: input.definition_version,
+        ...(input.title === undefined ? {} : { title: input.title }),
+        ...(input.metadata === undefined ? {} : { metadata: input.metadata }),
+        milestones: input.milestones,
+      });
+    } catch (error) {
+      throw new EngineError(error.code || 'INVALID_PROCESS_DEFINITION', error.message || 'Process definition validation failed.', 400, error.details);
+    }
+    const eventAllowed = ['turn_id', 'event_type', 'generation_id', 'context_manifest_id', 'source_message_id',
+      'duration_proposal', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
+    for (const milestone of definition.milestones) {
+      const event = milestone.event;
+      assert(Object.keys(event).every((key) => eventAllowed.includes(key)),
+        'INVALID_PROCESS_MILESTONE_EVENT', 'Milestone event contains an unsupported field or caller-controlled time/identity.');
+      assert(typeof event.event_type === 'string' && event.event_type.trim() && event.event_type !== 'time.advance',
+        'INVALID_PROCESS_MILESTONE_EVENT', 'Milestone event requires a non-Core-owned event_type.');
+      validateEffects(event.effects);
+      const eventReads = event.read_set ?? [];
+      assert(Array.isArray(eventReads) && eventReads.every((ref) => typeof ref === 'string' && ref.trim()),
+        'INVALID_PROCESS_MILESTONE_READ_SET', 'Event read_set must be an array of non-empty references.');
+      const undeclaredReads = [...new Set(eventReads)].filter((ref) => !milestone.read_set.includes(ref));
+      if (undeclaredReads.length) {
+        throw new EngineError('PROCESS_READ_SET_UNDERDECLARED', 'Milestone trigger read_set must include every event read reference.', 400, {
+          milestone_id: milestone.milestone_id, undeclared_read_refs: undeclaredReads,
+        });
+      }
+      const actualWrites = [];
+      for (const effect of event.effects) {
+        if (typeof effect.entity_id === 'string' && ['entity.create', 'entity.update', 'entity.upsert', 'entity.delete'].includes(effect.kind)) {
+          actualWrites.push('entity:' + effect.entity_id);
+        } else if (effect.kind === 'fact.set') {
+          actualWrites.push('fact:' + effect.fact_id);
+        } else if (effect.kind?.startsWith('mechanic.instance.')) {
+          actualWrites.push('mechanic:' + effect.instance_id);
+        }
+      }
+      const undeclaredWrites = [...new Set(actualWrites)].filter((ref) => !milestone.write_set.includes(ref));
+      if (undeclaredWrites.length) {
+        throw new EngineError('PROCESS_WRITE_SET_UNDERDECLARED', 'Milestone trigger write_set must include every canonical projection written by its event effects.', 400, {
+          milestone_id: milestone.milestone_id, undeclared_write_refs: undeclaredWrites,
+        });
+      }
+    }
+    const idempotencyKey = input.idempotency_key.trim();
+    const requestHash = hashRequest({
+      operation: 'process.create', world_id: id, expected_revision: input.expected_revision,
+      idempotency_key: idempotencyKey, definition,
+    });
+    return this.store.tx(() => {
+      const created = this.processStore.createRecord({
+        worldId: id, process: definition, idempotencyKey, requestHash, expectedRevision: input.expected_revision,
+      });
+      if (created.idempotent_replay) return created;
+      const triggerIds = new Map(definition.milestones.map((milestone) => [milestone.milestone_id, milestone.trigger_id]));
+      for (const milestone of definition.milestones) {
+        this.registerTimeTrigger(id, {
+          trigger_id: milestone.trigger_id,
+          due_coordinate: milestone.due_coordinate,
+          dependencies: milestone.prerequisites.map((prerequisiteId) => triggerIds.get(prerequisiteId)),
+          read_set: milestone.read_set,
+          write_set: milestone.write_set,
+          processing_mode: 'exact',
+          interrupt_after_coordinate: milestone.interrupt_after_coordinate,
+          payload: { process_id: definition.process_id, milestone_id: milestone.milestone_id, event: milestone.event },
+        });
+      }
+      this.processStore.addMilestones(id, definition);
+      this.processStore.finalizeCreate(id, definition.process_id);
+      return { process: this.processStore.get(id, definition.process_id), idempotent_replay: false };
+    });
+  }
+
+  getProcess(id, processId) {
+    return this.processStore.get(id, processId);
+  }
+
+  listProcesses(id) {
+    return this.processStore.list(id);
+  }
+
+  transitionProcess(id, processId, input) {
+    assert(obj(input), 'INVALID_PROCESS_TRANSITION', 'Process transition request must be an object.');
+    const allowed = ['action', 'expected_version', 'idempotency_key', 'reason'];
+    assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_PROCESS_TRANSITION_FIELD', 'Process transition contains an unsupported field.');
+    assert(['pause', 'resume', 'cancel'].includes(input.action), 'INVALID_PROCESS_ACTION', 'Process action must be pause, resume, or cancel.');
+    assert(Number.isSafeInteger(input.expected_version) && input.expected_version >= 1, 'INVALID_PROCESS_VERSION', 'expected_version must be a positive safe integer.');
+    assert(typeof input.idempotency_key === 'string' && input.idempotency_key.trim() && input.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'Process transition idempotency_key is required.');
+    const reason = input.reason ?? ('author_' + input.action);
+    assert(typeof reason === 'string' && reason.trim() && reason.length <= 200, 'INVALID_PROCESS_REASON', 'reason must be a non-empty string of at most 200 characters.');
+    const key = input.idempotency_key.trim();
+    const targetState = input.action === 'pause' ? 'paused' : input.action === 'cancel' ? 'cancelled' : null;
+    const requestHash = hashRequest({ operation: 'process.' + input.action, world_id: id, process_id: processId, expected_version: input.expected_version, idempotency_key: key, reason: reason.trim() });
+    return this.store.tx(() => {
+      const replay = this.processStore.replayOperation(id, key, requestHash);
+      if (replay) return replay;
+      const current = this.processStore.get(id, processId);
+      if (input.action === 'resume') {
+        if (current.stored_status !== 'paused' && current.stored_status !== 'needs_review') {
+          throw new EngineError('INVALID_PROCESS_TRANSITION', 'Only a paused or needs-review process can be resumed.', 409, { current_status: current.stored_status });
+        }
+        if (current.progress.blocked > 0 || current.milestones.some((milestone) => milestone.status === 'needs_review' || milestone.status === 'blocked')) {
+          throw new EngineError('PROCESS_REQUIRES_RECONCILIATION', 'A process with milestone progress in needs-review/blocked state cannot resume until its causal state is reconciled.', 409, {
+            blocked_milestone_ids: current.milestones.filter((milestone) => ['needs_review','blocked'].includes(milestone.status)).map((milestone) => milestone.milestone_id),
+          });
+        }
+        const world = this.getState(id);
+        const pending = current.milestones.filter((milestone) => milestone.status === 'pending');
+        const overdue = pending.filter((milestone) => milestone.due_coordinate <= world.game_time_coordinate);
+        if (overdue.length) {
+          throw new EngineError('PROCESS_RESUME_REQUIRES_REPLAN', 'Paused process milestones became due while paused; explicit re-planning is required.', 409, {
+            milestone_ids: overdue.map((milestone) => milestone.milestone_id), current_coordinate: world.game_time_coordinate,
+          });
+        }
+        for (const milestone of pending) {
+          const oldTrigger = this.getTimeTrigger(id, milestone.trigger_id);
+          if (oldTrigger.status === 'pending') this.cancelTimeTrigger(id, milestone.trigger_id, reason.trim(), { processLifecycle: true });
+        }
+        const nextVersion = current.version + 1;
+        const newIds = new Map(pending.map((milestone) => [milestone.milestone_id,
+          'process-trigger:' + hashRequest({ world_id: id, process_id: processId, milestone_id: milestone.milestone_id, resume_version: nextVersion }).slice(0, 40)]));
+        const updates = pending.map((milestone) => ({ milestone_id: milestone.milestone_id, trigger_id: newIds.get(milestone.milestone_id) }));
+        const triggerIdByMilestone = new Map(current.milestones.map((milestone) => [milestone.milestone_id, newIds.get(milestone.milestone_id) || milestone.trigger_id]));
+        for (const milestone of pending) {
+          this.registerTimeTrigger(id, {
+            trigger_id: newIds.get(milestone.milestone_id),
+            due_coordinate: milestone.due_coordinate,
+            dependencies: milestone.prerequisites.map((prerequisiteId) => triggerIdByMilestone.get(prerequisiteId)),
+            read_set: milestone.read_set,
+            write_set: milestone.write_set,
+            processing_mode: 'exact',
+            interrupt_after_coordinate: milestone.interrupt_after_coordinate,
+            payload: { process_id: processId, milestone_id: milestone.milestone_id, event: milestone.event },
+          });
+        }
+        this.processStore.replacePendingTriggers(id, processId, updates);
+        const state = current.progress.completed > 0 ? 'running' : 'scheduled';
+        const transition = validateProcessTransition(current.stored_status, state);
+        if (!transition) throw new EngineError('INVALID_PROCESS_TRANSITION', 'Resume transition was rejected.', 409);
+        return this.processStore.transition(id, processId, state, {
+          expectedVersion: input.expected_version, idempotencyKey: key, requestHash,
+        });
+      }
+      if (current.version !== input.expected_version) {
+        throw new EngineError('PROCESS_VERSION_CONFLICT', 'Process checkpoint changed before transition.', 409, { expected_version: input.expected_version, current_version: current.version });
+      }
+      validateProcessTransition(current.stored_status, targetState);
+      for (const milestone of current.milestones.filter((item) => item.status === 'pending')) {
+        const trigger = this.getTimeTrigger(id, milestone.trigger_id);
+        if (trigger.status === 'pending') this.cancelTimeTrigger(id, milestone.trigger_id, reason.trim(), { processLifecycle: true });
+      }
+      return this.processStore.transition(id, processId, targetState, {
+        expectedVersion: input.expected_version, idempotencyKey: key, requestHash,
+      });
+    });
   }
 
   registerTimeConfiguration(id, input) {
@@ -556,9 +729,15 @@ export class LogicEngine {
     return this.store.getTimeTrigger(id, triggerId);
   }
 
-  cancelTimeTrigger(id, triggerId, reason = 'author_cancelled') {
+  cancelTimeTrigger(id, triggerId, reason = 'author_cancelled', options = {}) {
     assert(typeof reason === 'string' && reason.trim() && reason.length <= 200,
       'INVALID_TIME_TRIGGER_CANCELLATION', 'reason must be a non-empty string of at most 200 characters.');
+    const owner = this.processStore.findMilestoneByTrigger(id, triggerId);
+    if (owner && options.processLifecycle !== true) {
+      throw new EngineError('PROCESS_TRIGGER_LIFECYCLE_OWNED', 'A process milestone trigger can only be cancelled through its owning process lifecycle.', 409, {
+        process_id: owner.process_id, milestone_id: owner.milestone_id,
+      });
+    }
     return this.store.cancelTimeTrigger(id, triggerId, reason.trim());
   }
 
