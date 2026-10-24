@@ -297,6 +297,13 @@ export class SQLiteMemoryProvider {
       this.#setState(worldId, 'stale', 'stale');
       return { status: 'stale' };
     }
+    // getSnapshot above is awaited too; recheck local inventory after that final
+    // await so an ingest cannot be hidden between validation and ready/current.
+    const finalRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
+    if (!isDeepStrictEqual(recordSet(records), recordSet(finalRecords))) {
+      this.#setState(worldId, 'stale', 'stale');
+      return { status: 'stale' };
+    }
     this.#setState(worldId, 'ready', 'current', after);
     return { status: 'current', snapshot: after, records_checked: records.length };
   }
