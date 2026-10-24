@@ -56,12 +56,12 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
     producer: { kind: 'memory-index' },
     lifecycle: {
       content_disposition: 'usable',
-      source_reconciliation: 'stale',
+      source_reconciliation: 'current',
       evidence_assessment: 'unassessed',
       access_outcome: 'deny',
       index_health: 'ready',
     },
-    freshness: { status: 'stale' },
+    freshness: { status: 'current' },
     snapshot: { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence },
     ...overrides,
   });
@@ -193,6 +193,20 @@ test('stale snapshot candidates and derived summaries are never admitted', async
   const summary = await consumer.retrieveForNpc(request());
   assert.equal(summary.status, 'ready');
   assert.deepEqual(summary.candidates, []);
+
+  // A matching Core cursor does not authorize Memory to relabel its own stale
+  // index/reconciliation or freshness state as current.
+  setCandidates([candidate({
+    lifecycle: { ...candidate().lifecycle, source_reconciliation: 'stale' },
+  })]);
+  const staleLifecycle = await consumer.retrieveForNpc(request());
+  assert.equal(staleLifecycle.status, 'ready');
+  assert.deepEqual(staleLifecycle.candidates, []);
+
+  setCandidates([candidate({ freshness: { status: 'stale' } })]);
+  const staleFreshness = await consumer.retrieveForNpc(request());
+  assert.equal(staleFreshness.status, 'ready');
+  assert.deepEqual(staleFreshness.candidates, []);
 });
 
 test('actor binding failure and unavailable source reads never produce content', async (t) => {
