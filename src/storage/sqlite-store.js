@@ -1474,7 +1474,7 @@ export class SQLiteStore {
       }
       const count = this.db.prepare('SELECT COUNT(*) AS count FROM world_time_triggers WHERE world_id=?').get(worldId).count;
       if (count >= 10000) throw new EngineError('TIME_TRIGGER_LIMIT_REACHED', 'A world may have at most 10,000 durable time triggers in this slice.', 409);
-      const currentPayloadBytes = this.db.prepare('SELECT COALESCE(SUM(length(payload_json)),0) AS bytes FROM world_time_triggers WHERE world_id=?').get(worldId).bytes;
+      const currentPayloadBytes = this.db.prepare('SELECT COALESCE(SUM(length(CAST(payload_json AS BLOB))),0) AS bytes FROM world_time_triggers WHERE world_id=?').get(worldId).bytes;
       const incomingPayloadBytes = Buffer.byteLength(enc(input.payload), 'utf8');
       if (currentPayloadBytes + incomingPayloadBytes > 33554432) {
         throw new EngineError('TIME_TRIGGER_STORAGE_LIMIT_REACHED', 'A world may store at most 32 MiB of durable trigger payloads in this slice.', 409);
