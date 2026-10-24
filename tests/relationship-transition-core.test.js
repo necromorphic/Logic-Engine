@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { createApiServer } from '../src/api/server.js';
@@ -20,8 +23,8 @@ const rules = {
   },
 };
 
-async function fixture() {
-  const store = new SQLiteStore(':memory:');
+async function fixture(storagePath = ':memory:') {
+  const store = new SQLiteStore(storagePath);
   const engine = new LogicEngine(store);
   engine.createWorld({
     world_id: 'world-relationship-test',
@@ -466,6 +469,34 @@ test('projection and idempotency persistence failures roll back Relationship eve
     assert.equal(engine.getAudit('world-relationship-test').filter((entry) => entry.target_id === result.event_id && entry.action === 'event.committed').length, 1);
   } finally {
     store.close();
+  }
+});
+
+test('Relationship projection survives store restart and deterministic rebuild from valid events', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-relationship-replay-'));
+  const databasePath = join(directory, 'core.sqlite');
+  let store;
+  try {
+    const fixtureState = await fixture(databasePath);
+    store = fixtureState.store;
+    const { engine, seed } = fixtureState;
+    const result = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed));
+    assert.equal(result.accepted, true);
+    store.close();
+    store = null;
+
+    const reopened = new SQLiteStore(databasePath);
+    store = reopened;
+    assert.equal(reopened.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
+    assert.deepEqual(reopened.getRelationshipPair('world-relationship-test', 'B', 'A').dimensions, {});
+
+    reopened.tx(() => reopened.rebuild('world-relationship-test', 2));
+    assert.equal(reopened.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
+    assert.deepEqual(reopened.getRelationshipPair('world-relationship-test', 'B', 'A').dimensions, {});
+    assert.equal(reopened.db.prepare("SELECT COUNT(*) AS count FROM world_events WHERE world_id=? AND event_type='relationship.transition' AND validity='valid'").get('world-relationship-test').count, 1);
+  } finally {
+    if (store) store.close();
+    rmSync(directory, { recursive: true, force: true });
   }
 });
 
