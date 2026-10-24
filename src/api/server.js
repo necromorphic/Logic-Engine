@@ -223,7 +223,13 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         return send(res, 201, { proposal: proposals.create(worldId, await readBody(req), adapterId) });
       }
       if (parts.length === 5 && action === 'proposals' && req.method === 'GET') {
-        return send(res, 200, { proposal: proposals.get(worldId, decodeURIComponent(parts[4])) });
+        const proposalId = decodeURIComponent(parts[4]);
+        if (adminToken && req.headers['x-admin-token'] === adminToken) {
+          return send(res, 200, { proposal: proposals.get(worldId, proposalId) });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required to read a proposal.' } });
+        return send(res, 200, { proposal: proposals.get(worldId, proposalId, adapterId) });
       }
       if (parts.length === 6 && action === 'proposals' && req.method === 'POST') {
         const proposalId = decodeURIComponent(parts[4]);
