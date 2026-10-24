@@ -25,6 +25,16 @@ const rules = {
       { operation: 'clear', from: 'high', to: null },
     ],
   },
+  affinity: {
+    values: ['low', 'high'],
+    allowClear: true,
+    transitions: [
+      { operation: 'set', from: null, to: 'low' },
+      { operation: 'set', from: 'low', to: 'high' },
+      { operation: 'clear', from: 'low', to: null },
+      { operation: 'clear', from: 'high', to: null },
+    ],
+  },
 };
 
 async function fixture(storagePath = ':memory:') {
@@ -253,6 +263,41 @@ test('stale composite cursor and spoofed executor are rejected without mutation'
     );
     assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
     assert.equal(engine.getState('world-relationship-test').world_revision, 1);
+  } finally {
+    store.close();
+  }
+});
+
+test('partial dimension patch preserves other dimensions and mixed invalid patch is atomic', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+      patch: { trust: 'low', affinity: 'low' },
+      idempotency_key: 'relationship-two-dimensions',
+    }));
+    const updated = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+      patch: { trust: 'high' },
+      expected_revision: 2,
+      expected_commit_sequence: 2,
+      idempotency_key: 'relationship-partial-trust-update',
+    }));
+    assert.equal(updated.accepted, true);
+    assert.equal(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'high');
+    assert.equal(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.affinity, 'low');
+
+    assert.throws(
+      () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+        patch: { trust: 'unsupported-value', affinity: 'high' },
+        expected_revision: 3,
+        expected_commit_sequence: 3,
+        idempotency_key: 'relationship-mixed-invalid-patch',
+      })),
+      (error) => error.code === 'RELATIONSHIP_TRANSITION_REJECTED',
+    );
+    assert.equal(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'high');
+    assert.equal(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.affinity, 'low');
+    assert.equal(engine.getState('world-relationship-test').world_revision, 3);
+    assert.equal(store.currentCommitSequence('world-relationship-test'), 3);
   } finally {
     store.close();
   }
