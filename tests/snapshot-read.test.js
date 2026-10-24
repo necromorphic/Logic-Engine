@@ -238,3 +238,63 @@ test('internal snapshot preserves the composite marker across rollback-only revi
   assert.deepEqual(after.facts, []);
   assert.deepEqual(after.events, []);
 });
+
+
+test('snapshot expands only context manifests anchored to the exact composite cursor', (t) => {
+  const { engine } = setup(t);
+  commit(engine, 'snapshot-world', 'manifest-seed', 0, [
+    { kind: 'entity.create', entity_id: 'manifest-npc', entity_type: 'character', attributes: { name: 'Manifest NPC' } },
+    { kind: 'fact.set', fact_id: 'manifest-fact', predicate: 'location', subject_ref: 'manifest-npc', value: 'Kamurocho' },
+  ]);
+
+  const manifest = engine.registerContextManifest('snapshot-world', {
+    generation_id: 'generation-manifest-1',
+    base_world_revision: 1,
+    base_commit_sequence: 1,
+    items: [
+      { kind: 'entity', target_id: 'manifest-npc' },
+      { kind: 'fact', target_id: 'manifest-fact' },
+      { kind: 'event', target_id: 'manifest-seed' },
+    ],
+  });
+
+  const current = engine.getSnapshot('snapshot-world', { contextManifestIds: [manifest.manifest_id] });
+  assert.deepEqual(current.missing_context_manifest_ids, []);
+  assert.deepEqual(current.entities.map((entity) => entity.entity_id), ['manifest-npc']);
+  assert.deepEqual(current.facts.map((fact) => fact.fact_id), ['manifest-fact']);
+  assert.deepEqual(current.events.map((event) => event.event_id), ['manifest-seed']);
+  assert.equal(current.context_manifests[0].manifest_id, manifest.manifest_id);
+
+  commit(engine, 'snapshot-world', 'after-manifest', 1, [
+    { kind: 'entity.create', entity_id: 'later-npc', entity_type: 'character' },
+  ]);
+  const stale = engine.getSnapshot('snapshot-world', { contextManifestIds: [manifest.manifest_id] });
+  assert.equal(stale.world_revision, 2);
+  assert.equal(stale.commit_sequence, 2);
+  assert.equal(stale.context_manifests.length, 1);
+  assert.deepEqual(stale.entities, []);
+  assert.deepEqual(stale.facts, []);
+  assert.deepEqual(stale.events, []);
+});
+
+test('snapshot reports requested context manifests that do not exist in the requested world', (t) => {
+  const { engine } = setup(t, { worldId: 'manifest-world' });
+  engine.createWorld({
+    world_id: 'other-manifest-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00Z',
+  });
+  const registered = engine.registerContextManifest('other-manifest-world', {
+    generation_id: 'foreign-generation',
+    base_world_revision: 0,
+    base_commit_sequence: 0,
+    items: [],
+  });
+
+  const snapshot = engine.getSnapshot('manifest-world', {
+    contextManifestIds: [registered.manifest_id, 'missing-manifest'],
+  });
+  assert.deepEqual(snapshot.context_manifests, []);
+  assert.deepEqual(snapshot.missing_context_manifest_ids, [registered.manifest_id, 'missing-manifest']);
+});
