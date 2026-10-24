@@ -130,7 +130,7 @@ export class MemoryNpcConsumer {
         continue;
       }
 
-      let recordAllowed = false;
+      let recordAllowed;
       try {
         recordAllowed = await this.memoryProvider.authorizeCandidate({
           ...scope,
@@ -140,7 +140,9 @@ export class MemoryNpcConsumer {
           source_entity_id: candidate.source.entity_id,
         }) === true;
       } catch {
-        recordAllowed = false;
+        // A denial is an ordinary filtered record; an authorization failure is
+        // not evidence that the result is complete-empty.
+        return nonReady('memory_record_authorization_unavailable');
       }
       if (recordAllowed) authorizedCandidates.push(candidate);
     }
