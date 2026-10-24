@@ -152,7 +152,7 @@ For each future production-path test, record the exact Core commit, interfaces a
 At the time of this review:
 
 - Relationship PR #60 is a documentation-only module proposal; it is not runtime integration.
-- Relationship PR #62 describes a separate isolated pure evaluator. Its head commit `2141884ce50ee9a00bd02e432970559ecce23ba6` has a successful GitHub Actions `Runtime tests` run #463 (`npm test`); this verifies that PR's isolated test suite only. The NPC cross-check also reported one narrow normalization inconsistency for explicitly tagged `{ status: "unset" }` current values in PR #62; this does not affect the Core integration gates and awaits the evaluator author's disposition. The evaluator's internal shape is not a Core API and it does not authorize writes or reads.
+- Relationship PR #62 describes a separate isolated pure evaluator. At the reviewed head `343e0b6d00cbd5e075354eb7286750aa5d304251`, GitHub Actions `Runtime tests` run #468 completed successfully; this verifies that PR's isolated test suite only. The earlier NPC cross-check found that explicitly tagged `{ status: "unset" }` current values were accepted by one path but could not match the declared transition contract. The current head consistently rejects that tagged shape, matching the documented absent-key / `null` representation; the original normalization inconsistency is therefore resolved by rejection rather than normalization. A separate prototype-sensitive dimension-key edge case was reported on the PR: a `"__proto__"` dimension may be assigned to a normal object patch via the inherited setter, causing the candidate's patch and changed-dimension list to disagree. That review comment is pending disposition. The evaluator's internal shape is not a Core API and it does not authorize writes or reads.
 - Core's first-slice relationship replay boundary is documented separately; it does not establish that typed relationship writes, actor-authorized reads, trusted provenance, or relationship projection/replay are implemented.
 - NPC relationship documents define consumer and rollback gates but do not supply the missing Core-owned capabilities.
 
@@ -187,7 +187,7 @@ Observed branch contents:
 
 **Do not add NPC-REL-CONS tests as if a production consumer already exists.** There is currently no actual NPC consumer function to exercise. Writing tests around a locally invented interface, a mock of the absent projection, or a new shadow relationship data model would only prove the test author's assumptions and would violate the boundary in this document.
 
-The current executable evidence is limited to existing Core tests and the isolated Relationship evaluator suite cited above. Neither is an NPC consumer pass. The 13 NPC-REL-CONS cases remain specified semantic acceptance criteria, not implemented or passing tests.
+The current executable evidence is limited to existing Core tests and the isolated Relationship evaluator suite cited above (current reviewed evaluator head `343e0b6`, run #468 green). Neither is an NPC consumer pass; the evaluator review comment about prototype-sensitive dimension keys remains open. The 13 NPC-REL-CONS cases remain specified semantic acceptance criteria, not implemented or passing tests.
 
 ### What can proceed without a new Core contract
 
