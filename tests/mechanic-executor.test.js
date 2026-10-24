@@ -314,6 +314,8 @@ test('mechanic proposal handoff rejects incomplete or mismatched effect provenan
     dependency_manifest: tampered.dependency_manifest,
     effects: tampered.effects,
     effect_provenance: tampered.effect_provenance,
+    read_set: tampered.read_set,
+    causal_links: tampered.causal_links,
   });
   assert.throws(
     () => proposals.createFromMechanicEvaluation(worldId, tampered, {
