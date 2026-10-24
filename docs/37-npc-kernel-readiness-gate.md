@@ -385,3 +385,19 @@ The ten cases NPC-AUTH-001–010 are mapped in `docs/35-npc-test-boundary-map.md
 `docs/47-npc-causal-rollback-reconciliation-test-matrix.md` defines NPC-CAUSE-001–008, including the important sequence where a new source is committed only after an earlier rollback and reconciliation have completed. This sequence must be tested as separate production operations with state and snapshot markers recorded between steps; a single batch test can conceal stale-state and resurrection defects.
 
 The test-boundary map in `docs/35-npc-test-boundary-map.md` marks these cases blocked. This is intentional: current `caused_by` / `depends_on` must not be assumed to express alternative-support sufficiency. Independent support, source deduplication, knowledge-source reconciliation, deterministic replay, and actual authorized consumer refresh need core-owned semantics and real production-path evidence. No NPC-local causal graph, rollback journal, or knowledge store may be introduced to bypass these gates.
+
+
+## 23. Cross-document status correction and dependency consistency — 2026-10-24
+
+This section is the current status reference for older dependency tables elsewhere in this document and in the NPC design notes. Historical tables above preserve what was known at the time; do not use their old PR-state labels as current facts.
+
+- **PR #45** (consistent internal snapshot) merged into `main` at `2bbdbff4e4d4c4c56601ed5ac18e2083aa99c48b`.
+- **PR #46** (opt-in tri-state condition results) merged into `main` at `e796896fc40fa8e782f574e13298682a4e6fb813`.
+- **PR #47** closed without merge; its reviewed delta was rebased and merged through **PR #49** at `8602a9ed41f13f536d87b1103a02e8fd12de3b03`, adding the mechanic/context snapshot extension.
+- The last verified core `main` commit recorded in this audit is `8602a9ed41f13f536d87b1103a02e8fd12de3b03`, with Runtime tests run #378 passing on that exact commit. Recheck current GitHub state before any later integration.
+- **PR #32** (minimal character-card projector) is closed without merge. Its proposed projection is not an available dependency by virtue of its former PR existing.
+- **PR #38** remains the documentation-only NPC contract PR. The NPC branch has not incorporated the seven main-side commits recorded at this audit; no automatic rebase, force-update, or merge has been performed.
+
+The merged snapshot and tri-state primitives reduce specific core gaps, but they do not supply trusted actor binding, authorized per-NPC initial acquisition/provenance, an actor/purpose/snapshot-bound pre-model secret filter, persistent belief/delivery semantics, typed relationship operations, or alternative-support reconciliation. Those remain implementation gates. Passing general core CI is not proof of NPC readiness.
+
+Cross-document corrections made in this pass: `docs/35` no longer describes PR #45 as open/unmerged; `docs/42` now distinguishes the merged core dependency from its absence in the unreconciled NPC branch and correctly records PR #32 as closed without merge. Continue to treat `docs/33` as the source-level audit, `docs/35` as the test-boundary map, and this document as the concise readiness/status reference.
