@@ -278,6 +278,37 @@ test('rejects unavailable rule versions, cross-world participants, and invalid e
   }
 });
 
+test('event insert and audit failures roll back the entire Relationship transition', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    const request = transitionRequest(seed);
+    store.db.exec(`CREATE TRIGGER fail_relationship_event_insert BEFORE INSERT ON world_events
+      WHEN NEW.event_type='relationship.transition'
+      BEGIN SELECT RAISE(ABORT, 'injected relationship event insert failure'); END;`);
+    assert.throws(() => engine.commitRelationshipTransition('world-relationship-test', request), /injected relationship event insert failure/);
+    store.db.exec('DROP TRIGGER fail_relationship_event_insert');
+    assert.equal(engine.getEvents('world-relationship-test').length, 1);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 1);
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+
+    store.db.exec(`CREATE TRIGGER fail_relationship_event_audit BEFORE INSERT ON audit_entries
+      WHEN NEW.action='event.committed'
+      BEGIN SELECT RAISE(ABORT, 'injected relationship audit failure'); END;`);
+    assert.throws(() => engine.commitRelationshipTransition('world-relationship-test', request), /injected relationship audit failure/);
+    store.db.exec('DROP TRIGGER fail_relationship_event_audit');
+    assert.equal(engine.getEvents('world-relationship-test').length, 1);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 1);
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+
+    const result = engine.commitRelationshipTransition('world-relationship-test', request);
+    assert.equal(result.accepted, true);
+    assert.equal(engine.getEvents('world-relationship-test').length, 2);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 2);
+  } finally {
+    store.close();
+  }
+});
+
 test('projection and idempotency persistence failures roll back Relationship event, state, revision and audit', async () => {
   const { store, engine, seed } = await fixture();
   try {
