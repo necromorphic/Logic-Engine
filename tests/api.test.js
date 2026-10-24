@@ -186,6 +186,29 @@ test('API registers a generation-bound context manifest and commits against it t
   assert.equal((await committed.json()).commit_result.commit_sequence, 1);
 });
 
+test('API rejects a proposal whose generation label does not match the registered context manifest', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL });
+  assert.equal((await createWorld(base, 'manifest-mismatch-world')).status, 201);
+  const registered = await fetch(base + '/v1/worlds/manifest-mismatch-world/context-manifests', {
+    method: 'POST',
+    headers: { ...headers, 'x-engine-internal-token': INTERNAL },
+    body: json({ generation_id: 'trusted-generation-1', base_commit_sequence: 0, base_world_revision: 0, items: [] }),
+  });
+  assert.equal(registered.status, 201);
+  const manifest = (await registered.json()).context_manifest;
+  const proposed = await fetch(base + '/v1/worlds/manifest-mismatch-world/proposals', {
+    method: 'POST', headers,
+    body: json({ idempotency_key: 'manifest-generation-mismatch', source_text: '', event: {
+      turn_id: 'mismatched-generation-turn', event_type: 'action.completed',
+      generation_id: 'caller-chosen-other-generation', context_manifest_id: manifest.manifest_id, effects: [],
+    } }),
+  });
+  assert.equal(proposed.status, 400);
+  assert.equal((await proposed.json()).error.code, 'CONTEXT_GENERATION_MISMATCH');
+  const state = await fetch(base + '/v1/worlds/manifest-mismatch-world/state', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } });
+  assert.equal((await state.json()).state.world_revision, 0);
+});
+
 test('API exposes authenticated immutable mechanics registry endpoints', async (t) => {
   const base = await setup(t, { adminToken: ADMIN });
   const empty = await fetch(base + '/v1/mechanic-templates', { headers });
