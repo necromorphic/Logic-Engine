@@ -186,14 +186,19 @@ export function evaluateMemoryCandidateAdmission(request, result) {
   for (const candidate of result.candidates) {
     const reason = candidateRejection(candidate, request);
     if (reason) {
-      // Do not expose record IDs, titles, snippets, or source metadata here.
-      rejected.push(Object.freeze({ reason }));
+      // Aggregate all candidate exclusions into one generic marker. Per-item
+      // reasons and rejection counts can reveal protected record existence.
+      if (rejected.length === 0) {
+        rejected.push(Object.freeze({ reason: "candidate_not_admissible" }));
+      }
       continue;
     }
 
     const identity = `${candidate.record.ref}\u0000${candidate.record.version}`;
     if (seen.has(identity)) {
-      rejected.push(Object.freeze({ reason: "duplicate_record_version" }));
+      if (rejected.length === 0) {
+        rejected.push(Object.freeze({ reason: "candidate_not_admissible" }));
+      }
       continue;
     }
     seen.add(identity);
