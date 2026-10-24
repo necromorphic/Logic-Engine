@@ -259,7 +259,8 @@ export class LogicEngine {
         time_advance_seconds: 0,
       });
     } catch (error) {
-      throw new EngineError(error.code || 'INVALID_TIME_TRIGGER_EVENT', error.message || 'Trigger event validation failed.', error.statusCode || 400, error.details);
+      if (error instanceof EngineError) throw error;
+      throw new EngineError(error.code || 'INVALID_TIME_TRIGGER_EVENT', error.message || 'Trigger event validation failed.', 400, error.details);
     }
     const normalized = {
       trigger_id: input.trigger_id.trim(),
