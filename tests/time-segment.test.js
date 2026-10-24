@@ -186,7 +186,7 @@ test('stale segment plans are rejected without partial mutation', (t) => {
 test('segment events can share the same context manifest base revision', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
-  engine.registerContextManifest('segment-world', 'segment-context', {
+  const manifest = engine.registerContextManifest('segment-world', {
     generation_id: 'segment-generation',
     base_commit_sequence: 0,
     base_world_revision: 0,
@@ -197,10 +197,10 @@ test('segment events can share the same context manifest base revision', (t) => 
     events: [
       event('manifest-event-1', 'manifest-event-key-1', [
         { kind: 'entity.upsert', entity_id: 'manifest-alpha', entity_type: 'object' },
-      ], { context_manifest_id: 'segment-context', generation_id: 'segment-generation' }),
+      ], { context_manifest_id: manifest.manifest_id, generation_id: 'segment-generation' }),
       event('manifest-event-2', 'manifest-event-key-2', [
         { kind: 'entity.upsert', entity_id: 'manifest-beta', entity_type: 'object' },
-      ], { context_manifest_id: 'segment-context', generation_id: 'segment-generation' }),
+      ], { context_manifest_id: manifest.manifest_id, generation_id: 'segment-generation' }),
     ],
   });
   const result = engine.commitSegment('segment-world', request);
