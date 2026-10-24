@@ -31,7 +31,10 @@ const isRecord = (value) => {
   if (prototype !== Object.prototype && prototype !== null) return false;
   return Reflect.ownKeys(value).every((key) => {
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    return descriptor !== undefined && own(descriptor, "value");
+    return typeof key === "string"
+      && descriptor !== undefined
+      && descriptor.enumerable
+      && own(descriptor, "value");
   });
 };
 
