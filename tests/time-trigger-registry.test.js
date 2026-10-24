@@ -64,6 +64,26 @@ test('registered triggers are immutable, world-scoped, and registration replay i
   assert.equal(engine.getAudit('time-trigger-world').filter((entry) => entry.action === 'time.trigger.registered').length, 1);
 });
 
+test('trigger listing omits payloads and oversized payloads are rejected before storage', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.registerTimeTrigger('time-trigger-world', trigger('small', 10000, 'small-entity'));
+  const [listed] = engine.listTimeTriggers('time-trigger-world');
+  assert.equal(Object.hasOwn(listed, 'payload'), false);
+  assert.equal(engine.getTimeTrigger('time-trigger-world', 'small').payload.event.event_type, 'time.trigger');
+
+  assert.throws(
+    () => engine.registerTimeTrigger('time-trigger-world', {
+      ...trigger('too-large', 20000, 'large-entity'),
+      payload: { event: { event_type: 'time.trigger', effects: [], large_text: 'x'.repeat(262145) } },
+    }),
+    (error) => error.code === 'TIME_TRIGGER_PAYLOAD_TOO_LARGE',
+  );
+  assert.equal(engine.listTimeTriggers('time-trigger-world').length, 1);
+  assert.equal(engine.getState('time-trigger-world').world_revision, 1);
+});
+
 test('registered due triggers complete atomically with their event segment and operation checkpoint', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());

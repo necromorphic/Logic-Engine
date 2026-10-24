@@ -462,6 +462,8 @@ export class LogicEngine {
       'TIME_TRIGGER_SUBSECOND_UNSUPPORTED', 'Time-trigger execution currently requires whole-second coordinates.', 400);
     const proposal = trigger.payload?.event;
     assert(obj(proposal), 'TRIGGER_EVENT_PROPOSAL_REQUIRED', 'A persisted time trigger payload must contain an event proposal.');
+    const payloadBytes = Buffer.byteLength(JSON.stringify(trigger.payload), 'utf8');
+    assert(payloadBytes <= 262144, 'TIME_TRIGGER_PAYLOAD_TOO_LARGE', 'A persisted time trigger payload cannot exceed 256 KiB.', 400);
     assert(proposal.expected_revision === undefined && proposal.expected_commit_sequence === undefined,
       'INVALID_TRIGGER_EVENT_CURSOR', 'A persisted trigger cannot choose its own revision or commit cursor.');
     assert(proposal.duration_proposal === undefined || proposal.duration_proposal === null,
@@ -593,7 +595,7 @@ export class LogicEngine {
     let completedTriggerSnapshot = [];
     try {
       if (triggerSource === 'registered') {
-        triggerSnapshot = this.store.listTimeTriggers(id);
+        triggerSnapshot = this.store.listTimeTriggers(id, true);
         const overdue = triggerSnapshot
           .filter((trigger) => trigger.status === 'pending' && trigger.due_coordinate <= from)
           .map((trigger) => trigger.trigger_id);

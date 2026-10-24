@@ -29,7 +29,7 @@ const timeAdvanceOperation = (row) => row && ({
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
-const timeTrigger = (row) => row && ({
+const timeTrigger = (row, includePayload = true) => row && ({
   trigger_id: row.trigger_id,
   world_id: row.world_id,
   due_coordinate: row.due_coordinate,
@@ -39,7 +39,7 @@ const timeTrigger = (row) => row && ({
   write_set: dec(row.write_set_json),
   processing_mode: row.processing_mode,
   interrupt_after_coordinate: row.interrupt_after_coordinate === 1,
-  payload: dec(row.payload_json),
+  ...(includePayload ? { payload: dec(row.payload_json) } : {}),
   content_hash: row.content_hash,
   claimed_by_operation_id: row.claimed_by_operation_id,
   completed_operation_id: row.completed_operation_id,
@@ -1619,10 +1619,15 @@ export class SQLiteStore {
     }
   }
 
-  listTimeTriggers(worldId) {
+  listTimeTriggers(worldId, includePayload = false) {
     if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-    return this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? ORDER BY due_coordinate,trigger_id')
-      .all(worldId).map(timeTrigger);
+    const query = includePayload
+      ? 'SELECT * FROM world_time_triggers WHERE world_id=? ORDER BY due_coordinate,trigger_id'
+      : `SELECT world_id,trigger_id,due_coordinate,status,dependencies_json,read_set_json,write_set_json,
+          processing_mode,interrupt_after_coordinate,content_hash,claimed_by_operation_id,completed_operation_id,
+          cancellation_reason,created_revision,created_at,updated_at
+        FROM world_time_triggers WHERE world_id=? ORDER BY due_coordinate,trigger_id`;
+    return this.db.prepare(query).all(worldId).map((row) => timeTrigger(row, includePayload));
   }
 
   getTimeTrigger(worldId, triggerId) {
@@ -1653,6 +1658,11 @@ export class SQLiteStore {
       const count = this.db.prepare('SELECT COUNT(*) AS count FROM world_time_triggers WHERE world_id=?').get(worldId).count;
       if (count >= 10000) {
         throw new EngineError('TIME_TRIGGER_LIMIT', 'A world cannot register more than 10000 time triggers in this runtime slice.', 409);
+      }
+      const currentPayloadBytes = this.db.prepare('SELECT COALESCE(SUM(length(CAST(payload_json AS BLOB))),0) AS bytes FROM world_time_triggers WHERE world_id=?').get(worldId).bytes;
+      const incomingPayloadBytes = Buffer.byteLength(enc(trigger.payload), 'utf8');
+      if (currentPayloadBytes + incomingPayloadBytes > 33554432) {
+        throw new EngineError('TIME_TRIGGER_STORAGE_LIMIT', 'A world cannot store more than 32 MiB of durable trigger payloads in this runtime slice.', 409);
       }
       const nextRevision = world.world_revision + 1;
       const stamp = now();
