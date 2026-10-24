@@ -1,7 +1,7 @@
 # Memory ↔ NPC contract reconciliation and integration gate
 
 Status: Memory-owned handoff specification, documentation only. Branch: `feat/memory-npc-contract-reconciliation`.
-Baseline: repository `main` at `c3bba62d6489e7a5759f3471de0838076f2ed560` (2026-10-24).
+Branch base at PR preparation: `main` at `71abfbeba676042cbf3809d069161ff579badf30` (2026-10-24). `main` advanced afterward; the PR remains Draft until the current base is safely reconciled.
 This document records the boundary that exists today, the proposed contract that still needs owner approval, and the evidence required before production integration. It does not define a new runtime API, schema, outbox, cursor, permission system, or storage layer.
 
 ## 1. Executive result
