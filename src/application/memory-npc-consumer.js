@@ -238,10 +238,10 @@ export class MemoryNpcConsumer {
           world_revision: sourceRead.world_revision,
           commit_sequence: sourceRead.commit_sequence,
         },
-        freshness: { status: 'current' },
+        // The Core cursor validates the canonical read snapshot only. It must
+        // not overwrite Memory-owned freshness or reconciliation dimensions.
         lifecycle: {
           ...candidate.lifecycle,
-          source_reconciliation: 'current',
           access_outcome: 'allow',
         },
       };
