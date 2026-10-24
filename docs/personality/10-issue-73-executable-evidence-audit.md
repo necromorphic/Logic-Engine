@@ -172,11 +172,11 @@ The correction is verified in the canonical table and the accompanying `12-relat
 
 ## Core status refresh (2026-10-24)
 
-This audit's pure-evaluator mappings remain distinct from production-path evidence. Core PRs #94–#96 and test follow-ups #107–#108 are merged; exact-head Runtime CI passed on PR #96 head `79deb588e1f6321826dc3316085aaab6fdb010b7` (run #717), PR #107 head `bff370b920e32013f17a036eda9450c9eafd1066` (run #754), and PR #108 head `3db9c1484fedf4162023b93acc8920269eff6e10` (run #761). Real-path Relationship write/rollback tests now exist, but no general actor-authorized Relationship read or NPC-facing mutation path is established.
+This audit's pure-evaluator mappings remain distinct from production-path evidence. Core PRs #94–#96 and test follow-ups #107–#108/#117 are merged; exact-head Runtime CI passed on PR #117 head `21dde3c21fd323fecc22f7c187e191ec63815a37` (run #795) for explicit neutral/cleared/unset replay, in addition to PR #96 head `79deb588e1f6321826dc3316085aaab6fdb010b7` (run #717), PR #107 head `bff370b920e32013f17a036eda9450c9eafd1066` (run #754), and PR #108 head `3db9c1484fedf4162023b93acc8920269eff6e10` (run #761). Real-path Relationship write/rollback tests now exist, but no general actor-authorized Relationship read or NPC-facing mutation path is established.
 
 ### Exact Core test inventory (current main)
 
-Source: `tests/relationship-transition-core.test.js` at blob `37ff7f1eb0b9b4c0eb08e988dfc6b72e79e1ab02` contains these 16 tests after PRs #107–#108:
+Source: `tests/relationship-transition-core.test.js` at blob `1d4e41be224419d79d3179542504f5ba1e95eecc` contains these 17 tests after PRs #107, #108, and #117:
 
 1. `admin-gated typed transition commits directed state, event, revision and audit atomically`
 2. `API rejects ordinary bearer without the separate admin credential and does not mutate state`
@@ -187,12 +187,13 @@ Source: `tests/relationship-transition-core.test.js` at blob `37ff7f1eb0b9b4c0eb
 7. `stale composite cursor and spoofed executor are rejected without mutation`
 8. `invalid mixed patch commits nothing and idempotent retry does not duplicate a transition`
 9. `source rollback invalidates a Relationship transition that cites the source`
-10. `clear remains distinct from unset and rollback restores the previous surviving value`
-11. `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation`
-12. `event insert and audit failures roll back the entire Relationship transition`
-13. `projection and idempotency persistence failures roll back Relationship event, state, revision and audit`
-14. `Relationship projection survives store restart and deterministic rebuild from valid events`
-15. `trusted state read returns one composite freshness marker across rollback`
-16. `rollback invalidates later transition dependent on the same directed pair and rebuilds surviving state`
+10. `explicit neutral, cleared and unset remain distinct across replay`
+11. `clear remains distinct from unset and rollback restores the previous surviving value`
+12. `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation`
+13. `event insert and audit failures roll back the entire Relationship transition`
+14. `projection and idempotency persistence failures roll back Relationship event, state, revision and audit`
+15. `Relationship projection survives store restart and deterministic rebuild from valid events`
+16. `trusted state read returns one composite freshness marker across rollback`
+17. `rollback invalidates later transition dependent on the same directed pair and rebuilds surviving state`
 
 These prove only the privileged first slice. General actor/purpose-authorized reads, NPC/model-facing writes, generic initial import/author correction, historical World Pack migration, alternative independent-support accounting, and downstream Personality/NPC consumer behavior remain separate blockers. The existing authorized-read route remains self-identity-only by default; PR #101 adds an opt-in trusted host policy seam but no default visibility policy.
