@@ -229,6 +229,18 @@ export class LogicEngine {
     const interrupt_after_coordinate = input.interrupt_after_coordinate ?? false;
     assert(typeof interrupt_after_coordinate === 'boolean', 'INVALID_INTERRUPT_POLICY', 'interrupt_after_coordinate must be boolean.');
     assert(obj(input.payload) && obj(input.payload.event), 'TRIGGER_EVENT_PROPOSAL_REQUIRED', 'payload must contain an event proposal object.');
+    const eventProposal = input.payload.event;
+    assert(typeof eventProposal.turn_id === 'string' && eventProposal.turn_id.trim()
+      && typeof eventProposal.event_type === 'string' && eventProposal.event_type.trim(),
+    'INVALID_TIME_TRIGGER_EVENT', 'A trigger event requires turn_id and event_type.');
+    assert(!['event_id', 'idempotency_key', 'expected_revision', 'expected_commit_sequence'].some((key) => Object.hasOwn(eventProposal, key)),
+      'INVALID_TIME_TRIGGER_EVENT', 'Core assigns event identity and revision cursors when a trigger executes.');
+    assert(eventProposal.time_advance_seconds === undefined || eventProposal.time_advance_seconds === 0,
+      'INVALID_TIME_TRIGGER_EVENT_DURATION', 'A trigger effect must execute with zero additional duration.');
+    assert(eventProposal.time_mode === undefined || eventProposal.time_mode === 'action',
+      'INVALID_TIME_TRIGGER_EVENT_MODE', 'A trigger effect cannot declare explicit-skip intent.');
+    assert(eventProposal.duration_proposal === undefined || eventProposal.duration_proposal === null,
+      'INVALID_TIME_TRIGGER_EVENT_DURATION', 'A trigger effect cannot carry an action duration proposal.');
     let payload;
     try {
       const encoded = JSON.stringify(input.payload);
@@ -240,6 +252,15 @@ export class LogicEngine {
       throw new EngineError('INVALID_TIME_TRIGGER_PAYLOAD', 'Trigger payload must be JSON-serializable.', 400);
     }
     const world = this.getState(id);
+    try {
+      this.prepareEventForWorld(id, {
+        ...payload.event,
+        idempotency_key: 'time-trigger-validation:' + hashRequest({ world_id: id, trigger_id: input.trigger_id.trim(), payload }).slice(0, 40),
+        time_advance_seconds: 0,
+      });
+    } catch (error) {
+      throw new EngineError(error.code || 'INVALID_TIME_TRIGGER_EVENT', error.message || 'Trigger event validation failed.', error.statusCode || 400, error.details);
+    }
     const normalized = {
       trigger_id: input.trigger_id.trim(),
       world_id: id,
@@ -664,7 +685,7 @@ export class LogicEngine {
             idempotency_key: proposal.idempotency_key ?? ('time-trigger:' + identity.slice(0, 48)),
             time_advance_seconds: 0,
           };
-          return this.prepareEvent(event);
+          return this.prepareEventForWorld(id, event);
         });
         let offset = 0;
         while (offset < triggerEvents.length) {
