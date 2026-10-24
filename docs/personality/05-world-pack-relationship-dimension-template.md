@@ -91,6 +91,7 @@ A dimension is **not ready for runtime use** until:
 - [ ] acceptance cases are written.
 
 This checklist establishes semantic readiness only. It does not prove that the core write, read, audit, authorization, or rollback paths implement the contract.
+For how each PERS-SEM criterion maps to an owner and evidence boundary, see the [per-case acceptance traceability crosswalk](./09-per-case-acceptance-traceability.md).
 
 ## 7. Unresolved core dependencies
 
