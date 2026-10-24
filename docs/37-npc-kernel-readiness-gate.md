@@ -363,3 +363,18 @@ The review confirms three linked core-owned prerequisites:
 Production-path tests must demonstrate actor separation and anti-substitution; subject-specific initial acquisition with provenance; secret exclusion before model input; distinct epistemic/completeness outcomes; one-snapshot consistency and stale rejection; actual adapter use of the filtered envelope; and proposal creation that leaves canonical and knowledge-related state unchanged. No mocks may stand in for missing production semantics.
 
 The detailed decision and the schema-neutral clarification are recorded in docs/39 §16. Historical dependency/status notes above remain historical; use §19 for the last recorded main-branch dependency check and re-verify live refs before any future integration.
+
+
+## 21. Authoring, correction, and card-summary work — 2026-10-24
+
+The NPC branch has a schema-neutral semantic contract in `docs/46-npc-authoring-correction-and-card-summary-contract.md`, cross-referenced from the normative contract, semantic matrix, and test-boundary map.
+
+It closes authoring-level specification gaps without claiming implementation:
+- author profile/configuration corrections are distinct from canonical world corrections and in-world events;
+- canonical correction does not automatically teach an NPC or rewrite subject belief;
+- unknown/unset, explicit neutral, known absent, withheld, incomplete, unsupported, and conflicted remain distinct;
+- character cards are lossy views, not authority; omission is not evidence of absence; stale summaries must not outrank current source records;
+- reserved editorial secrets require a verified pre-model filter;
+- an author-requested future outcome remains distinct from a committed event.
+
+The ten cases NPC-AUTH-001–010 are mapped in `docs/35-npc-test-boundary-map.md`. Cases needing an editor, actor-relative filter, core acquisition/belief records, approved card projection, or author-intent arbitration remain blocked until those real production boundaries exist. No mocks, runtime code, API/schema/storage changes, or core changes were added.
