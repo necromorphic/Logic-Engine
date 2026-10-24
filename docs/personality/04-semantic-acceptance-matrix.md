@@ -73,7 +73,7 @@ The agreed first target is deterministic replay of surviving valid typed transit
 The Personality block's semantic design is ready for core implementation review when:
 
 1. every supported relationship dimension has a defined meaning, value domain, and permitted transition policy in the applicable World Pack;
-2. omitted, unknown/unset, explicit neutral, inaccessible/withheld, and cleared states are not conflated;
+2. omitted, unset (sometimes called unknown only when no canonical value exists), explicit neutral, inaccessible/withheld, cleared, and conflict/insufficient-support reconciliation states are not conflated;
 3. initialization/import, in-world transitions, and author correction have distinct semantic meanings;
 4. the acceptance cases above have an identified owner/boundary and are not misreported as passing integration tests;
 5. the core's exact write/read/provenance/rollback contracts are linked as dependencies rather than guessed or duplicated here.
