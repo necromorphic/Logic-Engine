@@ -186,3 +186,12 @@ The existing `tests/npc-memory-candidate-eligibility.test.js` covers consumer-si
 6. Integration owners: implement and run the boundary tests in section 6 against the real path; record exact commit SHA and native test/Actions result.
 
 No Memory adapter, runtime endpoint, schema migration, parallel canonical store, authorization shortcut, outbox, or cursor is introduced by this document. PR #76 is closed unmerged as superseded: the helper/tests are on main via #78, the missing NPC contract docs are on main via #98, and selected current-main crosswalks were reconciled separately. Issue #70 stays open until the real authorized retrieval boundary, source-change/reconciliation path, and cross-owner acceptance tests are implemented; production readiness must not be inferred from documentation-only agreement.
+
+
+## Current-main runtime checkpoint — Issue #129, 2026-10-24
+
+The authoritative post-Core-change audit is [docs/73-memory-current-main-core-boundary-handoff.md](73-memory-current-main-core-boundary-handoff.md), based on `main` SHA `908d9b8a157d374f8a72491d9f57878693f01452`. It supersedes older statements in this document about whether Core PRs #65, #101, #102, #103, #106, or #114 are open, merged, or absent from main.
+
+Current state: PRs #65/#101/#102/#103/#106/#114 are merged runtime changes, but #101's trusted `authorizedReadFieldPolicy` is opt-in and no production Memory policy is configured. The default HTTP read remains self-identity-only. PR #114 makes a trusted operational state snapshot revision-bound and exposes `world_revision` with `commit_sequence`; it does not supply Memory with a durable source-change feed or general authorized retrieval. The Memory record/retrieval/index/summary runtime remains unimplemented. Rollback-aware reconciliation, complete retrieval status, source/version lineage, summary permission propagation, and Memory persistence/transaction ownership remain blocked or proposal-only. See the handoff for exact owners, fail-closed rules, and acceptance tests.
+
+This checkpoint does not approve a new runtime API/schema/store/outbox/cursor/permission enum and does not close NPC Issue #70 or Core Issue #77.
