@@ -1,6 +1,6 @@
 # Memory Provider acceptance traceability — follow-up addendum
 
-**Applies to:** PR #201. Provider code/test HEAD `20c80c853e49c0696cee2d63742760c43b0d2963` passed Runtime CI run #1599 with **282/282 tests**. The lifecycle documentation has since been updated to record typed failure-state behavior; exact current documentation-head CI is being verified.
+**Applies to:** PR #201. Exact current HEAD `7a5bfa7cb48c9e6e36c73331424df08cfa53e286` passed Runtime CI run #1604 with **282/282 tests**.
 
 This addendum corrects the two completed Provider-owned items still listed as future work in the original `memory-provider-acceptance-traceability.md` checklist and records the raw archive and typed-failure slices. The original register is retained as historical context rather than silently rewritten.
 
@@ -14,8 +14,9 @@ This addendum corrects the two completed Provider-owned items still listed as fu
 
 ## Exact-head test evidence
 
-- Runtime CI run #1599: **success, 282/282 tests**, code/test HEAD `20c80c853e49c0696cee2d63742760c43b0d2963`.
-- Run: https://github.com/necromorphic/Logic-Engine/actions/runs/40100990862
+- Runtime CI run #1604: **success, 282/282 tests**, exact current HEAD `7a5bfa7cb48c9e6e36c73331424df08cfa53e286`.
+- Run: https://github.com/necromorphic/Logic-Engine/actions/runs/40101053726
+- The code/test commit also passed run #1599 (282/282): https://github.com/necromorphic/Logic-Engine/actions/runs/40100990862
 - The prior raw archive lifecycle code/test HEAD also passed run #1585 (278/278): https://github.com/necromorphic/Logic-Engine/actions/runs/40100622470.
 - Provider-local tests do not establish that a SillyTavern hook, external archive/index purge, authoritative Core source-version API, or production Core → Provider → NPC integration exists.
 
