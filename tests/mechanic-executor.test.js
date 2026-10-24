@@ -315,6 +315,16 @@ test('mechanic proposals fail closed without current-policy validation and reche
   );
   assert.equal(unguarded.get(worldId, proposal.proposal_id).status, 'pending');
 
+  const throwingValidator = new ProposalService(engine, {
+    validateMechanicPolicy() { throw new Error('private policy internals'); },
+  });
+  assert.throws(
+    () => throwingValidator.approve(worldId, proposal.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409
+      && !error.message.includes('private policy internals'),
+  );
+  assert.equal(unguarded.get(worldId, proposal.proposal_id).status, 'pending');
+
   let policyCurrent = true;
   const observedStages = [];
   const guarded = new ProposalService(engine, {
