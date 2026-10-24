@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { MechanicExecutor } from '../src/application/mechanic-executor.js';
@@ -1048,4 +1051,55 @@ test('canonical context provider policy fingerprint changes with mapping and aut
   assert.notEqual(first.policy_version, otherScope.policy_version);
   assert.notEqual(first.policy_version, otherMapping.policy_version);
   assert.notEqual(first.authorization_scope, otherScope.authorization_scope);
+});
+
+
+test('committed mechanic execution provenance survives SQLite close and reopen', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-mechanic-provenance-'));
+  const databasePath = join(directory, 'world.sqlite');
+  let store;
+  try {
+    store = new SQLiteStore(databasePath);
+    const engine = new LogicEngine(store);
+    const worldId = 'executor-provenance-reopen-world';
+    engine.createWorld({
+      world_id: worldId,
+      world_pack_id: 'test.world',
+      world_pack_version: '1.0.0',
+      game_time: '2005-12-29T10:00:00Z',
+    });
+    enableFixture(engine, worldId);
+    const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+      .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+    assert.equal(evaluation.status, 'ready');
+    const proposals = new ProposalService(engine);
+    const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
+      idempotencyKey: 'mechanic-provenance-reopen',
+      turnId: 'turn-mechanic-provenance-reopen',
+      sourceText: 'Persist mechanic provenance across a database restart.',
+      adapterId: 'test-adapter',
+    });
+    proposals.approve(worldId, proposal.proposal_id);
+    const committed = proposals.commit(worldId, proposal.proposal_id);
+    const expectedMetadata = proposal.mechanic_execution;
+    const eventId = committed.commit_result.event_id;
+    assert.deepEqual(
+      engine.getEvents(worldId).find((event) => event.event_id === eventId).mechanic_execution,
+      expectedMetadata,
+    );
+
+    store.close();
+    store = null;
+    const reopenedStore = new SQLiteStore(databasePath);
+    store = reopenedStore;
+    const reopenedEngine = new LogicEngine(reopenedStore);
+    const reopenedEvent = reopenedEngine.getEvents(worldId).find((event) => event.event_id === eventId);
+    assert.ok(reopenedEvent);
+    assert.deepEqual(reopenedEvent.mechanic_execution, expectedMetadata);
+    assert.deepEqual(reopenedEvent.mechanic_execution.effect_provenance, evaluation.effect_provenance);
+    assert.equal(reopenedEngine.getState(worldId).world_revision, 3);
+  } finally {
+    store?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
