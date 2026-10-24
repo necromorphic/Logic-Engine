@@ -462,6 +462,8 @@ export class LogicEngine {
       'TIME_TRIGGER_SUBSECOND_UNSUPPORTED', 'Time-trigger execution currently requires whole-second coordinates.', 400);
     const proposal = trigger.payload?.event;
     assert(obj(proposal), 'TRIGGER_EVENT_PROPOSAL_REQUIRED', 'A persisted time trigger payload must contain an event proposal.');
+    assert(proposal.event_type !== 'time.advance',
+      'INVALID_TRIGGER_EVENT_TYPE', 'A scheduled trigger cannot itself be a canonical time-advance event.');
     const payloadBytes = Buffer.byteLength(JSON.stringify(trigger.payload), 'utf8');
     assert(payloadBytes <= 262144, 'TIME_TRIGGER_PAYLOAD_TOO_LARGE', 'A persisted time trigger payload cannot exceed 256 KiB.', 400);
     assert(proposal.expected_revision === undefined && proposal.expected_commit_sequence === undefined,
@@ -579,8 +581,11 @@ export class LogicEngine {
     }
     const activeTimeConfig = this.store.getTimeConfiguration(id);
     const maxSkipMs = activeTimeConfig
-      ? Math.min(activeTimeConfig.time_policy.max_skip_duration_ms, 604800000)
+      ? activeTimeConfig.time_policy.max_skip_duration_ms
       : 604800000;
+    // The world policy bounds the whole operation. Individual synthetic events
+    // remain capped at seven days for bounded event execution.
+    const segmentSkipMs = Math.min(maxSkipMs, 604800000);
     if (requestedAdvanceMs > maxSkipMs) {
       throw new EngineError('TIME_ADVANCE_TOO_LARGE', 'Requested time-advance interval exceeds the active world skip limit.', 400, {
         requested_duration_ms: requestedAdvanceMs,
@@ -637,6 +642,9 @@ export class LogicEngine {
     const segments = [];
     let cursor = from;
     const appendSegment = (coordinate, events, triggerIds = [], registeredTriggerIds = []) => {
+      if (segments.length >= 1024) {
+        throw new EngineError('TIME_ADVANCE_SEGMENT_LIMIT', 'Time advance requires more than 1024 atomic segments; split it into smaller operations.', 400);
+      }
       const index = segments.length;
       const segmentKey = 'time-segment:' + operationId + ':' + index;
       segments.push({
@@ -667,9 +675,9 @@ export class LogicEngine {
     if (plan.status !== 'blocked') {
       for (const plannedSegment of plan.segments) {
         const coordinate = plannedSegment.due_coordinate;
-        while (coordinate - cursor > maxSkipMs) {
-          cursor += maxSkipMs;
-          appendSegment(cursor, [makeAdvanceEvent(maxSkipMs, segments.length)]);
+        while (coordinate - cursor > segmentSkipMs) {
+          cursor += segmentSkipMs;
+          appendSegment(cursor, [makeAdvanceEvent(segmentSkipMs, segments.length)]);
         }
         const triggerEvents = plannedSegment.triggers.map((trigger) => {
           const payload = trigger.payload;
@@ -708,9 +716,9 @@ export class LogicEngine {
           offset += chunk.length;
         }
       }
-      while (effectiveTarget - cursor > maxSkipMs) {
-        cursor += maxSkipMs;
-        appendSegment(cursor, [makeAdvanceEvent(maxSkipMs, segments.length)]);
+      while (effectiveTarget - cursor > segmentSkipMs) {
+        cursor += segmentSkipMs;
+        appendSegment(cursor, [makeAdvanceEvent(segmentSkipMs, segments.length)]);
       }
       if (effectiveTarget > cursor) {
         appendSegment(effectiveTarget, [makeAdvanceEvent(effectiveTarget - cursor, segments.length)]);

@@ -36,8 +36,10 @@ test('unknown duration rules permit only zero-duration events and reject arbitra
   assert.equal(resolveDurationDecision(value, 'relationship.transition', null, 5000).status, 'rejected');
 });
 
-test('invalid policy limits, duplicate rules, and over-limit durations fail closed', () => {
-  assert.throws(() => createTimePolicy(policy({ max_skip_duration_ms: 900000000 })), (error) => error.code === 'INVALID_TIME_POLICY');
+test('world policy may set a skip ceiling above seven days while malformed limits still fail closed', () => {
+  assert.equal(createTimePolicy(policy({ max_skip_duration_ms: 900000000 })).max_skip_duration_ms, 900000000);
+  assert.throws(() => createTimePolicy(policy({ max_skip_duration_ms: Number.MAX_SAFE_INTEGER + 1 })), (error) => error.code === 'INVALID_TIME_POLICY');
+  assert.throws(() => createTimePolicy(policy({ max_skip_duration_ms: 900000001 })), (error) => error.code === 'INVALID_TIME_POLICY');
   assert.throws(() => createTimePolicy(policy({ duration_rules: [
     { event_type: 'same', rule: { kind: 'fixed', duration_ms: 1000 } },
     { event_type: 'same', rule: { kind: 'fixed', duration_ms: 2000 } },
