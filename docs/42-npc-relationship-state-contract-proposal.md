@@ -217,3 +217,25 @@ Do not resolve these questions by adding an independent relationship database, n
 
 Relationship semantics are partly defined in the NPC contract, but the dedicated record model, participant-reference policy, card projection boundary, and rollback mapping are not established as executable behavior. The next step after review is a source-level integration audit against the target branch and its unmerged dependencies. Runtime/API/schema work should wait until the open decisions above are resolved.
 
+## 14. Source-level integration audit (branch snapshot inspected 2026-10-24)
+
+This audit records source facts observed on `feat/npc-subsystem`; it does not claim that adjacent unmerged PRs are integrated.
+
+### Existing usable primitives
+
+- `src/application/engine.js` exposes the current core path for `commitEvent(...)`, `rollbackEvent(...)`, `getState(...)`, `getEvents(...)`, and `getAudit(...)`. It also registers context manifests. These are general core operations, not relationship-specific operations.
+- `src/core/rules.js` validates generic effects including `entity.create`, `entity.update`, `entity.upsert`, `entity.delete`, and `fact.set`. It does not define a relationship effect or validate relationship-specific dimensions, direction, or transition semantics.
+- `src/storage/sqlite-store.js` projects generic entity effects and append-only `fact.set` claims; conflicting fact values are represented as a conflicted projection. Generic event/effect provenance and rollback machinery are present, but no relationship-specific record or projection was identified in the inspected source.
+- `docs/18-rollback-and-causality.md` describes a broader target contract and explicitly warns that future rollback behavior must not be mistaken for current runtime capability. The implemented event rollback contract must be checked separately before relying on any relationship reconciliation behavior.
+
+### Consequences for relationship design
+
+1. **No dedicated relationship runtime was found.** The current source supports generic entities and facts, but neither primitive by itself establishes the proposed relationship semantics. Encoding relationship dimensions as arbitrary entity attributes or generic facts now would bypass domain-level validation and leave direction, unknown values, allowed transitions, and card projection undefined.
+2. **No relationship query/projection boundary was found.** A read-only card summary and actor-specific decision-context view still need a defined internal read contract. They must not be inferred from unrestricted `getState()` or context-manifest references.
+3. **Participant references remain unresolved.** The generic entity ID is available for existing entities, but the inspected code does not establish a lightweight reference contract for people who are not canonical entities and must not become autonomous NPCs.
+4. **Causal rollback cannot be assumed complete for relationship state.** A future relationship transition must use existing event/effect provenance and rollback, but the current code has no relationship-specific reconciliation policy or tests. If the current core cannot represent a transition and its dependencies without ambiguity, relationship commits must remain unsupported until the core contract is extended.
+5. **Snapshot dependency is not silently assumed.** The inspected `feat/npc-subsystem` version of `src/application/engine.js` does not expose `getSnapshot(...)`. PR #45 separately proposes an internal consistent snapshot-read boundary; it is not treated as present in this branch merely because the PR exists. Recheck the exact target commit and integration order before designing relationship reads against it.
+
+### Readiness verdict
+
+The semantics are now documented as a proposal, but the relationship block is **not implementation-ready**. The next required design gate is to select, against the actual target core commit, the smallest validated representation for directional relationship state, a safe participant-reference policy, and a bounded read/projection contract. Then add executable tests at those real boundaries before any runtime or schema change. No runtime code was changed in this work.
