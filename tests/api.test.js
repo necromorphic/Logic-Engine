@@ -1445,3 +1445,56 @@ test('event_type cannot bypass the internal credential boundary', async (t) => {
   assert.equal(response.status, 403);
   assert.equal((await response.json()).error.code, 'DIRECT_COMMIT_DISABLED');
 });
+
+test('proposal API deduplicates concurrent same-key create requests', async (t) => {
+  const base = await setup(t, { approvalToken: APPROVAL });
+  assert.equal((await createWorld(base, 'proposal-concurrent-create-world')).status, 201);
+  const url = base + '/v1/worlds/proposal-concurrent-create-world/proposals';
+  const body = {
+    idempotency_key: 'concurrent-same-key',
+    source_text: 'Create the same proposal once.',
+    event: { turn_id: 'concurrent-turn', event_type: 'action.completed', effects: [] },
+  };
+  const responses = await Promise.all([
+    fetch(url, { method: 'POST', headers, body: json(body) }),
+    fetch(url, { method: 'POST', headers, body: json(body) }),
+  ]);
+  assert.deepEqual(responses.map((response) => response.status), [201, 201]);
+  const results = await Promise.all(responses.map((response) => response.json()));
+  assert.equal(results[0].proposal.proposal_id, results[1].proposal.proposal_id);
+  assert.equal(results.filter((result) => result.proposal.idempotent_replay).length, 1);
+
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  const stateResponse = await fetch(base + '/v1/worlds/proposal-concurrent-create-world/state', { headers: internalHeaders });
+  assert.equal(stateResponse.status, 200);
+  assert.equal((await stateResponse.json()).state.world_revision, 0);
+  const proposals = await fetch(base + '/v1/worlds/proposal-concurrent-create-world/proposals/' + results[0].proposal.proposal_id, { headers });
+  assert.equal(proposals.status, 200);
+});
+
+test('approval rejects a pending proposal after an intervening canonical commit', async (t) => {
+  const base = await setup(t, { approvalToken: APPROVAL });
+  assert.equal((await createWorld(base, 'proposal-stale-approval-world')).status, 201);
+  const makeProposal = async (key, turn) => {
+    const response = await fetch(base + '/v1/worlds/proposal-stale-approval-world/proposals', {
+      method: 'POST', headers,
+      body: json({ idempotency_key: key, source_text: '', event: { turn_id: turn, event_type: 'action.completed', effects: [] } }),
+    });
+    assert.equal(response.status, 201);
+    return (await response.json()).proposal;
+  };
+  const stale = await makeProposal('stale-at-approval', 'stale-turn');
+  const intervening = await makeProposal('advance-before-approval', 'advance-turn');
+  const approve = (proposalId) => fetch(base + '/v1/worlds/proposal-stale-approval-world/proposals/' + proposalId + '/approve', {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  });
+  assert.equal((await (await approve(intervening.proposal_id)).json()).proposal.status, 'approved');
+  const committed = await fetch(base + '/v1/worlds/proposal-stale-approval-world/proposals/' + intervening.proposal_id + '/commit', { method: 'POST', headers, body: '{}' });
+  assert.equal(committed.status, 200);
+
+  const staleApproval = await approve(stale.proposal_id);
+  assert.equal(staleApproval.status, 409);
+  assert.equal((await staleApproval.json()).error.code, 'STALE_PROPOSAL');
+  const stillPending = await fetch(base + '/v1/worlds/proposal-stale-approval-world/proposals/' + stale.proposal_id, { headers });
+  assert.equal((await stillPending.json()).proposal.status, 'pending');
+});
