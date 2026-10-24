@@ -26,7 +26,7 @@ Related documents:
 - the distinction between stable traits, temporary condition, current goals, beliefs, and observed behavior;
 - semantic relationship dimensions and their interpretation by character decision-making;
 - directional/asymmetric relationships: A's relation to B does not imply B's relation to A;
-- the difference between an unset/unknown dimension and an explicitly authored neutral value;
+- the difference between an unset dimension (sometimes called unknown only when no canonical value exists), an explicitly authored neutral value, a withheld read, a cleared value, and a conflict/insufficient-support result;
 - semantics for authored initial state, imported state, in-world transition, and author correction;
 - requirements for how relationship/personality information may influence decisions without deterministically scripting them;
 - semantic acceptance scenarios for these rules and for derived card summaries.
@@ -112,7 +112,7 @@ These are specifications, not executable integration tests.
 |---|---|---|
 | PERS-REL-001 | Directionality | A→B does not create or update B→A. |
 | PERS-REL-002 | Partial update | Omitted dimensions remain unchanged. |
-| PERS-REL-003 | Unknown vs neutral | Unset/unknown and explicit neutral remain distinguishable. |
+| PERS-REL-003 | Unset vs neutral | A dimension with no established canonical value (unset; sometimes called unknown in this narrow sense) and an explicit neutral value remain distinguishable. Conflict/insufficient-support unknown is a separate reconciliation/read-result state. |
 | PERS-REL-004 | Co-presence | Sharing a scene alone causes no relationship transition. |
 | PERS-REL-005 | Initialization provenance | Author-initial/imported state is not misreported as an in-world event. |
 | PERS-REL-006 | Correction provenance | An author correction is distinct from initialization and in-world change. |
