@@ -436,3 +436,29 @@ test('raw version read withholds content if the exact source is tombstoned durin
   );
   assert.equal(checks, 2);
 });
+
+
+test('active raw read returns no revoked content when a source is tombstoned during final authorization recheck', async (t) => {
+  let checks = 0;
+  const s = setup(t, {
+    authorizeRawRead: async (request) => {
+      if (request.action === 'read_active' && ++checks === 2) {
+        s.provider.markRawSourceDeleted(sourceKey());
+      }
+      return true;
+    },
+  });
+  s.provider.captureRawMessage(capture());
+  s.provider.selectActiveRawVersion(sourceKey());
+
+  const active = await s.provider.readActiveRawMessages({
+    world_id: 'world-a',
+    conversation_id: 'chat-a',
+  });
+  assert.equal(checks, 2);
+  assert.deepEqual(active, []);
+  await assert.rejects(
+    () => s.provider.readRawMessageVersion(sourceKey()),
+    /MEMORY_RAW_VERSION_UNAVAILABLE/,
+  );
+});
