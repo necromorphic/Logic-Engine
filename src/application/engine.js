@@ -702,6 +702,7 @@ export class LogicEngine {
           const events = [];
           if (needsAdvance) events.push(makeAdvanceEvent(coordinate - cursor, segments.length));
           events.push(...chunk);
+          validateIndependentSegment(events);
           const chunkTriggerIds = plannedSegment.trigger_ids.slice(offset, offset + chunk.length);
           appendSegment(coordinate, events, registryMode ? chunkTriggerIds : []);
           cursor = coordinate;
