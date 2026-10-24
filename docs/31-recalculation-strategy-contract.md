@@ -196,3 +196,23 @@ The manifest marks completeness only for `bounded_deterministic_action_v1`. Glob
 
 
 A reusable implementation now exists in `src/application/entity-attribute-context-provider.js` as `CanonicalEntityAttributeContextProvider`. It requires an explicit safe path-to-entity-attribute binding list, a non-empty opaque `authorizationScope`, and a deployment-owned `canRead` callback; there is no default-allow mode. The scope is included in the context/evaluation fingerprints and proposal audit metadata so different principals or visibility scopes do not silently share an evaluation identity. It reads the same-world projection, verifies revision/cursor, emits only the projected context plus canonical evidence, and fingerprints the sorted bindings with the supplied policy version. Missing bindings, denied reads, missing targets, or a stale snapshot fail closed. Deployments must bump the policy version when the authorization callback's semantics change; the fingerprint cannot prove the callback itself is correct.
+
+
+## 12. Guarantee and failure matrix
+
+| Guarantee | Evidence type | Violation / unsupported case | Current status |
+|---|---|---|---|
+| One world snapshot, revision and commit cursor | Runtime identity checks + regression tests | `unknown`; proposal handoff rejects stale revision/cursor | Enforced for the bounded slice |
+| Exact enabled instance and pinned template version/hash | Snapshot and immutable registry checks | `unknown` / `rejected` | Enforced for the bounded slice |
+| All paths in supported condition AST branches are enumerated | Static AST traversal; branch-union tests | Analysis failure returns `unknown` | Statically covered for the supported DSL |
+| Each condition path maps to a canonical entity attribute | Evidence coverage and same-world value/absence checks | Missing/mismatched evidence returns `unknown` | Structural checks enforced; semantic correctness of the trusted binding map remains an assumption |
+| Absence-sensitive conditions | Same-snapshot canonical attribute absence + authorized scope | Unproven or out-of-scope absence claim returns `unknown` | Enforced for supported entity-attribute bindings |
+| Effect intent semantics | Explicit allowlist and strict payload validation | Unsupported kind/field or binding returns `unknown` with no partial effects | Only three literal effect kinds supported |
+| Effect targets and conflicts | Same-world projection, revision/cursor match, duplicate-write detection | Missing/cross-world target or duplicate write returns `unknown` | Enforced for the supported effect subset |
+| Read set and causal references | Derived from condition evidence and effect target preconditions; checked on commit | Invalid/stale references rejected by ordinary Core validation | Persisted in the event |
+| Evaluation-to-proposal integrity | Frozen in-process attestation + content fingerprint + effect provenance validation | Unattested/tampered evaluation rejected | Enforced as an in-process wiring guard, not a cryptographic trust boundary |
+| Event-level provenance | Internal commit option + migrated SQLite column + event-history test | Public event payload cannot set the field | Persisted and tested |
+| Global mechanic dependency completeness | Not inferable from the bounded subset | Global completeness remains false; unsupported sources fail closed | Explicitly unproven |
+| A/B/C production choice and fallback thresholds | Requires persistent derived-output semantics and representative measurements | No strategy default selected | Open; remains an isolated experiment |
+
+This matrix separates what is statically covered, dynamically checked, assumed at the trusted-host boundary, and deliberately unsupported. Passing CI validates the tests in this matrix; it does not convert the host-policy assumption or global dependency completeness into a proof.
