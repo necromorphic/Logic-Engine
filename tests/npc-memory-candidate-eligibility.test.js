@@ -74,7 +74,20 @@ test("rejects candidates from another world", () => {
   ]));
   assert.equal(result.status, "non_ready");
   assert.deepEqual(result.admitted, []);
-  assert.deepEqual(result.rejected, [{ reason: "scope_mismatch" }]);
+  assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
+});
+
+test("candidate exclusions expose neither per-record reasons nor rejection counts", () => {
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([
+    candidate({ record: { ref: "restricted:a", version: "1" }, access: { outcome: "deny" } }),
+    candidate({ record: { ref: "restricted:b", version: "2" }, access: { outcome: "withheld" } }),
+    candidate({ record: { ref: "restricted:c", version: "3" }, content_kind: "unknown" }),
+  ]));
+  assert.equal(result.status, "non_ready");
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
+  assert.equal(JSON.stringify(result).includes("restricted:"), false);
+  assert.equal(JSON.stringify(result).includes("access_not_allowed"), false);
 });
 
 test("missing, denied, withheld, and ambiguous access are all non-admissible", () => {
@@ -84,7 +97,7 @@ test("missing, denied, withheld, and ambiguous access are all non-admissible", (
     ]));
     assert.equal(result.status, "non_ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "access_not_allowed" }]);
+    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -116,7 +129,7 @@ test("missing or empty producer provenance fails closed", () => {
     ]));
     assert.equal(result.status, "non_ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "producer_provenance_incomplete" }]);
+    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -136,7 +149,7 @@ test("every missing lifecycle dimension fails closed", () => {
     ]));
     assert.equal(result.status, "non_ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "lifecycle_dimensions_incomplete" }]);
+    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 
   const unknownLifecycleValues = candidate({
@@ -167,7 +180,7 @@ test("lifecycle deny, stale source, unusable content, and unhealthy index fail c
     ]));
     assert.equal(result.status, "non_ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "lifecycle_not_admissible" }]);
+    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -178,7 +191,7 @@ test("missing or unknown content kind fails closed", () => {
     ]));
     assert.equal(result.status, "non_ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "content_kind_unknown" }]);
+    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -192,7 +205,7 @@ test("known non-summary content kinds are explicit and summaries still require l
   const summaryWithoutLineage = candidate({ content_kind: "summary" });
   const result = evaluateMemoryCandidateAdmission(request, completeResult([summaryWithoutLineage]));
   assert.equal(result.status, "non_ready");
-  assert.deepEqual(result.rejected, [{ reason: "lineage_not_safe" }]);
+  assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
 });
 
 test("stale, retracted, unavailable, and unknown freshness are not current knowledge", () => {
@@ -202,7 +215,7 @@ test("stale, retracted, unavailable, and unknown freshness are not current knowl
     ]));
     assert.equal(result.status, "non_ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "source_not_current" }]);
+    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -223,7 +236,7 @@ test("malformed trusted or candidate snapshots fail closed", () => {
     ]));
     assert.equal(result.status, "non_ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "snapshot_mismatch" }]);
+    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -233,7 +246,7 @@ test("snapshot mismatch is rejected when request requires a snapshot", () => {
   ]));
   assert.equal(result.status, "non_ready");
   assert.deepEqual(result.admitted, []);
-  assert.deepEqual(result.rejected, [{ reason: "snapshot_mismatch" }]);
+  assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
 });
 
 test("a derived summary requires complete lineage and current authorized sources", () => {
@@ -260,7 +273,7 @@ test("a derived summary requires complete lineage and current authorized sources
     const result = evaluateMemoryCandidateAdmission(request, completeResult([unsafe]));
     assert.equal(result.status, "non_ready");
     assert.deepEqual(result.admitted, []);
-    assert.deepEqual(result.rejected, [{ reason: "lineage_not_safe" }]);
+    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -280,7 +293,7 @@ test("summary lineage sources must match the requested world, subject, and purpo
     const summary = candidate({ content_kind: "summary", lineage: { status: "complete", sources: [source] } });
     const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
     assert.equal(result.status, "non_ready");
-    assert.deepEqual(result.rejected, [{ reason: "lineage_not_safe" }]);
+    assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
   }
 });
 
@@ -291,7 +304,7 @@ test("duplicate record/version is admitted once without text-based identity", ()
 
   assert.equal(result.status, "partial");
   assert.equal(result.admitted.length, 1);
-  assert.deepEqual(result.rejected, [{ reason: "duplicate_record_version" }]);
+  assert.deepEqual(result.rejected, [{ reason: "candidate_not_admissible" }]);
 });
 
 test("partial or unavailable retrieval is not treated as an empty complete result", () => {
