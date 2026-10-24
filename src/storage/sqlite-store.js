@@ -1548,7 +1548,7 @@ export class SQLiteStore {
         if (existing.content_hash !== input.content_hash) {
           throw new EngineError('TIME_TRIGGER_IMMUTABLE', 'A trigger ID cannot be reused with a different definition.', 409);
         }
-        return timeTrigger(existing);
+        return { ...timeTrigger(existing), idempotent_replay: true };
       }
       const stamp = now();
       this.db.prepare(`INSERT INTO world_time_triggers(
@@ -1563,8 +1563,8 @@ export class SQLiteStore {
       this.db.prepare(`INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at)
         VALUES(?,?,?,?,?,?)`).run(worldId, world.world_revision, 'time.trigger.registered', input.trigger_id,
         enc({ due_coordinate: input.due_coordinate, content_hash: input.content_hash }), stamp);
-      return timeTrigger(this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
-        .get(worldId, input.trigger_id));
+      return { ...timeTrigger(this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+        .get(worldId, input.trigger_id)), idempotent_replay: false };
     });
   }
 
