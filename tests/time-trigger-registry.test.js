@@ -344,3 +344,49 @@ test('a running operation claim prevents concurrent trigger cancellation', (t) =
   );
   assert.equal(engine.getTimeTrigger('time-trigger-world', 'claimed').claimed_by_operation_id, 'running-operation');
 });
+test('registered scheduled events cannot bypass the active TimePolicy duration decision', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.registerTimeTrigger('time-trigger-world', trigger('travel-after-policy', 10000, 'travel-entity', []));
+  const calendar_definition = {
+    calendar_id: 'trigger.calendar',
+    version: '1.0.0',
+    day_length_ms: 86400000,
+    weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+    year_cycle: [{ id: 'standard', name: 'Standard', months: [{ id: 'jan', name: 'January', days: 31 }] }],
+    epoch: { coordinate: 0, year_number: 2000, year_cycle_index: 0, month_id: 'jan', day_of_month: 1, weekday_index: 0, time_of_day_ms: 0 },
+    holidays: [],
+  };
+  engine.registerTimeConfiguration('time-trigger-world', {
+    version: 'time-config-policy',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    calendar_definition,
+    time_policy: {
+      policy_id: 'trigger.policy',
+      version: '1.0.0',
+      max_action_duration_ms: 43200000,
+      max_skip_duration_ms: 604800000,
+      duration_rules: [{ event_type: 'time.trigger', rule: { kind: 'fixed', duration_ms: 60000 } }],
+    },
+  });
+  const revision = engine.getState('time-trigger-world').world_revision;
+  assert.throws(
+    () => engine.startTimeAdvance('time-trigger-world', {
+      idempotency_key: 'trigger-policy-bypass',
+      expected_revision: revision,
+      to_coordinate: 10000,
+    }),
+    (error) => error.code === 'DURATION_MISMATCH',
+  );
+  assert.equal(engine.getState('time-trigger-world').game_time_coordinate, 0);
+  assert.equal(engine.listTimeTriggers('time-trigger-world').find((item) => item.trigger_id === 'travel-after-policy').status, 'pending');
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM time_advance_operations WHERE world_id=?').get('time-trigger-world').count, 0);
+
+  assert.throws(
+    () => engine.registerTimeTrigger('time-trigger-world', trigger('new-travel', 20000, 'new-travel-entity', [])),
+    (error) => error.code === 'DURATION_MISMATCH',
+  );
+});
+
