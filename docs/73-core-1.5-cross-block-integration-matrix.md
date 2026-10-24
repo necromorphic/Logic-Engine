@@ -18,7 +18,7 @@ This document records observed repository state and integration gates. It does n
 
 ## 2. Current cross-block status
 
-**Status refresh (2026-10-24):** PR #61 (first-slice replay decision), PR #84 (extension-point audit), and PR #91 (Relationship domain-side handoff) are merged as documentation/decision records; PR #62 is merged as a pure evaluator; PR #65 and PR #83 are merged runtime slices with intentionally narrow scopes; PR #94 adds the admin-gated typed Relationship writer/projection/replay; PR #95 completes event/audit failure-injection tests; PR #96 rejects unapproved alternative-support metadata and links source rollback causality; PR #93 completes Personality/Relationship per-case evidence traceability; PR #97 and #98 integrate the current Memory and NPC contracts; PR #101 adds an opt-in trusted host field-policy hook for bounded authorized reads while preserving the self-identity-only default; PR #103 binds public proposal commit to the creating adapter; PR #106 restricts context-manifest registration to the internal host credential. PR #107 adds HTTP-level Relationship admin-auth/idempotent-retry coverage (Runtime run #754); PR #108 adds disk-backed close/reopen and deterministic projection-rebuild coverage (Runtime run #761). PR #114 makes the trusted operational `state` read transaction-bound and adds `commit_sequence` beside `world_revision`; its exact-head Runtime run #783 passed. PR #115 records the unresolved route-capability decisions. PR #117 distinguishes domain-defined neutral, cleared, and unset Relationship states (Runtime run #795); PR #119 verifies the internal-only manifest registration and creator-bound proposal commit gates compose without unauthorized mutation (Runtime run #804). PR #120 adds a two-connection WAL concurrency test proving the trusted state read returns a projection and composite cursor from one SQLite snapshot (Runtime run #807). PR #121 corrects the context-manifest trust contract to reflect the internal-only route gate while preserving the unresolved generation-binding blocker (Runtime run #810). PR #124 adds multi-dimension partial-patch preservation, mixed-patch atomic rejection, and idempotency-payload-substitution tests (Runtime run #827). PR #126 verifies caller-supplied executor/origin/actor/provenance fields are rejected and that server-derived executor, evidence refs, and pinned rule version are persisted in both event and audit (Runtime run #832). Concrete production visibility policy, trusted manifest generation binding, and Memory/NPC source-reconciliation boundary are still not implemented.
+**Status refresh (2026-10-24):** PR #61 (first-slice replay decision), PR #84 (extension-point audit), and PR #91 (Relationship domain-side handoff) are merged as documentation/decision records; PR #62 is merged as a pure evaluator; PR #65 and PR #83 are merged runtime slices with intentionally narrow scopes; PR #94 adds the admin-gated typed Relationship writer/projection/replay; PR #95 completes event/audit failure-injection tests; PR #96 rejects unapproved alternative-support metadata and links source rollback causality; PR #93 completes Personality/Relationship per-case evidence traceability; PR #97 and #98 integrate the current Memory and NPC contracts; PR #101 adds an opt-in trusted host field-policy hook for bounded authorized reads while preserving the self-identity-only default; PR #103 binds public proposal commit to the creating adapter; PR #106 restricts context-manifest registration to the internal host credential. PR #107 adds HTTP-level Relationship admin-auth/idempotent-retry coverage (Runtime run #754); PR #108 adds disk-backed close/reopen and deterministic projection-rebuild coverage (Runtime run #761). PR #114 makes the trusted operational `state` read transaction-bound and adds `commit_sequence` beside `world_revision`; its exact-head Runtime run #783 passed. PR #115 records the unresolved route-capability decisions. PR #117 distinguishes domain-defined neutral, cleared, and unset Relationship states (Runtime run #795); PR #119 verifies the internal-only manifest registration and creator-bound proposal commit gates compose without unauthorized mutation (Runtime run #804). PR #120 adds a two-connection WAL concurrency test proving the trusted state read returns a projection and composite cursor from one SQLite snapshot (Runtime run #807). PR #121 corrects the context-manifest trust contract to reflect the internal-only route gate while preserving the unresolved generation-binding blocker (Runtime run #810). PR #124 adds multi-dimension partial-patch preservation, mixed-patch atomic rejection, and idempotency-payload-substitution tests (Runtime run #827). PR #126 verifies caller-supplied executor/origin/actor/provenance fields are rejected and that server-derived executor, evidence refs, and pinned rule version are persisted in both event and audit (Runtime run #832). PR #131 adds a proposal-creation regression test for mismatched proposal/manifest generation labels (Runtime run #841); it proves equality checking only, not generation authenticity. PR #132 corrects the trusted-origin documentation and test naming so it no longer implies that generation labels are authenticated. Concrete production visibility policy, trusted manifest generation binding, trusted import/correction, and Memory/NPC source-reconciliation runtime remain unimplemented.
 
 
 | Area | Verified evidence | Current status | Integration consequence |
@@ -204,3 +204,130 @@ For closure tracking, use the detailed finding IDs in PR #67 (F-01 through F-07)
 - [PR #74 — context-manifest snapshot boundaries](https://github.com/necromorphic/Logic-Engine/pull/74) — merged as 683cbc3866468585173da8ad3e717d87be9e570a. Its tests cover exact composite-marker matching, invalidation after normal advancement and rollback-only revision changes, missing/cross-world IDs without cross-world leakage, per-manifest and combined snapshot limits, and deduplication of overlapping references. The recorded CI run passed.
 
 These merged tests strengthen regression evidence for the existing Core lifecycle and snapshot boundaries. They do not add runtime behavior, authorize new reads or writes, or establish a typed Relationship commit/replay implementation. Remaining integration claims must be tied to the specific production paths and tests that actually exist.
+
+## 9. Core 1.6 current-main refresh — trust boundaries and remaining runtime gates
+
+**Audit date:** 2026-10-24. **Scope:** targeted re-check of current main after PRs #119–#132. This section supersedes older forward-looking implementation-order text above where that text describes the typed Relationship writer/replay as future work. Earlier source-audit findings remain historical evidence and are not rewritten as if they were observed on the older baseline.
+
+### Verified shipped behavior
+
+- **Typed Relationship first slice:** #94–#96 provide the admin-gated typed relationship.transition write, canonical projection/rebuild and rollback/replay integration, and failure/alternative-support fail-closed tests. Follow-ups #107, #108, #114, #117, #124, and #126 cover HTTP authorization/retry, disk restart/rebuild, transaction-bound composite freshness, neutral/cleared/unset distinction, partial patch and atomic rejection, payload-bound idempotency, and server-derived provenance/audit binding. The first-slice privileged writer is implemented; this does not authorize NPC/model writes or relationship reads.
+- **Proposal and manifest route gates:** #103 binds public proposal commit to the creating adapter; #106 requires the separate internal-host credential for context-manifest registration. #119 tests that these gates compose without unauthorized mutation.
+- **Snapshot consistency:** #114 and #120 provide a transaction-bound state snapshot with world_revision and commit_sequence, including a two-connection WAL concurrency test. Consumers must compare both markers because rollback can change revision without advancing commit sequence.
+- **Generation-label consistency:** #131 rejects a proposal when its generation_id differs from its registered context manifest, without changing world revision. This is a consistency guard, not proof that either label is authentic. #132 corrects docs/test naming to preserve that distinction.
+- **Authorized reads:** the host-supplied field-policy hook exists, but the default remains self-identity-only. There is no approved, configured production policy for arbitrary actor/recipient/purpose/field access, and a trusted operational snapshot is not a model-safe projection.
+
+### Generation binding: explicit blocker, not an implementation invitation
+
+Current src/application/engine.js validates and hashes a manifest carrying caller-supplied generation_id, snapshot cursor, and canonical item references. The HTTP registration route is restricted to the internal-host credential, and proposal commit checks consistency between the proposal, manifest, and snapshot. Current src/application/proposals.js stores proposal generation/manifest labels but does not consult a trusted generation record. docs/55-core-context-manifest-trust-contract.md accurately states that no host generation registry/lifecycle or verified derivation from actual assembled context exists.
+
+No existing host lifecycle contract was found that supplies an authenticated generation record, ownership, cancellation/supersession, and the exact authorized context assembled for that generation. Therefore Core must not invent a generation registry, new runtime API, or schema field in this pass. Until the host/orchestrator supplies an approved contract, manifest provenance remains a trusted-internal-host assertion with structural checks—not proof that the manifest came from the actual prompt or that the model used the listed material. Any operation that requires proof-grade binding must fail closed; legacy behavior must not be tightened silently without a compatibility decision.
+
+### Remaining Core-owned gates
+
+1. **Trusted generation binding:** blocked on an approved host/orchestrator lifecycle contract and authenticated source of generation ownership and assembled-context evidence. #131 does not close this.
+2. **Visibility policy:** requires deployment/owner approval of the concrete field-level policy and its trusted configuration. Keep the default narrow; do not infer permission from actor binding, world scope, manifest membership, or a Memory hit.
+3. **Trusted import/author correction:** no approved runtime authority path exists. Caller-provided origin/producer labels remain non-authoritative; do not reuse the privileged Relationship transition path as an import shortcut.
+4. **Direct in-process reads and serializers:** HTTP raw-read protections do not establish that every in-process consumer applies authorization before serialization. Inventory concrete consumers before claiming closure.
+5. **Capability matrix:** world creation, registry audit, and template/rule-module metadata routes need explicit deployment classification; do not grant blanket admin access based on ambiguity.
+6. **Memory/NPC source reconciliation and knowledge lifecycle:** composite state cursors exist, but no approved durable source-change feed/outbox or complete production Memory→delivery→acquisition→belief path is established by these Core changes. Memory/NPC own their contracts; Core must not duplicate their ledgers or pretend documentation is runtime.
+7. **Relationship read/write authority:** the privileged admin-authored first slice remains the only shipped typed write authority. General authorized Relationship reads and NPC/model/non-admin mutation remain blocked until policy and runtime tests are approved.
+
+### Core acceptance rule
+
+Close each gate only against a named production boundary, exact test path/name, and exact-head CI evidence. Documentation, a matching caller-supplied label, a pure evaluator test, or a passing mocked test is not enough. Keep #77 open for any remaining Core-owned criteria and do not merge or rewrite sibling branches as a shortcut.
+
+## 10. Current-stage scope correction — block integration only
+
+**Scope clarification dated 2026-10-24. This section controls interpretation of the current-stage acceptance gates above.** The project is currently integrating the existing large blocks (Core, Memory, NPC, Relationships, Personality). Mechanics and isolated worlds have not been introduced as current capabilities. Do not turn their absence, or the lack of supporting registries/metadata endpoints, into a defect or a prerequisite for completing this stage.
+
+### Required now — only where the existing code path is involved
+
+- Preserve the already-shipped canonical Core lifecycle and typed, privileged Relationship transition; verify cross-block handoffs against existing contracts rather than designing a broader architecture.
+- Keep existing read and mutation security boundaries fail-closed. Where Memory/NPC currently need data from an existing production path, identify the actual consumer and policy seam before calling it blocked; actor identity alone must not be described as authorization.
+- Keep source lineage, rollback/freshness, audit, and failure atomicity claims tied to existing Core/Memory code and exact tests. The composite freshness marker remains important for existing snapshots because rollback may change `world_revision` without advancing `commit_sequence`.
+- Keep Memory retrieval, NPC delivery/acquisition/belief, Relationship domain interpretation, and Personality semantics owned by their respective blocks. Do not add parallel stores or ledgers to Core.
+- Record a gate as blocked only when a named current-stage consumer or operation actually depends on the missing contract. State the exact consumer, current runtime path, and test evidence; otherwise classify it as an open design question or unverified—not a release blocker.
+
+### Deferred — not acceptance gates for this stage
+
+- Mechanics as a new extensibility/runtime system and mechanics-specific lifecycle or authorization work.
+- Isolated-world/multi-world behavior beyond scope checks already required by existing operations.
+- Registry audit, world-creation capability decisions, and rule-module/template metadata access when their only purpose is to support the not-yet-introduced mechanics or isolated-world capabilities.
+- New generation registries/lifecycle APIs, outboxes/change feeds, storage models, serializers, or schemas invented solely to anticipate future features. These require an owner-approved contract and a demonstrated current consumer before implementation.
+
+Some older sections retain historical findings and forward-looking wording from earlier audits. Read those as historical context only where they conflict with this scope correction. In particular, CORE-CAP-06 and the capability-matrix item in section 9 are **deferred scope**, not current-stage blockers, unless a concrete existing block integration is shown to rely on the affected route. Do not remove valid security checks from existing routes; this classification only prevents future-feature gaps from being promoted into current requirements.
+
+### Reporting rule
+
+Every remaining Core gate must be labeled one of: **current-stage required**, **current-stage open question**, **deferred**, or **unverified**. A future capability does not become current-stage required merely because an older audit listed it. This is a scope correction, not approval to merge PR #133 or to change another block's branch.
+
+
+## 10. Core-owned Memory/NPC integration gate resolution
+
+**Decision refresh:** 2026-10-24. This section resolves what can be decided from current Core runtime evidence. It does not authorize production Memory→NPC wiring or invent a missing interface.
+
+### Gate A — authorized read: resolved as fail-closed, policy remains unapproved
+
+- The existing `AuthorizedReadService` requires trusted application-supplied `fieldPolicy`; its policy decision is evaluated for authenticated adapter binding, in-world actor, recipient, purpose, and requested fields. Missing/throwing decisions deny. The HTTP default remains limited to the bound actor's own non-attribute identity fields.
+- The concrete production policy for Memory/NPC, other actors, derived summaries, snippets, counts, and diagnostics is **not approved/configured**. No Memory/NPC consumer may infer access from actor identity, manifest membership, retrieval success, or caller-supplied labels.
+- Before enabling a consumer, exercise the real authorized-read/serialization path for unauthorized field, unauthorized target, withheld-versus-missing non-disclosure, cross-world target, policy absent/throwing, and derived-summary non-disclosure. The existing self-identity route tests do not satisfy these wider cases.
+
+### Gate B — source identity/version: no universal contract; source-specific fail-closed rule
+
+- Core canonical entity, fact, event, and manifest references have structural identifiers. These are not interchangeable source-version tokens. A manifest item's optional `content_hash` identifies submitted content; it does not authenticate its producer or prove that the underlying source remains valid.
+- The verified state snapshot provides `world_revision` and `commit_sequence` from one transaction. Both are required for snapshot freshness because rollback can change revision without advancing the event sequence. Neither marker is a durable per-source change journal.
+- **Decision:** do not introduce a universal Memory source ID/version field. For any source kind without a verified authoritative version/validity check on its actual read path, Memory must classify source-dependent use as unverifiable and withhold/reject it rather than treating retrieval or a manifest reference as proof of freshness. A future source-kind contract must name its existing canonical identity, authoritative validity/version check, and real-path test.
+
+### Gate C — rollback/reconciliation: design choice deliberately not guessed
+
+- Current evidence does not establish a durable source-change feed/outbox or a complete production Memory→NPC consumer. The composite snapshot marker alone cannot guarantee detection of all source validity changes.
+- Do not implement an outbox, cursor, polling API, schema, or parallel ledger in this pass. Before choosing journal, revision-triggered full reconciliation, or a hybrid, the Memory/NPC owners must identify the concrete consumer operation, maximum acceptable stale interval, source classes, retraction semantics, and recovery behavior. If those constraints are not agreed, production consumption remains disabled.
+
+**Option comparison (decision support only; no option is approved or implemented):**
+
+| Option | What it could guarantee | Limits / cost | Current disposition |
+|---|---|---|---|
+| Durable Core change journal / outbox | A consumer can resume from durable canonical change records, including explicitly represented invalidation/rollback entries, if those records are committed atomically with the canonical change. | Requires an approved journal schema/API, event identity and retention rules, rollback/retraction representation, and a durable consumer checkpoint. A generic event list or maximum `commit_sequence` is not automatically such a contract; Memory-store atomicity still would not be implied. | Not selected; no approved contract or concrete consumer requirement yet. |
+| Revision-triggered full reconciliation | A consumer compares both `world_revision` and `commit_sequence` and revalidates its relevant sources when either marker changes. The revision catches the known rollback case where the commit sequence does not advance. | Requires a defined polling/trigger interval and a complete source inventory. It may be expensive, and it does not by itself detect Memory-only revocation or a source change that does not alter the Core snapshot markers. Staleness lasts until the next reconciliation. | Candidate only; Memory/NPC must state volume and maximum stale interval. |
+| Hybrid journal plus periodic/full reconciliation | A journal provides low-latency incremental invalidation; reconciliation repairs missed notifications, restarts, cursor loss, or journal retention gaps. | Highest implementation and operational complexity; still needs an approved journal, checkpoint semantics, reconciliation authority, retention, and conflict/retraction rules. | Candidate only; not justified until the actual consumer and failure/recovery requirements are agreed. |
+
+**Decision rule:** select only after Memory/NPC identify the exact consumer operation, source classes, maximum stale interval, expected volume, revocation/retraction semantics, and restart/recovery requirements. Until then the correct Core result is to keep the consumer disabled, not to guess a strategy.
+- Required real-path acceptance: a source becomes stale/retracted without an increased `commit_sequence`; consumer rejects/withholds it, reconciliation converges after rollback/revocation, and restart/retry does not resurrect invalid knowledge. Test both same-process and restart recovery where applicable.
+
+### Gate D — persistence and transaction ownership
+
+- Core canonical event, projection, rollback, audit, and idempotency behavior remains owned by the existing Core transaction path; reuse it rather than writing canonical state from Memory/NPC.
+- Memory may own archival/index records, but no atomic transaction across a Memory-owned store and Core canonical events/audit is established. Do not claim cross-store atomicity or place a duplicate delivery/acquisition/belief/causal ledger in Core.
+- A future integration contract must state the durable write owner for each semantic record, the retry/idempotency boundary, and how partial completion is reconciled. Acceptance must inject failure at each cross-boundary step and prove no false delivery/knowledge claim survives.
+
+### Gate E — production enablement checklist
+
+Production Memory→NPC consumption stays **blocked** until all are true:
+
+1. Core + Memory/NPC approve the trusted recipient/actor/purpose/field policy and its deployment configuration.
+2. Each consumed source kind has a verified authoritative identity and validity/version rule, or is rejected as unverifiable.
+3. A named change/reconciliation strategy covers rollback and revocation without relying on `commit_sequence` alone.
+4. Record ownership, persistence, retry/idempotency, and recovery boundaries are explicit; no unsupported cross-store atomicity claim.
+5. Real production-path tests pass for unauthorized-field non-disclosure, stale/retracted-source rejection, rollback with unchanged `commit_sequence`, revocation/reconciliation, and restart-safe recovery.
+6. Core matrix and Memory/NPC acceptance documents cite the exact test/run and exact tested commit.
+
+**Current outcome:** documentation/decision boundary is clarified; the production consumer is not enabled. This gate is independent of mechanics and isolated worlds, which remain deferred.
+
+
+### Gate F — direct in-process read and serializer inventory (current-main source check)
+
+This is a bounded inventory of the code present in this repository, not a claim about external host/orchestrator integrations.
+
+| Path / seam | Observed behavior | Evidence / disposition |
+|---|---|---|
+| `src/application/engine.js`: `getSnapshot`, `getState`, `getEvents`, `getAudit` | Trusted internal methods return canonical snapshot/state/history/audit; they do not apply actor/recipient/field authorization themselves. | Treat as trusted internal APIs only. Any host that serializes their result to a model/player/adapter must apply an approved boundary first. |
+| `src/application/authorized-read-service.js`: `AuthorizedReadService.readEntityFields` | Resolves the actor binding, requests bounded entity snapshots, invokes the trusted field policy per field, fails closed for missing/withheld targets, and returns both `world_revision` and `commit_sequence`. | Current approved seam for bounded entity-field reads; no production Memory/NPC policy is configured. Tests: `tests/authorized-read-service.test.js` and `tests/authorized-read-api.test.js`. |
+| `src/api/server.js`: `POST .../authorized-read` | The HTTP route is the only in-repository caller that constructs a model-recipient authorized read. The raw `state`, `events`, and `audit` GET routes require the separate internal or admin credential. | HTTP boundary evidence is in `tests/authorized-read-api.test.js`; this does not authenticate any external host serializer. |
+| `src/index.js`: server construction | The shipped entry point does not pass `authorizedReadFieldPolicy`; therefore it runs the deliberate self-identity-only default. A host can inject a trusted callback only when it constructs `createApiServer` itself. | No configured production Memory/NPC visibility policy exists in the shipped entry point; do not describe the hook as enabled by environment configuration. |
+| `src/application/character-card-projection.js`: `projectCharacterCard` | Pure projection over a caller-supplied snapshot; requires an explicit entity-type allowlist and emits identity/type/status plus limited source/revision metadata. It does not read storage, apply authorization, or establish access. | It must only receive an already-authorized snapshot when used for a protected consumer. No route/call site in `src/api/server.js` currently wires this projector into a production response. Test: `test/character-card-projection.test.js`. |
+| `src/application/proposals.js` via API | Proposal reads are adapter-owner-scoped, with an explicit admin read path; internal commit uses the internal credential and approved lifecycle. | Existing route-level behavior; not a general snapshot serializer. See proposal ownership/commit cases in `tests/api.test.js`. |
+
+**Result of this inventory:** within the checked-in runtime, no production Memory→NPC consumer or character-card response route was found. The concrete in-repository model-facing read is the bounded authorized-read route, whose shipped default remains self-only. Direct engine methods and the card projector remain trusted/internal building blocks, not an alternate public visibility path. This closes only the repository inventory/documentation subtask; it does not prove how an external host serializes data.
+
+**Acceptance for any future in-process consumer:** name its exact call site, show that authorization runs before serialization (including snippets/counts/diagnostics and derived summaries), carry the composite freshness markers, and add a real-path non-disclosure test on the exact consuming boundary. Until such a consumer exists in this repository, classify external host wiring as **unverified / owner contract required**, not as a runtime defect that justifies inventing a new API.
