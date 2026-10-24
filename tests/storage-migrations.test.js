@@ -67,6 +67,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   assert.ok(eventColumns.includes('context_manifest_id'));
   assert.ok(eventColumns.includes('game_time_coordinate'));
   assert.ok(eventColumns.includes('time_advance_ms'));
+  assert.ok(eventColumns.includes('mechanic_execution_json'));
   assert.ok(idempotencyColumns.includes('request_hash'));
   assert.ok(manifestColumns.includes('base_world_revision'));
   assert.deepEqual(
@@ -83,7 +84,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
       { event_id: 'legacy-event-2', game_time_coordinate: 300000, time_advance_ms: 0 },
     ],
   );
-  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7]);
   assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='index' AND name='events_world_commit_sequence'").get().count, 1);
   assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='mechanic_instances'").get().count, 1);
 
@@ -122,7 +123,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
       { event_id: committed.event_id, commit_sequence: 3 },
     ],
   );
-  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6]);
+  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6, 7]);
   assert.equal(reopenedEngine.getState('legacy-world').world_revision, 3);
   assert.equal(reopenedEngine.getState('legacy-world').entities.find((entity) => entity.entity_id === 'post-migration-entity').attributes.migrated, true);
   assert.equal(reopenedEngine.getState('legacy-world').facts.find((fact) => fact.fact_id === 'post-migration-fact').value, true);
