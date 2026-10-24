@@ -567,3 +567,47 @@ test('transaction failures leave commit and rollback state unchanged', (t) => {
   assert.equal(rolledBack.world_revision, 2);
   assert.deepEqual(store.state('atomic-world').entities, []);
 });
+
+test('canonical rollback requires the separate admin credential for every event type', async (t) => {
+  const base = await setup(t, { approvalToken: APPROVAL, adminToken: ADMIN });
+  assert.equal((await createWorld(base, 'rollback-auth-world')).status, 201);
+  const created = await fetch(base + '/v1/worlds/rollback-auth-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'rollback-auth-proposal',
+      source_text: '',
+      event: {
+        turn_id: 'rollback-auth-turn',
+        event_type: 'action.completed',
+        effects: [{ kind: 'entity.create', entity_id: 'rollback-auth-entity', entity_type: 'character', attributes: { name: 'Rollback target' } }],
+      },
+    }),
+  });
+  assert.equal(created.status, 201);
+  const proposal = (await created.json()).proposal;
+  const approved = await fetch(base + '/v1/worlds/rollback-auth-world/proposals/' + proposal.proposal_id + '/approve', {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  });
+  assert.equal(approved.status, 200);
+  const committed = await fetch(base + '/v1/worlds/rollback-auth-world/proposals/' + proposal.proposal_id + '/commit', {
+    method: 'POST', headers, body: '{}',
+  });
+  assert.equal(committed.status, 200);
+  const eventId = (await committed.json()).commit_result.event_id;
+  const rollbackUrl = base + '/v1/worlds/rollback-auth-world/rollback';
+  const request = { root_event_id: eventId, idempotency_key: 'rollback-auth-operation' };
+
+  const denied = await fetch(rollbackUrl, { method: 'POST', headers, body: json(request) });
+  assert.equal(denied.status, 403);
+  assert.equal((await denied.json()).error.code, 'ADMIN_REQUIRED');
+  const stillPresent = await fetch(base + '/v1/worlds/rollback-auth-world/state', {
+    headers: { ...headers, 'x-admin-token': ADMIN },
+  });
+  assert.equal((await stillPresent.json()).state.entities.some((entity) => entity.entity_id === 'rollback-auth-entity'), true);
+
+  const authorized = await fetch(rollbackUrl, {
+    method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN }, body: json(request),
+  });
+  assert.equal(authorized.status, 200);
+  assert.ok((await authorized.json()).invalidated_event_ids.includes(eventId));
+});
