@@ -17,7 +17,7 @@ The current engine validates manifest shape, canonical item identities, world-lo
 
 These checks establish structural consistency and declared-read inclusion. They do **not** establish that the registering caller is a trusted host, that the manifest came from the actual assembled prompt, that every relevant prompt fragment was captured, or that the model attended to or used the listed material.
 
-The current HTTP route `POST /v1/worlds/:world_id/context-manifests` is behind the general API bearer but does not require a separate internal capability or adapter identity. A caller-supplied `generation_id` is a label unless it is bound to a trusted host-side generation record. Hashing the request makes the submitted representation stable; it does not authenticate its origin.
+**Historical route finding, superseded by PR #106:** `POST /v1/worlds/:world_id/context-manifests` now requires the separately configured internal-host credential in addition to the general API bearer. The registration route is therefore no longer available to an ordinary API-bearer caller alone. A caller-supplied `generation_id` remains a label unless it is bound to a trusted host-side generation record. Hashing the request makes the submitted representation stable; it does not authenticate its origin.
 
 ## 2. Semantic limits: do not overclaim
 
@@ -58,7 +58,8 @@ The exact host generation registry, authentication mechanism, and storage repres
 Until the trusted generation registry and host derivation path exist, the HTTP registration route must not be treated as proof-grade provenance.
 
 Recommended interim behavior for review:
-- restrict registration to a separately authenticated trusted internal host capability, or disable external registration entirely;
+- keep registration restricted to the separately authenticated trusted internal host capability (implemented by PR #106); do not grant this capability to model-facing code;
+- do not treat the internal credential alone as proof of generation ownership or of the exact prompt assembled for a generation;
 - do not let a normal adapter/API bearer register manifests that are later interpreted as trusted host provenance;
 - keep existing manifest-aware commit checks, but describe their assurance accurately as structural validation of caller-supplied metadata;
 - if a proposal claims a manifest/generation binding that cannot be verified against trusted host state, reject it rather than falling back to caller assertion;
@@ -126,3 +127,9 @@ Until these gates are resolved, treat context manifests as useful structural met
 ## Current-main status (2026-10-24)
 
 PR #106 now requires the separately configured internal-host credential for `POST /v1/worlds/:world_id/context-manifests`; the general API bearer alone is denied. This closes the route-level registration authority gap but does not bind the manifest to a trusted generation record, prove which context was actually prepared or used, or establish a trusted producer/approval record. PR #65's read controls, PR #83's rollback controls, PR #101's opt-in read policy seam, PR #103's proposal-commit ownership check, and PRs #94–#96's Relationship writer do not close those remaining gaps. Do not accept caller-supplied `producer`, `origin`, or generation labels as authority.
+
+## Current-main disposition — 2026-10-24
+
+- [PR #106](https://github.com/necromorphic/Logic-Engine/pull/106) implements the interim internal-host gate. Exact-head Runtime CI passed on `407e523afebf96c85ffa4e156dedb32f4710adcd` ([run #753](https://github.com/necromorphic/Logic-Engine/actions/runs/40065560451)).
+- [PR #114](https://github.com/necromorphic/Logic-Engine/pull/114) makes trusted operational state reads transaction-bound and includes `commit_sequence` with `world_revision`; it does not add generation binding.
+- Still **not implemented**: trusted generation creation/ownership/lifecycle, server-derived binding between generation and manifest, verified derivation from actual authorized assembled context, cancellation/supersession, and source-lineage authorization. Until those gates exist, a manifest is a structurally validated host assertion, not proof of model attention, causal completeness, or access permission.
