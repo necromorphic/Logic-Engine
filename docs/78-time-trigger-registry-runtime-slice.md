@@ -37,6 +37,8 @@ All routes require the general bearer token and the separately configured `x-eng
 - `GET /v1/worlds/:id/time-triggers/:trigger_id` — read one record.
 - `POST /v1/worlds/:id/time-triggers/:trigger_id/cancel` — cancel a pending unclaimed trigger (or one whose claiming operation is no longer running), with an optional reason.
 
+Trigger event proposals are validated against the active world TimePolicy both when registered (if a policy is already active) and again when planned for execution. A world without an active TimePolicy retains the legacy registration path, but execution after a policy is configured must satisfy that policy; a positive or author-required duration rule cannot be bypassed by a zero-duration scheduled effect.
+
 A `POST /v1/worlds/:id/time-advances` request that omits `triggers` uses registered triggers. Supplying `triggers` selects the existing request-scoped compatibility path. The two sources cannot be mixed in one request, and request-scoped mode is rejected if it would cross any registered pending trigger.
 
 ## Explicit limitations
