@@ -32,7 +32,7 @@ async function setup(t) {
   });
   engine.commitEvent('actor-world', {
     idempotency_key: 'destroy-actor', turn_id: 'destroy', event_type: 'action.completed',
-    effects: [{ kind: 'entity.destroy', entity_id: 'npc-dead' }],
+    effects: [{ kind: 'entity.upsert', entity_id: 'npc-dead', entity_type: 'character', status: 'destroyed', attributes: { name: 'Dead' } }],
   });
   return 'http://127.0.0.1:' + server.address().port;
 }
