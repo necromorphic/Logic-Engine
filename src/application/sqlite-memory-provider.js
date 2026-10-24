@@ -14,6 +14,7 @@ const sameSnapshot = (a, b) => !!snapshotOf(a) && !!snapshotOf(b)
   && a.world_revision === b.world_revision && a.commit_sequence === b.commit_sequence;
 const decode = (value) => JSON.parse(value);
 const encode = (value) => JSON.stringify(value);
+const rawDigest = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 
 /**
  * Durable provider adapter for the direct canonical-entity first slice.
@@ -119,7 +120,7 @@ export class SQLiteMemoryProvider {
     try { metadataJson = encode(input.metadata ?? {}); } catch {
       throw new TypeError('Invalid raw Memory capture metadata');
     }
-    const digest = createHash('sha256').update(input.content, 'utf8').digest('hex');
+    const digest = rawDigest(input.content);
     const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
     const existing = this.db.prepare(`SELECT * FROM memory_raw_captures
       WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
@@ -159,6 +160,7 @@ export class SQLiteMemoryProvider {
       WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
       .get(input.world_id, input.conversation_id, input.message_id, input.version_id);
     if (!row || row.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
+    if (rawDigest(row.content_text) !== row.content_sha256) throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
     return Object.freeze({
       world_id: row.world_id, conversation_id: row.conversation_id, message_id: row.message_id,
       version_id: row.version_id, role: row.role, content: row.content_text,
@@ -182,6 +184,9 @@ export class SQLiteMemoryProvider {
         AND c.version_id=a.version_id
       WHERE a.world_id=? AND a.conversation_id=? AND c.deleted_at IS NULL
       ORDER BY c.message_id`).all(input.world_id, input.conversation_id);
+    if (rows.some((row) => rawDigest(row.content_text) !== row.content_sha256)) {
+      throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
+    }
     return rows.map((row) => Object.freeze({
       world_id: row.world_id, conversation_id: row.conversation_id, message_id: row.message_id,
       version_id: row.version_id, role: row.role, content: row.content_text,
