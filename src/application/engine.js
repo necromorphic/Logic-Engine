@@ -6,6 +6,7 @@ import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/me
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
+import { normalizeProcessDefinition } from '../process/model.js';
 
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const strings = (x, name) => {
