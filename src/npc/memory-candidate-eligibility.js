@@ -218,11 +218,8 @@ export function evaluateMemoryCandidateAdmission(request, result) {
       continue;
     }
 
-    const identity = `${candidate.record.ref}\u0000${candidate.record.version}`;
-    if (seen.has(identity)) {
-      continue;
-    }
-    seen.add(identity);
+    const identity = JSON.stringify([candidate.record.ref, candidate.record.version]);
+    if (identityCounts.get(identity) !== 1) continue;
 
     // Only stable reference/version are returned. Content must be fetched or
     // projected by an authorized boundary; this helper never returns content.
