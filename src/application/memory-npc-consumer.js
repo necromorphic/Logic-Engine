@@ -160,7 +160,7 @@ export class MemoryNpcConsumer {
     const uniqueCandidates = [];
     const identitySignatures = new Map();
     for (const candidate of authorizedCandidates) {
-      const identity = candidate.record.ref + '\\u0000' + candidate.record.version;
+      const identity = candidate.record.ref + '\u0000' + candidate.record.version;
       const signature = {
         source_entity_id: candidate.source.entity_id,
         content_kind: candidate.content_kind,
