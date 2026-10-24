@@ -298,3 +298,37 @@ test('raw read rechecks trusted authorization after loading content', async (t) 
   );
   assert.equal(activeChecks, 2);
 });
+
+test('durable raw capture survives derived-index rebuild failure and provider restart', async (t) => {
+  const s = setup(t);
+  const raw = capture({ message_id: 'message-survives-index-failure', version_id: 'generation-raw' });
+  s.provider.captureRawMessage(raw);
+
+  s.provider.putRecord({
+    world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision',
+    record_ref: 'memory:index-failure', record_version: 'v1',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-a', source_version: 'source-v1',
+    content_kind: 'claim', epistemic_kind: 'acquired_report', producer_kind: 'test',
+    content_disposition: 'usable', evidence_assessment: 'unassessed',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-a', source_version: 'source-v1' }],
+  });
+  s.provider.db.exec(`CREATE TRIGGER fail_derived_index BEFORE INSERT ON memory_index_entries
+    BEGIN SELECT RAISE(ABORT, 'injected derived-index failure'); END;`);
+  await assert.rejects(
+    () => s.provider.rebuildIndex('world-a'),
+    /injected derived-index failure/,
+  );
+  assert.equal(s.provider.getIndexStatusForDiagnostics('world-a').index_health, 'unavailable');
+
+  s.reopen();
+  const stored = s.provider.db.prepare(`SELECT content_text,content_sha256,deleted_at FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get(raw.world_id, raw.conversation_id, raw.message_id, raw.version_id);
+  assert.equal(stored.content_text, raw.content);
+  assert.equal(stored.content_sha256, createHash('sha256').update(raw.content, 'utf8').digest('hex'));
+  assert.equal(stored.deleted_at, null);
+  await assert.rejects(
+    () => s.provider.retrieveCandidates({ world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' }),
+    /MEMORY_INDEX_NOT_READY/,
+  );
+});
