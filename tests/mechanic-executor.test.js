@@ -311,3 +311,25 @@ test('application executor rejects conflicting writes to the same entity or fact
   assert.equal(factResult.reason_code, 'MECHANIC_EFFECT_WRITE_CONFLICT');
   assert.deepEqual(factResult.effects, []);
 });
+
+
+test('mechanic proposal handoff detects evaluation payload tampering via fingerprint', (t) => {
+  const { engine, worldId } = setup(t, 'executor-fingerprint-world');
+  enableFixture(engine, worldId);
+  const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  const proposals = new ProposalService(engine);
+  assert.throws(
+    () => proposals.createFromMechanicEvaluation(worldId, {
+      ...evaluation,
+      context_policy_version: 'different-policy-version',
+    }, {
+      idempotencyKey: 'tampered-evaluation',
+      turnId: 'turn-tampered-evaluation',
+      sourceText: 'Tampered evaluation must not be proposed.',
+      adapterId: 'test-adapter',
+    }),
+    (error) => error.code === 'INVALID_MECHANIC_EVALUATION_FINGERPRINT',
+  );
+  assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
+});
