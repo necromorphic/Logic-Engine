@@ -167,9 +167,9 @@ export class LogicEngine {
   getMechanicInstance(worldId, instanceId) { return this.store.getMechanicInstance(worldId, instanceId); }
   listMechanicInstances(worldId) { return this.store.listMechanicInstances(worldId); }
 
-  prepareEvent(x) {
+  prepareEvent(x, options = {}) {
     assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
-    const allowedFields = ['idempotency_key', 'turn_id', 'event_type', 'event_id', 'expected_revision', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
+    const allowedFields = ['idempotency_key', 'turn_id', 'event_type', 'event_id', 'expected_revision', 'expected_commit_sequence', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
     assert(Object.keys(x).every((key) => allowedFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event proposal contains an unsupported top-level field.');
     assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key required.');
     assert(typeof x.turn_id === 'string' && x.turn_id.trim() && x.turn_id.length <= 200, 'TURN_ID_REQUIRED', 'turn_id required.');
@@ -179,6 +179,7 @@ export class LogicEngine {
       assert(!x.event_id.trim().startsWith('entity:') && !x.event_id.trim().startsWith('fact:'), 'INVALID_EVENT_ID', 'event_id cannot use the reserved entity: or fact: reference prefixes.');
     }
     if (x.expected_revision !== undefined) assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision must be non-negative.');
+    if (x.expected_commit_sequence !== undefined) assert(Number.isSafeInteger(x.expected_commit_sequence) && x.expected_commit_sequence >= 0, 'INVALID_COMMIT_SEQUENCE', 'expected_commit_sequence must be non-negative.');
     if (x.context_manifest_id !== undefined) assert(typeof x.context_manifest_id === 'string' && x.context_manifest_id.trim() && x.context_manifest_id.length <= 200, 'INVALID_CONTEXT_MANIFEST_ID', 'context_manifest_id must be a non-empty string of at most 200 characters.');
     if (x.generation_id !== undefined && x.generation_id !== null) assert(typeof x.generation_id === 'string' && x.generation_id.trim() && x.generation_id.length <= 200, 'INVALID_GENERATION_ID', 'generation_id must be a non-empty string of at most 200 characters.');
 
@@ -190,7 +191,7 @@ export class LogicEngine {
     if (seconds > 0) assert(['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Invalid event type for time advance.');
 
     const effects = x.effects ?? [];
-    validateEffects(effects);
+    validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
     const request = {
       operation: 'event.commit',
       event_id: x.event_id ?? null,
@@ -200,6 +201,7 @@ export class LogicEngine {
       source_message_id: x.source_message_id ?? null,
       event_type: x.event_type.trim(),
       expected_revision: x.expected_revision ?? null,
+      expected_commit_sequence: x.expected_commit_sequence ?? null,
       time_advance_seconds: seconds,
       time_mode: x.time_mode ?? 'action',
       caused_by: strings(x.caused_by, 'caused_by'),
@@ -217,6 +219,51 @@ export class LogicEngine {
 
   commitEvent(id, x) {
     return this.store.commit(id, this.prepareEvent(x));
+  }
+
+
+  commitRelationshipTransition(id, x) {
+    assert(obj(x), 'INVALID_RELATIONSHIP_TRANSITION', 'Relationship transition request must be an object.');
+    const allowed = ['subject_id', 'target_id', 'rule_module_id', 'rule_module_version', 'patch', 'evidence_refs', 'expected_revision', 'expected_commit_sequence', 'idempotency_key'];
+    assert(Object.keys(x).every((key) => allowed.includes(key)), 'UNSUPPORTED_RELATIONSHIP_TRANSITION_FIELD', 'Relationship transition contains an unsupported field.');
+    for (const key of ['subject_id', 'target_id', 'rule_module_id', 'rule_module_version', 'idempotency_key']) {
+      assert(typeof x[key] === 'string' && x[key].trim() && x[key].length <= 200, 'INVALID_RELATIONSHIP_TRANSITION', key + ' must be a non-empty string of at most 200 characters.');
+    }
+    assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision is required and must be non-negative.');
+    assert(Number.isSafeInteger(x.expected_commit_sequence) && x.expected_commit_sequence >= 0, 'INVALID_COMMIT_SEQUENCE', 'expected_commit_sequence is required and must be non-negative.');
+    const operationKey = x.idempotency_key.trim();
+    const requestIdentity = hashRequest({ operation: 'relationship.transition', world_id: id, idempotency_key: operationKey });
+    const prepared = this.prepareEvent({
+      idempotency_key: 'relationship-transition:' + requestIdentity,
+      turn_id: 'relationship-transition:' + requestIdentity.slice(0, 32),
+      event_type: 'relationship.transition',
+      expected_revision: x.expected_revision,
+      expected_commit_sequence: x.expected_commit_sequence,
+      effects: [{
+        kind: 'relationship.transition',
+        subject_id: x.subject_id.trim(),
+        target_id: x.target_id.trim(),
+        rule_module_id: x.rule_module_id.trim(),
+        rule_module_version: x.rule_module_version.trim(),
+        patch: x.patch,
+        evidence_refs: x.evidence_refs,
+        executor_type: 'admin_credential',
+      }],
+    }, { allowRelationshipTransition: true });
+    prepared.request_hash = hashRequest({
+      operation: 'relationship.transition',
+      world_id: id,
+      idempotency_key: operationKey,
+      expected_revision: x.expected_revision,
+      expected_commit_sequence: x.expected_commit_sequence,
+      subject_id: x.subject_id.trim(),
+      target_id: x.target_id.trim(),
+      rule_module_id: x.rule_module_id.trim(),
+      rule_module_version: x.rule_module_version.trim(),
+      patch: x.patch,
+      evidence_refs: x.evidence_refs,
+    });
+    return this.store.commit(id, prepared);
   }
 
   validateEvent(id, x) {
