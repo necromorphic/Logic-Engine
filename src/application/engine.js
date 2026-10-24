@@ -229,7 +229,11 @@ export class LogicEngine {
 
   prepareEventForWorld(id, x, options = {}) {
     const config = this.store.getTimeConfiguration(id);
-    if (!config) return this.prepareEvent(x, options);
+    if (!config) {
+      assert(x.duration_proposal === undefined || x.duration_proposal === null,
+        'TIME_POLICY_REQUIRED', 'Duration proposals require an active versioned TimePolicy.');
+      return this.prepareEvent(x, options);
+    }
     const policy = config.time_policy;
     if (x.time_mode === 'explicit_skip') {
       const seconds = x.time_advance_seconds ?? 0;
