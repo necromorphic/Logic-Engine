@@ -10,6 +10,7 @@ test('HTTP API rejects request bodies larger than 1 MiB', async (t) => {
   const server = createApiServer({
     engine: new LogicEngine(store),
     token: 'test-token-long-enough-123456',
+    adminToken: 'admin-token-long-enough-123456',
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
@@ -26,6 +27,7 @@ test('HTTP API rejects request bodies larger than 1 MiB', async (t) => {
     headers: {
       authorization: 'Bearer test-token-long-enough-123456',
       'content-type': 'application/json',
+      'x-admin-token': 'admin-token-long-enough-123456',
     },
     body,
   });
