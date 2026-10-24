@@ -190,6 +190,7 @@ test('a running operation claim prevents concurrent trigger cancellation', (t) =
     segments: [{
       coordinate: 10000,
       trigger_ids: ['claimed'],
+      registered_trigger_ids: ['claimed'],
       idempotency_key: 'running-segment-key',
       request_hash: 'running-segment-hash',
       events: [event],
