@@ -30,6 +30,7 @@ const processDefinition = (overrides = {}) => ({
       read_set: ['entity:traveller'],
       write_set: ['entity:traveller'],
       event: { event_type: 'process.departure', effects: [] },
+    },
   ],
   ...overrides,
 });
