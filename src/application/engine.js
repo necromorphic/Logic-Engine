@@ -405,11 +405,9 @@ export class LogicEngine {
     assert(Number.isSafeInteger(expectedRevision) && expectedRevision >= 0,
       'TIMED_EVENT_REVISION_REQUIRED', 'A direct timed commit requires expected_revision so trigger registration cannot race the time boundary.');
     const world = this.getState(id);
-    if (world.world_revision !== expectedRevision) {
-      throw new EngineError('REVISION_CONFLICT', 'World changed before the timed event could be committed.', 409, {
-        expected_revision: expectedRevision, current_revision: world.world_revision,
-      });
-    }
+    // Do not reject stale revisions here: SQLiteStore checks idempotency replay
+    // before revision freshness, so an identical completed request can replay.
+    // A new stale request is still rejected by the canonical commit boundary.
     let targetCoordinate;
     try {
       targetCoordinate = addTimeDuration(world.game_time_coordinate, durationMs);
