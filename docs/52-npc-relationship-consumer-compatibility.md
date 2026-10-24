@@ -169,3 +169,31 @@ Therefore, NPC can proceed with semantic consumer tests and contract traceabilit
 **Independent alternative support:** explicitly unsupported in the first slice unless a separately approved domain sufficiency rule and Core-owned representation/reducer or deterministic replay contract establish it.
 
 No Core question is raised by this document. If a later implementation decision requires Core-owner input, route the precise question through the project owner rather than contacting the Core discussion directly.
+
+
+## 10. Executable test-seam audit (2026-10-24)
+
+A repository tree inspection was performed on `feat/npc-subsystem` and compared with `main`.
+
+Observed branch contents:
+
+- `src/application/` contains `engine.js` and `proposals.js`.
+- `src/core/` contains errors, mechanics, request hashing, and rules modules.
+- The branch's `tests/` directory contains API, core, causality-contract, mechanics-registry, and mechanics-schema tests.
+- No NPC-specific runtime module, relationship-consumer module, bounded relationship projection, or corresponding NPC consumer test file is present in the inspected tree.
+- `main` has additional actor-binding, snapshot-read, tri-state, and mechanic-evaluation tests, but these are Core/runtime tests, not an NPC relationship-consumer implementation.
+
+### Decision
+
+**Do not add NPC-REL-CONS tests as if a production consumer already exists.** There is currently no actual NPC consumer function to exercise. Writing tests around a locally invented interface, a mock of the absent projection, or a new shadow relationship data model would only prove the test author's assumptions and would violate the boundary in this document.
+
+The current executable evidence is limited to existing Core tests and the isolated Relationship evaluator suite cited above. Neither is an NPC consumer pass. The 13 NPC-REL-CONS cases remain specified semantic acceptance criteria, not implemented or passing tests.
+
+### What can proceed without a new Core contract
+
+1. Keep the acceptance-ID crosswalk and use it when a real consumer seam is introduced.
+2. Review existing Core tests only for directly relevant invariants; do not relabel their results as NPC acceptance.
+3. When an actual NPC consumer boundary is added under an approved design, implement pure tests against that real function for directionality, omitted dimensions, status separation, no knowledge leakage, conduct-vs-state, read-only summaries, and player agency.
+4. Keep actor/purpose authorization, trusted provenance, canonical writes, stale projection rejection, and rollback/replay marked blocked until production interfaces exist and are exercised.
+
+No runtime code, public API, schema, Core implementation, or Relationship branch was changed by this audit.
