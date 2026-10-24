@@ -146,6 +146,7 @@ export class ProposalService {
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
       condition_result: evaluation.condition_result,
+      dependency_manifest: evaluation.dependency_manifest,
       effects: evaluation.effects,
       effect_provenance: evaluation.effect_provenance,
     });
@@ -194,6 +195,7 @@ export class ProposalService {
       context_fingerprint: evaluation.context_fingerprint,
       context_policy_version: evaluation.context_policy_version,
       evaluation_fingerprint: evaluation.evaluation_fingerprint,
+      dependency_manifest: evaluation.dependency_manifest,
       effect_provenance: provenance,
       dependency_completeness: 'not_proven',
       semantic_review_required: true,
