@@ -132,7 +132,7 @@ test("missing lifecycle dimensions fail closed without freezing owner-defined va
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.rejected, [{ reason: "lifecycle_dimensions_incomplete" }]);
 
-  const ownerDefinedValues = candidate({
+  const unknownLifecycleValues = candidate({
     lifecycle: {
       content_disposition: "owner-value-a",
       source_reconciliation: "owner-value-b",
@@ -141,7 +141,27 @@ test("missing lifecycle dimensions fail closed without freezing owner-defined va
       index_health: "owner-value-e",
     },
   });
-  assert.equal(evaluateMemoryCandidateAdmission(request, completeResult([ownerDefinedValues])).status, "ready");
+  const unknownResult = evaluateMemoryCandidateAdmission(request, completeResult([unknownLifecycleValues]));
+  assert.equal(unknownResult.status, "non_ready");
+  assert.deepEqual(unknownResult.rejected, [{ reason: "lifecycle_not_admissible" }]);
+});
+
+test("lifecycle deny, stale source, unusable content, and unhealthy index fail closed", () => {
+  const variants = [
+    { content_disposition: "deleted" },
+    { source_reconciliation: "pending_reconciliation" },
+    { access_outcome: "deny" },
+    { index_health: "rebuilding" },
+  ];
+
+  for (const lifecycleChange of variants) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ lifecycle: { ...candidate().lifecycle, ...lifecycleChange } }),
+    ]));
+    assert.equal(result.status, "non_ready");
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.rejected, [{ reason: "lifecycle_not_admissible" }]);
+  }
 });
 
 test("missing or unknown content kind fails closed", () => {
