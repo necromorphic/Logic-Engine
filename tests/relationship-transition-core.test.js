@@ -111,6 +111,71 @@ test('API rejects ordinary bearer without the separate admin credential and does
   }
 });
 
+test('Relationship transition route rejects missing, wrong, or standalone admin credentials without mutation', async () => {
+  const { store, engine, seed } = await fixture();
+  const server = createApiServer({ engine, token, adminToken });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const port = server.address().port;
+    const url = 'http://127.0.0.1:' + port + '/v1/worlds/world-relationship-test/relationship-transitions';
+    const body = JSON.stringify(transitionRequest(seed));
+    const attempts = [
+      { headers: { authorization: 'Bearer ' + token, 'content-type': 'application/json' }, expected: 403 },
+      { headers: { authorization: 'Bearer ' + token, 'x-admin-token': 'wrong-admin-token', 'content-type': 'application/json' }, expected: 403 },
+      { headers: { 'x-admin-token': adminToken, 'content-type': 'application/json' }, expected: 401 },
+    ];
+    for (const attempt of attempts) {
+      const response = await fetch(url, { method: 'POST', headers: attempt.headers, body });
+      assert.equal(response.status, attempt.expected);
+      const payload = await response.json();
+      assert.ok(payload.error);
+      assert.equal(JSON.stringify(payload).includes('trust'), false);
+      assert.equal(JSON.stringify(payload).includes('relationship'), false);
+    }
+    assert.equal(engine.getState('world-relationship-test').world_revision, 1);
+    assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+    assert.equal(engine.getEvents('world-relationship-test').length, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+  }
+});
+
+test('HTTP idempotent retry returns the established transition without a second event', async () => {
+  const { store, engine, seed } = await fixture();
+  const server = createApiServer({ engine, token, adminToken });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = 'http://127.0.0.1:' + server.address().port + '/v1/worlds/world-relationship-test/relationship-transitions';
+    const request = {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ' + token,
+        'x-admin-token': adminToken,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(transitionRequest(seed)),
+    };
+    const first = await fetch(url, request);
+    assert.equal(first.status, 201);
+    const firstPayload = await first.json();
+    assert.equal(firstPayload.commit_result.accepted, true);
+    assert.equal(firstPayload.relationship.dimensions.trust, 'low');
+
+    const retry = await fetch(url, request);
+    assert.equal(retry.status, 200);
+    const retryPayload = await retry.json();
+    assert.equal(retryPayload.commit_result.idempotent_replay, true);
+    assert.equal(retryPayload.commit_result.event_id, firstPayload.commit_result.event_id);
+    assert.equal(engine.getEvents('world-relationship-test').length, 2);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 2);
+    assert.equal(engine.getAudit('world-relationship-test').filter((entry) => entry.target_id === firstPayload.commit_result.event_id && entry.action === 'event.committed').length, 1);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+  }
+});
+
 test('admin route commits through the canonical event lifecycle and returns the current directed projection', async () => {
   const { store, engine, seed } = await fixture();
   const server = createApiServer({ engine, token, adminToken });
