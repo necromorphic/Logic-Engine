@@ -64,8 +64,19 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   assert.ok(eventColumns.includes('causal_links_json'));
   assert.ok(eventColumns.includes('commit_sequence'));
   assert.ok(eventColumns.includes('context_manifest_id'));
+  assert.ok(eventColumns.includes('game_time_coordinate'));
+  assert.ok(eventColumns.includes('time_advance_ms'));
   assert.ok(idempotencyColumns.includes('request_hash'));
   assert.ok(manifestColumns.includes('base_world_revision'));
+  const migratedWorld = store.db.prepare('SELECT initial_game_time_coordinate,game_time_coordinate FROM worlds WHERE world_id=?').get('legacy-world');
+  assert.deepEqual(migratedWorld, { initial_game_time_coordinate: 0, game_time_coordinate: 300000 });
+  assert.deepEqual(
+    store.db.prepare('SELECT event_id,game_time_coordinate,time_advance_ms FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world'),
+    [
+      { event_id: 'legacy-event-1', game_time_coordinate: 60000, time_advance_ms: 0 },
+      { event_id: 'legacy-event-2', game_time_coordinate: 300000, time_advance_ms: 0 },
+    ],
+  );
   assert.deepEqual(
     store.db.prepare('SELECT event_id,commit_sequence FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world').map((row) => ({ event_id: row.event_id, commit_sequence: row.commit_sequence })),
     [{ event_id: 'legacy-event-1', commit_sequence: 1 }, { event_id: 'legacy-event-2', commit_sequence: 2 }],
