@@ -128,6 +128,16 @@ export function evaluateCondition(rule, context, depth = 0) {
  * The legacy evaluateCondition API intentionally retains its Boolean behavior for
  * existing callers. This result API treats a missing path as unknown unless the
  * caller explicitly proves that path is absent in the evaluation snapshot.
+ *
+ * The returned `status` is the condition result. `unknown_paths` is diagnostic:
+ * it lists unresolved leaves visited during evaluation even when a decisive
+ * sibling makes the overall status true or false (for example, all(false, unknown)
+ * returns status false and still reports the unresolved path). Consumers must not
+ * override a decisive status merely because this diagnostic list is non-empty.
+ *
+ * `knownAbsentPaths` is a trusted-caller assertion, not authenticated evidence.
+ * Callers must derive it from the same consistent, authorized snapshot as context;
+ * never populate it directly from model- or user-supplied claims.
  */
 export function evaluateConditionResult(rule, context, options = {}) {
   if (!options || typeof options !== 'object' || Array.isArray(options)) {
