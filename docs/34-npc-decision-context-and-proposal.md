@@ -300,7 +300,7 @@ The following are intentionally unresolved, not hidden implementation assumption
 6. How the caller communicates a blocked decision without accidentally leaking restricted content.
 7. Which of these guarantees can be proven at a real boundary and therefore deserve executable tests.
 
-Until those questions have evidence-backed answers, keep these as design acceptance criteria. Do not add tests that assume a tri-state core evaluator, a new knowledge store, actor authorization inside `ProposalService`, or a new manifest schema.
+Core dependency refresh (2026-10-24): `main` now includes the opt-in `evaluateConditionResult(...)` tri-state API, the bounded `LogicEngine.getSnapshot(...)` read, and the mechanic/context snapshot extension (PRs #45, #46, and #49; current main `8602a9ed41f13f536d87b1103a02e8fd12de3b03`, Runtime tests #378 passed). This removes the former assumption that no tri-state primitive exists, but does not resolve the actor-specific questions above. Until those questions have evidence-backed answers, keep the remaining items as design acceptance criteria. Do not add tests that assume a complete NPC actor filter, a new knowledge store, actor authorization inside `ProposalService`, or a new manifest schema. Any tri-state tests must use the real `evaluateConditionResult(...)` API and must not claim that it authenticates context or proves actor access.
 
 
 ### 10.6 Author-mandated outcomes and causal preparation
