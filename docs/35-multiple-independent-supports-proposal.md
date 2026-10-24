@@ -150,7 +150,7 @@ Expected:
 - If removing A changes the relevant projection at R's cursor, classify R using the current rollback contract (invalidate when the declared read materially changes; otherwise use the contract's explicit review outcome).
 - The current projection after cursor 3 may still contain F supported by B; that does not alter what was available to R at cursor 2.
 
-Status boundary: this is a required regression test for historical-cursor semantics. Confirm existing implementation/tests already enforce it before claiming coverage; do not add a new runtime API or support table for the case.
+Status boundary: executable coverage is already present on `main` in `tests/causality-contract.test.js` as `READS_CLAIM cannot use a later source to retroactively support an earlier reader`. It asserts that rolling back A invalidates R even though later source B remains valid and the current projection still contains F. Reuse and preserve this test when integrating the stack; do not add a duplicate test, new runtime API, or support table for the case.
 
 ## 5. Identity and migration guardrail
 
