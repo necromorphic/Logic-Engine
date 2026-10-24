@@ -106,6 +106,33 @@ test('does not turn duplicate ingest into a second record or permit identity reb
     lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-source-a', source_version: 'source-v2' }] }),
   /MEMORY_IDENTITY_CONFLICT/);
 });
+
+test('rechecks provider grants after asynchronous source validation', async (t) => {
+  let releaseValidation;
+  let validationStarted;
+  const started = new Promise((resolve) => { validationStarted = resolve; });
+  const pendingValidation = new Promise((resolve) => { releaseValidation = resolve; });
+  const s = setup(t, {
+    validateSourceVersion: async (candidate) => {
+      validationStarted();
+      await pendingValidation;
+      return candidate.source_version === 'source-v1';
+    },
+  });
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+
+  const authorization = s.provider.authorizeCandidate({
+    ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+  });
+  await started;
+  s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
+  releaseValidation();
+  assert.equal(await authorization, false);
+});
+
 test('does not publish current when source inventory completeness cannot be confirmed', async (t) => {
   const s = setup(t, { validateInventory: async () => false });
   s.provider.grantQuery(s.scope, true);
