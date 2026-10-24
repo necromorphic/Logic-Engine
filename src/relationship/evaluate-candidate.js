@@ -242,7 +242,9 @@ export function evaluateRelationshipCandidate(input) {
           ["values", "allowClear", "allowSelfRelation", "transitions"].includes(key))
         || (own(rule, "allowSelfRelation") && typeof rule.allowSelfRelation !== "boolean")
         || !isDataArray(rule.values)
-        || !Array.prototype.every.call(rule.values, (value) => typeof value === "string")
+        || rule.values.length === 0
+        || !Array.prototype.every.call(rule.values, isNonEmptyString)
+        || new Set(rule.values).size !== rule.values.length
         || typeof rule.allowClear !== "boolean"
         || !isDataArray(rule.transitions)
         || !Array.prototype.every.call(rule.transitions, (transition) =>
