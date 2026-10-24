@@ -1308,3 +1308,72 @@ test('mechanic proposal rejects stale world history at approval without changing
     "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.approved'",
   ).get(worldId).count, auditBeforeInterveningCommit);
 });
+
+
+test('proposal commit rolls back canonical state when committed-audit insertion fails, then retries exactly once', (t) => {
+  const { engine, worldId } = setup(t, 'executor-proposal-audit-rollback-world');
+  enableFixture(engine, worldId);
+  const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(evaluation.status, 'ready');
+
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
+  const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: 'mechanic-audit-rollback',
+    turnId: 'turn-mechanic-audit-rollback',
+    sourceText: 'A failed commit audit must roll back the canonical commit.',
+    adapterId: 'test-adapter',
+  });
+  proposals.approve(worldId, proposal.proposal_id);
+
+  const beforeState = engine.getState(worldId);
+  const beforeEvents = engine.getEvents(worldId);
+  const beforeCommittedAudits = proposals.db.prepare(
+    "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.committed'",
+  ).get(worldId).count;
+
+  proposals.db.exec(`
+    CREATE TRIGGER fail_proposal_committed_audit
+    BEFORE INSERT ON audit_entries
+    WHEN NEW.action = 'proposal.committed'
+    BEGIN
+      SELECT RAISE(ABORT, 'injected proposal.committed audit failure');
+    END;
+  `);
+
+  assert.throws(
+    () => proposals.commit(worldId, proposal.proposal_id),
+    /injected proposal\.committed audit failure/,
+  );
+
+  const afterFailure = engine.getState(worldId);
+  const proposalAfterFailure = proposals.get(worldId, proposal.proposal_id);
+  assert.equal(proposalAfterFailure.status, 'approved');
+  assert.equal(proposalAfterFailure.commit_result, null);
+  assert.equal(afterFailure.world_revision, beforeState.world_revision);
+  assert.equal(afterFailure.commit_sequence, beforeState.commit_sequence);
+  assert.deepEqual(engine.getEvents(worldId), beforeEvents);
+  assert.equal(afterFailure.entities.some((entity) => entity.entity_id === 'entity.new'), false);
+  assert.equal(proposals.db.prepare(
+    "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.committed'",
+  ).get(worldId).count, beforeCommittedAudits);
+
+  proposals.db.exec('DROP TRIGGER fail_proposal_committed_audit');
+  const committed = proposals.commit(worldId, proposal.proposal_id);
+  assert.equal(committed.status, 'committed');
+  assert.equal(engine.getState(worldId).world_revision, beforeState.world_revision + 1);
+  assert.equal(engine.getState(worldId).commit_sequence, beforeState.commit_sequence + 1);
+  assert.equal(engine.getEvents(worldId).length, beforeEvents.length + 1);
+  assert.equal(engine.getState(worldId).entities.filter((entity) => entity.entity_id === 'entity.new').length, 1);
+  assert.equal(proposals.db.prepare(
+    "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.committed'",
+  ).get(worldId).count, beforeCommittedAudits + 1);
+
+  const replay = proposals.commit(worldId, proposal.proposal_id);
+  assert.equal(replay.status, 'committed');
+  assert.equal(replay.commit_result.idempotent_replay, true);
+  assert.equal(engine.getEvents(worldId).length, beforeEvents.length + 1);
+  assert.equal(proposals.db.prepare(
+    "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.committed'",
+  ).get(worldId).count, beforeCommittedAudits + 1);
+});
