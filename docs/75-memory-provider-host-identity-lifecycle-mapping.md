@@ -228,3 +228,75 @@ The six semantic rules proposed for approval are:
 - Full vertical slice: pinned ST capture → durable Provider persistence → restart/reconciliation → Core-authorized source/version/lineage read → NPC admission → final disclosure boundary. Label each case SOURCE-INSPECTED, FIXTURE-TESTED, RUNTIME-OBSERVED or REAL-RUNTIME-TESTED accurately.
 
 **Request to Core:** approve/revise the six semantic rules and explicitly choose (a) authoritative inventory/currentness evidence and invalidation semantics and (b) final disclosure/revocation point plus accepted race limits. After that decision, Host + Provider will submit the concrete field/API/schema proposal for explicit review. Until then, no cross-block implementation; production Memory→NPC remains **DISABLED / FAIL-CLOSED**, and vectorization is untouched.
+
+
+## 11. Single Host + Memory contract submitted for Core review (24 Oct 2026)
+
+**Purpose:** one review artifact, not two competing Host/Provider tables. This section binds the proposed semantics to existing code and names the owner, the evidence that exists, and the executable test that must pass. It authorizes **no implementation** of new ST fields, API, schema, store, route, cursor, outbox, or runtime wiring. Core must approve or revise this contract first.
+
+### 11.1 Existing code anchors (not proposed API names)
+
+| Concern | Existing code/evidence anchor | What it actually proves | Owner |
+|---|---|---|---|
+| ST message/swipe lifecycle | Pinned ST commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`; `public/script.js` swipe storage/selection and generation dispatch; `public/scripts/events.js`; `public/scripts/slash-commands.js`; `public/scripts/group-chats.js`. Host evidence is in [docs/27-host-adapter-lifecycle-evidence.md](https://github.com/necromorphic/Logic-Engine/blob/docs/host-adapter-st-lifecycle-evidence/docs/27-host-adapter-lifecycle-evidence.md). | Current event payloads include mutable array positions; swipe-delete and message-delete events do not provide approved durable source identity; save/reload/replay persistence is not proven. | Host |
+| Raw immutable capture | Provider draft `captureRawMessage()`, `tests/memory-provider-raw-archive.test.js`, PR [#201](https://github.com/necromorphic/Logic-Engine/pull/201). | Provider can persist a supplied tuple, treat exact replay as duplicate, and reject same-key/different-payload conflicts. It cannot authenticate that tuple as a Host source identity. | Provider |
+| Active version | Provider draft `selectActiveRawVersion()`, raw archive tests. | Changes the active pointer while retaining alternatives; does not prove Host selection event identity or source currentness. | Provider + Host |
+| Exact-version deletion | Provider draft `markRawSourceDeleted()`, raw archive tests. | Tombstones the supplied exact version and invalidates registered Provider-local dependent copies. Does not identify the ST deletion target or enumerate all historical versions. | Host supplies target; Provider applies; Core approves authority/completeness |
+| Permanent purge | Provider draft `purgeRawSource()`, raw archive tests. | Provider-scope physical purge is distinct from normal ST deletion. It does not establish cross-store erasure. | Provider + retention owner; separate approval |
+| Provider currentness/reconciliation | Provider draft SQLite reconciliation and injected `getSnapshot`, `validateSourceVersion`, `validateInventory` dependencies in PRs #182/#201. | Tests prove fail-closed handling of supplied callback outcomes; callbacks/fixtures are not production authority and Provider reconciliation is not a complete ST-source inventory. | Core defines proof; Host supplies source evidence; Provider implements after approval |
+| Core→NPC admission | Core's existing `MemoryNpcConsumer`/authorized-read seam and NPC fail-closed admission helper; see Core issue [#140](https://github.com/necromorphic/Logic-Engine/issues/140). | In-process seam can deny/non-ready on injected failures; does not prove Host source identity, full inventory, or final cross-store disclosure guarantee. | Core owns authorization and boundary; NPC consumes only authorized results |
+
+### 11.2 Contract proposal for approval
+
+The following are **normative semantic requirements**. They are not field names, request shapes, or permission to code the integration.
+
+1. **Identity and persistence.** Host owns one durable identity for each logical message and a distinct durable identity for every immutable version/swipe. Both must survive save/load, selection, reindex, restart and replay. Native indexes, timestamps, swipe positions, chat labels and generation metadata are not identities. The exact persisted representation and legacy migration are a Core-reviewed follow-up, not presumed here.
+2. **Version lifecycle.** A new immutable output gets a new version identity; selecting an existing output changes only the active pointer. An edit must preserve prior bytes and have explicit predecessor/ancestry evidence. A generated output is eligible only after the agreed completion condition; cancellation/partial output is not silently treated as complete. Core must approve edit and completion semantics before implementation.
+3. **Scope binding.** The Provider's existing composite key `(world_id, conversation_id, message_id, version_id)` remains a draft storage key, not the approved wire schema or authority. Core defines trusted world/session binding; Host proves durable conversation identity and passes the binding without substitution. Missing or ambiguous binding is withheld.
+4. **Capture handoff.** After identity and scope are approved, Host capture maps to existing Provider `captureRawMessage()`; exact replay is idempotent and payload collision fails. No new public route is implied. The concrete invocation boundary must be reviewed against the actual Provider branch before a runtime caller is added.
+5. **Selection/deletion.** Selection maps to `selectActiveRawVersion()` for the exact identity. Single-version deletion maps to `markRawSourceDeleted()` using identity captured before ST mutation. Whole-message/chat deletion requires an authoritative complete set of every historical version, including inactive alternatives. Ordinary deletion never maps to `purgeRawSource()`.
+6. **Inventory/currentness.** Provider may report its own stored-record/index status, but must not call it complete Host inventory. Core must define the authoritative source domain, completeness proof, consistency boundary, and invalidation on missed events, partial enumeration, concurrent mutation, restart/replay, restore, rollback and retraction. Complete-empty must be distinguishable from denied, unavailable, partial, stale and rebuilding.
+7. **Disclosure/revocation.** Core defines the final authorization point and the accepted race semantics. If revocation is observed at that approved point, content is withheld. Provider's second read authorization check is only a local check; no cross-store atomicity is claimed. Retrieval or context inclusion does not imply delivery, receipt, acquisition or belief.
+8. **Failure policy.** Unknown ID, conflicting payload, ambiguous lineage/scope, incomplete inventory, source-validator outage, stale/unverifiable source, interrupted reconciliation or unresolved deletion impact yields rejection/non-ready/withheld—not a fabricated identity, guessed deletion, or successful empty result.
+
+### 11.3 Concrete owners and closure evidence
+
+| Deliverable | Accountable owner(s) | Required evidence before marking accepted |
+|---|---|---|
+| Persisted logical-message and per-version identity, migration and copy/import/restore rules | Host accountable; Core approves semantics | Pinned Android/Termux test artifacts show IDs before/after save/load/restart, swipe selection/reorder/delete, edit/regenerate, branch/copy/import/restore; collision and legacy cases are explicit. |
+| Edit ancestry and completion/cancellation semantics | Host supplies observed lifecycle; Provider preserves immutable versions; Core approves rule | Executable test proves predecessor chain survives reload; partial/cancelled output is not admitted as complete; regenerated output gets a distinct identity. |
+| Trusted world/session and conversation binding | Core accountable for authority; Host for mapping | Positive and negative tests for correct world/chat, chat switch, rename, copy/import/restore; caller-supplied labels alone cannot authorize. |
+| Provider persistence/idempotency/tombstones | Provider | Existing raw archive tests plus exact-head CI; restart test for duplicate replay, collision, repeated tombstone, non-resurrection and registered-copy invalidation. |
+| Complete/current source inventory and reconciliation | Core accountable for contract; Host supplies authoritative enumeration/change evidence; Provider implements approved algorithm | Executable complete-empty/unavailable/partial tests; omission/truncation and concurrent-mutation detection; interrupted reconciliation + restart; rollback/retraction invalidates previous currentness. |
+| Whole-message/chat deletion | Host provides exact complete affected set; Provider tombstones each version; Core approves completeness/authority | Test deletes a message with multiple swipes including inactive versions; every historical version is withheld after restart; deliberately incomplete enumeration fails closed. |
+| Final disclosure/revocation boundary | Core accountable; Provider implements local checks; Host/disclosure path participates | Race test on the real Host→Provider→Core→NPC path: revoke before approved final point and assert no bytes are returned/disclosed. Document and test the explicitly accepted race after that point. |
+| End-to-end vertical slice | Host + Provider + Core + NPC owners | Pinned ST capture → durable Provider persistence → process restart/replay → complete reconciliation → Core-authorized read with source/version/lineage revalidation → NPC admission → final disclosure check. No fixture callback may stand in for production authority. |
+
+### 11.4 Executable acceptance sequence
+
+Run against pinned ST `06bde939fb1e9c4c8d8641d810f0a916b5bce127` on Android/Termux and the actual PC-hosted Logic-Engine process. Record source commit, test command/run, before/after persisted data, and evidence class for each case.
+
+1. **Create/replay:** create one message/version; capture it; restart Provider and ST; replay the same event. Expect exactly one immutable record and no identity change.
+2. **Conflict:** replay the same identity with different role/content/metadata. Expect explicit conflict; original bytes remain unchanged.
+3. **Swipe:** create at least three versions; select each; delete the middle version; reindex; restart. Expect each surviving version to retain identity, active selection to target the same version, and only the selected deletion target to be tombstoned.
+4. **Edit/regenerate/cancel:** edit and regenerate; stop/cancel a generation mid-stream; restart. Expect old bytes preserved, each completed output distinctly identified and linked by approved ancestry, and incomplete output excluded under the approved completion rule.
+5. **Whole-message/chat deletion:** delete a logical message with multiple historical/inactive versions and then a chat. Expect every affected version to be enumerated and withheld after restart. If enumeration is incomplete, expect non-ready and no disclosure.
+6. **Copy/import/restore/legacy:** execute each operation under the approved preserve/remap rule. Expect no cross-chat/world rebind, no identity collision, no implicit resurrection of a tombstoned source, and ambiguous legacy lineage withheld.
+7. **Inventory/reconciliation:** inject a missing event, truncated page, concurrent mutation, restart during reconciliation and rollback/retraction. Expect the prior current marker to be invalidated; complete-empty is returned only with authoritative proof of complete/current inventory.
+8. **Authorization race:** revoke/tombstone after candidate discovery but before the Core-approved final disclosure point. Expect no content returned. Also test validator outage/stale version and ensure they cannot become ready-empty.
+9. **End-to-end:** run all applicable cases through actual Host capture, Provider durable storage, Core source/inventory authorization and NPC admission. Verify no content/snippet/count leaks on any non-ready result.
+
+**Pass condition:** all required cases pass on the approved exact contract; every source identity, lineage, inventory and revocation claim has evidence at its owning boundary; no required case is satisfied solely by source inspection or injected fixtures. Any unresolved case keeps production Memory→NPC **DISABLED / FAIL-CLOSED**.
+
+### 11.5 Core review decisions requested
+
+Core is asked to respond to this single contract with **APPROVE**, **APPROVE WITH CONDITIONS** (list each condition and owner), or **REJECT** (identify the exact conflicting rule), and explicitly decide:
+
+- whether the eight semantic requirements above are accepted;
+- the authoritative evidence for world/session binding and source-version/currentness;
+- the complete/current inventory and rollback/reconciliation guarantee;
+- edit ancestry and complete-vs-cancelled generation semantics;
+- the whole-message affected-version completeness rule;
+- the final disclosure point and accepted post-check race limits.
+
+Only after that recorded review may Host + Provider submit concrete field placement and any required API/schema diff for a second explicit review. Until then, this contract is documentation only: no new API/schema or cross-block implementation; production Memory→NPC remains **DISABLED / FAIL-CLOSED**; vectorization remains untouched.
