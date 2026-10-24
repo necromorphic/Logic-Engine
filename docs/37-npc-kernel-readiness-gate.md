@@ -396,7 +396,7 @@ This section is the current status reference for older dependency tables elsewhe
 - **PR #47** closed without merge; its reviewed delta was rebased and merged through **PR #49** at `8602a9ed41f13f536d87b1103a02e8fd12de3b03`, adding the mechanic/context snapshot extension.
 - The last verified core `main` commit recorded in this audit is `8602a9ed41f13f536d87b1103a02e8fd12de3b03`, with Runtime tests run #378 passing on that exact commit. Recheck current GitHub state before any later integration.
 - **PR #32** (minimal character-card projector) is closed without merge. Its proposed projection is not an available dependency by virtue of its former PR existing.
-- **PR #38** remains the documentation-only NPC contract PR. The NPC branch has not incorporated the seven main-side commits recorded at this audit; no automatic rebase, force-update, or merge has been performed.
+- **PR #38** was closed without merge at `2026-10-24T02:05:19Z`. The `feat/npc-subsystem` branch and its documentation commits remain separate from `main`; this status update does not reopen the PR or authorize a replacement PR. The NPC branch has not incorporated the seven main-side commits recorded at this audit; no automatic rebase, force-update, or merge has been performed.
 
 The merged snapshot and tri-state primitives reduce specific core gaps, but they do not supply trusted actor binding, authorized per-NPC initial acquisition/provenance, an actor/purpose/snapshot-bound pre-model secret filter, persistent belief/delivery semantics, typed relationship operations, or alternative-support reconciliation. Those remain implementation gates. Passing general core CI is not proof of NPC readiness.
 
