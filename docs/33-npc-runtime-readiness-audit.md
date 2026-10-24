@@ -130,3 +130,10 @@ The remaining implementation gate is therefore narrower and more concrete: defin
 The core owner returned preliminary decision B: the schema-neutral actor-relative decision-context contract in docs/39 §15 is accepted as an architectural candidate after clarification. This approves the direction only; it does not establish an executable interface or authorize NPC runtime implementation.
 
 The next core-owned work is to define and verify (1) trusted actor-to-canonical-entity binding, (2) a real subject-assigned author_initial/imported acquisition record with provenance and validity, and (3) a snapshot-bound actor/purpose filter that excludes reserved secrets before model input. The NPC branch must not substitute local persistence or authorization. Production-path tests must prove actor separation, provenance, secret exclusion, distinct epistemic/completeness states, stale-snapshot rejection, actual use of the filtered envelope, and proposal non-mutation. See docs/39 §16 and docs/37 §20 for the recorded gate. This audit remains source-level documentation; no runtime tests are claimed by this section.
+
+
+## Live Core-head reconciliation — 2026-10-24
+
+The current `main` ref is `37b05c38b15eda1743fb6fce08a8ccc2f1d2e672`, ten commits beyond the Core head cited in the earlier audit. Source inspection on that head found a Core-owned adapter-to-canonical-actor binding service and API routes, with production-path tests in `tests/actor-binding.test.js`. Therefore actor binding exists on current Core `main`; it is not yet incorporated into `feat/npc-subsystem` and does not itself grant knowledge access.
+
+The acquisition/provenance representation and snapshot-bound pre-model filter remain the critical unimplemented stages in the inspected Core implementation plan. No actor-relative knowledge-read, reserved-secret exclusion, acquisition reconciliation, or NPC decision-context adapter was established by the actor-binding delta. The latest available commit-workflow query did not return PR-triggered runs for the current `main` head, so this note makes no green-CI claim for it.
