@@ -215,7 +215,7 @@ export class LogicEngine {
     const normalizeRefs = (value, name) => {
       const refs = value ?? [];
       assert(Array.isArray(refs) && refs.length <= 1000
-        && refs.every((ref) => typeof ref === 'string' && ref.trim() && ref.trim().length <= 300),
+        && refs.every((ref) => typeof ref === 'string' && ref.trim() && ref.trim().length <= 200),
       'INVALID_TIME_TRIGGER_REFERENCES', name + ' must be an array of at most 1,000 non-empty references.');
       const normalized = refs.map((ref) => ref.trim());
       assert(new Set(normalized).size === normalized.length, 'DUPLICATE_TIME_TRIGGER_REFERENCE', name + ' cannot contain duplicate references.');
@@ -252,6 +252,12 @@ export class LogicEngine {
       throw new EngineError('INVALID_TIME_TRIGGER_PAYLOAD', 'Trigger payload must be JSON-serializable.', 400);
     }
     const world = this.getState(id);
+    if (input.due_coordinate <= world.game_time_coordinate) {
+      throw new EngineError('TIME_TRIGGER_NOT_FUTURE', 'A new trigger must be scheduled strictly after the current world coordinate.', 409, {
+        current_coordinate: world.game_time_coordinate,
+        due_coordinate: input.due_coordinate,
+      });
+    }
     try {
       this.prepareEventForWorld(id, {
         ...payload.event,
