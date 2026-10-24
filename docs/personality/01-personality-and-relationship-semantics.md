@@ -62,7 +62,7 @@ A relationship is a directed, multidimensional relation between two existing can
 
 - Each dimension is independently meaningful. The World Pack declares supported dimensions, values, transitions, and world-specific interpretation; the core enforces the approved operation contract without absorbing all relationship semantics.
 - A partial update changes only explicitly supplied dimensions; omitted dimensions remain unchanged.
-- An unset/unknown dimension, an explicit neutral value, an inaccessible/withheld result, and an explicit clearing of a previously established value are distinct states. The exact wire/storage representation for clearing is not yet approved.
+- An unset/unknown dimension, an explicit neutral value, an inaccessible/withheld result, and an explicit clearing of a previously established value are distinct semantic cases. A clear removes the current effective value; it must still be distinguishable in the authorized canonical history/provenance from a dimension that was never established. This does not require every caller-facing projection to expose the clear history: disclosure remains subject to Core authorization and purpose. The exact wire/storage representation for clearing is not yet approved.
 - Mere co-presence, shared scene participation, or narrative tone does not by itself change a canonical relationship.
 - A relationship does not imply knowledge, trustworthiness of a claim, consent, obligation, or any other dimension unless an explicit rule establishes that implication.
 - A relationship value does not prove why it has that value. Its origin and causal support are separate from its current meaning.
