@@ -15,7 +15,6 @@ const rules = {
       { operation: "clear", from: "low", to: null },
       { operation: "clear", from: "guarded", to: null },
       { operation: "clear", from: "high", to: null },
-      { operation: "clear", from: "low", to: null },
     ],
   },
   affection: {
@@ -127,15 +126,24 @@ test("distinguishes unset from a previously cleared dimension", () => {
     currentValues: {},
     patch: { trust: "low" },
   });
+  const rulesWithoutClearedTransition = {
+    trust: {
+      ...rules.trust,
+      transitions: rules.trust.transitions.filter((transition) =>
+        !(typeof transition.from === "object"
+          && transition.from?.status === "cleared")),
+    },
+  };
   const fromCleared = evaluateRelationshipCandidate({
     ...base,
     currentValues: { trust: { status: "cleared" } },
     patch: { trust: "low" },
+    dimensionRules: rulesWithoutClearedTransition,
   });
 
   assert.equal(fromUnset.status, "candidate");
-  assert.equal(fromCleared.status, "candidate");
-  assert.notDeepEqual(fromUnset, fromCleared);
+  assert.equal(fromCleared.status, "invalid_candidate");
+  assert.equal(fromCleared.reason, "transition_not_allowed");
 });
 
 test("does not silently treat a withheld current relationship value as unset", () => {
