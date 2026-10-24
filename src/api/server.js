@@ -82,6 +82,21 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       const bearerToken = typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : null;
       if (!secretMatches(bearerToken, token)) return send(res, 401, { error: { code: 'UNAUTHORIZED', message: 'A valid bearer token is required.' } });
 
+      // Least-privilege policy: global registry inventory/audit is administrative.
+      // The general bearer remains a mandatory outer gateway credential, not a
+      // substitute for admin capability. Do not introduce a new read-only token
+      // class without an explicit capability contract.
+      const globalRegistryRead = req.method === 'GET' && (
+        url.pathname === '/v1/mechanics/audit' ||
+        url.pathname === '/v1/mechanic-templates' ||
+        /^\\/v1\\/mechanic-templates\\/[^/]+\\/[^/]+$/.test(url.pathname) ||
+        url.pathname === '/v1/rule-modules' ||
+        /^\\/v1\\/rule-modules\\/[^/]+\\/[^/]+$/.test(url.pathname)
+      );
+      if (globalRegistryRead && !secretMatches(req.headers['x-admin-token'], adminToken)) {
+        return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'Global registry reads require a separate administrative credential.' } });
+      }
+
       if (req.method === 'GET' && url.pathname === '/v1/mechanics/audit') return send(res, 200, { audit: engine.getMechanicRegistryAudit() });
       if (url.pathname === '/v1/mechanic-templates') {
         if (req.method === 'POST') {
@@ -107,7 +122,12 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       if (req.method === 'GET' && registryParts[0] === 'v1' && registryParts[1] === 'rule-modules' && registryParts.length === 4) {
         return send(res, 200, engine.getRuleModuleManifest(decodeURIComponent(registryParts[2]), decodeURIComponent(registryParts[3])));
       }
-      if (req.method === 'POST' && url.pathname === '/v1/worlds') return send(res, 201, { world: engine.createWorld(await readBody(req)) });
+      if (req.method === 'POST' && url.pathname === '/v1/worlds') {
+        if (!secretMatches(req.headers['x-admin-token'], adminToken)) {
+          return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'World creation requires a separate administrative credential.' } });
+        }
+        return send(res, 201, { world: engine.createWorld(await readBody(req)) });
+      }
 
       const parts = url.pathname.split('/').filter(Boolean);
       if (parts.length < 3 || parts[0] !== 'v1' || parts[1] !== 'worlds') return send(res, 404, { error: { code: 'ROUTE_NOT_FOUND', message: 'Route not found.' } });
