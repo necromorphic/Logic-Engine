@@ -230,7 +230,7 @@ export class LogicEngine {
   transitionProcess(id, processId, input) {
     assert(obj(input), 'INVALID_PROCESS_TRANSITION', 'Process transition request must be an object.');
     const allowed = ['action', 'expected_version', 'idempotency_key', 'reason'];
-    assert(Object.keys(input).every((key) => allowed.has(key)), 'UNSUPPORTED_PROCESS_TRANSITION_FIELD', 'Process transition contains an unsupported field.');
+    assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_PROCESS_TRANSITION_FIELD', 'Process transition contains an unsupported field.');
     assert(['pause', 'resume', 'cancel'].includes(input.action), 'INVALID_PROCESS_ACTION', 'Process action must be pause, resume, or cancel.');
     assert(Number.isSafeInteger(input.expected_version) && input.expected_version >= 1, 'INVALID_PROCESS_VERSION', 'expected_version must be a positive safe integer.');
     assert(typeof input.idempotency_key === 'string' && input.idempotency_key.trim() && input.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'Process transition idempotency_key is required.');
@@ -240,6 +240,8 @@ export class LogicEngine {
     const targetState = input.action === 'pause' ? 'paused' : input.action === 'cancel' ? 'cancelled' : null;
     const requestHash = hashRequest({ operation: 'process.' + input.action, world_id: id, process_id: processId, expected_version: input.expected_version, idempotency_key: key, reason: reason.trim() });
     return this.store.tx(() => {
+      const replay = this.processStore.replayOperation(id, key, requestHash);
+      if (replay) return replay;
       const current = this.processStore.get(id, processId);
       if (input.action === 'resume') {
         if (current.stored_status !== 'paused' && current.stored_status !== 'needs_review') {
@@ -252,6 +254,10 @@ export class LogicEngine {
           throw new EngineError('PROCESS_RESUME_REQUIRES_REPLAN', 'Paused process milestones became due while paused; explicit re-planning is required.', 409, {
             milestone_ids: overdue.map((milestone) => milestone.milestone_id), current_coordinate: world.game_time_coordinate,
           });
+        }
+        for (const milestone of pending) {
+          const oldTrigger = this.getTimeTrigger(id, milestone.trigger_id);
+          if (oldTrigger.status === 'pending') this.cancelTimeTrigger(id, milestone.trigger_id, reason.trim());
         }
         const nextVersion = current.version + 1;
         const newIds = new Map(pending.map((milestone) => [milestone.milestone_id,
