@@ -168,3 +168,38 @@ The canonical synthetic scenario table in `09-per-case-acceptance-traceability.m
 Runtime tests run [#645](https://github.com/necromorphic/Logic-Engine/actions/runs/40059799538) completed successfully on that exact commit; job `test` and step `Run npm test` both concluded `success`. This confirms the configured repository test workflow for that commit only. It does not establish production NPC/Core integration, event deduplication, or any other integration gate listed in this audit.
 
 The correction is verified in the canonical table and the accompanying `12-relationship-crosswalk-correction.md`. No new Personality acceptance ID was introduced. Status as of 2026-10-24: source PR #75 is closed unmerged; its cross-block documentation was ported to `main` by merged PR #79. This audit document is included in the Relationships-owned traceability/handoff proposal; the port does not imply runtime/API/schema/Core/Relationship/NPC implementation. Core/NPC integration blockers remain open.
+
+
+## Superseding addendum — current Core Relationship production-path evidence (2026-10-24)
+
+Core PRs #94–96 are merged to `main`. The older status rows above remain a record of the earlier audit, but any statement that *all* canonical write/atomicity/idempotency/rollback behavior is still unimplemented is superseded by this addendum.
+
+### Executable Core tests now present
+
+`tests/relationship-transition-core.test.js` at current-main blob `086cfb0db38c3398979d9609a368c8642f19b680` contains 12 named tests:
+
+1. `admin-gated typed transition commits directed state, event, revision and audit atomically`
+2. `API rejects ordinary bearer without the separate admin credential and does not mutate state`
+3. `admin route commits through the canonical event lifecycle and returns the current directed projection`
+4. `generic event preparation cannot smuggle a Relationship effect`
+5. `stale composite cursor and spoofed executor are rejected without mutation`
+6. `invalid mixed patch commits nothing and idempotent retry does not duplicate a transition`
+7. `source rollback invalidates a Relationship transition that cites the source`
+8. `clear remains distinct from unset and rollback restores the previous surviving value`
+9. `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation`
+10. `event insert and audit failures roll back the entire Relationship transition`
+11. `projection and idempotency persistence failures roll back Relationship event, state, revision and audit`
+12. `rollback invalidates later transition dependent on the same directed pair and rebuilds surviving state`
+
+PR #96 adds fail-closed regression coverage for unsupported alternative-support metadata and caller-supplied evidence status. Exact-head Runtime test runs for #94/#95/#96 succeeded at [#705](https://github.com/necromorphic/Logic-Engine/actions/runs/40063961970), [#707](https://github.com/necromorphic/Logic-Engine/actions/runs/40064048816), and [#717](https://github.com/necromorphic/Logic-Engine/actions/runs/40064276520), respectively.
+
+### Criterion-level disposition after the Core merge
+
+- **Now has production-path evidence:** privileged canonical directed transition; event-backed projection/rebuild; separate admin credential; generic effect-smuggling rejection; mixed invalid patch leaves no mutation; composite `(world_revision, commit_sequence)` freshness; event/source/world/version validation; transaction rollback on event/audit/projection/idempotency persistence failures; idempotent retry; clear vs unset; rollback of evidence and directed-pair dependencies.
+- **Still not proven by these tests:** general actor/purpose-authorized read; NPC/model-facing write authority; trusted initial import/author correction; historical World Pack migration; alternative independently sufficient support; NPC/Personality consumer behavior for stable traits, knowledge, motive, consent, obligation, reciprocity, and player agency. Each requires its own approved boundary and direct test.
+- The Core endpoint is admin-credential-only and is not an NPC capability. The existing authorized-read route remains self-identity-only. Do not describe the runtime slice as general Relationship integration.
+- Keep `PERS-SEM-024` (deterministic repeat/replay with pinned inputs in the supported slice) separate from `PERS-SEM-029` (meaning-changing World Pack version, migration, or incompatibility).
+
+### Evidence scope
+
+The exact test names above are source-verified from current `main`. The cited Actions runs are exact-head CI evidence for the listed Core PRs. This addendum is a documentation crosswalk; it does not claim that the Relationships documentation change itself has run CI or that every Personality/NPC acceptance criterion is now passed.
