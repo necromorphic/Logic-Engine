@@ -300,42 +300,54 @@ test('mechanic action condition preflight rejects contradictory trusted absence 
 });
 
 
-test('translateMechanicEffectIntents maps only the declared literal subset and preserves provenance', async () => {
+
+test('translateMechanicEffectIntents maps only the selected deterministic action and preserves provenance', async () => {
   const { translateMechanicEffectIntents } = await import('../src/core/mechanics.js');
-  const template = {
+  const fixture = {
     template_id: 'test.effect.mapping',
     version: '1.0.0',
     schema_version: 'core-1',
     display_name: 'Effect mapping fixture',
     required_capabilities: [],
     applicability: [],
-    actions: [{
-      action_id: 'act',
-      input_schema: { type: 'object' },
-      preconditions: [],
-      effects: [
-        { effect_id: 'create-1', kind: 'create_entity', target_ref: 'entity.new', payload: { entity_type: 'character', attributes: { name: 'A' } } },
-        { effect_id: 'update-1', kind: 'update_attribute', target_ref: 'entity.new', payload: { attributes: { mood: 'calm' } } },
-        { effect_id: 'fact-1', kind: 'assert_fact', target_ref: 'fact.known', payload: { subject_ref: 'entity.new', predicate: 'known', value: true } },
-      ],
-      ambiguity_policy: 'deterministic_only',
-    }],
+    actions: [
+      {
+        action_id: 'act',
+        input_schema: { type: 'object' },
+        preconditions: [],
+        effects: [
+          { effect_id: 'create-1', kind: 'create_entity', target_ref: 'entity.new', payload: { entity_type: 'character', attributes: { name: 'A' } } },
+          { effect_id: 'update-1', kind: 'update_attribute', target_ref: 'entity.new', payload: { attributes: { mood: 'calm' } } },
+          { effect_id: 'fact-1', kind: 'assert_fact', target_ref: 'fact.known', payload: { subject_ref: 'entity.new', predicate: 'known', value: true } },
+        ],
+        ambiguity_policy: 'deterministic_only',
+      },
+      {
+        action_id: 'alternative',
+        input_schema: { type: 'object' },
+        preconditions: [],
+        effects: [{ effect_id: 'alternative-effect', kind: 'emit_event', target_ref: 'world', payload: { message: 'not selected' } }],
+        ambiguity_policy: 'deterministic_only',
+      },
+    ],
     conflict_policy: { mode: 'manual' },
     lifecycle_policy: { on_disable: 'require_author_decision' },
     unknown_policy: 'mark_unknown',
   };
-  const result = translateMechanicEffectIntents(template, 'act');
+  const result = translateMechanicEffectIntents(fixture, 'act');
   assert.equal(result.status, 'ready');
   assert.deepEqual(result.effects.map((effect) => effect.kind), ['entity.create', 'entity.update', 'fact.set']);
   assert.deepEqual(result.effect_provenance.map((item) => item.effect_id), ['create-1', 'update-1', 'fact-1']);
   assert.deepEqual(result.effects[0], {
     kind: 'entity.create', entity_id: 'entity.new', entity_type: 'character', attributes: { name: 'A' },
   });
+  assert.equal(translateMechanicEffectIntents(fixture, 'alternative').reason_code, 'UNSUPPORTED_EFFECT_INTENT');
+  assert.equal(translateMechanicEffectIntents(fixture, 'missing').reason_code, 'MECHANIC_ACTION_NOT_FOUND');
 });
 
 test('translateMechanicEffectIntents rejects unsupported intents atomically without partial effects', async () => {
   const { translateMechanicEffectIntents } = await import('../src/core/mechanics.js');
-  const template = {
+  const fixture = {
     template_id: 'test.effect.unsupported',
     version: '1.0.0',
     schema_version: 'core-1',
@@ -356,23 +368,23 @@ test('translateMechanicEffectIntents rejects unsupported intents atomically with
     lifecycle_policy: { on_disable: 'require_author_decision' },
     unknown_policy: 'mark_unknown',
   };
-  const result = translateMechanicEffectIntents(template, 'act');
+  const result = translateMechanicEffectIntents(fixture, 'act');
   assert.equal(result.status, 'unknown');
   assert.equal(result.reason_code, 'UNSUPPORTED_EFFECT_INTENT');
   assert.deepEqual(result.effects, []);
   assert.deepEqual(result.effect_provenance, []);
 });
 
-test('translateMechanicEffectIntents rejects unknown fields, empty patches, duplicate IDs, and unresolved provenance', async () => {
+test('translateMechanicEffectIntents rejects unknown fields, empty patches, duplicate IDs, unresolved provenance, and invalid Core effects', async () => {
   const { translateMechanicEffectIntents } = await import('../src/core/mechanics.js');
-  const make = (effects) => ({
+  const make = (effects, ambiguity_policy = 'deterministic_only') => ({
     template_id: 'test.effect.invalid',
     version: '1.0.0',
     schema_version: 'core-1',
     display_name: 'Invalid effect fixture',
     required_capabilities: [],
     applicability: [],
-    actions: [{ action_id: 'act', input_schema: { type: 'object' }, preconditions: [], effects, ambiguity_policy: 'deterministic_only' }],
+    actions: [{ action_id: 'act', input_schema: { type: 'object' }, preconditions: [], effects, ambiguity_policy }],
     conflict_policy: { mode: 'manual' },
     lifecycle_policy: { on_disable: 'require_author_decision' },
     unknown_policy: 'mark_unknown',
@@ -385,6 +397,6 @@ test('translateMechanicEffectIntents rejects unknown fields, empty patches, dupl
   const invalidEffect = translateMechanicEffectIntents(make([{ ...base, payload: { entity_type: 'character', status: 'not-a-status' } }]), 'act');
   assert.equal(invalidEffect.status, 'unknown');
   assert.equal(invalidEffect.reason_code, 'INVALID_TRANSLATED_EFFECT');
-  assert.equal(invalidEffect.effects.length, 0);
-  assert.equal(translateMechanicEffectIntents(make([base]), 'missing').reason_code, 'MECHANIC_ACTION_NOT_FOUND');
+  assert.deepEqual(invalidEffect.effects, []);
+  assert.equal(translateMechanicEffectIntents(make([base], 'model_proposal_then_validate'), 'act').reason_code, 'UNSUPPORTED_ACTION_AMBIGUITY_POLICY');
 });
