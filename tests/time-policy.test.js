@@ -23,6 +23,18 @@ test('duration policy resolves fixed and deterministic range rules without calle
   assert.equal(resolveDurationDecision(value, 'rest.completed').status, 'needs_author');
 });
 
+test('author-range duration proposals require explicit author approval and remain bounded by policy', () => {
+  const value = createTimePolicy(policy());
+  const candidate = { duration_ms: 3600000 };
+  assert.equal(resolveDurationDecision(value, 'rest.completed', candidate).status, 'needs_author');
+  const approved = resolveDurationDecision(value, 'rest.completed', candidate, 0, { authorApproved: true });
+  assert.equal(approved.status, 'resolved');
+  assert.equal(approved.duration_ms, 3600000);
+  assert.equal(approved.source, 'author_approved_range');
+  assert.equal(resolveDurationDecision(value, 'rest.completed', { duration_ms: 1 }, 0, { authorApproved: true }).reason, 'AUTHOR_DURATION_OUT_OF_RANGE');
+  assert.equal(resolveDurationDecision(value, 'rest.completed', { duration_ms: 3600000, category: 'simple' }, 0, { authorApproved: true }).reason, 'INVALID_AUTHOR_DURATION_PROPOSAL');
+});
+
 test('category proposal selects only a declared duration and cannot invent a value', () => {
   const value = createTimePolicy(policy());
   assert.equal(resolveDurationDecision(value, 'craft.completed', { category: 'complex' }).duration_ms, 120000);

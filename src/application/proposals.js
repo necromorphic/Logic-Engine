@@ -71,17 +71,36 @@ export class ProposalService {
     const proposalId = randomUUID();
     const createdAt = now();
     const eventPayload = { ...body.event, event_id: randomUUID() };
-    const validation = this.engine.validateEvent(worldId, {
-      ...eventPayload,
-      idempotency_key: 'proposal-validation:' + randomUUID(),
-      expected_revision: world.world_revision,
-    });
+    const validationKey = 'proposal-validation:' + randomUUID();
+    let validation;
+    let timePolicyValidation;
+    try {
+      const prepared = this.engine.prepareEventForWorld(worldId, {
+        ...eventPayload,
+        idempotency_key: validationKey,
+        expected_revision: world.world_revision,
+      });
+      validation = this.engine.store.validateCommit(worldId, prepared);
+      timePolicyValidation = {
+        status: prepared.duration_decision ? 'resolved' : 'not_configured',
+        decision: prepared.duration_decision ?? null,
+      };
+    } catch (error) {
+      if (error.code !== 'DURATION_NEEDS_AUTHOR') throw error;
+      validation = this.engine.validateEvent(worldId, {
+        ...eventPayload,
+        idempotency_key: validationKey,
+        expected_revision: world.world_revision,
+      });
+      timePolicyValidation = { status: 'needs_author', code: error.code, decision: error.details };
+    }
     const validationResult = {
       status: ((eventPayload.effects ?? []).length > 0 && body.source_text.trim().length > 0) ? 'needs_review' : 'passed',
       requires_manual_semantic_review: ((eventPayload.effects ?? []).length > 0 && body.source_text.trim().length > 0),
       checked_at: createdAt,
       world_revision: world.world_revision,
-      checks: ['payload_schema', 'supported_effects', 'causal_references', 'requires_preconditions', 'revision_consistency'],
+      checks: ['payload_schema', 'supported_effects', 'causal_references', 'requires_preconditions', 'revision_consistency', 'time_policy'],
+      time_policy: timePolicyValidation,
       not_checked: ['semantic_alignment_with_source_text', 'causal_completeness', 'actor_authorization', 'player_agency_policy'],
       preview_event_id: validation.event_id,
     };
@@ -125,10 +144,21 @@ export class ProposalService {
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
       const sequence = this.engine.store.currentCommitSequence(worldId);
       if (world.world_revision !== row.base_world_revision || sequence !== row.base_commit_sequence) throw new EngineError('STALE_PROPOSAL', 'World history changed after this proposal was created.', 409, { base_world_revision: row.base_world_revision, current_world_revision: world.world_revision, base_commit_sequence: row.base_commit_sequence, current_commit_sequence: sequence });
+      const payload = dec(row.event_payload_json);
+      const approvalValidation = this.engine.prepareEventForWorld(worldId, {
+        ...payload,
+        idempotency_key: 'proposal-approval-validation:' + row.proposal_id,
+        expected_revision: world.world_revision,
+      }, { authorApprovedDuration: true });
+      const durationDecision = approvalValidation.duration_decision ?? null;
       const approvedAt = now();
       this.db.prepare("UPDATE event_proposals SET status='approved',approved_at=? WHERE proposal_id=? AND status='pending'").run(approvedAt, proposalId);
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
-        .run(worldId, world.world_revision, 'proposal.approved', proposalId, enc({ proposal_hash: row.proposal_hash, approver: 'approval_credential' }), approvedAt);
+        .run(worldId, world.world_revision, 'proposal.approved', proposalId, enc({
+          proposal_hash: row.proposal_hash,
+          approver: 'approval_credential',
+          ...(durationDecision ? { duration_decision: durationDecision } : {}),
+        }), approvedAt);
       return this.publicProposal(this.db.prepare('SELECT * FROM event_proposals WHERE proposal_id=?').get(proposalId), false);
     });
   }
@@ -154,7 +184,7 @@ export class ProposalService {
         ...payload,
         idempotency_key: 'proposal:' + row.proposal_id,
         expected_revision: row.base_world_revision,
-      });
+      }, { authorApprovedDuration: true });
       const committedAt = now();
       this.db.prepare("UPDATE event_proposals SET status='committed',committed_at=?,commit_result_json=? WHERE proposal_id=? AND status='approved'")
         .run(committedAt, enc(result), proposalId);
