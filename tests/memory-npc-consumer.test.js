@@ -637,3 +637,22 @@ test('mismatched Core actor binding result fails before Memory query', async (t)
   assert.deepEqual(result.admitted, []);
   assert.equal(queryCalled, false);
 });
+
+
+test('request accessors that throw fail closed without invoking Memory', async (t) => {
+  const { consumer, provider } = setup(t);
+  let queryCalled = false;
+  provider.authorizeQuery = async () => {
+    queryCalled = true;
+    return true;
+  };
+  const malformed = Object.defineProperty({}, 'worldId', {
+    enumerable: true,
+    get() { throw new Error('private request getter'); },
+  });
+  const result = await consumer.retrieveForNpc(malformed);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'trusted_scope_incomplete');
+  assert.equal(queryCalled, false);
+  assert.equal(JSON.stringify(result).includes('private request getter'), false);
+});
