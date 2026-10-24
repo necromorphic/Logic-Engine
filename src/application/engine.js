@@ -4,7 +4,7 @@ import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
-import { createCalendarDefinition, projectCalendarDate } from '../time/model.js';
+import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -532,6 +532,90 @@ export class LogicEngine {
   }
 
   startTimeAdvance(id, x) {
+    return this._startTimeAdvance(id, x, null, null);
+  }
+
+  startTimedAction(id, x) {
+    assert(obj(x), 'INVALID_TIME_ACTION', 'Timed action request must be an object.');
+    assert(Object.keys(x).every((key) => ['idempotency_key', 'expected_revision', 'event'].includes(key)),
+      'UNSUPPORTED_TIME_ACTION_FIELD', 'Timed action request accepts only idempotency_key, expected_revision, and event.');
+    assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200,
+      'IDEMPOTENCY_KEY_REQUIRED', 'Timed action idempotency_key is required.');
+    assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0,
+      'INVALID_REVISION', 'Timed action expected_revision must be a non-negative safe integer.');
+    assert(obj(x.event), 'INVALID_TIME_ACTION_EVENT', 'Timed action event must be an object.');
+    const eventAllowed = ['turn_id', 'event_type', 'generation_id', 'context_manifest_id', 'source_message_id',
+      'duration_proposal', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
+    assert(Object.keys(x.event).every((key) => eventAllowed.includes(key)),
+      'INVALID_TIME_ACTION_EVENT', 'Timed action event contains an unsupported field or caller-controlled time/identity.');
+    const key = x.idempotency_key.trim();
+    const actionRequestHash = hashRequest({
+      operation: 'time.action',
+      world_id: id,
+      idempotency_key: key,
+      expected_revision: x.expected_revision,
+      event: x.event,
+    });
+    const existing = this.store.getTimeAdvanceOperationByKey(id, key);
+    if (existing) {
+      if (existing.plan?.action_request_hash !== actionRequestHash) {
+        throw new EngineError('IDEMPOTENCY_CONFLICT', 'The time-action idempotency key was already used with a different request.', 409);
+      }
+      return existing.status === 'running'
+        ? this.store.resumeTimeAdvanceOperation(id, existing.operation_id)
+        : existing;
+    }
+
+    const world = this.getState(id);
+    if (world.world_revision !== x.expected_revision) {
+      throw new EngineError('REVISION_CONFLICT', 'World changed before timed-action planning.', 409, {
+        expected_revision: x.expected_revision, current_revision: world.world_revision,
+      });
+    }
+    const configuration = this.store.getTimeConfiguration(id);
+    if (!configuration) {
+      throw new EngineError('TIME_CONFIG_REQUIRED', 'Timed actions require an active versioned world TimePolicy.', 409);
+    }
+    const identity = hashRequest({ world_id: id, idempotency_key: key }).slice(0, 40);
+    const event = {
+      ...x.event,
+      event_id: 'time-action-' + identity.slice(0, 32),
+      idempotency_key: 'time-action-key:' + identity,
+      turn_id: x.event.turn_id ?? ('time-action-turn:' + identity),
+      time_mode: 'action',
+    };
+    let prepared;
+    try {
+      prepared = this.prepareEventForWorld(id, event);
+    } catch (error) {
+      if (error instanceof EngineError) throw error;
+      throw new EngineError(error.code || 'INVALID_TIME_ACTION_EVENT', error.message || 'Timed action validation failed.', 400, error.details);
+    }
+    const durationMs = prepared.time_advance_seconds * 1000;
+    assert(Number.isSafeInteger(durationMs) && durationMs >= 0, 'INVALID_TIME_ACTION_DURATION',
+      'Resolved action duration must be a non-negative safe integer number of milliseconds.');
+    let targetCoordinate;
+    try {
+      targetCoordinate = addTimeDuration(world.game_time_coordinate, durationMs);
+    } catch (error) {
+      throw new EngineError(error.code || 'INVALID_TIME_COORDINATE', error.message || 'Timed action target is outside the coordinate range.', 400);
+    }
+    const finalEvent = {
+      event: {
+        ...event,
+        time_advance_seconds: 0,
+      },
+      duration_decision: prepared.duration_decision,
+    };
+    return this._startTimeAdvance(id, {
+      idempotency_key: key,
+      expected_revision: x.expected_revision,
+      to_coordinate: targetCoordinate,
+      trigger_source: 'registered',
+    }, finalEvent, actionRequestHash);
+  }
+
+  _startTimeAdvance(id, x, finalEventEnvelope = null, actionRequestHash = null) {
     assert(obj(x), 'INVALID_TIME_ADVANCE_OPERATION', 'Time-advance request must be an object.');
     const allowed = ['idempotency_key', 'expected_revision', 'to_coordinate', 'trigger_source', 'triggers', 'completed_trigger_ids'];
     assert(Object.keys(x).every((key) => allowed.includes(key)), 'UNSUPPORTED_TIME_ADVANCE_FIELD', 'Time-advance request contains an unsupported field.');
@@ -558,6 +642,7 @@ export class LogicEngine {
       trigger_source: triggerSource,
       triggers: triggerSource === 'request' ? (x.triggers ?? []) : null,
       completed_trigger_ids: triggerSource === 'request' ? (x.completed_trigger_ids ?? []) : [],
+      ...(finalEventEnvelope ? { final_event: finalEventEnvelope, action_request_hash: actionRequestHash } : {}),
     });
     const existing = this.store.getTimeAdvanceOperationByKey(id, x.idempotency_key.trim());
     if (existing) {
