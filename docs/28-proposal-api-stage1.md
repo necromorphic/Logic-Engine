@@ -14,7 +14,7 @@ All endpoints except `GET /health` require `Authorization: Bearer <ENGINE_API_TO
 - `POST /v1/worlds/:world_id/events` is disabled unless `ENGINE_INTERNAL_TOKEN` is configured. Even with that credential, it accepts only `proposal_id` for a proposal already approved; it cannot directly commit arbitrary event payloads.
 - `POST /v1/mechanic-templates` and `POST /v1/rule-modules` require `x-admin-token: <ENGINE_ADMIN_TOKEN>` in addition to the API bearer token.
 
-Set `ENGINE_API_TOKEN`, `ENGINE_APPROVAL_TOKEN`, `ENGINE_INTERNAL_TOKEN`, and `ENGINE_ADMIN_TOKEN` to different random secrets of at least 16 characters. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object mapping unique adapter IDs to distinct secrets of at least 16 characters, for example `{"sillytavern-main":"replace-with-a-random-secret"}`. Do not expose any of these secrets to the model. Adapter credentials are separate from general API access; each proposal records its creating adapter, and only that adapter can cancel it. The approval token remains a shared credential, not proof of a named human identity or a multi-user role system.
+Set `ENGINE_API_TOKEN`, `ENGINE_APPROVAL_TOKEN`, `ENGINE_INTERNAL_TOKEN`, and `ENGINE_ADMIN_TOKEN` to different random secrets of at least 16 characters. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object mapping unique adapter IDs to distinct secrets of at least 16 characters, for example `{"sillytavern-main":"replace-with-a-random-secret"}`. Do not expose any of these secrets to the model. Adapter credentials are separate from general API access; each proposal records its creating adapter, and only that adapter can cancel it or use the public proposal-commit route. Public commit checks the stored creator and returns a non-enumerating not-found for another adapter. Trusted orchestration uses the separate internal-token route. The approval token remains a shared credential, not proof of a named human identity or a multi-user role system.
 
 ## Lifecycle and fail-closed behavior
 
@@ -37,4 +37,9 @@ Set `ENGINE_API_TOKEN`, `ENGINE_APPROVAL_TOKEN`, `ENGINE_INTERNAL_TOKEN`, and `E
 
 ## Acceptance coverage
 
-The API tests cover direct-commit isolation, admin-only registry writes, adapter-scoped proposal cancellation, no canonical mutation on proposal creation, separate approval credential, pending/approved/committed/cancelled state checks, stale revision/sequence rejection, proposal idempotency, semantic-review disclosure, server-owned field rejection, and internal-route proposal enforcement.
+The API tests cover direct-commit isolation, admin-only registry writes, adapter-scoped proposal cancellation and commit, no canonical mutation on proposal creation or denied cross-adapter commit, separate approval credential, pending/approved/committed/cancelled state checks, stale revision/sequence rejection, proposal idempotency, semantic-review disclosure, server-owned field rejection, and trusted internal-route proposal enforcement. PR #103 adds the creator check; exact-head Runtime CI passed on run #748.
+
+
+## Current trust-boundary status (2026-10-24)
+
+PR #103 requires adapter credentials and stored creator identity for public proposal commits; the separate internal-token route remains the trusted orchestration path. PR #106 requires internal-host authentication for context-manifest registration. Neither proves that a manifest matches the exact context actually prepared/used; generation binding remains a separate gate.
