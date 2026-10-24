@@ -293,3 +293,16 @@ Before marking this issue complete, the NPC branch should contain:
 - [ ] Tests against real Memory↔NPC production boundary; blocked until that boundary exists.
 
 This document is a design deliverable, not evidence that the blocked items are implemented or that the acceptance tests pass.
+
+## 10. Pure NPC candidate-admission oracle and executable coverage
+
+The branch now includes:
+- `src/npc/memory-candidate-eligibility.js` — a pure consumer-side admission oracle;
+- `tests/npc-memory-candidate-eligibility.test.js` — Node test-runner coverage for its explicit behavior.
+
+This helper is deliberately **not wired to a Memory/API call** and does not establish authenticity of caller scope, enforce access control, query current source state, or persist any semantic transition. It can only reject or admit candidate metadata based on evidence already supplied by a trusted, future integration boundary. The real authorized read must still apply access before content disclosure and revalidate before serialization.
+
+The tests cover: incomplete trusted scope; foreign world; missing/denied/withheld/unknown access; subject/purpose mismatch; missing record identity/version; unknown epistemic kind; stale/retracted/unavailable freshness; snapshot mismatch; derived summary lineage and source permissions; duplicate record/version; partial/unavailable retrieval; complete empty results; rejection-output leakage; and non-mutation of acquisition/delivery/belief/canonical state.
+
+**Interpretation limit:** these tests establish the pure helper's fail-closed decision behavior only. They do not prove Memory authorization, source freshness, revocation races, summary derivation safety in a production pipeline, delivery/receipt, acquisition, belief persistence, rollback reconciliation, or prompt integration. No test execution result is claimed in this document unless separately confirmed by a run against the exact commit.
+
