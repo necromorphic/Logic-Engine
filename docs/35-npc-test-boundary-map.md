@@ -1,6 +1,6 @@
 # NPC First-Slice Test Boundary Map
 
-Status: repository test mapping and implementation gate; documentation only. Inspected against `main` at the time of writing. No tests were executed and no runtime test file was added.
+Status: repository test mapping and implementation gate; documentation only. The initial baseline test inventory was inspected against `main` when this document was first authored; the current NPC acceptance requirements are maintained on `feat/npc-subsystem`. Re-verify test names and behavior against the exact target commit before implementation. No tests were executed and no runtime test file was added.
 
 ## 1. Why this document exists
 
@@ -38,6 +38,25 @@ Legend: **Covered adjacent behavior** means the core tests exercise a related pr
 | NPC-CTX-007 — Player agency is preserved | Missing | Validate narrative/output boundary: NPC proposal can be described after authorization, but no player action, dialogue, thought, consent, or decision is generated as a committed fact |
 | NPC-CTX-008 — Chat turns do not advance world time | Covered adjacent behavior: core has explicit time-advance rules | Run multiple NPC decision turns without a committed time event and prove game_time, event log, and scheduled progression do not advance |
 
+## 3.1 Crosswalk from core semantic scenarios to executable boundaries
+
+The primary contract IDs NPC-SEM-001–012 in `docs/32` are broader semantic scenarios; the following crosswalk prevents them from being lost behind the lower-level NPC-CTX test labels. These mappings describe future acceptance coverage, not existing implementation.
+
+| Core scenario | Related boundary test(s) | Additional status / constraint |
+|---|---|---|
+| NPC-SEM-001 — Retrieved secret is not automatically accessible | NPC-CTX-001 | Blocked until a real pre-model context filter exists; test exact secret omission, not merely a flag. |
+| NPC-SEM-002 — False belief does not auto-correct with canonical truth | NPC-CTX-003 | Blocked until actor-relative belief can be represented and read without changing canonical truth. |
+| NPC-SEM-003 — Knowledge with an alternative source survives source invalidation | Runtime persistence/rollback | Blocked until core-owned acquisition provenance can be reconciled against actual valid source paths. |
+| NPC-SEM-004 — Failed plan prerequisite does not erase the goal | Runtime persistence | Blocked until a real goal/plan state boundary exists; do not infer goal state from generated prose. |
+| NPC-SEM-005 — Off-screen event is not automatically player knowledge | NPC-CTX-007 plus report/awareness integration | Blocked until player-awareness and valid communication/viewpoint boundaries exist. |
+| NPC-SEM-006 — Pending report is not delivered knowledge | Report lifecycle | Blocked until actual send/receipt evidence is defined; prompt inclusion is not delivery. |
+| NPC-SEM-007 — Different knowledge/goals permit different reactions | Actor-specific decision context | Blocked until per-actor context and decision boundaries exist; same world state need not imply identical reactions. |
+| NPC-SEM-008 — Rejected action proposal is non-mutating | NPC-CTX-005, with existing proposal regression tests | Adjacent core behavior exists; still needs a real NPC-originated path before it proves the NPC contract. |
+| NPC-SEM-009 — Rollback removes dependent effects but preserves independent activity | Existing causality/rollback regression tests plus NPC state reconciliation | Core rollback tests cover world effects only; NPC goals, acquisition, and beliefs remain unverified. |
+| NPC-SEM-010 — Missing source data does not create canon | NPC-CTX-002 and NPC-CTX-006 | Blocked until missing/unknown/withheld are represented at the actual decision boundary. |
+| NPC-SEM-011 — Player agency remains outside NPC authorship | NPC-CTX-007 | Blocked until the real narration/host boundary can be exercised. |
+| NPC-SEM-012 — Chat turns do not advance world time | NPC-CTX-008 | Adjacent core time rules exist; verify the real NPC turn path does not itself advance canonical time. |
+
 ## 4. Required test layers
 
 The tests should be written in this order, and should use real repository boundaries rather than invented test-only implementations:
@@ -73,7 +92,7 @@ These tests can verify existing primitives today, but the NPC-specific adapter a
 
 ### Layer D — Runtime persistence tests (blocked)
 
-Do not implement these until an authoritative NPC state model and causal ownership contract are approved. Required future cases include persistent beliefs, goals/plans, report delivery, off-screen progress, and rollback reconciliation. Do not emulate them in prompt state or add a parallel store.
+Core ownership of acquisition/provenance, delivery status, source reconciliation, and persistent belief has been semantically confirmed. Runtime persistence tests remain blocked until the real NPC state representation and core production interfaces are mapped and available. Required future cases include persistent beliefs, goals/plans, report delivery, off-screen progress, and rollback reconciliation. Do not emulate them in prompt state or add a parallel store.
 
 ## 5. Blocking decisions and dependencies
 
