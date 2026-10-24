@@ -94,6 +94,9 @@ export class MechanicExecutor {
       targetEntities = targetState.entities;
     }
 
+    if ((template.required_capabilities?.length ?? 0) > 0) {
+      return unknown('UNSUPPORTED_MECHANIC_CAPABILITIES', 'This executor slice has no capability grant/authorization contract for mechanic-required capabilities.', identity);
+    }
     if ((template.rule_modules?.length ?? 0) > 0 || template.conflict_policy?.mode !== 'manual') {
       return unknown('UNSUPPORTED_MECHANIC_MODULE_OR_CONFLICT_POLICY', 'This executor slice does not invoke registered modules or automatic conflict resolvers.', identity);
     }
