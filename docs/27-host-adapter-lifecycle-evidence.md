@@ -98,3 +98,63 @@ This follow-up is a **source inspection of the exact pinned commit**, not a clai
 2. Emit/observe before-and-after lifecycle changes with the stable IDs from the stored objects. For deletion, capture the deleted object's IDs before `splice`; the current `MESSAGE_DELETED(chat.length)` cannot be the source of a retraction target.
 3. On duplicate/import/branch collisions, detect duplicate ID + same canonical bytes as duplicate delivery, but treat same ID + different bytes or ambiguous ancestry as conflict/fail-closed. Exact canonical-byte/hash policy and whether raw bytes may be retained remain owner decisions.
 4. This proposal is only a mapping for Core/Provider review. **No new field names, event payload, API, schema, storage, outbox, cursor, or reconciliation mechanism is implemented or authorized by this note.**
+
+
+## Host-side concrete mapping proposal against Provider PR #201 (24 Oct 2026)
+
+**Status: proposed semantic mapping for joint review; not an approved runtime contract.** This section compares the pinned ST source with the actual Provider draft at [PR #201, head `e03e3b608d029ba431d004ef940a32b67ee00e10`](https://github.com/necromorphic/Logic-Engine/pull/201). It does not change Provider/Core or authorize a new ST field/API/schema. Provider code is draft and unmerged; current `main` still has no callable production Host→Provider handoff.
+
+### Candidate identity mapping
+
+| Semantic identity | Existing Host evidence | Existing Provider PR #201 surface | Host proposal / unresolved approval |
+|---|---|---|---|
+| World scope | ST chat events expose a chat locator; that alone is not a trusted world binding. | Raw capture key requires `world_id`. | Core must authorize the world/session binding. Host must not derive authority from chat name, filename, or client-supplied label. **Unresolved.** |
+| Conversation/chat scope | ST has a chat locator/name; group chats have their own load/save path. No durable cross-import/copy identity guarantee was established. | Raw key includes `conversation_id`. | Map only after Core/Provider define whether this means stable source-chat identity or a specific chat instance. A copied chat must not silently inherit an identity that collides with the original. **Unresolved.** |
+| Logical message | Current ST message object has no inspected dedicated durable message ID. Array index is mutable. | Raw key includes `message_id`; `captureRawMessage` requires it and treats a conflicting payload at the same key as `MEMORY_RAW_CAPTURE_CONFLICT`. | Host-owned durable logical ID is required, persisted with the message and preserved through ordinary save/load. Creation/backfill and import/copy rules need Core approval before adding fields. |
+| Immutable version/swipe | `swipes[]`, `swipe_id` array position and parallel `swipe_info[]`; no durable per-swipe key. | Raw key includes `version_id`; `captureRawMessage` is idempotent only for identical role/content/metadata at the same composite key. | Each separately selectable swipe/revision needs its own durable version ID, stored with that version rather than inferred from its current array slot. The exact persisted field placement requires Core approval. |
+| Active version | ST's active `swipe_id` is an array slot. | `selectActiveRawVersion({world_id, conversation_id, message_id, version_id})` changes the active pointer and retains alternatives. | Selection should map to the durable ID of the selected version, never treat selection as creation/deletion. Safe only once Host IDs and trusted scope are approved. |
+| Parent/version lineage | No stable parent ID or before/after revision identity is established in the inspected ST paths. | Raw archive table stores version IDs and metadata JSON, but no explicit typed parent/lineage relation in the raw-capture key or method contract. | Do not claim lineage is persisted merely because metadata accepts an object. Parent/version schema and branch ancestry need a Provider/Core decision; ambiguous lineage fails closed. |
+
+### Lifecycle mapping to existing Provider operations (draft PR only)
+
+| ST lifecycle | Candidate Provider operation/key | Expected semantic effect if approved | Gap / guard |
+|---|---|---|---|
+| New completed message/version | `captureRawMessage` keyed by approved world + conversation + logical message + version IDs | Insert immutable raw capture; identical replay is duplicate; same key with differing captured payload conflicts. | ST events do not currently supply durable IDs, uniform completed/persisted ordering, or trusted world binding. No call may be wired yet. |
+| New swipe/edited revision | `captureRawMessage` with same logical message ID and a new immutable version ID | Retain old version; create distinct new version. | Edit-as-new-version and parent relationship require explicit Core/Provider approval. Do not overwrite the old version or invent ancestry. |
+| Select existing swipe | `selectActiveRawVersion` for the chosen version ID | Change active pointer only; alternatives remain retained. | Current ST event gives only array index; durable version identity must be read from persisted message data after identity work is approved. |
+| Delete one swipe/version | `markRawSourceDeleted` for that exact version ID | Mark only that version deleted, remove it from active selection and invalidate registered dependent copies. | Capture the target before ST splices/reindexes. Provider operation is draft and not callable from current main. |
+| Delete whole logical message | Candidate: invoke `markRawSourceDeleted` once per known retained version belonging to that message | Tombstone every known version; preserve provider's reversible deletion semantics. | There is no confirmed Provider operation for atomic whole-message deletion or authoritative enumeration of all historical versions. A Host-side list of currently visible swipes may omit already-removed versions. This is **not safe** until Provider defines the complete target set and replay semantics. |
+| Permanent purge | `purgeRawSource` only for an exact approved version target | Permanently removes that raw version and registered dependent copies inside Provider DB. | Not equivalent to normal ST delete; never trigger automatically from a UI delete. External indexes/stores are explicitly outside this method's purge guarantee. Retention/purge authority remains unapproved. |
+| Duplicate event/replay | Same immutable composite key through `captureRawMessage` / `markRawSourceDeleted` | Capture is duplicate only when the complete payload matches; deletion of an already-deleted known version remains semantically idempotent. | This provider-local behavior does not prove replay completeness or that the event names the correct source key. |
+| Restart/reload reconciliation | Provider `reconcile(worldId)` for canonical-entity records; `validateInventory` callback is required there | The current Provider reconciliation path validates its own `memory_records` and trusts the injected inventory validator for that domain. | It does **not** establish complete inventory for `memory_raw_captures`; no production Host inventory source/operation is confirmed. A fixture callback is not production authority. **Blocking gap.** |
+
+### Rules proposed for Core/Provider decision
+
+1. **Create once; versions immutable.** Create one logical-message identity for a new logical ST message. Every generated swipe and every approved edit revision receives a separate immutable version identity. Active selection is a pointer, not a new version. This is a proposed rule, not yet a code change.
+2. **Edit semantics.** Treat an edit as a new version under the same logical-message identity, with a parent reference to the prior active version, unless Core explicitly chooses another semantic. Existing Provider raw archive does not yet define a typed parent relation, so this cannot be considered implemented.
+3. **Swipe deletion vs message deletion.** Swipe deletion targets exactly one version; whole-message deletion must cover all versions, not just the currently selected one. Both must capture IDs before host mutation. Permanent purge is separate from reversible deletion.
+4. **Copy/branch/import/restore.** Preserve IDs only when restoring the same logical source and its ancestry. For a new independent copy/branch, use a new conversation identity or explicitly approved remapping; never allow same composite key with different content. If import provenance or ancestry is ambiguous, do not auto-ingest. Exact policy requires Core approval.
+5. **Legacy messages.** No automatic trusted backfill from array index, timestamp, `extra.gen_id`, or content hash. Legacy records remain ineligible for production Memory ingestion until a migration/backfill and lineage rule is approved.
+6. **Incomplete generation.** Do not capture a partial/cancelled generation as a completed source version unless an explicit contract defines it as a separate non-admitted state. Current event evidence does not establish a durable generation identity or final persistence boundary.
+7. **Reconciliation.** Provider must identify an existing production-capable source inventory and prove it covers all current versions and tombstones after restart/replay. The current raw archive methods alone do not provide this guarantee.
+
+### Joint acceptance matrix — current evidence
+
+| Case | Current evidence level | Result / next proof needed |
+|---|---|---|
+| Create message / completed generation | SOURCE-INSPECTED; limited event families RUNTIME-OBSERVED | NOT TESTED: persisted ID/version before/after on pinned Android/Termux |
+| Create and switch swipe | SOURCE-INSPECTED; event family RUNTIME-OBSERVED | NOT TESTED: stable version IDs persist and active pointer resolves correctly after reload |
+| Edit message | SOURCE-INSPECTED; event family RUNTIME-OBSERVED | NOT TESTED: immutable before/after revisions and parent lineage across reload |
+| Delete one swipe | SOURCE-INSPECTED; event family RUNTIME-OBSERVED | NOT TESTED: pre-mutation exact version target, Provider tombstone and restart persistence |
+| Delete whole message | SOURCE-INSPECTED; event family RUNTIME-OBSERVED | NOT TESTED: complete set of version tombstones, including versions no longer visible in ST |
+| Stop/cancel/regenerate | SOURCE-INSPECTED; limited event family RUNTIME-OBSERVED | NOT TESTED: distinguish partial/cancelled content from completed version and link regeneration lineage |
+| Chat switch / reload / restart / replay | SOURCE-INSPECTED in load/save paths; no complete runtime reproduction | NOT TESTED: identity persistence, idempotent replay and current inventory proof |
+| Branch/copy/import/restore | Current source inspection does not prove collision policy | NOT TESTED: same-source restore vs independent copy, ID remapping and ancestry conflict |
+| Duplicate delivery / same ID different content | Provider PR #201 source-inspected; provider-local tests are draft-branch evidence | Provider-local semantics exist; Host→Provider replay is NOT TESTED |
+| Incomplete inventory / source change during reconciliation | Provider PR #201 source-inspected; fixture-based callback tests only | Production raw-capture inventory source is NOT ESTABLISHED; fail closed |
+
+### Host disposition
+
+This is the Host-side half of the requested joint mapping. It maps the proposed durable Host concepts to the actual raw-archive method/key names currently present in draft Provider PR #201, and it identifies where the two sides do **not** currently meet. It does not assert that PR #201 is merged, callable from ST, or production-authoritative.
+
+**Concrete blocker to cross-boundary implementation:** the current Provider draft has per-version raw capture/select/delete operations, but there is no approved production Host caller and no demonstrated complete/current raw-source inventory after restart/replay; lineage and trusted world/conversation binding are also not yet contracted. Core must approve the concrete mapping and owners must close those gaps before implementation. Keep production Memory→NPC **DISABLED / FAIL-CLOSED** and leave vectorization untouched.
