@@ -389,3 +389,28 @@ The detailed scenario definitions for NPC-CAUSE-001–008 are in `docs/47-npc-ca
 | NPC-CAUSE-008 — Deterministic replay/snapshot safety | Canonical rollback/replay, audit/revision, idempotency, actor-authorized read boundary | Same valid inputs yield same projection; no mixed-snapshot or stale context | Blocked pending end-to-end production test |
 
 Do not close these gates with mocks, prose checks, or a test that hides rollback and later source creation in one batch. The report must show state after each step, canonical markers, audit/revision effects, duplicate retry, and the actual authorized consumer result.
+
+
+## 10. Delivery/acquisition evidence acceptance map
+
+The detailed cases NPC-DELIV-001–010 are in `docs/48-npc-delivery-acquisition-boundary-matrix.md`. The required boundary and gate status are:
+
+| Case group | Required real boundary | Acceptance assertion | Status |
+|---|---|---|---|
+| NPC-DELIV-001 | Actual adapter/model input and Core state before/after | Context inclusion alone creates no delivery/acquisition/belief | Blocked pending real acquisition/delivery records and production path |
+| NPC-DELIV-002–004 | Host adapter attempt/result/rendering signal | Failure or injection is not promoted to visible, acknowledged, comprehended, acquired, or believed | Hard blocker: verified host rendering signal not established |
+| NPC-DELIV-005–006 | Core-owned delivery/receipt, acquisition and belief boundaries | Received false report remains a source-attributed claim; receipt does not force belief or canonical truth | Blocked pending Core-owned records and supported communication path |
+| NPC-DELIV-007 | Trusted actor binding plus per-actor pre-model filter | Recipient and non-recipient receive isolated context | Actor binding is implemented on Core main; the missing/unverified actor/purpose/snapshot filter and end-to-end isolation evidence remain hard blockers |
+| NPC-DELIV-008 | Real delivery callback/retry and trusted idempotency identity | Duplicate callbacks do not duplicate acquisition or consequences | Blocked pending delivery operation contract |
+| NPC-DELIV-009 | Canonical source invalidation plus Core-owned acquisition/delivery history | Source validity and historical receipt are reconciled separately | Blocked pending acquisition/source reconciliation contract |
+| NPC-DELIV-010 | Actual host capability inventory and result projection | Unsupported signals remain unconfirmed; no guessed success | Hard blocker until real host signal is verified |
+
+Do not close these gates with a fake host signal, mocked missing Core records, or prompt-only checks. A successful general CI run does not prove delivery/acquisition behavior.
+
+## Current Core knowledge readiness reference
+
+For the live source-to-requirement audit, including current Core capabilities, missing acquisition/filter boundaries, and production acceptance gates, see `docs/49-npc-core-knowledge-live-audit.md`. Actor binding now exists on Core main, but actor-relative acquisition filtering and secret exclusion remain hard blockers. This map does not treat adjacent Core features as proof of NPC knowledge safety.
+
+## Initial-acquisition contract
+
+Use `docs/50-npc-initial-knowledge-acquisition-contract.md` as the semantic test source for the first `author_initial`/imported slice. Its NKA-01–NKA-14 cases are acceptance targets, not current passing tests. Tests must reach real Core services and the exact model serialization boundary; mock-only acquisition/filter implementations do not satisfy this map.
