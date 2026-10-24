@@ -396,6 +396,19 @@ test("duplicate record/version is admitted once without text-based identity", ()
   assert.equal(result.admitted.length, 1);
 });
 
+test("record identity deduplication preserves distinct ref/version pairs containing the separator", () => {
+  const first = candidate({ record: { ref: "a\u0000b", version: "c" } });
+  const second = candidate({ record: { ref: "a", version: "b\u0000c" } });
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([first, second]));
+
+  assert.equal(result.status, "ready");
+  assert.equal(result.admitted.length, 2);
+  assert.deepEqual(result.admitted.map(item => [item.record_ref, item.record_version]), [
+    ["a\u0000b", "c"],
+    ["a", "b\u0000c"],
+  ]);
+});
+
 test("partial, unavailable, rebuilding, malformed, or unknown retrieval is not treated as complete-empty", () => {
   const authorizedEmpty = evaluateMemoryCandidateAdmission(request, completeResult([]));
   for (const resultInput of [
