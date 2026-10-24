@@ -87,7 +87,10 @@ export class MemoryNpcConsumer {
 
     let memoryResult;
     try {
-      memoryResult = await this.memoryProvider.retrieveCandidates(scope);
+      // Freeze a stable data snapshot before any per-record authorization
+      // awaits. A mutable in-process index object must not be able to rebind
+      // a candidate's source or identity between validation and Core read.
+      memoryResult = structuredClone(await this.memoryProvider.retrieveCandidates(scope));
     } catch {
       return nonReady('memory_retrieval_unavailable');
     }
