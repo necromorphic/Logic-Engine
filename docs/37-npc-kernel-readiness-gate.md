@@ -171,7 +171,7 @@ Do not describe the trusted caller as the canonical knowledge owner, and do not 
 This is a proposal for core-owner review, not an implementation or an approved public API. It explicitly:
 - reuses existing core identities and causal/rollback mechanisms rather than adding parallel ones;
 - treats canonical events, context manifests, and proposal records as useful but insufficient infrastructure;
-- keeps belief ownership open for explicit core decision while prohibiting an NPC-owned substitute authority;
+- records core ownership of persistent subject-relative belief state as semantically confirmed, while noting that the runtime/API boundary and persistence are not verified;
 - defers API, schema, SQLite, runtime, host-delivery, and end-to-end test work until the contract is approved and mapped to real code.
 
 The current evidence status is unchanged: no complete actor-specific acquisition/query contract has been verified in the inspected runtime. The proposal's acceptance criteria are future test targets, not test results.
