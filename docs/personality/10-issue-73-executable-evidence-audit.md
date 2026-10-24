@@ -147,7 +147,7 @@ Historical GitHub Actions workflow **Runtime tests**, run [#591](https://github.
 
 ## CI evidence for this PR head
 
-GitHub Actions workflow **Runtime tests**, run [#618](https://github.com/necromorphic/Logic-Engine/actions/runs/40059045655), completed successfully for this PR head, commit `cfa4ff604f9ade802ecbd83e8a94f49466cb08b7` on `fix/personality-issue-73-test-traceability`. The run was triggered by the PR and reports conclusion `success`. This is current CI evidence for the repository's configured Runtime tests workflow at that commit; it is not evidence that the documentation audit independently executed the suite, nor does it close Core/NPC integration blockers identified below.
+Historical GitHub Actions workflow **Runtime tests**, run [#618](https://github.com/necromorphic/Logic-Engine/actions/runs/40059045655), completed successfully for an earlier Issue #73 PR head, commit `cfa4ff604f9ade802ecbd83e8a94f49466cb08b7` on `fix/personality-issue-73-test-traceability`. It verifies the configured Runtime tests workflow at that historical commit only; it is not CI evidence for the current PR head and does not close Core/NPC integration blockers.
 
 ## Cross-document consistency checks
 
