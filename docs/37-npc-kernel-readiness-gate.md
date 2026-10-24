@@ -459,3 +459,10 @@ The summary in §3 is refreshed accordingly: actor binding and tri-state conditi
 The latest comparison after adding the live Core knowledge audit reports the refs as diverged: `feat/npc-subsystem` is 17 commits behind `main` and 181 commits ahead at the comparison point. The NPC-specific file delta is documentation-only across `docs/31`–`docs/49` (18 files). The branch remains separate; no rebase, merge, PR creation, or PR reopening was performed.
 
 The available workflow query for the then-current NPC head returned no PR-triggered runs. Treat this as **CI unverified**, not as a pass or a claim that no other workflow type ran.
+
+
+## 29. Initial-acquisition contract handoff
+
+The semantic requirements for the first supported acquisition slice are consolidated in `docs/50-npc-initial-knowledge-acquisition-contract.md`. It limits the first slice to explicit `author_initial` and `imported` assignment, defines isolation/provenance/validity/status requirements, and supplies production-boundary acceptance cases NKA-01–NKA-14.
+
+This is documentation-only. It does not resolve the missing Core representation or authorize runtime work. The NPC gate remains closed until Core implements the real source/acquisition boundary and the safe actor/purpose/snapshot filter, with restricted values absent from exact serialized model input.
