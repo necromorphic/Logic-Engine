@@ -28,7 +28,7 @@ No subsystem may create a parallel canonical event log, world-revision counter, 
 3. Significant changes should be explainable from available evidence: new information, changed goals, pressure, relationships, resources, prior commitments, or a declared author override.
 4. Do not invent hidden motives, secrets, history, relationships, capabilities, or canon facts to fill gaps. Mark the matter unresolved or request an author decision.
 5. Distinguish stable traits from temporary state. A temporary emotion or injury must not silently rewrite the stable character profile.
-6. Identity and knowledge are subject-specific. Two identities, disguises, aliases, or personas are not assumed to be the same entity unless the world data explicitly links them.
+6. A social identity may be a presentation of the same underlying character, but this must be explicitly linked in authored profile data or canonical world data; names, appearance, or matching biography alone are insufficient. The profile link does not merge distinct canonical entities or create a second NPC. Knowledge remains subject- and observer-relative. See `docs/40-npc-social-identities-editor-contract.md` for the optional social-identity model.
 
 ## 4. Decision cycle
 
