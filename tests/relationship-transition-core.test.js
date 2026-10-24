@@ -268,6 +268,28 @@ test('stale composite cursor and spoofed executor are rejected without mutation'
   }
 });
 
+test('reusing a Relationship idempotency key with a different payload is rejected', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    const first = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+      idempotency_key: 'relationship-key-payload-bound',
+    }));
+    assert.equal(first.accepted, true);
+    assert.throws(
+      () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+        patch: { trust: 'high' },
+        idempotency_key: 'relationship-key-payload-bound',
+      })),
+      (error) => error.code === 'IDEMPOTENCY_KEY_CONFLICT',
+    );
+    assert.equal(engine.getEvents('world-relationship-test').filter((event) => event.event_type === 'relationship.transition').length, 1);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 2);
+    assert.equal(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
+  } finally {
+    store.close();
+  }
+});
+
 test('partial dimension patch preserves other dimensions and mixed invalid patch is atomic', async () => {
   const { store, engine, seed } = await fixture();
   try {
