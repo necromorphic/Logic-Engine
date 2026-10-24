@@ -287,3 +287,10 @@ NPC follow-up acceptance is now narrowed to:
 3. Report exact-head CI/test evidence for PR #76. The current reported state has no workflow run for that head; no pass/fail result is established here.
 
 Related acceptance case: **MEM-036**. PR #76 remains draft/unmerged; Memory has not edited NPC files or run the NPC test suite.
+
+
+## Exact-head refresh — NPC PR #76, 2026-10-24
+
+A fresh PR metadata read reports current head `60ea6287e57cfd10164735761951dff32abf627c` (open Draft, unmerged). The GitHub workflow-run query for this exact SHA returned no PR-triggered workflow runs. This is an absence of available run evidence, not a test failure or success. Keep the exact-head CI gate open.
+
+The helper's current source still has no world-scope requirement in summary `lineageIsSafe()`: each source is checked for non-empty ref/version, access allow, and current freshness only. The source-world gap remains unresolved until the owner adds the contract-backed negative case or documents a trusted upstream same-world precondition with boundary coverage. No runtime schema should be invented to close it.
