@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { EngineError, assert } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
+import { translateMechanicEffectIntents } from '../core/mechanic-effect-translator.js';
 
 const now = () => new Date().toISOString();
 const enc = (value) => JSON.stringify(value);
@@ -46,11 +47,28 @@ export class ProposalService {
     assert(typeof body.idempotency_key === 'string' && body.idempotency_key.trim() && body.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key is required.');
     assert(typeof body.source_text === 'string' && body.source_text.length <= 50000, 'INVALID_SOURCE_TEXT', 'source_text must be a string of at most 50000 characters.');
     assert(object(body.event), 'INVALID_EVENT_PROPOSAL', 'event must be an object containing the proposed event payload.');
-    const allowedEventFields = ['turn_id', 'event_type', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
+    // Resolve existing idempotency keys before translating untrusted intents. A changed
+    // request must remain an idempotency conflict even when the changed intent is invalid.
+    const request = { source_text: body.source_text, event: body.event };
+    const requestHash = hashRequest(request);
+    const existingBeforeTranslation = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND idempotency_key=?')
+      .get(worldId, body.idempotency_key.trim());
+    if (existingBeforeTranslation) {
+      if (existingBeforeTranslation.created_by_adapter_id !== adapterId) throw new EngineError('PROPOSAL_ADAPTER_MISMATCH', 'Proposal idempotency key belongs to another adapter.', 403);
+      if (existingBeforeTranslation.request_hash !== requestHash) throw new EngineError('IDEMPOTENCY_KEY_CONFLICT', 'Proposal idempotency key was reused with different content.', 409);
+      return this.publicProposal(existingBeforeTranslation, true);
+    }
+
+    const allowedEventFields = ['turn_id', 'event_type', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects', 'effect_intents'];
     assert(Object.keys(body.event).every((key) => allowedEventFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event payload contains an unsupported or server-owned field.');
+    const hasEffects = Object.hasOwn(body.event, 'effects');
+    const hasEffectIntents = Object.hasOwn(body.event, 'effect_intents');
+    assert(!(hasEffects && hasEffectIntents), 'MUTUALLY_EXCLUSIVE_EFFECT_FIELDS', 'Provide either event.effects or event.effect_intents, not both.');
     assert(typeof body.event.turn_id === 'string' && body.event.turn_id.trim(), 'TURN_ID_REQUIRED', 'event.turn_id is required.');
     assert(typeof body.event.event_type === 'string' && body.event.event_type.trim(), 'EVENT_TYPE_REQUIRED', 'event.event_type is required.');
     assert(Array.isArray(body.event.effects ?? []), 'INVALID_EFFECTS', 'event.effects must be an array.');
+    let translatedEffects;
+    if (hasEffectIntents) translatedEffects = translateMechanicEffectIntents(body.event.effect_intents);
     if ((body.event.effects ?? []).some((effect) => typeof effect?.kind === 'string' && effect.kind.startsWith('mechanic.instance.'))) {
       throw new EngineError('MECHANIC_CONFIGURATION_REQUIRES_ADMIN', 'Mechanic lifecycle operations require the separate administrative credential and cannot be submitted through adapter proposals.', 403);
     }
@@ -59,8 +77,6 @@ export class ProposalService {
     const world = this.engine.store.world(worldId);
     if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
     const sequence = this.engine.store.currentCommitSequence(worldId);
-    const request = { source_text: body.source_text, event: body.event };
-    const requestHash = hashRequest(request);
     const existing = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND idempotency_key=?').get(worldId, body.idempotency_key.trim());
     if (existing) {
       if (existing.created_by_adapter_id !== adapterId) throw new EngineError('PROPOSAL_ADAPTER_MISMATCH', 'Proposal idempotency key belongs to another adapter.', 403);
@@ -71,6 +87,10 @@ export class ProposalService {
     const proposalId = randomUUID();
     const createdAt = now();
     const eventPayload = { ...body.event, event_id: randomUUID() };
+    if (hasEffectIntents) {
+      delete eventPayload.effect_intents;
+      eventPayload.effects = translatedEffects;
+    }
     const validation = this.engine.validateEvent(worldId, {
       ...eventPayload,
       idempotency_key: 'proposal-validation:' + randomUUID(),

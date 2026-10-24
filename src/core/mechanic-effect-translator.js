@@ -12,6 +12,10 @@ const ENTITY_STATUSES = new Set(['active', 'inactive', 'destroyed', 'unknown']);
 const TOP_LEVEL_FIELDS = new Set(['effect_id', 'kind', 'target_ref', 'payload', 'source_refs', 'caused_by']);
 const MAX_BATCH = 128;
 const MAX_ID = 200;
+const MAX_JSON_DEPTH = 32;
+const MAX_JSON_NODES = 10000;
+const MAX_CONTAINER_ITEMS = 1000;
+const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function fail(code, message, details = undefined) {
   throw new EngineError(code, message, 400, details);
@@ -26,6 +30,13 @@ function text(value, label, max = MAX_ID) {
     fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be a non-empty string of at most ' + max + ' characters.');
   }
   return value.trim();
+}
+
+function identityText(value, label, max = MAX_ID) {
+  if (typeof value !== 'string' || !value.trim() || value.length > max) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be a non-empty string of at most ' + max + ' characters.');
+  }
+  return value;
 }
 
 function object(value, label) {
@@ -54,7 +65,14 @@ function stringList(value, label) {
   return value;
 }
 
-function cloneJson(value, label, active = new Set()) {
+function cloneJson(value, label, active = new Set(), budget = { nodes: 0 }, depth = 0) {
+  budget.nodes += 1;
+  if (budget.nodes > MAX_JSON_NODES) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded JSON node limit.');
+  }
+  if (depth > MAX_JSON_DEPTH) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded JSON depth limit.');
+  }
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must contain only finite numbers.');
@@ -67,12 +85,22 @@ function cloneJson(value, label, active = new Set()) {
   active.add(value);
   let result;
   if (Array.isArray(value)) {
-    result = value.map((item, index) => cloneJson(item, label + '[' + index + ']', active));
+    if (value.length > MAX_CONTAINER_ITEMS) {
+      fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded array length.');
+    }
+    result = value.map((item, index) => cloneJson(item, label + '[' + index + ']', active, budget, depth + 1));
   } else {
     object(value, label);
+    const entries = Object.entries(value);
+    if (entries.length > MAX_CONTAINER_ITEMS) {
+      fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded object field count.');
+    }
     result = {};
-    for (const [key, item] of Object.entries(value)) {
-      Object.defineProperty(result, key, { value: cloneJson(item, label + '.' + key, active), enumerable: true, writable: true, configurable: true });
+    for (const [key, item] of entries) {
+      if (UNSAFE_OBJECT_KEYS.has(key)) {
+        fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' contains an unsafe object key: ' + key + '.');
+      }
+      Object.defineProperty(result, key, { value: cloneJson(item, label + '.' + key, active, budget, depth + 1), enumerable: true, writable: true, configurable: true });
     }
   }
   active.delete(value);
@@ -86,7 +114,7 @@ function validatePayload(effect) {
   return object(effect.payload, 'payload');
 }
 
-function translateOne(effect, index) {
+function translateOne(effect, index, jsonBudget) {
   const label = 'intents[' + index + ']';
   object(effect, label);
   exactKeys(effect, TOP_LEVEL_FIELDS, label);
@@ -96,7 +124,7 @@ function translateOne(effect, index) {
   }
   text(effect.effect_id, label + '.effect_id', 128);
   const kind = text(effect.kind, label + '.kind', 128);
-  const targetRef = text(effect.target_ref, label + '.target_ref', MAX_ID);
+  const targetRef = identityText(effect.target_ref, label + '.target_ref', MAX_ID);
 
   if (!KNOWN_INTENTS.has(kind)) {
     fail('INVALID_MECHANIC_EFFECT_INTENT', label + '.kind is not a declared mechanic intent kind.');
@@ -124,7 +152,7 @@ function translateOne(effect, index) {
       translated.status = payload.status;
     }
     if (Object.hasOwn(payload, 'attributes')) {
-      translated.attributes = cloneJson(object(payload.attributes, label + '.payload.attributes'), label + '.payload.attributes');
+      translated.attributes = cloneJson(object(payload.attributes, label + '.payload.attributes'), label + '.payload.attributes', new Set(), jsonBudget);
     }
   } else if (kind === 'update_attribute') {
     exactKeys(payload, new Set(['attributes', 'remove_attributes', 'status']), label + '.payload');
@@ -164,19 +192,19 @@ function translateOne(effect, index) {
     }
   } else {
     exactKeys(payload, new Set(['predicate', 'value', 'subject_ref']), label + '.payload');
-    const predicate = text(payload.predicate, label + '.payload.predicate', 200);
+    const predicate = identityText(payload.predicate, label + '.payload.predicate', 200);
     if (!Object.hasOwn(payload, 'value')) fail('INVALID_MECHANIC_EFFECT_INTENT', label + '.payload.value is required.');
     translated = {
       kind: 'fact.set',
       fact_id: targetRef,
       predicate,
-      value: cloneJson(payload.value, label + '.payload.value'),
+      value: cloneJson(payload.value, label + '.payload.value', new Set(), jsonBudget),
     };
     if (Object.hasOwn(payload, 'subject_ref')) {
       if (payload.subject_ref !== null && typeof payload.subject_ref !== 'string') {
         fail('INVALID_MECHANIC_EFFECT_INTENT', label + '.payload.subject_ref must be a string or null.');
       }
-      translated.subject_ref = payload.subject_ref === null ? null : text(payload.subject_ref, label + '.payload.subject_ref');
+      translated.subject_ref = payload.subject_ref === null ? null : identityText(payload.subject_ref, label + '.payload.subject_ref');
     }
   }
 
@@ -188,8 +216,8 @@ function translateOne(effect, index) {
  * Pure and all-or-nothing: this function never reads or mutates world state.
  */
 export function translateMechanicEffectIntents(intents) {
-  if (!Array.isArray(intents) || intents.length > MAX_BATCH) {
-    fail('INVALID_MECHANIC_EFFECT_INTENT', 'intents must be an array of at most ' + MAX_BATCH + ' items.');
+  if (!Array.isArray(intents) || intents.length === 0 || intents.length > MAX_BATCH) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', 'intents must be a non-empty array of at most ' + MAX_BATCH + ' items.');
   }
 
   const seenIds = new Set();
@@ -202,7 +230,8 @@ export function translateMechanicEffectIntents(intents) {
     seenIds.add(id);
   }
 
-  const translated = intents.map(translateOne);
+  const jsonBudget = { nodes: 0 };
+  const translated = intents.map((intent, index) => translateOne(intent, index, jsonBudget));
   try {
     validateEffects(translated);
   } catch (error) {
