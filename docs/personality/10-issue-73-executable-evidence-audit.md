@@ -99,9 +99,9 @@ This table closes the per-ID pass over the canonical matrix. “No executable te
 
 GitHub Actions workflow **Runtime tests**, run [#591](https://github.com/necromorphic/Logic-Engine/actions/runs/40058497617), completed successfully on `feat/relationship-pure-evaluator` at commit `b2697e77ac0e97b1f7022656c08da5776fa29685`. Its `npm test` step concluded `success` (run created 2026-10-24 03:29:21 UTC). This is positive CI evidence for that exact evaluator commit only. It is not a test run for this Personality PR, does not certify a newer evaluator commit, and does not demonstrate Core/NPC integration. The source/documentation audit in this PR did not execute the suite itself.
 
-## CI evidence for this PR head
+## CI evidence for a prior PR head (not the latest documentation commits)
 
-GitHub Actions workflow **Runtime tests**, run [#618](https://github.com/necromorphic/Logic-Engine/actions/runs/40059045655), completed successfully for this PR head, commit `cfa4ff604f9ade802ecbd83e8a94f49466cb08b7` on `fix/personality-issue-73-test-traceability`. The run was triggered by the PR and reports conclusion `success`. This is current CI evidence for the repository's configured Runtime tests workflow at that commit; it is not evidence that the documentation audit independently executed the suite, nor does it close Core/NPC integration blockers identified below.
+GitHub Actions workflow **Runtime tests**, run [#618](https://github.com/necromorphic/Logic-Engine/actions/runs/40059045655), completed successfully for commit `cfa4ff604f9ade802ecbd83e8a94f49466cb08b7` on `fix/personality-issue-73-test-traceability`. This is historical CI evidence for that exact commit, not the latest documentation head after the Issue #73 evidence corrections. The latest documentation commits are `278c90d2479c540607fb401e1d8f266a727dc1db` and subsequent traceability/gate corrections through `db894076c76e34881517068f772e23cd75d3f536`. The available workflow/status lookup returned no run/status for those newer commits, so exact-head CI is **not confirmed**. This does not close the Core/NPC integration blockers identified below.
 
 ## Cross-document consistency checks
 
