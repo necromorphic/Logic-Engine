@@ -260,6 +260,7 @@ test('mechanic proposal handoff rejects incomplete or mismatched effect provenan
     context_fingerprint: tampered.context_fingerprint,
     context_policy_version: tampered.context_policy_version,
     condition_result: tampered.condition_result,
+    dependency_manifest: tampered.dependency_manifest,
     effects: tampered.effects,
     effect_provenance: tampered.effect_provenance,
   });
