@@ -54,7 +54,7 @@ This fixture is a test design only. It is not a proposed storage schema or an as
 
 ## 4. Current executable pure-evaluator coverage
 
-The standalone evaluator in PR #62 is deliberately narrower than the full module contract. The following map records what its current unit suite actually exercises; it does not upgrade any consumer/Core requirement to implemented status.
+The standalone evaluator in PR #62 is deliberately narrower than the full module contract. The following map records what its current unit suite actually exercises; it does not upgrade any consumer/Core requirement to implemented status. At this cross-branch reference, evaluator PR #62 head `b2697e77ac0e97b1f7022656c08da5776fa29685` passed GitHub Actions run #591 (`npm test`). That result belongs to the evaluator branch; this documentation branch does not contain those tests.
 
 | Requirement | Current pure-evaluator coverage | Boundary / remaining work |
 |---|---|---|
