@@ -27,6 +27,13 @@ function setup(t) {
     ],
   });
   bindings.bind('memory-bridge-world', 'adapter-a', 'actor-a');
+  engine.commitEvent('memory-bridge-world', {
+    idempotency_key: 'unrelated-memory-bridge',
+    turn_id: 'unrelated-memory-bridge',
+    event_type: 'action.completed',
+    expected_revision: 1,
+    effects: [{ kind: 'entity.create', entity_id: 'unrelated-a', entity_type: 'object' }],
+  });
   const authorizedReads = new AuthorizedReadService(engine, bindings, (context, entity, field) =>
     context.worldId === 'memory-bridge-world'
       && context.actor.entity_id === 'actor-a'
@@ -103,7 +110,6 @@ test('host seam composes real Core authorized-read with fixture Memory retrieval
       && retrieved.scope.world_id === scope.world_id
       && retrieved.scope.subject_id === scope.subject_id
       && retrieved.access.outcome === 'allow'
-      && retrieved.snapshot === undefined
       && sourceRead().world_revision === scope.snapshot.world_revision
       && sourceRead().commit_sequence === scope.snapshot.commit_sequence,
     verifyCandidate: (scope, item) => {
@@ -149,7 +155,12 @@ test('host seam rejects a rollback-only revision change before NPC admission', (
   // Exercise the real Core rollback path: revision changes while event cursor stays put.
   const beforeSequence = store.currentCommitSequence('memory-bridge-world');
   const revision = engine.getState('memory-bridge-world').world_revision;
-  engine.rollback('memory-bridge-world', { expected_revision: revision, reason: 'integration rollback probe' });
+  assert.equal(revision, snapshot.world_revision);
+  const rollback = engine.rollbackEvent('memory-bridge-world', {
+    root_event_id: 'unrelated-memory-bridge',
+    idempotency_key: 'rollback-unrelated-memory-bridge',
+  });
+  assert.equal(rollback.accepted, true);
   assert.equal(store.currentCommitSequence('memory-bridge-world'), beforeSequence);
   assert.notEqual(engine.getState('memory-bridge-world').world_revision, snapshot.world_revision);
   const output = bridge.read(request);
