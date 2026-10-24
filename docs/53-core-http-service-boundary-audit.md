@@ -65,6 +65,18 @@ On the audited revision, any holder of the general bearer can register a context
 
 **Required closure:** define the trusted producer and generation binding for manifests. The route/service must derive producer authority server-side and verify the manifest's world, generation, base revision/commit sequence, and ownership against a trusted host-side generation record. Until that generation record exists, fail closed or restrict registration to a dedicated internal capability. Do not accept a caller-supplied origin/producer label as proof. Add tests for wrong-world, stale-cursor, foreign-generation, duplicate, and untrusted-caller attempts.
 
+### F-07 — Raw state read is not the canonical consistent-snapshot API
+
+**Observed path:** `GET /v1/worlds/:world_id/state` → `LogicEngine.getState` → `SQLiteStore.state`.
+
+The audited `SQLiteStore.state` reads the world row, entity projection, and fact projection through separate SELECT statements without opening the read transaction used by `SQLiteStore.readSnapshot`. The returned object also does not carry the snapshot's `commit_sequence` marker. By contrast, `readSnapshot` explicitly reads the world revision, commit cursor, selected projections, manifests, and optional mechanic evaluation state inside one SQLite read transaction and refuses to run inside a write transaction.
+
+**Risk:** the raw state endpoint is already a trusted-only boundary candidate under PR #65, but trust gating does not by itself make its payload a revision-bound atomic snapshot. If another database connection can write concurrently, a multi-query `state` response has no explicit guarantee that every table reflects the same SQLite snapshot. Consumers also cannot bind the payload to a commit cursor from the response alone.
+
+**Required closure:** do not use `getState` as the consistency contract for model-facing or workflow reads. Use `getSnapshot` with bounded selectors and retain `world_revision` plus `commit_sequence`. For trusted operational state endpoints, either migrate the implementation to the same explicit read-transaction semantics or document and test the narrower guarantee. This is separate from authorization and must not be considered closed by PR #65's raw-route credential guard alone.
+
+**Acceptance tests:** concurrent writer/read snapshot test; verify a returned snapshot's rows, world revision, and commit cursor share one SQLite read transaction; verify authorized consumers carry the cursor forward and reject stale use at commit.
+
 ### F-06 — World creation and registry reads need explicit capability classification
 
 **Observed routes:** `POST /v1/worlds`, `GET /v1/mechanics/audit`, list/detail reads for mechanic templates and rule-module manifests.
