@@ -92,6 +92,7 @@ These cases can be implemented as pure consumer/domain tests using synthetic inp
 | NPC-REL-CONS-010 — Capability unavailable | Relationship module/rule/read is absent, disabled, or incompatible | Relationship-dependent inference is omitted or marked unsupported | Fabricated neutral values, hidden fallback storage, implicit replay on re-enable |
 | NPC-REL-CONS-011 — Player agency | Context includes relationship data for a player-controlled participant | The NPC may respond to established context but leaves player voluntary choices to the player | Authoring the player's thoughts, dialogue, decisions, consent, or actions |
 | NPC-REL-CONS-012 — Read-only summary | A card/narrative/decision consumer receives a bounded projection | It can summarize only supplied authorized information and has no mutation effect | Treating generated prose/card edits as canonical state or evidence |
+| NPC-REL-CONS-013 — Conduct is not relationship state | A publicly cooperative character has no established affection or loyalty value | The consumer does not infer hidden dimensions from conduct alone; any observer belief needs a valid evidence path | Treating conduct, concealment, or a social performance as proof of an internal dimension |
 
 These tests should reuse the existing REL-MOD and NPC acceptance identifiers where they cover the same invariant; the new IDs are consumer-boundary traceability labels, not replacements for existing identifiers.
 
@@ -107,6 +108,7 @@ The consumer cases above are traceability labels, not a second semantic acceptan
 | NPC-REL-CONS-004 — No knowledge from state | REL-SEM-013; REL-MOD-002 | No secret/cause enters the NPC context without a valid acquisition path |
 | NPC-REL-CONS-005 — Same event, different interpretation | REL-MOD-001 | Different candidates remain tied to explicit subject-specific inputs |
 | NPC-REL-CONS-006 — Co-presence is not a cause | REL-SEM-004; REL-MOD-005 | No consumer-side drift from scene count or turns |
+| NPC-REL-CONS-013 — Conduct is not relationship state | REL-MOD-004; REL-SEM-014 where an explanation is attempted | Public cooperation, hostility, or concealment is not proof of an unobserved dimension or its cause |
 | Observed conduct is not internal relationship state | REL-MOD-004; REL-SEM-014 where an explanation is attempted | Public cooperation, hostility, or concealment is not proof of an unobserved dimension or its cause |
 | NPC-REL-CONS-007 — Duplicate evaluation | REL-MOD-005 for no automatic drift; REL-MOD-001 only where different interpretations are in scope | Same explicit input/version yields the same pure candidate; commit idempotency remains a Core test |
 | NPC-REL-CONS-008 — New acquisition about old event | NPC-CAUSE-007; NPC-CAUSE-008; acquisition contract in docs/50–51 | A new acquisition is not silently treated as a new event or an implicit rewrite |
