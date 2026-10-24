@@ -297,3 +297,18 @@ The contract/runtime distinction applies to the execution pipeline as a whole, n
 
 Therefore `docs/30` is a core implementation contract, while the current source exposes lower-level validation and condition-evaluation pieces. Do not report Stage 1.3 execution as implemented or begin NPC runtime integration on the assumption that the documented pipeline exists. This is a source-level finding and should be rechecked against the exact target commit before implementation.
 
+## 18. Live dependency refresh — exact PR heads (2026-10-24)
+
+This refresh supersedes any older PR-status wording above, but does not change the readiness decision. Repository status and CI were queried during this review.
+
+| Dependency | Current state | Evidence | NPC consequence |
+|---|---|---|---|
+| PR #45 — consistent internal snapshot | Open, ready for review, unmerged; head `09e48c2fd764c8e3f7b1e8f96e485a58ea34c793`; Runtime tests run #310 passed on that exact head | The API remains internal and read-only; it does not filter by actor or authorize knowledge | Required read primitive is still not on `main` |
+| PR #47 — mechanic/context snapshot extension | Open, ready for review, unmerged; based on PR #45 at `09e48c2fd764c8e3f7b1e8f96e485a58ea34c793`; head `3417a28f8a99663a9834f733bb842558259bc2e4`; Runtime tests run #370 passed on test head `ba701653b4fa629bde26c1188173039c08de993f` | Same-transaction mechanic state and requested context-manifest expansion, bounded fail-closed read | Must follow #45; still not actor authorization or model-safe projection |
+| PR #46 — tri-state condition result | Open, ready for review, unmerged; head `a35f9fd20bff9a21ce5faa3c55f42ae350984651`; Runtime tests run #341 passed on code/test head `f5ff93a79d9f9a84bb3bf602d36bd47360c3aa09` | Opt-in `evaluateConditionResult(...)`; later commits are contract/audit-only | Candidate primitive only; not available on `main` until integrated |
+| PR #38 — NPC contract/audit | Open, ready for review, unmerged; head `9d7a2eaa22188b74f839fa0c7762d38547752cdf`; Runtime tests run #365 passed on that exact documentation-only head | Docs and source-level audit only; no NPC runtime code | Passing CI does not mean the NPC vertical slice is implemented |
+
+The NPC branch is three commits behind `main` at `cb4ad189f12484ca5458c30b1d176cbd9f7d4ccc`. Do not rebase, merge, or force-update the branch as routine cleanup. Reconcile the intervening core commits deliberately before any integration claim.
+
+**Current blocker remains unchanged:** even if #45, #47, and #46 are accepted, the first NPC slice still needs trusted actor-to-canonical-entity binding, a real authorized initial-knowledge/source representation, actor/purpose-scoped filtering that excludes reserved secrets before model input, and production-path acceptance tests. No implementation branch should invent those as NPC-local persistence or authorization.
+
