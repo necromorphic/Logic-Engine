@@ -51,15 +51,31 @@ function seed(store, eventCount) {
   ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,NULL)`);
   store.tx(() => {
     for (let index = 0; index < eventCount; index += 1) {
-      const eventId = 'seed-event-' + index;
-      const effects = [{
-        kind: 'entity.upsert',
-        entity_id: 'entity-' + index,
-        entity_type: 'object',
-        attributes: { ordinal: index },
-      }];
+      const effects = [
+        {
+          kind: 'entity.upsert',
+          entity_id: 'entity-' + index,
+          entity_type: 'object',
+          attributes: { ordinal: index },
+        },
+        {
+          kind: 'fact.set',
+          fact_id: 'fact-' + index,
+          subject_ref: 'entity:' + index,
+          predicate: 'benchmark.ordinal',
+          value: index,
+        },
+        {
+          kind: 'relationship.transition',
+          subject_id: 'subject-' + index,
+          target_id: 'target-' + index,
+          rule_module_id: 'benchmark.relationship',
+          rule_module_version: '1.0.0',
+          patch: { trust: index },
+        },
+      ];
       insert.run(
-        eventId, 'bench-world', 'seed-turn-' + index, 'action.completed', timestamp,
+        'seed-event-' + index, 'bench-world', 'seed-turn-' + index, 'action.completed', timestamp,
         index + 1, index + 1, 'valid', '[]', '[]', '[]', '[]',
         JSON.stringify(effects), 0, timestamp,
       );
@@ -67,6 +83,16 @@ function seed(store, eventCount) {
     store.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(eventCount, 'bench-world');
   });
   store.tx(() => store.rebuild('bench-world', eventCount));
+}
+
+function projectionCounts(store) {
+  const count = (table) => store.db.prepare('SELECT COUNT(*) AS count FROM ' + table + ' WHERE world_id=?').get('bench-world').count;
+  return {
+    entities: count('entities'),
+    facts: count('facts'),
+    fact_claims: count('fact_claims'),
+    relationships: count('relationships'),
+  };
 }
 
 function measureOperation(eventCount, operation) {
@@ -94,12 +120,20 @@ function measureOperation(eventCount, operation) {
         turn_id: 'bench-commit-' + eventCount,
         event_type: 'action.completed',
         expected_revision: eventCount,
-        effects: [{
-          kind: 'entity.upsert',
-          entity_id: 'commit-added-entity',
-          entity_type: 'object',
-          attributes: { benchmark: true },
-        }],
+        effects: [
+          {
+            kind: 'entity.upsert',
+            entity_id: 'commit-added-entity',
+            entity_type: 'object',
+            attributes: { benchmark: true },
+          },
+          {
+            kind: 'fact.set',
+            fact_id: 'commit-added-fact',
+            predicate: 'benchmark.commit',
+            value: true,
+          },
+        ],
       });
     } else if (operation === 'rollback') {
       engine.rollbackEvent('bench-world', {
@@ -112,16 +146,21 @@ function measureOperation(eventCount, operation) {
 
     const durationMs = Number((performance.now() - started).toFixed(3));
     const databaseSizeAfterBytes = statSync(dbPath).size;
+    const operationCounts = {
+      sql_prepare_calls: counts.prepares - before.prepares,
+      sql_statement_executions: counts.executions - before.executions,
+      sql_exec_calls: counts.execCalls - before.execCalls,
+      replayed_event_rows: counts.replayedEventRows - before.replayedEventRows,
+    };
+    const projectionsAfter = projectionCounts(store);
     return {
       event_count_before: eventCount,
       operation,
       duration_ms: durationMs,
       database_size_before_bytes: databaseSizeBeforeBytes,
       database_size_after_bytes: databaseSizeAfterBytes,
-      sql_prepare_calls: counts.prepares - before.prepares,
-      sql_statement_executions: counts.executions - before.executions,
-      sql_exec_calls: counts.execCalls - before.execCalls,
-      replayed_event_rows: counts.replayedEventRows - before.replayedEventRows,
+      ...operationCounts,
+      projection_counts_after: projectionsAfter,
     };
   } finally {
     store?.close();
@@ -137,6 +176,10 @@ for (const size of sizes) {
 }
 process.stdout.write(JSON.stringify({
   benchmark: 'logic-engine-replay-rollback-growth',
+  workload: {
+    effects_per_seed_event: ['entity.upsert', 'fact.set', 'relationship.transition'],
+    note: 'Synthetic independent events; relationship/fact/entity projection rebuild is exercised, but workload mix is not a claim about production traffic.',
+  },
   node: process.version,
   platform: process.platform + '/' + process.arch,
   sizes,
