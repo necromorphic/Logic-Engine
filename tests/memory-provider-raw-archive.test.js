@@ -333,3 +333,20 @@ test('durable raw capture survives derived-index rebuild failure and provider re
     /MEMORY_INDEX_NOT_READY/,
   );
 });
+
+
+test('raw version read rechecks host authorization and discloses no content when access is revoked mid-read', async (t) => {
+  let authorizationChecks = 0;
+  const s = setup(t, {
+    authorizeRawRead: async () => {
+      authorizationChecks += 1;
+      return authorizationChecks === 1;
+    },
+  });
+  s.provider.captureRawMessage(capture());
+  await assert.rejects(
+    () => s.provider.readRawMessageVersion(sourceKey()),
+    (error) => error.message === 'MEMORY_RAW_READ_DENIED',
+  );
+  assert.equal(authorizationChecks, 2);
+});
