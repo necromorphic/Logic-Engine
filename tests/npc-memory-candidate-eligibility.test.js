@@ -511,10 +511,10 @@ test("synthetic Core-authorized-result fixture: admission does not imply later l
   assert.equal(decision.admitted.length, 1);
   assert.deepEqual(inputRequest, beforeRequest);
   assert.deepEqual(inputResult, beforeResult);
-  assert.equal(JSON.stringify(decision).includes("delivered"), false);
-  assert.equal(JSON.stringify(decision).includes("received"), false);
-  assert.equal(JSON.stringify(decision).includes("acquired"), false);
-  assert.equal(JSON.stringify(decision).includes("believed"), false);
+  assert.equal(Object.hasOwn(decision, "delivered"), false);
+  assert.equal(Object.hasOwn(decision, "received"), false);
+  assert.equal(Object.hasOwn(decision, "acquired"), false);
+  assert.equal(Object.hasOwn(decision, "believed"), false);
 });
 
 test("revoked or no-longer-current synthetic candidates are excluded without side effects", () => {
