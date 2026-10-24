@@ -110,6 +110,8 @@ const world = (r) => r && ({
   world_pack_version: r.world_pack_version,
   initial_game_time: r.initial_game_time,
   game_time: r.game_time,
+  initial_game_time_coordinate: r.initial_game_time_coordinate,
+  game_time_coordinate: r.game_time_coordinate,
   world_revision: r.world_revision,
   status: r.status,
   created_at: r.created_at,
@@ -280,6 +282,54 @@ export class SQLiteStore {
               FOREIGN KEY(world_id,created_by_event_id) REFERENCES world_events(world_id,event_id),
               FOREIGN KEY(world_id,last_event_id) REFERENCES world_events(world_id,event_id)
             );`);
+        },
+      },
+      {
+        version: 6,
+        apply: () => {
+          const worldColumns = this.db.prepare('PRAGMA table_info(worlds)').all();
+          if (!worldColumns.some((column) => column.name === 'initial_game_time_coordinate')) {
+            this.db.exec('ALTER TABLE worlds ADD COLUMN initial_game_time_coordinate INTEGER NOT NULL DEFAULT 0');
+          }
+          if (!worldColumns.some((column) => column.name === 'game_time_coordinate')) {
+            this.db.exec('ALTER TABLE worlds ADD COLUMN game_time_coordinate INTEGER NOT NULL DEFAULT 0');
+          }
+          const eventColumns = this.db.prepare('PRAGMA table_info(world_events)').all();
+          if (!eventColumns.some((column) => column.name === 'game_time_coordinate')) {
+            this.db.exec('ALTER TABLE world_events ADD COLUMN game_time_coordinate INTEGER NOT NULL DEFAULT 0');
+          }
+          if (!eventColumns.some((column) => column.name === 'time_advance_ms')) {
+            this.db.exec('ALTER TABLE world_events ADD COLUMN time_advance_ms INTEGER NOT NULL DEFAULT 0');
+          }
+
+          const worldRows = this.db.prepare('SELECT world_id,initial_game_time,game_time FROM worlds ORDER BY world_id').all();
+          const initialTimeByWorld = new Map();
+          const updateWorldTime = this.db.prepare('UPDATE worlds SET initial_game_time_coordinate=0,game_time_coordinate=? WHERE world_id=?');
+          for (const row of worldRows) {
+            const initialMs = Date.parse(row.initial_game_time);
+            const currentMs = Date.parse(row.game_time);
+            const coordinate = currentMs - initialMs;
+            if (!Number.isFinite(initialMs) || !Number.isFinite(currentMs) || !Number.isSafeInteger(coordinate)) {
+              throw new Error('TIME_COORDINATE_MIGRATION_INVALID_WORLD_TIME: ' + row.world_id);
+            }
+            initialTimeByWorld.set(row.world_id, initialMs);
+            updateWorldTime.run(coordinate, row.world_id);
+          }
+
+          const eventRows = this.db.prepare('SELECT event_id,world_id,game_time,time_advance_seconds FROM world_events ORDER BY world_id,commit_sequence').all();
+          const updateEventTime = this.db.prepare('UPDATE world_events SET game_time_coordinate=?,time_advance_ms=? WHERE world_id=? AND event_id=?');
+          for (const row of eventRows) {
+            const initialMs = initialTimeByWorld.get(row.world_id);
+            const eventMs = Date.parse(row.game_time);
+            const coordinate = eventMs - initialMs;
+            const seconds = row.time_advance_seconds ?? 0;
+            const durationMs = seconds * 1000;
+            if (initialMs === undefined || !Number.isFinite(eventMs) || !Number.isSafeInteger(coordinate)
+              || !Number.isSafeInteger(seconds) || seconds < 0 || !Number.isSafeInteger(durationMs)) {
+              throw new Error('TIME_COORDINATE_MIGRATION_INVALID_EVENT_TIME: ' + row.world_id + '/' + row.event_id);
+            }
+            updateEventTime.run(coordinate, durationMs, row.world_id, row.event_id);
+          }
         },
       },
     ];
@@ -740,9 +790,9 @@ export class SQLiteStore {
     const rows = this.db.prepare('SELECT * FROM world_events WHERE world_id=? ' + (includeInvalid ? '' : "AND validity='valid' ") + 'ORDER BY commit_sequence').all(id);
     return rows.map((r) => ({
       event_id: r.event_id, turn_id: r.turn_id, generation_id: r.generation_id, context_manifest_id: r.context_manifest_id ?? null, event_type: r.event_type,
-      game_time: r.game_time, committed_revision: r.committed_revision, commit_sequence: r.commit_sequence, validity: r.validity,
+      game_time: r.game_time, game_time_coordinate: r.game_time_coordinate, committed_revision: r.committed_revision, commit_sequence: r.commit_sequence, validity: r.validity,
       caused_by: dec(r.caused_by_json), depends_on: dec(r.depends_on_json), read_set: dec(r.read_set_json),
-      causal_links: dec(r.causal_links_json ?? '[]'), effects: dec(r.effects_json), time_advance_seconds: r.time_advance_seconds,
+      causal_links: dec(r.causal_links_json ?? '[]'), effects: dec(r.effects_json), time_advance_seconds: r.time_advance_seconds, time_advance_ms: r.time_advance_ms,
       source_message_id: r.source_message_id, created_at: r.created_at, rollback_id: r.rollback_id,
     }));
   }
@@ -1144,26 +1194,42 @@ export class SQLiteStore {
         }
       }
       const commitSequence = this.db.prepare('SELECT COALESCE(MAX(commit_sequence),0)+1 AS next FROM world_events WHERE world_id=?').get(id).next;
-      const time = new Date(Date.parse(w.game_time) + x.time_advance_seconds * 1000).toISOString();
+      const durationMs = x.time_advance_seconds * 1000;
+      if (!Number.isSafeInteger(durationMs)) {
+        throw new EngineError('INVALID_TIME_ADVANCE', 'Time advance cannot be represented as integer milliseconds.', 400);
+      }
+      const gameTimeCoordinate = w.game_time_coordinate + durationMs;
+      if (!Number.isSafeInteger(gameTimeCoordinate)) {
+        throw new EngineError('TIME_COORDINATE_OVERFLOW', 'Game time coordinate exceeds the safe integer range.', 409);
+      }
+      const initialTimeMs = Date.parse(w.initial_game_time);
+      const projectedTimeMs = initialTimeMs + gameTimeCoordinate;
+      const projectedDate = new Date(projectedTimeMs);
+      if (!Number.isFinite(initialTimeMs) || !Number.isSafeInteger(projectedTimeMs) || !Number.isFinite(projectedDate.getTime())) {
+        throw new EngineError('GAME_TIME_OUT_OF_RANGE', 'Advanced time cannot be represented by the legacy ISO compatibility field.', 409);
+      }
+      const time = projectedDate.toISOString();
       const createdAt = now();
       this.db.prepare(`INSERT INTO world_events(
-        event_id,world_id,turn_id,generation_id,context_manifest_id,event_type,game_time,committed_revision,commit_sequence,validity,
-        caused_by_json,depends_on_json,read_set_json,causal_links_json,effects_json,time_advance_seconds,source_message_id,created_at
-      ) VALUES(?,?,?,?,?,?,?,?,?,'valid',?,?,?,?,?,?,?,?)`).run(
-        eventId, id, x.turn_id, x.generation_id || null, x.context_manifest_id || null, x.event_type, time, revision, commitSequence,
-        enc(x.caused_by), enc(x.depends_on), enc(x.read_set), enc(x.causal_links ?? []), enc(x.effects), x.time_advance_seconds,
+        event_id,world_id,turn_id,generation_id,context_manifest_id,event_type,game_time,game_time_coordinate,committed_revision,commit_sequence,validity,
+        caused_by_json,depends_on_json,read_set_json,causal_links_json,effects_json,time_advance_seconds,time_advance_ms,source_message_id,created_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,'valid',?,?,?,?,?,?,?,?,?)`).run(
+        eventId, id, x.turn_id, x.generation_id || null, x.context_manifest_id || null, x.event_type, time, gameTimeCoordinate, revision, commitSequence,
+        enc(x.caused_by), enc(x.depends_on), enc(x.read_set), enc(x.causal_links ?? []), enc(x.effects), x.time_advance_seconds, durationMs,
         x.source_message_id || null, createdAt,
       );
-      this.db.prepare('UPDATE worlds SET world_revision=?,game_time=? WHERE world_id=?').run(revision, time, id);
+      this.db.prepare('UPDATE worlds SET world_revision=?,game_time=?,game_time_coordinate=? WHERE world_id=?')
+        .run(revision, time, gameTimeCoordinate, id);
       this.rebuild(id, revision);
       const result = {
         accepted: true, event_id: eventId, world_id: id, world_revision: revision, commit_sequence: commitSequence,
-        game_time: this.world(id).game_time, effect_count: x.effects.length, idempotent_replay: false,
+        game_time: this.world(id).game_time, game_time_coordinate: this.world(id).game_time_coordinate, effect_count: x.effects.length, idempotent_replay: false,
       };
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,\'event.committed\',?,?,?)')
         .run(id, revision, eventId, enc({
           turn_id: x.turn_id, context_manifest_id: x.context_manifest_id || null, caused_by: x.caused_by, depends_on: x.depends_on,
           read_set: x.read_set, effects: x.effects, time_advance_seconds: x.time_advance_seconds,
+          time_advance_ms: durationMs, game_time_coordinate: gameTimeCoordinate,
         }), createdAt);
       this.saveReplay(id, x.idempotency_key, x.request_hash, result);
       return result;

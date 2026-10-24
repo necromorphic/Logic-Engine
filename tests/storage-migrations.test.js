@@ -36,10 +36,10 @@ function createLegacyDatabase(path) {
     );
     INSERT INTO worlds(world_id,world_pack_id,world_pack_version,initial_game_time,game_time,world_revision,status,created_at)
       VALUES('legacy-world','test.world','1.0.0','2005-12-29T10:00:00.000Z','2005-12-29T10:05:00.000Z',2,'active','2005-12-29T10:00:00.000Z');
-    INSERT INTO world_events(event_id,world_id,turn_id,event_type,game_time,committed_revision,validity,caused_by_json,depends_on_json,read_set_json,effects_json,created_at)
+    INSERT INTO world_events(event_id,world_id,turn_id,event_type,game_time,committed_revision,validity,caused_by_json,depends_on_json,read_set_json,effects_json,time_advance_seconds,created_at)
       VALUES
-        ('legacy-event-1','legacy-world','turn-1','action.completed','2005-12-29T10:01:00.000Z',1,'valid','[]','[]','[]','[]','2005-12-29T10:01:00.000Z'),
-        ('legacy-event-2','legacy-world','turn-2','action.completed','2005-12-29T10:05:00.000Z',2,'valid','[]','[]','[]','[]','2005-12-29T10:05:00.000Z');
+        ('legacy-event-1','legacy-world','turn-1','action.completed','2005-12-29T10:01:00.000Z',1,'valid','[]','[]','[]','[]',60,'2005-12-29T10:01:00.000Z'),
+        ('legacy-event-2','legacy-world','turn-2','action.completed','2005-12-29T10:05:00.000Z',2,'valid','[]','[]','[]','[]',0,'2005-12-29T10:05:00.000Z');
     INSERT INTO idempotency_keys(world_id,idempotency_key,response_json,created_at)
       VALUES('legacy-world','legacy-key','{"accepted":true}','2005-12-29T10:05:00.000Z');
     INSERT INTO context_manifests(manifest_id,world_id,generation_id,base_commit_sequence,items_json,manifest_hash,created_at)
@@ -65,6 +65,8 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   assert.ok(eventColumns.includes('causal_links_json'));
   assert.ok(eventColumns.includes('commit_sequence'));
   assert.ok(eventColumns.includes('context_manifest_id'));
+  assert.ok(eventColumns.includes('game_time_coordinate'));
+  assert.ok(eventColumns.includes('time_advance_ms'));
   assert.ok(idempotencyColumns.includes('request_hash'));
   assert.ok(manifestColumns.includes('base_world_revision'));
   assert.deepEqual(
@@ -73,7 +75,15 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   );
   assert.equal(store.db.prepare('SELECT response_json FROM idempotency_keys WHERE world_id=? AND idempotency_key=?').get('legacy-world', 'legacy-key').response_json, '{"accepted":true}');
   assert.equal(store.db.prepare('SELECT base_world_revision FROM context_manifests WHERE manifest_id=?').get('legacy-manifest').base_world_revision, 0);
-  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5]);
+  assert.deepEqual({ ...store.db.prepare('SELECT initial_game_time_coordinate,game_time_coordinate FROM worlds WHERE world_id=?').get('legacy-world') }, { initial_game_time_coordinate: 0, game_time_coordinate: 300000 });
+  assert.deepEqual(
+    store.db.prepare('SELECT event_id,game_time_coordinate,time_advance_ms FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world').map((row) => ({ ...row })),
+    [
+      { event_id: 'legacy-event-1', game_time_coordinate: 60000, time_advance_ms: 60000 },
+      { event_id: 'legacy-event-2', game_time_coordinate: 300000, time_advance_ms: 0 },
+    ],
+  );
+  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6]);
   assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='index' AND name='events_world_commit_sequence'").get().count, 1);
   assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='mechanic_instances'").get().count, 1);
 
@@ -112,7 +122,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
       { event_id: committed.event_id, commit_sequence: 3 },
     ],
   );
-  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5]);
+  assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5, 6]);
   assert.equal(reopenedEngine.getState('legacy-world').world_revision, 3);
   assert.equal(reopenedEngine.getState('legacy-world').entities.find((entity) => entity.entity_id === 'post-migration-entity').attributes.migrated, true);
   assert.equal(reopenedEngine.getState('legacy-world').facts.find((fact) => fact.fact_id === 'post-migration-fact').value, true);
@@ -148,4 +158,46 @@ test('failed numbered migration rolls back its DDL and does not record the versi
   assert.equal(recovered.db.prepare('SELECT COUNT(*) AS count FROM schema_migrations WHERE version=5').get().count, 1);
   assert.equal(recovered.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='mechanic_instances'").get().count, 1);
   recovered.close();
+});
+
+
+test('time coordinate migration fails closed on an unsafe legacy time span and can be retried', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-time-migration-range-'));
+  const path = join(directory, 'state.sqlite');
+  let store = new SQLiteStore(path);
+  store.createWorld({
+    world_id: 'range-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00.000Z',
+  });
+  store.close();
+
+  const setup = new DatabaseSync(path);
+  setup.exec(`
+    UPDATE worlds
+      SET initial_game_time='-271821-04-20T00:00:00.000Z',
+          game_time='+275760-09-13T00:00:00.000Z'
+      WHERE world_id='range-world';
+    DELETE FROM schema_migrations WHERE version=6;
+  `);
+  setup.close();
+
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  assert.throws(() => new SQLiteStore(path), /TIME_COORDINATE_MIGRATION_INVALID_WORLD/);
+
+  const inspect = new DatabaseSync(path);
+  assert.equal(inspect.prepare('SELECT COUNT(*) AS count FROM schema_migrations WHERE version=6').get().count, 0);
+  assert.deepEqual(
+    { ...inspect.prepare('SELECT initial_game_time_coordinate,game_time_coordinate FROM worlds WHERE world_id=?').get('range-world') },
+    { initial_game_time_coordinate: 0, game_time_coordinate: 0 },
+  );
+  inspect.prepare('UPDATE worlds SET initial_game_time=?,game_time=? WHERE world_id=?')
+    .run('2005-12-29T10:00:00.000Z', '2005-12-29T10:00:00.000Z', 'range-world');
+  inspect.close();
+
+  store = new SQLiteStore(path);
+  assert.equal(store.db.prepare('SELECT version FROM schema_migrations WHERE version=6').get().version, 6);
+  assert.equal(store.world('range-world').game_time_coordinate, 0);
+  store.close();
 });
