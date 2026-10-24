@@ -15,9 +15,9 @@ test('replay/rollback benchmark emits reproducible size, timing, database, SQL, 
   assert.equal(report.benchmark, 'logic-engine-replay-rollback-growth');
   assert.deepEqual(report.workload.effects_per_seed_event, ['entity.upsert', 'fact.set', 'relationship.transition']);
   assert.deepEqual(report.sizes, [10, 25]);
-  assert.equal(report.results.length, 6);
+  assert.equal(report.results.length, 8);
   for (const row of report.results) {
-    assert.ok(['commit', 'rollback', 'rebuild'].includes(row.operation));
+    assert.ok(['commit', 'rollback', 'rollback-cascade', 'rebuild'].includes(row.operation));
     assert.ok(row.duration_ms >= 0);
     assert.ok(row.database_size_before_bytes > 0);
     assert.ok(row.database_size_after_bytes > 0);
@@ -30,6 +30,12 @@ test('replay/rollback benchmark emits reproducible size, timing, database, SQL, 
     assert.ok(row.projection_counts_after.fact_claims >= 0);
     assert.ok(row.projection_counts_after.relationships >= 0);
   }
+  const rollback10 = report.results.find((row) => row.operation === 'rollback' && row.event_count_before === 10);
+  assert.equal(rollback10.replayed_event_rows, 9);
+  assert.deepEqual(rollback10.projection_counts_after, { entities: 9, facts: 9, fact_claims: 9, relationships: 9 });
+  const cascade10 = report.results.find((row) => row.operation === 'rollback-cascade' && row.event_count_before === 10);
+  assert.equal(cascade10.replayed_event_rows, 0);
+  assert.deepEqual(cascade10.projection_counts_after, { entities: 0, facts: 0, fact_claims: 0, relationships: 0 });
   const rebuild10 = report.results.find((row) => row.operation === 'rebuild' && row.event_count_before === 10);
   assert.equal(rebuild10.replayed_event_rows, 10);
   assert.deepEqual(rebuild10.projection_counts_after, { entities: 10, facts: 10, fact_claims: 10, relationships: 10 });
