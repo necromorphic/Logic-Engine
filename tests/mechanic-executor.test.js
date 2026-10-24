@@ -270,6 +270,11 @@ test('mechanic evaluation hands off through the ordinary durable proposal lifecy
   const committedEvent = engine.getEvents(worldId).find((event) => event.event_id === committed.commit_result.event_id);
   assert.deepEqual(committedEvent.read_set, evaluation.read_set);
   assert.deepEqual(committedEvent.causal_links, evaluation.causal_links);
+  const commitAudit = engine.getAudit(worldId).find((entry) => entry.action === 'proposal.committed' && entry.target_id === proposal.proposal_id);
+  assert.equal(commitAudit.payload.event_id, committed.commit_result.event_id);
+  assert.equal(commitAudit.payload.mechanic_execution.evaluation_fingerprint, evaluation.evaluation_fingerprint);
+  assert.deepEqual(commitAudit.payload.mechanic_execution.effect_provenance, evaluation.effect_provenance);
+  assert.deepEqual(commitAudit.payload.mechanic_execution.dependency_manifest, evaluation.dependency_manifest);
   assert.deepEqual(proposals.get(worldId, proposal.proposal_id).mechanic_execution.effect_provenance, evaluation.effect_provenance);
   const replay = proposals.createFromMechanicEvaluation(worldId, evaluation, {
     idempotencyKey: 'mechanic-proposal-1',
