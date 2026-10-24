@@ -223,7 +223,9 @@ export function evaluateRelationshipCandidate(input) {
     }
 
     const from = transitionFromToken(state);
-    const clearing = isRecord(requested) && requested.operation === "clear";
+    const clearing = isRecord(requested)
+      && requested.operation === "clear"
+      && Object.keys(requested).length === 1;
     const operation = clearing ? "clear" : "set";
     const to = clearing ? null : requested;
 
