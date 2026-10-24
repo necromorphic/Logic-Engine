@@ -174,6 +174,7 @@ export function evaluateRelationshipCandidate(input) {
           && (transition.operation === "set" || transition.operation === "clear")
           && own(transition, "from")
           && validTransitionFrom(transition.from)
+          && (typeof transition.from !== "string" || rule.values.includes(transition.from))
           && own(transition, "to")
           && (transition.operation === "set"
             ? typeof transition.to === "string" && rule.values.includes(transition.to)
@@ -197,6 +198,12 @@ export function evaluateRelationshipCandidate(input) {
       return result("unsupported", {
         reason: state.reason ?? NON_VALUE_STATES.get(state.status)?.reason
           ?? "relationship_state_shape_unsupported",
+        dimension,
+      });
+    }
+    if (state.status === "value" && !rule.values.includes(state.value)) {
+      return result("unsupported", {
+        reason: "current_relationship_value_outside_domain",
         dimension,
       });
     }
