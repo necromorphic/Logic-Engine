@@ -112,7 +112,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
   const result = await consumer.retrieveForNpc(request());
 
   assert.equal(result.status, 'ready');
-  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates.length, 1, JSON.stringify(result));
   assert.deepEqual(result.candidates[0].content, {
     'attributes.public_note': 'authorized source text',
   });
