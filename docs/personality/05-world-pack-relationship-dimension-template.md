@@ -15,6 +15,7 @@ Complete every field below for each supported dimension.
 | Field | Required definition |
 |---|---|
 | Stable identifier | Unique, stable identifier within the World Pack; renaming/migration policy if it changes. |
+| Semantic version / compatibility | Identify the World Pack rule-set version under which values and transitions are interpreted. Distinguish deterministic replay with identical pinned inputs/version from replay of a historical transition under its applicable historical rule version. Classify updates as editorial, backward-compatible, or meaning-changing. For meaning-changing updates, define an explicit migration of historical state or explicit incompatibility that forbids automatic migration; do not silently reinterpret historical transitions under latest rules. This is an authoring requirement, not evidence that Core pins versions or supports historical replay/migration. |
 | Display name | Human-readable name; not used as an identity key. |
 | Meaning | Precisely what the dimension represents and what it explicitly does not represent. |
 | Subject and target | Confirm direction: A's relation toward B. State whether self-relations are meaningful; default is unsupported. |
@@ -24,12 +25,14 @@ Complete every field below for each supported dimension.
 | Transition rules | Allowed transitions, preconditions, and transitions that must be rejected. If arbitrary changes are allowed, say so explicitly. |
 | Update semantics | Whether partial updates are meaningful; omitted dimensions must remain unchanged. Define whether the dimension can be explicitly cleared. |
 | Non-implications | Facts that this dimension must never imply by itself (for example knowledge, consent, reciprocity, obligation, or truth of a claim). List only those relevant to the dimension. |
-| Evidence and provenance | Which domain events/evidence can support a change; what attribution is needed. Do not confuse value semantics with causal support. |
+| Domain evidence/source | Which domain events or evidence can support the semantic transition, and what causal/dependency assumptions apply. This answers what supports the meaning of the proposed transition; it does not identify an authorized caller or grant write permission. Do not confuse value semantics with causal support. |
+| Attribution/provenance | What source, author, or trusted process the operation claims as its origin, and what provenance must be preserved for review/audit. Provenance describes attribution/origin; a World Pack field, author declaration, or caller-supplied `origin` value does not authenticate the claim or authorize an operation. |
+| Re-evaluation / event identity | Define whether evaluation is pure and repeatable for the same inputs, how a triggering event is distinguished from repeated reads/retries, and what explicitly qualifies as newly acquired knowledge about an already-known event. Re-evaluation or new knowledge alone must not create a new event or transition unless a declared domain rule says so. |
 | Conflict policy | What to do if valid inputs conflict or evidence is insufficient: expose a conflict/insufficient-support reconciliation result (which may be labelled unknown by the read contract), apply a declared precedence rule, or request author resolution. Never conflate this result with unset or invent a resolution. |
 | Decision use | How the dimension may influence NPC interpretation or candidate actions, and what it cannot authorize. |
 | Read visibility | Any World Pack-specific sensitivity/visibility constraints for core authorization to enforce. This field supplements rather than replaces core authorization. |
 | Rollback expectations | Whether the current value is replay-reconstructible from surviving typed transitions. If not, document the unresolved need; do not claim independent-support handling exists. |
-| Examples | At least one valid transition, one invalid transition, one partial update, and one case where the dimension does not imply a related fact. |
+| Examples | At least one valid transition, one invalid transition, one partial update, one case where the dimension does not imply a related fact, and one repeated-evaluation/re-acquisition case showing whether canonical state must remain unchanged. Include a meaning-changing version/migration example when the dimension's semantics can evolve. |
 | Acceptance cases | Stable test IDs and expected outcomes for valid, invalid, unknown/neutral/clear, conflict, and rollback cases where applicable. |
 
 ## 3. State distinctions every dimension must preserve
@@ -41,8 +44,9 @@ These concepts must not be collapsed into one value:
 - **Withheld/inaccessible:** the read boundary does not disclose the canonical value to this caller. This does not reveal whether a value exists.
 - **Cleared:** an authorized operation explicitly removes a previously established value, where clearing is supported by the domain and approved operation contract. The current effective value is then absent; authorized canonical history/provenance must distinguish this explicit removal from a dimension that was never established. Whether a particular caller may see that history is a Core authorization/purpose decision.
 - **Conflict/insufficient support:** available valid evidence does not yield one justified result under the domain rules.
+- **Unsupported/incomplete:** the requested dimension, value, rule, or required input is not supported or is missing. Do not reinterpret this as neutral, unset, or a conflict unless the declared contract explicitly establishes that mapping.
 
-The first four are not interchangeable. In particular, “cleared” describes an explicit lifecycle event, not a requirement that the current value remain populated with a special sentinel. Conflict is an epistemic/reconciliation result, not a convenient extra relationship value unless the domain explicitly models it as such. The exact wire/storage representation remains a core contract decision.
+Unset, explicit neutral, and cleared are distinct canonical-state cases; withheld/inaccessible is a read-result state and must not be conflated with any of them. In particular, “cleared” describes an explicit lifecycle event, not a requirement that the current value remain populated with a special sentinel. Conflict/insufficient support and unsupported/incomplete are also distinct from those canonical-state cases; conflict is a reconciliation result, not a convenient extra relationship value unless the domain explicitly models it as such. The exact wire/storage representation remains a core contract decision. For the cross-document semantic definition of these distinctions, see [Personality and relationship semantics](./01-personality-and-relationship-semantics.md) §4.
 
 ## 4. Cross-dimension rules
 
@@ -53,7 +57,7 @@ A change to dimension X must not silently change dimension Y. In particular, lab
 Cross-dimension rules must state:
 1. triggering event and source dimension;
 2. target dimension and exact transition;
-3. required preconditions and authorized actor;
+3. required semantic preconditions and any permitted initiator class (domain eligibility only; not runtime authorization);
 4. whether the target transition is deterministic or only a candidate interpretation;
 5. causal dependency and rollback behavior;
 6. behavior on conflicts or unsupported target values.
@@ -68,14 +72,18 @@ For every permitted transition or transition family, record:
 - requested target state;
 - triggering event/evidence;
 - required preconditions;
-- who/what is authorized to request it;
+- which actor/initiator classes are semantically eligible to request it, if relevant (this is not a runtime permission grant);
 - whether it is a canonical transition or only a narrative inference;
-- provenance expected on the committed event;
+- attribution/provenance expected on the committed event, separately from domain evidence/source and separately from Core's authorization decision;
 - rejection behavior when validation fails;
 - effect of rollback on the current projection;
 - acceptance-test identifier.
 
 A rejected transition must not partially mutate canonical state. A narrative sentence, co-presence, a model-generated interpretation, or a character-card edit is not by itself a canonical transition.
+
+**Authorization boundary:** the World Pack may declare semantic preconditions and eligible initiator classes, but it cannot authorize a caller or operation at runtime. Core must establish the trusted actor/context and decide whether the operation is permitted at the canonical write boundary. Domain evidence/source (why the transition is semantically justified), attribution/provenance (where the request/change claims to originate), and Core authorization (whether this actor may perform this operation now) are separate checks. Passing one does not imply either of the others.
+
+Repeated evaluation of the same event, retrying the same request, or rereading the same evidence must not be counted as new evidence by default. If newly acquired actor knowledge about an already-known event can affect a dimension, specify the acquisition signal, the applicable domain rule, and whether it yields a candidate or a canonical transition. Preserve the distinction between a new knowledge state and a new world event.
 
 ## 6. Minimal authoring checklist
 
@@ -85,14 +93,34 @@ A dimension is **not ready for runtime use** until:
 - [ ] valid and invalid transitions are specified;
 - [ ] partial update and clear behavior are specified;
 - [ ] cross-dimension rules are explicit or expressly absent;
-- [ ] provenance and conflict handling are specified;
+- [ ] domain evidence/source, attribution/provenance, and Core authorization are kept distinct; provenance is not treated as permission;
+- [ ] conflict handling is specified;
 - [ ] decision-use and visibility constraints are documented;
 - [ ] rollback/replay assumptions are declared;
+- [ ] rule-set version compatibility and meaning-changing migration behavior are declared;
+- [ ] repeated evaluation, retries, and new knowledge about old events have explicit semantics;
+- [ ] unsupported/incomplete inputs have a defined non-guessing outcome;
 - [ ] acceptance cases are written.
 
 This checklist establishes semantic readiness only. It does not prove that the core write, read, audit, authorization, or rollback paths implement the contract.
 For how each PERS-SEM criterion maps to an owner and evidence boundary, see the [per-case acceptance traceability crosswalk](./09-per-case-acceptance-traceability.md).
 
+### Versioned-semantics authoring check
+
+For every meaning-changing rule-set update, record all of the following explicitly:
+
+1. prior and new rule-set versions and the semantic difference;
+2. whether historical transitions must replay under their original/applicable version;
+3. whether historical state migration is defined, including its preconditions and expected result;
+4. if migration is not allowed, the explicit incompatibility outcome and which operations must be blocked;
+5. which claims are authoring/specification-only and which have been verified against the actual Core replay/migration path.
+
+Do not treat a deterministic replay result under one fixed version as proof of historical version pinning, and do not treat a migration declaration as proof that migration runs correctly.
+
 ## 7. Unresolved core dependencies
 
-World Pack authors must not invent the core's exact payload/API, storage encoding, revision behavior, event shape, authorized-read interface, or author-operation permission mechanism. These remain governed by the core integration gates in [03-core-decision-and-integration-gates.md](./03-core-decision-and-integration-gates.md). A World Pack can define the intended semantics while clearly marking runtime integration as blocked.
+World Pack authors must not invent the core's exact payload/API, storage encoding, revision behavior, event shape, authorized-read interface, or author-operation permission mechanism. A declared eligible actor class, source reference, provenance label, or authoring declaration is semantic metadata only; none grants runtime authority. These remain governed by the core integration gates in [03-core-decision-and-integration-gates.md](./03-core-decision-and-integration-gates.md). A World Pack can define the intended semantics while clearly marking runtime integration as blocked.
+
+## Issue #73 evidence cross-reference
+
+For exact evaluator test names and the boundary between pure candidate validation and Core persistence/versioning evidence, see [`10-issue-73-executable-evidence-audit.md`](./10-issue-73-executable-evidence-audit.md). This cross-reference does not claim historical migration or Core enforcement is implemented.
