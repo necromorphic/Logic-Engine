@@ -203,3 +203,8 @@ Key invariants:
 - A requested future outcome is not itself a committed event; unsupported causal steps remain prospective or under review.
 
 These are semantic requirements only. They do not authorize an editor/runtime, new persistence/API/schema, or a parallel source of truth.
+
+
+## Causal rollback and reconciliation test matrix
+
+The schema-neutral multi-step rollback/reconciliation scenarios are specified in `docs/47-npc-causal-rollback-reconciliation-test-matrix.md`. They sharpen the existing invariant that invalidating one cause must not erase independently supported state, while surviving support must not preserve consequences with other invalid prerequisites. The matrix includes a source committed only after an earlier rollback has completed, duplicate-source handling, and snapshot-safe deterministic replay. These are blocked acceptance targets, not claims that the current core supports OR-style causal sufficiency or NPC knowledge reconciliation.
