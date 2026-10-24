@@ -9,7 +9,7 @@ import { LogicEngine } from '../src/application/engine.js';
 function setup(path = ':memory:') {
   const store = new SQLiteStore(path);
   const engine = new LogicEngine(store);
-  if (!engine.listWorlds().some((world) => world.world_id === 'process-world')) {
+  if (!store.world('process-world')) {
     engine.createWorld({
       world_id: 'process-world',
       world_pack_id: 'test.world',
