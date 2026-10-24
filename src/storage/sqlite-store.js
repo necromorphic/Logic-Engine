@@ -1637,11 +1637,6 @@ export class SQLiteStore {
     return this.tx(() => {
       const world = this.world(worldId);
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-      if (trigger.due_coordinate <= world.game_time_coordinate) {
-        throw new EngineError('TIME_TRIGGER_NOT_FUTURE', 'A new time trigger must be scheduled strictly after the current world coordinate.', 409, {
-          current_coordinate: world.game_time_coordinate, due_coordinate: trigger.due_coordinate,
-        });
-      }
       const existing = this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
         .get(worldId, trigger.trigger_id);
       if (existing) {
@@ -1649,6 +1644,11 @@ export class SQLiteStore {
           throw new EngineError('TIME_TRIGGER_ID_IMMUTABLE', 'A trigger ID cannot be reused with different scheduling or effect content.', 409);
         }
         return { ...timeTrigger(existing), idempotent_replay: true };
+      }
+      if (trigger.due_coordinate <= world.game_time_coordinate) {
+        throw new EngineError('TIME_TRIGGER_NOT_FUTURE', 'A new time trigger must be scheduled strictly after the current world coordinate.', 409, {
+          current_coordinate: world.game_time_coordinate, due_coordinate: trigger.due_coordinate,
+        });
       }
       const count = this.db.prepare('SELECT COUNT(*) AS count FROM world_time_triggers WHERE world_id=?').get(worldId).count;
       if (count >= 10000) {
