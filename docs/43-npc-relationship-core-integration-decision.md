@@ -220,3 +220,15 @@ All cases remain specifications, not executable coverage. Do not mark a gate pas
 Semantic design and test planning may continue. Runtime relationship commits remain blocked until the typed write contract, authorized read boundary, authoring provenance, and multi-cause rollback guarantees are specified and tested. PR #45 (snapshot) and PR #32 (character-card projection) remain unmerged proposals and must not be treated as integrated dependencies.
 
 No runtime code, API, storage schema, or `main` changes are authorized or implied by this status update.
+
+## 14. Refreshed core-main dependency check — 2026-10-24
+
+The current core main is `cb4ad189f12484ca5458c30b1d176cbd9f7d4ccc`, three commits ahead of the merge base shared with this NPC branch. This relationship proposal was not rebased onto those commits. For the refreshed core readiness inventory, see `docs/37-npc-kernel-readiness-gate.md` §15.
+
+The newly available core documentation sharpens—but does not remove—the relationship blocker:
+
+- `docs/27-proposal-to-commit-boundary.md` documents a non-mutating proposal-creation preview and explicit approval/stale-snapshot checks. It does not provide typed relationship state or actor-specific authorization.
+- `docs/30-stage1.3-mechanic-execution-boundary.md` describes a proposed deterministic mechanic-evaluation slice, explicitly outside NPC relationship persistence and behavior.
+- `docs/31-mechanic-effect-intent-support-matrix.md` states that generic relationship operations are unsupported by the current canonical effect validator. Do not map relationship changes to generic attributes or `fact.set` as a workaround.
+
+PR #45 remains open/unmerged and provides, at most, a candidate consistent raw snapshot read. PR #32 remains open/unmerged and its candidate card projector does not yet consume a bounded relationship summary. The relationship implementation gate therefore remains closed until the core defines and verifies the typed canonical write/effect, participant resolution, authorized actor/purpose/snapshot read boundary, bounded read-only projection input, and rollback behavior under the actual causal guarantees. This addendum is documentation-only and does not authorize runtime, API, schema, storage, or card-projection changes.
