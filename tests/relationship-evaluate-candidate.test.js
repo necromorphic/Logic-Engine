@@ -288,3 +288,54 @@ test("self-relations are rejected unless each affected dimension explicitly allo
   });
   assert.equal(allowed.status, "candidate");
 });
+
+test("re-evaluating identical inputs is deterministic and side-effect-free", () => {
+  const input = {
+    ...base,
+    currentValues: { trust: "low" },
+    patch: { trust: "guarded" },
+  };
+  const before = structuredClone(input);
+
+  const first = evaluateRelationshipCandidate(input);
+  const second = evaluateRelationshipCandidate(input);
+
+  assert.deepEqual(first, second);
+  assert.deepEqual(input, before);
+});
+
+test("clearing an unset dimension is a no-op even when clearing is disallowed", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: {},
+    patch: { affection: { operation: "clear" } },
+  });
+
+  assert.equal(result.status, "no_change");
+});
+
+test("treats missing transition rules as incomplete configuration, not a denied transition", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    dimensionRules: {
+      trust: {
+        values: ["low", "guarded", "high"],
+        allowClear: true,
+      },
+    },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "dimension_rule_incomplete");
+});
+
+test("rejects malformed tagged current values instead of treating them as unset", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: { trust: { status: "value", value: 42 } },
+    patch: { trust: "guarded" },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "relationship_state_shape_unsupported");
+});
