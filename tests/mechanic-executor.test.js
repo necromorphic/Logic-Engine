@@ -951,3 +951,30 @@ test('application executor rejects accessor-backed context without invoking gett
   assert.equal(getterCalled, false);
   assert.deepEqual(result.effects, []);
 });
+
+
+test('canonical context provider rejects a snapshot belonging to another world', (t) => {
+  const { engine, worldId } = setup(t, 'executor-provider-world-a');
+  enableFixture(engine, worldId);
+  engine.createWorld({
+    world_id: 'executor-provider-world-b',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00Z',
+  });
+  const value = template();
+  const foreignSnapshot = engine.getSnapshot('executor-provider-world-b', { includeMechanicEvaluationState: true });
+  const provider = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'visibility-policy-v1',
+    authorizationScope: 'test-principal',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    canRead: () => true,
+  });
+  assert.throws(
+    () => provider.resolve({ worldId, snapshot: foreignSnapshot, template: value, action: value.actions[0] }),
+    /Provider resolution requires world, snapshot, template, and action/,
+  );
+});
