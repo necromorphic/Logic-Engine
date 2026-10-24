@@ -205,3 +205,15 @@ The remaining design task is to identify the exact internal core-owned actor/pur
 ## 11. Relationship integration follow-up
 
 Relationship-specific ownership and the provisional typed-operation direction are tracked in `docs/42-npc-relationship-state-contract-proposal.md` and `docs/43-npc-relationship-core-integration-decision.md`. These are documentation-only proposals. Do not infer that a relationship effect, canonical relationship record, actor-authorized snapshot filter, or card projection has been implemented. Reconcile the open interfaces with the active core and character-card branches before runtime work.
+
+## 12. Refreshed core dependency note — 2026-10-24
+
+The current core-main comparison and its limits are recorded in `docs/37-npc-kernel-readiness-gate.md` §15. The NPC branch is three core commits behind the current main merge-base line; no rebase or merge was performed in this update.
+
+Use the current core documents as the source for the proposal and mechanic boundaries:
+
+- `docs/27-proposal-to-commit-boundary.md`: proposal creation is a rollback-only preview and does not mutate canonical state; approval/commit remain explicit and stale-snapshot checked. This still does not prove named NPC authorization, causal completeness, semantic alignment, or player-agency enforcement.
+- `docs/30-stage1.3-mechanic-execution-boundary.md`: a core-only mechanic evaluation contract, not NPC decision-making or knowledge runtime.
+- `docs/31-mechanic-effect-intent-support-matrix.md`: generic relationship operations, knowledge operations, and goal/task management remain unsupported by the canonical effect validator. Do not approximate these capabilities with generic attributes or `fact.set`.
+
+The integration seam remains a design boundary only. No actor/purpose/snapshot read filter, initial-knowledge provenance API, persistent NPC belief store, delivery receipt signal, typed relationship effect, or bounded relationship-card projection was established by these core documentation changes. Keep the current fail-closed gate and wait for real production interfaces before writing integration tests that claim end-to-end coverage.
