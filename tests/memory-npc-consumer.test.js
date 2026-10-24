@@ -150,6 +150,26 @@ test('query denial and incomplete Memory results fail closed without returning c
   assert.deepEqual(result.candidates, []);
 });
 
+test('malformed records in a complete Memory result are non-ready, not authorized-empty', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
+
+  setCandidates([candidate({
+    record: { ref: 'memory:claim-1', version: '  ' },
+  })]);
+  const malformedIdentity = await consumer.retrieveForNpc(request());
+  assert.equal(malformedIdentity.status, 'non_ready');
+  assert.equal(malformedIdentity.reason, 'memory_candidate_invalid_or_scope_mismatch');
+  assert.deepEqual(malformedIdentity.candidates, []);
+
+  setCandidates([candidate({
+    subject_id: 'another-npc',
+  })]);
+  const wrongScope = await consumer.retrieveForNpc(request());
+  assert.equal(wrongScope.status, 'non_ready');
+  assert.equal(wrongScope.reason, 'memory_candidate_invalid_or_scope_mismatch');
+  assert.deepEqual(wrongScope.candidates, []);
+});
+
 test('Memory record denial is indistinguishable from an authorized empty candidate set, including stale hidden records', async (t) => {
   const denied = setup(t, { authorizeCandidate: false });
   const result = await denied.consumer.retrieveForNpc(request());
