@@ -194,6 +194,77 @@ test('time configuration authoring requires admin and calendar projection requir
   assert.equal((await projected.json()).time.calendar.year_number, 2000);
 });
 
+test('author-range duration can be approved only through the proposal approval boundary', async (t) => {
+  const base = await setup(t, { adminToken: ADMIN, approvalToken: APPROVAL });
+  assert.equal((await createWorld(base, 'author-duration-world')).status, 201);
+  const configuration = {
+    version: 'author-duration-config',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    calendar_definition: {
+      calendar_id: 'author.calendar',
+      version: '1.0.0',
+      day_length_ms: 86400000,
+      weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      year_cycle: [{ id: 'standard', name: 'Standard', months: [{ id: 'jan', name: 'January', days: 31 }] }],
+      epoch: { coordinate: 0, year_number: 2000, year_cycle_index: 0, month_id: 'jan', day_of_month: 1, weekday_index: 0, time_of_day_ms: 0 },
+      holidays: [],
+    },
+    time_policy: {
+      policy_id: 'author.duration',
+      version: '1.0.0',
+      max_action_duration_ms: 43200000,
+      max_skip_duration_ms: 604800000,
+      duration_rules: [{ event_type: 'rest.completed', rule: { kind: 'range', min_duration_ms: 3600000, max_duration_ms: 28800000, resolution: 'author' } }],
+    },
+  };
+  const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
+  const configured = await fetch(base + '/v1/worlds/author-duration-world/time-configurations', {
+    method: 'POST', headers: adminHeaders, body: json(configuration),
+  });
+  assert.equal(configured.status, 200);
+
+  const createProposal = async (key, durationProposal) => {
+    const event = { turn_id: key, event_type: 'rest.completed', effects: [] };
+    if (durationProposal !== undefined) event.duration_proposal = durationProposal;
+    const response = await fetch(base + '/v1/worlds/author-duration-world/proposals', {
+      method: 'POST', headers,
+      body: json({ idempotency_key: key, source_text: '', event }),
+    });
+    assert.equal(response.status, 201);
+    return (await response.json()).proposal;
+  };
+
+  const missingCandidate = await createProposal('rest-missing-duration', undefined);
+  const refused = await fetch(base + '/v1/worlds/author-duration-world/proposals/' + missingCandidate.proposal_id + '/approve', {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  });
+  assert.equal(refused.status, 409);
+  assert.equal((await refused.json()).error.code, 'DURATION_NEEDS_AUTHOR');
+
+  const candidate = await createProposal('rest-approved-duration', { duration_ms: 3600000 });
+  const approved = await fetch(base + '/v1/worlds/author-duration-world/proposals/' + candidate.proposal_id + '/approve', {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  });
+  assert.equal(approved.status, 200);
+  const approvalBody = await approved.json();
+  assert.equal(approvalBody.proposal.status, 'approved');
+
+  const audit = await fetch(base + '/v1/worlds/author-duration-world/audit', { headers: adminHeaders });
+  assert.equal(audit.status, 200);
+  const auditBody = await audit.json();
+  const approvalAudit = auditBody.audit.find((entry) => entry.action === 'proposal.approved' && entry.target_id === candidate.proposal_id);
+  assert.equal(approvalAudit.payload.duration_decision.source, 'author_approved_range');
+  assert.equal(approvalAudit.payload.duration_decision.duration_ms, 3600000);
+
+  const committed = await fetch(base + '/v1/worlds/author-duration-world/proposals/' + candidate.proposal_id + '/commit', {
+    method: 'POST', headers, body: '{}',
+  });
+  assert.equal(committed.status, 200);
+  const committedBody = await committed.json();
+  assert.equal(committedBody.commit_result.game_time_coordinate, 3600000);
+  assert.equal(committedBody.commit_result.duration_decision.source, 'author_approved_range');
+});
 test('health, auth, proposal approval, and canonical commit boundary', async (t) => {
   const base = await setup(t, { approvalToken: APPROVAL, internalToken: INTERNAL });
   assert.equal((await fetch(base + '/health')).status, 200);
