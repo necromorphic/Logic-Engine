@@ -38,7 +38,7 @@
 
 Целевой цикл: сигнал или предложение → привязка проверяемого контекста → оценка и валидация → явное разрешение конфликтов → proposal/approval → канонический commit → пересчёт только тех зависимых проекций, для которых есть подтверждённый контракт → авторизованная публикация результата. Планировщик due-work не заменяет оценщик; proposal не является commit; commit не доказывает полноту всех зависимостей; корректное внутреннее состояние не означает право передавать его модели/игроку. Неизвестные правила, неподтверждённая зависимость или недоступная политика должны приводить к отказу/не готово, а не к выдуманному результату.
 
-Текущий код не доказывает существование универсального dependency graph, общего recalculation planner или полного pipeline публикации. Подробная граница и acceptance matrix: `docs/57-core-evaluation-recalculation-boundary.md`. Контекстная интерпретация намерения описана отдельно в `docs/56-context-aware-interpretation-of-communicative-intent.md`.
+Текущий код не доказывает существование универсального dependency graph, общего recalculation planner или полного pipeline публикации. Подробная граница и acceptance matrix: `docs/57-core-evaluation-recalculation-boundary.md`. Контекстная интерпретация намерения вынесена в отдельный документационный proposal [PR #261](https://github.com/necromorphic/Logic-Engine/pull/261); ссылка на `docs/56-context-aware-interpretation-of-communicative-intent.md` станет частью main после отдельного review/merge.
 
 ## 8. Внешние границы
 
