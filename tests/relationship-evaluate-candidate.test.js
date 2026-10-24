@@ -660,3 +660,19 @@ test("does not treat duplicate evidence references as additional support", () =>
   assert.equal(result.status, "insufficient_evidence");
   assert.equal(result.reason, "duplicate_evidence_refs");
 });
+
+
+test("freezes the candidate envelope and all nested mutable collections", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: { trust: "low" },
+    patch: { trust: { operation: "clear" } },
+  });
+
+  assert.equal(result.status, "candidate");
+  assert.equal(Object.isFrozen(result), true);
+  assert.equal(Object.isFrozen(result.patch), true);
+  assert.equal(Object.isFrozen(result.patch.trust), true);
+  assert.equal(Object.isFrozen(result.evidenceRefs), true);
+  assert.equal(Object.isFrozen(result.changedDimensions), true);
+});
