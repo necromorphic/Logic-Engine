@@ -396,7 +396,7 @@ test('mechanic proposals fail closed without current-policy validation and reche
   );
   assert.equal(unguarded.get(worldId, proposal.proposal_id).status, 'pending');
 
-  let policyCurrent = true;
+  let activePolicyVersion = evaluation.context_policy_version;
   const observedStages = [];
   const guarded = new ProposalService(engine, {
     validateMechanicPolicy(identity) {
@@ -404,13 +404,14 @@ test('mechanic proposals fail closed without current-policy validation and reche
       assert.equal(identity.policyVersion, evaluation.context_policy_version);
       assert.equal(identity.authorizationScope, evaluation.authorization_scope);
       assert.equal(identity.worldId, worldId);
-      return policyCurrent;
+      return identity.policyVersion === activePolicyVersion
+        && identity.authorizationScope === evaluation.authorization_scope;
     },
   });
   guarded.approve(worldId, proposal.proposal_id);
   assert.deepEqual(observedStages, ['approval']);
 
-  policyCurrent = false;
+  activePolicyVersion = 'rotated-visibility-policy-v2';
   assert.throws(
     () => guarded.commit(worldId, proposal.proposal_id),
     (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
