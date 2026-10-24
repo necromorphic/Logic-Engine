@@ -106,7 +106,7 @@ test('interrupt stops planning after all work at its coordinate and leaves later
     triggers: [
       trigger('interrupt', 5, { interrupt_after_coordinate: true }),
       trigger('same-time', 5),
-      trigger('later', 10),
+      trigger('later', 10, { dependencies: ['missing-later'] }),
       trigger('later-two', 20),
     ],
   });
