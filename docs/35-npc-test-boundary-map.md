@@ -156,3 +156,24 @@ See `docs/40-npc-social-identities-editor-contract.md` for the full optional edi
 | NPC-SEM-032 — Autonomous context-constrained choice | No verified runtime identity selection or observer-relative access boundary | Verify selection reflects goals, character, knowledge, relationships, resources, and circumstances; coercion/exposure/evidence availability can constrain choices | Blocked: runtime decision/context boundary absent |
 
 Do not create end-to-end tests against a fabricated editor, access filter, document service, or social-identity runtime. First identify the real profile/editor boundary and canonical references. No new event/knowledge store, revision counter, access-control subsystem, or rollback mechanism is authorized.
+
+## 10. Relationship-state proposal test-boundary map
+
+See `docs/42-npc-relationship-state-contract-proposal.md` for REL-001–012. These are semantic acceptance targets only; no relationship-state runtime or card projection has been verified.
+
+| Scenario | Existing adjacent support | Missing production boundary / acceptance assertion | Status |
+|---|---|---|---|
+| REL-001 — Asymmetric relationship | Existing entity IDs can identify participants when they are canonical entities | Read A→B and B→A independently; do not infer reciprocity | Blocked: relationship read model absent |
+| REL-002 — Unknown is not neutral | Current canonical facts distinguish some missing/known values, but no relationship-dimension model exists | Preserve unprovided dimensions as unknown, not zero/neutral | Blocked: relationship representation absent |
+| REL-003 — Multidimensional independence | NPC semantic matrix establishes that dimensions can coexist | Change one dimension without silently rewriting the others | Blocked: relationship transition boundary absent |
+| REL-004 — Scene co-presence is insufficient | Core events can represent committed world occurrences | Prove scene co-presence alone creates no relationship transition | Blocked: transition evaluator absent |
+| REL-005 — Knowledge boundary | Core manifest is a reference list, not actor-specific access | Relationship context cannot grant access to another character's secret | Blocked: actor-specific context filter absent |
+| REL-006 — No automatic NPC creation | Core entity creation is an explicit effect | Displaying an unresolved person reference does not create an entity/NPC/card | Partially adjacent: no relationship projection boundary verified |
+| REL-007 — Read-only card summary | Character-card document is a planning outline only | Summary is derived from authoritative state and cannot be edited as a second writable copy | Blocked: card projection boundary absent |
+| REL-008 — Rollback of dependent transition | Core rollback tests cover causal event effects | Reconcile a relationship transition whose sole cause was invalidated | Blocked: relationship-to-core causal mapping absent |
+| REL-009 — Independent support survives | Core rollback tests cover independent world-event branches | Preserve a relationship state supported by a remaining independent valid cause | Blocked: relationship support/reconciliation model absent |
+| REL-010 — No invented explanation | NPC contract forbids fabricated motives/history | Missing rationale stays unresolved rather than inventing a prior interaction | Semantic requirement only; no decision/evidence boundary verified |
+| REL-011 — No reciprocal inference | NPC contract already forbids inferred romantic reciprocity | Verify directional relationship dimensions remain independent | Blocked: relationship read/decision boundary absent |
+| REL-012 — Author edit is attributed | Core audit entries exist for supported operations | Distinguish authored correction from an in-world event through an approved operation | Blocked: author relationship-edit boundary absent |
+
+Do not create a parallel relationship database, ID/revision scheme, causal graph, rollback engine, or card-owned writable state to satisfy these tests.
