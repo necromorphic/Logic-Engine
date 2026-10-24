@@ -292,7 +292,7 @@ test('missing or non-object host request fails closed without throwing or callin
     return true;
   };
 
-  for (const invalid of [null, undefined, [], 'not-a-request']) {
+  for (const invalid of [null, undefined, [], 'not-a-request', { ...request(), actorEntityId: ' npc-a' }]) {
     const result = await consumer.retrieveForNpc(invalid);
     assert.equal(result.status, 'non_ready');
     assert.equal(result.reason, 'trusted_scope_incomplete');
