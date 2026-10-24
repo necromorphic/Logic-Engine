@@ -20,7 +20,7 @@ function setup(t, { twoRecords = false } = {}) {
     game_time: '2026-01-01T00:00:00Z',
   });
   engine.commitEvent(worldId, {
-    idempotency_key: 'provider-e2e-seed', turn_id: 'provider-e2e-seed',
+    event_id: 'provider-e2e-seed', idempotency_key: 'provider-e2e-seed', turn_id: 'provider-e2e-seed',
     event_type: 'action.completed', expected_revision: 0,
     effects: [
       { kind: 'entity.create', entity_id: actorId, entity_type: 'character', attributes: { name: 'NPC' } },
