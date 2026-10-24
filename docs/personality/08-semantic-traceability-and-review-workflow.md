@@ -78,7 +78,7 @@ Before considering a Personality documentation change internally consistent:
 - [ ] No generic relationship score or universal dimension list has been introduced by assumption.
 - [ ] A → B remains distinct from B → A.
 - [ ] Omitted dimensions remain unchanged; clearing is explicit.
-- [ ] Unset/unknown, explicit neutral, withheld/inaccessible, cleared, and conflict/insufficient support are not conflated.
+- [ ] Unset (sometimes called unknown only when no canonical value exists), explicit neutral, withheld/inaccessible, cleared, and conflict/insufficient-support reconciliation results are not conflated.
 - [ ] A relationship does not imply knowledge, consent, reciprocity, truth, or cause.
 - [ ] Stable traits remain separate from current condition, goal, belief, behavior, and hypothesis.
 - [ ] Canonical identity and trusted authorization are not inferred from names, caller labels, or prose.
