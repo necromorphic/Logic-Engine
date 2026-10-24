@@ -188,3 +188,18 @@ The future editor, character-card projection, core, and actor-relative knowledge
 Detailed editor requirements and NPC-SID-001–012 acceptance scenarios are specified in `docs/40-npc-social-identities-editor-contract.md`. That proposal does not assert that an editor or runtime support exists and does not authorize API, schema, storage, or runtime changes.
 
 Author-confirmed lifecycle requirements are also specified there: an NPC may create a new identity during play when a concrete need and plausible means justify it; the identity is retained as an additional card linked to the same NPC; unused identities become inactive rather than being deleted; and an NPC may revise an existing cover when justified. Changes must preserve already committed events and previously made claims rather than rewriting history. These are requirements, not claims that the current editor/runtime supports them.
+
+
+## Authoring, correction, and card-summary contract — 2026-10-24
+
+The semantic boundary for author edits, corrections, unknown/neutral values, decision-input completeness, author-reserved editorial information, and read-only character-card summaries is specified in `docs/46-npc-authoring-correction-and-card-summary-contract.md`.
+
+Key invariants:
+- An authoring/profile correction does not silently rewrite committed events, canonical consequences, prior dialogue, or another subject's knowledge.
+- A canonical correction does not automatically teach every NPC or rewrite that NPC's belief.
+- Unknown/unset, explicit neutral, known absent, withheld, incomplete, unsupported, and conflicted remain distinct.
+- A card is a potentially lossy projection, not a source of truth; omission is not evidence of absence.
+- Author-reserved secrets must be filtered before model input, not protected only by narrative instructions.
+- A requested future outcome is not itself a committed event; unsupported causal steps remain prospective or under review.
+
+These are semantic requirements only. They do not authorize an editor/runtime, new persistence/API/schema, or a parallel source of truth.
