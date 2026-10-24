@@ -76,6 +76,25 @@ test('authorized-read API exposes only the bound actor identity and never arbitr
   assert.equal(Number.isSafeInteger(body.read.commit_sequence), true);
 });
 
+test('authorized-read API keeps non-self targets unavailable when no host visibility policy is configured', async (t) => {
+  const base = await setup(t);
+  const response = await fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
+    method: 'POST',
+    headers,
+    body: json({
+      actor_entity_id: 'actor-a',
+      purpose: 'npc_decision',
+      entity_ids: ['other-a'],
+      fields: ['entity_id', 'entity_type', 'attributes.name'],
+    }),
+  });
+  assert.equal(response.status, 404);
+  const body = await response.json();
+  assert.equal(body.error.code, 'READ_NOT_AVAILABLE');
+  assert.equal(JSON.stringify(body).includes('other-a'), false);
+  assert.equal(JSON.stringify(body).includes('Other'), false);
+});
+
 test('authorized-read API supports only explicitly host-authorized target fields when a trusted policy is configured', async (t) => {
   const base = await setup(t, (context, entity, field) =>
     context.worldId === 'authorized-read-world'
