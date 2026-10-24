@@ -249,6 +249,7 @@ test("known non-summary content kinds are explicit and summaries still require l
   const summaryWithoutLineage = candidate({ content_kind: "summary" });
   const result = evaluateMemoryCandidateAdmission(request, completeResult([summaryWithoutLineage]));
   assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, []);
 });
 
 test("conflicting eligible claims remain distinct and are not adjudicated by admission", () => {
@@ -417,6 +418,8 @@ test("candidate rejection output does not leak rejected record identifiers", () 
   ]));
 
   const serialized = JSON.stringify(result);
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result, evaluateMemoryCandidateAdmission(request, completeResult([])));
   assert.equal(serialized.includes("restricted-secret-record"), false);
   assert.equal(serialized.includes("sensitive title"), false);
 });
