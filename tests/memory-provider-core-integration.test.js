@@ -128,3 +128,33 @@ test('Core rollback with unchanged commit_sequence invalidates provider currentn
   assert.equal(after.commit_sequence, before.commit_sequence);
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_SNAPSHOT_STALE/);
 });
+
+test('real Core entity existence does not substitute for an approved source-version proof', async (t) => {
+  const s = setup(t);
+  const existing = s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'] });
+  assert.equal(existing.entities.length, 1, 'the canonical entity exists in the real Core store');
+
+  // The current Core contract has no authoritative durable per-entity source
+  // version. Model that missing proof explicitly instead of treating the
+  // fixture-source-v1 token or composite snapshot as source authority.
+  s.provider.validateSourceVersion = async () => false;
+  assert.equal((await s.prepare()).status, 'stale');
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+});
+
+test('real SQLite provider stays non-current when the source inventory boundary cannot attest completeness', async (t) => {
+  const s = setup(t);
+  s.provider.validateInventory = async () => false;
+  assert.equal((await s.prepare()).status, 'stale');
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+});
