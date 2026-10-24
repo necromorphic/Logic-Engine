@@ -172,6 +172,10 @@ export class ProposalService {
     assert(Array.isArray(evaluation.read_set) && Array.isArray(evaluation.causal_links),
       'INVALID_MECHANIC_DEPENDENCY_PROVENANCE', 'Evaluation must include canonical read_set and causal_links.');
     assert(Array.isArray(evaluation.effects) && evaluation.effects.length > 0, 'INVALID_MECHANIC_EVALUATION', 'At least one translated effect is required.');
+    assert(Array.isArray(evaluation.read_set) && evaluation.read_set.every((item) => typeof item === 'string' && item.trim()),
+      'INVALID_MECHANIC_READ_SET', 'A ready mechanic evaluation must include a normalized canonical read_set.');
+    assert(Array.isArray(evaluation.causal_links),
+      'INVALID_MECHANIC_CAUSAL_LINKS', 'A ready mechanic evaluation must include its canonical causal links.');
     assert(Array.isArray(evaluation.effect_provenance) && evaluation.effect_provenance.length === evaluation.effects.length,
       'INVALID_MECHANIC_EFFECT_PROVENANCE', 'Every translated effect must have exactly one provenance entry.');
     const provenance = evaluation.effect_provenance;
