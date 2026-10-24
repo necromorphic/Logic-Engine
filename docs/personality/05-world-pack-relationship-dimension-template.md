@@ -19,13 +19,13 @@ Complete every field below for each supported dimension.
 | Meaning | Precisely what the dimension represents and what it explicitly does not represent. |
 | Subject and target | Confirm direction: A's relation toward B. State whether self-relations are meaningful; default is unsupported. |
 | Value domain | Enumerated values or bounded scale, including endpoints and interpretation. Do not rely on an unspoken universal scale. |
-| Neutral value | If one exists, its exact meaning. Neutral is an explicit value, not the same as unknown/unset. If there is no neutral value, say so. |
+| Neutral value | If one exists, its exact meaning. Neutral is an explicit value, not the same as unset (sometimes called unknown only when no canonical value exists). If there is no neutral value, say so. |
 | Initial-state rules | Which values may be authored/imported initially and any constraints. |
 | Transition rules | Allowed transitions, preconditions, and transitions that must be rejected. If arbitrary changes are allowed, say so explicitly. |
 | Update semantics | Whether partial updates are meaningful; omitted dimensions must remain unchanged. Define whether the dimension can be explicitly cleared. |
 | Non-implications | Facts that this dimension must never imply by itself (for example knowledge, consent, reciprocity, obligation, or truth of a claim). List only those relevant to the dimension. |
 | Evidence and provenance | Which domain events/evidence can support a change; what attribution is needed. Do not confuse value semantics with causal support. |
-| Conflict policy | What to do if valid inputs conflict or evidence is insufficient: retain conflict/unknown, apply a declared precedence rule, or request author resolution. Never invent a resolution. |
+| Conflict policy | What to do if valid inputs conflict or evidence is insufficient: expose a conflict/insufficient-support reconciliation result (which may be labelled unknown by the read contract), apply a declared precedence rule, or request author resolution. Never conflate this result with unset or invent a resolution. |
 | Decision use | How the dimension may influence NPC interpretation or candidate actions, and what it cannot authorize. |
 | Read visibility | Any World Pack-specific sensitivity/visibility constraints for core authorization to enforce. This field supplements rather than replaces core authorization. |
 | Rollback expectations | Whether the current value is replay-reconstructible from surviving typed transitions. If not, document the unresolved need; do not claim independent-support handling exists. |
@@ -36,7 +36,7 @@ Complete every field below for each supported dimension.
 
 These concepts must not be collapsed into one value:
 
-- **Unset/unknown:** no canonical value has been established.
+- **Unset:** no canonical value has been established. “Unknown” in this narrow sense means unset; conflict/insufficient-support unknown is a separate reconciliation/read-result state.
 - **Explicit neutral:** the domain intentionally assigns its defined neutral value.
 - **Withheld/inaccessible:** the read boundary does not disclose the canonical value to this caller. This does not reveal whether a value exists.
 - **Cleared:** an authorized operation explicitly removes a previously established value, where clearing is supported by the domain and approved operation contract. The current effective value is then absent; authorized canonical history/provenance must distinguish this explicit removal from a dimension that was never established. Whether a particular caller may see that history is a Core authorization/purpose decision.
@@ -81,7 +81,7 @@ A rejected transition must not partially mutate canonical state. A narrative sen
 
 A dimension is **not ready for runtime use** until:
 - [ ] its meaning and non-implications are explicit;
-- [ ] its value domain and neutral/unset distinction are explicit;
+- [ ] its value domain and neutral/unset distinction are explicit, and conflict/insufficient-support results are not conflated with unset;
 - [ ] valid and invalid transitions are specified;
 - [ ] partial update and clear behavior are specified;
 - [ ] cross-dimension rules are explicit or expressly absent;
