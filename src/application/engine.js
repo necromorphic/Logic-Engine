@@ -295,7 +295,7 @@ export class LogicEngine {
       validateProcessTransition(current.stored_status, targetState);
       for (const milestone of current.milestones.filter((item) => item.status === 'pending')) {
         const trigger = this.getTimeTrigger(id, milestone.trigger_id);
-        if (trigger.status === 'pending') this.cancelTimeTrigger(id, milestone.trigger_id, reason.trim());
+        if (trigger.status === 'pending') this.cancelTimeTrigger(id, milestone.trigger_id, reason.trim(), { processLifecycle: true });
       }
       return this.processStore.transition(id, processId, targetState, {
         expectedVersion: input.expected_version, idempotencyKey: key, requestHash,
