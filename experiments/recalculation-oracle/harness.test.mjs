@@ -85,3 +85,35 @@ test('unknown dependencies are rejected before evaluation', () => {
   const nodes = [{ id: 'effect', dependsOn: ['missing'], evaluate: ({ read }) => read('missing') }];
   assert.throws(() => runRecalculation({ inputs: {}, nodes, strategy: 'A' }), /unknown dependency/);
 });
+
+
+test('changing a branch selector recomputes the selector and its full dependent closure', () => {
+  const result = runRecalculation({
+    inputs: { infected: false, hp: 10, mana: 4 },
+    nodes: basicNodes,
+    strategy: 'B',
+    changedInputs: ['infected'],
+    previousValues: { branch: 'infected', effect: 8, summary: 'result:8' },
+  });
+  assert.deepEqual(result.executed, ['branch', 'effect', 'summary']);
+  assertProjection(result.values, { branch: 'healthy', effect: 5, summary: 'result:5' });
+});
+
+test('C detects an undeclared read when the affected node is actually executed', () => {
+  const nodes = [
+    { id: 'branch', dependsOn: ['infected'], evaluate: ({ read }) => read('infected') ? 'infected' : 'healthy' },
+    { id: 'effect', dependsOn: ['branch'], evaluate: ({ read }) => read('branch') === 'infected' ? read('hp') - 2 : read('mana') + 1 },
+    { id: 'summary', dependsOn: ['effect'], evaluate: ({ read }) => 'result:' + read('effect') },
+  ];
+  const result = runRecalculation({
+    inputs: { infected: true, hp: 6, mana: 4 },
+    nodes,
+    strategy: 'C',
+    changedInputs: ['infected'],
+    previousValues: { branch: 'healthy', effect: 5, summary: 'result:5' },
+    invariants: [({ inputs, values }) => values.effect === (inputs.infected ? inputs.hp - 2 : inputs.mana + 1)],
+  });
+  assert.equal(result.fallback.used, true);
+  assert.equal(result.status, 'needs_review');
+  assertProjection(result.values, { branch: 'infected', effect: 4, summary: 'result:4' });
+});
