@@ -480,6 +480,20 @@ export class LogicEngine {
       });
     }
     const from = world.game_time_coordinate;
+    const requestedAdvanceMs = x.to_coordinate - from;
+    if (!Number.isSafeInteger(requestedAdvanceMs) || requestedAdvanceMs < 0) {
+      throw new EngineError('INVALID_TIME_INTERVAL', 'to_coordinate must not precede the current world coordinate and the interval must be a safe integer.', 400);
+    }
+    const activeTimeConfig = this.store.getTimeConfiguration(id);
+    const maxSkipMs = activeTimeConfig
+      ? Math.min(activeTimeConfig.time_policy.max_skip_duration_ms, 604800000)
+      : 604800000;
+    if (requestedAdvanceMs > maxSkipMs) {
+      throw new EngineError('TIME_ADVANCE_TOO_LARGE', 'Requested time-advance interval exceeds the active world skip limit.', 400, {
+        requested_duration_ms: requestedAdvanceMs,
+        maximum_duration_ms: maxSkipMs,
+      });
+    }
     if (from % 1000 !== 0 || x.to_coordinate % 1000 !== 0) {
       throw new EngineError('TIME_ADVANCE_SUBSECOND_UNSUPPORTED', 'Time-advance execution currently requires whole-second boundaries.', 400);
     }
@@ -501,8 +515,6 @@ export class LogicEngine {
     const effectiveTarget = plan.status === 'blocked' ? from : plan.planned_until_coordinate;
     const segments = [];
     let cursor = from;
-    const activeTimeConfig = this.store.getTimeConfiguration(id);
-    const maxSkipMs = activeTimeConfig ? Math.min(activeTimeConfig.time_policy.max_skip_duration_ms, 604800000) : 604800000;
     const appendSegment = (coordinate, events) => {
       const index = segments.length;
       const segmentKey = 'time-segment:' + operationId + ':' + index;
