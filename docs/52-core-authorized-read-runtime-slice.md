@@ -17,7 +17,7 @@ Status: merged into `main` through PR #65. This document records the deliberatel
 
 This is a safe first slice, not the completed knowledge/visibility subsystem.
 
-- The API read route exposes the bound actor's own identity metadata only. It does not yet allow an NPC to read other characters or their relationship, personality, knowledge, or attribute fields.
+- The default API read route exposes the bound actor's own identity metadata only. PR #101 adds an opt-in trusted host field-policy hook and bounded `entity_ids`; without an explicitly supplied trusted policy, other-entity fields remain withheld. This is an integration seam, not an approved visibility schema or a default public policy.
 - No default public visibility is inferred from missing metadata.
 - The service's injected field-policy callback is trusted application configuration. It must never be created from model output or request-body fields.
 - The existing character-card projector remains a pure projector over a supplied snapshot; it does not become an authorization mechanism by being called.
@@ -46,3 +46,8 @@ The current canonical entity model has a generic attributes bag and no approved 
 - Raw state/events/audit routes reject the general API bearer token without a separate internal/admin credential.
 - One adapter cannot retrieve another adapter's proposal payload.
 - Authorized reads preserve the composite snapshot cursor and do not write canonical state or audit.
+
+
+## Current-main policy hook (PR #101)
+
+`createApiServer` accepts optional `authorizedReadFieldPolicy`, a trusted application callback that must be supplied by host configuration, never by request/model input. If omitted, the default remains self-identity-only. The authorized-read request may specify a bounded `entity_ids` list; every field for every target must pass the configured policy, and a missing or fully withheld target fails atomically with the same unavailable shape. Exact-head Runtime CI passed on PR #101 head `4eda3de05b18cf48c6bd642b75546a91ad9d16bc` ([run #737](https://github.com/necromorphic/Logic-Engine/actions/runs/40065061229)). No default visibility schema, Memory retrieval adapter, or source-change feed is introduced.
