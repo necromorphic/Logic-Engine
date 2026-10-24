@@ -417,3 +417,50 @@ test('process creation rejects underdeclared event reads and writes before stori
   assert.equal(engine.listProcesses('world-a').length, 0);
   assert.equal(engine.getState('world-a').world_revision, 0);
 }));
+
+
+test('stale canonical revision rejects process creation without trigger, process, or audit side effects', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  const before = engine.getState('world-a');
+  assert.equal(before.world_revision, 0);
+  assert.throws(
+    () => engine.createProcess('world-a', processInput({
+      idempotency_key: 'create-with-stale-revision',
+      expected_revision: before.world_revision + 1,
+    })),
+    (error) => error.code === 'REVISION_CONFLICT',
+  );
+  assert.equal(engine.getState('world-a').world_revision, before.world_revision);
+  assert.equal(engine.listProcesses('world-a').length, 0);
+  assert.equal(engine.listTimeTriggers('world-a').length, 0);
+  assert.equal(engine.getAudit('world-a').some((entry) => entry.action === 'process.created'), false);
+}));
+
+test('competing lifecycle commands against one checkpoint allow only one transition and audit it once', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  const created = engine.createProcess('world-a', processInput());
+  const first = engine.transitionProcess('world-a', 'journey-1', {
+    action: 'pause',
+    expected_version: created.process.version,
+    idempotency_key: 'competing-pause',
+  });
+  assert.equal(first.process.status, 'paused');
+  assert.equal(first.process.version, created.process.version + 1);
+
+  assert.throws(
+    () => engine.transitionProcess('world-a', 'journey-1', {
+      action: 'cancel',
+      expected_version: created.process.version,
+      idempotency_key: 'competing-cancel',
+    }),
+    (error) => error.code === 'PROCESS_VERSION_CONFLICT',
+  );
+  const after = engine.getProcess('world-a', 'journey-1');
+  assert.equal(after.status, 'paused');
+  assert.equal(after.version, first.process.version);
+  const audit = engine.getAudit('world-a');
+  assert.equal(audit.filter((entry) => entry.action === 'process.lifecycle.transitioned'
+    && entry.target_id === 'journey-1').length, 1);
+  assert.equal(audit.some((entry) => entry.action === 'process.lifecycle.transitioned'
+    && entry.target_id === 'journey-1' && entry.payload.to === 'cancelled'), false);
+}));
