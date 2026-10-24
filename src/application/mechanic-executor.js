@@ -283,6 +283,8 @@ export class MechanicExecutor {
     const normalizedReadSet = [...readSet].sort();
     const normalizedCausalLinks = canonicalUnique(causalLinks);
     const dependencyManifest = {
+      scope: 'bounded_deterministic_action_v1',
+      global_mechanic_dependencies_complete: false,
       condition_paths: conditionDependencyPaths,
       condition_ast_dependencies_complete: true,
       context_projection_dependencies_complete: true,
@@ -326,6 +328,7 @@ export class MechanicExecutor {
         context_provider_attested_snapshot: true,
         context_policy_versioned: true,
         complete_mechanic_dependencies: true,
+        complete_global_mechanic_dependencies: false,
         proposal_created: false,
         canonical_state_mutated: false,
       },
