@@ -196,6 +196,21 @@ test('current context manifests expand referenced canonical rows, while stale ma
   assert.deepEqual(stale.events, []);
 });
 
+test('mechanic evaluation snapshot fails closed on a non-event-backed review reason', (t) => {
+  const { store, engine, worldId } = setup(t, 'review-state-world');
+  engine.registerMechanicTemplate(template());
+  commit(engine, worldId, 'create-review-instance', 0, [
+    { kind: 'mechanic.instance.create', instance_id: 'instance.review', template_id: 'test.mechanic', template_version: '1.0.0' },
+  ]);
+  // Simulate a legacy/corrupt projection state that no canonical event can currently produce.
+  store.db.prepare('UPDATE mechanic_instances SET needs_review_reason=? WHERE world_id=? AND instance_id=?')
+    .run('review required', worldId, 'instance.review');
+  assert.throws(
+    () => engine.getSnapshot(worldId, { includeMechanicEvaluationState: true }),
+    (error) => error.code === 'MECHANIC_INSTANCE_REVIEW_STATE_UNSUPPORTED' && error.status === 409,
+  );
+});
+
 test('mechanic evaluation snapshot rejects malformed options and refuses a truncated active set', (t) => {
   const { engine, worldId } = setup(t);
   assert.throws(
