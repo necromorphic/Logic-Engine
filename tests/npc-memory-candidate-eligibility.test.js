@@ -424,16 +424,75 @@ test("candidate rejection output does not leak rejected record identifiers", () 
   assert.equal(serialized.includes("sensitive title"), false);
 });
 
-test("candidate admission never mutates acquisition, delivery, belief, or canonical state", () => {
-  const semanticState = {
-    acquisition: [{ id: "existing-acquisition" }],
-    delivery: [{ id: "existing-delivery" }],
-    belief: [{ id: "existing-belief" }],
-    canonical: [{ id: "canonical-fact" }],
+test("candidate admission does not mutate request or result inputs", () => {
+  const inputRequest = structuredClone(request);
+  const inputResult = completeResult([candidate({
+    content: "private content must remain caller-owned",
+    lineage: { status: "complete", sources: [] },
+  })]);
+  const beforeRequest = structuredClone(inputRequest);
+  const beforeResult = structuredClone(inputResult);
+
+  evaluateMemoryCandidateAdmission(inputRequest, inputResult);
+
+  assert.deepEqual(inputRequest, beforeRequest);
+  assert.deepEqual(inputResult, beforeResult);
+});
+
+
+test("summary lineage fails closed when source world scope is absent or unproven", () => {
+  const source = {
+    ref: "source:restricted",
+    version: "v1",
+    world_id: request.world_id,
+    access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
+    freshness: { status: "current" },
   };
-  const before = structuredClone(semanticState);
+  for (const world_id of [undefined, null, ""]) {
+    const lineageSource = { ...source };
+    if (world_id === undefined) delete lineageSource.world_id;
+    else lineageSource.world_id = world_id;
+    const summary = candidate({
+      content_kind: "summary",
+      lineage: { status: "complete", sources: [lineageSource] },
+    });
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.admitted, []);
+    assert.equal(JSON.stringify(result).includes("source:restricted"), false);
+  }
+});
 
-  evaluateMemoryCandidateAdmission(request, completeResult([candidate()]));
+test("authorized complete-empty differs from non-ready retrieval without exposing candidate metadata", () => {
+  const completeEmpty = evaluateMemoryCandidateAdmission(request, completeResult([]));
+  assert.deepEqual(completeEmpty, { status: "ready", admitted: [], reason: null });
 
-  assert.deepEqual(semanticState, before);
+  for (const incomplete of [
+    null,
+    { completeness: "partial", candidates: [candidate()] },
+    { completeness: "unavailable", candidates: [candidate()] },
+    { completeness: "rebuilding", candidates: [candidate()] },
+    { completeness: "unknown", candidates: [candidate()] },
+    { completeness: "complete", candidates: "not-an-array" },
+  ]) {
+    const result = evaluateMemoryCandidateAdmission(request, incomplete);
+    assert.equal(result.status, "non_ready");
+    assert.equal(result.reason, "result_incomplete_or_unavailable");
+    assert.deepEqual(result.admitted, []);
+    assert.equal(JSON.stringify(result).includes("memory:claim-1"), false);
+    assert.notDeepEqual(result, completeEmpty);
+  }
+});
+
+test("request-level denial is not normalized into an authorized empty result", () => {
+  const denied = evaluateMemoryCandidateAdmission(
+    request,
+    completeResult([], { access: { outcome: "withheld" } }),
+  );
+  const authorizedEmpty = evaluateMemoryCandidateAdmission(request, completeResult([]));
+
+  assert.equal(denied.status, "non_ready");
+  assert.equal(denied.reason, "request_access_or_scope_unconfirmed");
+  assert.deepEqual(denied.admitted, []);
+  assert.notDeepEqual(denied, authorizedEmpty);
 });
