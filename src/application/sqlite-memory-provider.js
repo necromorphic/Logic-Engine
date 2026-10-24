@@ -443,7 +443,11 @@ export class SQLiteMemoryProvider {
       // outage into an apparently complete-empty result. Never expose host details.
       throw new Error('MEMORY_SOURCE_VALIDATION_UNAVAILABLE');
     }
-    if (!sourceValid) return false;
+    if (!sourceValid) {
+      // A stale/unverifiable source version is not an access denial. Do not let
+      // the consumer filter it into a false complete-empty result.
+      throw new Error('MEMORY_SOURCE_VERSION_UNVERIFIABLE');
+    }
 
     // Source validation may await a host/Core read. Recheck provider-owned grants
     // after that await so a revocation during validation cannot reuse the earlier
