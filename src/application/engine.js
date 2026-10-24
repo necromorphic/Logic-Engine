@@ -358,7 +358,8 @@ export class LogicEngine {
     const skip = x.time_mode === 'explicit_skip';
     assert(Number.isSafeInteger(seconds) && seconds >= 0, 'INVALID_TIME_ADVANCE', 'time_advance_seconds must be non-negative.');
     assert(x.time_mode === undefined || x.time_mode === 'action' || skip, 'INVALID_TIME_MODE', 'time_mode must be action or explicit_skip.');
-    assert(seconds <= (skip ? 604800 : 43200), 'TIME_ADVANCE_TOO_LARGE', 'Time advance exceeds limit.');
+    const maxSeconds = skip ? (options.maxSkipDurationSeconds ?? 604800) : (options.maxActionDurationSeconds ?? 43200);
+    assert(seconds <= maxSeconds, 'TIME_ADVANCE_TOO_LARGE', 'Time advance exceeds the active duration limit.');
     if (seconds > 0) assert(['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Invalid event type for time advance.');
 
     const effects = x.effects ?? [];
@@ -391,7 +392,7 @@ export class LogicEngine {
   }
 
   commitEvent(id, x) {
-    return this.store.commit(id, this.prepareEvent(x));
+    return this.store.commit(id, this.prepareEventForWorld(id, x));
   }
 
   commitSegment(id, x, options = {}) {
@@ -409,7 +410,7 @@ export class LogicEngine {
       assert(obj(event), 'INVALID_SEGMENT_EVENT', 'Every segment event must be an object.');
       assert(event.expected_revision === undefined && event.expected_commit_sequence === undefined,
         'INVALID_SEGMENT_EVENT_CURSOR', 'Per-event revision/cursor fields are not allowed; the segment owns its base cursor.');
-      const prepared = this.prepareEvent(event, options);
+      const prepared = this.prepareEventForWorld(id, event, options);
       assert(typeof prepared.event_id === 'string' && prepared.event_id.trim(), 'SEGMENT_EVENT_ID_REQUIRED', 'Every segment event must have an explicit event_id.');
       assert(!['entity:', 'fact:', 'relationship:', 'mechanic:'].some((prefix) => prepared.event_id.startsWith(prefix)), 'INVALID_EVENT_ID', 'Segment event IDs cannot use reserved projection reference prefixes.');
       return prepared;
