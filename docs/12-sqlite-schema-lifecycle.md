@@ -21,6 +21,8 @@ This contract applies to the schema states represented by the repository's fixtu
 | 4 | Add world_events.context_manifest_id; ensure context_manifests exists and has base_world_revision. |
 | 5 | Create the world/event unique index and mechanic_instances table when missing. |
 
+Migrations 6–9 additionally backfill canonical time coordinates, add durable time-advance operation checkpoints, add versioned world time configurations, and create the world-scoped durable time-trigger lifecycle table. The current schema ledger is version 9.
+
 The migration fixture in tests/storage-migrations.test.js exercises a legacy schema with missing columns/indexes/tables, checks preservation of existing rows, verifies commit-sequence backfill, performs canonical write and projected read after migration, closes/reopens the database, and confirms the committed state remains readable. A separate failure-injection test verifies that migration DDL and its ledger entry roll back together and that opening succeeds after the injected failure is removed.
 
 ## 3. Transaction and idempotency rules
