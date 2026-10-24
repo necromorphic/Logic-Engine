@@ -1,6 +1,8 @@
 # Personality Block — Semantic Acceptance Matrix
 
-Status: semantic specification, not an executable runtime test suite. These cases define what the Personality block considers correct; they do not claim that the core write/read/rollback path currently implements them.
+Status: semantic specification, not an executable runtime test suite. These cases define what the Personality block considers correct; they do not claim that every core write/read/rollback requirement is implemented. Current `main` has a tested privileged Relationship write/replay first slice, while general authorization, safe reads, NPC consumers, historical version migration, and independent-support semantics remain blocked.
+
+**Evidence boundary (2026-10-24):** `tests/relationship-transition-core.test.js` on `main` (blob `9cf9020c554028f89dc8d8f97d6f7422f357fba1`) covers the privileged admin-gated operation, directed state, identity/world/rule/evidence validation, mixed-patch atomicity, idempotency, clear/unset/neutral replay, transaction-failure atomicity, restart/rebuild, and required-dependency rollback. The rows below remain semantic acceptance definitions; consult `09-per-case-acceptance-traceability.md` and `10-issue-73-executable-evidence-audit.md` for the exact evidence boundary.
 
 ## 1. Test boundary
 
@@ -72,7 +74,7 @@ These scenarios reuse the existing PERS-SEM IDs; they do not create new criterio
 
 ### Blocked on core contracts and production tests
 
-- Atomic canonical typed writes and dimension patch semantics.
+- General actor-authorized canonical typed writes and expanded domain integration beyond the tested privileged first slice.
 - Canonical participant identity enforcement.
 - Authorized actor/purpose-filtered reads.
 - Authorization and audit for initialization/import/correction.
