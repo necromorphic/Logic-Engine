@@ -455,3 +455,126 @@ export function translateMechanicEffectIntents(value, actionId) {
     effect_provenance: effectProvenance,
   };
 }
+
+
+/**
+ * Evaluate one no-input, declarative action against a caller-captured immutable
+ * Core mechanic snapshot. This is a bounded evaluation primitive, not an
+ * application endpoint: the caller must obtain the snapshot from the canonical
+ * store, authorize the supplied context, and route any returned effects through
+ * the existing proposal pipeline.
+ *
+ * It refuses semantics not implemented by this slice (module execution,
+ * participant binding, interactions, non-trivial action input schemas). It
+ * never reads storage or mutates canonical state.
+ */
+export async function evaluateMechanicActionAgainstSnapshot({
+  snapshot,
+  instanceId,
+  actionId,
+  authorizedContext,
+  knownAbsentPaths = [],
+}) {
+  const { hashRequest } = await import('./request-hash.js');
+  if (!obj(snapshot) || typeof snapshot.world_id !== 'string'
+    || !Number.isSafeInteger(snapshot.world_revision) || snapshot.world_revision < 0
+    || !Number.isSafeInteger(snapshot.commit_sequence) || snapshot.commit_sequence < 0
+    || !obj(snapshot.mechanic_evaluation_snapshot)) {
+    return { status: 'rejected', reason_code: 'INVALID_MECHANIC_EVALUATION_SNAPSHOT', effects: [], effect_provenance: [] };
+  }
+  const state = snapshot.mechanic_evaluation_snapshot;
+  if (!Array.isArray(state.instances) || !Array.isArray(state.templates) || !Array.isArray(state.modules)) {
+    return { status: 'rejected', reason_code: 'INCOMPLETE_MECHANIC_EVALUATION_SNAPSHOT', effects: [], effect_provenance: [] };
+  }
+  const instance = state.instances.find((item) => item.instance_id === instanceId);
+  if (!instance || instance.status !== 'enabled') {
+    return { status: 'rejected', reason_code: 'MECHANIC_INSTANCE_NOT_ENABLED', effects: [], effect_provenance: [] };
+  }
+  const templateEntry = state.templates.find(({ template }) =>
+    template?.template_id === instance.template_id && template?.version === instance.template_version);
+  if (!templateEntry || typeof templateEntry.template_hash !== 'string' || !templateEntry.template_hash) {
+    return { status: 'unknown', reason_code: 'PINNED_TEMPLATE_UNAVAILABLE', effects: [], effect_provenance: [] };
+  }
+  let template;
+  try {
+    template = validateMechanicTemplate(templateEntry.template);
+  } catch (error) {
+    return { status: 'unknown', reason_code: 'PINNED_TEMPLATE_INVALID', diagnostic: error.message, effects: [], effect_provenance: [] };
+  }
+  if ((template.rule_modules ?? []).length || template.conflict_policy.mode === 'automatic') {
+    return { status: 'unknown', reason_code: 'MODULE_EXECUTION_NOT_IMPLEMENTED', effects: [], effect_provenance: [] };
+  }
+  if ((template.eligible_participants ?? []).length || (template.interactions ?? []).length) {
+    return { status: 'unknown', reason_code: 'PARTICIPANT_OR_INTERACTION_SEMANTICS_UNSUPPORTED', effects: [], effect_provenance: [] };
+  }
+  const action = template.actions.find((item) => item.action_id === actionId);
+  if (!action) {
+    return { status: 'rejected', reason_code: 'MECHANIC_ACTION_NOT_FOUND', effects: [], effect_provenance: [] };
+  }
+  const schema = action.input_schema;
+  if (!obj(schema) || Object.keys(schema).length !== 1 || schema.type !== 'object') {
+    return { status: 'unknown', reason_code: 'ACTION_INPUT_BINDING_UNSUPPORTED', effects: [], effect_provenance: [] };
+  }
+  let conditions;
+  try {
+    conditions = evaluateMechanicActionConditions(template, actionId, authorizedContext, { knownAbsentPaths });
+  } catch (error) {
+    return { status: 'unknown', reason_code: error.code ?? 'CONDITION_EVALUATION_FAILED', diagnostic: error.message, effects: [], effect_provenance: [] };
+  }
+  if (conditions.status !== 'true') {
+    return {
+      status: conditions.status === 'false' ? 'no_match' : conditions.status,
+      reason_code: conditions.reason_code,
+      world_id: snapshot.world_id,
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+      instance_id: instance.instance_id,
+      template_id: template.template_id,
+      template_version: template.version,
+      template_hash: templateEntry.template_hash,
+      action_id: actionId,
+      condition_results: conditions.condition_results,
+      unknown_paths: conditions.unknown_paths,
+      effects: [],
+      effect_provenance: [],
+    };
+  }
+  const translated = translateMechanicEffectIntents(template, actionId);
+  if (translated.status !== 'ready') {
+    return {
+      ...translated,
+      world_id: snapshot.world_id,
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+      instance_id: instance.instance_id,
+      template_hash: templateEntry.template_hash,
+      condition_results: conditions.condition_results,
+      effects: [],
+      effect_provenance: [],
+    };
+  }
+  const identity = {
+    world_id: snapshot.world_id,
+    world_revision: snapshot.world_revision,
+    commit_sequence: snapshot.commit_sequence,
+    instance_id: instance.instance_id,
+    instance_revision: instance.updated_revision ?? null,
+    template_id: template.template_id,
+    template_version: template.version,
+    template_hash: templateEntry.template_hash,
+    action_id: actionId,
+    condition_results: conditions.condition_results,
+    effects: translated.effects,
+    effect_provenance: translated.effect_provenance,
+  };
+  return {
+    status: 'ready',
+    reason_code: null,
+    ...identity,
+    evaluation_fingerprint: hashRequest(identity),
+    effects: translated.effects,
+    effect_provenance: translated.effect_provenance,
+    unknown_paths: conditions.unknown_paths,
+    commit_authority: 'none',
+  };
+}
