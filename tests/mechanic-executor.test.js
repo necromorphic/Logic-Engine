@@ -586,6 +586,34 @@ test('application executor rejects a snapshot when the world changes during targ
 });
 
 
+test('application executor revalidates the snapshot after trusted context resolution', (t) => {
+  const { engine, worldId } = setup(t, 'executor-provider-race-world');
+  enableFixture(engine, worldId);
+  const resolve = contextProvider();
+  let injected = false;
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext(args) {
+      const resolved = resolve(args);
+      if (!injected) {
+        injected = true;
+        commit(engine, worldId, 'intervening-provider-race', 2, [{
+          kind: 'entity.create',
+          entity_id: 'entity.provider-race',
+          entity_type: 'object',
+        }]);
+      }
+      // Deliberately return the old, internally consistent attestation. The
+      // executor must compare it with the live canonical cursor after callback.
+      return resolved;
+    },
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'SNAPSHOT_CHANGED_DURING_CONTEXT_RESOLUTION');
+  assert.deepEqual(result.effects, []);
+  assert.equal(engine.getState(worldId).world_revision, 3);
+});
+
 test('application executor rejects required capabilities without a grant contract', (t) => {
   const { engine, worldId } = setup(t, 'executor-capability-world');
   enableFixture(engine, worldId, template({ required_capabilities: ['world.write'] }));
