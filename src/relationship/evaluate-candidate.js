@@ -43,14 +43,21 @@ const isDataArray = (value) => {
     return false;
   }
   const keys = Reflect.ownKeys(value);
-  if (keys.some((key) => key !== "length"
-      && (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key)))) {
+  if (keys.some((key) => {
+    if (key === "length") return false;
+    if (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key)) return true;
+    // Only actual in-range array indices are allowed; large numeric-looking
+    // own properties (for example "4294967295") are custom properties.
+    const index = Number(key);
+    return !Number.isSafeInteger(index) || index < 0 || index >= value.length
+      || String(index) !== key;
+  })) {
     return false;
   }
   for (let index = 0; index < value.length; index += 1) {
     if (!own(value, String(index))) return false;
     const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-    if (!descriptor || !own(descriptor, "value")) return false;
+    if (!descriptor || !descriptor.enumerable || !own(descriptor, "value")) return false;
   }
   return true;
 };
