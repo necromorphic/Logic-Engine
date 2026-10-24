@@ -243,7 +243,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       }
       if (parts.length === 5 && action === 'proposals' && req.method === 'GET') {
         const proposalId = decodeURIComponent(parts[4]);
-        if secretMatches(req.headers['x-admin-token'], adminToken) {
+        if (secretMatches(req.headers['x-admin-token'], adminToken)) {
           return send(res, 200, { proposal: proposals.get(worldId, proposalId) });
         }
         const adapterId = adapterIdFor(req);
