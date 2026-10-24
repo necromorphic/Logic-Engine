@@ -414,10 +414,10 @@ Core review already confirmed that host injection without a documented rendering
 
 This is the latest repository-state check for the NPC documentation branch. It supersedes earlier branch-divergence counts and must be refreshed before integration work.
 
-- **NPC branch head:** `e1ebddd398753aaceddf5f1beadd43a02b73f224`.
+- **NPC branch head at the latest verification:** `0e364347563a1f4bd1dbf6bae80118c5824135b6`.
 - **PR #38:** closed without merge; no replacement PR has been opened by this work.
-- **Comparison against current `main`:** GitHub reports the refs as diverged, with merge base `9e785a050e8b8acde9a3f343275c4213bbe8d72f`, 17 commits behind `main`, and 169 commits ahead on the NPC branch. The compare response lists the NPC-specific difference as documentation files `docs/31` through `docs/48` (17 files); the high ahead count reflects the branch's documentation history and is not evidence of runtime implementation.
-- **Workflow evidence:** the available commit-workflow query returned no PR-triggered workflow runs associated with `e1ebddd398753aaceddf5f1beadd43a02b73f224`. This query is limited to PR-triggered runs, so the result is **not** proof that no workflow ran; it is also not green-CI evidence for this exact head.
+- **Comparison against current `main`:** GitHub reports the refs as diverged, with merge base `9e785a050e8b8acde9a3f343275c4213bbe8d72f`, 17 commits behind `main`, and 175 commits ahead on the NPC branch. The compare response lists the NPC-specific difference as documentation files `docs/31` through `docs/48` (17 files); the high ahead count reflects the branch's documentation history and is not evidence of runtime implementation.
+- **Workflow evidence:** the available commit-workflow query returned no PR-triggered workflow runs associated with `0e364347563a1f4bd1dbf6bae80118c5824135b6`. This query is limited to PR-triggered runs, so the result is **not** proof that no workflow ran; it is also not green-CI evidence for this exact head.
 - **Change boundary:** this branch work remains NPC documentation/contracts/test-boundary design only. No core source, public API, schema, storage, or NPC runtime implementation was added by this status audit.
 
 **Decision:** do not rebase, merge, force-update, reopen PR #38, or create a replacement PR as part of this pass. Continue only with NPC-owned contract reconciliation and evidence mapping. Before any integration, compare the exact current core and NPC refs, reconcile the 17 core-side commits deliberately, and verify CI on the exact proposed integration head.
