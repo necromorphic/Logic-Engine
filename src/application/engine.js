@@ -567,6 +567,154 @@ export class LogicEngine {
     return this.store.cancelTimeTrigger(id, triggerId, reason.trim());
   }
 
+  _prepareProcessTriggerItems(id, process, options = {}) {
+    const pendingOnly = options.pendingOnly === true;
+    const dueOverrides = options.dueOverrides ?? new Map();
+    const candidates = process.milestones.filter((milestone) => !pendingOnly || milestone.status === 'pending');
+    const triggerIds = new Map();
+    const eventIds = new Map();
+    for (const milestone of process.milestones) {
+      if (pendingOnly && milestone.status !== 'pending') {
+        triggerIds.set(milestone.milestone_id, milestone.trigger_id);
+        eventIds.set(milestone.milestone_id, milestone.event_id);
+        continue;
+      }
+      const generation = pendingOnly ? milestone.trigger_generation + 1 : 0;
+      const triggerId = 'process-trigger:' + hashRequest({
+        world_id: id, process_id: process.process_id, milestone_id: milestone.milestone_id, generation,
+      }).slice(0, 48);
+      triggerIds.set(milestone.milestone_id, triggerId);
+      eventIds.set(milestone.milestone_id, 'time-trigger-' + hashRequest({ world_id: id, trigger_id: triggerId }).slice(0, 32));
+    }
+    const byId = new Map(process.milestones.map((milestone) => [milestone.milestone_id, milestone]));
+    return candidates.map((milestone) => {
+      const dueCoordinate = dueOverrides.has(milestone.milestone_id)
+        ? dueOverrides.get(milestone.milestone_id) : milestone.due_coordinate;
+      const dependencyTriggerIds = milestone.dependencies.map((dependencyId) => triggerIds.get(dependencyId));
+      const dependencyEventIds = milestone.dependencies.map((dependencyId) => eventIds.get(dependencyId));
+      if (dependencyTriggerIds.some((value) => !value) || dependencyEventIds.some((value) => !value)) {
+        throw new EngineError('PROCESS_DEPENDENCY_NOT_FOUND', 'A process milestone dependency could not be resolved.', 409, {
+          process_id: process.process_id, milestone_id: milestone.milestone_id,
+        });
+      }
+      for (const dependencyId of milestone.dependencies) {
+        const dependency = byId.get(dependencyId);
+        const dependencyDue = dueOverrides.has(dependencyId) ? dueOverrides.get(dependencyId) : dependency.due_coordinate;
+        if (dependencyDue > dueCoordinate) {
+          throw new EngineError('PROCESS_CAUSAL_TIME_ORDER_CONFLICT', 'A resumed milestone cannot be scheduled before its dependency.', 409, {
+            process_id: process.process_id, milestone_id: milestone.milestone_id, dependency_id: dependencyId,
+          });
+        }
+      }
+      const event = {
+        ...milestone.event,
+        caused_by: [...new Set([
+          ...strings(milestone.event.caused_by, 'caused_by'),
+          ...milestone.source_event_ids,
+          ...dependencyEventIds,
+        ])],
+        depends_on: [...new Set([
+          ...strings(milestone.event.depends_on, 'depends_on'),
+          ...milestone.source_event_ids,
+          ...dependencyEventIds,
+        ])],
+      };
+      const trigger = this.prepareTimeTrigger(id, {
+        trigger_id: triggerIds.get(milestone.milestone_id),
+        due_coordinate: dueCoordinate,
+        dependencies: dependencyTriggerIds,
+        read_set: milestone.read_set,
+        write_set: milestone.write_set,
+        processing_mode: milestone.processing_mode,
+        interrupt_after_coordinate: milestone.interrupt_after_coordinate,
+        payload: { event },
+      });
+      return {
+        milestone: { ...milestone, due_coordinate: dueCoordinate },
+        trigger,
+      };
+    });
+  }
+
+  createProcess(id, input) {
+    assert(obj(input), 'INVALID_PROCESS', 'Process request must be an object.');
+    const requestHash = hashRequest({ operation: 'process.create', world_id: id, request: input });
+    const existing = typeof input.idempotency_key === 'string'
+      ? this.store.getProcessByIdempotencyKey(id, input.idempotency_key.trim()) : null;
+    if (existing) {
+      if (existing.request_hash !== requestHash) {
+        throw new EngineError('IDEMPOTENCY_CONFLICT', 'The process idempotency key was already used with different content.', 409);
+      }
+      return { ...existing, idempotent_replay: true };
+    }
+    const world = this.getState(id);
+    let process;
+    try {
+      process = normalizeProcessDefinition(input, id, world.game_time_coordinate);
+    } catch (error) {
+      throw new EngineError(error.code || 'INVALID_PROCESS', error.message || 'Process definition is invalid.', 400, error.details);
+    }
+    const items = this._prepareProcessTriggerItems(id, process);
+    return this.store.createProcess(id, { process, request_hash: requestHash, items });
+  }
+
+  getProcess(id, processId) {
+    return this.store.getProcess(id, processId);
+  }
+
+  listProcesses(id) {
+    this.getState(id);
+    return this.store.listProcesses(id);
+  }
+
+  processCommand(id, processId, action, input) {
+    assert(obj(input), 'INVALID_PROCESS_COMMAND', 'Process command must be an object.');
+    const allowed = action === 'resume' ? ['idempotency_key', 'milestones'] : ['idempotency_key'];
+    assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_PROCESS_COMMAND_FIELD', 'Process command contains an unsupported field.');
+    assert(typeof input.idempotency_key === 'string' && input.idempotency_key.trim() && input.idempotency_key.length <= 200,
+      'IDEMPOTENCY_KEY_REQUIRED', 'Process command idempotency_key is required.');
+    const key = input.idempotency_key.trim();
+    const requestHash = hashRequest({ operation: 'process.' + action, world_id: id, process_id: processId, request: input });
+    const replay = this.store.getProcessCommandResult(id, key, requestHash);
+    if (replay) return replay;
+    const process = this.store.getProcess(id, processId);
+    let replacementItems = [];
+    if (action === 'resume') {
+      assert(Array.isArray(input.milestones ?? []), 'INVALID_PROCESS_RESUME_PLAN', 'milestones must be an array.');
+      const overrides = new Map();
+      for (const item of input.milestones ?? []) {
+        assert(obj(item) && Object.keys(item).every((key) => ['milestone_id', 'due_coordinate'].includes(key)),
+          'INVALID_PROCESS_RESUME_PLAN', 'Each resume milestone accepts only milestone_id and due_coordinate.');
+        assert(typeof item.milestone_id === 'string' && item.milestone_id.trim(), 'INVALID_PROCESS_RESUME_PLAN', 'milestone_id is required.');
+        assert(Number.isSafeInteger(item.due_coordinate), 'INVALID_PROCESS_RESUME_PLAN', 'due_coordinate must be a safe integer.');
+        assert(!overrides.has(item.milestone_id), 'INVALID_PROCESS_RESUME_PLAN', 'Resume milestone IDs must be unique.');
+        overrides.set(item.milestone_id, item.due_coordinate);
+      }
+      const world = this.getState(id);
+      for (const milestone of process.milestones.filter((item) => item.status === 'pending')) {
+        const due = overrides.has(milestone.milestone_id) ? overrides.get(milestone.milestone_id) : milestone.due_coordinate;
+        assert(due > world.game_time_coordinate, 'PROCESS_MILESTONE_NOT_FUTURE',
+          'A resumed milestone that is no longer in the future must be explicitly rescheduled.', 409);
+      }
+      assert([...overrides.keys()].every((milestoneId) => process.milestones.some((item) => item.milestone_id === milestoneId && item.status === 'pending')),
+        'INVALID_PROCESS_RESUME_PLAN', 'Resume may reschedule only pending milestones.');
+      replacementItems = this._prepareProcessTriggerItems(id, process, { pendingOnly: true, dueOverrides: overrides });
+    }
+    return this.store.transitionProcess(id, processId, action, key, requestHash, replacementItems);
+  }
+
+  pauseProcess(id, processId, input) {
+    return this.processCommand(id, processId, 'pause', input);
+  }
+
+  resumeProcess(id, processId, input) {
+    return this.processCommand(id, processId, 'resume', input);
+  }
+
+  cancelProcess(id, processId, input) {
+    return this.processCommand(id, processId, 'cancel', input);
+  }
+
   startTimeAdvance(id, x) {
     return this._startTimeAdvance(id, x, null, null);
   }
