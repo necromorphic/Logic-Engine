@@ -422,6 +422,12 @@ export class SQLiteStore {
     }));
   }
 
+  /**
+   * Read a bounded canonical snapshot from one SQLite read view.
+   * Returned attributes/facts are raw internal source data, not actor-authorized
+   * or model-safe context; callers must apply an approved access/knowledge filter
+   * before exposing any result to a model, player, or host adapter.
+   */
   readSnapshot(id, request = {}) {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request must be an object.', 400);
