@@ -1122,3 +1122,38 @@ test('proposal policy boundary rejects a proposal pinned to a rotated active pro
     store.close();
   }
 });
+
+
+test('mechanic proposal policy boundary stays closed without a trusted validator or valid pinned identity', () => {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  const unconfigured = new ProposalService(engine);
+  const row = {
+    world_id: 'policy-fail-closed-world',
+    mechanic_execution_json: JSON.stringify({
+      context_policy_version: 'policy-v1',
+      authorization_scope: 'npc:alice',
+      snapshot_identity: { world_id: 'policy-fail-closed-world' },
+    }),
+  };
+  try {
+    assert.throws(
+      () => unconfigured.assertMechanicPolicyCurrent(row, 'approval'),
+      (error) => error.code === 'MECHANIC_POLICY_REVALIDATION_REQUIRED',
+    );
+
+    const configured = new ProposalService(engine, {
+      validateMechanicPolicy: () => true,
+    });
+    const malformed = {
+      ...row,
+      mechanic_execution_json: JSON.stringify({ context_policy_version: '', authorization_scope: 'npc:alice' }),
+    };
+    assert.throws(
+      () => configured.assertMechanicPolicyCurrent(malformed, 'commit'),
+      (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'commit',
+    );
+  } finally {
+    store.close();
+  }
+});
