@@ -148,6 +148,16 @@ export class MechanicExecutor {
     if (translated.status !== 'ready') {
       return { ...translated, snapshot_identity: identity, condition_result: conditionResult, effects: [], effect_provenance: [] };
     }
+    if (translated.effects.length === 0) {
+      return {
+        status: 'no_match',
+        reason_code: 'MECHANIC_ACTION_HAS_NO_EFFECTS',
+        snapshot_identity: identity,
+        condition_result: conditionResult,
+        effects: [],
+        effect_provenance: [],
+      };
+    }
 
     const existingEntities = new Set(targetEntities.map((entity) => entity.entity_id));
     const createdEntities = new Set();
