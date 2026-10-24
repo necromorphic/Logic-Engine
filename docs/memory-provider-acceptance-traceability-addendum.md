@@ -50,3 +50,16 @@ PR #201 remains draft and unmerged, stacked on PR #182. Production Memory→NPC 
 - New Provider unit coverage verifies that source version becoming unverifiable after a previously current reconciliation is not collapsed into an ordinary record denial.
 - PR #183 exact head `bd5dd74c5cbb159d244aa8517bb730c01d767baf`; exact-head Runtime CI #40102454110 passed **300/300 tests**: https://github.com/necromorphic/Logic-Engine/actions/runs/40102454110. Added real-seam tests for query authorization outage and source becoming stale after reconciliation.
 - Explicit Memory record grants remain ordinary access denials; trusted source validation failure is treated as source-currentness uncertainty, not as proof that the user has no accessible memories.
+
+
+## Joint Host/Provider mapping follow-through — Provider-owned verification
+
+- Follow-up commit: `0c7b4abd8a5b3547304f452380b310bb155aeb52`.
+- Exact-head Runtime CI run #1784: **290/290 tests passed**: https://github.com/necromorphic/Logic-Engine/actions/runs/40121937992
+- Added `tests/memory-provider-raw-archive.test.js` regression coverage:
+  - repeated exact-version tombstone remains idempotent across replay/restart;
+  - replaying the identical original capture does not resurrect a tombstoned version;
+  - known dependent-copy invalidation and the original deletion timestamp survive restart;
+  - selecting a tombstoned version remains rejected;
+  - if the exact source is tombstoned during the second/final raw-read authorization check, the read returns `MEMORY_RAW_VERSION_UNAVAILABLE` rather than disclosing the content.
+- This closes Provider-local test gaps only. It does **not** establish Host ID persistence, pre-mutation deletion identity, complete `memory_raw_captures` inventory, source authority, or a production Host→Provider caller. No new API/schema or runtime integration was introduced; Memory→NPC remains **DISABLED / FAIL-CLOSED**.
