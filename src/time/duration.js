@@ -28,8 +28,9 @@ function validateRule(rule) {
         || !nonNegativeInteger(entry.units)) {
         throw new TypeError('Each duration category must have a non-empty category and non-negative safe-integer units.');
       }
-      if (seen.has(entry.category)) throw new TypeError('Duration categories must be unique.');
-      seen.add(entry.category);
+      const category = entry.category.trim();
+      if (seen.has(category)) throw new TypeError('Duration categories must be unique.');
+      seen.add(category);
     }
     return;
   }
@@ -70,11 +71,14 @@ export function resolveDurationDecision(rule, proposal = null) {
     };
   }
 
-  if (!object(proposal) || Object.keys(proposal).some((key) => key !== 'category')
-    || typeof proposal.category !== 'string' || !proposal.category.trim()) {
+  if (proposal === null || proposal === undefined) {
     return { status: 'needs_author', certainty: 'unknown', reason: 'CATEGORY_PROPOSAL_REQUIRED' };
   }
-  const selected = rule.categories.find((entry) => entry.category === proposal.category);
+  if (!object(proposal) || Object.keys(proposal).some((key) => key !== 'category')
+    || typeof proposal.category !== 'string' || !proposal.category.trim()) {
+    return { status: 'rejected', certainty: 'unknown', reason: 'INVALID_CATEGORY_PROPOSAL' };
+  }
+  const selected = rule.categories.find((entry) => entry.category.trim() === proposal.category.trim());
   if (!selected) {
     return { status: 'rejected', certainty: 'unknown', reason: 'CATEGORY_NOT_ALLOWED' };
   }
@@ -82,7 +86,7 @@ export function resolveDurationDecision(rule, proposal = null) {
     status: 'resolved',
     certainty: 'fixed',
     units: selected.units,
-    category: selected.category,
+    category: selected.category.trim(),
     source: 'world_rule_category',
   };
 }
