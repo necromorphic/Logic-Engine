@@ -515,3 +515,23 @@ test("non-finite numeric snapshot components fail closed", () => {
     }
   }
 });
+
+
+test("malformed candidate entries are ignored without leaking or aborting valid peers", () => {
+  const valid = candidate({ record: { ref: "memory:valid-peer", version: "v1" } });
+  const result = evaluateMemoryCandidateAdmission(
+    request,
+    completeResult([null, undefined, "not-a-candidate", 42, [], valid]),
+  );
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, [{
+    record_ref: "memory:valid-peer",
+    record_version: "v1",
+    epistemic_kind: "acquired_report",
+    evidence_assessment: "unassessed",
+  }]);
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes("not-a-candidate"), false);
+  assert.equal(serialized.includes("invalid_candidate"), false);
+});
