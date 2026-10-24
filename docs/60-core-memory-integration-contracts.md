@@ -8,9 +8,11 @@ Core may provide canonical source references, event validity/retraction signals,
 
 Memory must not mutate Core state, issue canonical events, determine rollback outcomes, or treat caller-provided causal metadata as proof of complete causality. A Core source reference is accepted only after world-scoped resolution and validation appropriate to the source type.
 
-## 2. Memory → NPC
+## 2. Memory ↔ NPC/Core knowledge contract
 
-Memory exposes authorized candidate records and evidence metadata. NPC owns acquisition policy, actor-specific delivery, personal knowledge, beliefs, inferences, and the decision to update them. A memory retrieval response is not itself proof that a character has received or accepted the information.
+Memory exposes authorized candidate archival records and evidence metadata. It does not decide actor-specific knowledge, delivery, belief, or inference. The NPC proposal at `feat/npc-subsystem`, `docs/39-npc-core-knowledge-contract-proposal.md` (section 10), records a Core-owner decision that Core owns authoritative acquisition/provenance records, delivery attempts/receipt status, source reconciliation, and persistent subject-relative belief state. That branch is not merged into `main`; treat it as a cross-block contract candidate to reconcile, not as current runtime capability.
+
+The storage implementation may eventually reuse Memory primitives for some Core-owned records only after Core explicitly approves the ownership, schema, and transaction boundary. It must not create a competing NPC knowledge store. A memory retrieval response, context manifest, or prompt inclusion is not proof that a character acquired, received, understood, or believes information.
 
 Required agreement points with the NPC block:
 - stable actor/recipient binding shape;
