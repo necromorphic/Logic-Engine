@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
+import { LogicEngine } from '../src/application/engine.js';
 
 function createLegacyDatabase(path) {
   const db = new DatabaseSync(path);
@@ -76,13 +77,45 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='index' AND name='events_world_commit_sequence'").get().count, 1);
   assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='mechanic_instances'").get().count, 1);
 
+  // A migrated database must support canonical writes and projected reads, not
+  // merely pass schema introspection. Then close/reopen and verify durability.
+  const engine = new LogicEngine(store);
+  const committed = engine.commitEvent('legacy-world', {
+    idempotency_key: 'post-migration-write',
+    turn_id: 'post-migration-write',
+    event_type: 'action.completed',
+    expected_revision: 2,
+    effects: [{
+      kind: 'entity.upsert',
+      entity_id: 'post-migration-entity',
+      entity_type: 'object',
+      attributes: { migrated: true },
+    }, {
+      kind: 'fact.set',
+      fact_id: 'post-migration-fact',
+      predicate: 'migration.check',
+      value: true,
+    }],
+  });
+  assert.equal(committed.world_revision, 3);
+  assert.equal(engine.getState('legacy-world').entities.find((entity) => entity.entity_id === 'post-migration-entity').attributes.migrated, true);
+  assert.equal(engine.getState('legacy-world').facts.find((fact) => fact.fact_id === 'post-migration-fact').value, true);
+
   store.close();
   store = new SQLiteStore(path);
+  const reopenedEngine = new LogicEngine(store);
   assert.deepEqual(
     store.db.prepare('SELECT event_id,commit_sequence FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world').map((row) => ({ event_id: row.event_id, commit_sequence: row.commit_sequence })),
-    [{ event_id: 'legacy-event-1', commit_sequence: 1 }, { event_id: 'legacy-event-2', commit_sequence: 2 }],
+    [
+      { event_id: 'legacy-event-1', commit_sequence: 1 },
+      { event_id: 'legacy-event-2', commit_sequence: 2 },
+      { event_id: committed.event_id, commit_sequence: 3 },
+    ],
   );
   assert.deepEqual(store.db.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((row) => row.version), [1, 2, 3, 4, 5]);
+  assert.equal(reopenedEngine.getState('legacy-world').world_revision, 3);
+  assert.equal(reopenedEngine.getState('legacy-world').entities.find((entity) => entity.entity_id === 'post-migration-entity').attributes.migrated, true);
+  assert.equal(reopenedEngine.getState('legacy-world').facts.find((fact) => fact.fact_id === 'post-migration-fact').value, true);
 });
 
 test('failed numbered migration rolls back its DDL and does not record the version', (t) => {
