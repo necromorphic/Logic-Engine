@@ -275,3 +275,12 @@ The current `main` ref has advanced to `37b05c38b15eda1743fb6fce08a8ccc2f1d2e672
 - **Verification boundary:** the available commit-workflow query returned no PR-triggered runs for current `main`; this is not proof that no other workflows ran and is not a green-CI claim. Verify the exact proposed integration head before any readiness claim.
 
 The NPC branch work remains documentation-only. Do not copy or reimplement these Core capabilities in NPC code, and do not merge/rebase the Core branch automatically. Update the relationship readiness gate only when the actual typed write/read/filter and causal acceptance paths are present and tested.
+
+
+## 18. Acquisition source reconciliation
+
+For the parallel knowledge/acquisition work, see `docs/50-npc-initial-knowledge-acquisition-contract.md` and `docs/51-npc-acquisition-source-reconciliation.md`.
+
+The relationship block may continue semantic design and acceptance cases independently, but must not assume that current event provenance or partial rollback provides relationship-specific independent-support reconciliation. Relationship state is not an acquisition record, and neither a typed relationship operation nor a relationship summary grants disclosure permission. Any future relationship context exposed to an NPC must use the same Core-owned actor/purpose/snapshot filter as other model-bound information.
+
+This section records a dependency boundary only. It does not authorize implementation, schema changes, or integration with unmerged branch work.
