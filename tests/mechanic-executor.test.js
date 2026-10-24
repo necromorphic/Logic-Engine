@@ -6,6 +6,7 @@ import { MechanicExecutor } from '../src/application/mechanic-executor.js';
 import { ProposalService } from '../src/application/proposals.js';
 import { collectMechanicConditionDependencies } from '../src/core/mechanics.js';
 import { hashRequest } from '../src/core/request-hash.js';
+import { attestMechanicEvaluation } from '../src/application/mechanic-evaluation-attestation.js';
 
 function setup(t, worldId = 'executor-world') {
   const store = new SQLiteStore(':memory:');
@@ -307,7 +308,7 @@ test('mechanic proposal handoff rejects incomplete or mismatched effect provenan
   const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   const proposals = new ProposalService(engine);
-  const tampered = { ...evaluation, effect_provenance: [] };
+  const tampered = attestMechanicEvaluation({ ...evaluation, effect_provenance: [] });
   tampered.evaluation_fingerprint = hashRequest({
     snapshot_identity: tampered.snapshot_identity,
     action_id: tampered.action_id,
