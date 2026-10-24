@@ -519,3 +519,8 @@ The detailed authoring and integration proposal is in `docs/40-npc-social-identi
 - Coercion, exposure, unavailable evidence, or other established events may constrain its options.
 - Suspicion alone does not equal exposure, and reactivation does not erase an already compromised cover.
 - The behavior remains a semantic requirement until a real runtime decision boundary exists.
+
+
+## Relationship-state proposal cross-reference
+
+The dedicated relationship-state contract proposal defines REL-001–012 in `docs/42-npc-relationship-state-contract-proposal.md`. These are proposed semantic acceptance scenarios, not executable tests. They cover asymmetry, unknown-versus-neutral, independent dimensions, evidence for changes, knowledge boundaries, references to people without NPC cards, read-only card summaries, causal rollback, independent support, attribution, and non-reciprocal inference. Reconcile these scenarios with the final core record/effect interface before implementing them; do not treat their presence here as runtime readiness.
