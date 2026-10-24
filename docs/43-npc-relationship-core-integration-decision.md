@@ -182,32 +182,41 @@ The relationship semantics can now be refined against these confirmed boundaries
 PR #45 (snapshot) and PR #32 (character-card projection) remain separate proposals, not integrated dependencies merely because they exist. Keep this document and the relationship work documentation-only until those gates are met. No runtime/schema/storage changes were made or authorized by the core response.
 
 
-## 13. Schema-neutral typed-operation candidate for core review
+## 13. Status after core decision (2026-10-24)
 
-This is a design sketch to make the next core review concrete. It is **not** a finalized JSON schema, API, storage layout, or implementation authorization.
+The main architecture chat has returned a decision covering the five integration points. Treat it as the controlling cross-block decision for this proposal. It confirms semantic requirements and boundaries, but it does **not** approve a concrete runtime schema or establish that the capabilities already exist.
 
-### Required semantics of one canonical relationship change
+### Confirmed decisions
 
-A future typed operation must, at minimum, make the following information unambiguous to core validation and audit:
+1. **Typed canonical relationship operation:** design direction accepted. Relationship state must use a typed operation through the canonical event/revision/audit path. Do not use arbitrary entity attributes or repurpose append-only `fact.set` claims as mutable relationship state.
+2. **Participant identity:** committed relationships require existing canonical `entity_id` values. Unresolved authoring/import references do not create entities and cannot be committed as participants. Self-relations are rejected unless a specific rule is explicitly approved.
+3. **Relationship semantics:** direction is asymmetric; dimensions are independent; partial updates affect only named dimensions; unknown/unset differs from explicit World Pack-defined neutral; author-initial/imported state and author correction differ from in-world transitions.
+4. **Causality:** independent valid causes must survive rollback to the extent that they remain sufficient. The current generic rollback contract does not prove this guarantee. If core causality cannot represent independent support, relationship commits remain blocked until the core contract is extended and tested.
+5. **Read and projection:** a consistent snapshot is not authorization. A core-owned actor/purpose filter must gate model/player-visible context. Character-card relationship data is a bounded, authorized, read-only derived summary.
+6. **Knowledge separation:** relationship values do not grant knowledge of secrets, motives, or private facts. Reuse the shared trusted knowledge/access boundary; do not build a relationship-specific parallel filter.
+7. **Authoring provenance:** initial/imported values and author corrections require explicit origin/authorship/audit information distinct from the relationship value and from in-world causes.
 
-- **Directed participants:** existing canonical source/subject and target/object `entity_id` references. Names, aliases, cover identities, and unresolved editor references are not canonical identity.
-- **Dimension patch:** an explicit set of dimension changes, not replacement of the whole relationship object. Omitted dimensions remain unchanged. A World Pack/domain validator defines accepted dimension keys and values.
-- **Unset vs value:** a dimension can be absent/unset without being assigned a neutral value. Explicit neutral is accepted only if the domain defines it. If explicit clearing is needed, its operation semantics must be distinct from omission.
-- **Origin:** distinguish at least author-initial/imported initialization, author correction, and in-world transition. Origin/authorship/provenance is metadata, not a relationship value.
-- **Canonical source/cause references:** in-world transitions refer to existing valid source/event identities through the approved core causal contract. Authoring provenance uses the approved audit/author identity path; it must not be fabricated as an in-world cause.
-- **Partial updates and validation:** invalid participant refs, unknown dimension keys, invalid values, or invalid transition shape fail closed; a rejected change must not partially mutate state.
-- **Canonical lifecycle:** the change is committed, versioned, audited, and rolled back through the existing core event/revision path. The operation must not create a second relationship store, event log, identity registry, or rollback graph.
+### Technical details that remain open
 
-### Causal support is the unresolved hard part
+The architecture decision does not specify or approve:
 
-The contract must distinguish a transition with one supporting cause from a transition independently supported by multiple causes. On invalidation, support is recomputed from remaining valid causes. The core must decide whether this belongs in the existing event/effect causal metadata, in a typed relationship support representation, or requires an extension to the canonical causal contract. The NPC block must not invent that mechanism independently.
+- exact typed effect/record shape, value schema, storage representation, or public API;
+- exact validator and World Pack configuration boundary for dimension keys, value types, neutral values, and explicit clearing;
+- how multiple independent causal supports are represented and reconciled in the existing core causal model;
+- the integrated snapshot and actor/purpose authorization interface;
+- the approved author-initial/import and correction operations and their audit representation;
+- the bounded relationship-summary input contract for the character-card projector.
 
-### Questions for the core owner
+These are design dependencies, not questions that require the NPC block to invent a separate mechanism. The next step is to prepare a schema-neutral design against the core's existing effect, event, audit, read, and rollback contracts and identify any required core extension before runtime work.
 
-1. Should direction and dimension patch be represented as one typed effect kind, or does the core have a preferred typed domain-record pattern?
-2. Where should the three origin classes and author identity be recorded: canonical event metadata, typed effect fields, or a core-owned initialization/correction operation?
-3. What existing canonical causal representation can express multiple independent supports for one relationship transition? If none, what core contract extension is the smallest acceptable one?
-4. What validator/World Pack boundary should define dimension keys, value types, explicit neutral values, and explicit clearing to unknown?
-5. Can the core confirm the minimum atomicity and audit guarantees for a partial dimension update before any schema proposal is written?
+### Semantic acceptance cases
 
-Until these questions are answered, keep the operation at semantic-contract level. No runtime, API, schema, or storage change is implied.
+The test requirements are now organized in [docs/44-npc-relationship-semantic-acceptance.md](https://github.com/necromorphic/Logic-Engine/blob/feat/npc-subsystem/docs/44-npc-relationship-semantic-acceptance.md). They cover asymmetry, independent dimensions, unknown versus neutral, author provenance, unresolved participants, rollback, authorization, projection purity, knowledge separation, and unsupported causal explanations.
+
+All cases remain specifications, not executable coverage. Do not mark a gate passed until a test invokes the real production boundary and verifies canonical state, revision/event/audit effects, rollback behavior, and authorized output.
+
+### Readiness decision
+
+Semantic design and test planning may continue. Runtime relationship commits remain blocked until the typed write contract, authorized read boundary, authoring provenance, and multi-cause rollback guarantees are specified and tested. PR #45 (snapshot) and PR #32 (character-card projection) remain unmerged proposals and must not be treated as integrated dependencies.
+
+No runtime code, API, storage schema, or `main` changes are authorized or implied by this status update.
