@@ -50,7 +50,7 @@ export class CanonicalEntityAttributeContextProvider {
       if (!object(binding) || Object.keys(binding).some((key) => !['path', 'entity_id', 'attribute'].includes(key))
         || !validPath(binding.path)
         || typeof binding.entity_id !== 'string' || !binding.entity_id.trim()
-        || typeof binding.attribute !== 'string' || !binding.attribute.trim()
+        || typeof binding.attribute !== 'string' || !binding.attribute.trim() || forbiddenSegments.has(binding.attribute)
         || byPath.has(binding.path)) {
         throw new TypeError('Every binding must uniquely map a safe condition path to an entity ID and attribute.');
       }
