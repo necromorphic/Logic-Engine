@@ -66,6 +66,85 @@ test('time-advance API is internal-only and exposes durable start/status/replay'
   assert.equal((await fetch(base + '/v1/worlds/api-time-world/events', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } })).status, 200);
 });
 
+test('time-trigger lifecycle is internal-only and registered triggers drive durable advances', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL });
+  assert.equal((await createWorld(base, 'api-time-trigger-world')).status, 201);
+  const trigger = {
+    trigger_id: 'api-trigger',
+    due_coordinate: 10000,
+    dependencies: [],
+    read_set: [],
+    write_set: ['entity:api-trigger-entity'],
+    processing_mode: 'exact',
+    interrupt_after_coordinate: false,
+    payload: {
+      event: {
+        event_type: 'time.trigger',
+        effects: [{
+          kind: 'entity.upsert',
+          entity_id: 'api-trigger-entity',
+          entity_type: 'object',
+          attributes: { source: 'registered-trigger' },
+        }],
+      },
+    },
+  };
+  const denied = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', {
+    method: 'POST', headers, body: json(trigger),
+  });
+  assert.equal(denied.status, 403);
+
+  const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  const registered = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', {
+    method: 'POST', headers: internalHeaders, body: json(trigger),
+  });
+  assert.equal(registered.status, 201);
+  assert.equal((await registered.json()).trigger.status, 'pending');
+
+  const listed = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', { headers: internalHeaders });
+  assert.equal(listed.status, 200);
+  assert.equal((await listed.json()).triggers.length, 1);
+
+  const started = await fetch(base + '/v1/worlds/api-time-trigger-world/time-advances', {
+    method: 'POST',
+    headers: internalHeaders,
+    body: json({ idempotency_key: 'api-registered-advance', expected_revision: 1, to_coordinate: 10000 }),
+  });
+  assert.equal(started.status, 200);
+  assert.equal((await started.json()).operation.status, 'completed');
+
+  const fetched = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger', { headers: internalHeaders });
+  assert.equal(fetched.status, 200);
+  assert.equal((await fetched.json()).trigger.status, 'completed');
+
+  const futureTrigger = {
+    ...trigger,
+    trigger_id: 'api-trigger-to-cancel',
+    due_coordinate: 20000,
+    write_set: ['entity:api-cancelled-entity'],
+    payload: {
+      event: {
+        event_type: 'time.trigger',
+        effects: [{
+          kind: 'entity.upsert',
+          entity_id: 'api-cancelled-entity',
+          entity_type: 'object',
+          attributes: { source: 'cancelled' },
+        }],
+      },
+    },
+  };
+  const futureRegistered = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', {
+    method: 'POST', headers: internalHeaders, body: json(futureTrigger),
+  });
+  assert.equal(futureRegistered.status, 201);
+  const cancelled = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger-to-cancel/cancel', {
+    method: 'POST', headers: internalHeaders, body: json({ reason: 'test_cancel' }),
+  });
+  assert.equal(cancelled.status, 200);
+  assert.equal((await cancelled.json()).trigger.status, 'cancelled');
+});
+
 test('time configuration authoring requires admin and calendar projection requires a trusted reader', async (t) => {
   const base = await setup(t, { adminToken: ADMIN });
   assert.equal((await createWorld(base, 'api-time-config-world')).status, 201);
