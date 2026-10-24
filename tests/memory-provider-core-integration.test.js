@@ -158,3 +158,33 @@ test('real SQLite provider stays non-current when the source inventory boundary 
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
 });
+
+test('source version becoming unverifiable after indexing invalidates prior provider currentness', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  // The current host cannot provide an authoritative durable version proof;
+  // when revalidation can no longer establish validity, old readiness is revoked.
+  s.provider.validateSourceVersion = async () => false;
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+});
+
+test('inventory completeness becoming unavailable invalidates previously current reconciliation', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  s.provider.validateInventory = async () => false;
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+});
