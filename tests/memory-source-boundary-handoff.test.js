@@ -26,6 +26,8 @@ test('Memory source-boundary handoff records each required identity and lifecycl
     'Cross-review against the NPC admission contract',
     'healthy-but-stale index',
     'revocation after indexing',
+    'Revocation during a multi-candidate read',
+    'final disclosure boundary',
     'world_revision` without increasing `commit_sequence',
     'Restart test interrupts rebuild/reconciliation',
     'Concrete result-status proposal (semantic contract, not a wire enum)',
