@@ -119,3 +119,55 @@ test('application evaluation service includes trusted policy version in the fing
   const second = await evaluate('policy-v2');
   assert.notEqual(first.evaluation_fingerprint, second.evaluation_fingerprint);
 });
+
+
+test('evaluateAndPropose uses the existing guarded proposal handoff only for ready results', async () => {
+  const snapshot = fixtureSnapshot();
+  const calls = [];
+  const proposalService = {
+    createFromMechanicEvaluation(worldId, evaluation, options) {
+      calls.push({ worldId, evaluation, options });
+      return { proposal_id: 'proposal.test', status: 'pending', base_world_revision: evaluation.world_revision };
+    },
+  };
+  const service = new MechanicEvaluationService({
+    getSnapshot: () => snapshot,
+  }, {
+    proposalService,
+    contextProvider: () => ({
+      context: { world: { phase: 'night' } },
+      knownAbsentPaths: [],
+      policyVersion: 'policy-v1',
+    }),
+  });
+  const result = await service.evaluateAndPropose({
+    worldId: 'world.service',
+    instanceId: 'instance.service',
+    actionId: 'act',
+    idempotencyKey: 'idem.service',
+    turnId: 'turn.service',
+    sourceText: 'deterministic mechanic action',
+    adapterId: 'adapter.service',
+  });
+  assert.equal(result.evaluation.status, 'ready');
+  assert.equal(result.proposal.status, 'pending');
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].evaluation.snapshot_identity.world_revision, 8);
+  assert.equal(calls[0].evaluation.snapshot_identity.commit_sequence, 13);
+  assert.equal(calls[0].options.adapterId, 'adapter.service');
+
+  const unknownService = new MechanicEvaluationService({
+    getSnapshot: () => fixtureSnapshot(),
+  }, {
+    proposalService,
+    contextProvider: () => { throw new Error('not authorized'); },
+  });
+  const unknown = await unknownService.evaluateAndPropose({
+    worldId: 'world.service', instanceId: 'instance.service', actionId: 'act',
+    idempotencyKey: 'idem.unknown', turnId: 'turn.unknown',
+    sourceText: 'should not be proposed', adapterId: 'adapter.service',
+  });
+  assert.equal(unknown.evaluation.status, 'unknown');
+  assert.equal(unknown.proposal, null);
+  assert.equal(calls.length, 1);
+});
