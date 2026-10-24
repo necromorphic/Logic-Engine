@@ -736,6 +736,8 @@ test('mechanic proposal rollback restores the prior projection and a fresh evalu
   });
   assert.equal(rollback.rollback_outcome, 'resolved');
   assert.ok(rollback.invalidated_event_ids.includes(firstEventId));
+  const rolledBackEvent = engine.store.events(worldId, true).find((event) => event.event_id === firstEventId);
+  assert.deepEqual(rolledBackEvent.mechanic_execution, firstProposal.mechanic_execution);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
 
   const recoveryEvaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
