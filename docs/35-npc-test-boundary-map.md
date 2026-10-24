@@ -351,3 +351,23 @@ Do not simulate missing production behavior with prompt instructions, arbitrary 
 See [docs/45-npc-relationship-typed-operation-design.md](https://github.com/necromorphic/Logic-Engine/blob/feat/npc-subsystem/docs/45-npc-relationship-typed-operation-design.md) for the schema-neutral design proposal. It distinguishes required event dependencies from alternative relationship support and explains why the current `caused_by` list cannot be treated as OR-support semantics.
 
 REL-SEM-009 and REL-SEM-010 remain blocked. In particular, do not claim that the current generic rollback proves independent relationship support. A real implementation must pass rollback/replay tests through the canonical production path after the main architecture chat approves the typed-effect and causal boundary.
+
+
+## 8. Authoring, correction, and card-summary acceptance map
+
+The full semantic definitions for NPC-AUTH-001–010 are in `docs/46-npc-authoring-correction-and-card-summary-contract.md`. This table records the production boundary needed before each case can be called executable.
+
+| Case | Required real boundary | Acceptance assertion | Status |
+|---|---|---|---|
+| NPC-AUTH-001 — Profile correction does not rewrite canon | Authorized profile/configuration edit plus canonical event history | Profile edit is scoped; committed event payload/history and consequences are unchanged | Blocked: authorized edit boundary not verified |
+| NPC-AUTH-002 — Canonical correction does not teach every NPC | Canonical correction/rollback plus core-owned acquisition and belief records | No automatic acquisition or belief rewrite; source reconciliation follows the actual core contract | Blocked: acquisition/belief reconciliation unavailable or unverified |
+| NPC-AUTH-003 — Unknown is not neutral | Real typed read/projection of optional values | Unset remains unknown; neutral appears only as an explicit supported value | Semantic requirement; executable boundary depends on the field contract |
+| NPC-AUTH-004 — Withheld is not known absent | Actor/purpose-scoped authorized read | Withheld value is not serialized; status is not converted to false/absent | Blocked: authorized filter not verified |
+| NPC-AUTH-005 — Card summary is not source of truth | Approved character-card projection and source freshness/version boundary | Source records outrank stale projection; summary refresh/stale state uses existing versioning | Blocked: target card projection/freshness contract not verified |
+| NPC-AUTH-006 — Missing card entry does not imply absence | Complete authorized source read with explicit completeness status | Omission in summary is not interpreted as known absence | Blocked: completeness-aware projection/read boundary |
+| NPC-AUTH-007 — Reserved editorial secret stays outside model input | Author-reservation policy plus real pre-serialization context filter | Exact secret absent from adapter input and diagnostics for unauthorized purpose | Blocked: pre-model filter not verified |
+| NPC-AUTH-008 — Author target is not a committed event | Author-intent arbitration and supported proposal/commit boundary | Required target remains open/reviewable; no fabricated prior event or unapproved commit | Blocked: author-intent arbitration not verified |
+| NPC-AUTH-009 — Social identity claim is not canonical evidence | Identity profile/card projection plus canonical evidence/document boundary | Claimed biography/credential does not create an entity, relation, document, or disclosure | Blocked: identity editor/projection and evidence boundary not verified |
+| NPC-AUTH-010 — Compact summary preserves uncertainty | Projection that consumes typed status/completeness information | Summary preserves material conflict/uncertainty or omits unsafe claim | Blocked: completeness-aware card projection not verified |
+
+These rows are specification-to-boundary mappings, not test results. Reuse the canonical history, audit, authorization, and projection mechanisms when they exist; do not introduce NPC-local correction logs, card revision counters, or alternate truth stores.
