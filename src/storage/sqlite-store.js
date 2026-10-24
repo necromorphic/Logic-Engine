@@ -1585,9 +1585,14 @@ export class SQLiteStore {
                 claimed_by_operation_id: trigger?.claimed_by_operation_id ?? null,
               });
             }
+            const triggerStamp = now();
             this.db.prepare(`UPDATE world_time_triggers SET status='completed',claimed_by_operation_id=NULL,
               completed_operation_id=?,updated_at=? WHERE world_id=? AND trigger_id=?`)
-              .run(operationId, now(), worldId, triggerId);
+              .run(operationId, triggerStamp, worldId, triggerId);
+            this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+              .run(worldId, worldAfter.world_revision, 'time.trigger.completed', triggerId, enc({
+                operation_id: operationId, due_coordinate: segment.coordinate,
+              }), triggerStamp);
           }
           const result = {
             operation_id: operationId, world_id: worldId, status,
