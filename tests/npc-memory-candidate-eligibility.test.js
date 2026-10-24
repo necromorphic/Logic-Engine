@@ -387,13 +387,62 @@ test("summary lineage sources must match the requested world, subject, and purpo
   }
 });
 
-test("duplicate record/version is admitted once without text-based identity", () => {
+test("repeated record/version candidates are all excluded when immutable equality cannot be proven", () => {
   const first = candidate({ content: "first wording" });
   const duplicate = candidate({ content: "different wording" });
   const result = evaluateMemoryCandidateAdmission(request, completeResult([first, duplicate]));
 
   assert.equal(result.status, "ready");
-  assert.equal(result.admitted.length, 1);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes("first wording"), false);
+  assert.equal(JSON.stringify(result).includes("different wording"), false);
+  assert.equal(JSON.stringify(result).includes("memory:claim-1"), false);
+});
+
+test("identity tuple encoding does not collide when references or versions contain separators", () => {
+  const first = candidate({ record: { ref: "a\\u0000b", version: "c" } });
+  const second = candidate({ record: { ref: "a", version: "b\\u0000c" } });
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([first, second]));
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted.map((item) => [item.record_ref, item.record_version]), [
+    ["a\\u0000b", "c"],
+    ["a", "b\\u0000c"],
+  ]);
+});
+
+test("summary lineage rejects sparse arrays instead of skipping missing source slots", () => {
+  const sources = [];
+  sources.length = 2;
+  sources[0] = {
+    ref: "source:a",
+    version: "1",
+    world_id: request.world_id,
+    access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
+    freshness: { status: "current" },
+  };
+  const summary = candidate({
+    content_kind: "summary",
+    lineage: { status: "complete", sources },
+  });
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes("source:a"), false);
+});
+
+test("re-evaluating the same result is deterministic and has no lifecycle side effects", () => {
+  const input = completeResult([candidate()]);
+  const before = structuredClone(input);
+  const first = evaluateMemoryCandidateAdmission(request, input);
+  const second = evaluateMemoryCandidateAdmission(request, input);
+
+  assert.deepEqual(second, first);
+  assert.deepEqual(input, before);
+  for (const state of ["included_in_context", "rendered", "delivered", "received", "acquired", "believed"]) {
+    assert.equal(Object.hasOwn(first, state), false);
+  }
 });
 
 test("partial, unavailable, rebuilding, malformed, or unknown retrieval is not treated as complete-empty", () => {
