@@ -108,7 +108,6 @@ test('application executor fails closed without trusted context or with a mismat
   const mismatch = new MechanicExecutor(engine, {
     resolveAuthorizedContext: ({ snapshot }) => ({
       context: { world: { weather: 'rain' }, actor: { hp: 10 } },
-      policy_version: 'test-policy-v1',
       knownAbsentPaths: [],
       world_revision: snapshot.world_revision - 1,
       commit_sequence: snapshot.commit_sequence,
