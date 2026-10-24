@@ -272,6 +272,7 @@ test('snapshot expands only context manifests anchored to the exact composite cu
   assert.equal(stale.world_revision, 2);
   assert.equal(stale.commit_sequence, 2);
   assert.equal(stale.context_manifests.length, 1);
+  assert.deepEqual(stale.missing_context_manifest_ids, []);
   assert.deepEqual(stale.entities, []);
   assert.deepEqual(stale.facts, []);
   assert.deepEqual(stale.events, []);
@@ -300,7 +301,7 @@ test('snapshot reports requested context manifests that do not exist in the requ
 });
 
 
-test('snapshot refuses a context manifest whose expanded entity set exceeds the bounded read limit', (t) => {
+test('snapshot accepts the exact bounded entity limit and refuses one above it', (t) => {
   const { engine } = setup(t);
   const firstBatch = Array.from({ length: 200 }, (_, index) => ({
     kind: 'entity.create',
@@ -312,19 +313,30 @@ test('snapshot refuses a context manifest whose expanded entity set exceeds the 
   commit(engine, 'snapshot-world', 'bounded-manifest-final-entity', 1, [finalEntity]);
   const entityEffects = [...firstBatch, finalEntity];
 
-  const manifest = engine.registerContextManifest('snapshot-world', {
-    generation_id: 'generation-too-large',
+  const makeManifest = (generationId, count) => engine.registerContextManifest('snapshot-world', {
+    generation_id: generationId,
     base_world_revision: 2,
     base_commit_sequence: 2,
-    items: entityEffects.map((effect) => ({ kind: 'entity', target_id: effect.entity_id })),
+    items: entityEffects.slice(0, count).map((effect) => ({ kind: 'entity', target_id: effect.entity_id })),
   });
 
+  const belowLimit = makeManifest('generation-199', 199);
+  const atLimit = makeManifest('generation-200', 200);
+  const aboveLimit = makeManifest('generation-201', 201);
+
+  const belowSnapshot = engine.getSnapshot('snapshot-world', { contextManifestIds: [belowLimit.manifest_id] });
+  assert.equal(belowSnapshot.entities.length, 199);
+  assert.deepEqual(belowSnapshot.missing_context_manifest_ids, []);
+
+  const atSnapshot = engine.getSnapshot('snapshot-world', { contextManifestIds: [atLimit.manifest_id] });
+  assert.equal(atSnapshot.entities.length, 200);
+  assert.deepEqual(atSnapshot.missing_context_manifest_ids, []);
+
   assert.throws(
-    () => engine.getSnapshot('snapshot-world', { contextManifestIds: [manifest.manifest_id] }),
+    () => engine.getSnapshot('snapshot-world', { contextManifestIds: [aboveLimit.manifest_id] }),
     (error) => error.code === 'SNAPSHOT_TOO_LARGE' && error.status === 409,
   );
 });
-
 
 test('snapshot does not expand a manifest after rollback changes revision without advancing the event cursor', (t) => {
   const { engine } = setup(t);
