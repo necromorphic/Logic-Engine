@@ -89,9 +89,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       const globalRegistryRead = req.method === 'GET' && (
         url.pathname === '/v1/mechanics/audit' ||
         url.pathname === '/v1/mechanic-templates' ||
-        /^\\/v1\\/mechanic-templates\\/[^/]+\\/[^/]+$/.test(url.pathname) ||
+        /^\/v1\/mechanic-templates\/[^/]+\/[^/]+$/.test(url.pathname) ||
         url.pathname === '/v1/rule-modules' ||
-        /^\\/v1\\/rule-modules\\/[^/]+\\/[^/]+$/.test(url.pathname)
+        /^\/v1\/rule-modules\/[^/]+\/[^/]+$/.test(url.pathname)
       );
       if (globalRegistryRead && !secretMatches(req.headers['x-admin-token'], adminToken)) {
         return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'Global registry reads require a separate administrative credential.' } });
