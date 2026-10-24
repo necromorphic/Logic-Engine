@@ -15,6 +15,7 @@ function setup(t, options = {}) {
     getSnapshot: async () => ({ ...snapshot }),
     validateSourceVersion: async (record) => record.source_version === sourceVersion
       && record.source_entity_id === 'entity-source-a',
+    validateInventory: async () => true,
     ...options,
   };
   let provider = new SQLiteMemoryProvider(providerOptions);
