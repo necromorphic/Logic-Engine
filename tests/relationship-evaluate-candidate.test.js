@@ -52,6 +52,29 @@ test("returns a candidate without mutating the supplied state or patch", () => {
   assert.deepEqual(patch, { trust: "guarded" });
 });
 
+test("preserves special object-property dimension names as own data keys", () => {
+  const dimension = "__proto__";
+  const specialRules = Object.fromEntries([
+    [dimension, {
+      values: ["low"],
+      allowClear: false,
+      transitions: [{ operation: "set", from: null, to: "low" }],
+    }],
+  ]);
+  const specialPatch = Object.fromEntries([[dimension, "low"]]);
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: {},
+    patch: specialPatch,
+    dimensionRules: specialRules,
+  });
+
+  assert.equal(result.status, "candidate");
+  assert.equal(Object.hasOwn(result.patch, dimension), true);
+  assert.equal(result.patch[dimension], "low");
+  assert.equal(Object.getPrototypeOf(result.patch), Object.prototype);
+});
+
 test("keeps direction explicit and does not create a reciprocal patch", () => {
   const result = evaluateRelationshipCandidate(base);
 
