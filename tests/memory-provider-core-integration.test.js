@@ -188,3 +188,58 @@ test('inventory completeness becoming unavailable invalidates previously current
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
 });
+
+test('query denial is non-ready and does not disclose candidate identities or content', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.provider.grantQuery(s.scope, false);
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'query_access_unconfirmed');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes('memory:record-a'), false);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
+test('per-record denial is filtered without leaking denied record identity or content', async (t) => {
+  const s = setup(t, { twoRecords: true });
+  assert.equal((await s.prepare()).status, 'current');
+  s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.admitted.map((item) => item.record_ref), ['memory:record-b']);
+  assert.deepEqual(result.candidates.map((item) => item.record_ref), ['memory:record-b']);
+  assert.equal(JSON.stringify(result).includes('memory:record-a'), false);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+  assert.equal(JSON.stringify(result).includes('never disclose source-a'), false);
+});
+
+test('retrieval and context inclusion do not persist delivery, receipt, acquisition, or belief side effects', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  const counts = () => Object.fromEntries([
+    'memory_records', 'memory_index_entries', 'memory_query_grants',
+    'memory_record_grants', 'memory_index_state',
+  ].map((table) => [table, s.provider.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count]));
+  const before = counts();
+  const first = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  const second = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(first.status, 'ready');
+  assert.equal(second.status, 'ready');
+  assert.deepEqual(counts(), before);
+  const tables = s.provider.db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all()
+    .map((row) => row.name);
+  assert.equal(tables.some((name) => /delivery|receipt|acquisition|belief/i.test(name)), false);
+});
