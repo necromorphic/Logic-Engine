@@ -4,10 +4,10 @@ Status: adopted storage-maintenance contract for the current SQLite runtime.
 
 ## 1. Supported schema version
 
-The current numbered migration ledger is version **5**. The runtime supports opening:
-- a new empty database, which receives the inline bootstrap schema and then applies/records numbered migrations 1–5;
+The current numbered migration ledger is version **9**. The runtime supports opening:
+- a new empty database, which receives the inline bootstrap schema and then applies/records numbered migrations 1–9;
 - an older database with the historical columns/tables covered by the numbered migrations, which is upgraded on SQLiteStore construction;
-- a database already migrated through version 5, which is reopened without reapplying those migrations.
+- a database already migrated through version 9, which is reopened without reapplying those migrations.
 
 This contract applies to the schema states represented by the repository's fixtures and migration code. It does not promise compatibility with arbitrary hand-edited databases or undocumented pre-release layouts.
 
