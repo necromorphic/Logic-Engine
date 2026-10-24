@@ -1,6 +1,6 @@
 # Time advancement — Core integration audit
 
-**Audit baseline:** `main` at `afec1de5ad013ff8d69ac628d0214c065c1649ca` (2026-10-24).  
+**Audit baseline:** `main` at `52939b77aa7912377ea5d0309411653c98247b61` (2026-10-24), including the replay/rollback growth benchmark.  
 **Status:** static code/document audit; no runtime changes in this document.  
 **Related proposal:** `docs/58-time-domain-t1-design.md` in the T1 feature branch / PR #204.
 
@@ -30,14 +30,20 @@ Relevant code: `src/application/engine.js` (`prepareEvent`) and `src/storage/sql
 
 The transaction helper uses `BEGIN IMMEDIATE` at the outer level and SQLite savepoints for nested calls. Therefore, a future segment transaction may be implementable by introducing a Core-owned segment operation that encloses per-event Core commits in one outer transaction. This is a promising primitive, **not yet a verified segment guarantee**: there is no explicit segment API, no segment-level operation record, and no test proving that a failed later event rolls back every earlier event and all their replay/audit/projection writes.
 
-### 3. Revision and event semantics
+### 3. Performance implication from the new benchmark
+
+The repository's `benchmark:replay` CI run on the audit baseline measured the existing single-event commit at about 18 ms with 1,000 prior events, 64 ms with 5,000, and 122 ms with 10,000; the benchmark counts one full event-history projection replay per commit. Rollback took about 32 ms / 98 ms / 226 ms at those sizes, and a standalone rebuild took about 11 ms / 50 ms / 100 ms. These are one-run CI measurements, not performance guarantees, but they confirm the main scaling shape.
+
+**Do not implement a segment as N calls to the current commit path and assume the cost is acceptable.** Each nested call would still run causal/effect validation and a full projection rebuild, so a segment of many events could repeatedly scan the growing history. A T3 batch path should validate and apply the segment in causal order inside one outer transaction, maintain an in-memory/transaction-local projection as needed, persist event/audit/idempotency records, and rebuild or finalize canonical projections once per segment. That path needs parity tests against repeated single-event commits for all supported effect kinds.
+
+### 4. Revision and event semantics
 
 - The current commit increments `world_revision` once per accepted event, even if several commits are nested in a future outer transaction. That can be retained, but the segment contract must say that intermediate revisions are not externally visible before the outer commit.
 - Each event has a commit sequence and event-level idempotency result. Event-level idempotency alone does not fully describe a multi-segment advance operation or recovery after a lost response.
 - Existing rollback invalidates/retracts events and rebuilds projections, but deliberately does not rewind game time. A new coordinate representation must preserve that invariant.
 - The existing test suite already covers replay of an identical request, changed-body idempotency conflicts, stale revisions, and rollback without time rewind.
 
-### 4. Missing capabilities
+### 5. Missing capabilities
 
 The current runtime has no canonical integer time-coordinate fields, world calendar definition/version, duration-decision contract, due-time index/scheduler, persisted long-advance operation, segment cursor/checkpoint, interrupt protocol, or resume/recovery API. The T1 pure module does not implement any of these and must not be treated as if it did.
 
