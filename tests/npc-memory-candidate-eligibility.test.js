@@ -206,6 +206,27 @@ test("stale, retracted, unavailable, and unknown freshness are not current knowl
   }
 });
 
+test("malformed trusted or candidate snapshots fail closed", () => {
+  for (const snapshot of [{}, { world_revision: 12 }, { world_revision: "", commit_sequence: 40 }]) {
+    const result = evaluateMemoryCandidateAdmission(
+      { ...request, snapshot },
+      completeResult([candidate()]),
+    );
+    assert.equal(result.status, "non_ready");
+    assert.equal(result.reason, "trusted_snapshot_incomplete");
+    assert.deepEqual(result.admitted, []);
+  }
+
+  for (const snapshot of [undefined, {}, { world_revision: 12 }, { world_revision: 12, commit_sequence: "" }]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ snapshot }),
+    ]));
+    assert.equal(result.status, "non_ready");
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.rejected, [{ reason: "snapshot_mismatch" }]);
+  }
+});
+
 test("snapshot mismatch is rejected when request requires a snapshot", () => {
   const result = evaluateMemoryCandidateAdmission(request, completeResult([
     candidate({ snapshot: { world_revision: 12, commit_sequence: 39 } }),
