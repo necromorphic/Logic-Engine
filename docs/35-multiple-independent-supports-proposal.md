@@ -2,7 +2,7 @@
 
 Status: **proposal for review; not runtime behavior or an approved ADR**.
 
-Scope: clarify the boundary between causal dependency and independently sufficient support, using the existing append-only event/fact-claim model. This document does not authorize new runtime behavior by itself and does not replace `docs/18-rollback-and-causality.md` or the normative current-runtime limits in `docs/21-stage1-causality-contract.md`.
+Scope: clarify the boundary between causal dependency and independently sufficient support, using the existing append-only event/fact-claim model. This document does not authorize new runtime behavior by itself and does not replace `docs/18-rollback-and-causality.md`, `docs/21-stage1-causality-contract.md`, the rollback decision proposal in `docs/decisions/ADR-0006-rollback-semantics.md`, or the executable/specification matrix in `docs/24-causality-test-matrix.md`.
 
 ## 1. Problem statement
 
@@ -123,8 +123,8 @@ The following tests refine the RB-001–RB-010 target contract. Existing tests s
 
 ### Test method
 
-1. Locate existing rollback and fact-projection tests before writing new tests.
-2. Confirm the current tests really exercise both identical and conflicting claims, including a reader that declares `READS_CLAIM`; a projection-only assertion is not enough for MS-004/MS-005.
+1. Existing coverage has been located: `tests/core.test.js` contains `conflicting independent fact claims are not silently resolved`; `tests/causality-contract.test.js` contains rollback cases for a `READS_CLAIM` reader when another valid source preserves the projection and when a claim loses its only source. `docs/24-causality-test-matrix.md` documents the broader T-06 cases and identifies which parts are executable versus proposed.
+2. Before adding tests, inspect those cases in full and confirm they assert both the resulting projection and the reader event's validity/review diagnostics. A projection-only assertion is not enough for MS-004/MS-005.
 3. For each added test, assert both current projection and event validity/review diagnostics.
 4. Run the repository's documented test command on the exact proposed commit.
 5. Do not claim the broader RB-004 knowledge case is covered by fact-claim tests.
