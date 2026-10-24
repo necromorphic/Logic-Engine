@@ -120,16 +120,40 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         }
         if (parts.length === 4 && req.method === 'POST') {
           const operation = engine.startTimeAdvance(worldId, await readBody(req));
-          return send(res, operation.status === 'needs_review' ? 409 : 200, { operation });
+          return send(res, ['needs_review', 'blocked'].includes(operation.status) ? 409 : 200, { operation });
         }
         if (parts.length === 5 && req.method === 'GET') {
           return send(res, 200, { operation: engine.getTimeAdvanceOperation(worldId, decodeURIComponent(parts[4])) });
         }
         if (parts.length === 6 && parts[5] === 'resume' && req.method === 'POST') {
           const operation = engine.resumeTimeAdvance(worldId, decodeURIComponent(parts[4]));
-          return send(res, operation.status === 'needs_review' ? 409 : 200, { operation });
+          return send(res, ['needs_review', 'blocked'].includes(operation.status) ? 409 : 200, { operation });
         }
         return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported time-advance operation.' } });
+      }
+
+      if (action === 'time-configurations') {
+        if (parts.length === 4 && req.method === 'POST') {
+          if (!secretMatches(req.headers['x-admin-token'], adminToken)) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required to author time configuration.' } });
+          return send(res, 200, { configuration: engine.registerTimeConfiguration(worldId, await readBody(req)) });
+        }
+        if (parts.length === 5 && parts[4] === 'current' && req.method === 'GET') {
+          const trusted = secretMatches(req.headers['x-admin-token'], adminToken)
+            || secretMatches(req.headers['x-engine-internal-token'], internalToken);
+          if (!trusted) return send(res, 403, { error: { code: 'AUTHORIZED_READ_REQUIRED', message: 'Time configuration reads require a trusted credential.' } });
+          return send(res, 200, { configuration: engine.getTimeConfiguration(worldId, url.searchParams.get('version')) });
+        }
+        return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported time-configuration operation.' } });
+      }
+
+      if (parts.length === 4 && action === 'time' && req.method === 'GET') {
+        const trusted = secretMatches(req.headers['x-admin-token'], adminToken)
+          || secretMatches(req.headers['x-engine-internal-token'], internalToken);
+        if (!trusted) return send(res, 403, { error: { code: 'AUTHORIZED_READ_REQUIRED', message: 'Calendar projections require a trusted credential.' } });
+        const rawCoordinate = url.searchParams.get('coordinate');
+        const coordinate = rawCoordinate === null ? null : Number(rawCoordinate);
+        if (rawCoordinate !== null && !Number.isSafeInteger(coordinate)) throw new EngineError('INVALID_TIME_COORDINATE', 'coordinate query must be a safe integer.');
+        return send(res, 200, { time: engine.projectTime(worldId, coordinate) });
       }
 
       if (parts.length === 4 && action === 'authorized-read' && req.method === 'POST') {
