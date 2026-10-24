@@ -169,3 +169,33 @@ PR #138 adds focused negative assertions and corrects the vacuous input-nonmutat
 ## 8. Completion statement
 
 NPC-owned design and current-helper test traceability can be reviewed independently. Issue #70 must remain open until this matrix is cross-reviewed and the owner-approved integration gates are resolved; no documentation-only result should be represented as production Memory→NPC completion.
+
+
+## 9. Current-head lifecycle regression and evidence status (2026-10-24)
+
+This section is an evidence ledger, not a claim that the real Memory→NPC runtime path exists.
+
+| Boundary | Current executable evidence | Exact evidence | Status / limitation |
+|---|---|---|---|
+| Candidate metadata admission | Pure helper validates caller-supplied scope/access/status/identity/lineage fields and projects safe references | `src/npc/memory-candidate-eligibility.js`; baseline Runtime run [#40061707222](https://github.com/necromorphic/Logic-Engine/actions/runs/40061707222) on `e06cb35b85a399238cea5ad0ac6dcb3043792b05` | Tested oracle only. Metadata values are not authenticated by the helper. |
+| Incomplete retrieval vs complete-empty | Tests reject partial, unavailable, rebuilding, unknown, malformed and unconfirmed-scope results; a complete authorized empty result is distinct | `tests/npc-memory-candidate-eligibility.test.js`; merged NPC-only PR #162 exact-head Runtime run [#40074004967](https://github.com/necromorphic/Logic-Engine/actions/runs/40074004967) | Caller-supplied completeness labels are not proof that a real index query was complete. |
+| Candidate admission vs delivery/receipt/acquisition/belief | Draft regression injects lifecycle-shaped fields and asserts they are absent from the safe projection | Draft PR [#169](https://github.com/necromorphic/Logic-Engine/pull/169), head `9427b5506c3056d6c720646c5337d5eb1ac9f942`; exact-head Runtime run [#40076486053](https://github.com/necromorphic/Logic-Engine/actions/runs/40076486053) passed | Regression is green but PR is unmerged. It tests projection semantics only, not actual delivery or state transitions. |
+| Authenticated authorization before content exposure | No approved general Memory authorized-read contract or configured production Memory policy established by this NPC helper | Core gate [#140](https://github.com/necromorphic/Logic-Engine/issues/140) | **BLOCKED — Core + Memory.** Need authorized-read denial/withheld and non-disclosure tests against the real read path. |
+| Authoritative source identity/version and derived-summary lineage | Matrix and Memory handoff distinguish observed Core identifiers from missing universal source-version/lineage contracts | Memory gate [#142](https://github.com/necromorphic/Logic-Engine/issues/142); merged Memory evidence path [#161](https://github.com/necromorphic/Logic-Engine/pull/161) | **BLOCKED — Memory, with Core source-validity decisions.** Need stale/retracted/revoked-source and derived-summary lineage tests against real records. |
+| Rollback/reconciliation | Existing snapshot tests show why revision/sequence markers alone are not a durable source-change feed; no approved cross-block feed is assumed here | Core gate [#140](https://github.com/necromorphic/Logic-Engine/issues/140); Core decision refresh [#154](https://github.com/necromorphic/Logic-Engine/pull/154) | **BLOCKED — Core + Memory.** Need a chosen owner-approved reconciliation operation and a rollback test where validity changes without a higher `commit_sequence`. |
+| Actual host delivery and confirmed receipt | No verified host delivery/receipt boundary is implemented by the NPC admission helper | Host/runtime owner not yet assigned in the approved integration contract | **BLOCKED — Core/host owner.** Need host evidence for attempted delivery, confirmed receipt, retry and duplicate handling. |
+| Acquisition and subject-relative belief persistence | NPC helper intentionally does not write acquisition or belief state | Core gate [#140](https://github.com/necromorphic/Logic-Engine/issues/140) | **BLOCKED — Core + NPC.** Need an approved canonical persistence path, idempotency semantics and tests distinguishing receipt from acquisition and belief. |
+
+### Required interpretation
+
+- `ready` means only that the supplied candidate/result fields pass this pure oracle's admission checks. It does not mean that the requester was authenticated, the underlying source was authoritatively read, the index was truly complete, or the content was delivered.
+- `admitted` contains references and typed metadata, not record content. Content projection/serialization remains a separate authorization boundary.
+- Context inclusion is not delivery. Delivery attempt is not confirmed receipt. Confirmed receipt is not acquisition. Acquisition is not belief.
+- Source/index lifecycle is not authorization. A fresh snapshot marker does not by itself establish current source validity or detect every rollback/revocation.
+- A missing runtime seam is **blocked/unverified**, not passed. Do not enable production Memory→NPC based on these oracle tests.
+
+### Closure ownership
+
+Core must identify the authorized-read, source-validity/reconciliation, and persistence/transaction boundaries using existing runtime seams where possible. Memory must define the real retrieval/index completeness and source-lineage behavior without inventing a provider API while that shape is under owner discussion. The host/runtime owner must identify authoritative delivery/receipt evidence. NPC owns interpretation and must not infer knowledge or belief solely from retrieval or prompt inclusion.
+
+No new API, schema, store, outbox, cursor, permission enum, or cross-store atomicity guarantee is proposed by this evidence ledger.
