@@ -182,31 +182,59 @@ test('pause and resume rotate pending trigger identities when milestones remain 
   assert.equal(engine.getProcess('world-a', 'journey-1').progress.completed, 1);
 }));
 
-test('rollback of a committed milestone moves process progress to needs_review and blocks resume', (t) => withDatabase(t, ({ engine, store }) => {
+test('rollback invalidates the transitive completed prerequisite chain and survives restart', (t) => withDatabase(t, ({ engine, store, reopen }) => {
   store.createWorld(worldInput());
-  engine.createProcess('world-a', processInput());
-  const state = engine.getState('world-a');
-  engine.startTimeAdvance('world-a', {
-    idempotency_key: 'advance-for-rollback',
-    expected_revision: state.world_revision,
-    to_coordinate: 1000,
+  const definition = processInput();
+  definition.milestones.push({
+    milestone_id: 'inspect',
+    trigger_id: 'journey-inspect',
+    due_coordinate: 3000,
+    prerequisites: ['arrive'],
+    read_set: [],
+    write_set: [],
+    event: { turn_id: 'journey-inspect-event', event_type: 'process.inspect', effects: [] },
   });
-  const process = engine.getProcess('world-a', 'journey-1');
-  const eventId = process.milestones.find((milestone) => milestone.milestone_id === 'depart').completed_event_ids[0];
-  assert.ok(eventId);
+  engine.createProcess('world-a', definition);
+  let state = engine.getState('world-a');
+  const completed = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-complete-chain-for-rollback',
+    expected_revision: state.world_revision,
+    to_coordinate: 3000,
+  });
+  assert.equal(completed.status, 'completed');
 
-  engine.rollbackEvent('world-a', { root_event_id: eventId, idempotency_key: 'rollback-departure' });
-  const afterRollback = engine.getProcess('world-a', 'journey-1');
-  assert.equal(afterRollback.status, 'needs_review');
-  assert.equal(afterRollback.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'needs_review');
+  let process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.progress.completed, 3);
+  const sourceEventId = process.milestones.find((milestone) => milestone.milestone_id === 'depart').completed_event_ids[0];
+  assert.ok(sourceEventId);
+
+  engine.rollbackEvent('world-a', {
+    root_event_id: sourceEventId,
+    idempotency_key: 'rollback-source-for-chain',
+  });
+  process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'needs_review');
+  assert.equal(process.progress.completed, 0);
+  assert.deepEqual(process.progress.blocked_milestone_ids.sort(), ['arrive', 'depart', 'inspect']);
+  assert.equal(process.milestones.every((milestone) => milestone.status === 'needs_review'), true);
   assert.throws(
     () => engine.transitionProcess('world-a', 'journey-1', {
       action: 'resume',
-      expected_version: afterRollback.version,
-      idempotency_key: 'resume-after-rollback',
+      expected_version: process.version,
+      idempotency_key: 'resume-after-chain-rollback',
     }),
     (error) => error.code === 'PROCESS_REQUIRES_RECONCILIATION',
   );
+  const audit = engine.getAudit('world-a');
+  assert.equal(audit.some((entry) => entry.action === 'process.rollback.needs_review'
+    && entry.target_id === 'journey-1'
+    && JSON.parse(entry.payload_json).affected_milestone_ids?.length === 3), true);
+
+  ({ engine } = reopen());
+  process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'needs_review');
+  assert.equal(process.progress.completed, 0);
+  assert.equal(process.milestones.every((milestone) => milestone.status === 'needs_review'), true);
 }));
 
 test('process identities and milestones are isolated by world', (t) => withDatabase(t, ({ engine, store }) => {
