@@ -310,6 +310,7 @@ export class MechanicExecutor {
       causal_read_set_complete_for_supported_slice: true,
       mechanic_dependencies_complete: true,
       unresolved_sources: [],
+      assumptions: ['trusted_provider_correctly_maps_condition_paths_to_canonical_attributes'],
     };
     let contextFingerprint;
     try {
