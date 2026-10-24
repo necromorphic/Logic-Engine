@@ -239,7 +239,7 @@ Status: semantic acceptance specification only. These cases are not executable t
 |---|---|---|
 | A — canonical write | Typed directional operation, dimension patch, validation, atomic commit, audit | REL-SEM-001–008 |
 | B — authorized read | Consistent snapshot integrated with actor/purpose filter and bounded summary | REL-SEM-001, 003, 011–013 |
-| C — causal rollback | Canonical cause/support representation and executable independent-support reconciliation | REL-SEM-009–010 |
+| C — causal rollback | Required dependencies plus deterministic replay of independently attributable typed transitions; OR-style alternative support remains unsupported until its domain sufficiency rule, reducer, and tests are approved | REL-SEM-009–010 |
 | D — authoring provenance | Authorized initialization/import/correction path with distinct origin and audit | REL-SEM-005–006 |
 | E — NPC semantic boundary | Real decision/rationale boundary; no co-presence inference or invented cause | REL-SEM-004, 014 |
 
@@ -249,6 +249,6 @@ Passing an isolated semantic test does not remove a runtime gate. Each integrati
 
 The cases define acceptance semantics, not a schema. They do not choose table layout, JSON shape, public API, storage representation, or a causal algorithm. Those details must be designed against the core's canonical effect, identity, read, audit, and rollback contracts.
 
-Until the relevant gate is approved and implemented, retain the corresponding cases as blocked specifications. Do not fake missing behavior with prompt text, arbitrary entity attributes, `fact.set`, a parallel NPC store, a separate causal graph, or mocks presented as integration tests.
+Until the relevant gate is approved and implemented, retain the corresponding cases as blocked specifications. In particular, do not claim generic OR-style alternative-support handling in the first relationship slice: `caused_by`/`depends_on` expresses required dependency, not “any one source is enough.” Test deterministic replay of surviving independently attributable transitions only where domain semantics justify it; leave alternative-support cases blocked until a domain sufficiency rule and core-owned reducer are specified and tested. Do not fake missing behavior with prompt text, arbitrary entity attributes, `fact.set`, a parallel NPC store, a separate causal graph, or mocks presented as integration tests.
 
 No runtime code, API, storage schema, or `main` changes are implied by this document.
