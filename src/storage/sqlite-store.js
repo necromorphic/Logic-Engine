@@ -1203,6 +1203,7 @@ export class SQLiteStore {
       const relationshipPairs = new Set();
       const entityEffectIds = new Set();
       const mechanicEffectIds = new Set();
+      const factEffectIds = new Set();
       for (const effect of x.effects) {
         if (effect.kind === 'relationship.transition') {
           if (x.effects.length !== 1) throw new EngineError('MIXED_RELATIONSHIP_EFFECTS_UNSUPPORTED', 'A Relationship transition must be the only effect in its canonical event.', 400);
@@ -1297,6 +1298,28 @@ export class SQLiteStore {
             const expectedStatus = effect.kind === 'mechanic.instance.enable' ? 'disabled' : 'enabled';
             if (instance.status !== expectedStatus) throw new EngineError('INVALID_MECHANIC_INSTANCE_TRANSITION', 'Lifecycle transition is not valid from the current status.', 409, { instance_id: effect.instance_id, current_status: instance.status, requested_effect: effect.kind });
             if (!x.caused_by.includes(instance.last_event_id)) throw new EngineError('MECHANIC_INSTANCE_CAUSAL_PREDECESSOR_REQUIRED', 'Lifecycle changes must be caused by the instance latest lifecycle event.', 400, { instance_id: effect.instance_id, required_event_id: instance.last_event_id });
+          }
+          continue;
+        }
+        if (effect.kind === 'fact.set') {
+          if (factEffectIds.has(effect.fact_id)) {
+            throw new EngineError('DUPLICATE_FACT_EFFECT', 'An event may contain at most one fact.set effect for a given fact_id.', 400, { fact_id: effect.fact_id });
+          }
+          factEffectIds.add(effect.fact_id);
+          const subjectRef = effect.subject_ref ?? null;
+          const existingClaims = this.db.prepare(
+            'SELECT subject_ref,predicate FROM fact_claims WHERE world_id=? AND fact_id=?'
+          ).all(id, effect.fact_id);
+          for (const claim of existingClaims) {
+            if ((claim.subject_ref ?? null) !== subjectRef || claim.predicate !== effect.predicate) {
+              throw new EngineError('FACT_IDENTITY_MISMATCH', 'A fact_id cannot be reused with a different predicate or subject_ref within the same world.', 409, {
+                fact_id: effect.fact_id,
+                existing_predicate: claim.predicate,
+                requested_predicate: effect.predicate,
+                existing_subject_ref: claim.subject_ref ?? null,
+                requested_subject_ref: subjectRef,
+              });
+            }
           }
           continue;
         }
