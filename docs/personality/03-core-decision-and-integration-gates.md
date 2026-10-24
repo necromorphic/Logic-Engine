@@ -35,21 +35,40 @@ A rejected operation must not mutate canonical projection, world revision, commi
 
 **Remaining Core gates:** finish the first-slice causal representation and the trusted authoring/import/correction command boundary before finalizing the schema-neutral operation contract and production tests.
 
-## 3. Causality: conditional Option A target, not a closed implementation choice
+## 3. Causality: first-slice Core decision — replayable transitions only
 
-**Approved direction:** deterministic replay of surviving valid typed relationship transitions (Option A) is the first-stage target **only where replay is semantically sufficient** to reconstruct the intended state. This does not settle the representation for every relationship transition, and it is not proof that the current runtime already supports typed relationship replay.
+**Decision for the first supported relationship slice:** use deterministic replay of surviving valid, typed relationship-transition events. This is a bounded Core integration decision, not a claim that typed relationship writes or relationship-specific replay are implemented today.
 
-Constraints:
+The first slice is limited to state whose intended value can be reconstructed from the ordered set of accepted, valid transition events and the active World Pack's deterministic transition rules. Each accepted transition must have its own canonical event identity and trusted provenance. Rebuilding the projection must be deterministic for the same surviving history and World Pack version/configuration.
 
-1. Each accepted transition must have its own canonical event and recorded provenance.
-2. Where the domain state is reconstructible from transitions, the current projection should be rebuilt by replaying surviving valid history in deterministic order.
-3. Distinct source IDs do not automatically establish independent causes or sufficiency.
-4. `caused_by` and `depends_on` represent causal/required dependencies; they are not alternative-support lists.
-5. The existing rollback implementation must not be described as guaranteeing that every independent basis survives another event's rollback.
+### Included in the first slice
 
-**Still unresolved for the first slice:** Core must specify whether the first supported relationship operation is restricted to replayable independent transitions or whether any supported state needs genuinely alternative evidence. The operation/schema proposal must make that boundary explicit. If replay is sufficient, use the narrowest replayable representation consistent with existing typed-effect conventions. If a conclusion depends on multiple independently sufficient sources, that case remains unsupported until a typed support representation, domain sufficiency/conflict rule, and Core-owned reducer/reconciliation behavior are defined and tested. Do not introduce a universal alternative-cause store (Option B) or a subsystem-owned causal engine.
+- A typed transition that changes one or more explicitly supplied relationship dimensions for an existing directed pair.
+- Partial updates where omitted dimensions remain unchanged.
+- Explicit clearing only if the relationship domain's approved typed contract defines it.
+- Rejection of invalid transitions without partial mutation.
+- Replay and rollback of surviving valid transitions, provided the domain evaluator is deterministic and does not depend on unrecorded external state.
 
-Before implementation, source inspection and real tests must establish whether the existing event replay and rollback path can meet the conditional Option A target. If not, Core must specify the smallest necessary extension.
+### Explicitly excluded from the first slice
+
+- A relationship value whose continued validity depends on alternative evidence sources being independently sufficient.
+- Inferring independent support from multiple event IDs, repeated prose, timestamps, or caller-provided labels.
+- Treating `caused_by`, `depends_on`, `read_set`, or `causal_links` as an OR-support list.
+- Selecting a winning relationship value when surviving evidence conflicts or is insufficient, unless the active World Pack defines an explicit deterministic rule that is part of the accepted transition contract.
+- Silent history rewriting, direct projection mutation, or a relationship-owned rollback engine.
+
+These excluded cases must be rejected, deferred, or returned as an explicit unsupported/conflict result at the appropriate boundary. They must not be guessed into a single canonical value.
+
+### Core guarantees required before implementation is considered ready
+
+1. Every accepted transition has a canonical event/effect identity and recorded provenance.
+2. The active World Pack/domain validator owns allowed dimensions, values, and transition semantics; Core owns structural validation, world/identity scope, atomic commit, event/revision/audit/idempotency lifecycle, and deterministic replay orchestration.
+3. A rejected operation leaves canonical projection, world revision, commit sequence, committed events, and commit audit unchanged, except for a separately documented rejection diagnostic.
+4. Replay of the same surviving valid history under the same domain configuration yields the same relationship projection.
+5. Rollback removes the effects of invalidated transitions and recomputes from surviving valid history; it does not preserve a value merely because another source ID exists.
+6. `caused_by` and `depends_on` retain their existing causal/dependency meaning. They are not alternative-support lists.
+
+This decision does **not** approve a universal alternative-cause store (Option B), define a public API/schema, or establish that the current runtime already meets these guarantees. Relationship-specific runtime tests are still required. If later requirements genuinely need independently sufficient evidence, that capability requires a separate typed support/reconciliation contract and tests; it is not part of this first slice.
 
 ## 4. Authorized reads remain a blocking dependency
 
@@ -111,7 +130,7 @@ These are required future tests, not claims that the current runtime already pas
 ## 7. Work sequence and gates
 
 1. **Personality block:** continue semantic contract, stable-trait lifecycle, World Pack authoring requirements, and acceptance traceability.
-2. **Core architecture:** finish the first-slice causal boundary and trusted authoring/import/correction command contract.
+2. **Core architecture:** implement the replay-only first-slice boundary as part of the typed-operation contract, and define the trusted authoring/import/correction command contract.
 3. **Core architecture:** define and test the actor/purpose/snapshot-filtered read boundary against actual engine interfaces.
 4. **Core architecture:** specify the typed relationship operation against existing effect conventions and prove atomicity, provenance, and replay/rollback on the real canonical path.
 5. **Implementation discussion:** only after the contracts and production tests are agreed, decide runtime changes.
@@ -124,7 +143,7 @@ The Core response closes the ownership and high-level semantic direction. The fo
 
 | Gate | Existing approved position | Exact unresolved question | Closure criterion |
 |---|---|---|---|
-| First-slice causal boundary | Replay surviving valid typed transitions is the target only where semantically sufficient; causal dependency is not OR-support. | Which relationship-transition cases are in the first slice, and which are explicitly unsupported because they require alternative evidence or reconciliation? | A schema-neutral contract names the supported replay model, canonical ordering/rebuild expectation, and excluded cases; real-path replay/rollback tests pass. |
+| First-slice causal boundary | First slice is limited to deterministic replay of surviving valid typed relationship transitions; independently sufficient alternative evidence is excluded. | No open design question for the first-slice boundary; the remaining work is to encode the decision in the typed-operation contract and prove it with runtime tests. | Contract specifies the replay-only scope and excluded cases; real-path typed-write/replay/rollback tests pass. |
 | Trusted write classification | Initial/imported state, in-world transition, and author correction are distinct; a caller-supplied `origin` does not grant authority. | What trusted command/actor context establishes authorization for each classification, and where is classification/audit recorded in the existing commit path? | Contract identifies trusted authority source, accepted operation classes, audit/provenance record, rejection behavior, and tests for spoofed origin plus history-preserving correction. |
 | Authorized read boundary | Merged snapshot and tri-state primitives are available, but are not actor authorization or filtering; raw snapshots are not safe for actors or models. | How is the reading actor bound to trusted authority, how are purpose/world/snapshot/visibility enforced, and which explicit result states distinguish known, unset, withheld, and incomplete/unsupported? | An internal contract and implementation are verified against a consistent snapshot; tests cover actor separation, secret exclusion, world scope, non-disclosure of withheld values, and concurrent commit/rollback. |
 | Typed relationship operation | A separate typed canonical operation is required; directed participants, partial patch, validation, and atomic commit are the approved semantic direction. | What exact internal typed-effect contract fits the current effect conventions once causal and trusted-write gates are closed? | Contract specifies participants/direction, patch/clear semantics, validator ownership, accepted/rejected commit effects, idempotency, event identity, and production tests without inventing a parallel API/store. |
