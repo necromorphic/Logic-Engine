@@ -309,7 +309,7 @@ test('mechanic instance lifecycle API is admin-only, idempotent, and isolated fr
   assert.equal(createReplayAfterEnableBody.commit_result.idempotent_replay, true);
   assert.equal(createReplayAfterEnableBody.instance.status, 'disabled');
 
-  const beforeRollback = await fetch(base + '/v1/worlds/mechanic-api-world/state', { headers });
+  const beforeRollback = await fetch(base + '/v1/worlds/mechanic-api-world/state', { headers: adminHeaders });
   const revisionBeforeRollback = (await beforeRollback.json()).state.world_revision;
   const rollback = await fetch(base + '/v1/worlds/mechanic-api-world/rollback', {
     method: 'POST', headers: adminHeaders,
@@ -503,7 +503,7 @@ test('mechanic lifecycle idempotency conflicts and sequential rollback preserve 
   const rollbackDisableReplayResult = await rollbackDisableReplay.json();
   assert.equal(rollbackDisableReplayResult.idempotent_replay, true);
   assert.equal(rollbackDisableReplayResult.world_revision, revisionAfterRollbackDisable);
-  const stateAfterRollbackReplay = await (await fetch(base + '/v1/worlds/' + worldId + '/state', { headers })).json();
+  const stateAfterRollbackReplay = await (await fetch(base + '/v1/worlds/' + worldId + '/state', { headers: adminHeaders })).json();
   assert.equal(stateAfterRollbackReplay.state.world_revision, revisionAfterRollbackDisable);
 
   const rollbackKeyConflict = await fetch(rollbackUrl, {
