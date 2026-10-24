@@ -160,9 +160,14 @@ test('proposal must be approved and cannot commit against a stale snapshot', asy
 test('API registers a generation-bound context manifest and commits against it through the internal route', async (t) => {
   const base = await setup(t, { internalToken: INTERNAL, approvalToken: APPROVAL });
   assert.equal((await createWorld(base, 'manifest-api-world')).status, 201);
+  const manifestBody = json({ generation_id: 'api-generation-1', base_commit_sequence: 0, base_world_revision: 0, items: [] });
+  const untrustedRegistration = await fetch(base + '/v1/worlds/manifest-api-world/context-manifests', {
+    method: 'POST', headers, body: manifestBody,
+  });
+  assert.equal(untrustedRegistration.status, 403);
+  assert.equal((await untrustedRegistration.json()).error.code, 'INTERNAL_REQUIRED');
   const registered = await fetch(base + '/v1/worlds/manifest-api-world/context-manifests', {
-    method: 'POST', headers,
-    body: json({ generation_id: 'api-generation-1', base_commit_sequence: 0, base_world_revision: 0, items: [] }),
+    method: 'POST', headers: { ...headers, 'x-engine-internal-token': INTERNAL }, body: manifestBody,
   });
   assert.equal(registered.status, 201);
   const manifest = (await registered.json()).context_manifest;
