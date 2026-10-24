@@ -143,9 +143,13 @@ test('cancelling a process atomically cancels pending milestone triggers', (t) =
   assert.equal(process.milestones.every((m) => m.status === 'pending'), true);
 }));
 
-test('pause and resume rotate pending trigger identities and reject overdue resume', (t) => withDatabase(t, ({ engine, store }) => {
+test('pause and resume rotate pending trigger identities when milestones remain in the future', (t) => withDatabase(t, ({ engine, store }) => {
   store.createWorld(worldInput());
-  const created = engine.createProcess('world-a', processInput());
+  const definition = processInput();
+  definition.milestones = definition.milestones.map((milestone, index) => ({
+    ...milestone, due_coordinate: (index + 2) * 1000,
+  }));
+  const created = engine.createProcess('world-a', definition);
   const paused = engine.transitionProcess('world-a', 'journey-1', {
     action: 'pause',
     expected_version: created.process.version,
@@ -238,4 +242,32 @@ test('failure between canonical segment commit and process checkpoint rolls back
   const process = engine.getProcess('world-a', 'journey-1');
   assert.equal(process.progress.completed, 0);
   assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'pending');
+}));
+
+test('resume rejects a paused process whose milestone became overdue', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  const created = engine.createProcess('world-a', processInput());
+  const paused = engine.transitionProcess('world-a', 'journey-1', {
+    action: 'pause',
+    expected_version: created.process.version,
+    idempotency_key: 'pause-overdue-journey',
+  });
+  const state = engine.getState('world-a');
+  engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-past-paused-due',
+    expected_revision: state.world_revision,
+    to_coordinate: 1000,
+  });
+  const current = engine.getProcess('world-a', 'journey-1');
+  assert.equal(current.status, 'paused');
+  assert.throws(
+    () => engine.transitionProcess('world-a', 'journey-1', {
+      action: 'resume',
+      expected_version: current.version,
+      idempotency_key: 'resume-overdue-journey',
+    }),
+    (error) => error.code === 'PROCESS_RESUME_REQUIRES_REPLAN',
+  );
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'paused');
+  assert.ok(paused.process.version < current.version);
 }));
