@@ -180,8 +180,11 @@ export function evaluateRelationshipCandidate(input) {
         || !Array.isArray(rule.transitions)
         || !rule.transitions.every((transition) =>
           isRecord(transition)
-          && (transition.operation === "set" || transition.operation === "clear")
+          && Object.keys(transition).length === 3
+          && own(transition, "operation")
           && own(transition, "from")
+          && own(transition, "to")
+          && (transition.operation === "set" || transition.operation === "clear")
           && validTransitionFrom(transition.from)
           && (typeof transition.from !== "string" || rule.values.includes(transition.from))
           && own(transition, "to")
