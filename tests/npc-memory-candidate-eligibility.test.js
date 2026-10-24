@@ -24,8 +24,18 @@ function candidate(overrides = {}) {
   };
 }
 
-function completeResult(candidates) {
-  return { completeness: "complete", candidates };
+function completeResult(candidates, overrides = {}) {
+  return {
+    completeness: "complete",
+    access: { outcome: "allow" },
+    scope: {
+      world_id: request.world_id,
+      subject_id: request.subject_id,
+      purpose: request.purpose,
+    },
+    candidates,
+    ...overrides,
+  };
 }
 
 test("admits only the safe reference metadata, never content", () => {
@@ -128,7 +138,7 @@ test("a derived summary requires complete lineage and current authorized sources
     { ...summary, lineage: { status: "unavailable", sources: [] } },
     { ...summary, lineage: { status: "complete", sources: [{ ref: "source:a", version: "1", access: { outcome: "allow" }, freshness: { status: "current" } }, { ref: "source:b", version: "4", access: { outcome: "deny" }, freshness: { status: "current" } }] } },
     { ...summary, lineage: { status: "complete", sources: [{ ref: "source:a", version: "1", access: { outcome: "allow" }, freshness: { status: "stale" } }] } },
-    { ...summary, lineage: { status: "complete", sources: [{ ref: "source:a", access: { outcome: "allow" }, freshness: { status: "current" }] } },
+    { ...summary, lineage: { status: "complete", sources: [{ ref: "source:a", access: { outcome: "allow" }, freshness: { status: "current" } }] } },
   ];
 
   for (const unsafe of unsafeVariants) {
@@ -163,11 +173,27 @@ test("partial or unavailable retrieval is not treated as an empty complete resul
   }
 });
 
-test("a complete empty result is empty, not proof that the subject knows nothing", () => {
+test("a complete authorized empty result is not proof that the subject knows nothing", () => {
   const result = evaluateMemoryCandidateAdmission(request, completeResult([]));
   assert.equal(result.status, "ready");
   assert.deepEqual(result.admitted, []);
   assert.equal(result.reason, null);
+});
+
+test("empty denied, withheld, or scope-mismatched results fail closed", () => {
+  const variants = [
+    completeResult([], { access: { outcome: "deny" } }),
+    completeResult([], { access: { outcome: "withheld" } }),
+    completeResult([], { scope: { ...request, purpose: "other-purpose" } }),
+    completeResult([], { scope: undefined }),
+  ];
+
+  for (const input of variants) {
+    const result = evaluateMemoryCandidateAdmission(request, input);
+    assert.equal(result.status, "non_ready");
+    assert.equal(result.reason, "request_access_or_scope_unconfirmed");
+    assert.deepEqual(result.admitted, []);
+  }
 });
 
 test("candidate rejection output does not leak rejected record identifiers", () => {
