@@ -178,9 +178,46 @@ The following links pin the evidence to the branch/ref inspected during this aud
 
 - [Successful Runtime tests run #618 for the current Issue #73 PR head `cfa4ff604f9ade802ecbd83e8a94f49466cb08b7`](https://github.com/necromorphic/Logic-Engine/actions/runs/40059045655) — repository CI evidence for the PR head; does not imply Core/NPC integration is implemented.
 - [NPC consumer compatibility contract on `feat/npc-subsystem`](https://github.com/necromorphic/Logic-Engine/blob/feat/npc-subsystem/docs/52-npc-relationship-consumer-compatibility.md) — documentation-only contract, not an executable test.
-- [Relationship proposal test traceability on `feat/relationship-domain-module`](https://github.com/necromorphic/Logic-Engine/blob/feat/relationship-domain-module/docs/47-relationship-module-test-traceability.md)
-- [Relationship pure evaluation contract on `feat/relationship-domain-module`](https://github.com/necromorphic/Logic-Engine/blob/feat/relationship-domain-module/docs/48-relationship-pure-evaluation-contract.md)
+- [Relationship test traceability on `main`](../47-relationship-module-test-traceability.md) (ported by PR #80; source PR #60 is closed unmerged)
+- [Relationship pure evaluation contract on `main`](../48-relationship-pure-evaluation-contract.md) (ported by PR #80; source PR #60 is closed unmerged)
+- [Relationship → Core typed-transition handoff](../49-relationship-to-core-typed-transition-handoff.md) (proposal for Issue #77, not a Core API or implementation)
 - [Personality Core integration gates in this PR branch](./03-core-decision-and-integration-gates.md)
 - [Issue #73 executable-evidence audit](./10-issue-73-executable-evidence-audit.md)
 
 Link scope note: the evaluator test and CI links are pinned to an exact commit; the NPC and Relationship proposal links intentionally identify branch-head documents and may evolve. Recheck these branch-head references when those branches change. The current audit does not claim that CI run #591 validates the current PR head.
+
+
+## 2026-10-24 current-main verification addendum
+
+This addendum supersedes stale branch-head references above where they conflict with the current main state. The pure evaluator and its tests are in `main` through merged PR #62. Relationship documentation from source PR #60 is present in `main` through PR #80; source PR #60 was closed unmerged. Personality cross-block documentation from source PR #75 is present in `main` through PR #79; source PR #75 was closed unmerged. These ports are documentation integrations, not proof of runtime integration.
+
+### Exact current-main pure-evaluator test inventory
+
+The current-main file is `tests/relationship-evaluate-candidate.test.js` at blob `06b1f94fa26a70726b9d2d39739b05c321793971`. The following cases have executable tests by exact test name:
+
+| Requirement / existing IDs | Executable test name(s) | Boundary / remaining gap |
+|---|---|---|
+| Partial patch; omitted dimensions unchanged (`PERS-SEM-002`) | `omitted dimensions remain omitted from the candidate patch`; `clearing one dimension leaves every other dimension outside the candidate patch` | Candidate only; no canonical partial write. |
+| Mixed patch all-or-nothing (`PERS-SEM-006/007`) | `rejects the whole candidate if any dimension is unsupported`; `rejects a mixed valid/invalid patch without exposing partial output or mutating inputs` | Does not prove transaction atomicity in Core. |
+| Directed relation / no automatic reciprocity (`PERS-SEM-001`, `PERS-REL-001–003`) | `keeps direction explicit and does not create a reciprocal patch` | Does not prove persisted direction or authorized reverse-direction reads. |
+| Unset vs explicit value/neutral (`PERS-SEM-003`) | `does not infer a neutral/default value for an unset dimension`; `distinguishes explicit domain values from unset state`; `keeps explicit neutral distinct from unset and treats an existing neutral value as a no-op` | Neutral is an ordinary domain value only when declared by World Pack. Production read encoding is unverified. |
+| Clear vs never set (`PERS-SEM-004`) | `uses an explicit clear operation, not omission or a sentinel value`; `distinguishes unset from a previously cleared dimension`; `clearing an already cleared or unset dimension is a no-change` | Clear history/provenance and canonical read remain blocked. |
+| Withheld distinct from unset (`PERS-SEM-026`, `PERS-REL-011/015`) | `does not silently treat a withheld current relationship value as unset`; `preserves withheld evidence as an access outcome distinct from unsupported and insufficient` | Does not prove actor/purpose authorization or non-disclosure in Core. |
+| Conflict / insufficient / unsupported / incomplete (`PERS-SEM-023/026`) | `preserves each non-value relationship state instead of treating it as unset`; `does not evaluate a transition when evidence is insufficient or conflicting`; `does not treat unsupported evidence as an empty or neutral relationship`; `returns a non-mutating unsupported result when dimension rules are incomplete` | Pure result semantics only; no production reconciliation/read-result path. |
+| Prototype-sensitive keys (`PERS-SEM-006/007`) | `preserves special object-property dimension names as own data keys`; `supports all special dimension keys as own data keys for set and clear`; `preserves all special dimension keys together in a mixed set patch` | Does not prove persistence or downstream consumer safety. |
+| Determinism and no mutation (`PERS-SEM-024`, subset only) | `re-evaluating identical inputs is deterministic and side-effect-free`; `returns a candidate without mutating the supplied state or patch` | Does not prove historical version lookup, canonical idempotency, or replay. |
+| Pinned rule-version input (`PERS-SEM-024/029`, subset only) | `requires a pinned rule version` | Only requires a non-empty supplied identifier; does not resolve, persist, migrate, or replay historical World Pack versions. |
+| No stable-trait promotion, no knowledge/motive/consent/obligation inference (`PERS-SEM-014–020/028`, `PERS-REL-009–011/016`) | **No direct executable Personality/NPC consumer test found in the inspected current-main test tree.** | Future Personality/NPC integration tests required; current support is semantic documentation only. |
+| Old-event knowledge acquisition does not create a duplicate event (`REL-MOD-015`; no direct PERS-SEM ID) | **No executable production-boundary test found.** | Blocked on NPC acquisition and Core event identity/deduplication/correction/versioning/replay contracts; see `12-relationship-crosswalk-correction.md`. |
+| Canonical write, authorization, provenance, audit, idempotency, rollback/replay | **No evaluator test can establish these.** | Core-owned integration blockers tracked in Issue #77. |
+
+### PERS-REL coverage disposition
+
+The existing `PERS-REL-*` identifiers remain unchanged. `PERS-REL-001–003` have pure directed-pair evidence only. `PERS-REL-004` (co-presence alone), `PERS-REL-005–006` (trusted initial/correction provenance), `PERS-REL-007–008` (canonical identity/self-relation), `PERS-REL-009` (stable-trait boundary), `PERS-REL-010` (motive/causal interpretation), `PERS-REL-011–013` (knowledge/card projection/rollback), `PERS-REL-014–015` (state/evidence and knowledge acquisition boundary), and `PERS-REL-016` (player agency) have no complete production-boundary test evidence in the inspected current-main test tree. The evaluator's self-relation validation test is domain-level only; it does not prove canonical identity enforcement.
+
+### Status vocabulary
+
+- **Executable pure test:** exact test name exists in `tests/relationship-evaluate-candidate.test.js`.
+- **Specified only:** acceptance behavior is documented, but no direct executable test was found for that boundary.
+- **Blocked integration test:** test must exercise the approved Core/NPC/Personality runtime path; name the missing contract/owner rather than treating a mock or prose scenario as a pass.
+- **Not proven:** a pure evaluator result does not prove canonical write, authorized read, idempotency, audit, or rollback/replay.
