@@ -97,6 +97,29 @@ test('missing and fully withheld targets have the same externally safe error', (
   assert.deepEqual(denied, missing);
 });
 
+test('mixed visible and missing or withheld targets fail closed without returning a partial target set', (t) => {
+  const { service } = setup(t, (context, entity, field) =>
+    entity.entity_id === 'target-a' && field === 'entity_id');
+
+  const capture = (overrides) => {
+    try {
+      return { result: service.readEntityFields(request(overrides)) };
+    } catch (error) {
+      return { error: { code: error.code, status: error.status, message: error.message } };
+    }
+  };
+
+  const missingOnly = capture({ entityIds: ['not-present'] });
+  const mixedMissing = capture({ entityIds: ['target-a', 'not-present'] });
+  assert.deepEqual(mixedMissing, missingOnly);
+  assert.equal(mixedMissing.result, undefined);
+
+  const fullyWithheld = capture({ entityIds: ['actor-a'] });
+  const mixedWithheld = capture({ entityIds: ['target-a', 'actor-a'] });
+  assert.deepEqual(mixedWithheld, fullyWithheld);
+  assert.equal(mixedWithheld.result, undefined);
+});
+
 test('actor binding is required and caller-supplied actor cannot replace the authenticated binding', (t) => {
   const { service } = setup(t, () => true);
   assert.throws(
