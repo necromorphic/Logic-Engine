@@ -136,3 +136,40 @@ A segment ledger is useful if event IDs alone cannot reconstruct which events be
 - At 1k/5k/10k-event histories, a segment performs at most one full projection rebuild; benchmark growth is recorded for entity-only and mixed-projection workloads.
 
 **Gate:** do not implement T3 by toggling a `deferRebuild` flag on the existing commit loop alone. That would leave later events validating against stale projections. The implementation needs either a transaction-local evolving projection or a narrower, explicitly enforced independence contract. The first option is more general; the second may be a safe initial slice if it rejects any intra-segment read/write overlap or dependency it cannot prove safe.
+
+
+## T5/T6 repository boundary audit
+
+A repository search found no `EpistemicAgent`, Memory adapter, World Pack definition registry/editor, or calendar configuration API. The current world record pins only `world_pack_id` and `world_pack_version`; it does not load or store a calendar definition. These absences are implementation boundaries, not invitations to invent a second canonical subsystem.
+
+### T5 — epistemic integration contract
+
+A temporal trigger or committed segment is **evidence that something happened in the world**, not proof that a particular NPC knows it. A future adapter should emit an observation candidate with at least:
+
+- `world_id`, `trigger_id`, committed `event_id`, coordinate, world revision and segment ID;
+- canonical effect/entity/fact references and source/evidence references;
+- the observer/sensor or communication channel, if one exists.
+
+`EpistemicAgent` must decide which NPCs can observe the evidence, when they learn it, and with what confidence. Memory/vector retrieval may index that result but must not become a second canonical knowledge store. Player delivery remains a separate stage. Since the actual epistemic subsystem and its API are absent, T5 can only define an adapter contract now; adding guessed knowledge tables or claiming a live integration would be incorrect.
+
+### T6 — calendar ownership and author edits
+
+The base calendar belongs to the pinned World Pack version. The Core must not store a competing, unversioned calendar definition. Author edits need an explicit versioning rule before schema/API work:
+
+- **Fork the World Pack version:** an edit creates a new pack version and the world is explicitly repinned; or
+- **World-scoped override:** an authorized Core command creates a versioned override with provenance, audit and precedence over the pinned base calendar.
+
+A world-scoped override is more convenient for one-off world edits, but it is a deliberate additional canonical layer and must define precedence, historical projection behavior, and how already-scheduled date-based triggers are handled. Neither Memory text nor a vector index may silently modify the calendar.
+
+The current runtime does not load World Pack contents, so implementing calendar author controls before that contract would create a second source of truth. T6 is blocked on choosing the version/override model and defining the World Pack loading boundary.
+
+### Remaining integration status
+
+- T1 pure coordinate/calendar model: implemented in the T1/T2 code branch.
+- T2 canonical coordinate migration and single-event advancement: implemented for review in PR #209.
+- T3 bounded atomic segment for provably independent events: implemented for review in PR #214.
+- T4 pure due-work planning: implemented for review in PR #217; it does not persist or execute triggers.
+- T5 epistemic observation/knowledge integration: contract boundary identified; actual subsystem absent.
+- T6 World Pack calendar loading and author controls: blocked on World Pack schema/loading and calendar edit versioning choice.
+
+The remaining T5/T6 items should not be fabricated as production integrations. They need their actual host contracts or an explicit decision to introduce those host components.
