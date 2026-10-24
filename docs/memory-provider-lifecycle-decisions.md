@@ -28,6 +28,14 @@ This is a provider-local persistence/lifecycle API, not a SillyTavern capture ho
 
 Do not infer source deletion or canonical freshness from `world_revision + commit_sequence`. The source identity/version and complete-inventory production gates remain blocked by Core #140.
 
+### Typed readiness/failure state
+
+The provider now persists a bounded internal `failure_code` alongside index health, reconciliation state, and the snapshot marker. The provider-internal `getIndexStatusForDiagnostics` projection is deliberately separate from retrieval results. Retrieval continues to return generic fail-closed errors such as `MEMORY_INDEX_NOT_READY`; it does not expose internal failure reasons, source IDs, record counts, or content.
+
+Current reason codes distinguish Core snapshot unavailability, source validation failure, incomplete/unavailable inventory, snapshot change during reconciliation, missing index entries, index write failure, and index rebuild failure. Because the existing source/inventory callbacks return only booleans, these codes intentionally do not pretend to distinguish stale from missing/unverifiable source or partial from unavailable inventory. They are operational diagnostics, not proof that the production source-authority gates are satisfied.
+
+The schema migration adds `failure_code` to an existing provider database if absent. Failed/interrupted states remain non-current; a successful complete reconciliation clears the failure code.
+
 ## 2. `missing_ids` diagnostics
 
 Chosen policy: **detailed internal diagnostics**.
