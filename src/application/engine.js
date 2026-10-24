@@ -631,7 +631,8 @@ export class LogicEngine {
     try {
       targetCoordinate = addTimeDuration(world.game_time_coordinate, durationMs);
     } catch (error) {
-      throw new EngineError(error.code || 'INVALID_TIME_COORDINATE', error.message || 'Timed action target is outside the coordinate range.', 400);
+      const code = error.code === 'COORDINATE_OVERFLOW' ? 'TIME_COORDINATE_OVERFLOW' : (error.code || 'INVALID_TIME_COORDINATE');
+      throw new EngineError(code, error.message || 'Timed action target is outside the coordinate range.', 400);
     }
     const finalEvent = {
       event: {
