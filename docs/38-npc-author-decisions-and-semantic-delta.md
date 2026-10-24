@@ -14,6 +14,8 @@ Evidence labels:
 
 ## 2. Author-confirmed semantic decisions
 
+**Source-of-truth note:** `docs/31-npc-subsystem-contract.md` is the normative NPC semantic contract; this file records the author's confirmed decisions and the deltas/clarifications that must be reflected there. If wording diverges, reconcile the documents rather than treating repeated summaries as separate requirements.
+
 ### 2.1 Information, sources, and reasoning — Author-confirmed
 
 NPCs may acquire information from sources and draw logical conclusions. They must distinguish:
