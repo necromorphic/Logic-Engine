@@ -523,8 +523,8 @@ test('snapshot-bound mechanic evaluation fingerprint changes with snapshot ident
   assert.notEqual(changedRevision.evaluation_fingerprint, changedTemplateHash.evaluation_fingerprint);
 });
 
-test('snapshot-bound mechanic evaluation never returns effects for a false condition', () => {
-  const { evaluateMechanicActionAgainstSnapshot } = require('../src/core/mechanics.js');
+test('snapshot-bound mechanic evaluation never returns effects for a false condition', async () => {
+  const { evaluateMechanicActionAgainstSnapshot } = await import('../src/core/mechanics.js');
   const snapshot = {
     world_id: 'world.test', world_revision: 2, commit_sequence: 5,
     mechanic_evaluation_snapshot: {
