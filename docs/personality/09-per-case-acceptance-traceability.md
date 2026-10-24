@@ -251,3 +251,20 @@ Source: `tests/relationship-transition-core.test.js` at blob `086cfb0db38c339897
 | Transaction failure atomicity | `event insert and audit failures roll back the entire Relationship transition`; `projection and idempotency persistence failures roll back Relationship event, state, revision and audit` | Failure injection covers these transaction points only. |
 
 Core exact-head Runtime CI passed on PR #94 head `1aa59e6d4b7921646ed44727de21ba610eb6da39` ([run #705](https://github.com/necromorphic/Logic-Engine/actions/runs/40063961970)), PR #95 head `6b8c4e6fade8d01d15039e8d278d57e4b2c78aa8` ([run #707](https://github.com/necromorphic/Logic-Engine/actions/runs/40064048816)), and PR #96 head `79deb588e1f6321826dc3316085aaab6fdb010b7` ([run #717](https://github.com/necromorphic/Logic-Engine/actions/runs/40064276520)). PR #96 also tests rejection of unsupported alternative-support metadata and caller-supplied evidence status.
+
+
+## Superseding runtime-test inventory update (2026-10-24)
+
+Current-main source `tests/relationship-transition-core.test.js` is blob `4e18b085fac6de7dcf05368fb439ba92f466345a` and contains **15 named real-path tests**. This supersedes the earlier 12-test inventory recorded above.
+
+The later additions relevant to Relationship acceptance are:
+- `Relationship transition route rejects missing, wrong, or standalone admin credentials without mutation`
+- `HTTP idempotent retry returns the established transition without a second event`
+- `Relationship projection survives store restart and deterministic rebuild from valid events`
+
+Evidence:
+- [PR #107](https://github.com/necromorphic/Logic-Engine/pull/107) merged the HTTP authorization/retry tests; exact-head Runtime run #754 passed: https://github.com/necromorphic/Logic-Engine/actions/runs/40065570917 (head `bff370b920e32013f17a036eda9450c9eafd1066`).
+- [PR #108](https://github.com/necromorphic/Logic-Engine/pull/108) has a successful exact-head Runtime run #761: https://github.com/necromorphic/Logic-Engine/actions/runs/40065636886 (head `3db9c1484fedf4162023b93acc8920269eff6e10`). Its restart test is present in the current-main test blob, identical to the PR-head file; the PR itself is still reported open, so Core should reconcile its no-longer-unique delta.
+- Earlier PR #105 is superseded by merged #107 for HTTP authorization/retry coverage.
+
+These tests add stronger Core real-path evidence but do not close the separate authorized-read, NPC/model-write, import/correction, historical migration, alternative-support, or downstream consumer acceptance gates.
