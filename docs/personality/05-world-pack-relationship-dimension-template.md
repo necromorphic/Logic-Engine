@@ -25,7 +25,8 @@ Complete every field below for each supported dimension.
 | Transition rules | Allowed transitions, preconditions, and transitions that must be rejected. If arbitrary changes are allowed, say so explicitly. |
 | Update semantics | Whether partial updates are meaningful; omitted dimensions must remain unchanged. Define whether the dimension can be explicitly cleared. |
 | Non-implications | Facts that this dimension must never imply by itself (for example knowledge, consent, reciprocity, obligation, or truth of a claim). List only those relevant to the dimension. |
-| Evidence and provenance | Which domain events/evidence can support a change; what attribution is needed. Do not confuse value semantics with causal support. |
+| Domain evidence/source | Which domain events or evidence can support the semantic transition, and what causal/dependency assumptions apply. This answers what supports the meaning of the proposed transition; it does not identify an authorized caller or grant write permission. Do not confuse value semantics with causal support. |
+| Attribution/provenance | What source, author, or trusted process the operation claims as its origin, and what provenance must be preserved for review/audit. Provenance describes attribution/origin; a World Pack field, author declaration, or caller-supplied `origin` value does not authenticate the claim or authorize an operation. |
 | Re-evaluation / event identity | Define whether evaluation is pure and repeatable for the same inputs, how a triggering event is distinguished from repeated reads/retries, and what explicitly qualifies as newly acquired knowledge about an already-known event. Re-evaluation or new knowledge alone must not create a new event or transition unless a declared domain rule says so. |
 | Conflict policy | What to do if valid inputs conflict or evidence is insufficient: expose a conflict/insufficient-support reconciliation result (which may be labelled unknown by the read contract), apply a declared precedence rule, or request author resolution. Never conflate this result with unset or invent a resolution. |
 | Decision use | How the dimension may influence NPC interpretation or candidate actions, and what it cannot authorize. |
@@ -56,7 +57,7 @@ A change to dimension X must not silently change dimension Y. In particular, lab
 Cross-dimension rules must state:
 1. triggering event and source dimension;
 2. target dimension and exact transition;
-3. required preconditions and authorized actor;
+3. required semantic preconditions and any permitted initiator class (domain eligibility only; not runtime authorization);
 4. whether the target transition is deterministic or only a candidate interpretation;
 5. causal dependency and rollback behavior;
 6. behavior on conflicts or unsupported target values.
@@ -71,14 +72,16 @@ For every permitted transition or transition family, record:
 - requested target state;
 - triggering event/evidence;
 - required preconditions;
-- who/what is authorized to request it;
+- which actor/initiator classes are semantically eligible to request it, if relevant (this is not a runtime permission grant);
 - whether it is a canonical transition or only a narrative inference;
-- provenance expected on the committed event;
+- attribution/provenance expected on the committed event, separately from domain evidence/source and separately from Core's authorization decision;
 - rejection behavior when validation fails;
 - effect of rollback on the current projection;
 - acceptance-test identifier.
 
 A rejected transition must not partially mutate canonical state. A narrative sentence, co-presence, a model-generated interpretation, or a character-card edit is not by itself a canonical transition.
+
+**Authorization boundary:** the World Pack may declare semantic preconditions and eligible initiator classes, but it cannot authorize a caller or operation at runtime. Core must establish the trusted actor/context and decide whether the operation is permitted at the canonical write boundary. Domain evidence/source (why the transition is semantically justified), attribution/provenance (where the request/change claims to originate), and Core authorization (whether this actor may perform this operation now) are separate checks. Passing one does not imply either of the others.
 
 Repeated evaluation of the same event, retrying the same request, or rereading the same evidence must not be counted as new evidence by default. If newly acquired actor knowledge about an already-known event can affect a dimension, specify the acquisition signal, the applicable domain rule, and whether it yields a candidate or a canonical transition. Preserve the distinction between a new knowledge state and a new world event.
 
@@ -90,7 +93,8 @@ A dimension is **not ready for runtime use** until:
 - [ ] valid and invalid transitions are specified;
 - [ ] partial update and clear behavior are specified;
 - [ ] cross-dimension rules are explicit or expressly absent;
-- [ ] provenance and conflict handling are specified;
+- [ ] domain evidence/source, attribution/provenance, and Core authorization are kept distinct; provenance is not treated as permission;
+- [ ] conflict handling is specified;
 - [ ] decision-use and visibility constraints are documented;
 - [ ] rollback/replay assumptions are declared;
 - [ ] rule-set version compatibility and meaning-changing migration behavior are declared;
@@ -115,7 +119,7 @@ Do not treat a deterministic replay result under one fixed version as proof of h
 
 ## 7. Unresolved core dependencies
 
-World Pack authors must not invent the core's exact payload/API, storage encoding, revision behavior, event shape, authorized-read interface, or author-operation permission mechanism. These remain governed by the core integration gates in [03-core-decision-and-integration-gates.md](./03-core-decision-and-integration-gates.md). A World Pack can define the intended semantics while clearly marking runtime integration as blocked.
+World Pack authors must not invent the core's exact payload/API, storage encoding, revision behavior, event shape, authorized-read interface, or author-operation permission mechanism. A declared eligible actor class, source reference, provenance label, or authoring declaration is semantic metadata only; none grants runtime authority. These remain governed by the core integration gates in [03-core-decision-and-integration-gates.md](./03-core-decision-and-integration-gates.md). A World Pack can define the intended semantics while clearly marking runtime integration as blocked.
 
 ## Issue #73 evidence cross-reference
 
