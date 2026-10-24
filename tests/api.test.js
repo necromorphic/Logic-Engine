@@ -792,3 +792,23 @@ test('credential checks reject malformed and length-mismatched request secrets',
   assert.equal(wrongAdapter.status, 403);
   assert.equal((await wrongAdapter.json()).error.code, 'ADAPTER_REQUIRED');
 });
+
+
+
+test('event_type cannot bypass the internal credential boundary', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL });
+  await createWorld(base, 'event-taxonomy-world');
+  const response = await fetch(base + '/v1/worlds/event-taxonomy-world/events', {
+    method: 'POST',
+    headers,
+    body: json({
+      idempotency_key: 'event-type-auth-check',
+      turn_id: 'event-type-auth-check',
+      event_type: 'domain.custom.action',
+      expected_revision: 0,
+      effects: [],
+    }),
+  });
+  assert.equal(response.status, 403);
+  assert.equal((await response.json()).error.code, 'DIRECT_COMMIT_DISABLED');
+});
