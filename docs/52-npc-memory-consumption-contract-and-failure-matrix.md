@@ -104,7 +104,7 @@ A stable record reference is not necessarily a canonical source reference. The r
 }
 ```
 
-The example intentionally uses strings for owner-defined values rather than establishing enums. It omits raw content from the illustrative skeleton because content may be returned only after the access decision is approved and applied. The actual contract must define which metadata is safe to expose on deny/withheld responses. A denied response must not leak protected content through candidate count, snippets, source titles, error text, timing diagnostics, or pagination.
+The example intentionally uses strings for owner-defined values rather than establishing enums. It omits raw content from the illustrative skeleton because content may be returned only after the access decision is approved and applied. The actual contract must define which metadata is safe to expose on deny/withheld responses. A denied response must not leak protected content through candidate count, snippets, source titles, error text, timing diagnostics, or pagination. The pure NPC admission oracle additionally requires an affirmative request-level access outcome and matching world/subject/purpose scope even when the candidate list is empty; per-candidate allow flags alone are insufficient.
 
 ### 2.4 Independent lifecycle dimensions
 
@@ -302,7 +302,7 @@ The branch now includes:
 
 This helper is deliberately **not wired to a Memory/API call** and does not establish authenticity of caller scope, enforce access control, query current source state, or persist any semantic transition. It can only reject or admit candidate metadata based on evidence already supplied by a trusted, future integration boundary. The real authorized read must still apply access before content disclosure and revalidate before serialization.
 
-The tests cover: incomplete trusted scope; foreign world; missing/denied/withheld/unknown access; subject/purpose mismatch; missing record identity/version; unknown epistemic kind; stale/retracted/unavailable freshness; snapshot mismatch; derived summary lineage and source permissions; duplicate record/version; partial/unavailable retrieval; complete empty results; rejection-output leakage; and non-mutation of acquisition/delivery/belief/canonical state.
+The tests cover: incomplete trusted scope; foreign world; missing/denied/withheld/unknown request and candidate access; subject/purpose mismatch; missing record identity/version; unknown epistemic kind; stale/retracted/unavailable freshness; snapshot mismatch; derived summary lineage and source permissions; duplicate record/version; partial/unavailable retrieval; authorized complete empty results versus denied/withheld/scope-mismatched empty results; rejection-output leakage; and non-mutation of acquisition/delivery/belief/canonical state.
 
 **Interpretation limit:** these tests establish the pure helper's fail-closed decision behavior only. They do not prove Memory authorization, source freshness, revocation races, summary derivation safety in a production pipeline, delivery/receipt, acquisition, belief persistence, rollback reconciliation, or prompt integration. No test execution result is claimed in this document unless separately confirmed by a run against the exact commit.
 
