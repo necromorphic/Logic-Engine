@@ -57,17 +57,42 @@ function intersects(left, right) {
   return null;
 }
 
-function pathExists(from, to, dependencies) {
-  const pending = [...(dependencies.get(from) || [])];
-  const visited = new Set();
-  while (pending.length) {
-    const current = pending.pop();
-    if (current === to) return true;
-    if (visited.has(current)) continue;
-    visited.add(current);
-    pending.push(...(dependencies.get(current) || []));
+function compareTriggers(a, b) {
+  return a.due_coordinate < b.due_coordinate ? -1
+    : a.due_coordinate > b.due_coordinate ? 1
+      : a.trigger_id < b.trigger_id ? -1 : a.trigger_id > b.trigger_id ? 1 : 0;
+}
+
+function heapPush(heap, value) {
+  let index = heap.length;
+  heap.push(value);
+  while (index > 0) {
+    const parent = Math.floor((index - 1) / 2);
+    if (compareTriggers(heap[parent], value) <= 0) break;
+    heap[index] = heap[parent];
+    index = parent;
   }
-  return false;
+  heap[index] = value;
+}
+
+function heapPop(heap) {
+  const root = heap[0];
+  const last = heap.pop();
+  if (heap.length && last !== undefined) {
+    let index = 0;
+    while (true) {
+      const left = index * 2 + 1;
+      const right = left + 1;
+      if (left >= heap.length) break;
+      let child = left;
+      if (right < heap.length && compareTriggers(heap[right], heap[left]) < 0) child = right;
+      if (compareTriggers(last, heap[child]) <= 0) break;
+      heap[index] = heap[child];
+      index = child;
+    }
+    heap[index] = last;
+  }
+  return root;
 }
 
 function normalizeTrigger(input, worldId) {
@@ -130,22 +155,16 @@ function buildDependencyOrder(due, allById, completedIds) {
   if (blocked.length) return { blocked, ordered: [], dependencies };
 
   const degree = new Map([...dependencies].map(([id, refs]) => [id, refs.length]));
-  const ready = due.filter((trigger) => degree.get(trigger.trigger_id) === 0);
+  const ready = [];
+  for (const trigger of due) if (degree.get(trigger.trigger_id) === 0) heapPush(ready, trigger);
   const ordered = [];
-  const compare = (a, b) => a.due_coordinate < b.due_coordinate ? -1
-    : a.due_coordinate > b.due_coordinate ? 1
-      : a.trigger_id < b.trigger_id ? -1 : a.trigger_id > b.trigger_id ? 1 : 0;
-  ready.sort(compare);
 
   while (ready.length) {
-    const next = ready.shift();
+    const next = heapPop(ready);
     ordered.push(next);
     for (const childId of dependents.get(next.trigger_id) || []) {
       degree.set(childId, degree.get(childId) - 1);
-      if (degree.get(childId) === 0) {
-        ready.push(allById.get(childId));
-        ready.sort(compare);
-      }
+      if (degree.get(childId) === 0) heapPush(ready, allById.get(childId));
     }
   }
   if (ordered.length !== due.length) fail('TRIGGER_DEPENDENCY_CYCLE', 'Due trigger dependencies contain a cycle.');
@@ -155,6 +174,9 @@ function buildDependencyOrder(due, allById, completedIds) {
 function segmentAtCoordinate(triggers, dependencies) {
   const segments = [];
   let current = [];
+  let currentIds = new Set();
+  let currentReads = new Set();
+  let currentWrites = new Set();
 
   const close = () => {
     if (current.length) {
@@ -168,40 +190,35 @@ function segmentAtCoordinate(triggers, dependencies) {
           interrupt_after_coordinate: trigger.interrupt_after_coordinate,
         })),
       });
-      current = [];
     }
+    current = [];
+    currentIds = new Set();
+    currentReads = new Set();
+    currentWrites = new Set();
   };
 
   for (const trigger of triggers) {
-    let mustSplit = false;
-    for (const existing of current) {
-      if (dependencies.get(trigger.trigger_id)?.includes(existing.trigger_id)
-        || dependencies.get(existing.trigger_id)?.includes(trigger.trigger_id)) {
-        mustSplit = true;
-        break;
-      }
-      const access = intersects(new Set(trigger.write_set), new Set(existing.write_set))
-        || intersects(new Set(trigger.write_set), new Set(existing.read_set))
-        || intersects(new Set(existing.write_set), new Set(trigger.read_set));
-      if (access) {
-        const orderedByDependency = pathExists(trigger.trigger_id, existing.trigger_id, dependencies)
-          || pathExists(existing.trigger_id, trigger.trigger_id, dependencies);
-        if (!orderedByDependency) {
-          fail('TRIGGER_CONFLICT_NEEDS_REVIEW', 'Triggers at the same coordinate conflict without an explicit dependency order.', {
-            trigger_ids: [existing.trigger_id, trigger.trigger_id], reference: access,
-          });
-        }
-        mustSplit = true;
-        break;
-      }
+    const dependsOnCurrent = (dependencies.get(trigger.trigger_id) || []).some((dependencyId) => currentIds.has(dependencyId));
+    if (dependsOnCurrent) close();
+
+    const conflict = intersects(trigger.write_set, currentWrites)
+      || intersects(trigger.write_set, currentReads)
+      || intersects(trigger.read_set, currentWrites);
+    if (conflict) {
+      fail('TRIGGER_CONFLICT_NEEDS_REVIEW', 'Triggers at the same coordinate conflict without a declared dependency boundary.', {
+        trigger_ids: [...current.map((item) => item.trigger_id), trigger.trigger_id],
+        reference: conflict,
+      });
     }
-    if (mustSplit) close();
+
     current.push(trigger);
+    currentIds.add(trigger.trigger_id);
+    for (const ref of trigger.read_set) currentReads.add(ref);
+    for (const ref of trigger.write_set) currentWrites.add(ref);
   }
   close();
   return segments;
 }
-
 /**
  * Plan due triggers on (from_coordinate, to_coordinate]. This is planning only:
  * returned segments are proposals and must be committed through Core.
