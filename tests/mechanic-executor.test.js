@@ -238,7 +238,7 @@ test('mechanic evaluation hands off through the ordinary durable proposal lifecy
   enableFixture(engine, worldId);
   const executor = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() });
   const evaluation = executor.evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
-  const proposals = new ProposalService(engine);
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
   const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
     idempotencyKey: 'mechanic-proposal-1',
     turnId: 'turn-mechanic-1',
@@ -294,6 +294,50 @@ test('mechanic evaluation hands off through the ordinary durable proposal lifecy
   assert.equal(replay.status, 'committed');
   assert.equal(replay.idempotent_replay, true);
   assert.equal(engine.getState(worldId).world_revision, 3);
+});
+
+test('mechanic proposals fail closed without current-policy validation and recheck policy at commit', (t) => {
+  const { engine, worldId } = setup(t, 'executor-policy-freshness-world');
+  enableFixture(engine, worldId);
+  const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+
+  const unguarded = new ProposalService(engine);
+  const proposal = unguarded.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: 'mechanic-policy-freshness',
+    turnId: 'turn-mechanic-policy-freshness',
+    sourceText: 'Policy freshness must be checked before approval and commit.',
+    adapterId: 'test-adapter',
+  });
+  assert.throws(
+    () => unguarded.approve(worldId, proposal.proposal_id),
+    (error) => error.code === 'MECHANIC_POLICY_REVALIDATION_REQUIRED' && error.status === 409,
+  );
+  assert.equal(unguarded.get(worldId, proposal.proposal_id).status, 'pending');
+
+  let policyCurrent = true;
+  const observedStages = [];
+  const guarded = new ProposalService(engine, {
+    validateMechanicPolicy(identity) {
+      observedStages.push(identity.stage);
+      assert.equal(identity.policyVersion, evaluation.context_policy_version);
+      assert.equal(identity.authorizationScope, evaluation.authorization_scope);
+      assert.equal(identity.worldId, worldId);
+      return policyCurrent;
+    },
+  });
+  guarded.approve(worldId, proposal.proposal_id);
+  assert.deepEqual(observedStages, ['approval']);
+
+  policyCurrent = false;
+  assert.throws(
+    () => guarded.commit(worldId, proposal.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.deepEqual(observedStages, ['approval', 'commit']);
+  assert.equal(guarded.get(worldId, proposal.proposal_id).status, 'approved');
+  assert.equal(engine.getState(worldId).world_revision, 2);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
 });
 
 test('mechanic proposal handoff rejects a stale evaluation before creating a proposal', (t) => {
@@ -670,7 +714,7 @@ test('mechanic proposal cannot commit after an intervening world change', (t) =>
   enableFixture(engine, worldId);
   const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
-  const proposals = new ProposalService(engine);
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
   const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
     idempotencyKey: 'mechanic-stale-commit',
     turnId: 'turn-mechanic-stale-commit',
@@ -747,7 +791,7 @@ test('application executor rejects known-absence claims outside the declared con
 test('mechanic proposal rollback restores the prior projection and a fresh evaluation can recover', (t) => {
   const { engine, worldId } = setup(t, 'executor-rollback-recovery-world');
   enableFixture(engine, worldId);
-  const proposals = new ProposalService(engine);
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
   const firstEvaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   const firstProposal = proposals.createFromMechanicEvaluation(worldId, firstEvaluation, {
@@ -1100,7 +1144,7 @@ test('committed mechanic execution provenance survives SQLite close and reopen',
     const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
       .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
     assert.equal(evaluation.status, 'ready');
-    const proposals = new ProposalService(engine);
+    const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
     const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
       idempotencyKey: 'mechanic-provenance-reopen',
       turnId: 'turn-mechanic-provenance-reopen',
