@@ -127,3 +127,45 @@ test('failed numbered migration rolls back its DDL and does not record the versi
   assert.equal(recovered.db.prepare("SELECT COUNT(*) AS count FROM sqlite_master WHERE type='table' AND name='mechanic_instances'").get().count, 1);
   recovered.close();
 });
+
+
+test('time coordinate migration fails closed on an unsafe legacy time span and can be retried', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-time-migration-range-'));
+  const path = join(directory, 'state.sqlite');
+  let store = new SQLiteStore(path);
+  store.createWorld({
+    world_id: 'range-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00.000Z',
+  });
+  store.close();
+
+  const setup = new DatabaseSync(path);
+  setup.exec(`
+    UPDATE worlds
+      SET initial_game_time='-271821-04-20T00:00:00.000Z',
+          game_time='+275760-09-13T00:00:00.000Z'
+      WHERE world_id='range-world';
+    DELETE FROM schema_migrations WHERE version=6;
+  `);
+  setup.close();
+
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  assert.throws(() => new SQLiteStore(path), /TIME_COORDINATE_MIGRATION_INVALID_WORLD/);
+
+  const inspect = new DatabaseSync(path);
+  assert.equal(inspect.prepare('SELECT COUNT(*) AS count FROM schema_migrations WHERE version=6').get().count, 0);
+  assert.deepEqual(
+    { ...inspect.prepare('SELECT initial_game_time_coordinate,game_time_coordinate FROM worlds WHERE world_id=?').get('range-world') },
+    { initial_game_time_coordinate: 0, game_time_coordinate: 0 },
+  );
+  inspect.prepare('UPDATE worlds SET initial_game_time=?,game_time=? WHERE world_id=?')
+    .run('2005-12-29T10:00:00.000Z', '2005-12-29T10:00:00.000Z', 'range-world');
+  inspect.close();
+
+  store = new SQLiteStore(path);
+  assert.equal(store.db.prepare('SELECT version FROM schema_migrations WHERE version=6').get().version, 6);
+  assert.equal(store.world('range-world').game_time_coordinate, 0);
+  store.close();
+});
