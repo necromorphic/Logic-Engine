@@ -338,3 +338,28 @@ This section supersedes the older live-status statements in §§15, 16, 17, and 
 - End-to-end tests against those real interfaces, including actor separation, provenance, reserved-secret exclusion, stale snapshot handling, and proof that proposal creation does not mutate canonical or knowledge state.
 
 **Next work:** continue NPC contract-to-source reconciliation against the current main commit and keep implementation blocked only on the actual missing actor/knowledge/filter boundary—not on the now-merged snapshot or tri-state primitives. Do not create NPC-local persistence or authorization as a workaround.
+
+
+## 20. Core review outcome — contract accepted with implementation gates (2026-10-24)
+
+The core owner returned preliminary decision **B**: the candidate decision-context contract in docs/39 §15 is architecturally acceptable after concrete clarification. This does not mean the interface is implemented or that NPC runtime work may begin.
+
+The review confirms three linked core-owned prerequisites:
+
+1. **Trusted actor binding:** resolve the authenticated integration call to a canonical actor entity through a trusted boundary; adapter ID and model output are not actor identity.
+2. **Initial acquisition representation:** add a minimal core-owned representation for explicitly authorized author_initial/imported knowledge, including subject assignment, canonical source/provenance, and validity. The exact event/projection/storage model remains for core design; do not create NPC-local persistence.
+3. **Snapshot-bound context filtering:** select authorized information for the resolved actor and bounded purpose against one exact snapshot marker; exclude reserved secrets before serialization; preserve unknown, known absent, withheld, incomplete, and unsupported distinctions; fail closed without a raw snapshot fallback.
+
+### Current work decision
+
+- Keep PR #38 documentation-only and unmerged; do not present its green CI as NPC runtime readiness.
+- Do not start the NPC adapter/runtime until the three core interfaces are mapped to actual implementation and the production-path tests below exist.
+- Core-owned runtime/API/schema/storage changes belong in a core-reviewed branch/PR. The NPC branch may continue contract/source reconciliation but must not supply substitute authorization or knowledge storage.
+- getSnapshot(...), evaluateConditionResult(...), context manifests, and ProposalService.create(...) remain useful primitives, not substitutes for the three missing contracts.
+- Proposal creation is non-committing for canonical world state/revision/commit sequence, but writes proposal/audit state. Tests must separately prove no acquisition, belief, or delivery mutation once those real records exist.
+
+### Acceptance evidence required
+
+Production-path tests must demonstrate actor separation and anti-substitution; subject-specific initial acquisition with provenance; secret exclusion before model input; distinct epistemic/completeness outcomes; one-snapshot consistency and stale rejection; actual adapter use of the filtered envelope; and proposal creation that leaves canonical and knowledge-related state unchanged. No mocks may stand in for missing production semantics.
+
+The detailed decision and the schema-neutral clarification are recorded in docs/39 §16. Historical dependency/status notes above remain historical; use §19 for the last recorded main-branch dependency check and re-verify live refs before any future integration.
