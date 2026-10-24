@@ -213,8 +213,8 @@ The current core-main comparison and its limits are recorded in `docs/37-npc-ker
 Use the current core documents as the source for proposal and mechanic boundaries:
 
 - `docs/27-proposal-to-commit-boundary.md`: proposal creation is a rollback-only preview and does not mutate canonical state; approval/commit remain explicit and stale-snapshot checked. This still does not prove named NPC authorization, causal completeness, semantic alignment, or player-agency enforcement.
-- `docs/30-stage1.3-mechanic-execution-boundary.md`: a core-only mechanic-evaluation contract, not NPC decision-making or knowledge runtime.
-- `docs/31-mechanic-effect-intent-support-matrix.md`: generic relationship operations, knowledge operations, and goal/task management remain unsupported by the canonical effect validator. Do not approximate these capabilities with generic attributes or `fact.set`.
+- [`docs/30-stage1.3-mechanic-execution-boundary.md` on main](https://github.com/necromorphic/Logic-Engine/blob/main/docs/30-stage1.3-mechanic-execution-boundary.md): a core-only mechanic-evaluation contract, not NPC decision-making or knowledge runtime.
+- [`docs/31-mechanic-effect-intent-support-matrix.md` on main](https://github.com/necromorphic/Logic-Engine/blob/main/docs/31-mechanic-effect-intent-support-matrix.md): generic relationship operations, knowledge operations, and goal/task management remain unsupported by the canonical effect validator. Do not approximate these capabilities with generic attributes or `fact.set`.
 - `docs/44-npc-relationship-semantic-acceptance.md` defines fourteen relationship acceptance cases; these are specifications, not executable test evidence.
 - `docs/45-npc-relationship-typed-operation-design.md` proposes a schema-neutral typed operation and carefully separates required dependencies from alternative causal support. It remains a proposal, not an approved schema/API or implemented capability.
 
