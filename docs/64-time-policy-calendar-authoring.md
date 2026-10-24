@@ -39,3 +39,45 @@ The API requires the general bearer token in addition to the separate admin/inte
 - Calendar configuration changes alter future projections only; they never mutate the canonical coordinate.
 - Author-required duration decisions currently return a typed conflict. A dedicated author-resolution workflow is not implemented.
 - NPC knowledge, player delivery, and persistent trigger registration remain separate systems.
+
+
+---
+
+# T7 — durable time-trigger registry and atomic lifecycle
+
+**Status:** implementation proposal in this branch. This slice makes trigger definitions Core-owned and reconciles their lifecycle with durable time-advance checkpoints. It does not implement a background/system-clock scheduler.
+
+## Contract
+
+A trigger is world-scoped and identified by an immutable `trigger_id`. It contains a canonical integer-millisecond `due_coordinate`, dependency trigger IDs, declared projection `read_set` and `write_set`, `exact` or `batch` processing metadata, an optional interrupt-after-coordinate policy, and a validated event proposal payload.
+
+A trigger can be registered only strictly after the world's current coordinate. Re-registering the same ID with the same normalized content is idempotent; the same ID with different content is rejected. The first slice has no reschedule or reopen operation. Cancellation is permitted only while a trigger is pending and unclaimed.
+
+The registry is isolated by `world_id`. Registration and cancellation increment the world's revision and write audit entries. The registry is limited to 10,000 triggers per world; each event payload is limited to 256 KiB.
+
+## Operation selection and reservation
+
+The HTTP time-advance endpoint no longer accepts caller-supplied trigger arrays. It plans from the Core-owned registry. Pending triggers at or before the current coordinate cause a typed `TIME_TRIGGER_OVERDUE` refusal; Core does not silently skip overdue work.
+
+The planner sees pending, completed, and cancelled registry records so it can resolve dependency status. Missing, cancelled, not-yet-due, cyclic, or conflicting dependencies preserve the existing fail-closed planner behavior.
+
+Before an operation is persisted, the same SQLite transaction checks the starting coordinate/revision, verifies each planned registry trigger is still pending, unclaimed and within the interval, inserts the operation, and reserves the planned trigger IDs. A failed reservation rolls back the operation row.
+
+## Atomic completion and failure
+
+Each planned segment stores the registry trigger IDs represented by its trigger events. The segment's canonical events, world time, event/audit/idempotency records, trigger transition to `completed`, trigger completion audit, and operation checkpoint commit inside the same outer SQLite transaction.
+
+If segment execution fails, canonical effects and trigger completion both roll back. The operation becomes `needs_review`; the trigger remains pending but claimed by that review-required operation. Core does not release it for automatic re-execution, and cancellation is rejected while claimed. A human/author resolution workflow remains future work.
+
+A successful operation replay returns its saved result. A new operation cannot execute a completed trigger again. `batch` remains processing metadata in this slice; effects are not aggregated.
+
+## API and limits
+
+All routes require the general bearer token and separate `x-engine-internal-token`:
+- `POST /v1/worlds/:id/time-triggers` — register an immutable trigger.
+- `GET /v1/worlds/:id/time-triggers` — list lifecycle records.
+- `POST /v1/worlds/:id/time-triggers/:trigger_id/cancel` — cancel an unclaimed pending trigger.
+- `POST /v1/worlds/:id/time-advances` — advance through the registry; inline `triggers` and `completed_trigger_ids` are rejected.
+- Existing operation status and resume routes remain unchanged.
+
+No system-clock advancement, NPC knowledge, player delivery, World Pack trigger authoring, or automatic recovery from `needs_review` is introduced.
