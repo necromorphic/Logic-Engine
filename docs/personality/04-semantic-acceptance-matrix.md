@@ -54,7 +54,6 @@ Status: semantic specification, not an executable runtime test suite. These case
 - Define the difference between unset, explicit neutral, withheld, and cleared values; define conflict/insufficient-support as a separate reconciliation/read-result state.
 - Define the meaning of initial/imported state, in-world transition, and author correction.
 - Require explicit compatibility or migration handling for meaning-changing World Pack rule versions; do not silently reinterpret historical transitions under current rules.
-- Require explicit compatibility or migration handling for meaning-changing World Pack rule versions; do not silently reinterpret historical transitions under current rules.
 - Maintain semantic examples and pure acceptance rules without claiming runtime integration.
 
 ### Blocked on core contracts and production tests
