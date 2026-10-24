@@ -473,3 +473,26 @@ test('application executor treats an empty effect set as no match and never crea
   );
   assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
 });
+
+
+test('application executor rejects a snapshot when the world changes during target resolution', (t) => {
+  const { engine, worldId } = setup(t, 'executor-target-race-world');
+  enableFixture(engine, worldId);
+  const originalGetState = engine.getState.bind(engine);
+  let injected = false;
+  engine.getState = (id) => {
+    if (!injected) {
+      injected = true;
+      commit(engine, id, 'intervening-target-race', 2, [{
+        kind: 'entity.create', entity_id: 'entity.race', entity_type: 'object',
+      }]);
+    }
+    return originalGetState(id);
+  };
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'SNAPSHOT_CHANGED_DURING_PREPARATION');
+  assert.deepEqual(result.effects, []);
+  assert.equal(engine.getState(worldId).world_revision, 3);
+});
