@@ -7,6 +7,7 @@ import { AuthorizedReadService } from '../src/application/authorized-read-servic
 import { MemoryNpcContextBridge } from '../src/application/memory-npc-context-bridge.js';
 
 function setup(t) {
+  let sourceVisible = true;
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const bindings = new ActorBindingService(engine);
@@ -40,6 +41,7 @@ function setup(t) {
       && context.actor.entity_id === 'actor-a'
       && context.recipient === 'model'
       && context.purpose === 'npc_decision'
+      && sourceVisible
       && (field === 'entity_id' || field === 'status' || field === 'attributes.name'));
   const sourceRead = () => authorizedReads.readEntityFields({
     worldId: 'memory-bridge-world',
@@ -52,7 +54,7 @@ function setup(t) {
   });
   const snapshot = sourceRead();
   t.after(() => store.close());
-  return { engine, store, authorizedReads, sourceRead, snapshot };
+  return { engine, store, authorizedReads, sourceRead, snapshot, revokeSource: () => { sourceVisible = false; } };
 }
 
 function memoryResult(snapshot, overrides = {}) {
@@ -136,6 +138,46 @@ test('host seam composes real Core authorized-read with fixture Memory retrieval
   }]);
   assert.equal(JSON.stringify(output).includes('private memory payload'), false);
   assert.equal(JSON.stringify(sourceRead()).includes('must-not-leak'), false);
+});
+
+
+test('host seam rechecks Core visibility for a derived summary and fails closed after revocation', async (t) => {
+  const { sourceRead, snapshot, revokeSource } = setup(t);
+  const request = {
+    world_id: 'memory-bridge-world',
+    subject_id: 'actor-a',
+    purpose: 'npc_decision',
+    snapshot: { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence },
+  };
+  const bridge = new MemoryNpcContextBridge({
+    retrieve: () => memoryResult(snapshot),
+    verifyResult: (scope, retrieved) => retrieved?.completeness === 'complete'
+      && retrieved.scope?.world_id === scope.world_id
+      && retrieved.scope?.subject_id === scope.subject_id
+      && sourceRead().world_revision === scope.snapshot.world_revision
+      && sourceRead().commit_sequence === scope.snapshot.commit_sequence,
+    verifyCandidate: (scope, item) => {
+      if (item.record?.ref !== 'memory:summary-1' || item.record.version !== 'mem-v3') return false;
+      if (item.lineage?.status !== 'complete' || item.lineage.sources?.length !== 1) return false;
+      const source = item.lineage.sources[0];
+      if (source.ref !== 'entity:source-a' || source.version !== 'core-fixture-v1'
+        || source.world_id !== scope.world_id) return false;
+      const authorized = sourceRead();
+      return authorized.entities[0].entity_id === 'source-a'
+        && authorized.world_revision === scope.snapshot.world_revision
+        && authorized.commit_sequence === scope.snapshot.commit_sequence;
+    },
+  });
+
+  assert.equal((await bridge.read(request)).status, 'ready');
+  revokeSource();
+  const output = await bridge.read(request);
+  assert.equal(output.status, 'non_ready');
+  assert.equal(output.reason, 'authoritative_verification_unavailable');
+  assert.deepEqual(output.admitted, []);
+  assert.equal(JSON.stringify(output).includes('private memory payload'), false);
+  assert.equal(JSON.stringify(output).includes('source-a'), false);
+  assert.equal(JSON.stringify(output).includes('must-not-leak'), false);
 });
 
 test('host seam rejects a rollback-only revision change before NPC admission', async (t) => {
