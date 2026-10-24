@@ -179,3 +179,64 @@ test('proposal allowlist preserves duration_proposal for Core TimePolicy validat
   assert.deepEqual(store.audit('duration-proposal-allowlist-world'), beforeAudit);
   assert.equal(store.world('duration-proposal-allowlist-world').world_revision, 0);
 });
+
+test('proposal commit audit failure rolls back proposal, canonical event, markers, idempotency and audit atomically', (t) => {
+  const store = new SQLiteStore(':memory:');
+  t.after(() => store.close());
+  const engine = new LogicEngine(store);
+  engine.createWorld({
+    world_id: 'proposal-commit-audit-rollback-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  const proposals = new ProposalService(engine);
+  const created = proposals.create('proposal-commit-audit-rollback-world', {
+    idempotency_key: 'commit-audit-fault',
+    source_text: '',
+    event: {
+      turn_id: 'commit-audit-fault-turn',
+      event_type: 'action.completed',
+      effects: [{
+        kind: 'entity.create',
+        entity_id: 'fault-target',
+        entity_type: 'object',
+        attributes: { marker: 'must-roll-back' },
+      }],
+    },
+  }, 'adapter-a');
+  proposals.approve('proposal-commit-audit-rollback-world', created.proposal_id);
+
+  const beforeWorld = store.world('proposal-commit-audit-rollback-world');
+  const beforeEvents = store.events('proposal-commit-audit-rollback-world', true);
+  const beforeAudit = store.audit('proposal-commit-audit-rollback-world');
+  const beforeProposal = store.db.prepare('SELECT * FROM event_proposals WHERE proposal_id=?').get(created.proposal_id);
+  const beforeIdempotency = store.db.prepare('SELECT COUNT(*) AS n FROM idempotency_results').get().n;
+  store.db.exec(`
+    CREATE TRIGGER fail_proposal_commit_audit
+    BEFORE INSERT ON audit_entries
+    WHEN NEW.action = 'proposal.committed'
+    BEGIN SELECT RAISE(ABORT, 'injected proposal commit audit failure'); END;
+  `);
+
+  assert.throws(
+    () => proposals.commit('proposal-commit-audit-rollback-world', created.proposal_id),
+    /injected proposal commit audit failure/,
+  );
+
+  const afterWorld = store.world('proposal-commit-audit-rollback-world');
+  const afterEvents = store.events('proposal-commit-audit-rollback-world', true);
+  const afterAudit = store.audit('proposal-commit-audit-rollback-world');
+  const afterProposal = store.db.prepare('SELECT * FROM event_proposals WHERE proposal_id=?').get(created.proposal_id);
+  const afterIdempotency = store.db.prepare('SELECT COUNT(*) AS n FROM idempotency_results').get().n;
+  assert.equal(afterWorld.world_revision, beforeWorld.world_revision);
+  assert.equal(afterWorld.commit_sequence, beforeWorld.commit_sequence);
+  assert.deepEqual(afterEvents, beforeEvents);
+  assert.deepEqual(afterAudit, beforeAudit);
+  assert.equal(afterProposal.status, 'approved');
+  assert.equal(afterProposal.committed_at, null);
+  assert.equal(afterProposal.commit_result_json, null);
+  assert.equal(afterIdempotency, beforeIdempotency);
+  assert.equal(store.entity('proposal-commit-audit-rollback-world', 'fault-target'), null);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM audit_entries WHERE action = ? AND target_id = ?').get('proposal.committed', created.proposal_id).n, 0);
+});
