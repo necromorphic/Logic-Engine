@@ -12,12 +12,16 @@ const adminToken = 'test-admin-token-123456789';
 
 const rules = {
   trust: {
-    values: ['low', 'high'],
+    values: ['low', 'neutral', 'high'],
     allowClear: true,
     transitions: [
       { operation: 'set', from: null, to: 'low' },
       { operation: 'set', from: 'low', to: 'high' },
+      { operation: 'set', from: null, to: 'neutral' },
+      { operation: 'set', from: 'low', to: 'neutral' },
+      { operation: 'set', from: 'neutral', to: 'high' },
       { operation: 'clear', from: 'low', to: null },
+      { operation: 'clear', from: 'neutral', to: null },
       { operation: 'clear', from: 'high', to: null },
     ],
   },
@@ -284,6 +288,42 @@ test('source rollback invalidates a Relationship transition that cites the sourc
     assert.ok(result.invalidated_event_ids.includes(write.event_id));
     assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
   } finally { store.close(); }
+});
+
+test('explicit neutral, cleared and unset remain distinct across replay', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+    const neutral = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+      patch: { trust: 'neutral' },
+      idempotency_key: 'relationship-explicit-neutral',
+    }));
+    assert.equal(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'neutral');
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'B', 'A').dimensions, {});
+
+    const clear = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+      patch: { trust: { operation: 'clear' } },
+      expected_revision: 2,
+      expected_commit_sequence: 2,
+      idempotency_key: 'relationship-neutral-clear',
+    }));
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, { status: 'cleared' });
+
+    engine.rollbackEvent('world-relationship-test', {
+      root_event_id: clear.event_id,
+      idempotency_key: 'rollback-neutral-clear',
+    });
+    assert.equal(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'neutral');
+
+    engine.rollbackEvent('world-relationship-test', {
+      root_event_id: neutral.event_id,
+      idempotency_key: 'rollback-neutral-set',
+    });
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'B', 'A').dimensions, {});
+  } finally {
+    store.close();
+  }
 });
 
 test('clear remains distinct from unset and rollback restores the previous surviving value', async () => {
