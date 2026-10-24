@@ -1593,3 +1593,52 @@ test('rollback idempotency replays its original result after history changes and
   assert.equal(newKeyRetry.world_revision, 3);
   assert.equal(engine.getState('causality-world').world_revision, 3);
 });
+
+test('sequential rollbacks invalidate a READS_CLAIM reader when its last remaining support is removed', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('causality-world', command({
+    event_id: 'sequential-source-a',
+    idempotency_key: 'sequential-source-a',
+    effects: [{ kind: 'fact.set', fact_id: 'sequential-door-state', predicate: 'open', value: true }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'sequential-source-b',
+    idempotency_key: 'sequential-source-b',
+    turn_id: 'sequential-source-b',
+    expected_revision: 1,
+    effects: [{ kind: 'fact.set', fact_id: 'sequential-door-state', predicate: 'open', value: true }],
+  }));
+  engine.commitEvent('causality-world', command({
+    event_id: 'sequential-claim-reader',
+    idempotency_key: 'sequential-claim-reader',
+    turn_id: 'sequential-claim-reader',
+    expected_revision: 2,
+    causal_links: [{ relation: 'READS_CLAIM', target_id: 'sequential-door-state' }],
+    effects: [{ kind: 'fact.set', fact_id: 'sequential-door-report', predicate: 'reported', value: true }],
+  }));
+
+  const firstRollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'sequential-source-a',
+    idempotency_key: 'rollback-sequential-source-a',
+  });
+  let events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+  let fact = engine.getState('causality-world').facts.find((item) => item.fact_id === 'sequential-door-state');
+
+  assert.deepEqual(new Set(firstRollback.invalidated_event_ids), new Set(['sequential-source-a']));
+  assert.equal(events.get('sequential-claim-reader').validity, 'valid');
+  assert.deepEqual(fact.source_event_ids, ['sequential-source-b']);
+
+  const secondRollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'sequential-source-b',
+    idempotency_key: 'rollback-sequential-source-b',
+  });
+  events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+  const state = engine.getState('causality-world');
+
+  assert.deepEqual(new Set(secondRollback.invalidated_event_ids), new Set(['sequential-source-b', 'sequential-claim-reader']));
+  assert.equal(events.get('sequential-claim-reader').validity, 'invalidated');
+  assert.equal(state.facts.some((item) => item.fact_id === 'sequential-door-state'), false);
+  assert.equal(state.facts.some((item) => item.fact_id === 'sequential-door-report'), false);
+});
