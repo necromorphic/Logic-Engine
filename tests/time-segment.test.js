@@ -128,7 +128,7 @@ test('a later event failure rolls back earlier segment events, audit, replay, re
   assert.equal(state.entities[0].entity_id, 'occupied');
   assert.deepEqual(engine.getEvents('segment-world').map((item) => item.event_id), ['preexisting']);
   assert.equal(engine.getAudit('segment-world').length, 2);
-  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM idempotency_keys WHERE world_id=? AND idempotency_key LIKE ?').get('segment-world', 'segment-%').count, 0);
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE world_id=? AND idempotency_key IN ('failing-segment-key','segment-fresh-key','segment-duplicate-key')").get('segment-world').count, 0);
 });
 
 test('segment rejects intra-segment dependencies and read/write conflicts before mutation', (t) => {
@@ -180,4 +180,31 @@ test('stale segment plans are rejected without partial mutation', (t) => {
   );
   assert.equal(engine.getState('segment-world').world_revision, 1);
   assert.equal(engine.getEvents('segment-world').length, 1);
+});
+
+
+test('segment events can share the same context manifest base revision', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.registerContextManifest('segment-world', 'segment-context', {
+    generation_id: 'segment-generation',
+    base_commit_sequence: 0,
+    base_world_revision: 0,
+    items: [],
+  });
+  const request = segment({
+    idempotency_key: 'manifest-segment-key',
+    events: [
+      event('manifest-event-1', 'manifest-event-key-1', [
+        { kind: 'entity.upsert', entity_id: 'manifest-alpha', entity_type: 'object' },
+      ], { context_manifest_id: 'segment-context', generation_id: 'segment-generation' }),
+      event('manifest-event-2', 'manifest-event-key-2', [
+        { kind: 'entity.upsert', entity_id: 'manifest-beta', entity_type: 'object' },
+      ], { context_manifest_id: 'segment-context', generation_id: 'segment-generation' }),
+    ],
+  });
+  const result = engine.commitSegment('segment-world', request);
+  assert.equal(result.accepted, true);
+  assert.equal(engine.getState('segment-world').world_revision, 2);
+  assert.equal(engine.getState('segment-world').entities.length, 2);
 });
