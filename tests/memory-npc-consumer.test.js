@@ -456,3 +456,48 @@ test('Core source-field revocation after a prior admission is rechecked on the n
   assert.equal(JSON.stringify(revoked).includes('authorized source text'), false);
   assert.equal(JSON.stringify(revoked).includes('must never leak'), false);
 });
+
+
+test('malformed and cross-scope candidate rows cannot be silently converted to complete-empty', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
+  setCandidates([candidate({ record: { ref: '', version: 'v1' } })]);
+  const malformed = await consumer.retrieveForNpc(request());
+  assert.equal(malformed.status, 'non_ready');
+  assert.equal(malformed.reason, 'memory_candidate_invalid_or_scope_mismatch');
+  assert.deepEqual(malformed.admitted, []);
+  assert.deepEqual(malformed.candidates, []);
+
+  setCandidates([candidate({ world_id: 'another-world' })]);
+  const crossScope = await consumer.retrieveForNpc(request());
+  assert.equal(crossScope.status, 'non_ready');
+  assert.equal(crossScope.reason, 'memory_candidate_invalid_or_scope_mismatch');
+  assert.deepEqual(crossScope.admitted, []);
+  assert.deepEqual(crossScope.candidates, []);
+});
+
+test('complete-empty result becomes non-ready when Core changes after the indexed snapshot', async (t) => {
+  const { consumer, setCandidates, engine, store, snapshot } = setup(t);
+  setCandidates([]);
+  const beforeSequence = store.currentCommitSequence('memory-npc-world');
+  const before = await consumer.retrieveForNpc(request());
+  assert.equal(before.status, 'ready');
+  assert.deepEqual(before.admitted, []);
+  assert.deepEqual(before.snapshot, {
+    world_revision: snapshot.world_revision,
+    commit_sequence: snapshot.commit_sequence,
+  });
+
+  const rollback = engine.rollbackEvent('memory-npc-world', {
+    root_event_id: 'unrelated-memory-npc',
+    idempotency_key: 'rollback-empty-memory-npc',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.equal(store.currentCommitSequence('memory-npc-world'), beforeSequence);
+  assert.notEqual(engine.getState('memory-npc-world').world_revision, snapshot.world_revision);
+
+  const after = await consumer.retrieveForNpc(request());
+  assert.equal(after.status, 'non_ready');
+  assert.equal(after.reason, 'memory_snapshot_stale');
+  assert.deepEqual(after.admitted, []);
+  assert.deepEqual(after.candidates, []);
+});
