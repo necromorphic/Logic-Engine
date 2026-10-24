@@ -2,6 +2,8 @@
 
 Status: author-requested semantic/editor proposal on `feat/npc-subsystem`. Documentation only. This does not approve a final character-card schema, UI, API, persistence model, or runtime behavior.
 
+**Character-card integration:** this proposal must be read alongside the separate [Character Cards Contract v1.2.1](https://github.com/necromorphic/Logic-Engine/blob/docs/character-cards-contract-v1.2.1/docs/29-character-cards-contract-v1.2.1.md) in PR #29. Under that proposed architecture, a character card is a projection of authoritative records, not a second source of truth. Social identities are authored profile/configuration data associated with the same underlying character and should be represented in the character-card projection through the eventual approved profile/card contract. This is a semantic ownership direction, not a decision that they belong in a particular core table, profile store, or persistence layer; those implementation details remain open and must not create a parallel canonical identity store.
+
 ## 1. Purpose
 
 Add an optional editor capability for defining one or more **social identities** used by the same underlying character: cover identities, aliases with separate claimed biographies, false identities, assumed names, double-agent covers, and similar public-facing representations.
