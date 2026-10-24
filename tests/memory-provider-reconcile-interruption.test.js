@@ -60,9 +60,10 @@ test('interrupted reconciliation remains unavailable after restart until a full 
   await provider.rebuildIndex(scope.world_id);
   assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
 
-  // Stop at an awaited source-validation boundary after reconcile has persisted
-  // rebuilding/stale. Closing the adapter models process loss; no success marker
-  // may survive the restart until a new complete reconciliation succeeds.
+  // Pause reconciliation at an awaited source-validation boundary after it has
+  // persisted rebuilding/stale. Closing the adapter interrupts this in-flight
+  // operation; reopening must not make the persisted readiness marker current.
+  // This tests the restart boundary, not every possible hard-crash timing.
   pauseNextValidation = true;
   interruptedReconciliation = provider.reconcile(scope.world_id);
   await validationStarted;
