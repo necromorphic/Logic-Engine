@@ -257,7 +257,7 @@ export class LogicEngine {
         }
         for (const milestone of pending) {
           const oldTrigger = this.getTimeTrigger(id, milestone.trigger_id);
-          if (oldTrigger.status === 'pending') this.cancelTimeTrigger(id, milestone.trigger_id, reason.trim());
+          if (oldTrigger.status === 'pending') this.cancelTimeTrigger(id, milestone.trigger_id, reason.trim(), { processLifecycle: true });
         }
         const nextVersion = current.version + 1;
         const newIds = new Map(pending.map((milestone) => [milestone.milestone_id,
@@ -689,9 +689,15 @@ export class LogicEngine {
     return this.store.getTimeTrigger(id, triggerId);
   }
 
-  cancelTimeTrigger(id, triggerId, reason = 'author_cancelled') {
+  cancelTimeTrigger(id, triggerId, reason = 'author_cancelled', options = {}) {
     assert(typeof reason === 'string' && reason.trim() && reason.length <= 200,
       'INVALID_TIME_TRIGGER_CANCELLATION', 'reason must be a non-empty string of at most 200 characters.');
+    const owner = this.processStore.findMilestoneByTrigger(id, triggerId);
+    if (owner && options.processLifecycle !== true) {
+      throw new EngineError('PROCESS_TRIGGER_LIFECYCLE_OWNED', 'A process milestone trigger can only be cancelled through its owning process lifecycle.', 409, {
+        process_id: owner.process_id, milestone_id: owner.milestone_id,
+      });
+    }
     return this.store.cancelTimeTrigger(id, triggerId, reason.trim());
   }
 
