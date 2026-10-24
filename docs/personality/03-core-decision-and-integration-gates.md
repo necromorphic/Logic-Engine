@@ -118,7 +118,21 @@ These are required future tests, not claims that the current runtime already pas
 
 Integration remains blocked until typed write, provenance, authorized read, and the applicable replay/rollback guarantees are specified and tested. This record is a contract/design boundary, not permission to implement.
 
-## 8. Related documents
+## 8. Exact remaining questions for Core
+
+The Core response closes the ownership and high-level semantic direction. The following questions remain open; they are not requests for Core to design Personality semantics.
+
+| Gate | Existing approved position | Exact unresolved question | Closure criterion |
+|---|---|---|---|
+| First-slice causal boundary | Replay surviving valid typed transitions is the target only where semantically sufficient; causal dependency is not OR-support. | Which relationship-transition cases are in the first slice, and which are explicitly unsupported because they require alternative evidence or reconciliation? | A schema-neutral contract names the supported replay model, canonical ordering/rebuild expectation, and excluded cases; real-path replay/rollback tests pass. |
+| Trusted write classification | Initial/imported state, in-world transition, and author correction are distinct; a caller-supplied `origin` does not grant authority. | What trusted command/actor context establishes authorization for each classification, and where is classification/audit recorded in the existing commit path? | Contract identifies trusted authority source, accepted operation classes, audit/provenance record, rejection behavior, and tests for spoofed origin plus history-preserving correction. |
+| Authorized read boundary | PR #45 is snapshot-only; raw snapshots are not safe for actors or models. | How is the reading actor bound to trusted authority, how are purpose/world/snapshot/visibility enforced, and which explicit result states distinguish known, unset, withheld, and incomplete/unsupported? | An internal contract and implementation are verified against a consistent snapshot; tests cover actor separation, secret exclusion, world scope, non-disclosure of withheld values, and concurrent commit/rollback. |
+| Typed relationship operation | A separate typed canonical operation is required; directed participants, partial patch, validation, and atomic commit are the approved semantic direction. | What exact internal typed-effect contract fits the current effect conventions once causal and trusted-write gates are closed? | Contract specifies participants/direction, patch/clear semantics, validator ownership, accepted/rejected commit effects, idempotency, event identity, and production tests without inventing a parallel API/store. |
+| Alternative support | Multiple source IDs do not establish independent sufficiency; no universal alternative-support store is approved. | Can all first-slice states be reconstructed by replay, or is any proposed dimension already dependent on independently sufficient evidence? | Either explicitly defer such cases, or define a narrow typed support/reconciliation rule with World Pack semantics and Core-owned tests before accepting them. |
+
+Until these closure criteria are met, the Personality block must not claim end-to-end runtime readiness. These are Core-owned blockers; Personality may continue its semantic acceptance and World Pack authoring work without implementing substitutes.
+
+## 9. Related documents
 
 - `docs/personality/01-personality-and-relationship-semantics.md` — Personality block semantic scope.
 - `docs/personality/02-core-integration-review-request.md` — original request and response disposition.
