@@ -10,6 +10,8 @@ The first slice must prove one safe boundary:
 
 This is deliberately smaller than a persistent autonomous NPC process. Following the core owner's later semantic decision in `docs/39`, the first supported knowledge path is narrower still: explicitly authorized `author_initial`/imported knowledge only, with provenance. Observation, communication, documents, inference, and rumor remain unsupported until their evidence paths are specified and tested. The slice does not implement durable goals, schedules, long-running plans, off-screen progression, or NPC-aware rollback reconciliation.
 
+The `author_initial`/imported path depends on the core-owned acquisition/provenance record contract proposed in `docs/39-npc-core-knowledge-contract-proposal.md` §4.1. That section is the semantic reference for the minimum acquisition record; this document does not imply the record type, input representation, or write/read boundary already exists. Before implementation, the core owner must define and verify the executable representation and trusted creation/read boundary using existing core identity, snapshot, provenance, and causal mechanisms. Until then, `author_initial`/imported knowledge is the only approved first-slice target, not an available runtime capability.
+
 ## 2. Ownership boundaries
 
 | Concern | Owner | First-slice rule |
