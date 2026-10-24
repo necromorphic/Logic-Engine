@@ -190,6 +190,89 @@ test('timed action resolves duration through TimePolicy and processes due trigge
   assert.equal(engine.getEvents('time-trigger-world').filter((event) => event.event_type === 'travel.completed').length, 1);
 });
 
+test('timed action is not committed when due work interrupts the interval', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.registerTimeConfiguration('time-trigger-world', {
+    version: 'interrupt-action-policy',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    calendar_definition: {
+      calendar_id: 'interrupt-action.calendar',
+      version: '1.0.0',
+      day_length_ms: 86400000,
+      weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      year_cycle: [{ id: 'standard', name: 'Standard', months: [{ id: 'jan', name: 'January', days: 31 }] }],
+      epoch: { coordinate: 0, year_number: 2026, year_cycle_index: 0, month_id: 'jan', day_of_month: 1, weekday_index: 0, time_of_day_ms: 0 },
+      holidays: [],
+    },
+    time_policy: {
+      policy_id: 'interrupt-action.policy',
+      version: '1.0.0',
+      max_action_duration_ms: 43200000,
+      max_skip_duration_ms: 604800000,
+      duration_rules: [{ event_type: 'travel.completed', rule: { kind: 'fixed', duration_ms: 30000 } }],
+    },
+  });
+  engine.registerTimeTrigger('time-trigger-world', {
+    ...trigger('interrupt-at-ten', 10000, 'interrupt-entity'),
+    interrupt_after_coordinate: true,
+  });
+  const operation = engine.startTimedAction('time-trigger-world', {
+    idempotency_key: 'interrupted-travel-action',
+    expected_revision: engine.getState('time-trigger-world').world_revision,
+    event: { turn_id: 'interrupted-travel-turn', event_type: 'travel.completed', effects: [] },
+  });
+  assert.equal(operation.status, 'interrupted');
+  assert.equal(operation.confirmed_coordinate, 10000);
+  assert.equal(operation.result.final_action_status, 'not_executed_interrupted');
+  assert.equal(engine.getEvents('time-trigger-world').some((event) => event.event_type === 'travel.completed'), false);
+  assert.equal(engine.getTimeTrigger('time-trigger-world', 'interrupt-at-ten').status, 'completed');
+});
+
+test('timed action rejects conflicts with scheduled effects at the exact target before any progress', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.registerTimeConfiguration('time-trigger-world', {
+    version: 'conflict-action-policy',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    calendar_definition: {
+      calendar_id: 'conflict-action.calendar',
+      version: '1.0.0',
+      day_length_ms: 86400000,
+      weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      year_cycle: [{ id: 'standard', name: 'Standard', months: [{ id: 'jan', name: 'January', days: 31 }] }],
+      epoch: { coordinate: 0, year_number: 2026, year_cycle_index: 0, month_id: 'jan', day_of_month: 1, weekday_index: 0, time_of_day_ms: 0 },
+      holidays: [],
+    },
+    time_policy: {
+      policy_id: 'conflict-action.policy',
+      version: '1.0.0',
+      max_action_duration_ms: 43200000,
+      max_skip_duration_ms: 604800000,
+      duration_rules: [{ event_type: 'travel.completed', rule: { kind: 'fixed', duration_ms: 10000 } }],
+    },
+  });
+  engine.registerTimeTrigger('time-trigger-world', trigger('at-target', 10000, 'shared-target'));
+  const revision = engine.getState('time-trigger-world').world_revision;
+  assert.throws(
+    () => engine.startTimedAction('time-trigger-world', {
+      idempotency_key: 'conflicting-target-action',
+      expected_revision: revision,
+      event: {
+        turn_id: 'conflicting-target-turn',
+        event_type: 'travel.completed',
+        effects: [{ kind: 'entity.upsert', entity_id: 'shared-target', entity_type: 'object', attributes: { action: true } }],
+      },
+    }),
+    (error) => error.code === 'TIME_ACTION_TRIGGER_CONFLICT',
+  );
+  assert.equal(engine.getState('time-trigger-world').game_time_coordinate, 0);
+  assert.equal(engine.getTimeTrigger('time-trigger-world', 'at-target').status, 'pending');
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM time_advance_operations WHERE world_id=?').get('time-trigger-world').count, 0);
+});
+
 test('direct timed commits cannot cross registered triggers outside the advance operation', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
