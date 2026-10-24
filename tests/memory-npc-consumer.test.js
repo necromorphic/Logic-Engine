@@ -641,6 +641,39 @@ test('mutable provider candidate cannot rebind its source during asynchronous re
   assert.equal(result.candidates[0].content['attributes.public_note'], 'authorized source text');
 });
 
+test('rechecks earlier Memory candidates after a later async authorization revokes access', async (t) => {
+  const { consumer, provider, setCandidates, candidate } = setup(t);
+  setCandidates([
+    candidate(),
+    candidate({ record: { ref: 'memory:claim-2', version: 'v1' } }),
+  ]);
+
+  const access = new Map([
+    ['memory:claim-1', true],
+    ['memory:claim-2', true],
+  ]);
+  const calls = new Map();
+  provider.authorizeCandidate = async ({ record_ref }) => {
+    const count = (calls.get(record_ref) ?? 0) + 1;
+    calls.set(record_ref, count);
+
+    // Candidate A passed its first check. While candidate B's first check is
+    // awaiting, simulate a Memory-side revocation of A. The final authorization
+    // sweep must not return A based on its stale earlier allow.
+    if (record_ref === 'memory:claim-2' && count === 1) {
+      access.set('memory:claim-1', false);
+    }
+    return access.get(record_ref) === true;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.admitted.map((entry) => entry.record_ref), ['memory:claim-2']);
+  assert.deepEqual(result.candidates.map((entry) => entry.record_ref), ['memory:claim-2']);
+  assert.equal(calls.get('memory:claim-1'), 2);
+  assert.equal(calls.get('memory:claim-2'), 2);
+});
+
 function candidateForMutation(provider, setCandidates) {
   const result = provider.retrieveCandidates;
   let candidate;
