@@ -1,6 +1,7 @@
 import { EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { evaluateMechanicActionConditions, translateMechanicEffectIntents } from '../core/mechanics.js';
+import { collectConditionDependencies } from '../core/rules.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
@@ -192,6 +193,28 @@ export class MechanicExecutor {
       }
     }
 
+    const conditionDependencyPaths = [...new Set([
+      ...template.applicability,
+      ...action.preconditions,
+      ...(action.constraints ?? []),
+    ].flatMap((rule) => collectConditionDependencies(rule)))].sort();
+    const effectTargetDependencies = translated.effects.flatMap((effect) => {
+      if (effect.kind === 'entity.create') return [{ kind: 'entity_absence', target_id: effect.entity_id }];
+      if (effect.kind === 'entity.update') return [{ kind: 'entity_exists', target_id: effect.entity_id }];
+      if (effect.kind === 'fact.set' && effect.subject_ref !== undefined && effect.subject_ref !== null) {
+        return [{ kind: 'entity_exists', target_id: effect.subject_ref }];
+      }
+      return [];
+    }).sort((a, b) => a.kind.localeCompare(b.kind) || a.target_id.localeCompare(b.target_id));
+    const dependencyManifest = {
+      condition_paths: conditionDependencyPaths,
+      condition_ast_dependencies_complete: true,
+      effect_target_dependencies: effectTargetDependencies,
+      effect_target_dependencies_complete: true,
+      context_projection_dependencies_complete: false,
+      mechanic_dependencies_complete: false,
+      unresolved_sources: ['trusted context projection from canonical state', 'causal/read-set completeness'],
+    };
     let contextFingerprint;
     try {
       contextFingerprint = hashRequest({
@@ -208,6 +231,7 @@ export class MechanicExecutor {
       context_fingerprint: contextFingerprint,
       context_policy_version: resolved.policy_version,
       condition_result: conditionResult,
+      dependency_manifest: dependencyManifest,
       effects: translated.effects,
       effect_provenance: translated.effect_provenance,
     };
