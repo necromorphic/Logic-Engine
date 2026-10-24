@@ -49,18 +49,18 @@ const allowAll = {
   verifyCandidate: () => true,
 };
 
-test('requires all trusted host dependencies; no default allow path exists', () => {
+test('requires all trusted host dependencies; no default allow path exists', async () => {
   assert.throws(() => new MemoryNpcContextBridge({}), /retrieve function/);
   assert.throws(() => new MemoryNpcContextBridge({ retrieve: () => result() }), /result verifier/);
   assert.throws(() => new MemoryNpcContextBridge({ retrieve: () => result(), verifyResult: () => true }), /candidate verifier/);
 });
 
-test('trusted source verification is required even when caller labels say allow/current/ready', () => {
+test('trusted source verification is required even when caller labels say allow/current/ready', async () => {
   const bridge = new MemoryNpcContextBridge({
     ...allowAll,
     verifyResult: () => false,
   });
-  const output = bridge.read(request);
+  const output = await bridge.read(request);
   assert.deepEqual(output, {
     status: 'non_ready',
     admitted: [],
@@ -68,22 +68,22 @@ test('trusted source verification is required even when caller labels say allow/
   });
 });
 
-test('an unverifiable candidate makes the whole result non-ready, not complete-empty', () => {
+test('an unverifiable candidate makes the whole result non-ready, not complete-empty', async () => {
   const bridge = new MemoryNpcContextBridge({
     ...allowAll,
     retrieve: () => result([candidate(), candidate({ record: { ref: 'memory:unverified', version: 'v1' } })]),
     verifyCandidate: (_request, item) => item.record.ref !== 'memory:unverified',
   });
-  const output = bridge.read(request);
+  const output = await bridge.read(request);
   assert.equal(output.status, 'non_ready');
   assert.equal(output.reason, 'authoritative_candidate_unconfirmed');
   assert.deepEqual(output.admitted, []);
-  assert.notDeepEqual(output, new MemoryNpcContextBridge(allowAll).read({ ...request, snapshot: undefined }));
+  assert.notDeepEqual(output, await new MemoryNpcContextBridge(allowAll).read({ ...request, snapshot: undefined }));
 });
 
-test('positive verified path emits reference metadata only and never returns memory content', () => {
+test('positive verified path emits reference metadata only and never returns memory content', async () => {
   const bridge = new MemoryNpcContextBridge(allowAll);
-  const output = bridge.read(request);
+  const output = await bridge.read(request);
   assert.equal(output.status, 'ready');
   assert.deepEqual(output.admitted, [{
     record_ref: 'memory:claim-1',
@@ -94,21 +94,21 @@ test('positive verified path emits reference metadata only and never returns mem
   assert.equal(JSON.stringify(output).includes('private payload'), false);
 });
 
-test('retrieval and verifier failures fail closed without exposing details', () => {
+test('retrieval and verifier failures fail closed without exposing details', async () => {
   const cases = [
     [new MemoryNpcContextBridge({ ...allowAll, retrieve: () => { throw new Error('private backend detail'); } }), 'retrieval_unavailable'],
     [new MemoryNpcContextBridge({ ...allowAll, verifyResult: () => { throw new Error('private policy detail'); } }), 'authoritative_verification_unavailable'],
     [new MemoryNpcContextBridge({ ...allowAll, verifyCandidate: () => { throw new Error('private source detail'); } }), 'authoritative_verification_unavailable'],
   ];
   for (const [bridge, reason] of cases) {
-    const output = bridge.read(request);
+    const output = await bridge.read(request);
     assert.equal(output.status, 'non_ready');
     assert.equal(output.reason, reason);
     assert.equal(JSON.stringify(output).includes('private'), false);
   }
 });
 
-test('invalid trusted scope fails before retrieval', () => {
+test('invalid trusted scope fails before retrieval', async () => {
   let called = false;
   const bridge = new MemoryNpcContextBridge({ ...allowAll, retrieve: () => { called = true; return result(); } });
   const output = bridge.read({ ...request, subject_id: ' ' });
@@ -117,12 +117,12 @@ test('invalid trusted scope fails before retrieval', () => {
   assert.equal(called, false);
 });
 
-test('partial retrieval is rejected by the existing NPC oracle even if host verifies transport', () => {
+test('partial retrieval is rejected by the existing NPC oracle even if host verifies transport', async () => {
   const bridge = new MemoryNpcContextBridge({
     ...allowAll,
     retrieve: () => result([candidate()], { completeness: 'partial' }),
   });
-  const output = bridge.read(request);
+  const output = await bridge.read(request);
   assert.equal(output.status, 'non_ready');
   assert.equal(output.reason, 'result_incomplete_or_unavailable');
   assert.deepEqual(output.admitted, []);
