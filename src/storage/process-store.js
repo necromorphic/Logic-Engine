@@ -242,6 +242,11 @@ export class ProcessStore {
       const stamp = now();
       this.db.prepare('UPDATE world_processes SET status=?,version=version+1,last_error_json=NULL,updated_at=? WHERE world_id=? AND process_id=?')
         .run(targetState, stamp, worldId, processId);
+      if (targetState === 'cancelled') {
+        this.db.prepare(`UPDATE world_process_milestones SET status='cancelled',checkpoint_version=checkpoint_version+1,updated_at=?
+          WHERE world_id=? AND process_id=? AND status='pending'`)
+          .run(stamp, worldId, processId);
+      }
       const process = this.get(worldId, processId);
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
         .run(worldId, this.store.world(worldId).world_revision, 'process.lifecycle.transitioned', processId, enc({
