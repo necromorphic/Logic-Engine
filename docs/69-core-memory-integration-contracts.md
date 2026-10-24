@@ -41,7 +41,7 @@ Adapters call a bounded service contract, not SQLite or an index directly. Raw s
 
 ## 6. Authorized-read dependency
 
-PR #65 describes a fail-closed authorized-read service candidate, but is open and explicitly limited to self-only fields. It is not a complete memory visibility policy and must not be treated as merged.
+PR #65 is merged and provides a fail-closed authorized-read service. PR #101 adds an opt-in trusted host field-policy hook; without that explicit host configuration, the HTTP route remains self-identity-only. These are shipped Core primitives, not a configured production Memory visibility policy or a complete Memory retrieval integration. See docs/73-memory-current-main-core-boundary-handoff.md.
 
 The current `ActorBindingService` on `main` resolves an authenticated adapter to a canonical actor identity; its own code comment explicitly limits that authority to identity resolution, not knowledge reads, action semantics, approval, or commit. A valid actor binding is therefore necessary identity context where applicable, but is not authorization to retrieve any memory or secret.
 
@@ -50,3 +50,9 @@ Memory integration must be reviewed against the actual base branch and any appro
 ## 7. Open integration contract
 
 No sibling contract is presumed approved by this document. Record exact versions/PR references and resolve incompatible fields through a cross-block review before runtime integration. NPC follow-up Issue #70 tracks review of `docs/52`; it remains open until the NPC owner confirms the deliverable. Remaining Core/Memory gates include the approved authorized-read boundary, rollback-aware recoverable reconciliation, derived-summary access propagation, and the actual storage/transaction boundary for Core-owned semantic records.
+
+## Current-main runtime checkpoint — Issue #129, 2026-10-24
+
+The authoritative current-main runtime audit and cross-owner boundary decisions are maintained in [docs/73-memory-current-main-core-boundary-handoff.md](73-memory-current-main-core-boundary-handoff.md), audited against `main` at `c8b416440f5360f812f38bdb03644e79f52b0f1d`. This section supersedes historical PR-state statements above; it is a pointer, not a second copy of the audit.
+
+Read authorization remains restricted and default-deny unless a trusted host policy is explicitly configured; no production Memory read policy or Memory record/retrieval/index/summary runtime is approved by this documentation. The handoff contains the current runtime classification, fail-closed boundaries, owners, and acceptance tests. No new runtime API, schema, store, outbox, cursor, or permission policy is authorized here; Issues #70 and #77 remain separate and open.

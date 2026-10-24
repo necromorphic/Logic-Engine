@@ -73,3 +73,9 @@ Status: proposed plan; runtime implementation is gated on repository and cross-b
 ## Minimal safe runtime slice recommendation
 
 The first runtime slice should be only a bounded, world-scoped authoritative record service with provenance classification, immutable/versioned corrections, audit, and exact/structured authorized retrieval. Do not begin with vector search, LLM summarization, autonomous NPC delivery, or cross-subsystem transactions. If the repository lacks an approved authorization policy, the slice must remain internal/test-only or deny protected reads rather than inventing a visibility model.
+
+## Current-main runtime checkpoint — Issue #129, 2026-10-24
+
+The authoritative current-main runtime audit and cross-owner boundary decisions are maintained in [docs/73-memory-current-main-core-boundary-handoff.md](73-memory-current-main-core-boundary-handoff.md), audited against `main` at `c8b416440f5360f812f38bdb03644e79f52b0f1d`. This section supersedes historical PR-state statements above; it is a pointer, not a second copy of the audit.
+
+Read authorization remains restricted and default-deny unless a trusted host policy is explicitly configured; no production Memory read policy or Memory record/retrieval/index/summary runtime is approved by this documentation. The handoff contains the current runtime classification, fail-closed boundaries, owners, and acceptance tests. No new runtime API, schema, store, outbox, cursor, or permission policy is authorized here; Issues #70 and #77 remain separate and open.

@@ -56,3 +56,9 @@ These checks cannot prove that a language model preserved every nuance. Treat se
 ## 5. Retention and deletion
 
 Do not delete originals merely because a summary exists. Physical erasure, legal/privacy retention, and storage-budget policy are separate decisions. If source deletion is required, record that the summary's evidence base is incomplete or unavailable and apply the defined retention semantics; do not continue claiming fully inspectable lineage.
+
+## Current-main runtime checkpoint — Issue #129, 2026-10-24
+
+The authoritative current-main runtime audit and cross-owner boundary decisions are maintained in [docs/73-memory-current-main-core-boundary-handoff.md](73-memory-current-main-core-boundary-handoff.md), audited against `main` at `c8b416440f5360f812f38bdb03644e79f52b0f1d`. This section supersedes historical PR-state statements above; it is a pointer, not a second copy of the audit.
+
+Read authorization remains restricted and default-deny unless a trusted host policy is explicitly configured; no production Memory read policy or Memory record/retrieval/index/summary runtime is approved by this documentation. The handoff contains the current runtime classification, fail-closed boundaries, owners, and acceptance tests. No new runtime API, schema, store, outbox, cursor, or permission policy is authorized here; Issues #70 and #77 remain separate and open.

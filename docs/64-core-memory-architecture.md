@@ -61,3 +61,9 @@ No automatic NPC belief update; no universal numeric confidence score; no automa
 ## 7. Implementation gate
 
 Before runtime work, confirm the storage transaction boundary, canonical event/revision hooks, available authorization service, repository migration conventions, and NPC acquisition contract. Open PRs are proposals, not integrated dependencies. Any new API/schema or Core mutation semantics require review by the owning block.
+
+## Current-main runtime checkpoint — Issue #129, 2026-10-24
+
+The authoritative current-main runtime audit and cross-owner boundary decisions are maintained in [docs/73-memory-current-main-core-boundary-handoff.md](73-memory-current-main-core-boundary-handoff.md), audited against `main` at `c8b416440f5360f812f38bdb03644e79f52b0f1d`. This section supersedes historical PR-state statements above; it is a pointer, not a second copy of the audit.
+
+Read authorization remains restricted and default-deny unless a trusted host policy is explicitly configured; no production Memory read policy or Memory record/retrieval/index/summary runtime is approved by this documentation. The handoff contains the current runtime classification, fail-closed boundaries, owners, and acceptance tests. No new runtime API, schema, store, outbox, cursor, or permission policy is authorized here; Issues #70 and #77 remain separate and open.

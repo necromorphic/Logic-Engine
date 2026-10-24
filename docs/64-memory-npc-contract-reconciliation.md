@@ -186,3 +186,10 @@ The existing `tests/npc-memory-candidate-eligibility.test.js` covers consumer-si
 6. Integration owners: implement and run the boundary tests in section 6 against the real path; record exact commit SHA and native test/Actions result.
 
 No Memory adapter, runtime endpoint, schema migration, parallel canonical store, authorization shortcut, outbox, or cursor is introduced by this document. PR #76 is closed unmerged as superseded: the helper/tests are on main via #78, the missing NPC contract docs are on main via #98, and selected current-main crosswalks were reconciled separately. Issue #70 stays open until the real authorized retrieval boundary, source-change/reconciliation path, and cross-owner acceptance tests are implemented; production readiness must not be inferred from documentation-only agreement.
+
+
+## Current-main runtime checkpoint — Issue #129, 2026-10-24
+
+The authoritative current-main runtime audit and cross-owner boundary decisions are maintained in [docs/73-memory-current-main-core-boundary-handoff.md](73-memory-current-main-core-boundary-handoff.md), audited against `main` at `c8b416440f5360f812f38bdb03644e79f52b0f1d`. This section supersedes historical PR-state statements above; it is a pointer, not a second copy of the audit.
+
+Read authorization remains restricted and default-deny unless a trusted host policy is explicitly configured; no production Memory read policy or Memory record/retrieval/index/summary runtime is approved by this documentation. The handoff contains the current runtime classification, fail-closed boundaries, owners, and acceptance tests. No new runtime API, schema, store, outbox, cursor, or permission policy is authorized here; Issues #70 and #77 remain separate and open.

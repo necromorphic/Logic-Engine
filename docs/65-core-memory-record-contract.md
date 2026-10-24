@@ -74,3 +74,9 @@ The table is an acceptance target, not evidence these transitions already exist 
 ## 7. Errors
 
 The logical contract needs stable error classes for invalid shape/schema, unknown or cross-world references, untrusted provenance, unauthorized write, idempotency conflict, stale source revision, invalid lifecycle transition, source conflict, and storage unavailable. Public error details must not leak the existence or contents of inaccessible records.
+
+## Current-main runtime checkpoint — Issue #129, 2026-10-24
+
+The authoritative current-main runtime audit and cross-owner boundary decisions are maintained in [docs/73-memory-current-main-core-boundary-handoff.md](73-memory-current-main-core-boundary-handoff.md), audited against `main` at `c8b416440f5360f812f38bdb03644e79f52b0f1d`. This section supersedes historical PR-state statements above; it is a pointer, not a second copy of the audit.
+
+Read authorization remains restricted and default-deny unless a trusted host policy is explicitly configured; no production Memory read policy or Memory record/retrieval/index/summary runtime is approved by this documentation. The handoff contains the current runtime classification, fail-closed boundaries, owners, and acceptance tests. No new runtime API, schema, store, outbox, cursor, or permission policy is authorized here; Issues #70 and #77 remain separate and open.
