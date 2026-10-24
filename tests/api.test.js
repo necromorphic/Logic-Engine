@@ -116,6 +116,33 @@ test('time-trigger lifecycle is internal-only and registered triggers drive dura
   const fetched = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger', { headers: internalHeaders });
   assert.equal(fetched.status, 200);
   assert.equal((await fetched.json()).trigger.status, 'completed');
+
+  const futureTrigger = {
+    ...trigger,
+    trigger_id: 'api-trigger-to-cancel',
+    due_coordinate: 20000,
+    write_set: ['entity:api-cancelled-entity'],
+    payload: {
+      event: {
+        event_type: 'time.trigger',
+        effects: [{
+          kind: 'entity.upsert',
+          entity_id: 'api-cancelled-entity',
+          entity_type: 'object',
+          attributes: { source: 'cancelled' },
+        }],
+      },
+    },
+  };
+  const futureRegistered = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', {
+    method: 'POST', headers: internalHeaders, body: json(futureTrigger),
+  });
+  assert.equal(futureRegistered.status, 201);
+  const cancelled = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger-to-cancel/cancel', {
+    method: 'POST', headers: internalHeaders, body: json({ reason: 'test_cancel' }),
+  });
+  assert.equal(cancelled.status, 200);
+  assert.equal((await cancelled.json()).trigger.status, 'cancelled');
 });
 
 test('time configuration authoring requires admin and calendar projection requires a trusted reader', async (t) => {
