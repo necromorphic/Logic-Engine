@@ -999,6 +999,10 @@ export class SQLiteStore {
         throw new EngineError('EVENT_ALREADY_EXISTS', 'Event ID already exists.', 409);
       }
       const revision = w.world_revision + 1;
+      const relationshipEffects = x.effects.filter((effect) => effect.kind === 'relationship.transition');
+      if (relationshipEffects.length) {
+        x.read_set = [...new Set([...(x.read_set || []), ...relationshipEffects.map((effect) => relationshipRef(effect.subject_id, effect.target_id))])];
+      }
       this.validateCausalMetadata(id, x, revision);
       const currentEntities = this.currentEntityProjection(id);
       const relationshipPairs = new Set();
