@@ -181,9 +181,18 @@ test("every missing lifecycle dimension fails closed", () => {
 test("lifecycle deny, stale source, unusable content, and unhealthy index fail closed", () => {
   const variants = [
     { content_disposition: "deleted" },
+    { content_disposition: "superseded" },
     { source_reconciliation: "pending_reconciliation" },
+    { source_reconciliation: "stale" },
+    { source_reconciliation: "retracted" },
+    { source_reconciliation: "unavailable" },
     { access_outcome: "deny" },
+    { access_outcome: "withheld" },
+    { access_outcome: "unknown" },
+    { index_health: "stale" },
     { index_health: "rebuilding" },
+    { index_health: "unavailable" },
+    { index_health: "failed" },
   ];
 
   for (const lifecycleChange of variants) {
@@ -215,6 +224,25 @@ test("known non-summary content kinds are explicit and summaries still require l
   const summaryWithoutLineage = candidate({ content_kind: "summary" });
   const result = evaluateMemoryCandidateAdmission(request, completeResult([summaryWithoutLineage]));
   assert.equal(result.status, "ready");
+});
+
+test("conflicting eligible claims remain distinct and are not adjudicated by admission", () => {
+  const first = candidate({
+    record: { ref: "memory:claim-a", version: "v1" },
+    content_kind: "claim",
+    epistemic_kind: "acquired_report",
+    lifecycle: { ...candidate().lifecycle, evidence_assessment: "disputed" },
+  });
+  const second = candidate({
+    record: { ref: "memory:claim-b", version: "v7" },
+    content_kind: "report",
+    epistemic_kind: "rumor",
+    lifecycle: { ...candidate().lifecycle, evidence_assessment: "contradicted" },
+  });
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([first, second]));
+  assert.equal(result.status, "ready");
+  assert.equal(result.admitted.length, 2);
+  assert.deepEqual(result.admitted.map(item => item.epistemic_kind), ["acquired_report", "rumor"]);
 });
 
 test("stale, retracted, unavailable, and unknown freshness are not current knowledge", () => {
