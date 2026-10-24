@@ -72,6 +72,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
     retrieveCandidates: async () => ({
       completeness,
       index_health: 'ready',
+      source_reconciliation: 'current',
       scope,
       candidates: candidateList,
     }),
@@ -378,6 +379,18 @@ test('complete-empty is ready only when the Memory index explicitly reports read
   provider.retrieveCandidates = async () => ({
     ...(await originalRetrieve()),
     index_health: 'ready',
+    source_reconciliation: 'reconciling',
+  });
+  const reconciling = await consumer.retrieveForNpc(request());
+  assert.equal(reconciling.status, 'non_ready');
+  assert.equal(reconciling.reason, 'memory_reconciliation_not_current');
+  assert.deepEqual(reconciling.admitted, []);
+  assert.deepEqual(reconciling.candidates, []);
+
+  provider.retrieveCandidates = async () => ({
+    ...(await originalRetrieve()),
+    index_health: 'ready',
+    source_reconciliation: 'current',
   });
   const empty = await consumer.retrieveForNpc(request());
   assert.equal(empty.status, 'ready');
