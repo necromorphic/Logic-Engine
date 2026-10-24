@@ -1576,7 +1576,7 @@ export class SQLiteStore {
           const completedTriggerIds = terminal && !hasSegmentTriggerMetadata
             ? (plan.completed_trigger_ids || [])
             : completedFromSegments;
-          for (const triggerId of segment.trigger_ids ?? []) {
+          for (const triggerId of segment.registered_trigger_ids ?? []) {
             const trigger = this.db.prepare('SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
               .get(worldId, triggerId);
             if (!trigger || trigger.status !== 'pending' || trigger.claimed_by_operation_id !== operationId) {
