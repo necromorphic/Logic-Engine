@@ -220,3 +220,42 @@ test('distinguishes authorized complete-empty retrieval from denied query withou
     (error) => error.message === 'MEMORY_QUERY_DENIED',
   );
 });
+
+test('returns partial rather than complete when more than 50 authorized candidates exist', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  for (let index = 0; index < 51; index += 1) {
+    const record = {
+      ...s.record,
+      record_ref: `memory:record-${String(index).padStart(2, '0')}`,
+      record_version: 'record-v1',
+    };
+    s.provider.putRecord(record);
+    s.provider.grantRecord(s.scope, record.record_ref, record.record_version, true);
+  }
+  await s.provider.rebuildIndex('world-a');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+
+  const result = await s.provider.retrieveCandidates(s.scope);
+  assert.equal(result.candidates.length, 50);
+  assert.equal(result.completeness, 'partial');
+});
+
+test('interrupted index rebuild remains unavailable after provider restart', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  await s.provider.rebuildIndex('world-a');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+
+  s.provider.db.exec(`CREATE TRIGGER fail_rebuild_insert BEFORE INSERT ON memory_index_entries
+    BEGIN SELECT RAISE(ABORT, 'injected rebuild failure'); END;`);
+  await assert.rejects(() => s.provider.rebuildIndex('world-a'), /injected rebuild failure/);
+  s.reopen();
+
+  await assert.rejects(
+    () => s.provider.retrieveCandidates(s.scope),
+    /MEMORY_INDEX_NOT_READY/,
+  );
+});
