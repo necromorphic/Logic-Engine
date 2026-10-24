@@ -825,4 +825,25 @@ test('translated duplicate fact IDs fail before proposal or event writes', async
   assert.deepEqual(stateAfter.facts, stateBefore.facts);
   assert.deepEqual(eventsAfter, eventsBefore);
   assert.equal(auditAfter.length, auditBefore.length);
+
+  const retry = await fetch(base + '/v1/worlds/translated-duplicate-facts-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'translated-duplicate-facts-proposal',
+      source_text: 'The fact is asserted once.',
+      event: {
+        turn_id: 'translated-duplicate-facts-retry-turn',
+        event_type: 'action.completed',
+        effect_intents: [{
+          effect_id: 'single-claim',
+          kind: 'assert_fact',
+          target_ref: 'single-fact',
+          payload: { predicate: 'status', subject_ref: 'mira', value: 'alive' },
+        }],
+      },
+    }),
+  });
+  assert.equal(retry.status, 201);
+  assert.equal((await retry.json()).proposal.status, 'pending');
+  assert.equal((await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/state', { headers })).json()).state.world_revision, 0);
 });
