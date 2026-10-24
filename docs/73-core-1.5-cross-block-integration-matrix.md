@@ -182,3 +182,14 @@ These are source-level findings. The exact production-path guarantees still need
 2. Keep the authorized-read service fail-closed and narrow until a trusted field visibility schema and recipient/purpose contract are approved.
 3. Add a Core-owned typed Relationship commit operation only after its request shape, domain-version pinning, identity checks, and audit attribution are approved. Reuse `SQLiteStore.tx()` and canonical event commit; do not write relationship projections directly from the evaluator.
 4. Add transaction-failure and composite-cursor tests before claiming relationship rollback/replay readiness.
+
+
+### Additional findings already specified in the parallel Core HTTP boundary audit
+
+The Core branch's detailed audit proposal is [PR #67, `docs/53-core-http-service-boundary-audit.md`](https://github.com/necromorphic/Logic-Engine/blob/03706188f044a4821c5957a0f7aa7199df193eb0/docs/53-core-http-service-boundary-audit.md). It is a documentation-only audit, not a runtime fix, and remains separate from this matrix. The findings below are cross-checked against the current `main` source reviewed above:
+
+- **CORE-AUTH-04 — context-manifest registration trust:** `POST .../context-manifests` uses only the general bearer. There is no server-derived producer/generation binding on this route. Stored and hashed manifest content is not proof that a trusted host actually prepared that context. Until a trusted generation record exists, restrict registration to a dedicated internal capability or fail closed; do not accept a caller-supplied producer/origin label as authority.
+- **CORE-READ-05 — raw state is not a revision-bound atomic snapshot:** `GET .../state` calls `getState` → `SQLiteStore.state`, which reads world/entity/fact rows through separate queries and does not return `commit_sequence`. `readSnapshot` instead uses a bounded selector and a single SQLite read transaction with both `world_revision` and `commit_sequence`. The state route must not be treated as the model/workflow snapshot contract even after access gating is fixed.
+- **CORE-CAP-06 — capability classification is incomplete:** world creation, mechanic-registry audit, and template/rule-module metadata reads use the general bearer. Whether each should be admin/internal-only is a deployment policy decision, not something to infer by granting broad admin rights. Record and enforce an explicit capability matrix before exposing these routes to untrusted adapters.
+
+For closure tracking, use the detailed finding IDs in PR #67 (F-01 through F-07) as the primary traceability set; the CORE-* labels above are only this matrix's cross-block references. Do not implement duplicate fixes on sibling branches without reconciling the ownership and dependency order in PR #67.
