@@ -29,15 +29,15 @@ If two sources conflict, do not silently choose a winner. Record the conflict, p
 
 | Requirement family | Canonical semantic reference | Acceptance references | Owner of closure | Current status |
 |---|---|---|---|---|
-| Direction and participant identity | `01-personality-and-relationship-semantics.md`, §4 | PERS-SEM-001, 009–010 | Core for canonical IDs; Personality/World Pack for semantics | Semantics specified; typed write not implemented/verified |
+| Direction and participant identity | `01-personality-and-relationship-semantics.md`, §4 | PERS-SEM-001, 009–010; PERS-REL-001, 007–008 | Core for canonical IDs; Personality/World Pack for semantics | Semantics specified; typed write not implemented/verified |
 | Partial update and state distinctions | `01-personality-and-relationship-semantics.md`, §4; `05-world-pack-relationship-dimension-template.md`, §3 | PERS-SEM-002–004 | Personality defines meaning; Core defines operation/read representation | Semantics specified; exact operation/wire representation unresolved |
 | Dimension values and transitions | `05-world-pack-relationship-dimension-template.md`, §§2, 4–5 | PERS-SEM-005–007 | World Pack defines domain; Core enforces approved boundary | Template ready; no universal dimension set invented |
 | Initial/imported, in-world, correction provenance | `01-personality-and-relationship-semantics.md`, §4.1; `03-core-decision-and-integration-gates.md`, §5 | PERS-SEM-011–013; PERS-TRAIT-004 | Core for trusted operation, authorization, and audit | Semantic distinction approved; trusted boundary unresolved |
 | Stable traits and development | `06-stable-trait-lifecycle.md`, §§2–6 | PERS-SEM-014–017; PERS-TRAIT-001–010 | Personality for semantics; Core for canonical mutation; NPC for decision use | Semantic contract specified; no automatic inference/runtime support claimed |
 | Relationship non-implications | `01-personality-and-relationship-semantics.md`, §§4–5; `05-world-pack-relationship-dimension-template.md`, §4 | PERS-SEM-005, 018–020 | Personality/World Pack | Semantic contract specified |
-| Rollback and causal support | `03-core-decision-and-integration-gates.md`, §§3, 6 | PERS-SEM-021–024 | Core for causal representation/rebuild; World Pack for domain sufficiency | Conditional replay target only; relationship-specific guarantees unverified |
+| Rollback and causal support | `03-core-decision-and-integration-gates.md`, §§3, 6 | PERS-SEM-021–024; PERS-REL-013–014 | Core for causal representation/rebuild; World Pack for domain sufficiency | Conditional replay target only; relationship-specific guarantees unverified |
 | Actor-authorized reads and withheld values | `03-core-decision-and-integration-gates.md`, §4 | PERS-SEM-025–026; PERS-TRAIT-009 | Core | Blocking; snapshot consistency does not equal authorization |
-| Character-card projection | `01-personality-and-relationship-semantics.md`, §§2, 4; `07-cross-block-readiness-and-handoff.md` | PERS-SEM-027 | Core/card owner for view; Core for authorized read | Read-only semantic target; safe runtime projection unverified |
+| Character-card projection | `01-personality-and-relationship-semantics.md`, §§2, 4; `07-cross-block-readiness-and-handoff.md` | PERS-SEM-027; PERS-REL-012 | Core/card owner for view; Core for authorized read | Read-only semantic target; safe runtime projection unverified |
 | Player agency | `01-personality-and-relationship-semantics.md`, §3; `06-stable-trait-lifecycle.md`, §7 | PERS-SEM-028; PERS-TRAIT-008 | Project-level player-control contract, respected by Personality/NPC | Semantic invariant specified |
 
 Acceptance IDs are stable references. If a scenario is split, renamed, or retired, preserve a redirect/cross-reference so downstream docs do not silently lose traceability.
