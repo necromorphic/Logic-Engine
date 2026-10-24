@@ -103,6 +103,7 @@ test('source deletion excludes the version from active selection and invalidates
   s.provider.selectActiveRawVersion(sourceKey());
   s.provider.registerRawDerivedCopy({
     ...sourceKey(),
+    source_version_id: 'generation-1',
     copy_ref: 'summary:1',
     copy_version: 'summary-v1',
     copy_kind: 'summary',
@@ -148,6 +149,7 @@ test('permanent purge removes the chosen raw version and cascades to its registe
   });
   s.provider.registerRawDerivedCopy({
     ...sourceKey('generation-2'),
+    source_version_id: 'generation-2',
     copy_ref: 'summary:2',
     copy_version: 'summary-v1',
     copy_kind: 'summary',
