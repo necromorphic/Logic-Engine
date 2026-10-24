@@ -247,6 +247,11 @@ export class LogicEngine {
         if (current.stored_status !== 'paused' && current.stored_status !== 'needs_review') {
           throw new EngineError('INVALID_PROCESS_TRANSITION', 'Only a paused or needs-review process can be resumed.', 409, { current_status: current.stored_status });
         }
+        if (current.progress.blocked > 0 || current.milestones.some((milestone) => milestone.status === 'needs_review' || milestone.status === 'blocked')) {
+          throw new EngineError('PROCESS_REQUIRES_RECONCILIATION', 'A process with milestone progress in needs-review/blocked state cannot resume until its causal state is reconciled.', 409, {
+            blocked_milestone_ids: current.milestones.filter((milestone) => ['needs_review','blocked'].includes(milestone.status)).map((milestone) => milestone.milestone_id),
+          });
+        }
         const world = this.getState(id);
         const pending = current.milestones.filter((milestone) => milestone.status === 'pending');
         const overdue = pending.filter((milestone) => milestone.due_coordinate <= world.game_time_coordinate);
