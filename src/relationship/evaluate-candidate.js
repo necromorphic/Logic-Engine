@@ -160,7 +160,16 @@ export function evaluateRelationshipCandidate(input) {
 
     const rule = dimensionRules[dimension];
     if (!isRecord(rule) || !Array.isArray(rule.values)
-        || !rule.values.every((value) => typeof value === "string")) {
+        || !rule.values.every((value) => typeof value === "string")
+        || typeof rule.allowClear !== "boolean"
+        || !Array.isArray(rule.transitions)
+        || !rule.transitions.every((transition) =>
+          isRecord(transition)
+          && (transition.operation === "set" || transition.operation === "clear")
+          && own(transition, "from")
+          && own(transition, "to")
+          && (typeof transition.to === "string" || transition.to === null)
+        )) {
       return result("unsupported", {
         reason: "dimension_rule_incomplete",
         dimension,
@@ -195,12 +204,6 @@ export function evaluateRelationshipCandidate(input) {
     const operation = clearing ? "clear" : "set";
     const to = clearing ? null : requested;
 
-    if (clearing && rule.allowClear !== true) {
-      return result("invalid_candidate", {
-        reason: "clear_not_allowed",
-        dimension,
-      });
-    }
     if (!clearing && (typeof to !== "string" || !rule.values.includes(to))) {
       return result("invalid_candidate", {
         reason: "unsupported_value",
@@ -208,11 +211,20 @@ export function evaluateRelationshipCandidate(input) {
       });
     }
 
+    // A request that is already satisfied is a no-op, not a new transition.
+    // Check this before clear authorization: no clear is performed here.
     if (clearing && (state.status === "unset" || state.status === "cleared")) {
       continue;
     }
     if (!clearing && state.status === "value" && state.value === to) {
       continue;
+    }
+
+    if (clearing && rule.allowClear !== true) {
+      return result("invalid_candidate", {
+        reason: "clear_not_allowed",
+        dimension,
+      });
     }
 
     if (!transitionAllowed(rule, from, to, operation)) {
