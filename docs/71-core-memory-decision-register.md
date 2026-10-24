@@ -258,6 +258,12 @@ This is a source-level audit of the current `main` branch, not a runtime test re
 
 No runtime files were changed. No test suite was executed by this documentation pass. These findings should be rechecked against the exact `main` head before runtime implementation.
 
+## Reconciliation fallback decision gate — MEM-O01/MEM-O11, 2026-10-24
+
+The consistency contract now records a **candidate only**, not approved, full-inventory reconciliation fallback for the case where Core does not provide a durable outbox. It captures a consistent world revision/commit-sequence marker, compares a complete source inventory after relevant marker changes, reconciles source additions/corrections/validity changes idempotently, and advances the durable marker only after a successful complete scan. Periodic full comparison is included as a recovery path.
+
+This strategy is not ready to implement until Core confirms (a) all relevant source-validity mutations advance an observed marker, (b) a complete authoritative source inventory is available, and (c) stable source identities/versions can be compared. A failed or partial scan must retain the last completed marker and remain stale/pending. **MEM-037** records this acceptance condition. No runtime behavior is claimed.
+
 ## Cross-block review note — NPC candidate lineage world scope, 2026-10-24
 
 Reviewed NPC's updated pure candidate-admission helper on `feat/npc-subsystem` / draft PR #76 after the owner reported the missing/unknown `content_kind` gate had been added. The helper now explicitly rejects missing/unknown content kinds and requires summary lineage to be complete, current, and access-allowed. The owner also clarified that producer/lifecycle dimensions are future-boundary metadata; the helper does not authenticate their origin or validate owner-defined enums.
