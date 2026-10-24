@@ -298,3 +298,91 @@ test('mechanic action condition preflight rejects contradictory trusted absence 
     (error) => error.code === 'CONTRADICTORY_KNOWN_ABSENCE',
   );
 });
+
+
+test('translateMechanicEffectIntents maps only the declared literal subset and preserves provenance', async () => {
+  const { translateMechanicEffectIntents } = await import('../src/core/mechanics.js');
+  const template = {
+    template_id: 'test.effect.mapping',
+    version: '1.0.0',
+    schema_version: 'core-1',
+    display_name: 'Effect mapping fixture',
+    required_capabilities: [],
+    applicability: [],
+    actions: [{
+      action_id: 'act',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [
+        { effect_id: 'create-1', kind: 'create_entity', target_ref: 'entity.new', payload: { entity_type: 'character', attributes: { name: 'A' } } },
+        { effect_id: 'update-1', kind: 'update_attribute', target_ref: 'entity.new', payload: { attributes: { mood: 'calm' } } },
+        { effect_id: 'fact-1', kind: 'assert_fact', target_ref: 'fact.known', payload: { subject_ref: 'entity.new', predicate: 'known', value: true } },
+      ],
+      ambiguity_policy: 'deterministic_only',
+    }],
+    conflict_policy: { mode: 'manual' },
+    lifecycle_policy: { on_disable: 'require_author_decision' },
+    unknown_policy: 'mark_unknown',
+  };
+  const result = translateMechanicEffectIntents(template);
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.effects.map((effect) => effect.kind), ['entity.create', 'entity.update', 'fact.set']);
+  assert.deepEqual(result.effect_provenance.map((item) => item.effect_id), ['create-1', 'update-1', 'fact-1']);
+  assert.deepEqual(result.effects[0], {
+    kind: 'entity.create', entity_id: 'entity.new', entity_type: 'character', attributes: { name: 'A' },
+  });
+});
+
+test('translateMechanicEffectIntents rejects unsupported intents atomically without partial effects', async () => {
+  const { translateMechanicEffectIntents } = await import('../src/core/mechanics.js');
+  const template = {
+    template_id: 'test.effect.unsupported',
+    version: '1.0.0',
+    schema_version: 'core-1',
+    display_name: 'Unsupported effect fixture',
+    required_capabilities: [],
+    applicability: [],
+    actions: [{
+      action_id: 'act',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [
+        { effect_id: 'ok', kind: 'create_entity', target_ref: 'entity.new', payload: { entity_type: 'character' } },
+        { effect_id: 'bad', kind: 'emit_event', target_ref: 'world', payload: { message: 'no mapping' } },
+      ],
+      ambiguity_policy: 'deterministic_only',
+    }],
+    conflict_policy: { mode: 'manual' },
+    lifecycle_policy: { on_disable: 'require_author_decision' },
+    unknown_policy: 'mark_unknown',
+  };
+  const result = translateMechanicEffectIntents(template);
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'UNSUPPORTED_EFFECT_INTENT');
+  assert.deepEqual(result.effects, []);
+  assert.deepEqual(result.effect_provenance, []);
+});
+
+test('translateMechanicEffectIntents rejects unknown fields, empty patches, duplicate IDs, and unresolved provenance', async () => {
+  const { translateMechanicEffectIntents } = await import('../src/core/mechanics.js');
+  const make = (effects) => ({
+    template_id: 'test.effect.invalid',
+    version: '1.0.0',
+    schema_version: 'core-1',
+    display_name: 'Invalid effect fixture',
+    required_capabilities: [],
+    applicability: [],
+    actions: [{ action_id: 'act', input_schema: { type: 'object' }, preconditions: [], effects, ambiguity_policy: 'deterministic_only' }],
+    conflict_policy: { mode: 'manual' },
+    lifecycle_policy: { on_disable: 'require_author_decision' },
+    unknown_policy: 'mark_unknown',
+  });
+  const base = { effect_id: 'e1', kind: 'create_entity', target_ref: 'entity.new', payload: { entity_type: 'character' } };
+  assert.equal(translateMechanicEffectIntents(make([{ ...base, payload: { ...base.payload, expression: 'x' } }])).reason_code, 'UNSUPPORTED_EFFECT_PAYLOAD_FIELD');
+  assert.equal(translateMechanicEffectIntents(make([{ effect_id: 'e1', kind: 'update_attribute', target_ref: 'entity.a', payload: {} }])).reason_code, 'EMPTY_EFFECT_PATCH');
+  assert.equal(translateMechanicEffectIntents(make([base, { ...base }])).reason_code, 'DUPLICATE_EFFECT_ID');
+  assert.equal(translateMechanicEffectIntents(make([{ ...base, source_refs: ['event.x'] }])).reason_code, 'UNSUPPORTED_EFFECT_PROVENANCE');
+  const invalidTarget = translateMechanicEffectIntents(make([{ ...base, target_ref: 'entity:reserved' }]));
+  assert.equal(invalidTarget.status, 'unknown');
+  assert.equal(invalidTarget.effects.length, 0);
+});
