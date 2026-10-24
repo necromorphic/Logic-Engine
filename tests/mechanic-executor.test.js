@@ -447,6 +447,10 @@ test('application executor freezes the complete evaluation snapshot before trust
       return {
         context: { world: { weather: 'rain' }, actor: { hp: 10 } },
         knownAbsentPaths: [],
+        dependencyEvidence: [
+          { path: 'world.weather', kind: 'entity_attribute', entity_id: 'entity.world-context', attribute: 'weather' },
+          { path: 'actor.hp', kind: 'entity_attribute', entity_id: 'entity.actor-context', attribute: 'hp' },
+        ],
         world_revision: snapshot.world_revision,
         commit_sequence: snapshot.commit_sequence,
         policy_version: 'test-immutable-snapshot-v1',
