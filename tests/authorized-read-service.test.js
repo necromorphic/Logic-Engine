@@ -132,6 +132,44 @@ test('actor binding is required and caller-supplied actor cannot replace the aut
   );
 });
 
+test('internal mechanic attribute reads distinguish authorized absence from denied reads and pin the snapshot', (t) => {
+  const { service, engine, store } = setup((context, entity, field) =>
+    context.actor.entity_id === 'actor-a'
+      && context.recipient === 'model'
+      && context.purpose === 'npc_decision'
+      && field !== 'attributes.secret');
+  const cursor = {
+    expectedWorldRevision: engine.getState('read-world').world_revision,
+    expectedCommitSequence: store.currentCommitSequence('read-world'),
+  };
+  const base = {
+    worldId: 'read-world',
+    adapterId: 'adapter-a',
+    actorEntityId: 'actor-a',
+    recipient: 'model',
+    purpose: 'npc_decision',
+    entityId: 'target-a',
+    ...cursor,
+  };
+
+  assert.throws(
+    () => service.readEntityAttributeForMechanic({ ...base, attribute: 'secret' }),
+    (error) => error.code === 'READ_NOT_AVAILABLE' && error.status === 404,
+  );
+  const absent = service.readEntityAttributeForMechanic({ ...base, attribute: 'not_present' });
+  assert.equal(absent.present, false);
+  assert.equal(Object.hasOwn(absent, 'value'), false);
+  assert.equal(absent.world_revision, cursor.expectedWorldRevision);
+  assert.equal(absent.commit_sequence, cursor.expectedCommitSequence);
+
+  const stale = service.readEntityAttributeForMechanic({
+    ...base,
+    attribute: 'name',
+    expectedWorldRevision: cursor.expectedWorldRevision - 1,
+  });
+  assert.equal(stale.present, undefined);
+});
+
 test('unknown purpose and malformed target/field sets are rejected before reading', (t) => {
   const { service } = setup(t, () => true);
   assert.throws(() => service.readEntityFields(request({ purpose: 'anything-goes' })),
