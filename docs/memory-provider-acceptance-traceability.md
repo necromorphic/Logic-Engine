@@ -7,7 +7,7 @@
 - Provider implementation: `src/application/sqlite-memory-provider.js` in PR #182.
 - Provider tests: `tests/sqlite-memory-provider.test.js`.
 - Internal import seam: `src/application/memory-provider-import-internal.js`, tested by `tests/memory-provider-import-internal.test.js` in stacked PR #201.
-- Repository-native command: `npm test` (`node --test`). PR #201 exact-head CI passed at `ce687735f50b0e6c8cc926abe517a5ce9512f952` before the latest added provider tests; a new exact-head CI run is required for the added tests.
+- Repository-native command: `npm test` (`node --test`). Exact-head Runtime CI [run #1094 passed](https://github.com/necromorphic/Logic-Engine/actions/runs/40089639168) at `39e8ef2646807e84e883c896a8c159bca5b081ce`: 263 passed, 0 failed, including the added cross-world, complete-empty/denied, partial-result, and interrupted-rebuild tests.
 - Existing CI evidence is not end-to-end provider → Core authorization → NPC admission evidence.
 
 ## Acceptance traceability
