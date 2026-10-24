@@ -200,7 +200,7 @@ These are proposed semantic classes, not current API status strings. Exact enum 
 
 ### 6. Joint integration tests and blockers
 
-Memory can accept the NPC negative cases as **contract-level acceptance requirements**, including cross-world source, missing/ambiguous access, stale/retracted source, summary with one revoked source, unavailable/partial index, conflicting evidence, empty authorized result, delivery failure/unknown receipt, rollback without a higher commit sequence, and idempotent retry after partial failure. Memory's own matrix MEM-001–MEM-035 is a proposed test plan, not an executed suite.
+Memory can accept the NPC negative cases as **contract-level acceptance requirements**, including cross-world source, missing/ambiguous access, stale/retracted source, summary with one revoked source, unavailable/partial index, conflicting evidence, empty authorized result, delivery failure/unknown receipt, rollback without a higher commit sequence, and idempotent retry after partial failure. Memory's own matrix MEM-001–MEM-036 is a proposed test plan, not an executed suite.
 
 **Blocked from being honest runtime integration tests until dependencies are approved/implemented:**
 - general trusted authorized-read policy and exact failure semantics (MEM-O02; PR #65 is not sufficient as-is);
@@ -258,3 +258,12 @@ This is a source-level audit of the current `main` branch, not a runtime test re
 
 No runtime files were changed. No test suite was executed by this documentation pass. These findings should be rechecked against the exact `main` head before runtime implementation.
 
+## Cross-block review note — NPC candidate lineage world scope, 2026-10-24
+
+Reviewed NPC's updated pure candidate-admission helper on `feat/npc-subsystem` / draft PR #76 after the owner reported the missing/unknown `content_kind` gate had been added. The helper now explicitly rejects missing/unknown content kinds and requires summary lineage to be complete, current, and access-allowed. The owner also clarified that producer/lifecycle dimensions are future-boundary metadata; the helper does not authenticate their origin or validate owner-defined enums.
+
+One further boundary gap was reported to Issue #70: `lineageIsSafe()` checks source ref/version/access/freshness but does not prove each summary source belongs to the requested world. Without a world-scope check or a documented trusted upstream guarantee, cross-world source lineage could be admitted by the pure helper. This is a review finding from source inspection, not an executed test failure.
+
+Memory acceptance matrix case **MEM-036** now requires rejection of foreign or unproven source world scope before prompt serialization. The approved source-reference schema is still open; this test does not prescribe an invented field/API. NPC owner was asked either to add fail-closed oracle coverage using the eventual approved scope contract or explicitly document and later test the trusted-boundary precondition.
+
+PR #76 remains a proposal pending exact-head CI/test evidence. Memory did not edit NPC files and does not claim its tests passed.
