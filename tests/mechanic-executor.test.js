@@ -701,3 +701,44 @@ test('application executor rejects known-absence claims outside the declared con
   assert.equal(result.reason_code, 'INVALID_KNOWN_ABSENCE_SCOPE');
   assert.deepEqual(result.effects, []);
 });
+
+
+test('mechanic proposal rollback restores the prior projection and a fresh evaluation can recover', (t) => {
+  const { engine, worldId } = setup(t, 'executor-rollback-recovery-world');
+  enableFixture(engine, worldId);
+  const proposals = new ProposalService(engine);
+  const firstEvaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  const firstProposal = proposals.createFromMechanicEvaluation(worldId, firstEvaluation, {
+    idempotencyKey: 'mechanic-before-rollback',
+    turnId: 'turn-mechanic-before-rollback',
+    sourceText: 'First supported-slice mechanic proposal.',
+    adapterId: 'test-adapter',
+  });
+  proposals.approve(worldId, firstProposal.proposal_id);
+  const firstCommit = proposals.commit(worldId, firstProposal.proposal_id);
+  const firstEventId = firstCommit.commit_result.event_id;
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
+
+  const rollback = engine.rollbackEvent(worldId, {
+    root_event_id: firstEventId,
+    idempotency_key: 'rollback-mechanic-first-commit',
+  });
+  assert.equal(rollback.rollback_outcome, 'resolved');
+  assert.ok(rollback.invalidated_event_ids.includes(firstEventId));
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+
+  const recoveryEvaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(recoveryEvaluation.status, 'ready');
+  assert.notEqual(recoveryEvaluation.snapshot_identity.world_revision, firstEvaluation.snapshot_identity.world_revision);
+  const recoveryProposal = proposals.createFromMechanicEvaluation(worldId, recoveryEvaluation, {
+    idempotencyKey: 'mechanic-after-rollback',
+    turnId: 'turn-mechanic-after-rollback',
+    sourceText: 'Fresh supported-slice mechanic proposal after rollback.',
+    adapterId: 'test-adapter',
+  });
+  proposals.approve(worldId, recoveryProposal.proposal_id);
+  proposals.commit(worldId, recoveryProposal.proposal_id);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
+});
