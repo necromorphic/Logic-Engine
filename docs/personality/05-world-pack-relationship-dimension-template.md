@@ -15,7 +15,7 @@ Complete every field below for each supported dimension.
 | Field | Required definition |
 |---|---|
 | Stable identifier | Unique, stable identifier within the World Pack; renaming/migration policy if it changes. |
-| Semantic version / compatibility | Identify the World Pack rule-set version under which values and transitions are interpreted. State whether a change is editorial, backward-compatible, or meaning-changing; define migration or explicit incompatibility handling for meaning-changing changes. Do not silently reinterpret historical transitions under the latest rules. |
+| Semantic version / compatibility | Identify the World Pack rule-set version under which values and transitions are interpreted. Distinguish deterministic replay with identical pinned inputs/version from replay of a historical transition under its applicable historical rule version. Classify updates as editorial, backward-compatible, or meaning-changing. For meaning-changing updates, define an explicit migration of historical state or explicit incompatibility that forbids automatic migration; do not silently reinterpret historical transitions under latest rules. This is an authoring requirement, not evidence that Core pins versions or supports historical replay/migration. |
 | Display name | Human-readable name; not used as an identity key. |
 | Meaning | Precisely what the dimension represents and what it explicitly does not represent. |
 | Subject and target | Confirm direction: A's relation toward B. State whether self-relations are meaningful; default is unsupported. |
@@ -100,6 +100,18 @@ A dimension is **not ready for runtime use** until:
 
 This checklist establishes semantic readiness only. It does not prove that the core write, read, audit, authorization, or rollback paths implement the contract.
 For how each PERS-SEM criterion maps to an owner and evidence boundary, see the [per-case acceptance traceability crosswalk](./09-per-case-acceptance-traceability.md).
+
+### Versioned-semantics authoring check
+
+For every meaning-changing rule-set update, record all of the following explicitly:
+
+1. prior and new rule-set versions and the semantic difference;
+2. whether historical transitions must replay under their original/applicable version;
+3. whether historical state migration is defined, including its preconditions and expected result;
+4. if migration is not allowed, the explicit incompatibility outcome and which operations must be blocked;
+5. which claims are authoring/specification-only and which have been verified against the actual Core replay/migration path.
+
+Do not treat a deterministic replay result under one fixed version as proof of historical version pinning, and do not treat a migration declaration as proof that migration runs correctly.
 
 ## 7. Unresolved core dependencies
 
