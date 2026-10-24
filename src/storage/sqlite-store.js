@@ -485,7 +485,7 @@ export class SQLiteStore {
       {
         version: 10,
         apply: () => {
-          this.db.exec(\`CREATE TABLE IF NOT EXISTS world_processes(
+          this.db.exec(`CREATE TABLE IF NOT EXISTS world_processes(
             world_id TEXT NOT NULL REFERENCES worlds(world_id),
             process_id TEXT NOT NULL,
             idempotency_key TEXT NOT NULL,
@@ -536,7 +536,7 @@ export class SQLiteStore {
             created_at TEXT NOT NULL,
             PRIMARY KEY(world_id,idempotency_key),
             FOREIGN KEY(world_id,process_id) REFERENCES world_processes(world_id,process_id)
-          );\`);
+          );`);
         },
       },
     ];
