@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from 'node:util';
 import { evaluateMemoryCandidateAdmission } from '../npc/memory-candidate-eligibility.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -31,9 +32,12 @@ const nonReady = (reason) => Object.freeze({
  * access: Core source fields are re-read through AuthorizedReadService.
  */
 export class MemoryNpcConsumer {
-  constructor({ authorizedReadService, memoryProvider, contentFields }) {
+  constructor({ authorizedReadService, actorBindingService, memoryProvider, contentFields }) {
     if (typeof authorizedReadService?.readEntityFields !== 'function') {
       throw new TypeError('MemoryNpcConsumer requires AuthorizedReadService');
+    }
+    if (typeof actorBindingService?.resolve !== 'function') {
+      throw new TypeError('MemoryNpcConsumer requires Core ActorBindingService');
     }
     if (typeof memoryProvider?.authorizeQuery !== 'function'
       || typeof memoryProvider?.retrieveCandidates !== 'function'
@@ -47,6 +51,7 @@ export class MemoryNpcConsumer {
       throw new TypeError('contentFields must be a non-empty, unique trusted field allowlist');
     }
     this.authorizedReadService = authorizedReadService;
+    this.actorBindingService = actorBindingService;
     this.memoryProvider = memoryProvider;
     this.contentFields = Object.freeze([...contentFields]);
   }
@@ -54,6 +59,15 @@ export class MemoryNpcConsumer {
   async retrieveForNpc({ worldId, adapterId, actorEntityId }) {
     if (!validId(worldId) || !validId(adapterId) || !validId(actorEntityId)) {
       return nonReady('trusted_scope_incomplete');
+    }
+
+    // Bind the caller to a canonical actor before querying Memory. This must
+    // happen even for complete-empty results, which otherwise bypass the later
+    // AuthorizedReadService call entirely.
+    try {
+      this.actorBindingService.resolve(worldId, adapterId, actorEntityId);
+    } catch {
+      return nonReady('actor_binding_unavailable');
     }
 
     const scope = Object.freeze({
@@ -140,7 +154,32 @@ export class MemoryNpcConsumer {
       });
     }
 
-    const entityIds = [...new Set(authorizedCandidates.map((candidate) => candidate.source.entity_id))];
+    // A stable Memory record identity/version must not be rebound to a
+    // different source or different semantic metadata within one retrieval.
+    // Deduplicate identical repeats; fail closed on conflicting identities.
+    const uniqueCandidates = [];
+    const identitySignatures = new Map();
+    for (const candidate of authorizedCandidates) {
+      const identity = candidate.record.ref + '\\u0000' + candidate.record.version;
+      const signature = {
+        source_entity_id: candidate.source.entity_id,
+        content_kind: candidate.content_kind,
+        epistemic_kind: candidate.epistemic_kind,
+        producer_kind: candidate.producer?.kind,
+        content_disposition: candidate.lifecycle?.content_disposition,
+        evidence_assessment: candidate.lifecycle?.evidence_assessment,
+        index_health: candidate.lifecycle?.index_health,
+      };
+      const previous = identitySignatures.get(identity);
+      if (previous) {
+        if (!isDeepStrictEqual(previous, signature)) return nonReady('memory_record_identity_conflict');
+        continue;
+      }
+      identitySignatures.set(identity, signature);
+      uniqueCandidates.push(candidate);
+    }
+
+    const entityIds = [...new Set(uniqueCandidates.map((candidate) => candidate.source.entity_id))];
     if (entityIds.length > 50) return nonReady('source_read_limit_exceeded');
 
     let sourceRead;
@@ -174,7 +213,7 @@ export class MemoryNpcConsumer {
 
     const oracleCandidates = [];
     const contentByIdentity = new Map();
-    for (const candidate of authorizedCandidates) {
+    for (const candidate of uniqueCandidates) {
       // A Memory record is eligible only if its index snapshot exactly matches
       // the canonical read snapshot. The composite cursor is a snapshot marker,
       // not a source-specific version or change journal.
