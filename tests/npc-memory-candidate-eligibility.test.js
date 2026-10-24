@@ -492,3 +492,26 @@ test("candidate admission does not mutate its request or result inputs", () => {
   assert.deepEqual(inputRequest, requestBefore);
   assert.deepEqual(inputResult, resultBefore);
 });
+
+
+test("non-finite numeric snapshot components fail closed", () => {
+  for (const component of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    for (const field of ["world_revision", "commit_sequence"]) {
+      const invalidSnapshot = { ...request.snapshot, [field]: component };
+      const trustedResult = evaluateMemoryCandidateAdmission(
+        { ...request, snapshot: invalidSnapshot },
+        completeResult([candidate()]),
+      );
+      assert.equal(trustedResult.status, "non_ready");
+      assert.equal(trustedResult.reason, "trusted_snapshot_incomplete");
+      assert.deepEqual(trustedResult.admitted, []);
+
+      const candidateResult = evaluateMemoryCandidateAdmission(
+        request,
+        completeResult([candidate({ snapshot: invalidSnapshot })]),
+      );
+      assert.equal(candidateResult.status, "ready");
+      assert.deepEqual(candidateResult.admitted, []);
+    }
+  }
+});
