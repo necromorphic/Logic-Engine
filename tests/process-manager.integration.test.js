@@ -140,7 +140,7 @@ test('cancelling a process atomically cancels pending milestone triggers', (t) =
   const process = engine.getProcess('world-a', 'journey-1');
   assert.equal(process.status, 'cancelled');
   assert.equal(process.progress.completed, 0);
-  assert.equal(process.milestones.every((m) => m.status === 'pending'), true);
+  assert.equal(process.milestones.every((m) => m.status === 'cancelled'), true);
 }));
 
 test('pause and resume rotate pending trigger identities when milestones remain in the future', (t) => withDatabase(t, ({ engine, store }) => {
