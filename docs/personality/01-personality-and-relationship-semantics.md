@@ -50,9 +50,9 @@ The NPC subsystem may request personality and relationship inputs, but it may no
 
 A relationship is a directed, multidimensional relation between two existing canonical entities. It is not a single generic score and does not imply reciprocal state.
 
-- Each dimension is independently meaningful and validated by the relevant domain/World Pack rules.
+- Each dimension is independently meaningful. The World Pack declares supported dimensions, values, transitions, and world-specific interpretation; the core enforces the approved operation contract without absorbing all relationship semantics.
 - A partial update changes only explicitly supplied dimensions; omitted dimensions remain unchanged.
-- An unset dimension, an explicit neutral value, an unknown result due to access filtering, and a withheld value are different states.
+- An unset/unknown dimension, an explicit neutral value, an inaccessible/withheld result, and an explicit clearing of a previously established value are distinct states. The exact wire/storage representation for clearing is not yet approved.
 - Mere co-presence, shared scene participation, or narrative tone does not by itself change a canonical relationship.
 - A relationship does not imply knowledge, trustworthiness of a claim, consent, obligation, or any other dimension unless an explicit rule establishes that implication.
 - A relationship value does not prove why it has that value. Its origin and causal support are separate from its current meaning.
