@@ -17,7 +17,7 @@ Status: semantic specification, not an executable runtime test suite. These case
 |---|---|---|---|
 | PERS-SEM-001 | Directed relationship A → B | Only A's relation toward B changes; B → A is untouched unless separately changed. | Personality semantics + typed write |
 | PERS-SEM-002 | Partial dimension update | Explicitly supplied dimensions change; omitted dimensions remain unchanged. | Personality semantics + typed write |
-| PERS-SEM-003 | Unknown versus neutral | Unset/unknown and an explicit neutral value remain distinguishable. | Personality semantics + typed write/read |
+| PERS-SEM-003 | Unset versus neutral | A dimension with no established canonical value (unset; sometimes called unknown in this narrow sense) and an explicit neutral value remain distinguishable. Conflict/insufficient-support `unknown` is a separate reconciliation/read-result state under PERS-SEM-023. | Personality semantics + typed write/read |
 | PERS-SEM-004 | Explicit clearing | An authorized clear removes the current effective value and remains distinguishable in authorized canonical history/provenance from a dimension never established; it is not equivalent to neutral or a withheld read. Caller-facing disclosure of clear history remains authorization- and purpose-scoped. | Contract decision + typed write/read |
 | PERS-SEM-005 | Dimension isolation | Changing trust does not automatically change attraction, consent, knowledge, obligation, reciprocity, or another dimension. | Personality/World Pack semantics |
 | PERS-SEM-006 | Unsupported dimension/value | A dimension or value not supported by the active domain/World Pack is rejected rather than silently normalized. | World Pack validation + typed write |
@@ -50,7 +50,7 @@ Status: semantic specification, not an executable runtime test suite. These case
 
 - Define dimension meanings and allowed/forbidden semantic implications.
 - Specify stable traits versus mutable condition and behavior.
-- Define the difference between unknown, neutral, withheld, and cleared values.
+- Define the difference between unset, explicit neutral, withheld, and cleared values; define conflict/insufficient-support as a separate reconciliation/read-result state.
 - Define the meaning of initial/imported state, in-world transition, and author correction.
 - Maintain semantic examples and pure acceptance rules without claiming runtime integration.
 
