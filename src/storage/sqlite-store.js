@@ -432,9 +432,12 @@ export class SQLiteStore {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request must be an object.', 400);
     }
-    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds']);
+    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'includeMechanicEvaluationState']);
     if (Object.keys(request).some((key) => !allowedKeys.has(key))) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request contains an unsupported field.', 400);
+    }
+    if (request.includeMechanicEvaluationState !== undefined && typeof request.includeMechanicEvaluationState !== 'boolean') {
+      throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'includeMechanicEvaluationState must be a boolean.', 400);
     }
     const normalizeIds = (value, fieldName) => {
       if (value === undefined) return [];
@@ -486,8 +489,78 @@ export class SQLiteStore {
         : [];
       const missingEventIds = eventIds.filter((eventId) => !events.some((event) => event.event_id === eventId));
 
-      // The world revision, event cursor, and all selected rows are read inside
-      // the read transaction opened by readSnapshot below.
+      let mechanicEvaluationSnapshot;
+      if (request.includeMechanicEvaluationState === true) {
+        // Keep the active mechanic set and its exact immutable definitions in
+        // the same SQLite read view as the world revision and event cursor.
+        // Fail closed rather than silently evaluating a truncated active set.
+        const instanceRows = this.db.prepare(
+          'SELECT * FROM mechanic_instances WHERE world_id=? ORDER BY instance_id LIMIT 201',
+        ).all(id);
+        if (instanceRows.length > 200) {
+          throw new EngineError('MECHANIC_SNAPSHOT_TOO_LARGE', 'The world has more than 200 mechanic instances; bounded evaluation snapshot refused.', 409);
+        }
+        const instances = instanceRows.map((row) => {
+          const value = this.publicMechanicInstance(row);
+          if (row.needs_review_reason) value.status = 'needs_review';
+          return value;
+        });
+
+        const relevantInstances = instances.filter((instance) => instance.status === 'enabled' || instance.status === 'needs_review');
+        const templateKeys = new Set(relevantInstances.map((instance) => instance.template_id + '\\u0000' + instance.template_version));
+        if (templateKeys.size > 200) {
+          throw new EngineError('MECHANIC_SNAPSHOT_TOO_LARGE', 'The world references more than 200 mechanic template versions; bounded evaluation snapshot refused.', 409);
+        }
+        const templates = [...templateKeys].sort().map((key) => {
+          const split = key.indexOf('\\u0000');
+          const templateId = key.slice(0, split);
+          const templateVersion = key.slice(split + 1);
+          const row = this.db.prepare('SELECT template_json,template_hash,registered_by,registered_at FROM mechanic_templates WHERE template_id=? AND version=?')
+            .get(templateId, templateVersion);
+          if (!row) {
+            throw new EngineError('MECHANIC_TEMPLATE_NOT_FOUND', 'An instance references a missing exact mechanic template version.', 409, {
+              template_id: templateId, template_version: templateVersion,
+            });
+          }
+          return {
+            template: dec(row.template_json), template_hash: row.template_hash,
+            registered_by: row.registered_by, registered_at: row.registered_at,
+          };
+        });
+
+        const moduleKeys = new Set();
+        for (const { template } of templates) {
+          for (const moduleRef of template.rule_modules || []) {
+            moduleKeys.add(moduleRef.module_id + '\\u0000' + moduleRef.version);
+          }
+          if (template.conflict_policy?.mode === 'automatic') {
+            moduleKeys.add(template.conflict_policy.resolver_module_id + '\\u0000' + template.conflict_policy.resolver_module_version);
+          }
+        }
+        if (moduleKeys.size > 200) {
+          throw new EngineError('MECHANIC_SNAPSHOT_TOO_LARGE', 'The active mechanic set references more than 200 exact rule-module versions; bounded evaluation snapshot refused.', 409);
+        }
+        const modules = [...moduleKeys].sort().map((key) => {
+          const split = key.indexOf('\\u0000');
+          const moduleId = key.slice(0, split);
+          const moduleVersion = key.slice(split + 1);
+          const row = this.db.prepare('SELECT manifest_json,manifest_hash,registered_by,registered_at FROM rule_module_manifests WHERE module_id=? AND version=?')
+            .get(moduleId, moduleVersion);
+          if (!row) {
+            throw new EngineError('RULE_MODULE_NOT_FOUND', 'An active mechanic references a missing exact rule-module version.', 409, {
+              module_id: moduleId, module_version: moduleVersion,
+            });
+          }
+          return {
+            manifest: dec(row.manifest_json), manifest_hash: row.manifest_hash,
+            registered_by: row.registered_by, registered_at: row.registered_at,
+          };
+        });
+        mechanicEvaluationSnapshot = { instances, templates, modules };
+      }
+
+      // The world revision, event cursor, selected rows, active mechanic set,
+      // and exact immutable definitions all share this read transaction.
       const commitSequence = this.currentCommitSequence(id);
       return {
         ...w,
@@ -497,6 +570,7 @@ export class SQLiteStore {
         events,
         missing_fact_ids: missingFactIds,
         missing_event_ids: missingEventIds,
+        ...(mechanicEvaluationSnapshot ? { mechanic_evaluation_snapshot: mechanicEvaluationSnapshot } : {}),
       };
     };
 
