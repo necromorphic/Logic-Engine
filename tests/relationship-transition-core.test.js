@@ -193,6 +193,42 @@ test('HTTP idempotent retry returns the established transition without a second 
   }
 });
 
+test('HTTP Relationship route rejects caller-supplied executor and provenance labels', async () => {
+  const { store, engine, seed } = await fixture();
+  const server = createApiServer({ engine, token, adminToken });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = 'http://127.0.0.1:' + server.address().port + '/v1/worlds/world-relationship-test/relationship-transitions';
+    const initialAuditCount = engine.getAudit('world-relationship-test').length;
+    for (const extra of [
+      { executor_type: 'admin_credential' },
+      { origin: 'trusted_host' },
+      { actor_id: 'administrator' },
+      { provenance: 'verified' },
+    ]) {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          authorization: 'Bearer ' + token,
+          'x-admin-token': adminToken,
+          'content-type': 'application/json',
+        },
+        body: JSON.stringify({ ...transitionRequest(seed), ...extra }),
+      });
+      assert.equal(response.status, 400);
+      const payload = await response.json();
+      assert.equal(payload.error.code, 'UNSUPPORTED_RELATIONSHIP_TRANSITION_FIELD');
+      assert.equal(engine.getState('world-relationship-test').world_revision, 1);
+      assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+    }
+    assert.equal(engine.getEvents('world-relationship-test').length, 1);
+    assert.equal(engine.getAudit('world-relationship-test').length, initialAuditCount);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+  }
+});
+
 test('admin route commits through the canonical event lifecycle and returns the current directed projection', async () => {
   const { store, engine, seed } = await fixture();
   const server = createApiServer({ engine, token, adminToken });
@@ -214,6 +250,14 @@ test('admin route commits through the canonical event lifecycle and returns the 
     assert.equal(body.relationship.dimensions.trust, 'low');
     assert.equal(body.relationship.subject_id, 'A');
     assert.equal(body.relationship.target_id, 'B');
+    const event = engine.getEvents('world-relationship-test').find((item) => item.event_id === body.commit_result.event_id);
+    assert.equal(event.effects[0].executor_type, 'admin_credential');
+    assert.deepEqual(event.effects[0].evidence_refs, ['event:' + seed.event_id]);
+    assert.equal(event.effects[0].rule_module_id, 'relationship-rules');
+    assert.equal(event.effects[0].rule_module_version, '1.0.0');
+    const audit = engine.getAudit('world-relationship-test').find((entry) => entry.target_id === body.commit_result.event_id && entry.action === 'event.committed');
+    assert.equal(audit.payload.effects[0].executor_type, 'admin_credential');
+    assert.deepEqual(audit.payload.effects[0].evidence_refs, ['event:' + seed.event_id]);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     store.close();
