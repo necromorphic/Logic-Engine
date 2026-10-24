@@ -159,6 +159,43 @@ test('canonical snapshot includes exact world-scoped context manifests and disti
   );
 });
 
+test('current context manifests expand referenced canonical rows, while stale manifests do not', (t) => {
+  const { engine, worldId } = setup(t, 'manifest-expansion-world');
+  commit(engine, worldId, 'seed-event', 0, [
+    { kind: 'entity.create', entity_id: 'entity.alpha', entity_type: 'character', attributes: { name: 'Alpha' } },
+    { kind: 'fact.set', fact_id: 'fact.alpha', predicate: 'known', value: true },
+  ]);
+  const manifest = engine.registerContextManifest(worldId, {
+    generation_id: 'generation-current',
+    base_commit_sequence: 1,
+    base_world_revision: 1,
+    items: [
+      { kind: 'entity', target_id: 'entity.alpha' },
+      { kind: 'fact', target_id: 'fact.alpha' },
+      { kind: 'event', target_id: 'seed-event' },
+    ],
+  });
+
+  const current = engine.getSnapshot(worldId, { contextManifestIds: [manifest.manifest_id] });
+  assert.equal(current.world_revision, 1);
+  assert.equal(current.commit_sequence, 1);
+  assert.deepEqual(current.entities.map((entity) => entity.entity_id), ['entity.alpha']);
+  assert.deepEqual(current.facts.map((fact) => fact.fact_id), ['fact.alpha']);
+  assert.deepEqual(current.events.map((event) => event.event_id), ['seed-event']);
+  assert.deepEqual(current.missing_context_manifest_ids, []);
+
+  commit(engine, worldId, 'later-event', 1, [
+    { kind: 'entity.create', entity_id: 'entity.beta', entity_type: 'character' },
+  ]);
+  const stale = engine.getSnapshot(worldId, { contextManifestIds: [manifest.manifest_id] });
+  assert.equal(stale.world_revision, 2);
+  assert.equal(stale.commit_sequence, 2);
+  assert.equal(stale.context_manifests[0].base_world_revision, 1);
+  assert.deepEqual(stale.entities, []);
+  assert.deepEqual(stale.facts, []);
+  assert.deepEqual(stale.events, []);
+});
+
 test('mechanic evaluation snapshot rejects malformed options and refuses a truncated active set', (t) => {
   const { engine, worldId } = setup(t);
   assert.throws(
