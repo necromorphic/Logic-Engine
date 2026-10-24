@@ -330,3 +330,12 @@ The newest observed PR #76 head is `382311db34a8e0662cfd47f773756dcad6684b9a`, o
 **MEM-039 remains a review gate.** At this exact head, `evidence_assessment` is required to be non-empty, but `lifecycleIsAdmissible()` does not interpret it and the admitted metadata omits it. The test file has no dedicated supported/disputed/insufficient/unassessed cases. NPC has been asked to preserve the assessment in safe admitted metadata for downstream policy handling, or fail closed where semantics are not approved, with tests for those states. This does not prescribe a universal policy and is a source-review finding, not an executed test failure.
 
 Exact-head workflow query for `382311db34a8e0662cfd47f773756dcad6684b9a` returned zero PR-triggered runs. Current-head test status remains unverified. Keep PR #76 Draft until this contract question and reproducible test validation are resolved.
+
+
+## NPC cross-review refresh — MEM-039 resolved at pure-oracle layer, exact-head CI still absent — 2026-10-24
+
+Re-fetched PR #76 and its helper/test files after the NPC branch advanced. Current PR head is `c8f41407a064d88d0c6f54f13c9e640b0177ca20` (open Draft, unmerged). The current helper now rejects evidence assessments outside the explicit set and includes `evidence_assessment` in each admitted safe reference projection. The test file contains a focused case that admits each of `unassessed`, `supported`, `disputed`, and `insufficient` without collapsing them, and rejects empty/unknown values. A separate conflicting-evidence fixture verifies that admission preserves distinct claims and epistemic kinds rather than adjudicating them. This closes the prior MEM-039 source-inspection gap at the pure-oracle boundary.
+
+This is not approval of a universal evidence policy: downstream policy still decides what each assessment means for a particular operation. The helper validates supplied metadata; it does not authenticate the source of that metadata or prove an approved Memory API exists.
+
+The exact-head workflow query for `c8f41407a064d88d0c6f54f13c9e640b0177ca20` returned zero PR-triggered workflow runs. Therefore test execution for this exact head remains unverified; this is neither a test failure nor a pass. PR #76 must remain Draft pending reproducible test evidence and contract review. No NPC runtime files were edited by Memory, no tests were claimed as executed, and no PR was merged.
