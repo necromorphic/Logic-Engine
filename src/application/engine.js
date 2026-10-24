@@ -479,11 +479,24 @@ export class LogicEngine {
       time_advance_seconds: 0,
       time_mode: 'action',
     };
+    let preparedEvent;
     try {
-      this.prepareEvent(event);
+      preparedEvent = this.prepareEvent(event);
     } catch (error) {
       if (error instanceof EngineError) throw error;
       throw new EngineError(error.code || 'INVALID_TRIGGER_EVENT_PROPOSAL', error.message || 'Trigger event proposal validation failed.', 400);
+    }
+    const effectWrites = preparedEvent.effects.map((effect) => effect.kind === 'relationship.transition'
+      ? 'relationship:' + encodeURIComponent(effect.subject_id) + '/' + encodeURIComponent(effect.target_id)
+      : effect.kind.startsWith('entity.') ? 'entity:' + effect.entity_id
+        : effect.kind.startsWith('mechanic.instance.') ? 'mechanic:' + effect.instance_id
+          : 'fact:' + effect.fact_id);
+    trigger.read_set = [...new Set([...trigger.read_set, ...preparedEvent.read_set])].sort();
+    trigger.write_set = [...new Set([...trigger.write_set, ...effectWrites])].sort();
+    try {
+      trigger = normalizeTimeTrigger(trigger, id);
+    } catch (error) {
+      throw new EngineError(error.code || 'INVALID_TIME_TRIGGER', error.message || 'Time-trigger conflict declarations are invalid.', 400, error.details);
     }
     trigger.payload = { ...trigger.payload, event };
     const content_hash = hashRequest({
