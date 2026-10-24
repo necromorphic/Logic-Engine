@@ -48,10 +48,10 @@ The individual acceptance-ID ownership and evidence mapping is in [09-per-case-a
 
 ## 5. Review sequence
 
-1. Use the Core-owner response and doc 03 as the current evidence record; revise this handoff only when new contract or implementation evidence appears.
+1. Use doc 03 and `09-per-case-acceptance-traceability.md` as current evidence records; revise this handoff when new contract or implementation evidence appears.
 2. Core closes the first-slice causal representation and trusted authoring/import/correction command boundary.
 3. Core defines and tests the actor/purpose/snapshot read boundary before any model/player exposure.
-4. Core finalizes and tests the typed relationship operation on the canonical commit path.
+4. Core closes remaining authority, provenance, authorized-read, and versioning gates around the tested privileged typed Relationship first slice.
 5. Keep independent-support cases blocked unless domain sufficiency and a core-owned implementation are explicitly defined and tested.
 6. Only then plan runtime integration. Do not add a Personality-owned database, event log, identity registry, authorization layer, or causal graph.
 
