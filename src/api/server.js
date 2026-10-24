@@ -115,6 +115,12 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         return send(res, 200, { read: result });
       }
 
+      if (req.method === 'GET' && ['state', 'events', 'audit'].includes(action)) {
+        const trustedRead = (adminToken && req.headers['x-admin-token'] === adminToken)
+          || (internalToken && req.headers['x-engine-internal-token'] === internalToken);
+        if (!trustedRead) return send(res, 403, { error: { code: 'AUTHORIZED_READ_REQUIRED', message: 'Raw canonical reads require a separate trusted internal or administrative credential.' } });
+      }
+
       if (action === 'actor-bindings') {
         if (parts.length === 4 && req.method === 'POST') {
           if (!adminToken || req.headers['x-admin-token'] !== adminToken) return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'A separate administrative credential is required.' } });
