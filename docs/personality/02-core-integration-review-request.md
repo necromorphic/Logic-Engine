@@ -1,6 +1,6 @@
 # Personality Block → Core Architecture Review Request
 
-Status: review request only; no runtime/API/schema/storage implementation is authorized. This document is on `feat/personality-subsystem` and belongs to the Personality block, not the NPC subsystem.
+Status: retained original review request and response disposition; no runtime/API/schema/storage implementation is authorized. This document belongs to the Personality block, not the NPC subsystem. The consolidated current decision is in `03-core-decision-and-integration-gates.md`.
 
 ## Request
 
