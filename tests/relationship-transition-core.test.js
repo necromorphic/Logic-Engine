@@ -233,6 +233,30 @@ test('rejects unavailable rule versions, cross-world participants, and invalid e
       () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, { rule_module_version: '9.9.9' })),
       (error) => error.code === 'RELATIONSHIP_RULE_VERSION_NOT_FOUND',
     );
+    engine.registerRuleModuleManifest({
+      module_id: 'relationship-rules-wrong-pack',
+      version: '1.0.0',
+      contract_version: '1.0.0',
+      capabilities: [],
+      operations: ['validate_transition'],
+      input_schema: {},
+      output_schema: {},
+      failure_policy: 'fail_closed',
+      compatibility: { core_contract_versions: ['1.0.0'] },
+      metadata: {
+        relationship_domain: {
+          world_pack_id: 'test-pack',
+          world_pack_version: '9.9.9',
+          dimensions: rules,
+        },
+      },
+    });
+    assert.throws(
+      () => engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+        rule_module_id: 'relationship-rules-wrong-pack',
+      })),
+      (error) => error.code === 'RELATIONSHIP_RULE_VERSION_INCOMPATIBLE',
+    );
 
     engine.createWorld({
       world_id: 'world-relationship-other',
@@ -273,6 +297,37 @@ test('rejects unavailable rule versions, cross-world participants, and invalid e
     );
     assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
     assert.equal(engine.getState('world-relationship-test').world_revision, 3);
+  } finally {
+    store.close();
+  }
+});
+
+test('event insert and audit failures roll back the entire Relationship transition', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    const request = transitionRequest(seed);
+    store.db.exec(`CREATE TRIGGER fail_relationship_event_insert BEFORE INSERT ON world_events
+      WHEN NEW.event_type='relationship.transition'
+      BEGIN SELECT RAISE(ABORT, 'injected relationship event insert failure'); END;`);
+    assert.throws(() => engine.commitRelationshipTransition('world-relationship-test', request), /injected relationship event insert failure/);
+    store.db.exec('DROP TRIGGER fail_relationship_event_insert');
+    assert.equal(engine.getEvents('world-relationship-test').length, 1);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 1);
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+
+    store.db.exec(`CREATE TRIGGER fail_relationship_event_audit BEFORE INSERT ON audit_entries
+      WHEN NEW.action='event.committed'
+      BEGIN SELECT RAISE(ABORT, 'injected relationship audit failure'); END;`);
+    assert.throws(() => engine.commitRelationshipTransition('world-relationship-test', request), /injected relationship audit failure/);
+    store.db.exec('DROP TRIGGER fail_relationship_event_audit');
+    assert.equal(engine.getEvents('world-relationship-test').length, 1);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 1);
+    assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
+
+    const result = engine.commitRelationshipTransition('world-relationship-test', request);
+    assert.equal(result.accepted, true);
+    assert.equal(engine.getEvents('world-relationship-test').length, 2);
+    assert.equal(engine.getState('world-relationship-test').world_revision, 2);
   } finally {
     store.close();
   }
