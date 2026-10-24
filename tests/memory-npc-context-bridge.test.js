@@ -111,7 +111,7 @@ test('retrieval and verifier failures fail closed without exposing details', asy
 test('invalid trusted scope fails before retrieval', async () => {
   let called = false;
   const bridge = new MemoryNpcContextBridge({ ...allowAll, retrieve: () => { called = true; return result(); } });
-  const output = bridge.read({ ...request, subject_id: ' ' });
+  const output = await bridge.read({ ...request, subject_id: ' ' });
   assert.equal(output.status, 'non_ready');
   assert.equal(output.reason, 'trusted_scope_incomplete');
   assert.equal(called, false);
