@@ -129,3 +129,7 @@ The acquisition contract is now cross-checked against the current causality cont
 ## Core status refresh (2026-10-24)
 
 Typed Relationship write/replay is implemented in Core for admin-authored transitions only (#94–#96). Memory/NPC acquisition records, general authorized reads, and rollback-aware source reconciliation remain blocked.
+
+## Additional Core boundary status (2026-10-24)
+
+Core PR #101 adds a trusted host field-policy hook but no configured visibility policy; PR #102 verifies default non-self denial. PR #103 secures public proposal commit ownership. PR #106 restricts context-manifest registration to the internal host credential but does not prove generation/context binding. These are prerequisites, not acquisition records or source-reconciliation signals. The Memory/NPC source lifecycle remains blocked until a trusted source-validity observation and owner-approved reconciliation path are implemented and tested.
