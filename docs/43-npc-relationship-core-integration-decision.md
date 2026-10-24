@@ -81,7 +81,7 @@ The core owner has confirmed the semantic direction in PR #38 comment [637746831
 7. **Projection — behavior confirmed, input contract open.** Character cards consume a bounded, derived, read-only relationship summary; they must not write duplicate state or expose raw records/private notes. The precise internal projection input depends on the typed record and trusted read boundary.
 8. **Executable tests — blocked on real interfaces.** Tests must exercise the production write/read/rollback path for asymmetry, unknown-vs-neutral, partial updates, unresolved participants, access separation, author provenance, and multi-cause rollback. Do not use mocks to simulate absent production semantics.
 
-#### 7. Safe parallel-work plan
+## 7. Safe parallel-work plan
 
 - NPC work may continue on semantic scenarios, authoring expectations, decision-context needs, and the relationship projection requirements.
 - Core work may continue on canonical record/effect boundaries, fact identity, snapshot reads, and rollback guarantees without waiting for the NPC implementation.
