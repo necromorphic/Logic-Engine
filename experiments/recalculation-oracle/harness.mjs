@@ -76,9 +76,8 @@ function evaluateSelected(inputs, nodes, selected, priorValues = {}) {
     for (const name of reads) {
       if (!declared.has(name)) violations.push({ node: id, read: name, code: 'UNDECLARED_READ' });
     }
-    for (const name of declared) {
-      if (!reads.has(name)) violations.push({ node: id, read: name, code: 'DECLARED_BUT_NOT_READ' });
-    }
+    // Declared dependencies may be a conservative union of conditional reads.
+    // Not reading one on this execution is not a contract violation.
   }
   return { values, readSets, violations, order };
 }
@@ -88,7 +87,7 @@ function allNodeIds(nodes) {
 }
 
 function impactedNodes(inputs, nodes, changedInputs) {
-  const { byId, order } = assertModel(inputs, nodes);
+  const { order } = assertModel(inputs, nodes);
   const dirty = new Set();
   for (const node of nodes) {
     if (node.dependsOn.some((dep) => changedInputs.has(dep))) dirty.add(node.id);
@@ -111,6 +110,7 @@ export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs 
   if (!Array.isArray(changedInputs) || changedInputs.some((x) => typeof x !== 'string')) {
     throw new TypeError('changedInputs must be an array of input names');
   }
+  if (!isRecord(previousValues)) throw new TypeError('previousValues must be an object');
   if (!Array.isArray(invariants) || invariants.some((fn) => typeof fn !== 'function')) {
     throw new TypeError('invariants must be an array of functions');
   }
@@ -121,7 +121,7 @@ export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs 
   for (let i = 0; i < invariants.length; i++) {
     let result;
     try { result = invariants[i](Object.freeze({ inputs, values: incremental.values })); }
-    catch (error) { result = false; }
+    catch { result = false; }
     if (result !== true) invariantFailures.push({ index: i, code: 'INVARIANT_NOT_PROVEN' });
   }
 
