@@ -285,33 +285,102 @@ export class ProcessStore {
     const invalidated = new Set(invalidatedEventIds);
     if (!invalidated.size) return [];
     return this.store.tx(() => {
-      const rows = this.db.prepare("SELECT * FROM world_process_milestones WHERE world_id=? AND status='completed'")
-        .all(worldId);
-      const affected = [];
+      // Seed the closure only from completed milestones whose own supporting
+      // event IDs were invalidated by Core. Expand over the already-declared
+      // process prerequisite graph; do not maintain a second causal graph.
+      const completedRows = this.db.prepare(
+        "SELECT * FROM world_process_milestones WHERE world_id=? AND status='completed'",
+      ).all(worldId);
+      const processRows = this.db.prepare(
+        'SELECT * FROM world_processes WHERE world_id=?',
+      ).all(worldId);
+      const processById = new Map(processRows.map((row) => [row.process_id, row]));
+      const milestonesByProcess = new Map();
+      const affectedByProcess = new Map();
       const stamp = now();
-      for (const milestone of rows) {
-        const eventIds = dec(milestone.completed_event_ids_json);
-        const overlap = eventIds.filter((eventId) => invalidated.has(eventId));
+
+      for (const milestone of completedRows) {
+        const overlap = dec(milestone.completed_event_ids_json).filter((eventId) => invalidated.has(eventId));
         if (!overlap.length) continue;
-        this.db.prepare(`UPDATE world_process_milestones SET status='needs_review',
-          checkpoint_version=checkpoint_version+1,updated_at=?
-          WHERE world_id=? AND process_id=? AND milestone_id=?`)
-          .run(stamp, worldId, milestone.process_id, milestone.milestone_id);
+        if (!affectedByProcess.has(milestone.process_id)) {
+          affectedByProcess.set(milestone.process_id, new Map());
+        }
+        affectedByProcess.get(milestone.process_id).set(milestone.milestone_id, {
+          milestone_id: milestone.milestone_id,
+          reason: 'direct_event_invalidation',
+          invalidated_event_ids: overlap,
+        });
+      }
+
+      for (const [processId, affected] of affectedByProcess) {
+        const processRow = processById.get(processId);
+        if (!processRow) continue;
+        const definition = dec(processRow.definition_json);
+        const rows = this.db.prepare(
+          'SELECT * FROM world_process_milestones WHERE world_id=? AND process_id=?',
+        ).all(worldId, processId);
+        milestonesByProcess.set(processId, rows);
+        const statusById = new Map(rows.map((row) => [row.milestone_id, row.status]));
+        const byId = new Map(definition.milestones.map((item) => [item.milestone_id, item]));
+
+        // Compute transitive downstream closure from the definition's existing
+        // prerequisite edges. Only completed descendants are invalidated;
+        // pending/cancelled milestones keep their own lifecycle status, while
+        // the process is gated at needs_review.
+        const queue = [...affected.keys()];
+        const visited = new Set(queue);
+        while (queue.length) {
+          const prerequisiteId = queue.shift();
+          for (const candidate of definition.milestones) {
+            if (!candidate.prerequisites.includes(prerequisiteId) || visited.has(candidate.milestone_id)) continue;
+            visited.add(candidate.milestone_id);
+            queue.push(candidate.milestone_id);
+            if (statusById.get(candidate.milestone_id) === 'completed') {
+              affected.set(candidate.milestone_id, {
+                milestone_id: candidate.milestone_id,
+                reason: 'dependent_on_invalidated_milestone',
+                invalidated_event_ids: [],
+                prerequisite_milestone_id: prerequisiteId,
+              });
+            }
+          }
+        }
+      }
+
+      const result = [];
+      for (const [processId, affected] of affectedByProcess) {
+        const processRow = processById.get(processId);
+        if (!processRow) continue;
+        const rows = milestonesByProcess.get(processId) ?? this.db.prepare(
+          'SELECT * FROM world_process_milestones WHERE world_id=? AND process_id=?',
+        ).all(worldId, processId);
+        for (const item of affected.values()) {
+          const milestoneRow = rows.find((row) => row.milestone_id === item.milestone_id);
+          if (!milestoneRow || milestoneRow.status !== 'completed') continue;
+          this.db.prepare(`UPDATE world_process_milestones SET status='needs_review',
+            checkpoint_version=checkpoint_version+1,updated_at=?
+            WHERE world_id=? AND process_id=? AND milestone_id=? AND status='completed'`)
+            .run(stamp, worldId, processId, item.milestone_id);
+          result.push({ process_id: processId, ...item, rollback_id: rollbackId });
+        }
         const error = {
           code: 'PROCESS_MILESTONE_ROLLED_BACK',
-          message: 'A canonical event supporting a completed process milestone was invalidated; progress requires explicit review.',
-          milestone_id: milestone.milestone_id,
-          invalidated_event_ids: overlap,
+          message: 'A supporting event or prerequisite milestone was invalidated; dependent completed progress requires explicit review.',
           rollback_id: rollbackId,
+          affected_milestone_ids: [...affected.keys()],
+          directly_invalidated_milestones: [...affected.values()]
+            .filter((item) => item.reason === 'direct_event_invalidation')
+            .map((item) => item.milestone_id),
         };
+        // A causal invalidation takes precedence over the prior process status:
+        // a cancelled/failed process must not expose stale completed progress.
         this.db.prepare(`UPDATE world_processes SET status='needs_review',version=version+1,last_error_json=?,updated_at=?
-          WHERE world_id=? AND process_id=? AND status NOT IN ('cancelled','failed')`)
-          .run(enc(error), stamp, worldId, milestone.process_id);
+          WHERE world_id=? AND process_id=?`)
+          .run(enc(error), stamp, worldId, processId);
         this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
-          .run(worldId, this.store.world(worldId).world_revision, 'process.rollback.needs_review', milestone.process_id, enc(error), stamp);
-        affected.push({ process_id: milestone.process_id, milestone_id: milestone.milestone_id, invalidated_event_ids: overlap });
+          .run(worldId, this.store.world(worldId).world_revision, 'process.rollback.needs_review', processId, enc(error), stamp);
       }
-      return affected;
+      return result;
     });
   }
 
