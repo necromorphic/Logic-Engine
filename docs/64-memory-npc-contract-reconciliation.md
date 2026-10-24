@@ -1,14 +1,14 @@
 # Memory ↔ NPC contract reconciliation and integration gate
 
 Status: Memory-owned handoff specification, documentation only. Integrated cleanly from the Memory-owned handoff branch; this file is documentation only.
-Branch base at PR preparation: `main` at `6c58769e03717d18c57d061bbd33fdcba0cf5694` (2026-10-24). The PR remains Draft if `main` advances; reconcile against the current base before merge.
+Integrated into `main` through clean current-main PR #97. Historical branch-base information is intentionally omitted from this active contract.
 This document records the boundary that exists today, the proposed contract that still needs owner approval, and the evidence required before production integration. It does not define a new runtime API, schema, outbox, cursor, permission system, or storage layer.
 
 ## 1. Executive result
 
 **Production Memory → NPC retrieval remains blocked.** The merged NPC helper (`src/npc/memory-candidate-eligibility.js`, with `tests/npc-memory-candidate-eligibility.test.js`) is a pure consumer-side eligibility oracle over caller-supplied metadata. It does not retrieve Memory records, authenticate access decisions, provide a consistent snapshot, or prove authorization-before-disclosure.
 
-Core PR #65 provides a protected `/authorized-read` route whose scope is deliberately limited to the bound adapter actor's own `entity_id`, `entity_type`, and `status`; it is not a general Memory/NPC retrieval boundary. Core PR #83 requires a separate admin credential for HTTP canonical rollback; it does not publish a durable rollback-aware Memory source-change feed. Core transaction support does not prove atomicity between canonical storage and an external vector archive/index.
+Core PR #65 provides a protected `/authorized-read` route whose scope is deliberately limited to the bound adapter actor's own `entity_id`, `entity_type`, and `status`; it is not a general Memory/NPC retrieval boundary. Core PR #83 requires a separate admin credential for HTTP canonical rollback; it does not publish a durable rollback-aware Memory source-change feed. Core PRs #94–#96 add admin-only typed Relationship writes and replay, but do not authorize NPC/Memory reads or provide a Memory source-change feed. Core transaction support does not prove atomicity between canonical storage and an external vector archive/index.
 
 No `allow`, `current`, `ready`, `active`, `usable`, or `reported` value supplied by an untrusted caller may be treated as proof of authorization, freshness, index health, acquisition, or delivery.
 
