@@ -103,8 +103,22 @@ Failure must be all-or-nothing and side-effect free. The caller may turn a failu
 
 This contract does not implement mechanic evaluation, actor authorization, semantic alignment with source text, causal completeness, relation/knowledge/process/task/goal stores, automatic ID allocation, conflict resolution, NPC behavior, character-card logic, or a new commit API. It does not authorize SQLite, HTTP API, schema, or canonical-effect-vocabulary changes.
 
-## 8. Open decisions intentionally deferred
+## 8. Decisions and remaining deferred scope
 
-- The canonical identity and replacement/idempotency policy for `fact.set` under an existing `fact_id`.
-- A typed mapping from intent provenance to event-level causal/context fields.
-- Whether a future translator should support additional canonical effect kinds after their event, rollback, and audit semantics are independently specified.
+### 8.1 Canonical fact identity — decision recorded in PR #41
+
+The translator does not define fact identity, but the downstream canonical commit contract is no longer an open semantic question. The reviewed rule is:
+
+- Identity is the tuple `fact_id + predicate + normalized subject_ref`.
+- Missing and explicit-null `subject_ref` are equivalent; empty or whitespace-only identity fields are rejected.
+- Leading/trailing whitespace in identity fields is invalid and must be rejected, not silently trimmed. Valid unpadded strings are preserved exactly.
+- Duplicate `fact_id` effects within one event are rejected before durable writes. Cross-event identity collisions are conflicts.
+- Validation checks all remaining valid persisted claims, not only the current projection; rollback reconstructs claims from valid event history.
+- Claims remain append-only and projection remains conflict-aware; last-write-wins is not implied.
+
+The translator must preserve valid identifiers exactly and let the canonical commit boundary enforce these identity rules. It must not implement a second identity policy.
+
+### 8.2 Still deferred
+
+- A typed mapping from intent-level `source_refs`/`caused_by` to event-level causal/context fields. Until approved, non-empty provenance remains fail-closed as specified above.
+- Additional translator effect kinds beyond the initial three, until their canonical event, rollback, and audit semantics are independently specified.
