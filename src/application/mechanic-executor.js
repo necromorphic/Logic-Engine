@@ -13,7 +13,9 @@ function isCanonicalJsonValue(value, active = new WeakSet()) {
   active.add(value);
   let valid = true;
   if (Array.isArray(value)) {
-    valid = value.every((item) => isCanonicalJsonValue(item, active));
+    valid = Object.keys(value).length === value.length
+      && Object.getOwnPropertyNames(value).length === value.length + 1
+      && value.every((item) => isCanonicalJsonValue(item, active));
   } else {
     const prototype = Object.getPrototypeOf(value);
     const keys = Object.keys(value);
@@ -159,8 +161,10 @@ export class MechanicExecutor {
     }
     const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'knownAbsentPaths', 'dependencyEvidence']);
     if (!object(resolved) || Object.keys(resolved).some((key) => !allowedResolvedKeys.has(key))
-      || !object(resolved.context) || !isCanonicalJsonValue(resolved.context)
-      || resolved.world_revision !== snapshot.world_revision
+      || !object(resolved.context) || !isCanonicalJsonValue(resolved.context)) {
+      return unknown('INVALID_AUTHORIZED_CONTEXT', 'Trusted context must be a strict canonical JSON object with no unsupported fields.', identity);
+    }
+    if (resolved.world_revision !== snapshot.world_revision
       || resolved.commit_sequence !== snapshot.commit_sequence
       || typeof resolved.policy_version !== 'string' || !resolved.policy_version.trim()
       || !Array.isArray(resolved.knownAbsentPaths ?? [])
