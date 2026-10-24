@@ -36,6 +36,12 @@ The coordinate origin must be explicit per world when bridging the current `init
 - `intervalContains(interval, coordinate)`: apply `(from, to]` semantics.
 - `compareTimeCoordinates(left, right)`: deterministic comparison.
 
+### `src/time/duration.js`
+
+- `resolveDurationDecision(rule, proposal?)`: resolve a fixed duration, deterministically resolve a declared range, request author adjudication for a range configured for author choice, or let a model proposal select only a predeclared world-rule category.
+
+The model cannot submit arbitrary canonical units. Unsupported categories or proposals containing extra fields are rejected. A fixed rule remains authoritative; a range never silently chooses a random value.
+
 ### `src/time/iso-compat.js`
 
 - `isoInstantToCoordinate(isoInstant, epochIsoInstant)`: translate an ISO date-time to an integer offset from an explicit ISO anchor.
@@ -49,7 +55,7 @@ The adapter requires explicit timezone information and at most millisecond preci
 
 Calendar definitions contain a version, a positive `unitsPerDay`, month names and lengths, weekday names, an epoch mapping (coordinate/year/month/day/weekday index), and optional recurring or one-off holidays. Projection returns the calendar version with the date, weekday, within-day units, and matching holiday identifiers.
 
-The function rejects malformed definitions and unsafe arithmetic rather than silently normalizing them. The function does not mutate its definition or the world.
+The function rejects malformed definitions and unsafe arithmetic rather than silently normalizing them. The function does not mutate its definition or the world. `epoch.coordinate` denotes the beginning of the configured epoch date; `time_of_day_units` is zero at that coordinate.
 
 ## Explicit non-goals
 
@@ -63,6 +69,7 @@ The function rejects malformed definitions and unsafe arithmetic rather than sil
 ## Acceptance criteria
 
 - Safe integer validation and overflow detection are covered.
+- Duration rules reject unsafe values and unapproved model proposals; ambiguous ranges resolve deterministically or require author input.
 - Negative coordinates and pre-epoch calendar projection are covered.
 - Seconds-to-unit conversion is exact for supported inputs and rejects unsafe results.
 - Interval boundaries and zero-length intervals are covered.
