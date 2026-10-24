@@ -1740,6 +1740,221 @@ export class SQLiteStore {
     return timeTrigger(row);
   }
 
+  createProcess(worldId, input) {
+    return this.tx(() => {
+      const old = this.db.prepare("SELECT * FROM world_processes WHERE world_id=? AND idempotency_key=?")
+        .get(worldId, input.process.idempotency_key);
+      if (old) {
+        if (old.request_hash !== input.request_hash) throw new EngineError('IDEMPOTENCY_CONFLICT', 'The process idempotency key was already used with different content.', 409);
+        return { ...this.getProcess(worldId, old.process_id), idempotent_replay: true };
+      }
+      const world = this.world(worldId);
+      if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (this.db.prepare("SELECT 1 FROM world_processes WHERE world_id=? AND process_id=?").get(worldId, input.process.process_id)) {
+        throw new EngineError('PROCESS_ID_CONFLICT', 'The process ID is already in use in this world.', 409);
+      }
+      const sourceIds = new Set(input.process.source_event_ids);
+      for (const milestone of input.process.milestones) for (const sourceId of milestone.source_event_ids) sourceIds.add(sourceId);
+      for (const sourceId of sourceIds) {
+        const event = this.db.prepare("SELECT event_id FROM world_events WHERE world_id=? AND event_id=?").get(worldId, sourceId);
+        if (!event) throw new EngineError('PROCESS_SOURCE_EVENT_NOT_FOUND', 'A process causal source must reference an existing event in this world.', 409, { event_id: sourceId });
+      }
+      const stamp = now();
+      this.db.prepare("INSERT INTO world_processes(world_id,process_id,idempotency_key,request_hash,status,source_event_ids_json,created_revision,last_operation_id,error_json,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)")
+        .run(worldId, input.process.process_id, input.process.idempotency_key, input.request_hash, 'scheduled',
+          enc(input.process.source_event_ids), world.world_revision, null, null, stamp, stamp);
+      for (const item of input.items) {
+        const registered = this.registerTimeTrigger(worldId, item.trigger);
+        if (registered.idempotent_replay) throw new EngineError('PROCESS_TRIGGER_ID_CONFLICT', 'A process trigger ID already exists outside this process.', 409, { trigger_id: item.trigger.trigger_id });
+        this.db.prepare("INSERT INTO world_process_milestones(world_id,process_id,milestone_id,trigger_id,due_coordinate,status,dependencies_json,read_set_json,write_set_json,processing_mode,interrupt_after_coordinate,payload_json,source_event_ids_json,event_id,trigger_generation,created_at,updated_at) VALUES(?,?,?,?,?,'pending',?,?,?,?,?,?,?,?,0,?,?)")
+          .run(worldId, input.process.process_id, item.milestone.milestone_id, item.trigger.trigger_id, item.milestone.due_coordinate,
+            enc(item.milestone.dependencies), enc(item.trigger.read_set), enc(item.trigger.write_set), item.trigger.processing_mode,
+            item.trigger.interrupt_after_coordinate ? 1 : 0, enc(item.milestone.event), enc(item.milestone.source_event_ids),
+            item.trigger.payload.event.event_id, stamp, stamp);
+      }
+      const createdRevision = this.world(worldId).world_revision + 1;
+      this.db.prepare("UPDATE worlds SET world_revision=? WHERE world_id=?").run(createdRevision, worldId);
+      this.db.prepare("UPDATE world_processes SET created_revision=?,updated_at=? WHERE world_id=? AND process_id=?")
+        .run(createdRevision, now(), worldId, input.process.process_id);
+      this.db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)")
+        .run(worldId, createdRevision, 'process.created', input.process.process_id, enc({
+          milestone_ids: input.process.milestones.map((milestone) => milestone.milestone_id),
+          source_event_ids: input.process.source_event_ids, request_hash: input.request_hash,
+        }), now());
+      return { ...this.getProcess(worldId, input.process.process_id), idempotent_replay: false };
+    });
+  }
+
+  getProcess(worldId, processId) {
+    const row = this.db.prepare("SELECT * FROM world_processes WHERE world_id=? AND process_id=?").get(worldId, processId);
+    if (!row) throw new EngineError('PROCESS_NOT_FOUND', 'Process not found.', 404);
+    const milestones = this.db.prepare("SELECT * FROM world_process_milestones WHERE world_id=? AND process_id=? ORDER BY due_coordinate,milestone_id")
+      .all(worldId, processId);
+    return processRecord(row, milestones);
+  }
+
+  getProcessByIdempotencyKey(worldId, key) {
+    const row = this.db.prepare("SELECT process_id FROM world_processes WHERE world_id=? AND idempotency_key=?").get(worldId, key);
+    return row ? this.getProcess(worldId, row.process_id) : null;
+  }
+
+  listProcesses(worldId) {
+    return this.db.prepare("SELECT process_id FROM world_processes WHERE world_id=? ORDER BY created_at,process_id")
+      .all(worldId).map((row) => this.getProcess(worldId, row.process_id));
+  }
+
+  completeProcessMilestone(worldId, triggerId, operationId, dueCoordinate) {
+    const milestone = this.db.prepare("SELECT * FROM world_process_milestones WHERE world_id=? AND trigger_id=?").get(worldId, triggerId);
+    if (!milestone) return null;
+    if (milestone.status === 'completed') return this.getProcess(worldId, milestone.process_id);
+    if (milestone.status !== 'pending') throw new EngineError('PROCESS_MILESTONE_CHECKPOINT_CONFLICT', 'A non-pending process milestone cannot be completed.', 409);
+    const process = this.db.prepare("SELECT status FROM world_processes WHERE world_id=? AND process_id=?").get(worldId, milestone.process_id);
+    if (!process || !['scheduled','running'].includes(process.status)) {
+      throw new EngineError('PROCESS_CHECKPOINT_CONFLICT', 'The process is not eligible to commit a milestone.', 409, {
+        process_id: milestone.process_id, status: process?.status ?? null,
+      });
+    }
+    const stamp = now();
+    this.db.prepare("UPDATE world_process_milestones SET status='completed',updated_at=? WHERE world_id=? AND process_id=? AND milestone_id=?")
+      .run(stamp, worldId, milestone.process_id, milestone.milestone_id);
+    const pending = this.db.prepare("SELECT COUNT(*) AS count FROM world_process_milestones WHERE world_id=? AND process_id=? AND status='pending'")
+      .get(worldId, milestone.process_id).count;
+    const status = pending === 0 ? 'completed' : 'running';
+    this.db.prepare("UPDATE world_processes SET status=?,last_operation_id=?,updated_at=? WHERE world_id=? AND process_id=?")
+      .run(status, operationId, stamp, worldId, milestone.process_id);
+    const world = this.world(worldId);
+    this.db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)")
+      .run(worldId, world.world_revision, 'process.milestone.completed', milestone.process_id + '/' + milestone.milestone_id,
+        enc({ trigger_id: triggerId, operation_id: operationId, due_coordinate: dueCoordinate, status }), stamp);
+    return this.getProcess(worldId, milestone.process_id);
+  }
+
+  transitionProcess(worldId, processId, action, idempotencyKey, requestHash, replacementItems = []) {
+    return this.tx(() => {
+      const oldCommand = this.db.prepare("SELECT request_hash,result_json FROM world_process_commands WHERE world_id=? AND idempotency_key=?")
+        .get(worldId, idempotencyKey);
+      if (oldCommand) {
+        if (oldCommand.request_hash !== requestHash) throw new EngineError('IDEMPOTENCY_CONFLICT', 'The process command key was already used with different content.', 409);
+        return { ...dec(oldCommand.result_json), idempotent_replay: true };
+      }
+      const row = this.db.prepare("SELECT * FROM world_processes WHERE world_id=? AND process_id=?").get(worldId, processId);
+      if (!row) throw new EngineError('PROCESS_NOT_FOUND', 'Process not found.', 404);
+      const world = this.world(worldId);
+      if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const pending = this.db.prepare("SELECT * FROM world_process_milestones WHERE world_id=? AND process_id=? AND status='pending' ORDER BY due_coordinate,milestone_id")
+        .all(worldId, processId);
+      if (action === 'pause' || action === 'cancel') {
+        if (!['scheduled','running','paused'].includes(row.status) || (action === 'pause' && row.status === 'paused')) {
+          throw new EngineError('INVALID_PROCESS_TRANSITION', 'The process cannot take this lifecycle transition from its current state.', 409, { process_id: processId, status: row.status, action });
+        }
+        for (const milestone of pending) {
+          const trigger = this.db.prepare("SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?")
+            .get(worldId, milestone.trigger_id);
+          if (trigger?.claimed_by_operation_id) {
+            throw new EngineError('PROCESS_MILESTONE_CLAIMED', 'A process with claimed milestones cannot be paused or cancelled until the time-advance operation reaches a durable terminal boundary.', 409, {
+              process_id: processId, milestone_id: milestone.milestone_id, operation_id: trigger.claimed_by_operation_id,
+            });
+          }
+        }
+        for (const milestone of pending) {
+          const trigger = this.db.prepare("SELECT status FROM world_time_triggers WHERE world_id=? AND trigger_id=?").get(worldId, milestone.trigger_id);
+          if (trigger?.status === 'pending') this.cancelTimeTrigger(worldId, milestone.trigger_id, action === 'pause' ? 'process_paused' : 'process_cancelled');
+        }
+        if (action === 'cancel') {
+          this.db.prepare("UPDATE world_process_milestones SET status='cancelled',updated_at=? WHERE world_id=? AND process_id=? AND status='pending'")
+            .run(now(), worldId, processId);
+        }
+        this.db.prepare("UPDATE world_processes SET status=?,updated_at=? WHERE world_id=? AND process_id=?")
+          .run(action === 'pause' ? 'paused' : 'cancelled', now(), worldId, processId);
+      } else if (action === 'resume') {
+        if (row.status !== 'paused') throw new EngineError('INVALID_PROCESS_TRANSITION', 'Only a paused process can be resumed.', 409, { process_id: processId, status: row.status });
+        if (!Array.isArray(replacementItems) || replacementItems.length !== pending.length) {
+          throw new EngineError('INVALID_PROCESS_RESUME_PLAN', 'Resume must provide exactly one replacement trigger for every pending milestone.', 400);
+        }
+        const byMilestone = new Map(replacementItems.map((item) => [item.milestone_id, item]));
+        for (const milestone of pending) {
+          const item = byMilestone.get(milestone.milestone_id);
+          if (!item || item.trigger.due_coordinate <= world.game_time_coordinate) {
+            throw new EngineError('PROCESS_MILESTONE_NOT_FUTURE', 'Every resumed milestone must have a replacement due coordinate after the current world coordinate.', 409, {
+              milestone_id: milestone.milestone_id, current_coordinate: world.game_time_coordinate,
+            });
+          }
+        }
+        for (const milestone of pending) {
+          const item = byMilestone.get(milestone.milestone_id);
+          const registered = this.registerTimeTrigger(worldId, item.trigger);
+          if (registered.idempotent_replay) throw new EngineError('PROCESS_TRIGGER_ID_CONFLICT', 'A resumed process trigger ID already exists.', 409, { trigger_id: item.trigger.trigger_id });
+          const stamp = now();
+          this.db.prepare("UPDATE world_process_milestones SET trigger_id=?,due_coordinate=?,dependencies_json=?,read_set_json=?,write_set_json=?,processing_mode=?,interrupt_after_coordinate=?,event_id=?,trigger_generation=trigger_generation+1,updated_at=? WHERE world_id=? AND process_id=? AND milestone_id=? AND status='pending'")
+            .run(item.trigger.trigger_id, item.trigger.due_coordinate, enc(item.milestone.dependencies), enc(item.trigger.read_set),
+              enc(item.trigger.write_set), item.trigger.processing_mode, item.trigger.interrupt_after_coordinate ? 1 : 0,
+              item.trigger.payload.event.event_id, stamp, worldId, processId, milestone.milestone_id);
+        }
+        const completed = this.db.prepare("SELECT COUNT(*) AS count FROM world_process_milestones WHERE world_id=? AND process_id=? AND status='completed'")
+          .get(worldId, processId).count;
+        this.db.prepare("UPDATE world_processes SET status=?,updated_at=? WHERE world_id=? AND process_id=?")
+          .run(completed ? 'running' : 'scheduled', now(), worldId, processId);
+      } else {
+        throw new EngineError('INVALID_PROCESS_COMMAND', 'Unsupported process command.', 400);
+      }
+      const after = this.world(worldId);
+      const revision = after.world_revision + 1;
+      this.db.prepare("UPDATE worlds SET world_revision=? WHERE world_id=?").run(revision, worldId);
+      this.db.prepare("UPDATE world_processes SET updated_at=? WHERE world_id=? AND process_id=?").run(now(), worldId, processId);
+      this.db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)")
+        .run(worldId, revision, 'process.' + action, processId, enc({ idempotency_key: idempotencyKey }), now());
+      const result = this.getProcess(worldId, processId);
+      this.db.prepare("INSERT INTO world_process_commands(world_id,idempotency_key,request_hash,process_id,result_json,created_at) VALUES(?,?,?,?,?,?)")
+        .run(worldId, idempotencyKey, requestHash, processId, enc(result), now());
+      return { ...result, idempotent_replay: false };
+    });
+  }
+
+  markProcessRollback(worldId, rootEventId) {
+    return this.tx(() => {
+      const processes = this.db.prepare("SELECT * FROM world_processes WHERE world_id=? AND status NOT IN ('cancelled','failed')")
+        .all(worldId);
+      const affected = [];
+      for (const process of processes) {
+        const milestones = this.db.prepare("SELECT * FROM world_process_milestones WHERE world_id=? AND process_id=?")
+          .all(worldId, process.process_id);
+        const invalidated = new Set(milestones.filter((milestone) => dec(milestone.source_event_ids_json).includes(rootEventId))
+          .map((milestone) => milestone.milestone_id));
+        if (!invalidated.size) continue;
+        let changed = true;
+        while (changed) {
+          changed = false;
+          for (const milestone of milestones) {
+            if (!invalidated.has(milestone.milestone_id)
+              && dec(milestone.dependencies_json).some((dependency) => invalidated.has(dependency))) {
+              invalidated.add(milestone.milestone_id);
+              changed = true;
+            }
+          }
+        }
+        const stamp = now();
+        for (const milestone of milestones) {
+          if (!invalidated.has(milestone.milestone_id)) continue;
+          if (milestone.status === 'pending') {
+            this.db.prepare("UPDATE world_time_triggers SET status='cancelled',claimed_by_operation_id=NULL,cancellation_reason='process_causal_rollback',updated_at=? WHERE world_id=? AND trigger_id=? AND status='pending'")
+              .run(stamp, worldId, milestone.trigger_id);
+          }
+          this.db.prepare("UPDATE world_process_milestones SET status='needs_review',updated_at=? WHERE world_id=? AND process_id=? AND milestone_id=?")
+            .run(stamp, worldId, process.process_id, milestone.milestone_id);
+        }
+        this.db.prepare("UPDATE world_processes SET status='needs_review',error_json=?,updated_at=? WHERE world_id=? AND process_id=?")
+          .run(enc({ code: 'PROCESS_CAUSAL_INPUT_ROLLED_BACK', root_event_id: rootEventId, invalidated_milestone_ids: [...invalidated] }),
+            stamp, worldId, process.process_id);
+        const worldAfter = this.world(worldId);
+        this.db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)")
+          .run(worldId, worldAfter.world_revision, 'process.rollback_review_required', process.process_id,
+            enc({ root_event_id: rootEventId, invalidated_milestone_ids: [...invalidated] }), stamp);
+        affected.push(process.process_id);
+      }
+      return affected;
+    });
+  }
+
   registerTimeTrigger(worldId, trigger) {
     return this.tx(() => {
       const world = this.world(worldId);
