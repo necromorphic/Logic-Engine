@@ -250,3 +250,32 @@ The first useful vertical slice is **one named canonical NPC receiving a bounded
 Do not treat this queue as a requirement to land all gates in one PR. Core-owned work should stay in the core's reviewed branch/PR; NPC-specific work should consume only merged or explicitly approved stable interfaces. Keep the first NPC slice small enough that every visible claim can be traced to authorized source evidence.
 
 The snapshot primitive is necessary but not sufficient. In particular, it does not by itself solve actor/entity binding, acquisition, belief, delivery, authorization, or safe condition evaluation. The relationship typed-operation design in docs/45-npc-relationship-typed-operation-design.md is a separate later capability and must not be pulled into the first knowledge slice merely because both need snapshots.
+
+
+## 17. Concrete condition-evaluator blocker — source evidence (2026-10-24)
+
+This section records the exact limitation observed in `main` at `cb4ad189f12484ca5458c30b1d176cbd9f7d4ccc`, file `src/core/rules.js`. Re-inspect before using this as evidence for a later commit.
+
+### Observed behavior
+
+- `readPath(...)` returns `{ exists: false }` when any path segment is absent.
+- For `exists`, `evaluateCondition(...)` returns `found.exists === (rule.value ?? true)`. Therefore a missing path evaluates to ordinary `false` for `exists: true` and ordinary `true` for `exists: false`, regardless of whether the caller knows that the field is absent or merely lacks the relevant context.
+- For `eq`, `neq`, comparisons, and `in`, a missing path returns ordinary `false` before comparing the requested value. Thus `neq` does not return true for a missing path, but the result still loses the distinction between unknown and a known non-match.
+- `all` and `any` reduce nested results with JavaScript boolean aggregation; `not` negates the nested boolean. A missing-path false can therefore turn into true under `not`, and affect parent `all`/`any` as an ordinary Boolean.
+- The evaluator's return type is Boolean on this path; no `unknown`, `withheld`, or `incomplete` result is propagated by these functions.
+
+### Consequence for the first NPC slice
+
+Do not use the current generic evaluator to decide an NPC action when any required path might be absent because the actor-relative context is incomplete, withheld, or not yet represented. In particular, wrapping a missing-path predicate in `not` is unsafe as a substitute for evidence that the predicate is false.
+
+Until the core owner approves and implements a compatible result contract, a first-slice caller must either (a) prove that every evaluated path is present and authorized in the supplied decision envelope before evaluation, or (b) return `needs_review`/no executable proposal without evaluating the incomplete condition. The caller must not patch global semantics in NPC code, monkey-patch the evaluator, or invent a second condition engine.
+
+### Core-owned acceptance criteria for a future change
+
+1. Specify how a known-absent field differs from a field unavailable because context is incomplete, withheld, stale, or unsupported.
+2. Define propagation rules for `eq`, `neq`, `exists`, numeric comparisons, `in`, `all`, `any`, and `not`; document whether compatibility requires a separate tri-state API rather than changing existing Boolean callers.
+3. Test missing-path behavior both directly and under `not`, `all`, and `any`, including nested conditions.
+4. Prove that existing non-NPC rule callers preserve their current intended behavior or are explicitly migrated under core review.
+5. Keep the source-level observation, the proposed semantics, and test evidence labelled separately; a design note or mocked test is not implementation proof.
+
+This is a source-backed integration blocker, not an authorization to change `src/core/rules.js` from the NPC branch.
