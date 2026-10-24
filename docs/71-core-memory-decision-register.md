@@ -384,3 +384,40 @@ Exact-head CI for NPC PR #76 is green (run 40052652503; see the checkpoint above
 | Content kind / record type | oracle uses `claim`, `report`, `summary`, `author_initial`, `imported`, `inference` | Core Memory proposes `record_type` values such as `source_reference`, `evidence`, `episode`, `summary` | Define separate dimensions and a mapping only where semantics actually correspond; do not conflate content kind with record type. |
 
 The existing docs intentionally state that the values are illustrative/owner-defined and the oracle validates supplied metadata rather than authenticating it. Therefore this is an **integration-contract decision gate**, not authorization to implement a schema. The NPC owner should provide a concise crosswalk proposal with: source vocabulary, target vocabulary, semantic rationale, lossy/ambiguous cases that must fail closed, and the owner who must approve each mapping. Memory/Core owners then decide the canonical terms before any adapter/runtime code is written. Related open decisions: MEM-O02 (trusted access policy), MEM-O04 (record versioning), MEM-O05 (trusted source namespaces), MEM-O10 (lifecycle dimensions), MEM-O11 (rollback consistency).
+
+## NPC lifecycle/type crosswalk review — 2026-10-24
+
+Reviewed the NPC-owned proposal `docs/53-npc-memory-lifecycle-vocabulary-crosswalk.md` at the current `feat/npc-subsystem` head `0106f6da30034ce414e1ab2ee377b6707a0ca48a`. The document is a useful semantic crosswalk and explicitly does not claim to be an approved enum registry, adapter, schema, or runtime API. Memory's prior mismatch table above is now a preliminary inventory, not the complete mapping.
+
+### Review disposition
+
+- **Accepted as a review artifact, not as a runtime contract.** It correctly separates record/content type, epistemic kind, content disposition, source reconciliation/freshness, per-request access, index health, and result completeness.
+- **No direct `usable` ↔ `active` mapping.** `usable` is an NPC admission conclusion; `active` is only one Memory disposition dimension. Eligibility must be derived from disposition plus trusted access, current source lineage, version/snapshot constraints, and the approved use policy.
+- **Access vocabulary remains blocked.** NPC's oracle expects `allow`; Memory's proposal uses `allowed` / `withheld` / `denied` / `not_found`. Even `allowed` → `allow` is conditional on trusted binding to the exact world, subject/recipient, purpose, source versions, and request. A caller-supplied string is not authorization.
+- **Readiness and index health remain separate.** NPC result `status=ready` means the helper accepted the envelope and can coexist with zero admitted candidates; it must not be equated with Memory index `current`. Completeness and per-candidate admission are independent checks.
+- **Epistemic mappings must not promote authority.** Memory `reported` does not establish actor-relative `acquired_report` without a Core-owned acquisition record; `canonical_reference` is not canonical truth/subject knowledge; import route is provenance, not epistemic kind; summary derivation does not establish truth.
+- **Lineage/access propagation is still a production boundary.** The NPC crosswalk correctly requires source identity/version, world, access, freshness, and materially contributing source lineage. Current pure-oracle tests only validate supplied fields; they do not authenticate them or demonstrate race-free revalidation during serialization.
+- **No integration test exists yet.** The crosswalk's boundary tests are explicitly future requirements. The current NPC `npm test` CI result on SHA `dba4bd9c101fdc2c37ce0fd33846ab5f285782f3` does not validate this newer head or a Memory-to-NPC runtime path.
+
+### Merge-readiness inventory
+
+| Gate | Current evidence | Status |
+|---|---|---|
+| NPC pure admission behavior | Source/tests reviewed; exact-head native CI previously passed on `dba4bd9c101fdc2c37ce0fd33846ab5f285782f3` | Partial; revalidate current head `0106f6da30034ce414e1ab2ee377b6707a0ca48a` |
+| Memory↔NPC semantic vocabulary | NPC crosswalk exists and documents fail-closed cases/owners | Reviewable proposal; owner approval outstanding |
+| Authorized Memory read | No approved general subject/purpose/source-visibility contract established on `main` | Blocked by Core + Memory |
+| Trusted provenance and actor-relative acquisition | NPC oracle consumes metadata; no production authentication/acquisition boundary demonstrated | Blocked by Core/host + NPC |
+| Source versioning, rollback and reconciliation | Main has rollback/revision behavior; no approved Memory source-change/outbox contract established | Blocked by Core + Memory |
+| Real Memory→NPC transfer, final authorization revalidation, partial failure/idempotency | No runtime integration path established in these PRs | Not implemented / not tested |
+| Branch synchronization and collision review | PR #68 branch is 2 commits behind current `main`; PR #76 branch is 19 commits behind and contains overlapping numbered documentation paths | Must reconcile before merge; do not blindly rebase or rename |
+| Merge approval | Both PRs remain Draft/open/unmerged | Explicit owner approval required |
+
+### Required next actions by owner
+
+1. **NPC:** obtain a fresh native CI run for exact head `0106f6da30034ce414e1ab2ee377b6707a0ca48a`; keep the pure oracle clearly described as candidate filtering, not the Memory adapter or integration path. Add no invented Memory/Core APIs.
+2. **Memory + NPC + Core:** approve one canonical semantic contract for access, lifecycle/freshness, completeness, source/version lineage, and safe failure. Keep the proposed crosswalk non-executable until that decision is recorded.
+3. **Core:** identify and approve the actual authorized-read/source-validity and rollback-aware reconciliation hooks; actor identity binding alone is insufficient.
+4. **Memory:** audit the actual vectorization/host integration before choosing storage or index implementation; no duplicate store/index is justified by current evidence.
+5. **All owners:** synchronize each branch with the current `main`, resolve numbered-file and semantic conflicts explicitly, then run the full relevant CI on the resulting exact SHAs.
+
+**Disposition:** not ready to merge. The crosswalk improves documentation alignment, but it does not close the production integration, trusted authorization/provenance, rollback reconciliation, exact-head CI, or branch-synchronization gates. No runtime code or schema is approved by this review. No PR was merged.
