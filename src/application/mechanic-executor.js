@@ -169,6 +169,23 @@ export class MechanicExecutor {
     } catch (error) {
       return unknown('AUTHORIZED_CONTEXT_RESOLUTION_FAILED', 'Trusted context resolution failed; details are withheld.', identity);
     }
+
+    // The provider is host code and may take time or trigger concurrent work.
+    // Snapshot markers on its return value are assertions, not proof that the
+    // world stayed at that revision while authorization and projection ran.
+    // Re-read the canonical cursor after the provider returns; proposal handoff
+    // still performs its own transactional stale-snapshot check.
+    let postProviderState;
+    try {
+      postProviderState = this.engine.getState(worldId);
+    } catch {
+      return unknown('SNAPSHOT_FRESHNESS_CHECK_FAILED', 'The evaluation snapshot could not be revalidated after context resolution.', identity);
+    }
+    if (postProviderState.world_revision !== snapshot.world_revision
+      || postProviderState.commit_sequence !== snapshot.commit_sequence) {
+      return unknown('SNAPSHOT_CHANGED_DURING_CONTEXT_RESOLUTION', 'World revision or commit sequence changed while resolving authorized context.', identity);
+    }
+
     const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'authorization_scope', 'knownAbsentPaths', 'dependencyEvidence']);
     let resolvedShapeValid = false;
     try {
