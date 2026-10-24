@@ -10,6 +10,8 @@ const sizes = (process.env.BENCH_SIZES || '1000,5000,10000')
   .map((value) => Number(value.trim()))
   .filter((value) => Number.isSafeInteger(value) && value > 0);
 if (!sizes.length) throw new Error('BENCH_SIZES must contain positive integer event counts.');
+const repeats = Number(process.env.BENCH_REPEATS || 3);
+if (!Number.isSafeInteger(repeats) || repeats < 1 || repeats > 10) throw new Error('BENCH_REPEATS must be an integer from 1 through 10.');
 
 function instrument(store) {
   const counts = { prepares: 0, executions: 0, execCalls: 0, replayedEventRows: 0 };
@@ -169,20 +171,34 @@ function runScenario(eventCount, operation, collectSqlMetrics) {
   }
 }
 
+function median(values) {
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0 ? (sorted[middle - 1] + sorted[middle]) / 2 : sorted[middle];
+}
+
 function measureOperation(eventCount, operation) {
-  // Keep SQL instrumentation out of the wall-time measurement. Query and replay
-  // counts are collected from an equivalent second fixture to avoid proxy cost.
-  const timing = runScenario(eventCount, operation, false);
+  // Keep SQL instrumentation out of wall-time samples. Query and replay counts
+  // are collected from an equivalent fixture to avoid proxy cost.
+  const timingSamples = [];
+  let referenceTiming = null;
+  for (let sample = 0; sample < repeats; sample += 1) {
+    const timing = runScenario(eventCount, operation, false);
+    timingSamples.push(timing.durationMs);
+    if (referenceTiming === null) referenceTiming = timing;
+  }
   const metrics = runScenario(eventCount, operation, true);
   return {
     event_count_before: eventCount,
     operation,
-    duration_ms: timing.durationMs,
-    database_size_before_bytes: timing.databaseSizeBeforeBytes,
-    database_size_after_bytes: timing.databaseSizeAfterBytes,
+    repeat_count: repeats,
+    duration_samples_ms: timingSamples,
+    duration_ms: Number(median(timingSamples).toFixed(3)),
+    database_size_before_bytes: referenceTiming.databaseSizeBeforeBytes,
+    database_size_after_bytes: referenceTiming.databaseSizeAfterBytes,
     ...metrics.operationCounts,
-    projection_counts_after: timing.projectionsAfter,
-    timing_note: 'wall time measured without SQL instrumentation; SQL counts measured on an equivalent fixture',
+    projection_counts_after: referenceTiming.projectionsAfter,
+    timing_note: 'wall-time median from uninstrumented equivalent fixtures; SQL counts measured separately',
   };
 }
 const results = [];
@@ -200,5 +216,6 @@ process.stdout.write(JSON.stringify({
   node: process.version,
   platform: process.platform + '/' + process.arch,
   sizes,
+  repeats,
   results,
 }, null, 2) + '\n');

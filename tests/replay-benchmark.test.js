@@ -6,7 +6,7 @@ import { resolve } from 'node:path';
 test('replay/rollback benchmark emits reproducible size, timing, database, SQL, and replay metrics', { timeout: 15000 }, () => {
   const result = spawnSync(process.execPath, [resolve('benchmarks/replay-rollback-growth.mjs')], {
     cwd: resolve('.'),
-    env: { ...process.env, BENCH_SIZES: '10,25' },
+    env: { ...process.env, BENCH_SIZES: '10,25', BENCH_REPEATS: '2' },
     encoding: 'utf8',
     timeout: 12000,
   });
@@ -15,10 +15,14 @@ test('replay/rollback benchmark emits reproducible size, timing, database, SQL, 
   assert.equal(report.benchmark, 'logic-engine-replay-rollback-growth');
   assert.deepEqual(report.workload.effects_per_seed_event, ['entity.upsert', 'fact.set', 'relationship.transition']);
   assert.deepEqual(report.sizes, [10, 25]);
+  assert.equal(report.repeats, 2);
   assert.equal(report.results.length, 8);
   for (const row of report.results) {
     assert.ok(['commit', 'rollback', 'rollback-cascade', 'rebuild'].includes(row.operation));
     assert.ok(row.duration_ms >= 0);
+    assert.equal(row.repeat_count, 2);
+    assert.equal(row.duration_samples_ms.length, 2);
+    assert.ok(row.duration_samples_ms.every((sample) => sample >= 0));
     assert.ok(row.database_size_before_bytes > 0);
     assert.ok(row.database_size_after_bytes > 0);
     assert.ok(row.sql_prepare_calls > 0);
