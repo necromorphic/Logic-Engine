@@ -48,6 +48,36 @@ const timeTrigger = (row, includePayload = true) => row && ({
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
+const processRecord = (row, milestones = []) => row && ({
+  process_id: row.process_id,
+  world_id: row.world_id,
+  idempotency_key: row.idempotency_key,
+  request_hash: row.request_hash,
+  status: row.status,
+  source_event_ids: dec(row.source_event_ids_json),
+  created_revision: row.created_revision,
+  last_operation_id: row.last_operation_id,
+  error: dec(row.error_json),
+  milestones: milestones.map((milestone) => ({
+    milestone_id: milestone.milestone_id,
+    trigger_id: milestone.trigger_id,
+    due_coordinate: milestone.due_coordinate,
+    status: milestone.status,
+    dependencies: dec(milestone.dependencies_json),
+    read_set: dec(milestone.read_set_json),
+    write_set: dec(milestone.write_set_json),
+    processing_mode: milestone.processing_mode,
+    interrupt_after_coordinate: milestone.interrupt_after_coordinate === 1,
+    event: dec(milestone.payload_json),
+    source_event_ids: dec(milestone.source_event_ids_json),
+    event_id: milestone.event_id,
+    trigger_generation: milestone.trigger_generation,
+    created_at: milestone.created_at,
+    updated_at: milestone.updated_at,
+  })),
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+});
 const relationshipRef = (subjectId, targetId) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId);
 const parseRelationshipRef = (value) => {
   if (typeof value !== 'string' || !value.startsWith('relationship:')) return null;
