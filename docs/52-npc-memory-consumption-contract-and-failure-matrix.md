@@ -59,7 +59,7 @@ The following fields describe information a future candidate response must make 
 | Independent lifecycle dimensions | Distinguish content disposition, source reconciliation, evidence assessment, access decision, and index health | Do not infer one dimension from another or collapse them into a single status. |
 | Completeness/partial-result status and typed errors | Avoid treating partial or unavailable results as complete absence | Mark context non-ready where incompleteness can affect safe interpretation; do not claim “not known.” |
 
-A stable record reference is not necessarily a canonical source reference. The record that contains a summary and the source claims summarized by it must be separately identifiable. If a storage system cannot expose a source reference/version, NPC must not fabricate one from a hash of visible text and treat it as canonical identity.
+A stable record reference is not necessarily a canonical source reference. The record that contains a summary and the source claims summarized by it must be separately identifiable. Each lineage source must also be bound to the requested world, actor, and purpose: an authorized summary record does not prove that every underlying source belongs to the same world or is accessible to the same actor for the same purpose. If a storage system cannot expose a source reference/version, NPC must not fabricate one from a hash of visible text and treat it as canonical identity.
 
 ### 2.3 Illustrative response shape (not runtime)
 
@@ -85,7 +85,7 @@ A stable record reference is not necessarily a canonical source reference. The r
       "producer": { "kind": "<producer-or-transform>", "ref": "<if supported>" },
       "lineage": {
         "status": "complete | incomplete | unavailable",
-        "sources": [{ "ref": "<source-ref>", "version": "<source-version>" }]
+        "sources": [{ "ref": "<source-ref>", "version": "<source-version>", "world_id": "<same-world>", "access": { "outcome": "allow", "subject_id": "<same-request-actor>", "purpose": "<same-request-purpose>" } }]
       },
       "freshness": { "status": "current | stale | retracted | unavailable | unknown" },
       "lifecycle": {
