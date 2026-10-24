@@ -53,3 +53,4 @@ Use isolated test worlds and deterministic fixtures. Assert both the returned re
 - [ ] auditable correction and deletion;
 - [ ] exact-head CI and negative tests;
 - [ ] no claims of causal completeness unsupported by Core.
+| MEM-034 | Candidate has missing/unknown content kind while carrying otherwise admissible metadata; an unknown kind could conceal a derived summary | Reject as non-ready before prompt serialization; derived-summary lineage/access checks cannot be bypassed by an absent or unrecognized kind; rejection metadata reveals no protected candidate details |
