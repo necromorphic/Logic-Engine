@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { DatabaseSync } from 'node:sqlite';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
 function setup(t, overrides = {}) {
@@ -89,4 +90,38 @@ test('failed index rebuild reason survives restart and remains internal-only', a
   assert.deepEqual(await s.provider.retrieveCandidates({
     world_id: record.world_id, subject_id: record.subject_id, purpose: record.purpose,
   }).catch((error) => ({ error: error.message })), { error: 'MEMORY_INDEX_NOT_READY' });
+});
+
+test('provider migrates an existing readiness table to typed failure codes without losing state', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-legacy-state-'));
+  const path = join(directory, 'provider.sqlite');
+  const legacy = new DatabaseSync(path);
+  legacy.exec(`
+    CREATE TABLE memory_index_state (
+      world_id TEXT PRIMARY KEY, index_health TEXT NOT NULL,
+      source_reconciliation TEXT NOT NULL, snapshot_revision TEXT,
+      snapshot_sequence TEXT, updated_at TEXT NOT NULL
+    );
+    INSERT INTO memory_index_state VALUES(
+      'world-legacy','ready','current','4','2','2026-01-01T00:00:00.000Z'
+    );
+  `);
+  legacy.close();
+  const provider = new SQLiteMemoryProvider({
+    path,
+    getSnapshot: async () => ({ world_revision: 4, commit_sequence: 2 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  });
+  t.after(() => {
+    try { provider.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  assert.deepEqual(provider.getIndexStatusForDiagnostics('world-legacy'), {
+    index_health: 'ready',
+    source_reconciliation: 'current',
+    snapshot: { world_revision: '4', commit_sequence: '2' },
+    failure_code: null,
+  });
 });
