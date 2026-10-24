@@ -131,6 +131,125 @@ test('registered trigger cannot masquerade as a canonical time.advance event', (
   );
 });
 
+test('timed action resolves duration through TimePolicy and processes due triggers before final action effects', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.registerTimeConfiguration('time-trigger-world', {
+    version: 'timed-action-policy',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    calendar_definition: {
+      calendar_id: 'timed-action.calendar',
+      version: '1.0.0',
+      day_length_ms: 86400000,
+      weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      year_cycle: [{ id: 'standard', name: 'Standard', months: [{ id: 'jan', name: 'January', days: 31 }] }],
+      epoch: { coordinate: 0, year_number: 2026, year_cycle_index: 0, month_id: 'jan', day_of_month: 1, weekday_index: 0, time_of_day_ms: 0 },
+      holidays: [],
+    },
+    time_policy: {
+      policy_id: 'timed-action.policy',
+      version: '1.0.0',
+      max_action_duration_ms: 43200000,
+      max_skip_duration_ms: 604800000,
+      duration_rules: [{ event_type: 'travel.completed', rule: { kind: 'fixed', duration_ms: 30000 } }],
+    },
+  });
+  engine.registerTimeTrigger('time-trigger-world', trigger('at-ten-seconds', 10000, 'intermediate-entity'));
+  const revision = engine.getState('time-trigger-world').world_revision;
+  const request = {
+    idempotency_key: 'timed-travel-action',
+    expected_revision: revision,
+    event: {
+      turn_id: 'timed-travel-turn',
+      event_type: 'travel.completed',
+      effects: [{ kind: 'entity.upsert', entity_id: 'traveller', entity_type: 'character', attributes: { arrived: true } }],
+    },
+  };
+  const operation = engine.startTimedAction('time-trigger-world', request);
+  assert.equal(operation.status, 'completed');
+  assert.equal(operation.confirmed_coordinate, 30000);
+  assert.equal(operation.result.final_action_status, 'committed');
+  assert.deepEqual(operation.result.completed_trigger_ids, ['at-ten-seconds']);
+  assert.equal(engine.getState('time-trigger-world').entities.find((entity) => entity.entity_id === 'traveller').attributes.arrived, true);
+  assert.equal(engine.getTimeTrigger('time-trigger-world', 'at-ten-seconds').status, 'completed');
+  const events = engine.getEvents('time-trigger-world');
+  assert.deepEqual(events.map((event) => [event.event_type, event.game_time_coordinate]), [
+    ['time.advance', 10000],
+    ['time.trigger', 10000],
+    ['time.advance', 30000],
+    ['travel.completed', 30000],
+  ]);
+  const actionEvent = events.find((event) => event.event_type === 'travel.completed');
+  assert.equal(actionEvent.time_advance_seconds, 0);
+  assert.equal(actionEvent.duration_decision.duration_ms, 30000);
+
+  const replay = engine.startTimedAction('time-trigger-world', request);
+  assert.equal(replay.operation_id, operation.operation_id);
+  assert.equal(replay.result.final_action_status, 'committed');
+  assert.equal(engine.getEvents('time-trigger-world').filter((event) => event.event_type === 'travel.completed').length, 1);
+});
+
+test('direct timed commits cannot cross registered triggers outside the advance operation', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.registerTimeTrigger('time-trigger-world', trigger('must-run-first', 10000, 'must-run-entity'));
+  const revision = engine.getState('time-trigger-world').world_revision;
+  assert.throws(
+    () => engine.commitEvent('time-trigger-world', {
+      idempotency_key: 'direct-crossing-event',
+      turn_id: 'direct-crossing-turn',
+      event_type: 'action.completed',
+      expected_revision: revision,
+      time_advance_seconds: 20,
+      effects: [],
+    }),
+    (error) => error.code === 'TIME_ADVANCE_OPERATION_REQUIRED',
+  );
+  assert.equal(engine.getState('time-trigger-world').game_time_coordinate, 0);
+  assert.equal(engine.getEvents('time-trigger-world').length, 0);
+  assert.equal(engine.getTimeTrigger('time-trigger-world', 'must-run-first').status, 'pending');
+});
+
+test('timed action refuses ambiguous policy durations before claiming triggers', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.registerTimeConfiguration('time-trigger-world', {
+    version: 'author-duration-policy',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    calendar_definition: {
+      calendar_id: 'author-duration.calendar',
+      version: '1.0.0',
+      day_length_ms: 86400000,
+      weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      year_cycle: [{ id: 'standard', name: 'Standard', months: [{ id: 'jan', name: 'January', days: 31 }] }],
+      epoch: { coordinate: 0, year_number: 2026, year_cycle_index: 0, month_id: 'jan', day_of_month: 1, weekday_index: 0, time_of_day_ms: 0 },
+      holidays: [],
+    },
+    time_policy: {
+      policy_id: 'author-duration.policy',
+      version: '1.0.0',
+      max_action_duration_ms: 43200000,
+      max_skip_duration_ms: 604800000,
+      duration_rules: [{ event_type: 'rest.completed', rule: { kind: 'range', min_duration_ms: 3600000, max_duration_ms: 28800000, resolution: 'author' } }],
+    },
+  });
+  engine.registerTimeTrigger('time-trigger-world', trigger('later-trigger', 10000, 'later-entity'));
+  const revision = engine.getState('time-trigger-world').world_revision;
+  assert.throws(
+    () => engine.startTimedAction('time-trigger-world', {
+      idempotency_key: 'ambiguous-rest-action',
+      expected_revision: revision,
+      event: { turn_id: 'rest-turn', event_type: 'rest.completed', effects: [] },
+    }),
+    (error) => error.code === 'DURATION_NEEDS_AUTHOR',
+  );
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM time_advance_operations WHERE world_id=?').get('time-trigger-world').count, 0);
+  assert.equal(engine.getTimeTrigger('time-trigger-world', 'later-trigger').status, 'pending');
+  assert.equal(engine.getState('time-trigger-world').game_time_coordinate, 0);
+});
+
 test('registered due triggers complete atomically with their event segment and operation checkpoint', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
