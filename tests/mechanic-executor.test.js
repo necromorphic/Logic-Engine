@@ -151,6 +151,36 @@ test('mechanic context provider can enforce actor binding and field policy throu
   assert.equal(result.authorization_scope, 'test-adapter:entity.actor-context:model:npc_decision');
   assert.equal(result.dependency_manifest.context_projection_dependencies_complete, true);
   assert.equal(engine.getState(worldId).world_revision, 2);
+
+  const proposals = new ProposalService(engine, {
+    validateMechanicPolicy(identity) {
+      assert.equal(identity.policyVersion, provider.policyFingerprint);
+      actorBindings.resolve(identity.worldId, 'test-adapter', 'entity.actor-context');
+      return true;
+    },
+  });
+  const proposal = proposals.createFromMechanicEvaluation(worldId, result, {
+    idempotencyKey: 'authorized-read-mechanic-proposal',
+    turnId: 'turn-authorized-read-mechanic',
+    sourceText: 'Proposal must not commit after actor-binding revocation.',
+    adapterId: 'test-adapter',
+  });
+  proposals.approve(worldId, proposal.proposal_id);
+  actorBindings.revoke(worldId, 'test-adapter', 'entity.actor-context');
+  assert.throws(
+    () => proposals.commit(worldId, proposal.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.equal(proposals.get(worldId, proposal.proposal_id).status, 'approved');
+  assert.equal(engine.getState(worldId).world_revision, 2);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+
+  const revoked = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => provider.resolve(args),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(revoked.status, 'unknown');
+  assert.equal(revoked.reason_code, 'AUTHORIZED_CONTEXT_RESOLUTION_FAILED');
+  assert.deepEqual(revoked.effects, []);
 });
 
 test('application executor pins one enabled instance and exact template to a consistent snapshot', (t) => {
