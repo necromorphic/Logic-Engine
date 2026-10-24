@@ -59,7 +59,7 @@ The standalone evaluator in PR #62 is deliberately narrower than the full module
 | Requirement | Current pure-evaluator coverage | Boundary / remaining work |
 |---|---|---|
 | Directed relationship and no implicit reciprocity | Covered: output retains subject/target direction and contains no reciprocal patch | Real storage/read/write direction still requires Core integration tests |
-| Partial patch and dimension isolation | Covered: omitted dimensions are omitted; a mixed valid/invalid patch is rejected as a whole | Full canonical-state atomicity remains unverified |
+| Partial patch and dimension isolation | Covered: omitted dimensions are omitted; a mixed valid/invalid patch is rejected as a whole; candidate envelope, patch, evidence refs, and changed-dimension list are frozen | Full canonical-state atomicity remains unverified |
 | Unset vs explicit value vs cleared | Covered, including explicit transition rules and no-op clear of unset/already-cleared | Authorized reads must preserve these distinctions in production |
 | Withheld/conflict/insufficient/unsupported states | Covered at evaluator input/evidence boundary | Does not prove access-control or non-disclosure behavior |
 | Explicit domain transition rules and version pin | Covered for the supplied rule object and required version label | World Pack loading/version lifecycle and historical replay are not implemented here |
