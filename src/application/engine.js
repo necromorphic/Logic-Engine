@@ -190,6 +190,41 @@ export class LogicEngine {
     } catch (error) {
       throw new EngineError(error.code || 'INVALID_PROCESS_DEFINITION', error.message || 'Process definition validation failed.', 400, error.details);
     }
+    const eventAllowed = ['turn_id', 'event_type', 'generation_id', 'context_manifest_id', 'source_message_id',
+      'duration_proposal', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
+    for (const milestone of definition.milestones) {
+      const event = milestone.event;
+      assert(Object.keys(event).every((key) => eventAllowed.includes(key)),
+        'INVALID_PROCESS_MILESTONE_EVENT', 'Milestone event contains an unsupported field or caller-controlled time/identity.');
+      assert(typeof event.event_type === 'string' && event.event_type.trim() && event.event_type !== 'time.advance',
+        'INVALID_PROCESS_MILESTONE_EVENT', 'Milestone event requires a non-Core-owned event_type.');
+      validateEffects(event.effects);
+      const eventReads = event.read_set ?? [];
+      assert(Array.isArray(eventReads) && eventReads.every((ref) => typeof ref === 'string' && ref.trim()),
+        'INVALID_PROCESS_MILESTONE_READ_SET', 'Event read_set must be an array of non-empty references.');
+      const undeclaredReads = [...new Set(eventReads)].filter((ref) => !milestone.read_set.includes(ref));
+      if (undeclaredReads.length) {
+        throw new EngineError('PROCESS_READ_SET_UNDERDECLARED', 'Milestone trigger read_set must include every event read reference.', 400, {
+          milestone_id: milestone.milestone_id, undeclared_read_refs: undeclaredReads,
+        });
+      }
+      const actualWrites = [];
+      for (const effect of event.effects) {
+        if (typeof effect.entity_id === 'string' && ['entity.create', 'entity.update', 'entity.upsert', 'entity.delete'].includes(effect.kind)) {
+          actualWrites.push('entity:' + effect.entity_id);
+        } else if (effect.kind === 'fact.set') {
+          actualWrites.push('fact:' + effect.fact_id);
+        } else if (effect.kind?.startsWith('mechanic.instance.')) {
+          actualWrites.push('mechanic:' + effect.instance_id);
+        }
+      }
+      const undeclaredWrites = [...new Set(actualWrites)].filter((ref) => !milestone.write_set.includes(ref));
+      if (undeclaredWrites.length) {
+        throw new EngineError('PROCESS_WRITE_SET_UNDERDECLARED', 'Milestone trigger write_set must include every canonical projection written by its event effects.', 400, {
+          milestone_id: milestone.milestone_id, undeclared_write_refs: undeclaredWrites,
+        });
+      }
+    }
     const idempotencyKey = input.idempotency_key.trim();
     const requestHash = hashRequest({
       operation: 'process.create', world_id: id, expected_revision: input.expected_revision,
