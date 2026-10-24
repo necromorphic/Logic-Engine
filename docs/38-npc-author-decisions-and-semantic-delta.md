@@ -184,7 +184,7 @@ This is a source/document consistency pass, not a full independent review by Dee
 
 `docs/39-npc-core-knowledge-contract-proposal.md` records the next design step after the core owner's ownership decision. It proposes a minimum semantic boundary for acquisition/provenance, mutable beliefs, delivery evidence, actor-specific context retrieval, and source invalidation/rollback reconciliation.
 
-The proposal does not declare an existing knowledge API, settle belief-state ownership, choose storage, or authorize runtime changes. Those are explicitly listed as decisions for the core owner before implementation. Until then, acquisition persistence, belief updates, delivery confirmation, and end-to-end integration remain deferred. The core ownership decision is treated as settled; the exact executable contract remains open.
+The proposal does not declare an existing knowledge API, choose storage, or authorize runtime changes. The core owner has since confirmed ownership of acquisition/provenance, delivery-attempt/receipt status, source-validity reconciliation, and persistent subject-relative belief state. Acquisition persistence, belief updates, delivery confirmation, and end-to-end integration remain deferred because the exact executable contract and production interfaces are still unimplemented or unverified.
 
 
 ## 8. Author-requested optional social identities — 2026-10-24
