@@ -676,8 +676,8 @@ export class LogicEngine {
       for (const plannedSegment of plan.segments) {
         const coordinate = plannedSegment.due_coordinate;
         while (coordinate - cursor > segmentSkipMs) {
-          cursor += maxSkipMs;
-          appendSegment(cursor, [makeAdvanceEvent(maxSkipMs, segments.length)]);
+          cursor += segmentSkipMs;
+          appendSegment(cursor, [makeAdvanceEvent(segmentSkipMs, segments.length)]);
         }
         const triggerEvents = plannedSegment.triggers.map((trigger) => {
           const payload = trigger.payload;
@@ -717,8 +717,8 @@ export class LogicEngine {
         }
       }
       while (effectiveTarget - cursor > segmentSkipMs) {
-        cursor += maxSkipMs;
-        appendSegment(cursor, [makeAdvanceEvent(maxSkipMs, segments.length)]);
+        cursor += segmentSkipMs;
+        appendSegment(cursor, [makeAdvanceEvent(segmentSkipMs, segments.length)]);
       }
       if (effectiveTarget > cursor) {
         appendSegment(effectiveTarget, [makeAdvanceEvent(effectiveTarget - cursor, segments.length)]);
