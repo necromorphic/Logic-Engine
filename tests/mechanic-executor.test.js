@@ -71,7 +71,6 @@ function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10
   return ({ snapshot }) => ({
     context,
     knownAbsentPaths: [],
-    policy_version: 'test-policy-v1',
     world_revision: snapshot.world_revision,
     commit_sequence: snapshot.commit_sequence,
     policy_version: 'test-visibility-policy-v1',
