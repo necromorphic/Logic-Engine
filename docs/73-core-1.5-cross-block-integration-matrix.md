@@ -54,7 +54,7 @@ This document records observed repository state and integration gates. It does n
 
 ### Gate 1 — Establish the trusted read boundary
 
-Evidence: actor binding exists on main, but its code explicitly limits its meaning to identity resolution. PR #65 is an unmerged candidate; PR #64 is a proposal.
+Evidence: actor binding exists on main, but its code explicitly limits its meaning to identity resolution. PR #65 is merged as a narrow self-identity-only authorized-read slice; PR #64 is a proposal.
 
 Required before production Memory/NPC/Relationship reads:
 1. Decide and approve the visibility/authorization policy and its trusted source.
@@ -77,7 +77,7 @@ Required before author import/correction or relationship writes:
 
 ### Gate 3 — Establish typed relationship commit
 
-Evidence: PR #62 supplies only pure candidate evaluation; PR #61 records the first-slice replay boundary as a proposal.
+Evidence: PR #62 supplies pure candidate evaluation; PR #61 records the approved first-slice replay boundary; PR #94/#95 implement the admin-gated typed write, projection/replay and failure tests. The production write slice exists, but it does not enable general NPC/model writes or reads.
 
 Required:
 1. Validate canonical participant identities and same-world scope in Core.
@@ -122,7 +122,7 @@ Independent semantic work can continue now:
 ## 6. Current disposition
 
 - **Can proceed independently:** pure Relationship evaluator and tests; Relationship/Personality semantic review; Memory record/retrieval contract review; NPC acquisition/delivery semantic design; Core trust-boundary audit and negative-test specification.
-- **Not integration-ready:** actor-authorized multi-entity reads; trusted import/correction; canonical typed relationship writes; relationship-specific replay/rollback; Memory/NPC production knowledge lifecycle; authorized freshness-aware relationship/card projection.
+- **Not integration-ready:** actor-authorized multi-entity reads; trusted import/correction; non-admin/NPC relationship mutation authority; Memory/NPC production knowledge lifecycle; authorized freshness-aware relationship/card projection. The privileged admin-authored Relationship write/replay slice is on main.
 - **No merges or mainline changes are implied by this matrix.** Open Draft PRs and sibling branches remain separate until their contracts and runtime evidence are reviewed together.
 
 
@@ -146,7 +146,7 @@ Independent semantic work can continue now:
 
 ### Finding CORE-AUTH-02 — raw canonical reads are available to any caller with the general API bearer
 
-**Severity: High for deployments where the API bearer is shared with adapters or model-facing services; confirmed in source.**
+**Historical finding at the recorded source-audit baseline; fixed in main by PR #65.** The general bearer no longer suffices for raw canonical HTTP reads; the narrow self-identity-only route is not general actor/recipient/purpose/field authorization.
 
 - `src/api/server.js` authenticates the general bearer globally.
 - The `GET .../state`, `GET .../events`, and `GET .../audit` branches then return raw canonical snapshots/history/audit without requiring the separate internal or administrative credential.
@@ -155,17 +155,17 @@ Independent semantic work can continue now:
 
 **Impact:** the HTTP boundary does not currently enforce the distinction between general API access and trusted raw-state inspection. Whether exploitable depends on credential distribution, but the code itself does not enforce the intended boundary.
 
-**Candidate fix for review:** the narrow route gate proposed in PR #65—separate internal/admin credential for raw state/events/audit—is a reasonable first hardening slice. It is not a substitute for actor/recipient/purpose/field policy, nor does it secure direct in-process serializers. Add API tests for general bearer denied and separately trusted credential accepted, plus an inventory of host/model-facing snapshot consumers.
+**Fix on main:** PR #65 requires a separate internal/admin credential for raw state/events/audit and limits the authorized-read endpoint to the bound actor's identity metadata. This does not establish actor/recipient/purpose/field policy or secure direct in-process serializers; those remain separate gates.
 
 ### Finding CORE-AUTH-03 — rollback authorization is conditional on effect kind
 
-**Severity: High for deployments exposing the general API token to non-admin adapters; confirmed in source.**
+**Historical finding at the recorded source-audit baseline; fixed in main by PR #83.** Every HTTP canonical rollback now requires the separate admin credential; in-process rollback remains a trusted-host responsibility.
 
 - In `src/api/server.js`, `POST .../rollback` checks the separate admin credential only when the target root event contains a `mechanic.instance.*` effect.
 - All other canonical event types proceed to `engine.rollbackEvent()` under the global general bearer check alone.
 - Rollback changes event validity, world revision, derived projections, rollback history, and audit.
 
-**Candidate fix for review:** require the distinct admin credential for every canonical rollback, independent of event payload. [PR #66](https://github.com/necromorphic/Logic-Engine/pull/66) proposes exactly this route-level hardening and includes a representative API test; it remains unmerged in this audit snapshot.
+**Fix on main:** [PR #83](https://github.com/necromorphic/Logic-Engine/pull/83) requires the separate admin credential for every HTTP canonical rollback, regardless of event type.
 
 ### Verified positive invariants — do not replace existing lifecycle
 
@@ -192,7 +192,7 @@ These are source-level findings. Follow-up test coverage has since been merged t
 The Core branch's detailed audit proposal is [PR #67, `docs/53-core-http-service-boundary-audit.md`](https://github.com/necromorphic/Logic-Engine/blob/03706188f044a4821c5957a0f7aa7199df193eb0/docs/53-core-http-service-boundary-audit.md). It is a documentation-only audit, not a runtime fix, and remains separate from this matrix. The findings below are cross-checked against the current `main` source reviewed above:
 
 - **CORE-AUTH-04 — context-manifest registration trust:** `POST .../context-manifests` uses only the general bearer. There is no server-derived producer/generation binding on this route. Stored and hashed manifest content is not proof that a trusted host actually prepared that context. Until a trusted generation record exists, restrict registration to a dedicated internal capability or fail closed; do not accept a caller-supplied producer/origin label as authority.
-- **CORE-READ-05 — raw state is not a revision-bound atomic snapshot:** `GET .../state` calls `getState` → `SQLiteStore.state`, which reads world/entity/fact rows through separate queries and does not return `commit_sequence`. `readSnapshot` instead uses a bounded selector and a single SQLite read transaction with both `world_revision` and `commit_sequence`. The state route must not be treated as the model/workflow snapshot contract even after access gating is fixed.
+- **CORE-READ-05 — raw state is not a revision-bound atomic snapshot:** `GET .../state` calls `getState` → `SQLiteStore.state`, which reads world/entity/fact rows through separate queries and does not return `commit_sequence`. `readSnapshot` instead uses a bounded selector and a single SQLite read transaction with both `world_revision` and `commit_sequence`. The state route must not be treated as the model/workflow snapshot contract even though raw HTTP access is now gated.
 - **CORE-CAP-06 — capability classification is incomplete:** world creation, mechanic-registry audit, and template/rule-module metadata reads use the general bearer. Whether each should be admin/internal-only is a deployment policy decision, not something to infer by granting broad admin rights. Record and enforce an explicit capability matrix before exposing these routes to untrusted adapters.
 
 For closure tracking, use the detailed finding IDs in PR #67 (F-01 through F-07) as the primary traceability set; the CORE-* labels above are only this matrix's cross-block references. Do not implement duplicate fixes on sibling branches without reconciling the ownership and dependency order in PR #67.
