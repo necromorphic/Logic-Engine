@@ -104,6 +104,18 @@ export class SQLiteMemoryProvider {
     `);
   }
 
+  #withImmediateTransaction(work) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = work();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch {}
+      throw error;
+    }
+  }
+
   /**
    * Persist an immutable raw message version. The supplied version ID is an
    * archive identity, not proof of canonical source freshness. Re-ingest is
@@ -122,21 +134,23 @@ export class SQLiteMemoryProvider {
     }
     const digest = rawDigest(input.content);
     const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
-    const existing = this.db.prepare(`SELECT * FROM memory_raw_captures
-      WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
-    if (existing) {
-      if (existing.role !== input.role || existing.content_text !== input.content
-        || existing.content_sha256 !== digest || existing.metadata_json !== metadataJson) {
-        throw new Error('MEMORY_RAW_CAPTURE_CONFLICT');
+    return this.#withImmediateTransaction(() => {
+      const existing = this.db.prepare(`SELECT * FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
+      if (existing) {
+        if (existing.role !== input.role || existing.content_text !== input.content
+          || existing.content_sha256 !== digest || existing.metadata_json !== metadataJson) {
+          throw new Error('MEMORY_RAW_CAPTURE_CONFLICT');
+        }
+        return { status: 'duplicate', content_sha256: digest };
       }
-      return { status: 'duplicate', content_sha256: digest };
-    }
-    this.db.prepare(`INSERT INTO memory_raw_captures
-      (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,
-       metadata_json,captured_at,deleted_at)
-      VALUES(?,?,?,?,?,?,?,?,?,NULL)`)
-      .run(...key, input.role, input.content, digest, metadataJson, new Date().toISOString());
-    return { status: 'captured', content_sha256: digest };
+      this.db.prepare(`INSERT INTO memory_raw_captures
+        (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,
+         metadata_json,captured_at,deleted_at)
+        VALUES(?,?,?,?,?,?,?,?,?,NULL)`)
+        .run(...key, input.role, input.content, digest, metadataJson, new Date().toISOString());
+      return { status: 'captured', content_sha256: digest };
+    });
   }
 
   async #assertRawReadAllowed(request) {
@@ -204,16 +218,18 @@ export class SQLiteMemoryProvider {
       || !validId(input.message_id) || !validId(input.version_id)) {
       throw new TypeError('Invalid raw Memory active-version selection');
     }
-    const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
-    const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
-      WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
-    if (!source || source.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
-    this.db.prepare(`INSERT INTO memory_raw_active_versions
-      (world_id,conversation_id,message_id,version_id,selected_at) VALUES(?,?,?,?,?)
-      ON CONFLICT(world_id,conversation_id,message_id) DO UPDATE SET
-      version_id=excluded.version_id,selected_at=excluded.selected_at`)
-      .run(input.world_id, input.conversation_id, input.message_id, input.version_id, new Date().toISOString());
-    return { status: 'active', version_id: input.version_id };
+    return this.#withImmediateTransaction(() => {
+      const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
+      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
+      if (!source || source.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
+      this.db.prepare(`INSERT INTO memory_raw_active_versions
+        (world_id,conversation_id,message_id,version_id,selected_at) VALUES(?,?,?,?,?)
+        ON CONFLICT(world_id,conversation_id,message_id) DO UPDATE SET
+        version_id=excluded.version_id,selected_at=excluded.selected_at`)
+        .run(input.world_id, input.conversation_id, input.message_id, input.version_id, new Date().toISOString());
+      return { status: 'active', version_id: input.version_id };
+    });
   }
 
   /**
@@ -226,27 +242,29 @@ export class SQLiteMemoryProvider {
       || !validId(input.message_id) || !validId(input.source_version_id)
       || !validId(input.copy_ref) || !validId(input.copy_version) || !validId(input.copy_kind)
       || typeof input.content !== 'string') throw new TypeError('Invalid raw Memory derived copy');
-    const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
-      WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
-      .get(input.world_id, input.conversation_id, input.message_id, input.source_version_id);
-    if (!source || source.deleted_at !== null) throw new Error('MEMORY_RAW_SOURCE_UNAVAILABLE');
-    const digest = createHash('sha256').update(input.content, 'utf8').digest('hex');
+    const digest = rawDigest(input.content);
     const values = [input.world_id, input.conversation_id, input.message_id, input.source_version_id,
       input.copy_ref, input.copy_version, input.copy_kind, input.content, digest];
-    const existing = this.db.prepare(`SELECT * FROM memory_raw_derived_copies
-      WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?
-        AND copy_ref=? AND copy_version=?`).get(...values.slice(0, 6));
-    if (existing) {
-      if (existing.copy_kind !== input.copy_kind || existing.content_text !== input.content
-        || existing.content_sha256 !== digest) throw new Error('MEMORY_RAW_COPY_CONFLICT');
-      return { status: 'duplicate', content_sha256: digest };
-    }
-    this.db.prepare(`INSERT INTO memory_raw_derived_copies
-      (world_id,conversation_id,message_id,source_version_id,copy_ref,copy_version,copy_kind,
-       content_text,content_sha256,status,created_at,invalidated_at)
-      VALUES(?,?,?,?,?,?,?,?,?,'current',?,NULL)`)
-      .run(...values, new Date().toISOString());
-    return { status: 'stored', content_sha256: digest };
+    return this.#withImmediateTransaction(() => {
+      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+        .get(input.world_id, input.conversation_id, input.message_id, input.source_version_id);
+      if (!source || source.deleted_at !== null) throw new Error('MEMORY_RAW_SOURCE_UNAVAILABLE');
+      const existing = this.db.prepare(`SELECT * FROM memory_raw_derived_copies
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?
+          AND copy_ref=? AND copy_version=?`).get(...values.slice(0, 6));
+      if (existing) {
+        if (existing.copy_kind !== input.copy_kind || existing.content_text !== input.content
+          || existing.content_sha256 !== digest) throw new Error('MEMORY_RAW_COPY_CONFLICT');
+        return { status: 'duplicate', content_sha256: digest };
+      }
+      this.db.prepare(`INSERT INTO memory_raw_derived_copies
+        (world_id,conversation_id,message_id,source_version_id,copy_ref,copy_version,copy_kind,
+         content_text,content_sha256,status,created_at,invalidated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,'current',?,NULL)`)
+        .run(...values, new Date().toISOString());
+      return { status: 'stored', content_sha256: digest };
+    });
   }
 
   /**
@@ -260,12 +278,11 @@ export class SQLiteMemoryProvider {
       throw new TypeError('Invalid raw Memory deletion target');
     }
     const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
-    const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
-      WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
-    if (!source) return { status: 'missing', invalidated_copies: 0 };
-    const now = new Date().toISOString();
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
+    return this.#withImmediateTransaction(() => {
+      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
+      if (!source) return { status: 'missing', invalidated_copies: 0 };
+      const now = new Date().toISOString();
       this.db.prepare(`UPDATE memory_raw_captures SET deleted_at=COALESCE(deleted_at,?)
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(now, ...key);
       this.db.prepare(`DELETE FROM memory_raw_active_versions
@@ -274,12 +291,8 @@ export class SQLiteMemoryProvider {
         SET status='invalidated', invalidated_at=COALESCE(invalidated_at,?)
         WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?
           AND status='current'`).run(now, input.world_id, input.conversation_id, input.message_id, input.version_id);
-      this.db.exec('COMMIT');
       return { status: 'deleted', invalidated_copies: result.changes };
-    } catch (error) {
-      try { this.db.exec('ROLLBACK'); } catch {}
-      throw error;
-    }
+    });
   }
 
   /**
@@ -293,24 +306,19 @@ export class SQLiteMemoryProvider {
       throw new TypeError('Invalid raw Memory purge target');
     }
     const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
-    const source = this.db.prepare(`SELECT 1 AS found FROM memory_raw_captures
-      WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
-    if (!source) return { status: 'missing', purged_copies: 0 };
-    const copies = this.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_derived_copies
-      WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`)
-      .get(input.world_id, input.conversation_id, input.message_id, input.version_id).count;
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
+    return this.#withImmediateTransaction(() => {
+      const source = this.db.prepare(`SELECT 1 AS found FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
+      if (!source) return { status: 'missing', purged_copies: 0 };
+      const copies = this.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_derived_copies
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`)
+        .get(input.world_id, input.conversation_id, input.message_id, input.version_id).count;
       this.db.prepare(`DELETE FROM memory_raw_active_versions
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
       this.db.prepare(`DELETE FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
-      this.db.exec('COMMIT');
       return { status: 'purged', purged_copies: copies };
-    } catch (error) {
-      try { this.db.exec('ROLLBACK'); } catch {}
-      throw error;
-    }
+    });
   }
 
   close() { this.db.close(); }
