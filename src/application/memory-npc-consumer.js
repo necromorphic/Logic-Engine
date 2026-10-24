@@ -245,12 +245,45 @@ export class MemoryNpcConsumer {
     }
 
     if (authorizedCandidates.length === 0) {
+      // A result that becomes empty only after authorization/filtering still
+      // needs a current Core snapshot. Otherwise a stale Memory index can be
+      // reported as ready-empty simply because every row was denied or
+      // unsupported, bypassing the snapshot check used for true empty results.
+      let filteredEmptySnapshotRead;
+      try {
+        filteredEmptySnapshotRead = this.authorizedReadService.readEntityFields({
+          worldId,
+          adapterId,
+          actorEntityId,
+          recipient: 'model',
+          purpose: 'npc_decision',
+          entityIds: [actorEntityId],
+          fields: ['entity_id'],
+        });
+      } catch {
+        return nonReady('authorized_source_read_unavailable');
+      }
+      if (!object(filteredEmptySnapshotRead)
+        || filteredEmptySnapshotRead.world_id !== worldId
+        || !validSnapshot({
+          world_revision: filteredEmptySnapshotRead.world_revision,
+          commit_sequence: filteredEmptySnapshotRead.commit_sequence,
+        })
+        || !sameSnapshot(memoryResult.snapshot, {
+          world_revision: filteredEmptySnapshotRead.world_revision,
+          commit_sequence: filteredEmptySnapshotRead.commit_sequence,
+        })) {
+        return nonReady('memory_snapshot_stale');
+      }
       return Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
         candidates: Object.freeze([]),
         reason: null,
-        snapshot: null,
+        snapshot: Object.freeze({
+          world_revision: filteredEmptySnapshotRead.world_revision,
+          commit_sequence: filteredEmptySnapshotRead.commit_sequence,
+        }),
       });
     }
 
