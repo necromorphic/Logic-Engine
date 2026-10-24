@@ -199,6 +199,7 @@ test('HTTP Relationship route rejects caller-supplied executor and provenance la
   try {
     await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
     const url = 'http://127.0.0.1:' + server.address().port + '/v1/worlds/world-relationship-test/relationship-transitions';
+    const initialAuditCount = engine.getAudit('world-relationship-test').length;
     for (const extra of [
       { executor_type: 'admin_credential' },
       { origin: 'trusted_host' },
@@ -221,7 +222,7 @@ test('HTTP Relationship route rejects caller-supplied executor and provenance la
       assert.deepEqual(store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, {});
     }
     assert.equal(engine.getEvents('world-relationship-test').length, 1);
-    assert.equal(engine.getAudit('world-relationship-test').length, 1);
+    assert.equal(engine.getAudit('world-relationship-test').length, initialAuditCount);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     store.close();
