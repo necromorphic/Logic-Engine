@@ -110,12 +110,16 @@ During this audit, no files on `main` were changed. No public API, SQLite schema
 
 ## 7. Dependency status refresh — 2026-10-24
 
-A live check confirms the NPC implementation gate is still blocked, not because the semantic direction is undecided, but because the core candidates remain unmerged. The current documentation-only PR #38 head is `7ddfe47d49bd3dd136e22a0c0cf63f789326fe1a`; GitHub Actions Runtime tests run #375 passed on that exact head. This is CI confirmation of repository regression tests only, not NPC runtime integration.
+This section supersedes the earlier core-PR status captured during the original source audit.
 
-- PR #45 (`09e48c2fd764c8e3f7b1e8f96e485a58ea34c793`) is open and its Runtime tests passed on that exact head. It provides a consistent internal read view only.
-- PR #47 (`3417a28f8a99663a9834f733bb842558259bc2e4`) is open and stacked on #45; Runtime tests passed on code/test head `ba701653b4fa629bde26c1188173039c08de993f`. It extends the read view to mechanic configuration and explicitly requested context manifests, but does not authorize actor access.
-- PR #46 (`a35f9fd20bff9a21ce5faa3c55f42ae350984651`) is open; Runtime tests passed on code/test head `f5ff93a79d9f9a84bb3bf602d36bd47360c3aa09`. It adds an opt-in tri-state condition API without implementing the NPC context pipeline.
-- PR #38 remains documentation-only; Runtime tests #375 passed on its current head `7ddfe47d49bd3dd136e22a0c0cf63f789326fe1a`.
+**Current main:** `8602a9ed41f13f536d87b1103a02e8fd12de3b03`; GitHub Actions Runtime tests run #378 passed on that exact commit.
 
-These test results are accurately scoped to their reported commits; they do not establish that the unmerged code is on `main`, and they do not establish NPC runtime readiness. The NPC branch is three commits behind current `main`; no rebase, merge, or force-update was performed. Continue source/contract reconciliation only until the real actor binding, authorized initial-source representation, and model-safe actor/purpose filter exist at reviewed core boundaries. See `docs/37-npc-kernel-readiness-gate.md` §18 for the exact dependency table and decision.
+- PR #45 merged at `2bbdbff4e4d4c4c56601ed5ac18e2083aa99c48b` and supplies the bounded, transaction-consistent internal snapshot read.
+- PR #46 merged at `e796896fc40fa8e782f574e13298682a4e6fb813` and supplies the opt-in `evaluateConditionResult(...)` tri-state API while preserving the legacy Boolean evaluator.
+- The original stacked PR #47 was closed without merge; its delta was rebased onto updated `main` in PR #49, merged at `8602a9ed41f13f536d87b1103a02e8fd12de3b03`. The current snapshot can include mechanic evaluation inputs and same-snapshot context-manifest expansion with explicit bounds.
+- PR #38 remains documentation-only. Its latest head before this refresh was `af4136840d221d811dd2f322bbcf0090563d11a6`; Runtime tests #376 passed on that exact head. This update changes only the audit documentation; its CI is tracked on the resulting branch head.
+- The NPC branch diverges from current `main`: 125 commits ahead and 7 behind, merge base `9e785a050e8b8acde9a3f343275c4213bbe8d72f`. Do not rebase or force-update automatically.
 
+These merges remove two previously recorded core blockers: a consistent bounded snapshot read and an opt-in tri-state condition result. They do **not** implement NPC-specific actor authorization, authorized initial-knowledge provenance, belief persistence, reserved-secret filtering, or a model-safe actor/purpose-scoped context query. The snapshot is raw internal data, not a prompt payload. The tri-state API can distinguish missing from explicitly known-absent paths only when the trusted caller supplies valid absence evidence; it does not decide whether an NPC is permitted to see a value.
+
+The remaining implementation gate is therefore narrower and more concrete: define and verify the trusted actor-to-canonical-entity binding, a real core-owned `author_initial`/imported knowledge source and provenance, the actor/purpose/snapshot filter, and production-path tests proving secret exclusion and proposal non-mutation. Do not create an NPC-local knowledge store or authorization substitute. See `docs/37-npc-kernel-readiness-gate.md` §19 for the full gate sequence and current evidence.
