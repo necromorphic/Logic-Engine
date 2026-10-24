@@ -30,19 +30,19 @@ A generic Memory record is not a substitute for the Core-owned semantic records 
 
 Do not introduce a generic 0–1 confidence field. Its calibration, comparability, and authority are undefined. Represent uncertainty using explicit epistemic kind, source provenance, verification state, conflict links, and a typed assessment only where a domain contract defines its semantics. A model-generated confidence value is an assertion, not a verified score.
 
-## 3. Identity and versioning
+## 4. Identity and versioning
 
 Identity is world-scoped: a `memory_id` from world A must not resolve in world B. Content correction must preserve audit and source lineage. Prefer immutable versions for records whose prior contents may have influenced retrieval or downstream actions; if mutable current rows are used, retain a durable version history with equivalent reconstruction guarantees.
 
 A repeated write is idempotent only when the operation's idempotency key and normalized request match under the declared contract. Reuse with different content must fail with a stable conflict error. Duplicate detection by text similarity is not identity and must not erase distinct provenance.
 
-## 4. Provenance validation
+## 5. Provenance validation
 
 Trusted services set producer identity and acquisition route. The record payload may include `claimed_source`, but it must remain visibly unverified until a trusted adapter/service binds it to an actual source. A digest may verify integrity against a known digest; it cannot independently prove origin or truth.
 
 If provenance is required for a record type and cannot be validated, reject the write or store it only under an explicitly untrusted evidence type that has a stricter read policy. Never silently downgrade a failed trusted write to an accepted trusted record.
 
-## 5. Lifecycle semantics
+## 6. Lifecycle semantics
 
 At minimum, distinguish:
 - `active`: available subject to normal authorization and source freshness;
@@ -55,6 +55,6 @@ At minimum, distinguish:
 
 These are not necessarily one exclusive enum in storage: deletion, visibility, and source freshness may be orthogonal dimensions. Decide the representation based on concrete transition tests. A summary with an invalidated source becomes stale or disputed pending recomputation; it must not remain silently active.
 
-## 6. Errors
+## 7. Errors
 
 The logical contract needs stable error classes for invalid shape/schema, unknown or cross-world references, untrusted provenance, unauthorized write, idempotency conflict, stale source revision, invalid lifecycle transition, source conflict, and storage unavailable. Public error details must not leak the existence or contents of inaccessible records.
