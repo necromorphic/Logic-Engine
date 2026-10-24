@@ -345,12 +345,11 @@ test('stale process creation and unresolved same-coordinate conflicts fail close
     ],
   });
   const before = engine.getState('process-world');
-  const result = engine.startTimeAdvance('process-world', {
+  assert.throws(() => engine.startTimeAdvance('process-world', {
     idempotency_key: 'advance-conflicting-process',
     expected_revision: before.world_revision,
     to_coordinate: 10000,
-  });
-  assert.equal(result.status, 'blocked');
+  }), (error) => error.code === 'TRIGGER_CONFLICT_NEEDS_REVIEW');
   assert.equal(engine.getState('process-world').game_time_coordinate, 0);
   assert.deepEqual(engine.getProcess('process-world', 'conflicting-process').milestones.map((item) => item.status), ['pending', 'pending']);
 });
