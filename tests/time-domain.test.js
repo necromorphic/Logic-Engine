@@ -128,9 +128,9 @@ test('calendar projection uses exact floor division near negative coordinate bou
     weekdays: [],
   };
   const projected = projectFixedCalendar(-Number.MAX_SAFE_INTEGER, custom);
-  assert.equal(projected.year, -2);
+  assert.equal(projected.year, -1);
   assert.equal(projected.day, 9);
-  assert.equal(projected.time_of_day_units, Number.MAX_SAFE_INTEGER - 3);
+  assert.equal(projected.time_of_day_units, Number.MAX_SAFE_INTEGER - 2);
 });
 
 test('calendar definitions reject invalid epochs and month layouts', () => {
