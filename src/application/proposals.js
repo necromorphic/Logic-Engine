@@ -132,7 +132,8 @@ export class ProposalService {
     assert(typeof evaluation.action_id === 'string' && evaluation.action_id.trim(), 'INVALID_MECHANIC_EVALUATION', 'action_id is required.');
     assert(object(evaluation.condition_result) && evaluation.condition_result.status === 'true', 'INVALID_MECHANIC_EVALUATION', 'Only evaluations with proven-true conditions may be proposed.');
     assert(typeof evaluation.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.context_fingerprint)
-      && typeof evaluation.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.evaluation_fingerprint),
+      && typeof evaluation.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(evaluation.evaluation_fingerprint)
+      && typeof evaluation.context_policy_version === 'string' && evaluation.context_policy_version.trim(),
     'INVALID_MECHANIC_EVALUATION_FINGERPRINT', 'Context and evaluation fingerprints are required.');
     assert(object(evaluation.guarantees) && evaluation.guarantees.read_only === true
       && evaluation.guarantees.context_provider_attested_snapshot === true
@@ -175,6 +176,7 @@ export class ProposalService {
       snapshot_identity: identity,
       action_id: evaluation.action_id,
       context_fingerprint: evaluation.context_fingerprint,
+      context_policy_version: evaluation.context_policy_version,
       evaluation_fingerprint: evaluation.evaluation_fingerprint,
       effect_provenance: provenance,
       dependency_completeness: 'not_proven',
