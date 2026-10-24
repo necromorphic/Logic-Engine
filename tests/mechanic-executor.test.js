@@ -266,3 +266,48 @@ test('application executor refuses to create an entity that already exists in th
   assert.equal(result.reason_code, 'MECHANIC_EFFECT_TARGET_ALREADY_EXISTS');
   assert.deepEqual(result.effects, []);
 });
+
+
+test('application executor rejects conflicting writes to the same entity or fact before proposal creation', (t) => {
+  const { engine, worldId } = setup(t, 'executor-write-conflict-world');
+  const entityConflict = template({
+    actions: [{
+      action_id: 'wait',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [
+        { effect_id: 'create-a', kind: 'create_entity', target_ref: 'entity.duplicate', payload: { entity_type: 'character' } },
+        { effect_id: 'create-b', kind: 'create_entity', target_ref: 'entity.duplicate', payload: { entity_type: 'character' } },
+      ],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, entityConflict);
+  const executor = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() });
+  const entityResult = executor.evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(entityResult.status, 'unknown');
+  assert.equal(entityResult.reason_code, 'MECHANIC_EFFECT_WRITE_CONFLICT');
+  assert.deepEqual(entityResult.effects, []);
+
+  const factWorld = 'executor-fact-write-conflict-world';
+  const factSetup = setup(t, factWorld);
+  const factConflict = template({
+    template_id: 'test.executor.fact-conflict',
+    actions: [{
+      action_id: 'wait',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [
+        { effect_id: 'fact-a', kind: 'assert_fact', target_ref: 'fact.duplicate', payload: { predicate: 'known', value: true } },
+        { effect_id: 'fact-b', kind: 'assert_fact', target_ref: 'fact.duplicate', payload: { predicate: 'known', value: false } },
+      ],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(factSetup.engine, factSetup.worldId, factConflict);
+  const factResult = new MechanicExecutor(factSetup.engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId: factSetup.worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(factResult.status, 'unknown');
+  assert.equal(factResult.reason_code, 'MECHANIC_EFFECT_WRITE_CONFLICT');
+  assert.deepEqual(factResult.effects, []);
+});
