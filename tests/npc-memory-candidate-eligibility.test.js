@@ -178,6 +178,7 @@ test("every missing lifecycle dimension fails closed", () => {
   });
   const unknownResult = evaluateMemoryCandidateAdmission(request, completeResult([unknownLifecycleValues]));
   assert.equal(unknownResult.status, "ready");
+  assert.deepEqual(unknownResult.admitted, []);
 });
 
 test("known evidence assessments are preserved; unknown assessments fail closed", () => {
@@ -245,6 +246,7 @@ test("known non-summary content kinds are explicit and summaries still require l
       candidate({ content_kind }),
     ]));
     assert.equal(result.status, "ready");
+    assert.equal(result.admitted.length, 1);
   }
   const summaryWithoutLineage = candidate({ content_kind: "summary" });
   const result = evaluateMemoryCandidateAdmission(request, completeResult([summaryWithoutLineage]));
@@ -331,6 +333,29 @@ test("a derived summary requires complete lineage and current authorized sources
 
   for (const unsafe of unsafeVariants) {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([unsafe]));
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.admitted, []);
+  }
+});
+
+test("summary lineage fails closed when source world scope is missing or unproven", () => {
+  const source = {
+    ref: "source:a",
+    version: "1",
+    access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
+    freshness: { status: "current" },
+  };
+
+  for (const unprovenSource of [
+    source,
+    { ...source, world_id: null },
+    { ...source, world_id: "" },
+  ]) {
+    const summary = candidate({
+      content_kind: "summary",
+      lineage: { status: "complete", sources: [unprovenSource] },
+    });
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
     assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
   }
@@ -424,16 +449,28 @@ test("candidate rejection output does not leak rejected record identifiers", () 
   assert.equal(serialized.includes("sensitive title"), false);
 });
 
-test("candidate admission never mutates acquisition, delivery, belief, or canonical state", () => {
-  const semanticState = {
-    acquisition: [{ id: "existing-acquisition" }],
-    delivery: [{ id: "existing-delivery" }],
-    belief: [{ id: "existing-belief" }],
-    canonical: [{ id: "canonical-fact" }],
-  };
-  const before = structuredClone(semanticState);
+test("candidate admission does not mutate its request or result inputs", () => {
+  const inputRequest = structuredClone(request);
+  const inputResult = completeResult([
+    candidate({
+      content: "must remain caller-owned",
+      lineage: {
+        status: "complete",
+        sources: [{
+          ref: "source:a",
+          version: "1",
+          world_id: request.world_id,
+          access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
+          freshness: { status: "current" },
+        }],
+      },
+    }),
+  ]);
+  const requestBefore = structuredClone(inputRequest);
+  const resultBefore = structuredClone(inputResult);
 
-  evaluateMemoryCandidateAdmission(request, completeResult([candidate()]));
+  evaluateMemoryCandidateAdmission(inputRequest, inputResult);
 
-  assert.deepEqual(semanticState, before);
+  assert.deepEqual(inputRequest, requestBefore);
+  assert.deepEqual(inputResult, resultBefore);
 });
