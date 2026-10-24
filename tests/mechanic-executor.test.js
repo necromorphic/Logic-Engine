@@ -978,3 +978,23 @@ test('canonical context provider rejects a snapshot belonging to another world',
     /Provider resolution requires world, snapshot, template, and action/,
   );
 });
+
+
+test('authorization scope changes the mechanic context fingerprint', (t) => {
+  const { engine, worldId } = setup(t, 'executor-authorization-scope-fingerprint-world');
+  enableFixture(engine, worldId);
+  const evaluateFor = (authorization_scope) => new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => ({
+      ...contextProvider()(args),
+      authorization_scope,
+    }),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  const first = evaluateFor('principal.actor-a');
+  const second = evaluateFor('principal.actor-b');
+  assert.equal(first.status, 'ready');
+  assert.equal(second.status, 'ready');
+  assert.equal(first.context_policy_version, second.context_policy_version);
+  assert.notEqual(first.authorization_scope, second.authorization_scope);
+  assert.notEqual(first.context_fingerprint, second.context_fingerprint);
+  assert.notEqual(first.evaluation_fingerprint, second.evaluation_fingerprint);
+});
