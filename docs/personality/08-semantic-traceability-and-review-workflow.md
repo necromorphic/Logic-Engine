@@ -109,3 +109,4 @@ PR #45's bounded snapshot primitive is not an authorized-read interface. No new 
 - `05-world-pack-relationship-dimension-template.md`
 - `06-stable-trait-lifecycle.md`
 - `07-cross-block-readiness-and-handoff.md`
+- `09-per-case-acceptance-traceability.md` — individual mapping for all PERS-SEM cases and stable-trait criteria, with ownership and runtime evidence status.
