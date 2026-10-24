@@ -1027,6 +1027,7 @@ export class SQLiteStore {
           const domain = manifest.metadata?.relationship_domain;
           if (!manifest.operations?.includes('validate_transition') || !domain
             || domain.world_pack_id !== w.world_pack_id || domain.world_pack_version !== w.world_pack_version
+            || Object.keys(domain).some((key) => !['world_pack_id', 'world_pack_version', 'dimensions'].includes(key))
             || !domain.dimensions || typeof domain.dimensions !== 'object' || Array.isArray(domain.dimensions)) {
             throw new EngineError('RELATIONSHIP_RULE_VERSION_INCOMPATIBLE', 'The pinned rule module must contain relationship_domain rules matching this exact World Pack and version.', 409, {
               module_id: effect.rule_module_id, module_version: effect.rule_module_version,
