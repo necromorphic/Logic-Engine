@@ -112,6 +112,9 @@ test('application executor pins one enabled instance and exact template to a con
   const executor = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() });
   const result = executor.evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(result.status, 'ready');
+  assert.equal(Object.isFrozen(result), true);
+  assert.equal(Object.isFrozen(result.effects), true);
+  assert.throws(() => { result.effects[0].entity_id = 'entity.attacker'; }, TypeError);
   assert.equal(result.snapshot_identity.world_revision, 2);
   assert.equal(result.snapshot_identity.commit_sequence, 2);
   assert.equal(result.snapshot_identity.template_id, 'test.executor');
@@ -397,7 +400,7 @@ test('application executor rejects conflicting writes to the same entity or fact
 });
 
 
-test('mechanic proposal handoff detects evaluation payload tampering via fingerprint', (t) => {
+test('mechanic proposal handoff rejects cloned or tampered evaluation objects', (t) => {
   const { engine, worldId } = setup(t, 'executor-fingerprint-world');
   enableFixture(engine, worldId);
   const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
@@ -413,7 +416,7 @@ test('mechanic proposal handoff detects evaluation payload tampering via fingerp
       sourceText: 'Tampered evaluation must not be proposed.',
       adapterId: 'test-adapter',
     }),
-    (error) => error.code === 'INVALID_MECHANIC_EVALUATION_FINGERPRINT',
+    (error) => error.code === 'UNATTESTED_MECHANIC_EVALUATION',
   );
   assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
 });
