@@ -18,7 +18,7 @@ Never accept a body field such as `actor`, `origin`, `producer`, `admin`, or `ex
 |---|---|---|---|
 | `GET /health` | No API bearer | Liveness only | Keep public; do not add world/config data |
 | `POST /v1/worlds` | API bearer | Creates canonical world | **Decision needed.** Recommend admin or deployment-bootstrap capability; general API bearer alone is not a distinct world-creation authority |
-| `GET /v1/worlds/:id/state` | API bearer + admin/internal gate | Raw trusted operational state; state snapshot is being made transactionally revision-bound | Keep privileged-only; never treat as model-safe read |
+| `GET /v1/worlds/:id/state` | API bearer + admin/internal gate | Raw trusted operational state; PR #114 makes world/entity/fact reads transaction-bound and returns `world_revision` + `commit_sequence`; PR #120 tests a concurrent WAL writer | Keep privileged-only; never treat as model-safe read |
 | `GET /v1/worlds/:id/events`, `/audit` | API bearer + admin/internal gate | Raw canonical history/audit | Keep privileged-only |
 | `POST /v1/worlds/:id/rollback` | API bearer + admin gate | Canonical rollback | Keep admin-only; do not condition on effect kind |
 | `POST /v1/worlds/:id/relationship-transitions` | API bearer + admin gate | First-slice typed canonical Relationship write | Keep admin-only until a separate mutation-authority contract exists |
@@ -28,6 +28,7 @@ Never accept a body field such as `actor`, `origin`, `producer`, `admin`, or `ex
 | `POST /v1/worlds/:id/context-manifests` | API bearer + internal-host gate | Restricted manifest registration; does not prove a trusted generation used the manifest | Keep internal-only; still needs server-side generation binding |
 | Proposal reads / commit | API bearer plus adapter ownership checks where applicable | Non-enumerating adapter scope; commit bound to creator | Keep creator-scoped; internal execution uses its separate gate |
 | Authorized entity reads | API bearer + actor binding + trusted host field policy (default self-identity-only) | Bounded, atomic target set; each requested field must be allowed | Keep deny-by-default; no general relationship/fact/event read implied |
+| Relationship field reads | No runtime route/service method | PR #123 is a design-only proposal for bounded directed-pair reads and a trusted per-field policy; no visibility policy is approved | Do not expose Relationship projection until the Relationship/World Pack visibility decisions and host policy are approved |
 
 This table is a source audit and a proposed disposition, not a claim that every suggested gate is already implemented. The current route implementation and tests are authoritative for shipped behavior.
 
@@ -50,4 +51,4 @@ Do not change the unresolved routes until these decisions are recorded. After ap
 - no-mutation/no-disclosure assertions for denied requests;
 - an exact-head Runtime CI link.
 
-Keep this matrix synchronized with `docs/53-core-http-service-boundary-audit.md` and `docs/73-core-1.5-cross-block-integration-matrix.md`.
+Keep this matrix synchronized with `docs/52-core-authorized-read-runtime-slice.md`, `docs/53-core-http-service-boundary-audit.md`, `docs/57-core-authorized-relationship-read-proposal.md`, and `docs/73-core-1.5-cross-block-integration-matrix.md`.
