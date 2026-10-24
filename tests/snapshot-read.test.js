@@ -214,3 +214,27 @@ test('internal snapshot returns no partial result and cleans up after a mid-read
   assert.equal(recovered.entities[0].entity_id, 'npc-a');
   assert.equal(recovered.world_revision, 1);
 });
+
+
+test('internal snapshot preserves the composite marker across rollback-only revision changes', (t) => {
+  const { store, engine } = setup(t);
+  seedCharacter(engine, 'snapshot-world', 'npc-a');
+
+  const before = engine.getSnapshot('snapshot-world');
+  assert.equal(before.world_revision, 1);
+  assert.equal(before.commit_sequence, 1);
+
+  const rollback = engine.rollbackEvent('snapshot-world', {
+    root_event_id: 'seed-npc-a',
+    idempotency_key: 'snapshot-rollback-seed',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.equal(rollback.world_revision, 2);
+
+  const after = engine.getSnapshot('snapshot-world');
+  assert.equal(after.world_revision, 2);
+  assert.equal(after.commit_sequence, 1);
+  assert.deepEqual(after.entities, []);
+  assert.deepEqual(after.facts, []);
+  assert.deepEqual(after.events, []);
+});
