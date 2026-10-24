@@ -56,7 +56,8 @@ export class MemoryNpcConsumer {
     this.contentFields = Object.freeze([...contentFields]);
   }
 
-  async retrieveForNpc({ worldId, adapterId, actorEntityId }) {
+  async retrieveForNpc(request) {
+    const { worldId, adapterId, actorEntityId } = object(request) ? request : {};
     if (!validId(worldId) || !validId(adapterId) || !validId(actorEntityId)) {
       return nonReady('trusted_scope_incomplete');
     }
