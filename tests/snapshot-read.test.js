@@ -302,17 +302,20 @@ test('snapshot reports requested context manifests that do not exist in the requ
 
 test('snapshot refuses a context manifest whose expanded entity set exceeds the bounded read limit', (t) => {
   const { engine } = setup(t);
-  const entityEffects = Array.from({ length: 201 }, (_, index) => ({
+  const firstBatch = Array.from({ length: 200 }, (_, index) => ({
     kind: 'entity.create',
     entity_id: 'bounded-npc-' + index,
     entity_type: 'character',
   }));
-  commit(engine, 'snapshot-world', 'bounded-manifest-seed', 0, entityEffects);
+  const finalEntity = { kind: 'entity.create', entity_id: 'bounded-npc-200', entity_type: 'character' };
+  commit(engine, 'snapshot-world', 'bounded-manifest-seed', 0, firstBatch);
+  commit(engine, 'snapshot-world', 'bounded-manifest-final-entity', 1, [finalEntity]);
+  const entityEffects = [...firstBatch, finalEntity];
 
   const manifest = engine.registerContextManifest('snapshot-world', {
     generation_id: 'generation-too-large',
-    base_world_revision: 1,
-    base_commit_sequence: 1,
+    base_world_revision: 2,
+    base_commit_sequence: 2,
     items: entityEffects.map((effect) => ({ kind: 'entity', target_id: effect.entity_id })),
   });
 
