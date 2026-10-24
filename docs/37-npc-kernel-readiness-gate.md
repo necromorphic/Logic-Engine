@@ -21,6 +21,8 @@ Use these labels in NPC design notes and reviews:
 
 Never silently upgrade a documented target, candidate seam, or NPC requirement into an observed core guarantee.
 
+**Source-of-truth note:** this table is a concise readiness summary, not a substitute for the detailed runtime findings and limitations in `docs/33-npc-runtime-readiness-audit.md`. When the summary and source-level audit appear to differ, re-inspect the exact target commit and update both documents; do not treat this summary as independent source evidence.
+
 ## 3. Current provisional inventory
 
 | Topic | Current label | Safe statement | Do not assume yet |
