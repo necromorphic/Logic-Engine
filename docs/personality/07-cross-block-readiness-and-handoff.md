@@ -1,6 +1,6 @@
 # Personality Block — Cross-Block Readiness and Handoff
 
-Status: coordination document for the Personality branch. It records boundaries and dependencies; it does not authorize implementation or claim runtime readiness.
+Status: coordination document for the Personality branch. It records boundaries and dependencies; it does not authorize implementation or claim full runtime readiness. Current `main` includes a tested privileged Relationship write/replay first slice; this handoff must distinguish that slice from still-blocked general integration.
 
 ## 1. Ownership
 
@@ -14,20 +14,20 @@ Status: coordination document for the Personality branch. It records boundaries 
 
 The Core response in [Issue #59](https://github.com/necromorphic/Logic-Engine/issues/59#issuecomment-6378586821) confirms the current architecture direction and remaining blockers. The consolidated record and unresolved questions are in [03-core-decision-and-integration-gates.md](./03-core-decision-and-integration-gates.md).
 
-- A typed canonical relationship operation is required, but no such runtime operation has been verified.
+- A privileged admin-gated typed Relationship operation is source-verified and covered by `tests/relationship-transition-core.test.js` on `main`; do not describe all typed writes as absent. General NPC/non-admin mutation authority and broader read/consumer integration remain unverified.
 - Partial updates, directionality, and distinct unset/neutral/clear semantics are semantic requirements; exact payload/API/storage representation remains unapproved.
 - PR #45 (bounded consistent snapshot) and PR #46 (opt-in tri-state condition results) are merged into `main`; the snapshot/context extension was merged via PR #49. These primitives improve consistency and condition-result representation but do not provide actor/purpose authorization, visibility filtering, or secret exclusion. Raw snapshot output must not be passed directly to a model.
-- Generic event/audit and rollback infrastructure exists, but the trusted authoring/import/correction boundary and relationship-specific replay guarantees are not established.
+- The privileged first slice has tests for event/audit/revision atomicity, idempotency, replay/rebuild, and required-dependency rollback. Trusted authoring/import/correction, authorized reads, historical version migration, and independent-support behavior remain blocked.
 - Deterministic replay is a conditional first-stage target only where it semantically reconstructs the intended state. Alternative-source support is not implied by event IDs.
 
 ## 3. Integration gates
 
 | Gate | Owner | Status | Evidence required to close |
 |---|---|---|---|
-| Typed relationship write | Core, with Personality semantic contract | Blocking; semantic direction approved | Contract against existing typed-effect conventions; atomic rejection/acceptance; partial patch, direction, identity, event/revision/audit behavior tested on the real path |
+| Typed relationship write | Core, with Personality semantic contract | Privileged admin-gated first slice source-tested; general actor/NPC authority remains blocked | Preserve first-slice boundary; define/approve remaining authority and integration scope without broadening existing guarantees |
 | Initial/import/correction | Core | Generic event/audit exists; trusted classification boundary unverified | Trusted command and authorization boundary; provenance/audit contract; spoofed-origin rejection and history-preserving correction tests |
 | Authorized read | Core | Blocking | Actor/purpose/snapshot-scoped filtering; safe distinction among known, unset, withheld, and incomplete/unsupported; actor separation and secret exclusion tested |
-| Deterministic replay / rollback | Core | Generic rollback exists; relationship guarantee unproven | Explicit first-slice boundary and tests on real typed relationship events |
+| Deterministic replay / rollback | Core | Supported-subset replay/rebuild and required-dependency rollback production-path tested; historical version selection and alternative support remain blocked | Keep the claim limited to replayable first-slice transitions; test any expanded semantics separately |
 | Versioned World Pack semantics | World Pack for semantic version/compatibility policy; Core for version pinning, migration, and replay enforcement | Authoring requirement specified; historical rule-version enforcement unverified / blocked | Meaning-changing updates declare compatibility/migration or explicit incompatibility; replay uses the applicable declared rules; verify historical version pinning/migration and production replay behavior |
 | Independent multi-source support | Core + World Pack domain rule | Deferred / unsupported until specified | Domain sufficiency/conflict policy plus a narrow core-owned representation/reducer and tests, if needed |
 | NPC decision context | NPC | Depends on authorized read | Only bounded authorized data is consumed; no duplicate canonical store |
@@ -57,4 +57,4 @@ The individual acceptance-ID ownership and evidence mapping is in [09-per-case-a
 
 ## 6. Non-claims
 
-This handoff does not claim that runtime supports typed relationships, authorized reads, author corrections, relationship rollback, alternative support, or safe card projection. The semantic acceptance cases are not passing integration tests. No runtime/API/schema/storage/prompt/UI change is authorized by this document. No PR is created or merged by this document.
+This handoff does not claim full integration readiness. The privileged typed Relationship first slice is tested, but general authorized reads, author corrections/import, NPC mutation/consumer behavior, historical version migration, independent alternative support, and safe card projection remain unproven or blocked. The semantic acceptance cases are not all passing integration tests. No runtime/API/schema/storage/prompt/UI change is authorized by this document. No PR is created or merged by this document.
