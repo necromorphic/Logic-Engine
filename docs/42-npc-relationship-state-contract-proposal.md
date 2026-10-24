@@ -189,7 +189,9 @@ Given a canonical relationship record, the card summary reflects it as a derived
 Given a relationship transition depends only on event E, when E is rolled back, the transition is reconciled according to the core contract and its audit history is retained.
 
 ### REL-009 — Independent support survives
-Given a relationship state has independent valid support from two causes, when one cause is rolled back, the system does not erase the state blindly if the remaining cause still supports it under the declared semantics.
+**Runtime status: BLOCKED by the core causality extension; see `docs/45-npc-relationship-typed-operation-design.md` §5.** This is a semantic acceptance requirement, not a capability of the current runtime. The current `caused_by`/`depends_on` contract expresses required dependencies, not OR-style alternative support.
+
+Given a relationship state has independent valid support from two causes, when one cause is rolled back, the system does not erase the state blindly if the remaining cause still supports it under the declared semantics. This case must remain a blocked specification until a domain sufficiency rule, core-owned support/reconciliation representation, and executable rollback tests are approved and implemented.
 
 ### REL-010 — No invented explanation
 Given the evidence does not establish why a relationship changed, the system leaves the rationale unresolved rather than inventing a prior event or hidden motive.
