@@ -112,7 +112,7 @@ test('blocked registered work does not claim triggers or advance canonical time'
   assert.equal(stored.claimed_by_operation_id, null);
 });
 
-test('cancellation is audited and overdue pending triggers fail closed instead of disappearing from (from,to]', (t) => {
+test('cancellation is audited and request-scoped advancement cannot bypass registered pending work', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
 
@@ -124,26 +124,20 @@ test('cancellation is audited and overdue pending triggers fail closed instead o
   assert.equal(engine.getState('time-trigger-world').world_revision, 2);
   assert.equal(engine.registerTimeTrigger('time-trigger-world', input).idempotent_replay, true);
 
-  engine.registerTimeTrigger('time-trigger-world', trigger('overdue', 20000, 'overdue-entity'));
+  engine.registerTimeTrigger('time-trigger-world', trigger('registered-pending', 20000, 'pending-entity'));
   const revision = engine.getState('time-trigger-world').world_revision;
-  engine.startTimeAdvance('time-trigger-world', {
-    idempotency_key: 'external-source-advance',
-    expected_revision: revision,
-    to_coordinate: 20000,
-    triggers: [],
-  });
-  const current = engine.getState('time-trigger-world');
-  assert.equal(current.game_time_coordinate, 20000);
   assert.throws(
     () => engine.startTimeAdvance('time-trigger-world', {
-      idempotency_key: 'registered-after-overdue',
-      expected_revision: current.world_revision,
-      to_coordinate: 30000,
+      idempotency_key: 'external-source-advance',
+      expected_revision: revision,
+      to_coordinate: 20000,
+      triggers: [],
     }),
-    (error) => error.code === 'TIME_TRIGGER_OVERDUE_NEEDS_REVIEW'
-      && error.details.trigger_ids.includes('overdue'),
+    (error) => error.code === 'TIME_TRIGGER_SOURCE_CONFLICT'
+      && error.details.trigger_ids.includes('registered-pending'),
   );
-  assert.equal(engine.listTimeTriggers('time-trigger-world').find((item) => item.trigger_id === 'overdue').status, 'pending');
+  assert.equal(engine.getState('time-trigger-world').game_time_coordinate, 0);
+  assert.equal(engine.listTimeTriggers('time-trigger-world').find((item) => item.trigger_id === 'registered-pending').status, 'pending');
 });
 
 test('a running operation claim prevents concurrent trigger cancellation', (t) => {
