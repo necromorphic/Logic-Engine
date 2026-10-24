@@ -414,9 +414,9 @@ Core review already confirmed that host injection without a documented rendering
 
 This is the latest repository-state check for the NPC documentation branch. It supersedes earlier branch-divergence counts and must be refreshed before integration work.
 
-- **NPC branch head at the latest verification:** `0e364347563a1f4bd1dbf6bae80118c5824135b6`.
+- **NPC branch head at the previous verification:** `0e364347563a1f4bd1dbf6bae80118c5824135b6`; later documentation commits continue this audit.
 - **PR #38:** closed without merge; no replacement PR has been opened by this work.
-- **Comparison against current `main`:** GitHub reports the refs as diverged, with merge base `9e785a050e8b8acde9a3f343275c4213bbe8d72f`, 17 commits behind `main`, and 175 commits ahead on the NPC branch. The compare response lists the NPC-specific difference as documentation files `docs/31` through `docs/48` (17 files); the high ahead count reflects the branch's documentation history and is not evidence of runtime implementation.
+- **Comparison against current `main`:** GitHub reports the refs as diverged, with merge base `9e785a050e8b8acde9a3f343275c4213bbe8d72f`, 17 commits behind `main`, and 181 commits ahead on the NPC branch at the latest comparison before this status correction. The compare response lists the NPC-specific difference as documentation files `docs/31` through `docs/48` (17 files); the high ahead count reflects the branch's documentation history and is not evidence of runtime implementation.
 - **Workflow evidence:** the available commit-workflow query returned no PR-triggered workflow runs associated with `0e364347563a1f4bd1dbf6bae80118c5824135b6`. This query is limited to PR-triggered runs, so the result is **not** proof that no workflow ran; it is also not green-CI evidence for this exact head.
 - **Change boundary:** this branch work remains NPC documentation/contracts/test-boundary design only. No core source, public API, schema, storage, or NPC runtime implementation was added by this status audit.
 
@@ -452,3 +452,10 @@ The new minimal character-card projection is also not a substitute for an actor-
 The detailed source-to-requirement audit is now recorded in `docs/49-npc-core-knowledge-live-audit.md`. It inspects current Core `main` at `37b05c38b15eda1743fb6fce08a8ccc2f1d2e672` and separates implemented adjacent primitives from the missing first-slice production boundary.
 
 The summary in §3 is refreshed accordingly: actor binding and tri-state condition results are observed capabilities; actor-relative acquisition, provenance, pre-model filtering, and safe-envelope adapter integration remain unimplemented/unverified. The Core target is not copied into this branch by this documentation change.
+
+
+## 28. Final comparison after live-audit additions — 2026-10-24
+
+The latest comparison after adding the live Core knowledge audit reports the refs as diverged: `feat/npc-subsystem` is 17 commits behind `main` and 181 commits ahead at the comparison point. The NPC-specific file delta is documentation-only across `docs/31`–`docs/49` (18 files). The branch remains separate; no rebase, merge, PR creation, or PR reopening was performed.
+
+The available workflow query for the then-current NPC head returned no PR-triggered runs. Treat this as **CI unverified**, not as a pass or a claim that no other workflow type ran.
