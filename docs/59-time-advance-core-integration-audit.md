@@ -90,3 +90,49 @@ If this proof fails, do not approximate segment atomicity by issuing independent
 ## Decision boundary
 
 This audit supports the T2 coordinate migration and Core-owned advancement implemented for review in PR #209. The current CI run on that PR passes 263 tests. It does not justify adding the scheduler or resumable long skips yet. T3 is gated on a batch path that preserves causal validation while avoiding a full projection rebuild after every event; T4 is gated on T2/T3 and event-boundary semantics.
+
+
+## T3 design sketch — bounded atomic segments
+
+T3 should introduce a Core-owned segment command, not a scheduler-owned loop around public commits. The proposed execution sequence is:
+
+1. **Identify the operation.** Validate a stable operation idempotency key and request hash, world ID, requested coordinate interval, policy/calendar version references where applicable, and the expected initial revision/cursor.
+2. **Plan without mutation.** Build the candidate segment's dependency graph and read/write sets. Validate that ordering is deterministic and causal references resolve in the same world. Conflicts that cannot be resolved by declared rules return a review outcome; a sort order is not a conflict resolver.
+3. **Acquire the write transaction.** Begin the Core-owned SQLite transaction, replay-check the operation key, and re-check revision/cursor. A stale plan is rejected or rebuilt; it is never committed as-is.
+4. **Evaluate in causal order.** Validate each event against a transaction-local evolving projection. Relationship transitions and mechanic-instance lifecycle operations must see prior accepted effects in the same segment when dependencies require it. Do not read stale persisted projections as if earlier segment effects had already been applied.
+5. **Persist the segment atomically.** Persist event records, event-level replay results, per-event audit, coordinate updates, revision/commit-sequence progression, final projection state, and the segment/operation cursor in one transaction. Rebuild the complete projection once per segment at most, or use a proven incremental projection update.
+6. **Commit or roll back all.** Any validation, effect, projection, audit, replay, or operation-cursor failure rolls back the entire segment. Only after the transaction commits may its resulting coordinate be reported as confirmed.
+
+### Segment boundaries and interrupts
+
+A segment is an indivisible commit unit. An event whose policy says `interrupt` ends the segment at its declared boundary; it is never processed halfway through a segment. After commit, the operation returns `interrupted` with the exact confirmed coordinate and may wait for author/player adjudication or resume according to the event/world policy.
+
+To keep segments tractable, the Core may enforce a bounded work budget (event count, effect count, and execution cost) independent of game-time duration. Exceeding that budget splits the plan into more segments; it must not silently truncate or pretend the requested endpoint was reached. The exact numeric work budget should be selected from benchmark-backed tests, not copied from the current 12-hour / 7-day gameplay limits.
+
+### Durable operation state
+
+Long advancement needs a durable operation record separate from event identity. Minimum fields to evaluate before schema design:
+
+- `operation_id`, `world_id`, `idempotency_key`, `request_hash`;
+- requested start/end coordinates and confirmed `committed_to_coordinate`;
+- operation status (`active`, `interrupted`, `completed`, `needs_review`, `failed`);
+- next segment sequence / cursor, last committed revision and commit sequence;
+- pinned policy/calendar version references and timestamps;
+- last result/error details sufficient for safe retry and author-visible diagnosis.
+
+A segment ledger is useful if event IDs alone cannot reconstruct which events belong to each committed segment. It should be added only if it carries information not safely derivable from operation and event records. The operation-level idempotency result and cursor update must commit atomically with the segment whose progress they describe.
+
+### T3 acceptance tests
+
+- Failure injection after the first event, after audit insertion, after projection update, and before operation-cursor update leaves the segment wholly uncommitted.
+- Success commits all event histories, effects, replay records, audit rows, coordinate changes, and operation cursor together.
+- A replay of a completed segment returns the stored result and never repeats effects.
+- An unknown commit outcome is resolved by reading the operation key and persisted cursor before retry.
+- Two competing plans from the same revision cannot both commit as if they had exclusive ownership.
+- Events with explicit dependencies see prior effects in the same segment; independent events remain deterministic.
+- Results match sequential single-event semantics for each supported effect type, including facts, entities, relationships, and mechanic instances.
+- Interrupt events terminate at a committed segment boundary; no event is half-applied.
+- Rollback of committed events restores effects but does not rewind canonical time or erase segment history.
+- At 1k/5k/10k-event histories, a segment performs at most one full projection rebuild; benchmark growth is recorded for entity-only and mixed-projection workloads.
+
+**Gate:** do not implement T3 by toggling a `deferRebuild` flag on the existing commit loop alone. That would leave later events validating against stale projections. The implementation needs either a transaction-local evolving projection or a narrower, explicitly enforced independence contract. The first option is more general; the second may be a safe initial slice if it rejects any intra-segment read/write overlap or dependency it cannot prove safe.
