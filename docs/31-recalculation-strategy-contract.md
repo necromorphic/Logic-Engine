@@ -155,6 +155,8 @@ This is an opt-in pure adapter, not a proposal or executor. It does not resolve 
 
 The branch now contains `src/application/mechanic-executor.js`, a read-only application-layer path that consumes the existing `getSnapshot(worldId, { includeMechanicEvaluationState: true })` seam. It pins world revision, commit sequence, instance ID, exact template ID/version/hash, resolves literal entity-target existence through the existing consistent state projection and requires its revision/cursor to match the mechanic snapshot before using the result.
 
+It also rejects duplicate entity/fact writes within one action before proposal handoff, matching Core event semantics rather than deferring a predictable conflict to commit.
+
 The slice deliberately supports only:
 - enabled instances and the exact pinned template;
 - `manual` conflict policy, no rule modules, no participant selection, and no declared mechanic interactions;
@@ -164,6 +166,6 @@ The slice deliberately supports only:
 
 Unsupported semantics return `unknown` or `rejected`, with an empty effect list. The executor does not write canonical state. Ready results carry `context_fingerprint` and `evaluation_fingerprint` over snapshot identity, versioned policy/context, condition results, translated effects and effect provenance; these fingerprints are audit identities, not signatures.
 
-`ProposalService.createFromMechanicEvaluation` is the internal handoff for a ready result. It rechecks the evaluation's world revision and commit sequence inside the same transaction that creates the ordinary durable proposal, validates effect-index provenance, and stores the exact evaluation identity, context fingerprint, evaluation fingerprint, policy version, and effect provenance with the proposal. Proposal approval/commit remain on the existing service; semantic review remains required and the ordinary stale-proposal guard remains in force. This handoff is not exposed as a new HTTP route.
+`ProposalService.createFromMechanicEvaluation` is the internal handoff for a ready result. It rechecks the evaluation's world revision and commit sequence inside the same transaction that creates the ordinary durable proposal, validates effect-index and target provenance, and stores the exact evaluation identity, context fingerprint, evaluation fingerprint, policy version, and effect provenance with the proposal and `proposal.created` audit entry. Exact idempotent retries replay the existing proposal even if the world has since advanced; changed content under the same key conflicts. Proposal approval/commit remain on the existing service; semantic review remains required and the ordinary stale-proposal guard remains in force. This handoff is not exposed as a new HTTP route.
 
 This is a narrow executable vertical slice, not general production readiness. It does not prove that an injected context provider is correctly configured; it requires that provider to be trusted host code. It does not support action-input binding, modules, participant selection, interactions, automatic conflict resolution, full causal/read-set completeness, or A/B/C production recalculation. Do not widen the allowlist without closure tests and an explicit contract decision.
