@@ -29,7 +29,7 @@ function setup(t) {
       source_version: 'source-v1',
     }],
   };
-  return { provider, record };
+  return { provider, record, scope };
 }
 
 test('internal import facade exposes only one-record import and preserves provider idempotency', (t) => {
