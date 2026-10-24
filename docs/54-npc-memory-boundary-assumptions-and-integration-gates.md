@@ -74,3 +74,15 @@ Until those decisions are resolved, the safe implementation boundary is the pure
 - **Not established by the oracle:** authentic authorization, authorization-before-disclosure, race-free revocation, authoritative currentness, actual Memory retrieval, host delivery/receipt, acquisition/belief persistence, rollback-aware source reconciliation, or cross-subsystem transactionality.
 - **CI evidence:** a successful repository-native Actions run on an earlier exact head is not evidence for a later head. Report CI only with the exact tested SHA and run URL. An isolated compatible test harness is not native `npm test` or GitHub Actions.
 - **Merge posture:** keep PR #76 Draft/unmerged until current-head native CI, owner-approved contracts, and applicable boundary tests are evidenced. No Core/Memory branch or file is modified by this document.
+
+
+## 5. Current Core security baseline — refreshed 2026-10-24
+
+The previous readiness statement remains valid, but the HTTP security baseline has changed since the earlier audit:
+
+- **Core PR #65 is merged.** The HTTP API now has a narrow authorized-read route that authenticates a configured adapter and exposes only its bound actor's own `entity_id`, `entity_type`, and `status`. Arbitrary attributes and multi-entity NPC/Memory reads remain unavailable until a trusted visibility contract is approved. The separate internal/admin credential protects raw canonical HTTP state/events/audit reads, and proposal reads are scoped to their creator unless an admin override is used.
+- **Core PR #83 is merged.** Every HTTP canonical rollback requires the separate admin credential, regardless of event type. This is an authorization hardening, not a source-change feed or reconciliation signal.
+- Neither change authenticates hand-built candidate metadata passed directly to the NPC pure oracle. The oracle must continue to be described as defense-in-depth, not as an authorization boundary.
+- The unresolved BND-01/BND-03/BND-06/BND-07 and related gates remain open: no general Memory retrieval authorization, race-free content-use revalidation, lineage permission propagation, durable rollback-aware source reconciliation, or NPC acquisition/delivery/belief persistence path is established by these PRs.
+
+Therefore the Core security changes reduce existing HTTP exposure but do not unblock production Memory→NPC integration. Keep the adapter and semantic persistence path blocked until the responsible owners approve the missing contracts and the real boundary tests exercise them.
