@@ -25,8 +25,9 @@ async function setup(t) {
   engine.createWorld({ world_id: 'actor-world', world_pack_id: 'test.world', world_pack_version: '1', game_time: '2026-01-01T00:00:00Z' });
   engine.commitEvent('actor-world', {
     idempotency_key: 'seed-actor', turn_id: 'seed', event_type: 'action.completed',
-    effects: [{ kind: 'entity.upsert', entity_id: 'npc-a', entity_type: 'character', attributes: { name: 'A' } }],
+    effects: [\n      { kind: 'entity.upsert', entity_id: 'npc-a', entity_type: 'character', attributes: { name: 'A' } },\n      { kind: 'entity.upsert', entity_id: 'npc-dead', entity_type: 'character', attributes: { name: 'Dead' } },\n    ],
   });
+  engine.commitEvent('actor-world', {\n    idempotency_key: 'destroy-actor', turn_id: 'destroy', event_type: 'action.completed',\n    effects: [{ kind: 'entity.delete', entity_id: 'npc-dead' }],\n  });
   return 'http://127.0.0.1:' + server.address().port;
 }
 
@@ -101,7 +102,7 @@ test('actor bindings reject missing, destroyed, and cross-world entities', async
   assert.equal(missing.status, 409);
   assert.equal((await missing.json()).error.code, 'ACTOR_ENTITY_NOT_ELIGIBLE');
 
-  const crossWorld = await fetch(base + '/v1/worlds/not-this-world/actor-bindings', {
+  const destroyed = await fetch(path, { method: 'POST', headers: adminHeaders, body: json({ adapter_id: 'adapter-a', entity_id: 'npc-dead' }) });\n  assert.equal(destroyed.status, 409);\n  assert.equal((await destroyed.json()).error.code, 'ACTOR_ENTITY_NOT_ELIGIBLE');\n\n  const crossWorld = await fetch(base + '/v1/worlds/not-this-world/actor-bindings', {
     method: 'POST', headers: adminHeaders, body: json({ adapter_id: 'adapter-a', entity_id: 'npc-a' }),
   });
   assert.equal(crossWorld.status, 404);
