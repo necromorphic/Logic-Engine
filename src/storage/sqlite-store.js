@@ -1598,6 +1598,11 @@ export class SQLiteStore {
               .run(worldId, worldAfter.world_revision, 'time.trigger.completed', triggerId, enc({
                 operation_id: operationId, due_coordinate: segment.coordinate,
               }), triggerStamp);
+            if (this.processStore) {
+              const triggerIndex = (segment.trigger_ids || []).indexOf(triggerId);
+              const eventId = triggerIndex >= 0 ? segment.events[triggerIndex]?.event_id : null;
+              this.processStore.completeTrigger(worldId, triggerId, eventId ? [eventId] : [], operationId);
+            }
           }
           const result = {
             operation_id: operationId, world_id: worldId, status,
