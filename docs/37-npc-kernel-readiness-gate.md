@@ -283,3 +283,14 @@ Until the core owner approves and implements a compatible result contract, a fir
 The current `main` also contains `docs/30-stage1.3-mechanic-execution-boundary.md` (reviewed at `cb4ad189f12484ca5458c30b1d176cbd9f7d4ccc`). Its target contract requires missing/inaccessible context to produce `unknown` rather than silently treating it as false, and requires rule support to be reconciled across schema, validator, and evaluator. This aligns with the NPC gate above, but it is a design/implementation contract for a future mechanic-evaluation slice—not evidence that the generic `evaluateCondition(...)` function already returns tri-state results. The inspected `src/core/rules.js` still returns booleans for the operators and nested combinators described above. Keep the NPC first slice blocked unless the actual production path used by that slice can prove complete, authorized inputs or return a safe unknown/review result.
 
 This is a source-backed integration blocker, not an authorization to change `src/core/rules.js` from the NPC branch.
+
+### Additional source cross-check: mechanic contract versus runtime
+
+The contract/runtime distinction applies to the execution pipeline as a whole, not only to tri-state conditions:
+
+- The inspected `src/core/mechanics.js` exports mechanic-template and rule-module-manifest validators. These validate declared shapes and supported operator names; they do not execute an active mechanic set, select applicable instances, resolve conflicts, produce the structured Stage 1.3 result, or hand a result to the proposal lifecycle.
+- The inspected `src/core/rules.js` evaluates an individual declarative condition to a Boolean. It is not by itself the Stage 1.3 application service described by `docs/30`.
+- The schema/operator matrix tests verify that schema, validator, and evaluator agree on the currently supported operator vocabulary. They do not prove that the broader mechanic execution pipeline exists.
+
+Therefore `docs/30` is a core implementation contract, while the current source exposes lower-level validation and condition-evaluation pieces. Do not report Stage 1.3 execution as implemented or begin NPC runtime integration on the assumption that the documented pipeline exists. This is a source-level finding and should be rechecked against the exact target commit before implementation.
+
