@@ -301,7 +301,7 @@ export class ProcessStore {
           WHERE world_id=? AND process_id=? AND status NOT IN ('cancelled','failed')`)
           .run(enc(error), stamp, worldId, milestone.process_id);
         this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
-          .run(worldId, this.store.world(worldId).world_revision + 1, 'process.rollback.needs_review', milestone.process_id, enc(error), stamp);
+          .run(worldId, this.store.world(worldId).world_revision, 'process.rollback.needs_review', milestone.process_id, enc(error), stamp);
         affected.push({ process_id: milestone.process_id, milestone_id: milestone.milestone_id, invalidated_event_ids: overlap });
       }
       return affected;
