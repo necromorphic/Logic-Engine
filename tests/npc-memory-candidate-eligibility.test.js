@@ -101,6 +101,30 @@ test("missing identity, version, or epistemic kind fails closed", () => {
   }
 });
 
+test("missing or unknown content kind fails closed", () => {
+  for (const content_kind of [undefined, "mystery", ""]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ content_kind }),
+    ]));
+    assert.equal(result.status, "non_ready");
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.rejected, [{ reason: "content_kind_unknown" }]);
+  }
+});
+
+test("known non-summary content kinds are explicit and summaries still require lineage", () => {
+  for (const content_kind of ["claim", "report", "author_initial", "imported", "inference"]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ content_kind }),
+    ]));
+    assert.equal(result.status, "ready");
+  }
+  const summaryWithoutLineage = candidate({ content_kind: "summary" });
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([summaryWithoutLineage]));
+  assert.equal(result.status, "non_ready");
+  assert.deepEqual(result.rejected, [{ reason: "lineage_not_safe" }]);
+});
+
 test("stale, retracted, unavailable, and unknown freshness are not current knowledge", () => {
   for (const status of ["stale", "retracted", "unavailable", "unknown", undefined]) {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([
