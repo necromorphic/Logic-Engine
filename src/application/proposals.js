@@ -327,8 +327,15 @@ export class ProposalService {
       const committedAt = now();
       this.db.prepare("UPDATE event_proposals SET status='committed',committed_at=?,commit_result_json=? WHERE proposal_id=? AND status='approved'")
         .run(committedAt, enc(result), proposalId);
+      const committedAuditPayload = {
+        proposal_hash: row.proposal_hash,
+        event_id: result.event_id,
+        ...(row.mechanic_execution_json
+          ? { mechanic_execution: dec(row.mechanic_execution_json) }
+          : {}),
+      };
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
-        .run(worldId, result.world_revision, 'proposal.committed', proposalId, enc({ proposal_hash: row.proposal_hash, event_id: result.event_id }), committedAt);
+        .run(worldId, result.world_revision, 'proposal.committed', proposalId, enc(committedAuditPayload), committedAt);
       const updated = this.db.prepare('SELECT * FROM event_proposals WHERE proposal_id=?').get(proposalId);
       return { ...this.publicProposal(updated, false), commit_result: result };
     });
