@@ -512,3 +512,39 @@ test('a failed rollback projection rebuild leaves canonical state and rollback m
   assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 1);
 });
 
+
+
+test('a failed rollback replay-record write rolls back the canonical rollback', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+
+  h.engine.commitEvent('w', cmd({
+    event_id: 'replay-rollback-root',
+    idempotency_key: 'replay-rollback-root-key',
+    effects: [{ kind: 'entity.upsert', entity_id: 'replay-target', entity_type: 'object', attributes: { retained: true } }],
+  }));
+  const auditBefore = h.engine.getAudit('w');
+  h.store.db.exec(`
+    CREATE TRIGGER fail_rollback_replay BEFORE INSERT ON idempotency_keys
+    WHEN NEW.idempotency_key='replay-rollback-key'
+    BEGIN SELECT RAISE(ABORT, 'forced rollback replay-record failure'); END;
+  `);
+
+  assert.throws(
+    () => h.engine.rollbackEvent('w', { root_event_id: 'replay-rollback-root', idempotency_key: 'replay-rollback-key' }),
+    /forced rollback replay-record failure/,
+  );
+  assert.equal(h.engine.getState('w').world_revision, 1);
+  assert.equal(h.engine.getState('w').entities.some((entity) => entity.entity_id === 'replay-target'), true);
+  assert.equal(h.engine.getEvents('w', true).find((event) => event.event_id === 'replay-rollback-root').validity, 'valid');
+  assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 0);
+  assert.deepEqual(h.engine.getAudit('w'), auditBefore);
+  assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key='replay-rollback-key'").get().count, 0);
+
+  h.store.db.exec('DROP TRIGGER fail_rollback_replay');
+  const result = h.engine.rollbackEvent('w', { root_event_id: 'replay-rollback-root', idempotency_key: 'replay-rollback-key' });
+  assert.equal(result.world_revision, 2);
+  assert.equal(h.engine.getState('w').entities.length, 0);
+  assert.equal(h.store.db.prepare('SELECT COUNT(*) AS count FROM rollbacks').get().count, 1);
+  assert.equal(h.store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key='replay-rollback-key'").get().count, 1);
+});
