@@ -820,3 +820,96 @@ test('projection rebuild preserves the exact historical rule-version pin when it
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+
+test('rollback preserves a later transition on an independent relationship dimension', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    const trust = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed));
+    const affinity = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed, {
+      patch: { affinity: 'low' },
+      expected_revision: 2,
+      expected_commit_sequence: 2,
+      idempotency_key: 'relationship-affinity-write',
+    }));
+    const rollback = engine.rollbackEvent('world-relationship-test', {
+      root_event_id: trust.event_id,
+      idempotency_key: 'rollback-trust-only',
+    });
+    assert.ok(rollback.invalidated_event_ids.includes(trust.event_id));
+    assert.equal(rollback.invalidated_event_ids.includes(affinity.event_id), false);
+    const events = engine.store.events('world-relationship-test', true);
+    assert.equal(events.find((event) => event.event_id === affinity.event_id).validity, 'valid');
+    assert.deepEqual(engine.store.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions, { affinity: 'low' });
+  } finally {
+    store.close();
+  }
+});
+
+test('Relationship pair read returns dimensions and freshness cursor from one SQLite snapshot', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-relationship-read-snapshot-'));
+  const storagePath = join(directory, 'state.sqlite');
+  let store;
+  let writerStore;
+  try {
+    const fixtureResult = await fixture(storagePath);
+    store = fixtureResult.store;
+    const { engine, seed } = fixtureResult;
+    writerStore = new SQLiteStore(storagePath);
+    const writerEngine = new LogicEngine(writerStore);
+    const originalCursor = store.currentCommitSequence.bind(store);
+    let injected = false;
+    store.currentCommitSequence = (worldId) => {
+      if (!injected) {
+        injected = true;
+        try {
+          writerEngine.commitRelationshipTransition(worldId, transitionRequest(seed));
+        } catch (error) {
+          // A correctly pinned read snapshot may prevent the interleaving writer
+          // from committing until the read completes.
+          if (!String(error.message).includes('locked') && error.code !== 'SQLITE_BUSY') throw error;
+        }
+      }
+      return originalCursor(worldId);
+    };
+    const pair = store.getRelationshipPair('world-relationship-test', 'A', 'B');
+    if (pair.world_revision === 1) {
+      assert.equal(pair.commit_sequence, 1);
+      assert.deepEqual(pair.dimensions, {});
+    } else {
+      assert.equal(pair.world_revision, 2);
+      assert.equal(pair.commit_sequence, 2);
+      assert.equal(pair.dimensions.trust, 'low');
+    }
+  } finally {
+    writerStore?.close();
+    store?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('Relationship HTTP response uses normalized participant IDs for the committed projection', async () => {
+  const { store, engine, seed } = await fixture();
+  const server = createApiServer({ engine, token, adminToken });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = 'http://127.0.0.1:' + server.address().port + '/v1/worlds/world-relationship-test/relationship-transitions';
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        authorization: 'Bearer ' + token,
+        'x-admin-token': adminToken,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(transitionRequest(seed, { subject_id: ' A ', target_id: ' B ' })),
+    });
+    assert.equal(response.status, 201);
+    const payload = await response.json();
+    assert.equal(payload.relationship.subject_id, 'A');
+    assert.equal(payload.relationship.target_id, 'B');
+    assert.equal(payload.relationship.dimensions.trust, 'low');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    store.close();
+  }
+});
