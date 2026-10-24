@@ -207,4 +207,17 @@ For closure tracking, use the detailed finding IDs in PR #67 (F-01 through F-07)
 - [PR #72 — canonical commit and rollback atomicity](https://github.com/necromorphic/Logic-Engine/pull/72) — merged as 506d3a6376a3b0209afb8622db61cbbb4ef98c0a. Its test suite covers injected rollback projection failure, rollback replay-record persistence failure, canonical commit replay-record persistence failure, no-partial-write assertions, successful retry/replay, nested savepoint isolation/recovery, and proposal commit failure/retry/idempotency. The recorded CI run passed.
 - [PR #74 — context-manifest snapshot boundaries](https://github.com/necromorphic/Logic-Engine/pull/74) — merged as 683cbc3866468585173da8ad3e717d87be9e570a. Its tests cover exact composite-marker matching, invalidation after normal advancement and rollback-only revision changes, missing/cross-world IDs without cross-world leakage, per-manifest and combined snapshot limits, and deduplication of overlapping references. The recorded CI run passed.
 
-These merged tests strengthen regression evidence for the existing Core lifecycle and snapshot boundaries. They do not add runtime behavior, authorize new reads or writes, or establish a typed Relationship commit/replay implementation. Remaining integration claims must be tied to the specific production paths and tests that actually exist.
+These merged tests strengthen regression evidence for the existing Core lifecycle and snapshot boundaries. They do not add runtime behavior or authorize new reads or writes. The typed Relationship commit/replay implementation was added separately through Core PRs #94–#96; see the superseding Relationship test-status refresh below.
+
+
+## 9. Superseding Relationship test-status refresh (2026-10-24)
+
+The older source-audit paragraphs above are historical snapshots. They must not be read as saying that the Relationship production writer/replay is still absent: the typed first slice is on `main` via #94–#96, and the real-path regression suite has since gained HTTP authorization/retry coverage and disk-backed restart/rebuild coverage.
+
+- Current-main test source: `tests/relationship-transition-core.test.js`, blob `4e18b085fac6de7dcf05368fb439ba92f466345a`, **15 named tests**.
+- [PR #107](https://github.com/necromorphic/Logic-Engine/pull/107) merged the test-only HTTP authorization/idempotent-retry coverage. Exact-head Runtime workflow #754 passed on `bff370b920e32013f17a036eda9450c9eafd1066`: https://github.com/necromorphic/Logic-Engine/actions/runs/40065570917.
+- [PR #108](https://github.com/necromorphic/Logic-Engine/pull/108) proposes the disk-backed store-restart/rebuild regression. At this refresh, the test is already present in the current-main source blob above, which is byte-identical to the file on PR #108's head; PR #108 is still reported open. Its exact-head Runtime workflow #761 passed on `3db9c1484fedf4162023b93acc8920269eff6e10`: https://github.com/necromorphic/Logic-Engine/actions/runs/40065636886. Confirm the PR status with Core before treating #108 as a unique pending delta.
+- [PR #105](https://github.com/necromorphic/Logic-Engine/pull/105) is the earlier authorization/retry test proposal; its test content is represented by merged #107 and should be treated as superseded, not as a missing test.
+- These tests strengthen the privileged Core first slice only. They do not add NPC/model write authority, general actor/purpose/field-authorized Relationship reads, trusted initial import/author correction, alternative-support semantics, or Personality/NPC consumer integration.
+
+Current Relationships work may rely on the 15-test current-main inventory for evidence mapping, but must keep the above unimplemented boundaries explicit.
