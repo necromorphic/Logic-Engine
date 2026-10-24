@@ -28,7 +28,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {} }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -39,6 +39,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   }
   if (adminToken !== null && (typeof adminToken !== 'string' || adminToken.length < 16 || [token, internalToken, approvalToken].includes(adminToken))) {
     throw new TypeError('Admin token must be at least 16 characters and differ from other tokens');
+  }
+  if (authorizedReadFieldPolicy !== null && typeof authorizedReadFieldPolicy !== 'function') {
+    throw new TypeError('Authorized-read field policy must be trusted application configuration.');
   }
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
   if (!adapterTokens || typeof adapterTokens !== 'object' || Array.isArray(adapterTokens) || Object.entries(adapterTokens).some(([id, secret]) => !id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) || new Set(configuredAdapterSecrets).size !== configuredAdapterSecrets.length) {
@@ -53,9 +56,13 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   const actorBindings = new ActorBindingService(engine);
   // Until a canonical visibility schema exists, disclose only the bound actor's
   // own non-attribute identity fields. This intentionally denies all attributes.
+  const defaultAuthorizedReadFieldPolicy = (context, entity, field) => entity.entity_id === context.actor.entity_id
+    && ['entity_id', 'entity_type', 'status'].includes(field);
+  // A host may opt into a broader, explicit policy. The policy is trusted
+  // application configuration and is never accepted from an HTTP request.
+  // Without one, preserve the narrow self-identity-only default.
   const authorizedReads = new AuthorizedReadService(engine, actorBindings,
-    (context, entity, field) => entity.entity_id === context.actor.entity_id
-      && ['entity_id', 'entity_type', 'status'].includes(field));
+    authorizedReadFieldPolicy || defaultAuthorizedReadFieldPolicy);
 
   return createServer(async (req, res) => {
     try {
@@ -100,8 +107,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'A configured adapter identity is required for authorized reads.' } });
         const body = await readBody(req);
         if (!body || typeof body !== 'object' || Array.isArray(body)
-          || Object.keys(body).some((key) => !['actor_entity_id', 'purpose', 'fields'].includes(key))) {
-          throw new EngineError('INVALID_AUTHORIZED_READ', 'Authorized read accepts only actor_entity_id, purpose and fields.');
+          || Object.keys(body).some((key) => !['actor_entity_id', 'purpose', 'fields', 'entity_ids'].includes(key))) {
+          throw new EngineError('INVALID_AUTHORIZED_READ', 'Authorized read accepts only actor_entity_id, purpose, fields and optional entity_ids.');
         }
         const result = authorizedReads.readEntityFields({
           worldId,
@@ -109,7 +116,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           actorEntityId: body.actor_entity_id,
           recipient: 'model',
           purpose: body.purpose,
-          entityIds: [body.actor_entity_id],
+          entityIds: body.entity_ids === undefined ? [body.actor_entity_id] : body.entity_ids,
           fields: body.fields,
         });
         return send(res, 200, { read: result });
