@@ -500,6 +500,31 @@ test('Relationship projection survives store restart and deterministic rebuild f
   }
 });
 
+test('trusted state read returns one composite freshness marker across rollback', async () => {
+  const { store, engine, seed } = await fixture();
+  try {
+    const initial = engine.getState('world-relationship-test');
+    assert.equal(initial.world_revision, 1);
+    assert.equal(initial.commit_sequence, 1);
+    const transition = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed));
+    const committed = engine.getState('world-relationship-test');
+    assert.equal(committed.world_revision, 2);
+    assert.equal(committed.commit_sequence, 2);
+    assert.deepEqual(committed.entities.map((entity) => entity.entity_id), ['A', 'B']);
+
+    engine.rollbackEvent('world-relationship-test', {
+      root_event_id: transition.event_id,
+      idempotency_key: 'rollback-state-snapshot-transition',
+    });
+    const rolledBack = engine.getState('world-relationship-test');
+    assert.equal(rolledBack.world_revision, 3);
+    assert.equal(rolledBack.commit_sequence, 2);
+    assert.deepEqual(rolledBack.entities.map((entity) => entity.entity_id), ['A', 'B']);
+  } finally {
+    store.close();
+  }
+});
+
 test('rollback invalidates later transition dependent on the same directed pair and rebuilds surviving state', async () => {
   const { store, engine, seed } = await fixture();
   try {
