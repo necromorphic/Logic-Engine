@@ -843,3 +843,25 @@ test('Relationship HTTP response uses normalized participant IDs for the committ
     store.close();
   }
 });
+
+
+test('Relationship pair read brackets dimensions and freshness cursor in a read transaction', async () => {
+  const { store } = await fixture();
+  const statements = [];
+  const originalExec = store.db.exec.bind(store.db);
+  store.db.exec = (sql) => {
+    statements.push(sql);
+    return originalExec(sql);
+  };
+  try {
+    const pair = store.getRelationshipPair('world-relationship-test', 'A', 'B');
+    assert.equal(pair.world_revision, 1);
+    assert.equal(pair.commit_sequence, 1);
+    assert.deepEqual(pair.dimensions, {});
+    assert.ok(statements.includes('BEGIN'));
+    assert.ok(statements.includes('COMMIT'));
+    assert.equal(statements.indexOf('BEGIN') < statements.indexOf('COMMIT'), true);
+  } finally {
+    store.close();
+  }
+});
