@@ -52,6 +52,54 @@ test("returns a candidate without mutating the supplied state or patch", () => {
   assert.deepEqual(patch, { trust: "guarded" });
 });
 
+test("rejects arrays with numeric-looking out-of-range custom properties", () => {
+  const values = ["low"];
+  Object.defineProperty(values, "4294967295", {
+    value: "injected",
+    enumerable: true,
+    configurable: true,
+  });
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: {},
+    patch: { trust: "low" },
+    dimensionRules: {
+      trust: {
+        values,
+        allowClear: false,
+        transitions: [{ operation: "set", from: null, to: "low" }],
+      },
+    },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "dimension_rule_incomplete");
+});
+
+test("rejects non-enumerable array elements in dimension rules", () => {
+  const values = ["low"];
+  Object.defineProperty(values, "0", {
+    value: "low",
+    enumerable: false,
+    configurable: true,
+  });
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: {},
+    patch: { trust: "low" },
+    dimensionRules: {
+      trust: {
+        values,
+        allowClear: false,
+        transitions: [{ operation: "set", from: null, to: "low" }],
+      },
+    },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "dimension_rule_incomplete");
+});
+
 test("preserves special object-property dimension names as own data keys", () => {
   const dimension = "__proto__";
   const specialRules = Object.fromEntries([
