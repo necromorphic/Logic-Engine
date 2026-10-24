@@ -542,3 +542,10 @@ The detailed requirements and full Given/When/Then cases are specified in `docs/
 - **NPC-AUTH-010:** Compact summaries preserve material uncertainty.
 
 The implementation gate for each case is the real production boundary named in `docs/35-npc-test-boundary-map.md`. Do not replace a missing boundary with a mock and report it as an integration pass.
+
+
+## Causal rollback/reconciliation acceptance cases
+
+The detailed Given/When/Then definitions for NPC-CAUSE-001–008 are in `docs/47-npc-causal-rollback-reconciliation-test-matrix.md`. They cover required-cause invalidation, alternative independent support, loss of all support, a source committed after an earlier rollback, duplicate/non-independent sources, additional required dependencies, knowledge-source invalidation, and deterministic snapshot-safe replay.
+
+These IDs are semantic acceptance targets, not executable tests. In particular, a later source must be tested as a separate operation after the first rollback/reconciliation has completed; a single batched scenario is insufficient evidence. Keep alternative-support cases blocked unless the core can prove source independence and domain sufficiency through the real production path.
