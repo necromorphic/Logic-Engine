@@ -3,6 +3,13 @@ import { hashRequest } from '../core/request-hash.js';
 import { evaluateMechanicActionConditions, translateMechanicEffectIntents } from '../core/mechanics.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+
+function deepFreezeSnapshot(value, seen = new WeakSet()) {
+  if (value === null || typeof value !== 'object' || seen.has(value)) return value;
+  seen.add(value);
+  for (const key of Object.keys(value)) deepFreezeSnapshot(value[key], seen);
+  return Object.freeze(value);
+}
 const unknown = (reasonCode, reason, identity = null) => ({
   status: 'unknown',
   reason_code: reasonCode,
@@ -49,9 +56,9 @@ export class MechanicExecutor {
     }
     if (!object(input)) throw new EngineError('INVALID_MECHANIC_ACTION_INPUT', 'Action input must be an object.');
 
-    let snapshot = this.engine.getSnapshot(worldId, { includeMechanicEvaluationState: true });
-    let state = snapshot.mechanic_evaluation_snapshot;
-    let instance = state.instances.find((candidate) => candidate.instance_id === instanceId);
+    const snapshot = deepFreezeSnapshot(this.engine.getSnapshot(worldId, { includeMechanicEvaluationState: true }));
+    const state = snapshot.mechanic_evaluation_snapshot;
+    const instance = state.instances.find((candidate) => candidate.instance_id === instanceId);
     if (!instance) return { status: 'rejected', reason_code: 'MECHANIC_INSTANCE_NOT_FOUND', effects: [], effect_provenance: [] };
     if (instance.status !== 'enabled') return { status: 'rejected', reason_code: 'MECHANIC_INSTANCE_NOT_ENABLED', effects: [], effect_provenance: [] };
 
@@ -60,9 +67,9 @@ export class MechanicExecutor {
     if (!templateEntry) {
       return unknown('PINNED_TEMPLATE_NOT_FOUND', 'The exact pinned template is absent from the evaluation snapshot.');
     }
-    let template = templateEntry.template;
-    let identity = snapshotIdentity(worldId, snapshot, instance, templateEntry);
-    let action = template.actions.find((candidate) => candidate.action_id === actionId);
+    const template = templateEntry.template;
+    const identity = snapshotIdentity(worldId, snapshot, instance, templateEntry);
+    const action = template.actions.find((candidate) => candidate.action_id === actionId);
     if (!action) return { status: 'rejected', reason_code: 'MECHANIC_ACTION_NOT_FOUND', snapshot_identity: identity, effects: [], effect_provenance: [] };
 
     // The public snapshot API intentionally rejects missing requested IDs, so
