@@ -85,7 +85,7 @@ test('annual and one-off holidays are projected without creating world events', 
   const definition = calendar();
   const annual = projectCalendarDate(definition, 7000);
   assert.equal(annual.holidays.some((holiday) => holiday.id === 'annual'), true);
-  const oneOff = projectCalendarDate(definition, 1000);
+  const oneOff = projectCalendarDate(definition, 5000);
   assert.equal(oneOff.holidays.some((holiday) => holiday.id === 'one-off'), true);
   assert.deepEqual(oneOff.holidays.map((holiday) => holiday.id), ['one-off']);
 });
