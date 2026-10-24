@@ -177,3 +177,41 @@ test('pause and resume rotate pending trigger identities and reject overdue resu
   });
   assert.equal(engine.getProcess('world-a', 'journey-1').progress.completed, 1);
 }));
+
+test('rollback of a committed milestone moves process progress to needs_review and blocks resume', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput());
+  const state = engine.getState('world-a');
+  engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-for-rollback',
+    expected_revision: state.world_revision,
+    to_coordinate: 1000,
+  });
+  const process = engine.getProcess('world-a', 'journey-1');
+  const eventId = process.milestones.find((milestone) => milestone.milestone_id === 'depart').completed_event_ids[0];
+  assert.ok(eventId);
+
+  engine.rollbackEvent('world-a', { root_event_id: eventId, idempotency_key: 'rollback-departure' });
+  const afterRollback = engine.getProcess('world-a', 'journey-1');
+  assert.equal(afterRollback.status, 'needs_review');
+  assert.equal(afterRollback.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'needs_review');
+  assert.throws(
+    () => engine.transitionProcess('world-a', 'journey-1', {
+      action: 'resume',
+      expected_version: afterRollback.version,
+      idempotency_key: 'resume-after-rollback',
+    }),
+    (error) => error.code === 'PROCESS_REQUIRES_RECONCILIATION',
+  );
+}));
+
+test('process identities and milestones are isolated by world', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput('world-a'));
+  store.createWorld(worldInput('world-b'));
+  engine.createProcess('world-a', processInput());
+  assert.throws(
+    () => engine.getProcess('world-b', 'journey-1'),
+    (error) => error.code === 'PROCESS_NOT_FOUND',
+  );
+  assert.equal(engine.listProcesses('world-b').length, 0);
+}));
