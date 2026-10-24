@@ -238,3 +238,26 @@ Before implementation, map each test to the real production boundary and existin
 - proposal creation remains non-mutating for canonical world and knowledge state.
 
 These tests remain proposed until the actor representation, initial-source representation, and internal read/filter boundary exist in real code. No mocks may stand in for absent production semantics.
+
+## 14. Reconciliation against merged core primitives — 2026-10-24
+
+This is a source-level follow-up to the merges of PR #45, PR #46, and PR #49. It narrows the remaining implementation gap; it does not authorize runtime or schema changes.
+
+Inspected on current `main` at `8602a9ed41f13f536d87b1103a02e8fd12de3b03`:
+
+- `LogicEngine.getSnapshot(...)` and the SQLite snapshot reader provide a bounded, transaction-consistent view of the requested canonical records, with optional mechanic evaluation inputs and same-snapshot context-manifest expansion. This solves the read-view consistency prerequisite only.
+- `src/core/rules.js` now exports `evaluateConditionResult(...)` as an opt-in tri-state API. The legacy `evaluateCondition(...)` contract remains Boolean for existing callers. The tri-state helper accepts `knownAbsentPaths`; the caller must not mark a path known-absent unless trusted evidence from the same decision context establishes that absence.
+- The `facts` projection contains `source_event_ids`, which records source-event support for canonical facts. That is not a record that a particular actor acquired or was authorized to know the fact.
+- The inspected SQLite schema has canonical `entities`, `facts`, `events`, and `context_manifests`, but no actor-relative acquisition, belief, or delivery/receipt record/table was found in the current main source.
+- `ProposalService` stores the authenticated adapter identity as `created_by_adapter_id`; its validation result explicitly says `actor_authorization` and `player_agency_policy` are not checked. An adapter identity is not the in-world NPC identity.
+- The presence of `actor_ref` in a proposal schema does not by itself establish a trusted binding or authorize access; only a wired production path that validates the actor reference against a trusted caller and canonical world state could do so.
+
+### Resulting decision
+
+The snapshot and tri-state gates are now satisfied as core primitives on `main`, but the first NPC slice remains blocked on three linked core-owned capabilities:
+
+1. **Trusted actor binding:** resolve the in-world actor to an existing canonical `entity_id` from a trusted caller boundary; never trust a model-supplied actor identity.
+2. **Authorized initial knowledge:** represent explicitly authorized `author_initial`/imported knowledge with provenance and subject assignment, without pretending a canonical fact's source event proves actor acquisition.
+3. **Actor/purpose/snapshot filter:** select only the actor's authorized initial knowledge, exclude author-reserved secrets before model input, preserve unknown/withheld/incomplete distinctions, and bind the result to the exact snapshot marker.
+
+These must be designed against the actual core storage and trust boundaries before runtime/schema implementation. Do not create NPC-local copies of canonical truth, knowledge acquisition, actor authorization, or proposal persistence. Until these interfaces exist, the only valid NPC work is contract/source reconciliation and tests that target existing production behavior rather than mocks of the missing capabilities.
