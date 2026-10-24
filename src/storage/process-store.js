@@ -209,14 +209,18 @@ export class ProcessStore {
     });
   }
 
+  replayOperation(worldId, idempotencyKey, requestHash) {
+    const oldOperation = this.db.prepare('SELECT * FROM world_process_operations WHERE world_id=? AND idempotency_key=?')
+      .get(worldId, idempotencyKey);
+    if (!oldOperation) return null;
+    if (oldOperation.request_hash !== requestHash) throw new EngineError('IDEMPOTENCY_CONFLICT', 'The process-operation key was reused with different content.', 409);
+    return { process: this.get(worldId, oldOperation.process_id), idempotent_replay: true };
+  }
+
   transition(worldId, processId, targetState, { expectedVersion, idempotencyKey, requestHash }) {
     return this.store.tx(() => {
-      const oldOperation = this.db.prepare('SELECT * FROM world_process_operations WHERE world_id=? AND idempotency_key=?')
-        .get(worldId, idempotencyKey);
-      if (oldOperation) {
-        if (oldOperation.request_hash !== requestHash) throw new EngineError('IDEMPOTENCY_CONFLICT', 'The process-operation key was reused with different content.', 409);
-        return { process: this.get(worldId, oldOperation.process_id), idempotent_replay: true };
-      }
+      const replay = this.replayOperation(worldId, idempotencyKey, requestHash);
+      if (replay) return replay;
       const current = this.db.prepare('SELECT * FROM world_processes WHERE world_id=? AND process_id=?')
         .get(worldId, processId);
       if (!current) throw new EngineError('PROCESS_NOT_FOUND', 'Process not found in this world.', 404);
