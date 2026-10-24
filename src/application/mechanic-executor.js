@@ -6,6 +6,27 @@ import { attestMechanicEvaluation } from './mechanic-evaluation-attestation.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+function isCanonicalJsonValue(value, active = new WeakSet()) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'object' || active.has(value)) return false;
+  active.add(value);
+  let valid = true;
+  if (Array.isArray(value)) {
+    valid = value.every((item) => isCanonicalJsonValue(item, active));
+  } else {
+    const prototype = Object.getPrototypeOf(value);
+    const keys = Object.keys(value);
+    valid = (prototype === Object.prototype || prototype === null)
+      && Object.getOwnPropertySymbols(value).length === 0
+      && Object.getOwnPropertyNames(value).length === keys.length
+      && keys.every((key) => !['__proto__', 'constructor', 'prototype'].includes(key)
+        && isCanonicalJsonValue(value[key], active));
+  }
+  active.delete(value);
+  return valid;
+}
+
 function readPath(root, path) {
   let value = root;
   for (const segment of path.split('.')) {
@@ -136,7 +157,9 @@ export class MechanicExecutor {
     } catch (error) {
       return unknown('AUTHORIZED_CONTEXT_RESOLUTION_FAILED', 'Trusted context resolution failed; details are retained only in host-side diagnostics.', identity);
     }
-    if (!object(resolved) || !object(resolved.context)
+    const allowedResolvedKeys = new Set(['context', 'world_revision', 'commit_sequence', 'policy_version', 'knownAbsentPaths', 'dependencyEvidence']);
+    if (!object(resolved) || Object.keys(resolved).some((key) => !allowedResolvedKeys.has(key))
+      || !object(resolved.context) || !isCanonicalJsonValue(resolved.context)
       || resolved.world_revision !== snapshot.world_revision
       || resolved.commit_sequence !== snapshot.commit_sequence
       || typeof resolved.policy_version !== 'string' || !resolved.policy_version.trim()
@@ -152,7 +175,8 @@ export class MechanicExecutor {
     }
     const evidenceByPath = new Map();
     for (const evidence of resolved.dependencyEvidence) {
-      if (!object(evidence) || typeof evidence.path !== 'string' || !evidence.path.trim()
+      if (!object(evidence) || Object.keys(evidence).some((key) => !['path', 'kind', 'entity_id', 'attribute'].includes(key))
+        || typeof evidence.path !== 'string' || !evidence.path.trim()
         || evidenceByPath.has(evidence.path) || evidence.kind !== 'entity_attribute'
         || typeof evidence.entity_id !== 'string' || !evidence.entity_id.trim()
         || typeof evidence.attribute !== 'string' || !evidence.attribute.trim()) {
