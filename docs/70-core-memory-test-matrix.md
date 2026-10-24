@@ -46,6 +46,8 @@ Use isolated test worlds and deterministic fixtures. Assert both the returned re
 | MEM-036 | A summary candidate is scoped to world A but its lineage contains a source from world B, or lineage does not prove source world scope | Reject before prompt serialization unless the approved source reference contract proves same-world membership; do not infer world scope from a bare ID or similarity result |
 | MEM-037 | Rollback-aware full reconciliation cannot enumerate the complete source inventory or fails midway | Do not advance the durable reconciliation marker or claim currentness; preserve pending/stale status and retry without losing the previous completed manifest |
 
+| MEM-038 | Candidate-level or result-level `access.outcome=allow` is present but its subject/purpose binding is absent or mismatched | Fail closed before admission/prompt use; do not reuse an allow decision across recipients or purposes; no protected content or record-specific diagnostics are emitted |
+
 ## Threat review checklist
 
 - [ ] authorization before content serialization;
