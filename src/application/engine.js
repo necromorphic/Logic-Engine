@@ -614,13 +614,14 @@ export class LogicEngine {
     const effectiveTarget = plan.status === 'blocked' ? from : plan.planned_until_coordinate;
     const segments = [];
     let cursor = from;
-    const appendSegment = (coordinate, events) => {
+    const appendSegment = (coordinate, events, triggerIds = []) => {
       const index = segments.length;
       const segmentKey = 'time-segment:' + operationId + ':' + index;
       segments.push({
         coordinate,
+        trigger_ids: triggerIds,
         idempotency_key: segmentKey,
-        request_hash: hashRequest({ operation_id: operationId, segment_index: index, coordinate, events }),
+        request_hash: hashRequest({ operation_id: operationId, segment_index: index, coordinate, trigger_ids: triggerIds, events }),
         events,
       });
     };
@@ -677,7 +678,9 @@ export class LogicEngine {
           const events = [];
           if (needsAdvance) events.push(makeAdvanceEvent(coordinate - cursor, segments.length));
           events.push(...chunk);
-          appendSegment(coordinate, events);
+          const chunkTriggerIds = plannedSegment.triggers.slice(offset, offset + chunk.length)
+            .map((trigger) => trigger.trigger_id);
+          appendSegment(coordinate, events, chunkTriggerIds);
           cursor = coordinate;
           offset += chunk.length;
         }
@@ -707,6 +710,9 @@ export class LogicEngine {
       starting_world_revision: x.expected_revision,
       status: initialStatus,
       segments,
+      claimed_trigger_ids: triggerSource === 'registered'
+        ? [...new Set(segments.flatMap((segment) => segment.trigger_ids ?? []))]
+        : [],
       plan,
       result: initialStatus === 'blocked' ? { status: 'blocked', blocked: plan.blocked, confirmed_coordinate: from } : null,
     });
