@@ -380,3 +380,12 @@ This remains a test requirement, not an assertion that source reconciliation or 
 `docs/48-npc-delivery-acquisition-boundary-matrix.md` expands the existing delivery and acquisition requirements into NPC-DELIV-001–010 with explicit evidence thresholds and test sequences. It is intentionally stricter than a generic “message sent” flag: context inclusion is not delivery; host acceptance is not proof of visible rendering; visibility is not comprehension; acknowledgement is not belief; and a received report is not canonical truth.
 
 The matrix also requires target isolation, idempotent retry, and a separate source-invalidation sequence. These requirements refine this proposal but do not create new author decisions or assert runtime support. The core-owned delivery/acquisition records, real host signals, trusted actor binding, and pre-model filter remain implementation gates.
+
+
+## 17. Live Core source reconciliation — 2026-10-24
+
+The source-level capability audit is maintained in `docs/49-npc-core-knowledge-live-audit.md` against Core `main` at `37b05c38b15eda1743fb6fce08a8ccc2f1d2e672`.
+
+The earlier statement in §10 that the actor-specific read/query boundary needs design remains accurate. One prerequisite has changed: trusted adapter-to-canonical-actor binding is now implemented on current Core `main` in `src/application/actor-bindings.js`, with routes in `src/api/server.js` and tests in `tests/actor-binding.test.js`. This closes the source-level identity-binding gap, but **does not** provide an actor-relative knowledge read, acquisition records, access filtering, or reserved-secret exclusion.
+
+The Core implementation plan `docs/43-core-npc-knowledge-runtime-implementation-plan.md` specifies the next sequence: Core-owned initial acquisition/provenance, then a snapshot-bound safe filter, then a thin NPC adapter. NPC work must not implement those Core-owned services locally or infer readiness from adjacent primitives. This is a documentation reconciliation, not approval to change Core runtime, API, schema, or storage.
