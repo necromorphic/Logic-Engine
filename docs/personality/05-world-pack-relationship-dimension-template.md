@@ -123,4 +123,4 @@ World Pack authors must not invent the core's exact payload/API, storage encodin
 
 ## Issue #73 evidence cross-reference
 
-For exact evaluator test names and the boundary between pure candidate validation and Core persistence/versioning evidence, see [`10-issue-73-executable-evidence-audit.md`](./10-issue-73-executable-evidence-audit.md). This cross-reference does not claim historical migration or Core enforcement is implemented.
+For exact evaluator test names and the boundary between pure candidate validation and Core persistence/versioning evidence, see [`10-issue-73-executable-evidence-audit.md`](./10-issue-73-executable-evidence-audit.md). The shipped privileged Core first slice now has separate real-path write/replay tests; this does not establish general actor-authorized reads, trusted initial/import/correction, or historical migration. The Relationships-owned candidate-to-Core handoff is tracked separately in [Issue #130](https://github.com/necromorphic/Logic-Engine/issues/130) and `../49-relationship-to-core-typed-transition-handoff.md`; that handoff is a domain proposal, not a new API/schema.
