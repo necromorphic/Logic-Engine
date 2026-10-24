@@ -1706,10 +1706,25 @@ export class SQLiteStore {
         });
       } catch (error) {
         this.tx(() => {
-          const fresh = this.db.prepare('SELECT status,plan_json,result_json FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+          const fresh = this.db.prepare('SELECT status,plan_json,result_json,next_segment_index,segments_json FROM time_advance_operations WHERE world_id=? AND operation_id=?')
             .get(worldId, operationId);
           if (!fresh || fresh.status !== 'running') return;
           const errorBody = { code: error?.code || 'TIME_ADVANCE_SEGMENT_FAILED', message: error?.message || 'Time-advance segment failed and requires review.' };
+          const failedSegment = dec(fresh.segments_json)[fresh.next_segment_index];
+          for (const triggerId of failedSegment?.registered_trigger_ids ?? []) {
+            const milestone = this.db.prepare("SELECT process_id,milestone_id,status FROM world_process_milestones WHERE world_id=? AND trigger_id=?")
+              .get(worldId, triggerId);
+            if (!milestone || milestone.status !== 'pending') continue;
+            const stamp = now();
+            this.db.prepare("UPDATE world_process_milestones SET status='needs_review',updated_at=? WHERE world_id=? AND process_id=? AND milestone_id=?")
+              .run(stamp, worldId, milestone.process_id, milestone.milestone_id);
+            this.db.prepare("UPDATE world_processes SET status='needs_review',error_json=?,updated_at=? WHERE world_id=? AND process_id=?")
+              .run(enc({ code: 'PROCESS_MILESTONE_SEGMENT_FAILED', trigger_id: triggerId, operation_id: operationId, cause: errorBody }), stamp, worldId, milestone.process_id);
+            const world = this.world(worldId);
+            this.db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)")
+              .run(worldId, world.world_revision, 'process.milestone.needs_review', milestone.process_id + '/' + milestone.milestone_id,
+                enc({ trigger_id: triggerId, operation_id: operationId, cause: errorBody }), stamp);
+          }
           let result = dec(fresh.result_json);
           const plan = dec(fresh.plan_json);
           if (plan.final_action_status === 'pending' && result) {
