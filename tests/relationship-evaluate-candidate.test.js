@@ -339,3 +339,20 @@ test("rejects malformed tagged current values instead of treating them as unset"
   assert.equal(result.status, "unsupported");
   assert.equal(result.reason, "relationship_state_shape_unsupported");
 });
+
+test("rejects malformed transition declarations as incomplete rules", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    dimensionRules: {
+      trust: {
+        ...rules.trust,
+        transitions: [
+          { operation: "set", from: { status: "mystery" }, to: "guarded" },
+        ],
+      },
+    },
+  });
+
+  assert.equal(result.status, "unsupported");
+  assert.equal(result.reason, "dimension_rule_incomplete");
+});
