@@ -163,3 +163,21 @@ It fails closed for registered module execution, automatic conflict resolution, 
 `src/application/mechanic-evaluation.js` adds `MechanicEvaluationService`. The service captures the canonical snapshot itself with `includeMechanicEvaluationState: true`, deeply freezes it before passing it to an injected trusted context provider, requires that provider to return a context, snapshot-scoped known-absence claims, and a non-empty policy version, and fails closed if the provider errors or violates the contract. The policy version and optional context-manifest identity participate in the evaluation fingerprint.
 
 The provider is deployment-owned application code, not request data. This creates a real injection seam for the future authorized-read policy, but it does not implement the policy by itself. The service returns only a non-committing evaluation result. It does not create a proposal, persist effect provenance through the event pipeline, or enforce freshness at later acceptance; those remain required integration work.
+
+
+## 11. Snapshot-bound application executor slice
+
+The branch now contains `src/application/mechanic-executor.js`, a read-only application-layer path that consumes the existing `getSnapshot(worldId, { includeMechanicEvaluationState: true })` seam. It pins world revision, commit sequence, instance ID, exact template ID/version/hash, resolves literal entity targets through a second bounded snapshot, and refuses to continue if the revision/cursor or pinned definition changes between reads.
+
+The slice deliberately supports only:
+- enabled instances and the exact pinned template;
+- `manual` conflict policy, no rule modules, no participant selection, and no declared mechanic interactions;
+- `deterministic_only` actions with an empty object input and the exact `input_schema: { type: "object" }`;
+- context returned by a trusted injected provider that attests the same world revision and commit sequence;
+- the three literal effect mappings documented above.
+
+Unsupported semantics return `unknown` or `rejected`, with an empty effect list. The executor does not write canonical state.
+
+`ProposalService.createFromMechanicEvaluation` is the internal handoff for a ready result. It rechecks the evaluation's world revision and commit sequence inside the same transaction that creates the ordinary durable proposal, validates effect-index provenance, and stores the exact evaluation identity and provenance with the proposal. Proposal approval/commit remain on the existing service; semantic review remains required and the ordinary stale-proposal guard remains in force. This handoff is not exposed as a new HTTP route.
+
+This is a narrow executable vertical slice, not general production readiness. It does not prove that an injected context provider is correctly configured; it requires that provider to be trusted host code. It does not support action-input binding, modules, participant selection, interactions, automatic conflict resolution, full causal/read-set completeness, or A/B/C production recalculation. Do not widen the allowlist without closure tests and an explicit contract decision.
