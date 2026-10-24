@@ -507,12 +507,12 @@ export class SQLiteStore {
         });
 
         const relevantInstances = instances.filter((instance) => instance.status === 'enabled' || instance.status === 'needs_review');
-        const templateKeys = new Set(relevantInstances.map((instance) => instance.template_id + '\\u0000' + instance.template_version));
+        const templateKeys = new Set(relevantInstances.map((instance) => instance.template_id + '@' + instance.template_version));
         if (templateKeys.size > 200) {
           throw new EngineError('MECHANIC_SNAPSHOT_TOO_LARGE', 'The world references more than 200 mechanic template versions; bounded evaluation snapshot refused.', 409);
         }
         const templates = [...templateKeys].sort().map((key) => {
-          const split = key.indexOf('\\u0000');
+          const split = key.indexOf('@');
           const templateId = key.slice(0, split);
           const templateVersion = key.slice(split + 1);
           const row = this.db.prepare('SELECT template_json,template_hash,registered_by,registered_at FROM mechanic_templates WHERE template_id=? AND version=?')
@@ -531,17 +531,17 @@ export class SQLiteStore {
         const moduleKeys = new Set();
         for (const { template } of templates) {
           for (const moduleRef of template.rule_modules || []) {
-            moduleKeys.add(moduleRef.module_id + '\\u0000' + moduleRef.version);
+            moduleKeys.add(moduleRef.module_id + '@' + moduleRef.version);
           }
           if (template.conflict_policy?.mode === 'automatic') {
-            moduleKeys.add(template.conflict_policy.resolver_module_id + '\\u0000' + template.conflict_policy.resolver_module_version);
+            moduleKeys.add(template.conflict_policy.resolver_module_id + '@' + template.conflict_policy.resolver_module_version);
           }
         }
         if (moduleKeys.size > 200) {
           throw new EngineError('MECHANIC_SNAPSHOT_TOO_LARGE', 'The active mechanic set references more than 200 exact rule-module versions; bounded evaluation snapshot refused.', 409);
         }
         const modules = [...moduleKeys].sort().map((key) => {
-          const split = key.indexOf('\\u0000');
+          const split = key.indexOf('@');
           const moduleId = key.slice(0, split);
           const moduleVersion = key.slice(split + 1);
           const row = this.db.prepare('SELECT manifest_json,manifest_hash,registered_by,registered_at FROM rule_module_manifests WHERE module_id=? AND version=?')
