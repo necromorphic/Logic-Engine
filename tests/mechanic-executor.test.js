@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { MechanicExecutor } from '../src/application/mechanic-executor.js';
+import { ProposalService } from '../src/application/proposals.js';
 
 function setup(t, worldId = 'executor-world') {
   const store = new SQLiteStore(':memory:');
@@ -160,4 +161,76 @@ test('application executor rejects a target update when the target is absent fro
   assert.equal(result.status, 'unknown');
   assert.equal(result.reason_code, 'MECHANIC_EFFECT_TARGET_NOT_FOUND');
   assert.deepEqual(result.effects, []);
+});
+
+
+test('mechanic evaluation hands off through the ordinary durable proposal lifecycle with provenance', (t) => {
+  const { engine, worldId } = setup(t);
+  enableFixture(engine, worldId);
+  const executor = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() });
+  const evaluation = executor.evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  const proposals = new ProposalService(engine);
+  const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: 'mechanic-proposal-1',
+    turnId: 'turn-mechanic-1',
+    sourceText: 'The deterministic mechanic proposes creating a character.',
+    adapterId: 'test-adapter',
+  });
+  assert.equal(proposal.status, 'pending');
+  assert.equal(proposal.base_world_revision, evaluation.snapshot_identity.world_revision);
+  assert.equal(proposal.base_commit_sequence, evaluation.snapshot_identity.commit_sequence);
+  assert.equal(proposal.mechanic_execution.snapshot_identity.template_hash, evaluation.snapshot_identity.template_hash);
+  assert.deepEqual(proposal.mechanic_execution.effect_provenance, evaluation.effect_provenance);
+  assert.equal(proposal.validation_result.status, 'needs_review');
+  assert.equal(engine.getState(worldId).world_revision, 2);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+
+  const approved = proposals.approve(worldId, proposal.proposal_id);
+  assert.equal(approved.status, 'approved');
+  const committed = proposals.commit(worldId, proposal.proposal_id);
+  assert.equal(committed.status, 'committed');
+  assert.equal(engine.getState(worldId).world_revision, 3);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), true);
+  assert.deepEqual(proposals.get(worldId, proposal.proposal_id).mechanic_execution.effect_provenance, evaluation.effect_provenance);
+});
+
+test('mechanic proposal handoff rejects a stale evaluation before creating a proposal', (t) => {
+  const { engine, worldId } = setup(t);
+  enableFixture(engine, worldId);
+  const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  commit(engine, worldId, 'intervening-change', 2, [{ kind: 'entity.create', entity_id: 'entity.other', entity_type: 'object' }]);
+  const proposals = new ProposalService(engine);
+  assert.throws(
+    () => proposals.createFromMechanicEvaluation(worldId, evaluation, {
+      idempotencyKey: 'stale-mechanic-proposal',
+      turnId: 'turn-stale-mechanic',
+      sourceText: 'Stale mechanic output must not be proposed.',
+      adapterId: 'test-adapter',
+    }),
+    (error) => error.code === 'STALE_MECHANIC_EVALUATION' && error.status === 409,
+  );
+  assert.equal(engine.getState(worldId).world_revision, 3);
+  assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
+});
+
+test('mechanic proposal handoff rejects incomplete or mismatched effect provenance', (t) => {
+  const { engine, worldId } = setup(t);
+  enableFixture(engine, worldId);
+  const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  const proposals = new ProposalService(engine);
+  assert.throws(
+    () => proposals.createFromMechanicEvaluation(worldId, {
+      ...evaluation,
+      effect_provenance: [],
+    }, {
+      idempotencyKey: 'bad-provenance',
+      turnId: 'turn-bad-provenance',
+      sourceText: 'Invalid provenance must not create a proposal.',
+      adapterId: 'test-adapter',
+    }),
+    (error) => error.code === 'INVALID_MECHANIC_EFFECT_PROVENANCE',
+  );
+  assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
 });
