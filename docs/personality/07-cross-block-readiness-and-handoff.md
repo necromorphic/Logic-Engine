@@ -30,7 +30,7 @@ The following are treated as agreed, not reopened by this handoff:
 7. World Pack owns the meaning and permitted values/transitions of its supported dimensions. No universal dimension list or value scale is assumed.
 8. Character-card content is a derived, read-only view, not a second canonical store.
 9. Core owns the canonical typed write, authorization, audit/revision/event lifecycle, safe read, projection rebuild, and rollback.
-10. Limited Option A replay is the first causal target only where surviving valid typed transitions deterministically reconstruct the intended state. This does not imply OR-style alternative support.
+10. Deterministic replay of surviving valid typed transitions is an approved conditional first-stage target only where replay is semantically sufficient. The exact first-slice causal representation remains a Core gate; this does not imply OR-style alternative support or prove relationship replay exists in runtime.
 
 ## 4. Current integration evidence and limits
 
@@ -44,15 +44,15 @@ It is **not** an actor-authorized read interface. It returns raw canonical inter
 
 ### Relationship operation
 
-No approved relationship-specific effect payload, API, or projection contract is established by the Personality docs or by PR #45. The core owner's decision requires a separate typed canonical relationship operation; generic entity attributes and fact.set are not substitutes. Exact integration must be designed against the existing typed-effect architecture and verified on the actual target branch.
+No typed relationship effect/operation is exposed by the inspected runtime. Core has approved the semantic direction: one typed effect for one directed participant pair and transition, with a partial dimension patch; omitted keys mean unchanged; clearing is explicit; the whole patch is validated and committed atomically. The exact effect payload/name, public API, storage representation, and implementation are not approved. Generic entity attributes and `fact.set` are not substitutes. Before the contract can close, Core must specify the first-slice causal representation and the trusted authoring/import/correction boundary, then verify the operation against existing typed-effect conventions and real-path tests.
 
 ### Authoring, import, and correction
 
-Initial/imported state, in-world transitions, and author corrections are distinct semantic origins. A caller-supplied origin label cannot confer authority. A trusted core-owned operation/authorization boundary and auditable lifecycle remain prerequisites.
+Initial/imported state, in-world transitions, and author corrections are distinct semantic origins. Generic event/audit infrastructure exists, but a trusted author/actor authorization boundary that enforces these classifications is not established. A caller-supplied origin label cannot confer authority. A trusted core-owned operation/authorization boundary and auditable lifecycle remain prerequisites.
 
 ### Rollback and independent support
 
-The first slice may use deterministic replay of surviving valid typed transitions where that is sufficient. caused_by and depends_on are required-dependency metadata, not OR-support lists. Multi-source sufficiency/conflict reconciliation remains blocked unless a narrow domain rule and core-owned representation/reducer/tests are approved.
+Core approves deterministic replay of surviving valid typed transitions only where that is semantically sufficient; the first-slice representation is still unresolved. `caused_by` and `depends_on` are required-dependency metadata, not OR-support lists. Multi-source sufficiency/conflict reconciliation remains unsupported unless a narrow domain rule and core-owned representation/reducer/tests are approved. Existing generic rollback is not evidence of relationship-specific replay or independent-support handling.
 
 ## 5. Responsibility and blocker matrix
 
@@ -60,19 +60,19 @@ The first slice may use deterministic replay of surviving valid typed transition
 |---|---|---|---|
 | Meaning of relationship dimensions | World Pack, guided by Personality semantics | Template ready; each world must fill it in | Every supported dimension has meaning, domain, transitions, non-implications, and examples. |
 | Stable trait lifecycle | Personality | Semantic contract documented | Author review confirms entries are correctly classified; runtime behavior must later be tested at the real write boundary. |
-| Typed relationship write | Core | Blocking | Exact effect contract against current conventions; atomic validation; partial update; direction and canonical identity; tests for rejection and revision/audit behavior. |
-| Initial/import/correction operations | Core | Blocking | Trusted authorization boundary; distinct provenance; audit and no silent history rewrite. |
+| Typed relationship write | Core | Semantic direction approved; runtime operation absent; contract incomplete | Specify the first-slice causal representation and trusted write classification; finalize schema-neutral operation contract; prove atomic validation, partial update, direction and canonical identity through real-path tests. |
+| Initial/import/correction operations | Core | Generic event/audit exists; trusted boundary not established | Define the authorized command/classification boundary and provenance/audit representation; test unauthorized origin claims, accepted correction, and history preservation. |
 | Actor/purpose-authorized read | Core | Blocking | Real internal read/filter contract using actor, purpose, world, snapshot, sensitivity/visibility, and current validity; explicit unknown/withheld/incomplete outcomes. |
 | Snapshot consistency primitive | Core | PR #45 open, unmerged | Review/merge decision is outside Personality; even if merged, this alone does not close authorized-read blocker. |
-| Deterministic replay and rollback | Core | Blocking for integration | Tests against actual typed relationship events; replay surviving transitions deterministically; dependent rollback recomputes current projection. |
+| Deterministic replay and rollback | Core | Generic event rollback exists; relationship guarantee unproven | Decide whether the first slice is limited to replayable transitions; test projection equality against fresh replay and dependent rollback on actual typed relationship events. |
 | Independent multi-source support | Core + World Pack domain rule | Deferred / unresolved | Define sufficiency and conflict policy; if needed, approve a narrow typed support/reconciliation contract and production tests. |
 | NPC decision-context consumption | NPC subsystem | Depends on authorized read | Consume only bounded authorized data; no parallel canonical relationship or personality store. |
 | Character-card projection | Core/card subsystem | Depends on authorized read and typed state | Read-only derived view; no arbitrary attributes or hidden/private fields; no mutation path through the summary. |
 
 ## 6. Review sequence
 
-1. Review this handoff together with docs 01–06 for semantic consistency.
-2. Have core architecture close the typed relationship operation and trusted authoring/correction contract against actual effect conventions.
+1. Keep the Core-owner response on [PR #38, comment 6377879793](https://github.com/necromorphic/Logic-Engine/pull/38#issuecomment-6377879793) as the current source-backed status; the consolidated Personality-side record is doc 03. Revisit the handoff when Core supplies a new contract or implementation evidence.
+2. Have Core close the first-slice causal representation and trusted authoring/correction command contract, then finalize the typed relationship operation against actual effect conventions.
 3. Treat snapshot consistency and authorization as separate gates. PR #45 can close only the former.
 4. Have core architecture define and test the actor/purpose/snapshot read boundary before any model/player exposure.
 5. Verify limited replay on the real core path. Keep independent-support cases blocked until a domain sufficiency rule and core-owned implementation exist.
