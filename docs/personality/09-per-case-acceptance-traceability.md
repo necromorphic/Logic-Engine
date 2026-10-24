@@ -230,3 +230,40 @@ The existing `PERS-REL-*` identifiers remain unchanged. `PERS-REL-001` has pure 
 - A source-level consistency check compared the exact test names quoted in the traceability and evidence-audit documents with the current-main test file; all 30 distinct names in the audited test-name set were found. This was a source comparison, not a separate execution of those individual tests.
 - The canonical acceptance matrix contains all `PERS-SEM-001–029` IDs; both Issue #73 documents contain individual dispositions for all 29 semantic IDs and all 16 legacy `PERS-REL-001–016` IDs.
 - `PERS-SEM-024` remains limited to deterministic evaluation/replay under identical pinned inputs and a version where replay is supported. `PERS-SEM-029` remains responsible for meaning-changing World Pack versions, explicit migration, or declared incompatibility. Neither is evidence that historical version selection/migration is implemented.
+
+
+## Superseding addendum — Core Relationship runtime slice on current main (2026-10-24)
+
+This addendum supersedes earlier blanket statements in this document that treated every canonical write/atomicity/idempotency/rollback path as wholly unimplemented. Core PRs #94–96 are merged to `main`. The Relationships evidence audit must distinguish the implemented **privileged first slice** from still-blocked general consumer and authoring paths.
+
+### Current-main production-path evidence
+
+Source of truth: `tests/relationship-transition-core.test.js` at blob `086cfb0db38c3398979d9609a368c8642f19b680` (12 named tests).
+
+| Requirement / acceptance boundary | Exact Core test(s) | Evidence and remaining limit |
+|---|---|---|
+| Canonical directed transition, event, revision, audit, atomic commit | `admin-gated typed transition commits directed state, event, revision and audit atomically`; `admin route commits through the canonical event lifecycle and returns the current directed projection` | Real Core path for the separate-admin-credential slice; not NPC/model authority or a general read API. |
+| Mutation authorization and no generic-effect smuggling | `API rejects ordinary bearer without the separate admin credential and does not mutate state`; `generic event preparation cannot smuggle a Relationship effect`; `stale composite cursor and spoofed executor are rejected without mutation` | Admin credential is the only approved mutation authority in this slice; trusted NPC/player writer remains unavailable. |
+| Mixed-patch atomic rejection and idempotent retry | `invalid mixed patch commits nothing and idempotent retry does not duplicate a transition` | Canonical commit path is covered; independent-support/alternative evidence remains unsupported and fails closed. |
+| Composite freshness | `stale composite cursor and spoofed executor are rejected without mutation` | Uses both `world_revision` and `commit_sequence`; rollback may change revision without increasing commit sequence. |
+| Source evidence validity, world scope, immutable rule version | `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation` | Only the registered immutable World Pack rule-module version is accepted; does not implement historical migration or a general import/correction operation. |
+| Rollback of evidence dependency and deterministic surviving projection | `source rollback invalidates a Relationship transition that cites the source`; `rollback invalidates later transition dependent on the same directed pair and rebuilds surviving state` | Core first-slice rollback/rebuild is tested for these dependencies; not proof of all possible causal/alternative-support semantics. |
+| Clear distinct from unset and rollback restores surviving value | `clear remains distinct from unset and rollback restores the previous surviving value` | Canonical clear and tested rollback behavior; downstream authorized visibility remains blocked. |
+| Transaction failure atomicity | `event insert and audit failures roll back the entire Relationship transition`; `projection and idempotency persistence failures roll back Relationship event, state, revision and audit` | Failure injection covers event/audit/projection/idempotency persistence in the canonical transaction. |
+| Unsupported metadata and caller-supplied epistemic status | PR #96 exact-head regression suite / current `npm test` workflow | Unapproved alternative-support metadata and caller-supplied evidence status fail closed; do not infer support-ledger semantics. |
+
+### Current Core boundaries (do not overclaim)
+
+- **Implemented/tested:** dedicated `relationship.transition` effect; admin-credential-only route; canonical event-backed directed projection/rebuild; exact immutable rule-module/World Pack version matching; event evidence validation; composite freshness; transaction-scoped event/projection/revision/audit/idempotency; rollback dependency handling.
+- **Still blocked:** general Relationship authorized reads (the existing route is self-identity-only); NPC/model-facing Relationship mutation; generic initial import or author correction; a multi-source alternative-support ledger; downstream Personality/NPC consumer tests for stable-trait, knowledge, motive, consent, obligation and reciprocity non-implications; historical World Pack version selection/migration beyond the pinned replayable slice.
+- A successful Core test does not automatically pass a separate Personality/NPC consumer criterion. Those need a direct consumer-boundary test.
+- `PERS-SEM-024` remains deterministic evaluation/replay for fixed, pinned inputs within the supported slice. `PERS-SEM-029` remains meaning-changing World Pack update, migration, or explicit incompatibility. The new pinned-version runtime path does not by itself prove historical migration.
+
+### CI evidence
+
+Core reported exact-head successful Runtime tests for:
+- PR #94, SHA `1aa59e6d4b7921646ed44727de21ba610eb6da39`, [run #705](https://github.com/necromorphic/Logic-Engine/actions/runs/40063961970).
+- PR #95, SHA `6b8c4e6fade8d01d15039e8d278d57e4b2c78aa8`, [run #707](https://github.com/necromorphic/Logic-Engine/actions/runs/40064048816).
+- PR #96, SHA `79deb588e1f6321826dc3316085aaab6fdb010b7`, [run #717](https://github.com/necromorphic/Logic-Engine/actions/runs/40064276520).
+
+These are repository CI results for those exact PR heads. They are not evidence that general authorized reads, NPC/model-facing writes, generic import/correction, or downstream consumer integration exists.
