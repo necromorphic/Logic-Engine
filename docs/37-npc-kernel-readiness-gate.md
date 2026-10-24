@@ -237,7 +237,7 @@ The first useful vertical slice is **one named canonical NPC receiving a bounded
 
 | Order | Gate / owner | Required evidence before proceeding | If absent |
 |---|---|---|---|
-| 1 | Consistent canonical snapshot — core | Review and integrate the bounded read primitive from PR #45 (or an approved equivalent); verify its exact composite marker and requested-row behavior on the target base. | Do not assemble a decision snapshot from unrelated raw reads. |
+| 1 | Consistent canonical snapshot — core | Review/integrate PR #45 (bounded canonical read) and its stacked PR #47 (same-read-view mechanic instances plus exact pinned template/module manifests), or an approved equivalent; verify the composite marker and bounded fail-closed behavior on the target base. Both remain open/unmerged. | Do not assemble a decision snapshot from unrelated raw reads. |
 | 2 | Trusted actor binding — core + host adapter | A real, trusted mapping from the decision subject to an existing canonical entity, and a declared purpose; neither may be accepted as an untrusted model-supplied identity. | Reject the request as unsupported; do not infer identity from display name/card text. |
 | 3 | Initial acquisition representation — core | Executable, audited record for explicitly authorized author-initial/imported knowledge, with canonical source references and explicit ownership; the contract in docs/39 §4.1 must be approved against real code. | Do not treat profile text, retrieval, manifest inclusion, or prompt text as acquired knowledge. |
 | 4 | Actor/purpose/snapshot filter — core | A bounded result tied to the same (world_revision, commit_sequence) marker, preserving known, unknown/unset, withheld, and incomplete/unsupported distinctly and excluding restricted content before model input. | Raw snapshot rows must not enter any NPC, narrator, player, or host-visible context. |
@@ -283,6 +283,9 @@ Until the core owner approves and implements a compatible result contract, a fir
 The current `main` also contains `docs/30-stage1.3-mechanic-execution-boundary.md` (reviewed at `cb4ad189f12484ca5458c30b1d176cbd9f7d4ccc`). Its target contract requires missing/inaccessible context to produce `unknown` rather than silently treating it as false, and requires rule support to be reconciled across schema, validator, and evaluator. This aligns with the NPC gate above, but it is a design/implementation contract for a future mechanic-evaluation slice—not evidence that the generic `evaluateCondition(...)` function already returns tri-state results. The inspected `src/core/rules.js` still returns booleans for the operators and nested combinators described above. Keep the NPC first slice blocked unless the actual production path used by that slice can prove complete, authorized inputs or return a safe unknown/review result.
 
 This is a source-backed integration blocker, not an authorization to change `src/core/rules.js` from the NPC branch.
+
+**Unmerged core candidates as of this review:** PR #46 proposes an opt-in `evaluateConditionResult(...)` API that returns tri-state results while preserving the legacy Boolean evaluator; PR #47 extends the bounded snapshot in PR #45 to include the mechanic instance set and exact pinned definitions in one read transaction. These are candidate core primitives, not capabilities on `main`, and neither supplies the actor/purpose authorization or model-safe filtering required by the NPC slice. Re-check exact heads and CI before depending on them.
+
 
 ### Additional source cross-check: mechanic contract versus runtime
 
