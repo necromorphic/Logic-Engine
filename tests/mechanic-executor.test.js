@@ -761,3 +761,25 @@ test('mechanic context and evaluation fingerprints change when the visibility po
   assert.equal(first.snapshot_identity.world_revision, second.snapshot_identity.world_revision);
   assert.equal(engine.getState(worldId).world_revision, 2);
 });
+
+
+test('application executor rejects non-canonical context values before hashing or evaluation', (t) => {
+  const { engine, worldId } = setup(t, 'executor-non-json-context-world');
+  enableFixture(engine, worldId);
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: ({ snapshot }) => ({
+      context: { world: { weather: 'rain' }, actor: { hp: 10, secret: () => 'not-json' } },
+      knownAbsentPaths: [],
+      dependencyEvidence: [
+        { path: 'actor.hp', kind: 'entity_attribute', entity_id: 'entity.actor-context', attribute: 'hp' },
+        { path: 'world.weather', kind: 'entity_attribute', entity_id: 'entity.world-context', attribute: 'weather' },
+      ],
+      world_revision: snapshot.world_revision,
+      commit_sequence: snapshot.commit_sequence,
+      policy_version: 'test-visibility-policy-v1',
+    }),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'INVALID_AUTHORIZED_CONTEXT');
+  assert.deepEqual(result.effects, []);
+});
