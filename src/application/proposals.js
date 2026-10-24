@@ -106,7 +106,12 @@ export class ProposalService {
       throw error;
     }
     this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
-      .run(worldId, world.world_revision, 'proposal.created', proposalId, enc({ proposal_hash: proposalHash, base_world_revision: world.world_revision, base_commit_sequence: sequence }), createdAt);
+      .run(worldId, world.world_revision, 'proposal.created', proposalId, enc({
+        proposal_hash: proposalHash,
+        base_world_revision: world.world_revision,
+        base_commit_sequence: sequence,
+        ...(mechanicExecution === null ? {} : { mechanic_execution: mechanicExecution }),
+      }), createdAt);
     return this.publicProposal(this.db.prepare('SELECT * FROM event_proposals WHERE proposal_id=?').get(proposalId), false);
     });
   }
@@ -194,6 +199,24 @@ export class ProposalService {
       semantic_review_required: true,
     };
     return this.engine.store.tx(() => {
+      const event = { turn_id: turnId, event_type: 'action.completed', effects: evaluation.effects };
+      const expectedRequestHash = hashRequest({
+        source_text: sourceText,
+        event,
+        mechanic_execution: mechanicExecution,
+      });
+      const existing = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND idempotency_key=?')
+        .get(worldId, idempotencyKey.trim());
+      if (existing) {
+        if (existing.created_by_adapter_id !== adapterId) {
+          throw new EngineError('PROPOSAL_ADAPTER_MISMATCH', 'Proposal idempotency key belongs to another adapter.', 403);
+        }
+        if (existing.request_hash !== expectedRequestHash) {
+          throw new EngineError('IDEMPOTENCY_KEY_CONFLICT', 'Proposal idempotency key was reused with different mechanic evaluation content.', 409);
+        }
+        return this.publicProposal(existing, true);
+      }
+
       const world = this.engine.store.world(worldId);
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
       const sequence = this.engine.store.currentCommitSequence(worldId);
