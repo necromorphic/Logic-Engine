@@ -154,10 +154,10 @@ This is an NPC semantic requirement, not a new kernel guarantee. It does not res
 
 ## 11. Knowledge ownership: architecture target versus current runtime
 
-The core architecture documents (docs/00-architecture-baseline.md, docs/06-npc-autonomy-and-process-manager.md, and docs/07-knowledge-and-narrative-boundaries.md) assign authoritative knowledge records, provenance/reconciliation, and delivery status to the engine. Treat this as a **documented target**, not an observed runtime capability: the current source audit did not find a complete NPC knowledge/acquisition API or persistent belief model.
+The core owner has now **confirmed the semantic ownership** stated in the architecture documents: the core owns authoritative acquisition/provenance, delivery-attempt/receipt status, source-validity reconciliation, and persistent subject-relative belief state. This is an approved ownership decision, not an observed runtime capability: the current source audit did not find a complete NPC knowledge/acquisition API or persistent belief model.
 
 The responsibilities must remain separate:
-- The core is the intended authority for canonical/authoritative knowledge and delivery records when implemented.
+- The core is the confirmed semantic authority for acquisition/provenance, delivery/receipt, source reconciliation, and persistent belief; the corresponding complete production interfaces are not yet verified.
 - A trusted context-preparation caller selects and filters a decision-time subset for a particular actor using approved access and acquisition evidence.
 - The NPC decision step may reason over that supplied context but cannot create authoritative knowledge by retrieval, prompt inclusion, or generated prose.
 
@@ -166,13 +166,13 @@ Do not describe the trusted caller as the canonical knowledge owner, and do not 
 
 ## 12. Knowledge and delivery contract proposal — 2026-10-24
 
-`docs/39-npc-core-knowledge-contract-proposal.md` now proposes a minimum semantic contract for future core-owned acquisition records, provenance, belief-state boundaries, delivery evidence, actor-specific context queries, and reconciliation after source invalidation.
+`docs/39-npc-core-knowledge-contract-proposal.md` records the core owner's approved semantic contract for core-owned acquisition/provenance, belief-state boundaries, delivery evidence, actor-specific context queries, and reconciliation after source invalidation.
 
-This is a proposal for core-owner review, not an implementation or an approved public API. It explicitly:
+The ownership semantics are confirmed; this is not an implementation or an approved public API. The document explicitly:
 - reuses existing core identities and causal/rollback mechanisms rather than adding parallel ones;
 - treats canonical events, context manifests, and proposal records as useful but insufficient infrastructure;
 - records core ownership of persistent subject-relative belief state as semantically confirmed, while noting that the runtime/API boundary and persistence are not verified;
-- defers API, schema, SQLite, runtime, host-delivery, and end-to-end test work until the contract is approved and mapped to real code.
+- defers API, schema, SQLite, runtime, host-delivery, and end-to-end test work until the approved semantics are mapped to real production interfaces and separately authorized where required.
 
 The current evidence status is unchanged: no complete actor-specific acquisition/query contract has been verified in the inspected runtime. The proposal's acceptance criteria are future test targets, not test results.
 
