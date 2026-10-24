@@ -140,15 +140,29 @@ export class MechanicExecutor {
 
     const existingEntities = new Set(targetEntities.map((entity) => entity.entity_id));
     const createdEntities = new Set();
+    const writtenEntityIds = new Set();
+    const writtenFactIds = new Set();
     for (const effect of translated.effects) {
+      if (effect.kind === 'entity.create' || effect.kind === 'entity.update') {
+        if (writtenEntityIds.has(effect.entity_id)) {
+          return unknown('MECHANIC_EFFECT_WRITE_CONFLICT', 'Core event semantics allow at most one entity effect per entity in a proposal.', identity);
+        }
+        writtenEntityIds.add(effect.entity_id);
+      }
+      if (effect.kind === 'fact.set') {
+        if (writtenFactIds.has(effect.fact_id)) {
+          return unknown('MECHANIC_EFFECT_WRITE_CONFLICT', 'Core event semantics allow at most one fact effect per fact in a proposal.', identity);
+        }
+        writtenFactIds.add(effect.fact_id);
+      }
       if (effect.kind === 'entity.create') {
         if (existingEntities.has(effect.entity_id) || createdEntities.has(effect.entity_id)) {
           return unknown('MECHANIC_EFFECT_TARGET_ALREADY_EXISTS', 'A create_entity target already exists in the snapshot or earlier in this effect batch.', identity);
         }
         createdEntities.add(effect.entity_id);
       } else if (effect.kind === 'entity.update') {
-        if (!existingEntities.has(effect.entity_id) && !createdEntities.has(effect.entity_id)) {
-          return unknown('MECHANIC_EFFECT_TARGET_NOT_FOUND', 'An update_attribute target must exist in the same-world snapshot or be created earlier in this batch.', identity);
+        if (!existingEntities.has(effect.entity_id)) {
+          return unknown('MECHANIC_EFFECT_TARGET_NOT_FOUND', 'An update_attribute target must exist in the same-world snapshot.', identity);
         }
       }
     }
