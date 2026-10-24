@@ -316,3 +316,20 @@ test('Memory record authorization failure is non-ready, not a complete-empty res
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('memory authorization backend unavailable'), false);
 });
+
+
+test('stale Memory-owned freshness and rebuilding index state are non-ready, not complete-empty', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
+  for (const stale of [
+    candidate({ freshness: { status: 'stale' } }),
+    candidate({ lifecycle: { ...candidate().lifecycle, source_reconciliation: 'stale' } }),
+    candidate({ lifecycle: { ...candidate().lifecycle, index_health: 'rebuilding' } }),
+  ]) {
+    setCandidates([stale]);
+    const result = await consumer.retrieveForNpc(request());
+    assert.equal(result.status, 'non_ready');
+    assert.equal(result.reason, 'memory_source_not_current');
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.candidates, []);
+  }
+});
