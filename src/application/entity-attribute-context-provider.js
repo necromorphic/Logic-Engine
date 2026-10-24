@@ -40,9 +40,10 @@ function freeze(value) {
 export class CanonicalEntityAttributeContextProvider {
   #bindings;
 
-  constructor(engine, { policyVersion, bindings, canRead } = {}) {
+  constructor(engine, { policyVersion, authorizationScope, bindings, canRead } = {}) {
     if (!engine || typeof engine.getState !== 'function') throw new TypeError('A LogicEngine is required.');
     if (typeof policyVersion !== 'string' || !policyVersion.trim()) throw new TypeError('policyVersion must be a non-empty version identifier.');
+    if (typeof authorizationScope !== 'string' || !authorizationScope.trim()) throw new TypeError('authorizationScope must identify the visibility principal or scope.');
     if (!Array.isArray(bindings)) throw new TypeError('bindings must be an explicit array.');
     if (typeof canRead !== 'function') throw new TypeError('A deployment-owned canRead authorization callback is required.');
     const byPath = new Map();
@@ -62,6 +63,7 @@ export class CanonicalEntityAttributeContextProvider {
     }
     this.engine = engine;
     this.policyVersion = policyVersion.trim();
+    this.authorizationScope = authorizationScope.trim();
     this.#bindings = byPath;
     this.canRead = canRead;
     this.policyFingerprint = hashRequest({
@@ -104,6 +106,7 @@ export class CanonicalEntityAttributeContextProvider {
         world_revision: snapshot.world_revision,
         commit_sequence: snapshot.commit_sequence,
         policy_version: this.policyVersion,
+        authorization_scope: this.authorizationScope,
       });
       if (permitted !== true) throw new Error('A condition binding is not authorized by the configured visibility policy.');
 
@@ -126,6 +129,7 @@ export class CanonicalEntityAttributeContextProvider {
       dependencyEvidence,
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
+      authorization_scope: this.authorizationScope,
       policy_version: this.policyFingerprint,
     });
   }
