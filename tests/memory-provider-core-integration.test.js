@@ -243,3 +243,19 @@ test('retrieval and context inclusion do not persist delivery, receipt, acquisit
     .map((row) => row.name);
   assert.equal(tables.some((name) => /delivery|receipt|acquisition|belief/i.test(name)), false);
 });
+
+test('source validator outage makes the real Core/NPC consumer non-ready instead of ready-empty', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.provider.validateSourceVersion = async () => { throw new Error('private host validator details'); };
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes('private host validator details'), false);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
