@@ -140,3 +140,23 @@ This contract is ready for semantic review, not runtime implementation. It does 
 - the executable mechanic host contract.
 
 Do not invent these interfaces in the Relationship block. Any unresolved question requiring a Core decision must be sent to the user, who decides whether and how to relay it to Core.
+
+## 11. Source-audit checkpoint against current `main` (2026-10-24)
+
+This section records the current integration boundary from direct source inspection; it does not change the semantic contract above.
+
+Inspected current-main files:
+- `src/core/rules.js`, blob `3be152cc4ad096549af95f0051d6060819bff8c9`: `validateEffects(effects)` accepts entity, fact, and mechanic-instance effect kinds only. There is no Relationship typed-effect case.
+- `src/application/engine.js`, blob `6d4abdf2383cecd720bd6ac72da1179cf25ca4b0`: `LogicEngine.prepareEvent(x)` validates the generic event proposal; `commitEvent(id, x)` calls `this.store.commit(id, this.prepareEvent(x))`; `rollbackEvent(id, x)` delegates to the generic store rollback. These are reusable lifecycle entry points, not a Relationship-specific write contract.
+- `src/storage/sqlite-store.js`, blob `73bd37147a8f0aaafe280911ab9bce2571c51663`: generic commit runs in `this.tx(...)`, validates world/revision and causal references, appends a generic event, advances `world_revision`, rebuilds existing entity/fact/mechanic projections, records audit, and stores the idempotency result. Generic rollback invalidates/retracts events, advances `world_revision`, rebuilds existing projections, records rollback audit, and stores its replay result. No Relationship projection/reducer is present in the inspected effect/rebuild paths.
+- `docs/73-core-1.5-cross-block-integration-matrix.md`, blob `56e87685e23266cf8cf20751bb167c7596e9aa93` on `main`: confirms typed Relationship write/replay is a Core implementation blocker; Memory contracts are branch-local proposals; authorized reads and trusted import/correction remain separate gates.
+
+### Integration consequences
+
+1. The pure evaluator may return a candidate only. Do not encode Relationship state through `entity.update` or `fact.set`, and do not create a Relationship-owned storage or event path.
+2. Core must approve and implement the typed operation/projector at its canonical lifecycle, including canonical same-world participant resolution, directed subject/target, pinned domain/rule version, trusted server-derived authority/provenance, evidence references, composite expected freshness basis (`world_revision`, `commit_sequence`), idempotency, audit, atomic failure, and deterministic first-slice replay/rollback.
+3. The generic transaction and rollback code is reusable infrastructure, but this source inspection does not prove the required Relationship behavior. It also does not prove actor/purpose-authorized reads or an approved initial-import/author-correction path.
+4. Personality may interpret only authorized, bounded relationship data and must not turn a candidate into a canonical write. Memory may supply eligible source/evidence references only under its own approved access/freshness contract; retrieval, ranking, summary, or prompt inclusion is not proof of acquisition or belief. The Memory contracts on `feat/core-memory-contracts` are proposals, not current-main runtime capability.
+5. This audit is source inspection, not an end-to-end test. Production readiness requires real-path tests for typed commit, reverse-direction independence, unauthorized/spoofed provenance rejection, idempotent retry, all-or-nothing failures, version/cursor conflicts, and rollback/replay where `world_revision` changes without a new `commit_sequence`.
+
+**Status:** contract-compatible at the semantic boundary; not production-integrated. The typed canonical writer/projector, trusted authoring boundary, authorized Relationship read, and Relationship-specific replay remain Core-owned blockers.
