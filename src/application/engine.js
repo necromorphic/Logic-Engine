@@ -341,6 +341,24 @@ export class LogicEngine {
     assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0,
       'INVALID_REVISION', 'Time-advance expected_revision must be a non-negative safe integer.');
     assert(Number.isSafeInteger(x.to_coordinate), 'INVALID_TIME_COORDINATE', 'to_coordinate must be a safe integer.');
+    const requestHash = hashRequest({
+      operation: 'time.advance',
+      world_id: id,
+      idempotency_key: x.idempotency_key.trim(),
+      expected_revision: x.expected_revision,
+      to_coordinate: x.to_coordinate,
+      triggers: x.triggers ?? [],
+      completed_trigger_ids: x.completed_trigger_ids ?? [],
+    });
+    const existing = this.store.getTimeAdvanceOperationByKey(id, x.idempotency_key.trim());
+    if (existing) {
+      if (existing.request_hash !== requestHash) {
+        throw new EngineError('IDEMPOTENCY_CONFLICT', 'The time-advance idempotency key was already used with a different request.', 409);
+      }
+      return existing.status === 'running'
+        ? this.store.resumeTimeAdvanceOperation(id, existing.operation_id)
+        : existing;
+    }
     const world = this.getState(id);
     if (world.world_revision !== x.expected_revision) {
       throw new EngineError('REVISION_CONFLICT', 'World changed before time-advance planning.', 409, {
@@ -351,15 +369,6 @@ export class LogicEngine {
     if (from % 1000 !== 0 || x.to_coordinate % 1000 !== 0) {
       throw new EngineError('TIME_ADVANCE_SUBSECOND_UNSUPPORTED', 'Time-advance execution currently requires whole-second boundaries.', 400);
     }
-    const requestHash = hashRequest({
-      operation: 'time.advance',
-      world_id: id,
-      idempotency_key: x.idempotency_key.trim(),
-      expected_revision: x.expected_revision,
-      to_coordinate: x.to_coordinate,
-      triggers: x.triggers ?? [],
-      completed_trigger_ids: x.completed_trigger_ids ?? [],
-    });
     let plan;
     try {
       plan = planDueWork({
