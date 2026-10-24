@@ -783,11 +783,14 @@ test('translated fact intents use the same canonical fact-identity guard as dire
   assert.equal((await (await fetch(base + '/v1/worlds/intent-fact-identity-world/state', { headers })).json()).state.world_revision, 1);
 });
 
-test('translated duplicate fact IDs are rejected by the canonical commit guard without durable writes', async (t) => {
+test('translated duplicate fact IDs fail before proposal or event writes', async (t) => {
   const base = await setup(t, { approvalToken: APPROVAL });
   assert.equal((await createWorld(base, 'translated-duplicate-facts-world')).status, 201);
 
-  const created = await fetch(base + '/v1/worlds/translated-duplicate-facts-world/proposals', {
+  const stateBefore = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/state', { headers })).json()).state;
+  const eventsBefore = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/events', { headers })).json()).events;
+  const auditBefore = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/audit', { headers })).json()).audit;
+  const rejected = await fetch(base + '/v1/worlds/translated-duplicate-facts-world/proposals', {
     method: 'POST', headers,
     body: json({
       idempotency_key: 'translated-duplicate-facts-proposal',
@@ -812,21 +815,8 @@ test('translated duplicate fact IDs are rejected by the canonical commit guard w
       },
     }),
   });
-  assert.equal(created.status, 201);
-  const proposal = (await created.json()).proposal;
-  const approved = await fetch(base + '/v1/worlds/translated-duplicate-facts-world/proposals/' + proposal.proposal_id + '/approve', {
-    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
-  });
-  assert.equal(approved.status, 200);
-
-  const stateBefore = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/state', { headers })).json()).state;
-  const eventsBefore = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/events', { headers })).json()).events;
-  const auditBefore = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/audit', { headers })).json()).audit;
-  const committed = await fetch(base + '/v1/worlds/translated-duplicate-facts-world/proposals/' + proposal.proposal_id + '/commit', {
-    method: 'POST', headers, body: '{}',
-  });
-  assert.equal(committed.status, 400);
-  assert.equal((await committed.json()).error.code, 'DUPLICATE_FACT_EFFECT');
+  assert.equal(rejected.status, 400);
+  assert.equal((await rejected.json()).error.code, 'DUPLICATE_FACT_EFFECT');
 
   const stateAfter = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/state', { headers })).json()).state;
   const eventsAfter = (await (await fetch(base + '/v1/worlds/translated-duplicate-facts-world/events', { headers })).json()).events;
@@ -836,4 +826,3 @@ test('translated duplicate fact IDs are rejected by the canonical commit guard w
   assert.deepEqual(eventsAfter, eventsBefore);
   assert.equal(auditAfter.length, auditBefore.length);
 });
-
