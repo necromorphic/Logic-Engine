@@ -168,3 +168,63 @@ Evidence labels mean: **SOURCE-INSPECTED** = code path read, not executed; **FIX
 Core has approved the **semantic direction**, not a concrete runtime contract. Existing Provider operations can implement immutable capture, active-version pointer changes, exact-version tombstones, duplicate replay and collision rejection once trusted IDs/scope are supplied. They cannot create Host identity, prove ancestry, identify a deleted object from a post-splice index, prove the complete set of historical versions, or establish a complete/current Host inventory.
 
 **Next step:** Host + Provider owners review this same mapping and resolve items 1–6 above, then ask Core to approve the concrete delta before any cross-boundary implementation. Continue Provider-local tests and Host source/runtime evidence gathering independently. Until then, production Memory→NPC remains **DISABLED / FAIL-CLOSED**; no vectorization changes.
+
+
+## 10. Provider audit of the six minimum contract-delta items
+
+**Audit basis:** current Provider draft code/tests, pinned Host source evidence, and Core decision comment 6388016376. This is an evidence/ownership audit, not implementation approval. No runtime, API, field, schema, store, cursor, or cross-block wiring is authorized here.
+
+| # | Minimum delta | Owner | What existing Provider code/tests can close now | Missing evidence / decision | Status |
+|---|---|---|---|---|---|
+| 1 | Host identity and persistence | **Host** creates/persists IDs and captures delete identity; **Core** approves identity/scope semantics; **Provider** persists supplied tuple | Provider can reject missing tuple parts and enforce same-key/same-payload idempotency plus same-key/different-payload conflict. These tests only start after an identity is supplied. | No pinned Android/Termux save/load/replay proof for Host-owned logical-message/version IDs; no approved legacy migration or branch/copy/import/restore collision policy; no pre-mutation delete target proof. Core must approve semantic rules before Host selects field placement/serialization. | **PARTIAL: Provider subrules covered; cross-block item blocked** |
+| 2 | Version lineage and generation completion | **Host** observes lifecycle and supplies predecessor identity/completion facts; **Provider** preserves immutable versions; **Core** approves lineage and complete-vs-partial semantics | Distinct immutable keys and active-pointer switching are implemented/tested Provider-locally. | No typed/validated parent relation in the accepted contract; no approved rule for edit-as-new-version or cancelled/partial generation; no real lifecycle test through regenerate/restart. Core decision required before implementation. | **PARTIAL: storage behavior covered; semantics blocked** |
+| 3 | Trusted world/conversation binding | **Core** owns authority and binding rules; **Host** supplies verified binding/durable conversation identity; **Provider** enforces approved scope | Provider isolates records by supplied composite-key values and has Provider-local scope tests. | Caller-supplied IDs do not prove authority. No proof binds the captured ST chat to the intended Core world/session through rename, switch, copy/import/restore/replay. Core must define authoritative evidence and fail-closed behavior. | **BLOCKED on Core + Host proof** |
+| 4 | Complete inventory/reconciliation | **Core** defines source domain, completeness/currentness proof and consistency boundary; **Host** supplies authoritative complete enumeration/change evidence; **Provider** implements only after approval | Existing tests cover incomplete/unavailable injected inventory, partial results, interrupted reconciliation/restart, index rebuild failure and non-ready behavior. They prove correct fail-closed handling of the test input, not completeness of the source. | No production-capable proof of complete/current `memory_raw_captures` inventory after restart/replay; no detection guarantee for omitted events, truncated pages, concurrent mutation or rollback; no authoritative complete-empty distinction. Core must approve evidence semantics and invalidation rules. | **BLOCKED on Core decision + Host evidence** |
+| 5 | Deletion/retraction completeness | **Host** captures exact pre-mutation target and complete whole-message affected set; **Provider** owns exact tombstone/idempotency/known-copy invalidation; **Core** approves affected-set authority and cross-store guarantee | Exact-version tombstone, repeated tombstone, original-capture replay non-resurrection, known dependent-copy invalidation across Provider restart, and final Provider read recheck have tests at code/test HEAD `0c7b4abd8a5b3547304f452380b310bb155aeb52`, CI #1784 290/290. | ST's post-splice delete event does not identify the deleted object; no authoritative exhaustive historical-version set for message/chat deletion; other stores/caches are outside Provider transaction. Core must approve completeness and scope of retraction guarantee. Purge remains separate. | **PARTIAL: exact-version Provider behavior covered; whole-source retraction blocked** |
+| 6 | Restart, rollback and final disclosure/revocation | **Core** owns source currentness, rollback/replay invalidation and required final-boundary semantics; **Provider** owns durable local state/rechecks; **Host/disclosure owner** supplies lifecycle and real-path evidence | Provider restart persistence, fail-closed validator/inventory failures, tombstone during final Provider read authorization check, and non-ready behavior have Provider-local tests. | Local recheck is not cross-store atomicity. No approved source-specific rollback/retraction contract or real Host→Provider→Core→NPC race test; no Core decision on exact final disclosure point and accepted post-check race limits. | **PARTIAL: local checks covered; end-to-end guarantee blocked** |
+
+### Direct answer: what is and is not closable without Core
+
+**Closable now by existing Provider code/tests, without changing contracts:**
+- Immutable raw tuple duplicate replay and conflicting-payload rejection.
+- Active-version pointer switch without deleting alternatives.
+- Exact-version tombstone and repeated-tombstone behavior.
+- Replay of the original identical capture does not resurrect a tombstoned source.
+- Invalidation of registered Provider-local dependent copies and persistence of that state across Provider restart.
+- Fail-closed response when supplied source/inventory validation is incomplete, unavailable, stale or fails.
+- Provider-local final-read authorization recheck when revocation is observed at that check.
+
+Evidence for the newest tombstone/replay/final-check regressions: code/test HEAD `0c7b4abd8a5b3547304f452380b310bb155aeb52`, Runtime CI #1784, 290/290. This is Provider-local evidence only.
+
+**Not closable by Provider-local code/tests alone; explicit Core decision and/or Host proof required:**
+- The Host's durable identity placement, creation, persistence, migration and collision rules.
+- Parent/version ancestry and completed-vs-cancelled generation semantics.
+- Authoritative world/session/conversation binding.
+- Complete/current raw Host-source inventory and a consistent reconciliation boundary.
+- Exhaustive historical version set for whole-message/chat deletion and the authority of that set.
+- Rollback/replay invalidation and the cross-block final disclosure/revocation guarantee, including accepted race limits.
+- Real pinned Android/Termux Host capture → Provider persistence → restart/reconciliation → Core-authorized read → NPC admission → disclosure acceptance.
+
+**No entire one of the six contract-delta items is fully closed.** Provider-local sub-behaviors are covered as listed; all six still have a cross-block dependency or missing authoritative evidence.
+
+### Exact contract submitted for Core decision
+
+The six semantic rules proposed for approval are:
+
+1. **Identity:** one durable Host-owned ID per logical message and a distinct durable ID per immutable version; never derive identity from indexes, timestamps, native swipe positions or generation metadata; capture exact deletion identity before mutation.
+2. **Versioning:** selecting a version only changes the active pointer. Editing-as-new-immutable-version, predecessor lineage and the definition of completed versus cancelled/partial output require explicit approval; lineage cannot be inferred from arbitrary metadata.
+3. **Scope/authority:** the Provider composite key is a storage key, not authority. Core defines authoritative world/session binding; Host supplies durable conversation binding; absent or ambiguous binding is withheld.
+4. **Inventory/currentness:** currentness is accepted only from an authoritative, complete, consistent inventory/reconciliation proof for a defined source scope. Partial, truncated, failed, concurrently invalidated, stale or unverifiable results are non-ready; complete-empty is distinct from denied/unavailable/partial. Core defines the proof and invalidation/rollback rule.
+5. **Retraction:** exact-version deletion is an idempotent tombstone of that version. Whole-message/chat deletion is allowed only with an authoritative complete set of all affected historical versions. Unknown/incomplete sets remain withheld. Permanent purge is a separate retention action.
+6. **Disclosure boundary:** source/version/lineage and inventory authorization must be revalidated at the approved final disclosure point. Revocation observed before that point prevents disclosure. Core must specify the final point and explicitly accept the residual race/consistency limits after the last check; Provider-local checks must not be described as cross-store atomicity.
+
+### Verifiable acceptance criteria after Core approval
+
+- On the pinned Android/Termux ST build, exercise create, two swipes, select each, edit, regenerate, cancel/stop, delete one swipe, delete a whole message, chat switch, save/load, restart, replay, branch/copy/import/restore. IDs and ancestry remain unambiguous; no index is used as identity. Record persisted before/after evidence.
+- Provider restart/replay: identical tuple/payload creates no duplicate; same tuple with different payload conflicts without overwrite/rebind; repeated tombstone and original capture replay do not resurrect a deleted version; tombstone and known-copy invalidation survive restart.
+- In-flight read: if revocation is observed at the Core-approved final authorization point, no content is returned. Exercise the approved race semantics through the real path, not only injected Provider fixtures.
+- Inventory: prove complete-empty differs from unavailable/denied/partial; detect omitted/truncated enumeration and concurrent mutation; interrupt/restart reconciliation; prior currentness is invalidated on rollback/retraction.
+- Whole-message/chat deletion: enumerate and tombstone every historical version, including inactive swipes, and verify all dependent-copy invalidation within the explicitly declared store boundary. Incomplete enumeration fails closed.
+- Full vertical slice: pinned ST capture → durable Provider persistence → restart/reconciliation → Core-authorized source/version/lineage read → NPC admission → final disclosure boundary. Label each case SOURCE-INSPECTED, FIXTURE-TESTED, RUNTIME-OBSERVED or REAL-RUNTIME-TESTED accurately.
+
+**Request to Core:** approve/revise the six semantic rules and explicitly choose (a) authoritative inventory/currentness evidence and invalidation semantics and (b) final disclosure/revocation point plus accepted race limits. After that decision, Host + Provider will submit the concrete field/API/schema proposal for explicit review. Until then, no cross-block implementation; production Memory→NPC remains **DISABLED / FAIL-CLOSED**, and vectorization is untouched.
