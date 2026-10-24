@@ -40,10 +40,9 @@ function transitionFromMatches(expected, current) {
 
 function validTransitionFrom(value) {
   if (value === null || typeof value === "string") return true;
-  if (!isRecord(value)) return false;
-  if (value.status === "value") return typeof value.value === "string";
-  return ["unset", "cleared", "withheld", "conflict", "insufficient_support",
-    "unsupported", "incomplete"].includes(value.status);
+  // Only cleared is a transitionable tagged state. Unset is represented by
+  // null; withheld/conflict/insufficient/unsupported states stop evaluation.
+  return isRecord(value) && value.status === "cleared";
 }
 
 function transitionAllowed(rule, from, to, operation) {
