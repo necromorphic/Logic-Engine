@@ -24,7 +24,7 @@ async function setup(t) {
   t.after(() => { server.close(); store.close(); });
   engine.createWorld({ world_id: 'actor-world', world_pack_id: 'test.world', world_pack_version: '1', game_time: '2026-01-01T00:00:00Z' });
   engine.commitEvent('actor-world', {
-    idempotency_key: 'seed-actor', turn_id: 'seed', event_type: 'action.completed',
+    idempotency_key: 'seed-actor', turn_id: 'seed', event_type: 'action.completed', expected_revision: 0,
     effects: [
       { kind: 'entity.create', entity_id: 'npc-a', entity_type: 'character', attributes: { name: 'A' } },
       { kind: 'entity.create', entity_id: 'npc-dead', entity_type: 'character', attributes: { name: 'Dead' } },
