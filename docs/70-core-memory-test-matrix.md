@@ -41,6 +41,8 @@ Use isolated test worlds and deterministic fixtures. Assert both the returned re
 | MEM-031 | A derived summary contains content from sources A and B; reader loses permission to A but retains permission to B | Summary is withheld from that reader until a safe re-derivation excluding A or an approved declassification; historical version/audit remains intact |
 | MEM-032 | Run the same query under four conditions: no eligible match, access denied/withheld, semantic index unavailable, and partial stale-index results | Outcomes remain distinct and typed; denied/unavailable is never encoded as an ordinary empty result; no protected record existence leaks through metadata |
 | MEM-033 | Revoke access after candidate generation but before response serialization | Final authorization revalidation prevents the candidate, snippet, count, or diagnostic from reaching the now-unauthorized reader |
+| MEM-034 | Candidate has missing/unknown content kind while carrying otherwise admissible metadata; an unknown kind could conceal a derived summary | Reject as non-ready before prompt serialization; derived-summary lineage/access checks cannot be bypassed by an absent or unrecognized kind; rejection metadata reveals no protected candidate details |
+| MEM-035 | Existing vector/archive adapter returns stale, provenance-incomplete, or unavailable results | Preserve source identity and uncertainty; stale/unverified hits cannot be represented as current canonical facts; backend outage is typed unavailable/partial rather than successful empty; no archive write/schema migration or duplicate index is introduced by Memory |
 
 ## Threat review checklist
 
@@ -53,4 +55,3 @@ Use isolated test worlds and deterministic fixtures. Assert both the returned re
 - [ ] auditable correction and deletion;
 - [ ] exact-head CI and negative tests;
 - [ ] no claims of causal completeness unsupported by Core.
-| MEM-034 | Candidate has missing/unknown content kind while carrying otherwise admissible metadata; an unknown kind could conceal a derived summary | Reject as non-ready before prompt serialization; derived-summary lineage/access checks cannot be bypassed by an absent or unrecognized kind; rejection metadata reveals no protected candidate details |
