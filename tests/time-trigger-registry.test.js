@@ -84,6 +84,53 @@ test('trigger listing omits payloads and oversized payloads are rejected before 
   assert.equal(engine.getState('time-trigger-world').world_revision, 1);
 });
 
+test('world TimePolicy may allow an advance longer than seven days while event segments stay bounded', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.registerTimeConfiguration('time-trigger-world', {
+    version: 'policy-long-skip',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    calendar_definition: {
+      calendar_id: 'test.calendar',
+      version: '1.0.0',
+      day_length_ms: 86400000,
+      weekdays: ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'],
+      year_cycle: [{ id: 'standard', name: 'Standard', months: [{ id: 'jan', name: 'January', days: 31 }] }],
+      epoch: { coordinate: 0, year_number: 2026, year_cycle_index: 0, month_id: 'jan', day_of_month: 1, weekday_index: 0, time_of_day_ms: 0 },
+      holidays: [],
+    },
+    time_policy: {
+      policy_id: 'test.long-skip',
+      version: '1.0.0',
+      max_action_duration_ms: 43200000,
+      max_skip_duration_ms: 1209600000,
+      duration_rules: [],
+    },
+  });
+  const operation = engine.startTimeAdvance('time-trigger-world', {
+    idempotency_key: 'eight-day-policy-advance',
+    expected_revision: engine.getState('time-trigger-world').world_revision,
+    to_coordinate: 8 * 86400000,
+  });
+  assert.equal(operation.status, 'completed');
+  assert.equal(operation.confirmed_coordinate, 8 * 86400000);
+  assert.equal(engine.getEvents('time-trigger-world').filter((event) => event.event_type === 'time.advance').length, 2);
+  assert.deepEqual(engine.getEvents('time-trigger-world').map((event) => event.time_advance_seconds), [604800, 86400]);
+});
+
+test('registered trigger cannot masquerade as a canonical time.advance event', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  assert.throws(
+    () => engine.registerTimeTrigger('time-trigger-world', {
+      ...trigger('bad-time-trigger', 10000, 'bad-entity'),
+      payload: { event: { event_type: 'time.advance', effects: [] } },
+    }),
+    (error) => error.code === 'INVALID_TRIGGER_EVENT_TYPE',
+  );
+});
+
 test('registered due triggers complete atomically with their event segment and operation checkpoint', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
