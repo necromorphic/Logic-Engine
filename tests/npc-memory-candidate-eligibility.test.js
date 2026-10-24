@@ -242,8 +242,8 @@ test("a derived summary requires complete lineage and current authorized sources
     lineage: {
       status: "complete",
       sources: [
-        { ref: "source:a", version: "1", access: { outcome: "allow" }, freshness: { status: "current" } },
-        { ref: "source:b", version: "4", access: { outcome: "allow" }, freshness: { status: "current" } },
+        { ref: "source:a", version: "1", world_id: request.world_id, access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose }, freshness: { status: "current" } },
+        { ref: "source:b", version: "4", world_id: request.world_id, access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose }, freshness: { status: "current" } },
       ],
     },
   });
@@ -251,15 +251,35 @@ test("a derived summary requires complete lineage and current authorized sources
 
   const unsafeVariants = [
     { ...summary, lineage: { status: "unavailable", sources: [] } },
-    { ...summary, lineage: { status: "complete", sources: [{ ref: "source:a", version: "1", access: { outcome: "allow" }, freshness: { status: "current" } }, { ref: "source:b", version: "4", access: { outcome: "deny" }, freshness: { status: "current" } }] } },
-    { ...summary, lineage: { status: "complete", sources: [{ ref: "source:a", version: "1", access: { outcome: "allow" }, freshness: { status: "stale" } }] } },
-    { ...summary, lineage: { status: "complete", sources: [{ ref: "source:a", access: { outcome: "allow" }, freshness: { status: "current" } }] } },
+    { ...summary, lineage: { status: "complete", sources: [{ ref: "source:a", version: "1", world_id: request.world_id, access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose }, freshness: { status: "current" } }, { ref: "source:b", version: "4", world_id: request.world_id, access: { outcome: "deny", subject_id: request.subject_id, purpose: request.purpose }, freshness: { status: "current" } }] } },
+    { ...summary, lineage: { status: "complete", sources: [{ ref: "source:a", version: "1", world_id: request.world_id, access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose }, freshness: { status: "stale" } }] } },
+    { ...summary, lineage: { status: "complete", sources: [{ ref: "source:a", world_id: request.world_id, access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose }, freshness: { status: "current" } }] } },
   ];
 
   for (const unsafe of unsafeVariants) {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([unsafe]));
     assert.equal(result.status, "non_ready");
     assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.rejected, [{ reason: "lineage_not_safe" }]);
+  }
+});
+
+test("summary lineage sources must match the requested world, subject, and purpose", () => {
+  const baseSource = {
+    ref: "source:a",
+    version: "1",
+    world_id: request.world_id,
+    access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
+    freshness: { status: "current" },
+  };
+  for (const source of [
+    { ...baseSource, world_id: "world-b" },
+    { ...baseSource, access: { ...baseSource.access, subject_id: "actor-other" } },
+    { ...baseSource, access: { ...baseSource.access, purpose: "other-purpose" } },
+  ]) {
+    const summary = candidate({ content_kind: "summary", lineage: { status: "complete", sources: [source] } });
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
+    assert.equal(result.status, "non_ready");
     assert.deepEqual(result.rejected, [{ reason: "lineage_not_safe" }]);
   }
 });
