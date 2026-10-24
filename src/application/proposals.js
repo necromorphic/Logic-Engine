@@ -9,9 +9,13 @@ const dec = (value) => JSON.parse(value);
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 export class ProposalService {
-  constructor(engine) {
+  constructor(engine, { validateMechanicPolicy } = {}) {
     if (!engine?.store?.db) throw new TypeError('ProposalService requires an engine with a persistent store');
+    if (validateMechanicPolicy !== undefined && typeof validateMechanicPolicy !== 'function') {
+      throw new TypeError('validateMechanicPolicy must be a trusted synchronous policy validator');
+    }
     this.engine = engine;
+    this.validateMechanicPolicy = validateMechanicPolicy ?? null;
     this.db = engine.store.db;
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS event_proposals (
@@ -282,6 +286,57 @@ export class ProposalService {
     });
   }
 
+  /**
+   * Revalidate deployment-owned visibility policy before a mechanic proposal
+   * crosses an approval/commit boundary. The callback must synchronously compare
+   * the pinned policy fingerprint and authorization scope with the currently
+   * active policy; it must not mutate canonical state. Missing or non-true
+   * decisions fail closed. Ordinary non-mechanic proposals are unaffected.
+   */
+  assertMechanicPolicyCurrent(row, stage) {
+    if (!row.mechanic_execution_json) return;
+    if (typeof this.validateMechanicPolicy !== 'function') {
+      throw new EngineError(
+        'MECHANIC_POLICY_REVALIDATION_REQUIRED',
+        'Mechanic proposals require a trusted current-policy validator at approval and commit.',
+        409,
+        { stage },
+      );
+    }
+
+    let metadata;
+    try {
+      metadata = dec(row.mechanic_execution_json);
+    } catch {
+      throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic policy metadata is invalid; proposal cannot proceed.', 409, { stage });
+    }
+    if (typeof metadata.context_policy_version !== 'string' || !metadata.context_policy_version.trim()
+      || typeof metadata.authorization_scope !== 'string' || !metadata.authorization_scope.trim()) {
+      throw new EngineError('STALE_MECHANIC_POLICY', 'Mechanic proposal lacks a valid pinned policy identity.', 409, { stage });
+    }
+
+    let current = false;
+    try {
+      current = this.validateMechanicPolicy(Object.freeze({
+        worldId: row.world_id,
+        policyVersion: metadata.context_policy_version,
+        authorizationScope: metadata.authorization_scope,
+        snapshotIdentity: metadata.snapshot_identity,
+        stage,
+      })) === true;
+    } catch {
+      current = false;
+    }
+    if (!current) {
+      throw new EngineError(
+        'STALE_MECHANIC_POLICY',
+        'The policy version or authorization scope is no longer current; re-evaluate and create a new proposal.',
+        409,
+        { stage },
+      );
+    }
+  }
+
   get(worldId, proposalId, adapterId = null) {
     const row = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND proposal_id=?').get(worldId, proposalId);
     if (!row) throw new EngineError('PROPOSAL_NOT_FOUND', 'Proposal not found.', 404);
@@ -300,6 +355,7 @@ export class ProposalService {
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
       const sequence = this.engine.store.currentCommitSequence(worldId);
       if (world.world_revision !== row.base_world_revision || sequence !== row.base_commit_sequence) throw new EngineError('STALE_PROPOSAL', 'World history changed after this proposal was created.', 409, { base_world_revision: row.base_world_revision, current_world_revision: world.world_revision, base_commit_sequence: row.base_commit_sequence, current_commit_sequence: sequence });
+      this.assertMechanicPolicyCurrent(row, 'approval');
       const approvedAt = now();
       this.db.prepare("UPDATE event_proposals SET status='approved',approved_at=? WHERE proposal_id=? AND status='pending'").run(approvedAt, proposalId);
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
@@ -324,6 +380,7 @@ export class ProposalService {
         });
       }
 
+      this.assertMechanicPolicyCurrent(row, 'commit');
       const payload = dec(row.event_payload_json);
       const result = this.engine.commitEvent(worldId, {
         ...payload,
