@@ -406,3 +406,8 @@ The detailed cases NPC-DELIV-001–010 are in `docs/48-npc-delivery-acquisition-
 | NPC-DELIV-010 | Actual host capability inventory and result projection | Unsupported signals remain unconfirmed; no guessed success | Hard blocker until real host signal is verified |
 
 Do not close these gates with a fake host signal, mocked missing core records, or prompt-only checks. A successful general CI run does not prove delivery/acquisition behavior.
+
+
+## Current Core knowledge readiness reference — 2026-10-24
+
+For the live source-to-requirement audit, including exact inspected Core head, observed services/tests, missing acquisition/filter boundaries, and the production acceptance gate, see `docs/49-npc-core-knowledge-live-audit.md`. Actor binding now exists on current Core `main`, but actor-relative acquisition filtering and secret exclusion remain hard blockers. This map does not treat adjacent Core features as proof of NPC knowledge safety.
