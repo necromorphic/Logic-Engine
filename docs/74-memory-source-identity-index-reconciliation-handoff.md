@@ -120,7 +120,7 @@ This handoff does not:
 The tests added with this handoff guard the completeness of this evidence/decision document only. They do not substitute for the runtime integration tests listed above.
 
 
-## 8. Cross-review against the NPC admission contract
+## 10. Cross-review against the NPC admission contract
 
 **Evidence reviewed:** `src/npc/memory-candidate-eligibility.js` and `tests/npc-memory-candidate-eligibility.test.js` on `main`; NPC handoff proposed in PR #139 (still a separate, unmerged design/test-traceability change at review time). This section describes compatibility requirements, not a shared runtime contract.
 
