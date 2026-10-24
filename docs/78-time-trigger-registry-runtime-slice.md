@@ -14,7 +14,7 @@ A registered trigger contains:
 - `processing_mode` (`exact` or `batch`) and `interrupt_after_coordinate`;
 - a `payload.event` proposal validated by Core.
 
-Core derives stable event identity from world and trigger ID, and unions the trigger's declared conflict sets with the event proposal's read set and effect writes so omitted declarations cannot make conflicting effects appear independent. A trigger ID is immutable: repeating the same registration returns the existing lifecycle record; reusing it with changed content is rejected. Forward dependencies may be registered before their dependency, but a due plan is blocked until the dependency is known and completed.
+Core derives stable event identity from world and trigger ID, and unions the trigger's declared conflict sets with the event proposal's read set and effect writes so omitted declarations cannot make conflicting effects appear independent. Scheduled effects are revalidated against the active TimePolicy at registration and planning; because a trigger fires at its due coordinate with zero additional duration, a rule that resolves to a positive or author-required duration blocks the trigger instead of silently bypassing the policy. A trigger ID is immutable: repeating the same registration returns the existing lifecycle record; reusing it with changed content is rejected. Forward dependencies may be registered before their dependency, but a due plan is blocked until the dependency is known and completed.
 
 ## Lifecycle and atomicity
 
