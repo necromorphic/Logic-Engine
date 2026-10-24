@@ -162,6 +162,7 @@ export class MechanicExecutor {
       snapshot_identity: identity,
       action_id: actionId,
       context_fingerprint: contextFingerprint,
+      context_policy_version: resolved.policy_version,
       condition_result: conditionResult,
       effects: translated.effects,
       effect_provenance: translated.effect_provenance,
