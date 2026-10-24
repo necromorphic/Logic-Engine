@@ -8,12 +8,14 @@ const rules = {
     allowClear: true,
     transitions: [
       { operation: "set", from: null, to: "low" },
+      { operation: "set", from: { status: "cleared" }, to: "low" },
       { operation: "set", from: "low", to: "guarded" },
       { operation: "set", from: "guarded", to: "high" },
       { operation: "set", from: "low", to: "high" },
       { operation: "clear", from: "low", to: null },
       { operation: "clear", from: "guarded", to: null },
       { operation: "clear", from: "high", to: null },
+      { operation: "clear", from: "low", to: null },
     ],
   },
   affection: {
@@ -117,6 +119,50 @@ test("rejects clearing where the active dimension rule disallows it", () => {
 
   assert.equal(result.status, "invalid_candidate");
   assert.equal(result.reason, "clear_not_allowed");
+});
+
+test("distinguishes unset from a previously cleared dimension", () => {
+  const fromUnset = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: {},
+    patch: { trust: "low" },
+  });
+  const fromCleared = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: { trust: { status: "cleared" } },
+    patch: { trust: "low" },
+  });
+
+  assert.equal(fromUnset.status, "candidate");
+  assert.equal(fromCleared.status, "candidate");
+  assert.notDeepEqual(fromUnset, fromCleared);
+});
+
+test("does not silently treat a withheld current relationship value as unset", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: { trust: { status: "withheld" } },
+    patch: { trust: "guarded" },
+  });
+
+  assert.equal(result.status, "withheld");
+  assert.equal(result.reason, "relationship_value_withheld");
+});
+
+test("clearing an already cleared or unset dimension is a no-change", () => {
+  const cleared = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: { trust: { status: "cleared" } },
+    patch: { trust: { operation: "clear" } },
+  });
+  const unset = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: {},
+    patch: { trust: { operation: "clear" } },
+  });
+
+  assert.equal(cleared.status, "no_change");
+  assert.equal(unset.status, "no_change");
 });
 
 test("returns no-change when the requested value already holds", () => {
