@@ -70,6 +70,11 @@ test('health, auth, proposal approval, and canonical commit boundary', async (t)
   const fetchedProposal = await fetch(base + '/v1/worlds/api-world/proposals/' + proposal.proposal_id, { headers });
   assert.equal(fetchedProposal.status, 200);
   assert.equal((await fetchedProposal.json()).proposal.proposal_hash, proposal.proposal_hash);
+  const otherAdapterProposalRead = await fetch(base + '/v1/worlds/api-world/proposals/' + proposal.proposal_id, {
+    headers: { ...headers, 'x-adapter-id': 'adapter-b', 'x-adapter-token': ADAPTER_B },
+  });
+  assert.equal(otherAdapterProposalRead.status, 404);
+  assert.equal((await otherAdapterProposalRead.json()).error.code, 'PROPOSAL_ADAPTER_MISMATCH');
   assert.equal((await fetch(base + '/v1/worlds/api-world/state', { headers })).status, 403);
   const internalReadHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
   assert.equal((await (await fetch(base + '/v1/worlds/api-world/state', { headers: internalReadHeaders })).json()).state.world_revision, 0);
