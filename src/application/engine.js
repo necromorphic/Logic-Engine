@@ -757,6 +757,10 @@ export class LogicEngine {
       });
     };
 
+    const preparedFinalEvent = finalEventEnvelope
+      ? this.prepareEvent(finalEventEnvelope.event, { durationDecision: finalEventEnvelope.duration_decision })
+      : null;
+
     if (plan.status !== 'blocked') {
       for (const plannedSegment of plan.segments) {
         const coordinate = plannedSegment.due_coordinate;
@@ -811,6 +815,37 @@ export class LogicEngine {
       }
     }
 
+    if (preparedFinalEvent) {
+      plan.action_request_hash = actionRequestHash;
+      plan.final_action_event_id = preparedFinalEvent.event_id;
+      plan.final_action_duration_ms = finalEventEnvelope.duration_decision?.duration_ms ?? 0;
+      if (plan.status === 'blocked') {
+        plan.final_action_status = 'not_executed_blocked';
+      } else if (plan.status === 'interrupted') {
+        plan.final_action_status = 'not_executed_interrupted';
+      } else {
+        const actionAccess = segmentAccess(preparedFinalEvent);
+        const targetSegments = segments.filter((segment) => segment.coordinate === effectiveTarget);
+        for (const segment of targetSegments) {
+          for (const existingEvent of segment.events) {
+            const existingAccess = segmentAccess(existingEvent);
+            const conflicts = [
+              ...[...actionAccess.writes].filter((ref) => existingAccess.writes.has(ref) || existingAccess.reads.has(ref)),
+              ...[...actionAccess.reads].filter((ref) => existingAccess.writes.has(ref)),
+            ];
+            if (conflicts.length) {
+              throw new EngineError('TIME_ACTION_TRIGGER_CONFLICT',
+                'Timed action effects conflict with scheduled work at the same coordinate; the operation requires an explicit causal policy.',
+                409, { action_event_id: preparedFinalEvent.event_id, conflicting_event_id: existingEvent.event_id, reference: conflicts[0] });
+            }
+          }
+        }
+        validateIndependentSegment([preparedFinalEvent]);
+        appendSegment(effectiveTarget, [preparedFinalEvent], [], []);
+        plan.final_action_status = 'pending';
+      }
+    }
+
     const completedTriggerIds = plan.segments.flatMap((segment) => segment.trigger_ids);
     plan.completed_trigger_ids = completedTriggerIds;
     const initialStatus = plan.status === 'blocked' ? 'blocked'
@@ -830,7 +865,10 @@ export class LogicEngine {
         ? [...new Set(segments.flatMap((segment) => segment.registered_trigger_ids ?? []))]
         : [],
       plan,
-      result: initialStatus === 'blocked' ? { status: 'blocked', blocked: plan.blocked, confirmed_coordinate: from } : null,
+      result: initialStatus === 'blocked' ? {
+        status: 'blocked', blocked: plan.blocked, confirmed_coordinate: from,
+        ...(plan.final_action_status ? { final_action_status: plan.final_action_status } : {}),
+      } : null,
     });
     if (operation.status !== 'running') return operation;
     return this.store.resumeTimeAdvanceOperation(id, operation.operation_id);
