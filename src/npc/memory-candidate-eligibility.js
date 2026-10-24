@@ -101,16 +101,23 @@ function lineageIsSafe(candidate, request) {
     return false;
   }
 
-  return candidate.lineage.sources.every((source) =>
-    source != null
-      && isNonEmptyString(source.ref)
-      && isNonEmptyString(source.version)
-      && source.world_id === request.world_id
-      && source.access?.outcome === ALLOW
-      && source.access?.subject_id === request.subject_id
-      && source.access?.purpose === request.purpose
-      && READY_SOURCE_STATES.has(source.freshness?.status)
-  );
+  // Array.prototype.every skips holes. Check every own index explicitly so a
+  // sparse lineage cannot be mistaken for a complete list of authorized sources.
+  for (let index = 0; index < candidate.lineage.sources.length; index += 1) {
+    if (!Object.hasOwn(candidate.lineage.sources, index)) return false;
+    const source = candidate.lineage.sources[index];
+    if (
+      source == null
+      || !isNonEmptyString(source.ref)
+      || !isNonEmptyString(source.version)
+      || source.world_id !== request.world_id
+      || source.access?.outcome !== ALLOW
+      || source.access?.subject_id !== request.subject_id
+      || source.access?.purpose !== request.purpose
+      || !READY_SOURCE_STATES.has(source.freshness?.status)
+    ) return false;
+  }
+  return true;
 }
 
 function candidateRejection(candidate, request) {
@@ -190,8 +197,18 @@ export function evaluateMemoryCandidateAdmission(request, result) {
     });
   }
 
+  // Pre-count identity/version pairs before admitting anything. Any repeated
+  // pair is ambiguous here: the NPC contract has no approved immutable payload
+  // digest with which to prove that duplicate answers are byte-identical. Drop
+  // every occurrence rather than silently choosing the first candidate.
+  const identityCounts = new Map();
+  for (const candidate of result.candidates) {
+    if (!validReference(candidate?.record)) continue;
+    const identity = JSON.stringify([candidate.record.ref, candidate.record.version]);
+    identityCounts.set(identity, (identityCounts.get(identity) ?? 0) + 1);
+  }
+
   const admitted = [];
-  const seen = new Set();
 
   for (const candidate of result.candidates) {
     const reason = candidateRejection(candidate, request);
