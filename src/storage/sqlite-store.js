@@ -1367,6 +1367,45 @@ export class SQLiteStore {
     });
   }
 
+  createTimeAdvanceOperation(input) {
+    return this.tx(() => {
+      const old = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND idempotency_key=?')
+        .get(input.world_id, input.idempotency_key);
+      if (old) {
+        if (old.request_hash !== input.request_hash) {
+          throw new EngineError('IDEMPOTENCY_CONFLICT', 'The time-advance idempotency key was already used with a different request.', 409);
+        }
+        return timeAdvanceOperation(old);
+      }
+      const worldAtStart = this.world(input.world_id);
+      if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      if (worldAtStart.game_time_coordinate !== input.from_coordinate
+        || worldAtStart.world_revision !== input.starting_world_revision) {
+        throw new EngineError('TIME_ADVANCE_START_STALE', 'World time or revision changed before the time-advance operation was recorded.', 409);
+      }
+      const stamp = now();
+      this.db.prepare(`INSERT INTO time_advance_operations(
+        world_id,operation_id,idempotency_key,request_hash,from_coordinate,target_coordinate,confirmed_coordinate,
+        starting_world_revision,current_world_revision,status,next_segment_index,segments_json,plan_json,result_json,error_json,created_at,updated_at
+      ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
+        input.world_id, input.operation_id, input.idempotency_key, input.request_hash,
+        input.from_coordinate, input.target_coordinate, input.from_coordinate,
+        input.starting_world_revision, input.starting_world_revision, input.status,
+        0, enc(input.segments), enc(input.plan), input.result ? enc(input.result) : null,
+        input.error ? enc(input.error) : null, stamp, stamp,
+      );
+      return timeAdvanceOperation(this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+        .get(input.world_id, input.operation_id));
+    });
+  }
+
+  getTimeAdvanceOperation(worldId, operationId) {
+    const row = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+      .get(worldId, operationId);
+    if (!row) throw new EngineError('TIME_ADVANCE_OPERATION_NOT_FOUND', 'Time-advance operation not found.', 404);
+    return timeAdvanceOperation(row);
+  }
+
   rollback(id, rootId, key, requestHash) {
     return this.tx(() => {
       const old = this.replay(id, key, requestHash);
