@@ -545,3 +545,14 @@ function candidateForMutation(provider, setCandidates) {
     get source() { return candidate.source; },
   };
 }
+
+
+test('record identities with control characters fail closed before identity joining', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
+  setCandidates([candidate({ record: { ref: 'memory:\\u0000claim', version: 'v1' } })]);
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_candidate_invalid_or_scope_mismatch');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+});
