@@ -208,12 +208,14 @@ Relationship-specific ownership and the provisional typed-operation direction ar
 
 ## 12. Refreshed core dependency note — 2026-10-24
 
-The current core-main comparison and its limits are recorded in `docs/37-npc-kernel-readiness-gate.md` §15. The NPC branch is three core commits behind the current main merge-base line; no rebase or merge was performed in this update.
+The current core-main comparison and its limits are recorded in `docs/37-npc-kernel-readiness-gate.md` §15. The NPC branch is three core commits behind the current main line; no rebase or merge was performed in this update.
 
-Use the current core documents as the source for the proposal and mechanic boundaries:
+Use the current core documents as the source for proposal and mechanic boundaries:
 
 - `docs/27-proposal-to-commit-boundary.md`: proposal creation is a rollback-only preview and does not mutate canonical state; approval/commit remain explicit and stale-snapshot checked. This still does not prove named NPC authorization, causal completeness, semantic alignment, or player-agency enforcement.
-- `docs/30-stage1.3-mechanic-execution-boundary.md`: a core-only mechanic evaluation contract, not NPC decision-making or knowledge runtime.
+- `docs/30-stage1.3-mechanic-execution-boundary.md`: a core-only mechanic-evaluation contract, not NPC decision-making or knowledge runtime.
 - `docs/31-mechanic-effect-intent-support-matrix.md`: generic relationship operations, knowledge operations, and goal/task management remain unsupported by the canonical effect validator. Do not approximate these capabilities with generic attributes or `fact.set`.
+- `docs/44-npc-relationship-semantic-acceptance.md` defines fourteen relationship acceptance cases; these are specifications, not executable test evidence.
+- `docs/45-npc-relationship-typed-operation-design.md` proposes a schema-neutral typed operation and carefully separates required dependencies from alternative causal support. It remains a proposal, not an approved schema/API or implemented capability.
 
-The integration seam remains a design boundary only. No actor/purpose/snapshot read filter, initial-knowledge provenance API, persistent NPC belief store, delivery receipt signal, typed relationship effect, or bounded relationship-card projection was established by these core documentation changes. Keep the current fail-closed gate and wait for real production interfaces before writing integration tests that claim end-to-end coverage.
+The integration seam remains a design boundary only. No actor/purpose/snapshot read filter, initial-knowledge provenance API, persistent NPC belief store, delivery receipt signal, typed relationship effect, or bounded relationship-card projection has been verified as integrated. Keep the fail-closed gate and wait for real production interfaces before writing integration tests that claim end-to-end coverage.
