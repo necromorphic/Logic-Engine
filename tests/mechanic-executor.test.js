@@ -88,6 +88,7 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(result.snapshot_identity.template_id, 'test.executor');
   assert.equal(result.snapshot_identity.template_version, '1.0.0');
   assert.equal(typeof result.context_fingerprint, 'string');
+  assert.equal(result.context_policy_version, 'test-visibility-policy-v1');
   assert.equal(typeof result.evaluation_fingerprint, 'string');
   assert.equal(result.commit_authority, 'none');
   assert.equal(typeof result.snapshot_identity.template_hash, 'string');
@@ -188,6 +189,8 @@ test('mechanic evaluation hands off through the ordinary durable proposal lifecy
   assert.equal(proposal.base_world_revision, evaluation.snapshot_identity.world_revision);
   assert.equal(proposal.base_commit_sequence, evaluation.snapshot_identity.commit_sequence);
   assert.equal(proposal.mechanic_execution.snapshot_identity.template_hash, evaluation.snapshot_identity.template_hash);
+  assert.equal(proposal.mechanic_execution.context_policy_version, evaluation.context_policy_version);
+  assert.equal(proposal.mechanic_execution.evaluation_fingerprint, evaluation.evaluation_fingerprint);
   assert.deepEqual(proposal.mechanic_execution.effect_provenance, evaluation.effect_provenance);
   assert.equal(proposal.validation_result.status, 'needs_review');
   assert.equal(engine.getState(worldId).world_revision, 2);
