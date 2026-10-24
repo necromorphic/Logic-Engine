@@ -273,3 +273,17 @@ One further boundary gap was reported to Issue #70: `lineageIsSafe()` checks sou
 Memory acceptance matrix case **MEM-036** now requires rejection of foreign or unproven source world scope before prompt serialization. The approved source-reference schema is still open; this test does not prescribe an invented field/API. NPC owner was asked either to add fail-closed oracle coverage using the eventual approved scope contract or explicitly document and later test the trusted-boundary precondition.
 
 PR #76 remains a proposal pending exact-head CI/test evidence. Memory did not edit NPC files and does not claim its tests passed.
+
+
+## Follow-up checkpoint — NPC PR #76, 2026-10-24
+
+After the previous review note, NPC's latest reported head (d7961d660363418277a0ecbdc6e6fc9013879414) added explicit rejection for missing/unknown epistemic_kind, missing producer metadata, missing lifecycle dimensions, and non-admissible lifecycle states. The current helper source confirms these presence/value gates exist. They validate supplied metadata shape and positive values; they do **not** authenticate the producer, prove that a caller's access outcome is genuine, or create the missing Core authorization boundary.
+
+The remaining concrete cross-block finding is summary source world membership: lineageIsSafe() still checks each source's reference/version/access/freshness but does not compare or require a source world scope. A current-looking source from another world, or one with unproven world membership, can therefore pass this helper's lineage predicate. This remains a source-inspection finding, not an executed failing test.
+
+NPC follow-up acceptance is now narrowed to:
+1. Add a fail-closed pure-oracle case for foreign and missing/unproven lineage world scope using the eventual owner-approved source-reference contract; **or** explicitly state the trusted upstream same-world guarantee as a precondition and add boundary coverage when that boundary exists.
+2. Keep producer/access/lifecycle checks described as consumer-side defense-in-depth, not authentication or an approved Memory API.
+3. Report exact-head CI/test evidence for PR #76. The current reported state has no workflow run for that head; no pass/fail result is established here.
+
+Related acceptance case: **MEM-036**. PR #76 remains draft/unmerged; Memory has not edited NPC files or run the NPC test suite.
