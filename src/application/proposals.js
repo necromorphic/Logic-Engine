@@ -172,7 +172,9 @@ export class ProposalService {
       && evaluation.dependency_manifest.causal_read_set_complete_for_supported_slice === true
       && evaluation.dependency_manifest.mechanic_dependencies_complete === true
       && Array.isArray(evaluation.dependency_manifest.unresolved_sources)
-      && evaluation.dependency_manifest.unresolved_sources.length === 0,
+      && evaluation.dependency_manifest.unresolved_sources.length === 0
+      && Array.isArray(evaluation.dependency_manifest.assumptions)
+      && evaluation.dependency_manifest.assumptions.every((item) => typeof item === 'string' && item.trim()),
     'INCOMPLETE_MECHANIC_DEPENDENCIES', 'Mechanic proposal requires a complete dependency manifest for the supported execution slice.');
     assert(Array.isArray(evaluation.read_set) && Array.isArray(evaluation.causal_links),
       'INVALID_MECHANIC_DEPENDENCY_PROVENANCE', 'Evaluation must include canonical read_set and causal_links.');
