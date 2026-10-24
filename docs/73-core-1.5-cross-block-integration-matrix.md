@@ -18,7 +18,7 @@ This document records observed repository state and integration gates. It does n
 
 ## 2. Current cross-block status
 
-**Status refresh (2026-10-24):** PR #61 (first-slice replay decision) and PR #84 (extension-point audit) are merged as documentation/decision records; PR #62 is merged as a pure evaluator; PR #65 and PR #83 are merged runtime slices with intentionally narrow scopes. Canonical Relationship writes/replay and general NPC/Relationship read authorization are still not implemented.
+**Status refresh (2026-10-24):** PR #61 (first-slice replay decision), PR #84 (extension-point audit), and PR #91 (Relationship domain-side handoff) are merged as documentation/decision records; PR #62 is merged as a pure evaluator; PR #65 and PR #83 are merged runtime slices with intentionally narrow scopes. Canonical Relationship writes/replay and general NPC/Relationship read authorization are still not implemented.
 
 
 | Area | Verified evidence | Current status | Integration consequence |
