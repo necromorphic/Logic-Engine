@@ -236,6 +236,10 @@ export class LogicEngine {
     }
     const policy = config.time_policy;
     if (x.time_mode === 'explicit_skip') {
+      assert(x.event_type === 'time.advance', 'INVALID_TIME_SKIP_EVENT_TYPE',
+        'Explicit skip must be represented by a time.advance event.');
+      assert(x.duration_proposal === undefined || x.duration_proposal === null,
+        'UNEXPECTED_DURATION_PROPOSAL', 'Explicit skip duration is governed by TimePolicy and cannot include an action duration proposal.');
       const seconds = x.time_advance_seconds ?? 0;
       assert(Number.isSafeInteger(seconds) && seconds >= 0, 'INVALID_TIME_ADVANCE', 'time_advance_seconds must be a non-negative integer.');
       assert(seconds * 1000 <= policy.max_skip_duration_ms, 'TIME_ADVANCE_TOO_LARGE', 'Explicit skip exceeds the active World Pack TimePolicy.');
