@@ -651,3 +651,53 @@ test('canonical rollback requires the separate admin credential for every event 
   assert.equal(authorized.status, 200);
   assert.ok((await authorized.json()).invalidated_event_ids.includes(eventId));
 });
+
+test('trusted context registration and proposal creator checks compose without unauthorized mutation', async (t) => {
+  const base = await setup(t, { approvalToken: APPROVAL, internalToken: INTERNAL });
+  assert.equal((await createWorld(base, 'cross-boundary-world')).status, 201);
+
+  const manifestBody = json({ generation_id: 'cross-boundary-generation', base_commit_sequence: 0, base_world_revision: 0, items: [] });
+  const deniedManifest = await fetch(base + '/v1/worlds/cross-boundary-world/context-manifests', {
+    method: 'POST', headers, body: manifestBody,
+  });
+  assert.equal(deniedManifest.status, 403);
+  assert.equal((await deniedManifest.json()).error.code, 'INTERNAL_REQUIRED');
+
+  const registered = await fetch(base + '/v1/worlds/cross-boundary-world/context-manifests', {
+    method: 'POST', headers: { ...headers, 'x-engine-internal-token': INTERNAL }, body: manifestBody,
+  });
+  assert.equal(registered.status, 201);
+  const manifest = (await registered.json()).context_manifest;
+
+  const created = await fetch(base + '/v1/worlds/cross-boundary-world/proposals', {
+    method: 'POST', headers,
+    body: json({
+      idempotency_key: 'cross-boundary-proposal',
+      source_text: 'A proposal bound to a trusted generation.',
+      event: { turn_id: 'cross-boundary-turn', event_type: 'action.completed', generation_id: 'cross-boundary-generation', context_manifest_id: manifest.manifest_id, effects: [] },
+    }),
+  });
+  assert.equal(created.status, 201);
+  const proposal = (await created.json()).proposal;
+  const approved = await fetch(base + '/v1/worlds/cross-boundary-world/proposals/' + proposal.proposal_id + '/approve', {
+    method: 'POST', headers: { ...headers, 'x-approval-token': APPROVAL }, body: '{}',
+  });
+  assert.equal(approved.status, 200);
+
+  const crossAdapterCommit = await fetch(base + '/v1/worlds/cross-boundary-world/proposals/' + proposal.proposal_id + '/commit', {
+    method: 'POST', headers: { ...headers, 'x-adapter-id': 'adapter-b', 'x-adapter-token': ADAPTER_B }, body: '{}',
+  });
+  assert.equal(crossAdapterCommit.status, 404);
+  assert.equal((await crossAdapterCommit.json()).error.code, 'PROPOSAL_NOT_FOUND');
+
+  const beforeOwnerCommit = await fetch(base + '/v1/worlds/cross-boundary-world/state', {
+    headers: { ...headers, 'x-engine-internal-token': INTERNAL },
+  });
+  assert.equal((await beforeOwnerCommit.json()).state.world_revision, 0);
+
+  const ownerCommit = await fetch(base + '/v1/worlds/cross-boundary-world/proposals/' + proposal.proposal_id + '/commit', {
+    method: 'POST', headers, body: '{}',
+  });
+  assert.equal(ownerCommit.status, 200);
+  assert.equal((await ownerCommit.json()).proposal.status, 'committed');
+});
