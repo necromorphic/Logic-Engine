@@ -54,3 +54,51 @@ test('reconciliation refuses to publish current when a provider record is ingest
   assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
   assert.equal((await provider.retrieveCandidates(scope)).candidates.length, 2);
 });
+
+test('reconciliation rechecks provider inventory after the final awaited snapshot read', async (t) => {
+  let provider;
+  let snapshotReads = 0;
+  let injected = false;
+  const scope = { world_id: 'world-final-await', subject_id: 'npc-final-await', purpose: 'npc_decision' };
+  const record = (ref, entity) => ({
+    ...scope,
+    record_ref: ref,
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: entity,
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'memory-index',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: entity, source_version: 'source-v1' }],
+  });
+  const first = record('memory:first-final', 'entity-first-final');
+  const second = record('memory:second-final', 'entity-second-final');
+  provider = new SQLiteMemoryProvider({
+    getSnapshot: async () => {
+      snapshotReads += 1;
+      if (snapshotReads === 2 && !injected) {
+        injected = true;
+        provider.putRecord(second);
+        provider.grantRecord(scope, second.record_ref, second.record_version, true);
+      }
+      return { world_revision: 12, commit_sequence: 6 };
+    },
+    validateSourceVersion: async (candidate) => candidate.source_version === 'source-v1',
+    validateInventory: async () => true,
+  });
+  t.after(() => provider.close());
+
+  provider.grantQuery(scope, true);
+  provider.putRecord(first);
+  provider.grantRecord(scope, first.record_ref, first.record_version, true);
+  await provider.rebuildIndex(scope.world_id);
+
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'stale',
+    'an ingest during the final snapshot await must invalidate the reconciliation pass');
+  await assert.rejects(() => provider.retrieveCandidates(scope), /MEMORY_INDEX_NOT_READY/);
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+  assert.equal((await provider.retrieveCandidates(scope)).candidates.length, 2);
+});
