@@ -1,4 +1,5 @@
 import { EngineError } from '../core/errors.js';
+import { hashRequest } from '../core/request-hash.js';
 import { evaluateMechanicActionConditions, translateMechanicEffectIntents } from '../core/mechanics.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -70,7 +71,7 @@ export class MechanicExecutor {
     // Require the same revision/cursor as the mechanic snapshot to avoid mixing
     // two different world states.
     const entityIds = [...new Set(action.effects
-      .filter((effect) => ['create_entity', 'update_attribute'].includes(effect.kind))
+      .filter((effect) => effect.kind === 'update_attribute')
       .map((effect) => effect.target_ref))];
     let targetEntities = [];
     if (entityIds.length) {
@@ -105,8 +106,11 @@ export class MechanicExecutor {
     }
     if (!object(resolved) || !object(resolved.context)
       || resolved.world_revision !== snapshot.world_revision
-      || resolved.commit_sequence !== snapshot.commit_sequence) {
-      return unknown('AUTHORIZED_CONTEXT_SNAPSHOT_MISMATCH', 'Trusted context must identify the exact world revision and commit sequence used by this evaluation.', identity);
+      || resolved.commit_sequence !== snapshot.commit_sequence
+      || typeof resolved.policy_version !== 'string' || !resolved.policy_version.trim()
+      || !Array.isArray(resolved.knownAbsentPaths ?? [])
+      || !(resolved.knownAbsentPaths ?? []).every((path) => typeof path === 'string' && path.trim())) {
+      return unknown('AUTHORIZED_CONTEXT_SNAPSHOT_MISMATCH', 'Trusted context must identify the exact world revision and commit sequence and policy version used by this evaluation.', identity);
     }
 
     let conditionResult;
@@ -119,7 +123,7 @@ export class MechanicExecutor {
     }
     if (conditionResult.status !== 'true') {
       return {
-        status: conditionResult.status === 'false' ? 'rejected' : 'unknown',
+        status: conditionResult.status === 'false' ? 'no_match' : 'unknown',
         reason_code: conditionResult.reason_code,
         snapshot_identity: identity,
         condition_result: conditionResult,
@@ -148,17 +152,29 @@ export class MechanicExecutor {
       }
     }
 
-    return {
-      status: 'ready',
-      reason_code: null,
+    const contextFingerprint = hashRequest({
+      context: resolved.context,
+      knownAbsentPaths: resolved.knownAbsentPaths ?? [],
+      policy_version: resolved.policy_version,
+    });
+    const evaluationIdentity = {
       snapshot_identity: identity,
       action_id: actionId,
+      context_fingerprint: contextFingerprint,
       condition_result: conditionResult,
       effects: translated.effects,
       effect_provenance: translated.effect_provenance,
+    };
+    return {
+      status: 'ready',
+      reason_code: null,
+      ...evaluationIdentity,
+      evaluation_fingerprint: hashRequest(evaluationIdentity),
+      commit_authority: 'none',
       guarantees: {
         read_only: true,
         context_provider_attested_snapshot: true,
+        context_policy_versioned: true,
         complete_mechanic_dependencies: false,
         proposal_created: false,
         canonical_state_mutated: false,
