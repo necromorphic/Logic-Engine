@@ -88,5 +88,6 @@ The acceptance cases are supported by two authoring contracts:
 - [World Pack relationship dimension template](./05-world-pack-relationship-dimension-template.md) defines the required semantics for every supported relationship dimension without inventing universal dimensions or values.
 - [Stable trait lifecycle](./06-stable-trait-lifecycle.md) defines the default non-mutation rule for stable traits, separates observed behavior from canonical profile, and identifies the conditions for any future trait-development rule.
 - [Semantic traceability and review workflow](./08-semantic-traceability-and-review-workflow.md) maps requirement families to acceptance IDs and defines how to label specification versus implementation evidence.
+- [Per-case acceptance traceability](./09-per-case-acceptance-traceability.md) maps each PERS-SEM case and PERS-TRAIT criterion to its primary reference, closure owner, and evidence status.
 
 These templates improve semantic readiness only. They do not remove the core integration blockers listed above or claim that the production runtime implements the required operations.
