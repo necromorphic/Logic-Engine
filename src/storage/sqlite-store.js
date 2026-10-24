@@ -1888,7 +1888,7 @@ export class SQLiteStore {
         if (!Array.isArray(replacementItems) || replacementItems.length !== pending.length) {
           throw new EngineError('INVALID_PROCESS_RESUME_PLAN', 'Resume must provide exactly one replacement trigger for every pending milestone.', 400);
         }
-        const byMilestone = new Map(replacementItems.map((item) => [item.milestone_id, item]));
+        const byMilestone = new Map(replacementItems.map((item) => [item.milestone.milestone_id, item]));
         for (const milestone of pending) {
           const item = byMilestone.get(milestone.milestone_id);
           if (!item || item.trigger.due_coordinate <= world.game_time_coordinate) {
