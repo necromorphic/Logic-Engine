@@ -1,6 +1,6 @@
 # Core typed Relationship transition runtime slice
 
-Status: merged into `main` through PRs #94–#96, with HTTP auth/retry coverage in #107 and restart/rebuild coverage in #108. Exact-head Runtime tests passed on PR #96 head `79deb588e1f6321826dc3316085aaab6fdb010b7` (run #717), PR #107 head `bff370b920e32013f17a036eda9450c9eafd1066` (run #754), and PR #108 head `3db9c1484fedf4162023b93acc8920269eff6e10` (run #761). This is the first privileged canonical-write slice; it does not establish NPC/model-facing Relationship read or write authorization.
+Status: merged into `main` through PRs #94–#96, with HTTP auth/retry coverage in #107 and restart/rebuild coverage in #108. Exact-head Runtime tests passed on PR #96 head `79deb588e1f6321826dc3316085aaab6fdb010b7` (run #717), PR #107 head `bff370b920e32013f17a036eda9450c9eafd1066` (run #754), and PR #108 head `3db9c1484fedf4162023b93acc8920269eff6e10` (run #761). PR #117 head `21dde3c21fd323fecc22f7c187e191ec63815a37` (run #795) and PR #124 head `0208cf2d8d98ca798aaf181d31a91bc768aaf97c` (run #827). This is the first privileged canonical-write slice; it does not establish NPC/model-facing Relationship read or write authorization.
 
 ## Operation and authority
 
@@ -63,3 +63,5 @@ The operation treats evidence references as provenance inputs and validates thei
 ## Additional verification after the first slice
 
 The current-main `tests/relationship-transition-core.test.js` has 17 named tests (blob `1d4e41be224419d79d3179542504f5ba1e95eecc`). PR #107 covers missing/wrong/standalone admin credential denial and HTTP idempotent retry without a second event. PR #108 proves the directed projection survives SQLite close/reopen and deterministic rebuild, and that the trusted state read returns a composite freshness marker across rollback. PR #117 proves explicit neutral, cleared, and unset remain distinct across replay (exact-head Runtime run #795). These remain Core-internal/privileged guarantees; they do not add an NPC-facing read or write capability.
+
+The merged test matrix additionally verifies explicit neutral vs cleared vs unset, preservation of unrelated dimensions under partial patch, atomic rejection of a mixed valid/invalid patch, and rejection of an idempotency key reused with a different payload.
