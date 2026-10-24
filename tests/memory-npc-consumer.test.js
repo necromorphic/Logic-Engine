@@ -281,6 +281,31 @@ test('Memory provider must supply all trusted host callbacks; no default policy 
 });
 
 
+test('content field configuration must match fields the Core read boundary can disclose', (t) => {
+  const { consumer } = setup(t);
+  assert.ok(consumer);
+  assert.throws(() => new MemoryNpcConsumer({
+    authorizedReadService: { readEntityFields() {} },
+    actorBindingService: { resolve() {} },
+    memoryProvider: {
+      authorizeQuery() {},
+      retrieveCandidates() {},
+      authorizeCandidate() {},
+    },
+    contentFields: ['display_name'],
+  }), /trusted field allowlist/);
+  assert.throws(() => new MemoryNpcConsumer({
+    authorizedReadService: { readEntityFields() {} },
+    actorBindingService: { resolve() {} },
+    memoryProvider: {
+      authorizeQuery() {},
+      retrieveCandidates() {},
+      authorizeCandidate() {},
+    },
+    contentFields: ['attributes.'],
+  }), /trusted field allowlist/);
+});
+
 test('actor binding is checked before query authorization even for complete-empty results', async (t) => {
   const { consumer, provider, setCandidates } = setup(t);
   setCandidates([]);
