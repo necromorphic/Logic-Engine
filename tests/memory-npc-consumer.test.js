@@ -7,6 +7,7 @@ import { AuthorizedReadService } from '../src/application/authorized-read-servic
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 
 function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandidate = true, completeness = 'complete' } = {}) {
+  let contentVisible = allowContent;
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const bindings = new ActorBindingService(engine);
@@ -39,7 +40,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
     engine,
     bindings,
     (context, entity, field) => field === 'entity_id'
-      || (field === 'attributes.public_note' && allowContent),
+      || (field === 'attributes.public_note' && contentVisible),
   );
   const scope = { world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' };
   const snapshot = engine.getSnapshot('memory-npc-world');
@@ -92,6 +93,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
     store, engine, consumer, provider, scope, snapshot,
     setCandidates(next) { candidateList = next; },
     getLastCandidateAuthorization() { return lastCandidateAuthorization; },
+    revokeContent() { contentVisible = false; },
     candidate,
   };
 }
@@ -398,4 +400,21 @@ test('complete-empty is ready only when the Memory index explicitly reports read
   assert.deepEqual(empty.admitted, []);
   assert.deepEqual(empty.candidates, []);
   assert.equal(empty.snapshot, null);
+});
+
+
+test('Core source-field revocation after a prior admission is rechecked on the next Memory-to-NPC read', async (t) => {
+  const { consumer, revokeContent } = setup(t);
+  const first = await consumer.retrieveForNpc(request());
+  assert.equal(first.status, 'ready');
+  assert.equal(first.candidates.length, 1);
+  assert.equal(first.candidates[0].content['attributes.public_note'], 'authorized source text');
+
+  revokeContent();
+  const revoked = await consumer.retrieveForNpc(request());
+  assert.equal(revoked.status, 'ready');
+  assert.deepEqual(revoked.admitted, []);
+  assert.deepEqual(revoked.candidates, []);
+  assert.equal(JSON.stringify(revoked).includes('authorized source text'), false);
+  assert.equal(JSON.stringify(revoked).includes('must never leak'), false);
 });
