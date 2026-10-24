@@ -2048,6 +2048,14 @@ export class SQLiteStore {
         .run(worldId, nextRevision, 'time.trigger.cancelled', triggerId, enc({
           reason, previous_claimed_by_operation_id: row.claimed_by_operation_id,
         }), stamp);
+      const processMilestone = this.db.prepare("SELECT process_id,milestone_id FROM world_process_milestones WHERE world_id=? AND trigger_id=?")
+        .get(worldId, triggerId);
+      if (processMilestone && !['process_paused','process_cancelled'].includes(reason)) {
+        this.db.prepare("UPDATE world_process_milestones SET status='needs_review',updated_at=? WHERE world_id=? AND process_id=? AND milestone_id=?")
+          .run(stamp, worldId, processMilestone.process_id, processMilestone.milestone_id);
+        this.db.prepare("UPDATE world_processes SET status='needs_review',error_json=?,updated_at=? WHERE world_id=? AND process_id=?")
+          .run(enc({ code: 'PROCESS_TRIGGER_CANCELLED_EXTERNALLY', trigger_id: triggerId, reason }), stamp, worldId, processMilestone.process_id);
+      }
       return { ...timeTrigger(this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
         .get(worldId, triggerId)), idempotent_replay: false };
     });
@@ -2286,6 +2294,7 @@ export class SQLiteStore {
       const ids = [...invalid];
       const update = this.db.prepare('UPDATE world_events SET validity=?,rollback_id=? WHERE world_id=? AND event_id=?');
       for (const eventId of ids) update.run(eventId === rootId ? 'retracted' : 'invalidated', rollbackId, id, eventId);
+      this.markProcessRollback(id, rootId);
       this.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(revision, id);
       this.db.prepare('INSERT INTO rollbacks(rollback_id,world_id,root_event_id,invalidated_event_ids_json,world_revision,created_at,idempotency_key) VALUES(?,?,?,?,?,?,?)')
         .run(rollbackId, id, rootId, enc(ids), revision, createdAt, key);
