@@ -12,6 +12,7 @@ const ENTITY_STATUSES = new Set(['active', 'inactive', 'destroyed', 'unknown']);
 const TOP_LEVEL_FIELDS = new Set(['effect_id', 'kind', 'target_ref', 'payload', 'source_refs', 'caused_by']);
 const MAX_BATCH = 128;
 const MAX_ID = 200;
+const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function fail(code, message, details = undefined) {
   throw new EngineError(code, message, 400, details);
@@ -72,6 +73,9 @@ function cloneJson(value, label, active = new Set()) {
     object(value, label);
     result = {};
     for (const [key, item] of Object.entries(value)) {
+      if (UNSAFE_OBJECT_KEYS.has(key)) {
+        fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' contains an unsafe object key: ' + key);
+      }
       Object.defineProperty(result, key, { value: cloneJson(item, label + '.' + key, active), enumerable: true, writable: true, configurable: true });
     }
   }
@@ -188,8 +192,8 @@ function translateOne(effect, index) {
  * Pure and all-or-nothing: this function never reads or mutates world state.
  */
 export function translateMechanicEffectIntents(intents) {
-  if (!Array.isArray(intents) || intents.length > MAX_BATCH) {
-    fail('INVALID_MECHANIC_EFFECT_INTENT', 'intents must be an array of at most ' + MAX_BATCH + ' items.');
+  if (!Array.isArray(intents) || intents.length < 1 || intents.length > MAX_BATCH) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', 'intents must be a non-empty array of at most ' + MAX_BATCH + ' items.');
   }
 
   const seenIds = new Set();
