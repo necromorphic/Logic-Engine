@@ -177,3 +177,65 @@ See `docs/42-npc-relationship-state-contract-proposal.md` for REL-001–012. The
 | REL-012 — Author edit is attributed | Core audit entries exist for supported operations | Distinguish authored correction from an in-world event through an approved operation | Blocked: author relationship-edit boundary absent |
 
 Do not create a parallel relationship database, ID/revision scheme, causal graph, rollback engine, or card-owned writable state to satisfy these tests.
+
+
+## 11. Relationship test order after core-owner decision (2026-10-24)
+
+The core owner's five-point response is recorded in PR #38 comment [6377468310](https://github.com/necromorphic/Logic-Engine/pull/38#issuecomment-6377468310) and in docs 42–43. This section turns that response into a dependency-ordered test plan; it does not claim that any missing boundary now exists.
+
+### Gate A — typed canonical operation and validation
+
+Before relationship-transition tests can be executable, the core must define and validate a typed relationship record/effect on the canonical event/revision/audit path. Required tests:
+- reject malformed relationship effects and invalid dimension/value combinations;
+- preserve directional identity (A→B is not B→A);
+- allow dimension-level partial updates without rewriting unspecified dimensions;
+- preserve unknown/unset separately from explicit domain-defined neutral;
+- distinguish author-initial/imported provenance from an in-world transition;
+- reject a committed participant that is not resolved to a canonical entity_id;
+- prove that unresolved authoring/import references do not create entities, NPCs, or cards.
+
+Generic entity.update and fact.set tests are not substitutes for this contract.
+
+### Gate B — consistent snapshot plus trusted actor/purpose filter
+
+PR #45 currently proposes a bounded, transaction-consistent internal snapshot read and remains open/unmerged. Even after integration, its raw canonical output is not an NPC/player read contract. Before REL-005, REL-007, or actor-relative decision-context tests can pass, define and test a core-owned filter scoped to the actor, purpose, and exact snapshot marker:
+- two actors receive only the relationship/context data authorized for each;
+- author-reserved or otherwise restricted material is excluded before it reaches a model/player boundary;
+- unknown, withheld, missing, and explicit neutral remain distinguishable where the contract permits that distinction;
+- the read and returned relationship summary are tied to one consistent (world_revision, commit_sequence) view;
+- character-card summary is bounded, derived, read-only, and does not expose raw records or become a second writable source of truth.
+
+A context manifest, prompt inclusion, vector retrieval, or successful raw snapshot read does not satisfy this gate.
+
+### Gate C — causal support and multi-cause rollback
+
+Before REL-008/009 can be considered implemented, relationship transitions must carry valid canonical source/cause references and the core rollback path must define reconciliation of support from remaining valid causes. Required tests:
+- invalidating the sole valid cause removes the dependent relationship transition;
+- invalidating one of multiple independent causes preserves the transition while another valid cause remains;
+- invalidating the final remaining cause removes it;
+- unrelated relationship dimensions and independent transitions survive;
+- rollback does not create an NPC-specific causal graph/log or automatically rewrite current belief merely because canonical truth changed.
+
+Existing world-event rollback tests provide adjacent coverage only; they do not prove relationship reconciliation.
+
+### Gate D — authoring/audit and end-to-end acceptance
+
+Once Gates A–C exist, exercise REL-001–012 through the real agreed interfaces and storage/transaction behavior. In particular:
+- an author edit is auditable as authored correction/initialization, not misrepresented as an in-world event;
+- missing rationale remains unresolved rather than fabricated;
+- scene co-presence alone creates no transition;
+- the card projection is read-only;
+- no relationship change implies reciprocal feeling, consent, knowledge acquisition, or secret access.
+
+Tests must not use mocks to simulate a missing production boundary. No public API, SQLite schema, runtime, or NPC implementation work is authorized by this test map.
+
+### Current gate status
+
+| Gate | Status at this branch review | Reason |
+|---|---|---|
+| A — typed canonical relationship operation | Blocked | No suitable relationship-specific effect/record was found in inspected core primitives; exact contract remains to be designed. |
+| B — authorized relationship read/projection | Blocked | PR #45 is open/unmerged and raw-only; no verified actor/purpose/snapshot relationship filter exists. |
+| C — multi-cause rollback reconciliation | Blocked | Current generic rollback is insufficient to promise relationship support reconciliation; no relationship-specific causal mapping/tests verified. |
+| D — full acceptance through real interfaces | Blocked | Depends on A–C and an approved author-edit/provenance boundary. |
+
+Do not interpret this table as a request to implement all gates in the NPC branch. Core-owned interfaces and cross-block approval must precede runtime/schema changes.
