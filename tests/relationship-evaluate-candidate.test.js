@@ -788,3 +788,74 @@ test("rejects empty or duplicate values in a dimension domain", () => {
     assert.equal(result.reason, "dimension_rule_incomplete");
   }
 });
+
+test("supports all special dimension keys as own data keys for set and clear", () => {
+  const dimensions = ["__proto__", "constructor", "prototype"];
+  const makeRules = (operation) => Object.fromEntries(dimensions.map((dimension) => [
+    dimension,
+    {
+      values: ["low"],
+      allowClear: true,
+      transitions: operation === "set"
+        ? [{ operation: "set", from: null, to: "low" }]
+        : [{ operation: "clear", from: "low", to: null }],
+    },
+  ]));
+
+  for (const dimension of dimensions) {
+    const setPatch = Object.fromEntries([[dimension, "low"]]);
+    const setResult = evaluateRelationshipCandidate({
+      ...base,
+      currentValues: {},
+      patch: setPatch,
+      dimensionRules: makeRules("set"),
+    });
+
+    assert.equal(setResult.status, "candidate", `set ${dimension}`);
+    assert.equal(Object.hasOwn(setResult.patch, dimension), true, `own set key ${dimension}`);
+    assert.equal(setResult.patch[dimension], "low", `set value ${dimension}`);
+    assert.equal(Object.getPrototypeOf(setResult.patch), Object.prototype, `set prototype ${dimension}`);
+
+    const clearPatch = Object.fromEntries([[dimension, { operation: "clear" }]]);
+    const clearResult = evaluateRelationshipCandidate({
+      ...base,
+      currentValues: Object.fromEntries([[dimension, "low"]]),
+      patch: clearPatch,
+      dimensionRules: makeRules("clear"),
+    });
+
+    assert.equal(clearResult.status, "candidate", `clear ${dimension}`);
+    assert.equal(Object.hasOwn(clearResult.patch, dimension), true, `own clear key ${dimension}`);
+    assert.deepEqual(clearResult.patch[dimension], { operation: "clear" }, `clear operation ${dimension}`);
+    assert.equal(Object.getPrototypeOf(clearResult.patch), Object.prototype, `clear prototype ${dimension}`);
+  }
+});
+
+test("preserves all special dimension keys together in a mixed set patch", () => {
+  const dimensions = ["__proto__", "constructor", "prototype"];
+  const patch = Object.fromEntries(dimensions.map((dimension) => [dimension, "low"]));
+  const dimensionRules = Object.fromEntries(dimensions.map((dimension) => [
+    dimension,
+    {
+      values: ["low"],
+      allowClear: false,
+      transitions: [{ operation: "set", from: null, to: "low" }],
+    },
+  ]));
+
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    currentValues: {},
+    patch,
+    dimensionRules,
+  });
+
+  assert.equal(result.status, "candidate");
+  assert.deepEqual(result.changedDimensions, dimensions);
+  for (const dimension of dimensions) {
+    assert.equal(Object.hasOwn(result.patch, dimension), true, `own mixed key ${dimension}`);
+    assert.equal(result.patch[dimension], "low", `mixed value ${dimension}`);
+  }
+  assert.equal(Object.getPrototypeOf(result.patch), Object.prototype);
+});
+
