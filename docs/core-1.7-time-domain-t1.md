@@ -36,6 +36,13 @@ The coordinate origin must be explicit per world when bridging the current `init
 - `intervalContains(interval, coordinate)`: apply `(from, to]` semantics.
 - `compareTimeCoordinates(left, right)`: deterministic comparison.
 
+### `src/time/iso-compat.js`
+
+- `isoInstantToCoordinate(isoInstant, epochIsoInstant)`: translate an ISO date-time to an integer offset from an explicit ISO anchor.
+- `coordinateToIsoInstant(coordinate, epochIsoInstant)`: translate an offset back to canonical ISO UTC.
+
+The adapter requires explicit timezone information and at most millisecond precision, rejects invalid date/time components, and enforces both safe-integer and platform date limits. It is a pure compatibility boundary only; it is not connected to runtime persistence.
+
 ### `src/time/calendar.js`
 
 - `projectFixedCalendar(coordinate, definition)`: project a coordinate through a declarative fixed-layout calendar.
@@ -59,6 +66,7 @@ The function rejects malformed definitions and unsafe arithmetic rather than sil
 - Negative coordinates and pre-epoch calendar projection are covered.
 - Seconds-to-unit conversion is exact for supported inputs and rejects unsafe results.
 - Interval boundaries and zero-length intervals are covered.
+- ISO conversion requires an explicit anchor, preserves millisecond precision, and rejects ambiguous or invalid inputs.
 - Fixed-layout calendar projection supports non-standard month lengths, weekday cycles, non-standard day lengths, and explicit holidays.
 - Invalid calendar definitions fail deterministically.
 - Functions are pure and do not use `Date.now()`, timezone, locale, database, network, or mutable shared state.
