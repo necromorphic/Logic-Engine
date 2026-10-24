@@ -337,3 +337,31 @@ test('stale Memory-owned freshness and rebuilding index state are non-ready, not
     assert.deepEqual(result.candidates, []);
   }
 });
+
+
+test('complete-empty is ready only when the Memory index explicitly reports ready', async (t) => {
+  const { consumer, provider, setCandidates } = setup(t);
+  setCandidates([]);
+  const originalRetrieve = provider.retrieveCandidates;
+  provider.retrieveCandidates = async () => ({
+    ...(await originalRetrieve()),
+    index_health: 'rebuilding',
+  });
+
+  const rebuilding = await consumer.retrieveForNpc(request());
+  assert.equal(rebuilding.status, 'non_ready');
+  assert.equal(rebuilding.reason, 'memory_index_not_ready');
+  assert.deepEqual(rebuilding.admitted, []);
+  assert.deepEqual(rebuilding.candidates, []);
+
+  provider.retrieveCandidates = async () => ({
+    ...(await originalRetrieve()),
+    index_health: 'ready',
+  });
+  const empty = await consumer.retrieveForNpc(request());
+  assert.equal(empty.status, 'ready');
+  assert.equal(empty.reason, null);
+  assert.deepEqual(empty.admitted, []);
+  assert.deepEqual(empty.candidates, []);
+  assert.equal(empty.snapshot, null);
+});
