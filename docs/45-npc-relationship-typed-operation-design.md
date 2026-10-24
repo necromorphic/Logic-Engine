@@ -69,13 +69,9 @@ The existing event-level dependency mechanism is appropriate when an event truly
 
 The relationship-domain representation must make it possible to identify which valid event/effect establishes or supports each resulting dimension state. Two independent events that each legitimately change or support a dimension must remain separately attributable in canonical history.
 
-The core must decide which representation best fits its architecture:
+**First-slice recommendation from the core review:** use replayable, independently attributable typed relationship effects only where replaying surviving valid transitions is semantically correct for the active relationship domain. Keep genuinely required causal dependencies separate from the fact that a prior event merely provides evidence.
 
-- **Replayable independent typed effects:** each event carries its own typed relationship operation, and the canonical projector recomputes the result from surviving valid events in deterministic order. This is sufficient only where the domain's transition semantics make replay of the surviving operations semantically correct.
-- **Explicit alternative-support records:** where a resulting relationship conclusion is supported by several independent sources without each source being a separate state-changing transition, the canonical typed relationship representation must preserve the alternative support set and define how it is recomputed after invalidation.
-- **A bounded combination:** use ordinary causal dependencies for genuinely required inputs and typed relationship support metadata for independent alternatives, with one canonical rebuild path.
-
-Do not select among these options merely because one is easiest to store. The choice must be validated against domain semantics and rollback tests. A generic engine must not invent what makes evidence “sufficient”; the relationship/World Pack contract must define the transition or support rule.
+Do not implement generic alternative-support aggregation in the first slice. Where the intended meaning is “this conclusion remains justified by any one of several independent sources,” that case remains unsupported until the relationship/World Pack contract defines sufficiency and a typed support representation plus core-owned reducer/reconciliation rule is specified and tested. The core must not infer sufficiency from the number of source IDs.
 
 ### 5.3 Required rollback behavior
 
@@ -138,14 +134,24 @@ Before runtime integration is approved, the real production path must demonstrat
 
 Mocks for absent production interfaces may support unit design but must not be reported as integration passes.
 
-## 9. Decision required before implementation
+## 9. Core review disposition and remaining gates
 
-The main architecture chat should review these design choices:
+The core-owner review in PR #38 comment 6377634483 resolves the following contract direction:
 
-- preferred typed-effect/domain-record pattern and canonical projector hook;
-- whether independent relationship supports can be represented with the current causal model or require a core-owned extension;
-- the exact distinction between required dependencies and alternative support in validation and rollback;
-- the trusted actor/purpose read-filter boundary and bounded relationship-summary contract;
-- the authorized initialization/import/correction boundary and audit representation.
+- One typed relationship effect represents one directed pair and one logical transition; its patch contains only dimensions being changed.
+- Omitted patch keys mean unchanged. Clearing a dimension to unknown requires an explicit operation/value distinct from omission.
+- The canonical effect validator owns structural invariants and safe canonical references; the active World Pack/domain validator owns dimension vocabulary, value types/ranges, explicit neutral values, and domain transition restrictions. Missing/unsupported domain rules fail closed.
+- Trusted operation provenance must be separate from caller-controlled relationship payload. Author-initial/imported state, author correction, and in-world transition must remain distinct, but a string field cannot grant authoring authority.
+- The current `caused_by`/`depends_on` model is not an OR-support model. Do not encode alternative supports as a list of ordinary required parents.
+- Accepted transition commit, projection update, audit, idempotency result, and revision changes must share the existing canonical atomic commit boundary. Rejected operations must not partially mutate canonical projection, revision, commit sequence, committed events, or world-commit audit.
+- Relationship projection after rollback must be deterministically rebuilt from surviving valid canonical events. Historical audit evidence remains intact.
 
-Until those are settled, keep this document as a schema-neutral proposal. No runtime, API, schema, or `main` change is implied or authorized.
+**Still blocking implementation:**
+
+1. The exact canonical typed-effect/projector hook must be checked against the target core branch and its effect architecture before a schema or runtime patch is proposed.
+2. The trusted authoring/import/correction command and audit boundary is not established in the current runtime. Do not simulate it with direct database writes or caller-supplied origin labels.
+3. The first slice must explicitly exclude generic alternative-support aggregation. Test replayable independent transitions and required dependencies separately; alternative-support cases remain unsupported until a domain reducer is specified.
+4. The actor/purpose/snapshot read result must preserve `known`, `unknown/unset`, `withheld`, and `incomplete/unsupported` as distinct outcomes. The snapshot and card-projector PRs are separate, unmerged dependencies; neither is authorization.
+5. Tests must exercise the real canonical commit, audit, idempotency, projection, rollback, and consumer-filter paths. Design mocks are not integration evidence.
+
+Until these gates are satisfied, this remains a schema-neutral design proposal. No runtime, API, schema, storage, character-card, prompt, or `main` change is implied or authorized.
