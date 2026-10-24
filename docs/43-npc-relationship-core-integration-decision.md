@@ -232,3 +232,12 @@ The newly available core documentation sharpens—but does not remove—the rela
 - `docs/31-mechanic-effect-intent-support-matrix.md` states that generic relationship operations are unsupported by the current canonical effect validator. Do not map relationship changes to generic attributes or `fact.set` as a workaround.
 
 PR #45 remains open/unmerged and provides, at most, a candidate consistent raw snapshot read. PR #32 remains open/unmerged and its candidate card projector does not yet consume a bounded relationship summary. The relationship implementation gate therefore remains closed until the core defines and verifies the typed canonical write/effect, participant resolution, authorized actor/purpose/snapshot read boundary, bounded read-only projection input, and rollback behavior under the actual causal guarantees. This addendum is documentation-only and does not authorize runtime, API, schema, storage, or card-projection changes.
+
+
+## 14. Typed-operation design proposal prepared (2026-10-24)
+
+The schema-neutral design proposal is now documented in [docs/45-npc-relationship-typed-operation-design.md](https://github.com/necromorphic/Logic-Engine/blob/feat/npc-subsystem/docs/45-npc-relationship-typed-operation-design.md).
+
+It separates effect transitions, required causal dependencies, alternative support/evidence, and audit provenance. This distinction is necessary because the current event-level `caused_by` handling does not express “any one independent source is sufficient”: an invalidated referenced parent can invalidate the child event.
+
+The proposal leaves the exact effect shape and causal mechanism open for main architecture review. It does not authorize runtime or schema changes. The multi-cause acceptance cases in docs/44 remain blocked until the approved production representation and rollback behavior are implemented and tested.
