@@ -244,3 +244,70 @@ Core has approved the semantics, not these candidate field names or a concrete i
 5. The actual final disclosure/serialization boundary and coordinated revocation mechanism; no such mechanism is claimed to exist.
 
 Only after Core approves/revises this exact mapping should Host + Provider submit the implementation-level contract. No runtime integration, field, API, schema, store, cursor, journal, or vectorization change has been made by this follow-up. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+## Host implementation-shaped review candidate after Core #140 (24 Oct 2026)
+
+**Purpose:** prepare the Host-owned second-review artifact requested in coordinator comment [#258](https://github.com/necromorphic/Logic-Engine/issues/258#issuecomment-6388224191). This is a code-level change plan against pinned ST source, not an applied SillyTavern patch and not approval to ship the candidate fields. The canonical cross-block contract remains Provider mapping Section 11. Core must review the exact implementation diff before the candidate field placement is implemented or wired. This repository integration has read-only access to `SillyTavern/SillyTavern`; no upstream ST source files were changed.
+
+### 12.1 Exact candidate mutation sites
+
+Target source is exactly SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
+
+| Change | Candidate minimal code delta | Source anchor | Review status |
+|---|---|---|---|
+| ID generator | Reuse existing imported `uuidv4` in `public/script.js`; no new dependency and no timestamp/index/hash fallback. Helper would allocate IDs only at first creation of a logical message or immutable version. | `public/script.js` already imports `uuidv4` (currently used for chat metadata integrity). | Proposed; Core approval required. |
+| New user message | Set `logic_engine_message_id: uuidv4()` in the `message` object created by `sendMessageAsUser()`, before insertion/save; this covers both append and `insertAt` because both use the same object. | [sendMessageAsUser, pinned source](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L231900-L232000) | Source-inspected; slash-command paths that call this function inherit the ID, but direct insertion paths still require audit. |
+| New assistant/group greeting | Set a logical message ID in `getFirstMessage()`; if alternate greetings create `swipes[]`, assign a distinct version ID to each `swipe_info[]` entry at construction. | [getFirstMessage, pinned source](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L301950-L302040) | Proposed; group greeting is constructed here, but group-specific mutation paths still require runtime proof. |
+| New generated assistant message | Set a logical message ID when `saveReply()` creates `newMessage`; when it initializes `swipes[0]` and `swipe_info[0]`, assign the first version ID. When adding each additional swipe, assign a fresh version ID to its matching metadata entry. Do not assign a new logical message ID on `type === 'swipe'`. | [saveReply and swipe metadata, pinned source](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L6642-L6820) | Proposed; exact code diff not yet applied. |
+| Swipe metadata alignment | Extend `ensureSwipes()` only to validate the new metadata fields. It may preserve already-valid IDs but must not fabricate trusted lineage for legacy versions. A missing/duplicate ID marks the source non-ready; any eventual migration must be explicit, collision-checked, saved, and reconciled before admission. | [ensureSwipes, pinned source](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L6833-L6905) | Proposed; silent backfill is rejected. |
+| Active version | No new active-ID field. Resolve the selected durable version ID from `message.swipe_info[message.swipe_id].logic_engine_version_id`; existing `swipe_id` remains a transient array position only. | Existing `swipe_id`, `swipes[]`, and `swipe_info[]` handling. | Proposed; requires invariant tests after reindex/deletion. |
+| Edit | Before `updateMessage(div)`, snapshot the exact active version ID and synchronize the old visible message into its current swipe slot. After the edit succeeds, append a new immutable version to `swipes[]`/`swipe_info[]`, set its parent to the exact prior active version ID, then set `swipe_id` to the new slot. Save before emitting any event that consumers might interpret as persisted. If any step/save fails, withhold the edited version from capture and mark the scope non-ready. | [messageEditDone mutates before MESSAGE_EDITED, pinned source](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L8397-L8435) | **Needs explicit Core review:** this changes native edit behavior into an additional swipe/version and needs compatibility review with ST edit UX. |
+| Delete one swipe | Resolve and snapshot `message.logic_engine_message_id` and the exact `swipe_info[swipeId].logic_engine_version_id` before the first splice. Preserve the existing ST deletion behavior; emit/capture a tombstone only from that pre-mutation snapshot and only after approved handoff semantics exist. | [deleteSwipe, pinned source](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L9339-L9408) | Source-inspected; no Provider caller is wired. |
+| Delete message/tool-call cascade | Before the first splice, snapshot the logical ID and all retained version IDs for every message in `messageIds`. This still cannot enumerate versions physically removed earlier; therefore it cannot satisfy whole-message tombstone completeness alone. | [deleteMessage, pinned source](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L1639-L1700) | **BLOCKED for complete retraction** without authoritative historical inventory. |
+| Reload/save | Existing chat serialization should preserve plain object properties if they are included in the saved object, but this is only a source-level hypothesis until verified for single chats, group chats, exports/imports, and Termux restart. | [single chat load](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js#L7634-L7675); [group chat load/save](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/scripts/group-chats.js#L260-L322) | Not runtime-tested. |
+
+### 12.2 Explicit copy/branch/import/restore policy proposal
+
+This is a proposed policy for Core to accept/revise, not implemented behavior:
+
+- Ordinary save, chat rename/move, reload, and restart of the same bound conversation: preserve logical-message IDs, version IDs, and parent links exactly.
+- Selecting another swipe: preserve all IDs; change only native `swipe_id`.
+- Edit: create a new version ID; retain the previous version and set the new version's parent to the exact previously active version ID. Do not overwrite/rebind the old version.
+- Copy/branch/import into a different conversation scope: do not silently treat copied IDs as authoritative for the destination. Either remap all logical/version IDs as a new source lineage under a Core-approved migration rule, or keep that destination NON_READY until a reviewed migration/reconciliation establishes uniqueness and lineage. No source-copy relation field is proposed.
+- Restore/rollback: preserve the bytes/IDs in the restored snapshot, but invalidate currentness for the affected scope until a fresh authoritative full reconciliation establishes whether post-snapshot versions/deletions were lost. Never infer currentness from timestamps or maximum IDs.
+- Legacy records missing IDs, duplicated IDs, or misaligned `swipes[]`/`swipe_info[]`: no trusted automatic historical lineage. Keep them NON_READY until an approved migration establishes unique identities and documents that pre-existing removed versions cannot be recovered from the current file.
+- ID collision with different content or ancestry: hard conflict; do not overwrite or rebind; withhold affected scope.
+
+### 12.3 Inventory/currentness finding — no qualifying existing mechanism identified
+
+The pinned ST chat file stores currently retained messages and retained swipes. `deleteSwipe()` physically splices the selected swipe and its metadata; `deleteMessage()` physically splices messages (including its tool-call deletion cascade). The inspected lifecycle events do not establish a completeness-guaranteed historical change feed. `getChat()`/group load restore the stored object state, not deleted history. Therefore, from the existing source inspected here, Host cannot attest all previously deleted version identities or prove that no lifecycle event was missed, no rollback occurred, and enumeration remained consistent during concurrent mutation.
+
+No existing authoritative inventory mechanism has been found in the pinned ST paths. **Inventory = NON_READY.** This is not fixed by adding the three candidate IDs: those IDs identify retained objects but do not preserve identities after physical deletion. No journal, cursor, tombstone ledger, store, API, or outbox is proposed as an implicit fix; any such mechanism requires a separate explicit contract and Core approval.
+
+### 12.4 Exact acceptance tests for the implementation diff
+
+The implementation diff must add automated tests in the ST repository where its existing test harness can exercise these pure identity operations, or a narrowly scoped test module if that is the only available harness. Do not count a mocked event listener as persistence proof.
+
+1. **Construction:** user, generated assistant, first-message/alternate-greeting and group-message construction each create one logical ID; each distinct retained version gets a unique version ID.
+2. **Persistence:** serialize and deserialize a representative chat object; all IDs and parent links survive byte-for-byte; repeated save/load does not regenerate IDs.
+3. **Swipe selection:** change `swipe_id` only; active durable version resolves through `swipe_info[swipe_id]`; every other version ID remains unchanged.
+4. **Edit:** snapshot old active version; edit creates a new version with a distinct ID and exact parent; old content and ID remain available; save failure does not publish a ready capture.
+5. **Delete swipe:** target ID is captured before both splices; deletion of first/middle/last swipe leaves all remaining IDs attached to their original content.
+6. **Delete message/cascade:** all currently retained IDs are snapshotted before the first splice; test must separately demonstrate that previously deleted versions cannot be recovered from the current chat object, so complete whole-message retraction remains blocked.
+7. **Collision:** duplicate message/version ID within a bound source or same tuple with different payload yields a hard conflict and no silent rebind.
+8. **Legacy/import/restore:** missing IDs and ambiguous ancestry are NON_READY; restore invalidates currentness; copied/imported scope does not silently reuse source authority.
+9. **Android/Termux:** close chat, restart ST, reopen and compare persisted identities; repeat group chat and a legacy chat. Status stays **NOT TESTED** until performed on the pinned phone installation.
+10. **Inventory and final disclosure:** remain blocked tests until an authoritative inventory mechanism and actual serializer/outbound path are identified and approved. A test of Provider-local recheck is not a substitute.
+
+Evidence labels for this artifact:
+- **SOURCE-INSPECTED:** the pinned source anchors in §12.1 and physical deletion behavior in §12.3.
+- **FIXTURE-TESTED:** no new Host identity tests have been run in this artifact.
+- **RUNTIME-OBSERVED:** prior redacted diagnostics in Host issue #258 establish only sampled lifecycle event families.
+- **REAL-RUNTIME-TESTED:** no identity persistence test on Android/Termux; no complete inventory test; no final disclosure race test.
+
+### 12.5 Requested second review
+
+Core review is requested on the exact candidate field placement and mutation semantics in §12.1, especially edit-as-new-swipe compatibility; the copy/branch/import/restore policy in §12.2; and the hard NON_READY inventory finding in §12.3. This is a review artifact, not an applied patch. The integration does not have write access to the upstream ST repository, so it cannot submit a SillyTavern code branch from this environment. If Core approves the implementation shape, the actual patch must be applied and tested in the pinned ST checkout before a production caller is considered.
+
+**Release gate unchanged:** no candidate fields or runtime handoff implemented; production Memory→NPC remains **DISABLED / FAIL-CLOSED**; existing vectorization/remote-store code is untouched.
