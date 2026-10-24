@@ -397,3 +397,54 @@ Please mark each item **ACCEPT / REJECT / REVISE**:
 7. The acceptance criteria and required evidence labels in §11.3.
 
 **Release state:** production Memory→NPC remains **DISABLED / FAIL-CLOSED**. No implementation of the candidate fields or any new API/schema/store/journal/cursor/outbox is authorized by this proposal. Existing Ollama vectorization/remote-store path is untouched.
+
+
+### 11.5 Provider-only operation mapping after Core's conditional semantic approval (24 Oct 2026)
+
+This section is the Provider-owned implementation-shaped mapping requested by coordinator ruling in issue #181 comment 6388226147. It maps the already-existing draft operations only. It does not approve or add a public endpoint, new schema, store, journal, cursor, outbox, Host caller, or production wiring.
+
+#### Approved storage tuple and trust boundary
+
+The Provider's existing raw-capture key is `(world_id, conversation_id, message_id, version_id)`. It is a **storage identity tuple, not source authority**. Provider must not accept the tuple as proof that a source belongs to the requested world/session, that the version is current, or that the Host inventory is complete. Before any production call, Core must authorize the bound scope and Host must prove durable identity/version provenance. These trust integrations are not supplied by Provider-local row counts or by test callbacks.
+
+#### Existing operation compatibility
+
+| Host semantic transition | Existing Provider operation | Existing behavior at reviewed code head | Required caller precondition / failure behavior |
+|---|---|---|---|
+| First capture of an immutable version | `captureRawMessage(input)` | Validates tuple/role/content/metadata; inserts one raw row and SHA-256 digest. | Caller must provide a Host-persisted immutable version and Core-authorized scope. Invalid input throws `TypeError`; no trusted identity/scope means do not call. |
+| Replay same capture after retry/restart | `captureRawMessage(input)` | Exact same tuple + role/content/metadata returns `duplicate`; existing bytes are not rewritten. | Idempotency applies only to exact payload equality. |
+| Same identity with changed payload | `captureRawMessage(input)` | Throws `MEMORY_RAW_CAPTURE_CONFLICT`; it does not overwrite or rebind the version. | Treat as identity collision/contract violation; fail closed and investigate, never mint authority from the conflicting payload. |
+| Select a previously captured swipe/version | `selectActiveRawVersion(tuple)` | Updates only the active pointer; other immutable versions remain retained. Missing or tombstoned target throws `MEMORY_RAW_VERSION_UNAVAILABLE`. | Host must resolve the selected ST array position to its durable version ID before calling. An index or native `swipe_id` is not the Provider version ID. |
+| Delete one exact version | `markRawSourceDeleted(tuple)` | Idempotently sets the version tombstone, removes its active pointer and invalidates registered Provider-local dependent copies. Unknown target returns `missing`. | Host must capture the exact durable version ID before the ST splice. A `missing` result is not proof that source deletion/retraction is complete. |
+| Retry an exact deletion | `markRawSourceDeleted(tuple)` | Repeated tombstone preserves the deleted state; it does not restore the version. | Retry only against the same approved identity tuple. |
+| Invalidate a known derived copy when its source is deleted | Internal behavior of `markRawSourceDeleted` | Invalidates only copies registered in this Provider database for that exact source version. | Does not prove invalidation in external stores, search indexes, prompt caches, or unregistered copies. |
+| Read a specific version | `readRawMessageVersion(tuple)` | Requires injected `authorizeRawRead`; checks authorization before and after the database read, then rechecks tombstone/content integrity. | Callback is a dependency seam, not automatically a production Core authorization service. Local rechecks narrow but do not eliminate cross-store TOCTOU races. |
+| Read active versions for a conversation | `readActiveRawMessages(scope)` | Requires injected `authorizeRawRead`; reads selected non-deleted versions and rechecks authorization after the database read. | Must not be treated as the final production disclosure boundary unless the real serializer invokes an approved check immediately before outbound release. |
+| Permanently erase a version | `purgeRawSource(tuple)` | Physically deletes the Provider raw row and registered local dependent copies. | **Not ordinary SillyTavern deletion.** Never map swipe/message delete to purge. Any purge use requires separate explicit authorization and must not claim external stores were purged. |
+
+Code anchors are in `src/application/sqlite-memory-provider.js` at reviewed Provider code/test head `0c7b4abd8a5b3547304f452380b310bb155aeb52`: `captureRawMessage` (129), `readRawMessageVersion` (172), `readActiveRawMessages` (205), `selectActiveRawVersion` (238), `registerRawDerivedCopy` (262), `markRawSourceDeleted` (297), `purgeRawSource` (325), `reconcile` (526). Test anchors: `tests/memory-provider-raw-archive.test.js`. These line numbers are for that exact commit, not a promise about later heads.
+
+#### Reconciliation/currentness and inventory hard gate
+
+At code head `0c7b4abd8a5b3547304f452380b310bb155aeb52`, `reconcile(worldId)` reads `getSnapshot`, validates Provider canonical-entity records through `validateSourceVersion`, calls `validateInventory` on those records, and compares snapshots before/after. These callbacks are injected dependencies. They do **not** enumerate the complete Host source domain and do not prove all retained, inactive, physically deleted, or historically retracted ST versions. A stable snapshot marker and successful Provider-local reconciliation are not Host-source completeness evidence.
+
+The current pinned ST representation physically splices deleted swipes/messages and has no established authoritative retained-plus-deleted historical inventory or approved source-change journal. Therefore the existing Provider API cannot prove completeness after deletion, restart/replay, restore, branch/import, or missed lifecycle events. No qualifying existing mechanism has been identified in the reviewed evidence. The result must remain **NON_READY** for the affected source scope; do not introduce a replacement journal/cursor/store/API without a separate explicit Core review.
+
+#### Exact code/test evidence and limits
+
+- Provider source/test head inspected: `0c7b4abd8a5b3547304f452380b310bb155aeb52`.
+- Test file blob: `1926af89dad7676b40b3cb84280885b098cdaea2`.
+- Existing CI run #1784: [Runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40121937992), conclusion `success`, reported 290/290 tests.
+- Evidence class: **FIXTURE-TESTED** for Provider-local raw archive behavior at that exact code head; **SOURCE-INSPECTED** for the listed Provider methods; **NOT REAL-RUNTIME-TESTED** for Android/Termux Host persistence, authoritative inventory/currentness, Host→Provider handoff, and final serialization/revocation race.
+- This record cites the existing successful run; it does not claim a new test execution was launched by this documentation change.
+
+#### Provider acceptance before any integration review
+
+1. Re-run `npm test -- tests/memory-provider-raw-archive.test.js` and the relevant reconciliation-interruption/race and revocation tests against one frozen code head; record that exact head and CI run together.
+2. Review the resulting diff against this table and correct any mismatch between documented and actual method behavior.
+3. Keep Host-supplied IDs untrusted until Core-approved scope/source authorization exists; reject conflicting identity reuse.
+4. Do not mark Host inventory ready from Provider-local row counts, `validateInventory`, or snapshot equality alone.
+5. Do not claim whole-message/chat deletion complete without Host's exhaustive historical-version set and confirmed tombstone outcome for every exact target.
+6. Do not enable any Host caller or production Memory→NPC disclosure path until the exact implementation diff receives the second explicit Core review and real lifecycle/inventory/final-boundary acceptance evidence is supplied.
+
+**Provider status:** existing local archive operations can support exact immutable capture, active-pointer selection, reversible per-version tombstones, local dependent-copy invalidation, and guarded local reads. They do not currently establish Host identity authority, complete/current Host inventory, cross-store revocation atomicity, or production integration. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**; vectorization is untouched.
