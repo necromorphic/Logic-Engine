@@ -37,7 +37,7 @@ Primary references:
 | PERS-SEM-020 | 01 §§4, 6; 05 §2 | Personality semantics; Core provenance/causality | Specified | Production provenance evidence blocked |
 | PERS-SEM-021 | 01 §6; 03 rollback gate | Core dependency rollback/rebuild | Target specified | Relationship replay unverified |
 | PERS-SEM-022 | 04 §4; 05 §§2–3 | Core causal representation; World Pack sufficiency rule | Conditional; source IDs alone insufficient | Blocked/deferred beyond proven replay-only subset |
-| PERS-SEM-023 | 05 §§2–3 | Core reconciliation; World Pack conflict policy | No-guess rule specified | Conflict reconciliation unverified |
+| PERS-SEM-023 | 04 §2; 05 §§2–3 | Core reconciliation; World Pack conflict policy | Specified: conflict/unknown is a reconciliation/read result, not a dimension value unless domain-defined | Conflict reconciliation unverified |
 | PERS-SEM-024 | 04 §4; 03 rollback gate | Core deterministic projection/replay | Target limited to replay-reconstructible state | Production-boundary test unverified |
 | PERS-SEM-025 | 01 §5; 03 authorized-read gate | Core actor/purpose-authorized read | Specified | Blocked: snapshot is not authorization |
 | PERS-SEM-026 | 05 §3; 03 authorized-read gate | Core safe read-result semantics | Specified | Blocked: withheld/unset distinction unverified at runtime |
