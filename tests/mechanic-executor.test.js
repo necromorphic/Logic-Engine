@@ -346,3 +346,30 @@ test('mechanic proposal handoff detects evaluation payload tampering via fingerp
   );
   assert.equal(proposals.db.prepare('SELECT COUNT(*) AS count FROM event_proposals').get().count, 0);
 });
+
+
+test('application executor does not expose trusted context provider exception details', (t) => {
+  const { engine, worldId } = setup(t, 'executor-provider-error-world');
+  enableFixture(engine, worldId);
+  const result = new MechanicExecutor(engine, {
+    resolveAuthorizedContext() { throw new Error('SECRET_CONTEXT_TOKEN_SHOULD_NOT_ESCAPE'); },
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'AUTHORIZED_CONTEXT_RESOLUTION_FAILED');
+  assert.equal(JSON.stringify(result).includes('SECRET_CONTEXT_TOKEN_SHOULD_NOT_ESCAPE'), false);
+  assert.deepEqual(result.effects, []);
+});
+
+test('application executor does not expose malformed-condition exception details', (t) => {
+  const { engine, worldId } = setup(t, 'executor-condition-error-world');
+  const malformed = template({
+    applicability: [{ op: 'eq', path: 'actor.__proto__.secret', value: true }],
+  });
+  enableFixture(engine, worldId, malformed);
+  const result = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(result.status, 'unknown');
+  assert.equal(result.reason_code, 'MECHANIC_CONDITION_EVALUATION_FAILED');
+  assert.equal(JSON.stringify(result).includes('Unsafe or empty rule path'), false);
+  assert.deepEqual(result.effects, []);
+});
