@@ -26,7 +26,7 @@ Lifecycle states are `pending`, `completed`, and `cancelled`. An optional `claim
 4. For each segment, canonical events, trigger completion updates, completion audit records, and the durable operation checkpoint commit or roll back together.
 5. A blocked plan makes no time progress and claims no trigger. A trigger claimed by a running operation cannot be cancelled. If an operation requires review, a claimed pending trigger can be cancelled explicitly; it is not silently released for automatic replay.
 
-The registry is capped at 10,000 triggers per world, matching the planner's input bound. No timer, wall-clock scheduler, or automatic catch-up is introduced.
+The registry is capped at 10,000 triggers per world, matching the planner's input bound. A world TimePolicy sets the maximum whole-operation skip duration; when that exceeds seven days, Core splits the advance into synthetic events no longer than seven days each. A separate 1,024-segment hard work cap prevents an unbounded synchronous operation, so larger requests must be split by the caller. Scheduled trigger proposals cannot be `time.advance` events or add their own duration. No timer, wall-clock scheduler, or automatic catch-up is introduced.
 
 ## API
 
