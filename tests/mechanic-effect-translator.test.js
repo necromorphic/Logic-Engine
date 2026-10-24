@@ -61,20 +61,32 @@ test('assert_fact maps fact identity, predicate, JSON value, and optional subjec
 });
 
 
-test('fact identity strings are validated but preserved exactly by translation', () => {
-  const input = intent({
+test('fact identity strings reject surrounding whitespace and preserve valid values exactly', () => {
+  const invalidCases = [
+    intent({ kind: 'assert_fact', target_ref: ' fact.example ', payload: { predicate: 'is_known', value: true, subject_ref: 'entity.example' } }),
+    intent({ kind: 'assert_fact', target_ref: 'fact.example', payload: { predicate: ' is_known ', value: true, subject_ref: 'entity.example' } }),
+    intent({ kind: 'assert_fact', target_ref: 'fact.example', payload: { predicate: 'is_known', value: true, subject_ref: ' entity.example ' } }),
+  ];
+  for (const invalid of invalidCases) {
+    assert.throws(
+      () => translateMechanicEffectIntents([invalid]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+
+  const result = translateMechanicEffectIntents([intent({
     kind: 'assert_fact',
-    target_ref: ' fact.example ',
-    payload: { predicate: ' is_known ', value: true, subject_ref: ' entity.example ' },
-  });
-  const result = translateMechanicEffectIntents([input]);
+    target_ref: 'fact.example',
+    payload: { predicate: 'is_known', value: true, subject_ref: 'entity.example' },
+  })]);
   assert.deepEqual(result, [{
     kind: 'fact.set',
-    fact_id: ' fact.example ',
-    predicate: ' is_known ',
+    fact_id: 'fact.example',
+    predicate: 'is_known',
     value: true,
-    subject_ref: ' entity.example ',
+    subject_ref: 'entity.example',
   }]);
+  assert.doesNotThrow(() => validateEffects(result));
 });
 
 test('all other declared mechanic intent kinds are rejected explicitly', () => {
@@ -253,6 +265,13 @@ test('target identifiers and batch size are bounded', () => {
       effect_id: 'effect-' + i,
       target_ref: 'entity-' + i,
     }))),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+});
+
+test('empty mechanic intent batches are rejected explicitly', () => {
+  assert.throws(
+    () => translateMechanicEffectIntents([]),
     code('INVALID_MECHANIC_EFFECT_INTENT'),
   );
 });
