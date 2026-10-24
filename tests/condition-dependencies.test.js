@@ -400,3 +400,96 @@ test('translateMechanicEffectIntents rejects unknown fields, empty patches, dupl
   assert.deepEqual(invalidEffect.effects, []);
   assert.equal(translateMechanicEffectIntents(make([base], 'model_proposal_then_validate'), 'act').reason_code, 'UNSUPPORTED_ACTION_AMBIGUITY_POLICY');
 });
+
+
+test('snapshot-bound mechanic evaluation produces a fingerprint but no commit authority', async () => {
+  const { evaluateMechanicActionAgainstSnapshot } = await import('../src/core/mechanics.js');
+  const snapshot = {
+    world_id: 'world.test',
+    world_revision: 4,
+    commit_sequence: 9,
+    mechanic_evaluation_snapshot: {
+      instances: [{ instance_id: 'instance.test', status: 'enabled', template_id: 'test.snapshot.eval', template_version: '1.0.0', updated_revision: 3 }],
+      templates: [{
+        template_hash: 'a'.repeat(64),
+        template: {
+          template_id: 'test.snapshot.eval', version: '1.0.0', schema_version: 'core-1',
+          display_name: 'Snapshot evaluation fixture', required_capabilities: [],
+          applicability: [{ op: 'eq', path: 'world.phase', value: 'night' }],
+          actions: [{ action_id: 'act', input_schema: { type: 'object' }, preconditions: [], effects: [
+            { effect_id: 'e1', kind: 'create_entity', target_ref: 'entity.created', payload: { entity_type: 'test' } },
+          ], ambiguity_policy: 'deterministic_only' }],
+          conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'require_author_decision' }, unknown_policy: 'mark_unknown',
+        },
+      }],
+      modules: [],
+    },
+  };
+  const args = { snapshot, instanceId: 'instance.test', actionId: 'act', authorizedContext: { world: { phase: 'night' } } };
+  const result = await evaluateMechanicActionAgainstSnapshot(args);
+  assert.equal(result.status, 'ready');
+  assert.equal(result.world_revision, 4);
+  assert.equal(result.commit_sequence, 9);
+  assert.match(result.evaluation_fingerprint, /^[a-f0-9]{64}$/);
+  assert.equal(result.commit_authority, 'none');
+  assert.equal(result.effects.length, 1);
+  assert.equal(Object.hasOwn(result, 'proposal_id'), false);
+});
+
+test('snapshot-bound mechanic evaluation fails closed for disabled instances and unresolved condition context', async () => {
+  const { evaluateMechanicActionAgainstSnapshot } = await import('../src/core/mechanics.js');
+  const snapshot = {
+    world_id: 'world.test', world_revision: 0, commit_sequence: 0,
+    mechanic_evaluation_snapshot: {
+      instances: [{ instance_id: 'instance.test', status: 'disabled', template_id: 'test.snapshot.eval', template_version: '1.0.0' }],
+      templates: [{ template_hash: 'a'.repeat(64), template: {
+        template_id: 'test.snapshot.eval', version: '1.0.0', schema_version: 'core-1', display_name: 'Fixture',
+        required_capabilities: [], applicability: [], actions: [{ action_id: 'act', input_schema: { type: 'object' }, preconditions: [
+          { op: 'eq', path: 'actor.status', value: 'alive' },
+        ], effects: [{ effect_id: 'e1', kind: 'create_entity', target_ref: 'entity.new', payload: { entity_type: 'test' } }], ambiguity_policy: 'deterministic_only' }],
+        conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'require_author_decision' }, unknown_policy: 'mark_unknown',
+      } }],
+      modules: [],
+    },
+  };
+  const disabled = await evaluateMechanicActionAgainstSnapshot({ snapshot, instanceId: 'instance.test', actionId: 'act', authorizedContext: {} });
+  assert.equal(disabled.status, 'rejected');
+  assert.deepEqual(disabled.effects, []);
+
+  snapshot.mechanic_evaluation_snapshot.instances[0].status = 'enabled';
+  const unknown = await evaluateMechanicActionAgainstSnapshot({ snapshot, instanceId: 'instance.test', actionId: 'act', authorizedContext: {} });
+  assert.equal(unknown.status, 'unknown');
+  assert.deepEqual(unknown.effects, []);
+});
+
+test('snapshot-bound mechanic evaluation refuses unsupported modules and input binding', async () => {
+  const { evaluateMechanicActionAgainstSnapshot } = await import('../src/core/mechanics.js');
+  const baseTemplate = {
+    template_id: 'test.snapshot.unsupported', version: '1.0.0', schema_version: 'core-1', display_name: 'Fixture',
+    required_capabilities: [], applicability: [], actions: [{ action_id: 'act', input_schema: { type: 'object', required: ['value'] }, preconditions: [], effects: [], ambiguity_policy: 'deterministic_only' }],
+    conflict_policy: { mode: 'manual' }, lifecycle_policy: { on_disable: 'require_author_decision' }, unknown_policy: 'mark_unknown',
+  };
+  const makeSnapshot = (template) => ({
+    world_id: 'world.test', world_revision: 0, commit_sequence: 0,
+    mechanic_evaluation_snapshot: {
+      instances: [{ instance_id: 'instance.test', status: 'enabled', template_id: template.template_id, template_version: template.version }],
+      templates: [{ template, template_hash: 'b'.repeat(64) }], modules: [],
+    },
+  });
+  const inputUnsupported = await evaluateMechanicActionAgainstSnapshot({
+    snapshot: makeSnapshot(baseTemplate), instanceId: 'instance.test', actionId: 'act', authorizedContext: {},
+  });
+  assert.equal(inputUnsupported.status, 'unknown');
+  assert.equal(inputUnsupported.reason_code, 'ACTION_INPUT_BINDING_UNSUPPORTED');
+
+  const moduleTemplate = {
+    ...baseTemplate, template_id: 'test.snapshot.module',
+    rule_modules: [{ module_id: 'module.test', version: '1.0.0', required_capabilities: [] }],
+  };
+  const moduleUnsupported = await evaluateMechanicActionAgainstSnapshot({
+    snapshot: makeSnapshot(moduleTemplate), instanceId: 'instance.test', actionId: 'act', authorizedContext: {},
+  });
+  assert.equal(moduleUnsupported.status, 'unknown');
+  assert.equal(moduleUnsupported.reason_code, 'MODULE_EXECUTION_NOT_IMPLEMENTED');
+  assert.deepEqual(moduleUnsupported.effects, []);
+});
