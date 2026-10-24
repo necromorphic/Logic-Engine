@@ -38,11 +38,12 @@ const trigger = (id, due, entityId, dependencies = []) => ({
 test('time advance commits scheduled effects at due coordinates and reaches the requested target', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
+  engine.registerTimeTrigger('time-operation-world', trigger('at-ten', 10000, 'ten'));
+  engine.registerTimeTrigger('time-operation-world', trigger('at-twenty', 20000, 'twenty'));
   const result = engine.startTimeAdvance('time-operation-world', {
     idempotency_key: 'advance-to-thirty-seconds',
     expected_revision: 0,
     to_coordinate: 30000,
-    triggers: [trigger('at-ten', 10000, 'ten'), trigger('at-twenty', 20000, 'twenty')],
   });
 
   if (result.status !== 'completed') assert.fail('operation result: ' + JSON.stringify(result));
@@ -71,7 +72,6 @@ test('time advance idempotency replays the same operation after world revision c
     idempotency_key: 'repeatable-advance',
     expected_revision: 0,
     to_coordinate: 60000,
-    triggers: [],
   };
   const first = engine.startTimeAdvance('time-operation-world', request);
   const replay = engine.startTimeAdvance('time-operation-world', request);
@@ -86,11 +86,11 @@ test('time advance idempotency replays the same operation after world revision c
 test('blocked due work creates an explicit blocked operation without advancing time', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
+  engine.registerTimeTrigger('time-operation-world', trigger('needs-missing', 10000, 'blocked', ['missing-trigger']));
   const result = engine.startTimeAdvance('time-operation-world', {
     idempotency_key: 'blocked-advance',
     expected_revision: 0,
     to_coordinate: 30000,
-    triggers: [trigger('needs-missing', 10000, 'blocked', ['missing-trigger'])],
   });
 
   assert.equal(result.status, 'blocked');
@@ -108,11 +108,77 @@ test('time advance rejects sub-second execution rather than rounding a due bound
       idempotency_key: 'subsecond-advance',
       expected_revision: 0,
       to_coordinate: 1500,
-      triggers: [],
     }),
     (error) => error.code === 'TIME_ADVANCE_SUBSECOND_UNSUPPORTED',
   );
   assert.equal(engine.getState('time-operation-world').game_time_coordinate, 0);
+});
+
+test('completed triggers are durable and cannot be replayed by a different advance operation', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.registerTimeTrigger('time-operation-world', trigger('one-shot', 10000, 'one-shot-entity'));
+  const first = engine.startTimeAdvance('time-operation-world', {
+    idempotency_key: 'one-shot-first-advance', expected_revision: 0, to_coordinate: 20000,
+  });
+  assert.equal(first.status, 'completed');
+  assert.deepEqual(first.result.completed_trigger_ids, ['one-shot']);
+  const registered = engine.listTimeTriggers('time-operation-world');
+  assert.equal(registered[0].status, 'completed');
+  assert.equal(registered[0].completed_by_operation_id, first.operation_id);
+  assert.equal(registered[0].completed_coordinate, 10000);
+
+  const second = engine.startTimeAdvance('time-operation-world', {
+    idempotency_key: 'one-shot-second-advance', expected_revision: engine.getState('time-operation-world').world_revision, to_coordinate: 30000,
+  });
+  assert.equal(second.status, 'completed');
+  assert.deepEqual(second.result.completed_trigger_ids, []);
+  assert.equal(engine.getEvents('time-operation-world').filter((event) => event.event_type === 'action.completed').length, 1);
+  assert.equal(engine.getState('time-operation-world').game_time_coordinate, 30000);
+});
+
+test('trigger definitions are immutable and cancellation is terminal', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  const original = trigger('immutable-trigger', 10000, 'immutable-entity');
+  engine.registerTimeTrigger('time-operation-world', original);
+  assert.equal(engine.registerTimeTrigger('time-operation-world', original).idempotent_replay, true);
+  assert.throws(
+    () => engine.registerTimeTrigger('time-operation-world', trigger('immutable-trigger', 20000, 'immutable-entity')),
+    (error) => error.code === 'TIME_TRIGGER_IMMUTABLE',
+  );
+  const cancelled = engine.cancelTimeTrigger('time-operation-world', 'immutable-trigger', 'author removed it');
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.cancellation_reason, 'author removed it');
+  assert.equal(engine.cancelTimeTrigger('time-operation-world', 'immutable-trigger').status, 'cancelled');
+  assert.throws(
+    () => engine.startTimeAdvance('time-operation-world', { idempotency_key: 'cancelled-trigger-advance', expected_revision: 0, to_coordinate: 20000, triggers: [original] }),
+    (error) => error.code === 'UNSUPPORTED_TIME_ADVANCE_FIELD',
+  );
+});
+
+test('trigger registration cannot insert work into an active advance interval', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  store.createTimeAdvanceOperation({
+    world_id: 'time-operation-world',
+    operation_id: 'active-advance',
+    idempotency_key: 'active-advance-key',
+    request_hash: 'active-advance-hash',
+    from_coordinate: 0,
+    target_coordinate: 30000,
+    starting_world_revision: 0,
+    status: 'running',
+    segments: [{ coordinate: 30000, idempotency_key: 'active-segment-key', request_hash: 'active-segment-hash', events: [engine.prepareEvent({
+      event_id: 'active-segment-event', idempotency_key: 'active-segment-event-key', turn_id: 'active-segment-turn',
+      event_type: 'time.advance', time_advance_seconds: 30, time_mode: 'explicit_skip', effects: [],
+    })] }],
+    plan: { status: 'planned', completed_trigger_ids: [] },
+  });
+  assert.throws(
+    () => engine.registerTimeTrigger('time-operation-world', trigger('late-trigger', 20000, 'late-entity')),
+    (error) => error.code === 'TIME_TRIGGER_OVERLAPS_ACTIVE_ADVANCE',
+  );
 });
 
 test('recovery resumes after the last persisted segment checkpoint without replaying it', (t) => {
