@@ -29,6 +29,24 @@ const timeAdvanceOperation = (row) => row && ({
   created_at: row.created_at,
   updated_at: row.updated_at,
 });
+const timeTrigger = (row) => row && ({
+  world_id: row.world_id,
+  trigger_id: row.trigger_id,
+  due_coordinate: row.due_coordinate,
+  status: row.status,
+  dependencies: dec(row.dependencies_json),
+  read_set: dec(row.read_set_json),
+  write_set: dec(row.write_set_json),
+  processing_mode: row.processing_mode,
+  interrupt_after_coordinate: row.interrupt_after_coordinate === 1,
+  payload: dec(row.payload_json),
+  trigger_hash: row.trigger_hash,
+  claimed_operation_id: row.claimed_operation_id,
+  completed_operation_id: row.completed_operation_id,
+  created_revision: row.created_revision,
+  created_at: row.created_at,
+  updated_at: row.updated_at,
+});
 const relationshipRef = (subjectId, targetId) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId);
 const parseRelationshipRef = (value) => {
   if (typeof value !== 'string' || !value.startsWith('relationship:')) return null;
@@ -1427,6 +1445,81 @@ export class SQLiteStore {
       };
       this.saveReplay(id, key, requestHash, result);
       return result;
+    });
+  }
+
+  listTimeTriggers(worldId) {
+    if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    return this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? ORDER BY due_coordinate,trigger_id')
+      .all(worldId).map(timeTrigger);
+  }
+
+  registerTimeTrigger(worldId, input) {
+    return this.tx(() => {
+      const worldAtStart = this.world(worldId);
+      if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const existing = this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+        .get(worldId, input.trigger_id);
+      if (existing) {
+        if (existing.trigger_hash !== input.trigger_hash) {
+          throw new EngineError('TIME_TRIGGER_ID_IMMUTABLE', 'A trigger ID cannot be reused with different content.', 409);
+        }
+        return timeTrigger(existing);
+      }
+      if (input.due_coordinate <= worldAtStart.game_time_coordinate) {
+        throw new EngineError('TIME_TRIGGER_NOT_FUTURE', 'A new trigger must be scheduled strictly after the current world coordinate.', 409, {
+          current_coordinate: worldAtStart.game_time_coordinate,
+          due_coordinate: input.due_coordinate,
+        });
+      }
+      const count = this.db.prepare('SELECT COUNT(*) AS count FROM world_time_triggers WHERE world_id=?').get(worldId).count;
+      if (count >= 10000) throw new EngineError('TIME_TRIGGER_LIMIT_REACHED', 'A world may have at most 10,000 durable time triggers in this slice.', 409);
+      const nextRevision = worldAtStart.world_revision + 1;
+      const stamp = now();
+      this.db.prepare(`INSERT INTO world_time_triggers(
+        world_id,trigger_id,due_coordinate,status,dependencies_json,read_set_json,write_set_json,
+        processing_mode,interrupt_after_coordinate,payload_json,trigger_hash,claimed_operation_id,
+        completed_operation_id,created_revision,created_at,updated_at
+      ) VALUES(?,?,?,'pending',?,?,?,?,?,?,?,NULL,NULL,?,?,?)`).run(
+        worldId, input.trigger_id, input.due_coordinate, enc(input.dependencies), enc(input.read_set),
+        enc(input.write_set), input.processing_mode, input.interrupt_after_coordinate ? 1 : 0,
+        enc(input.payload), input.trigger_hash, nextRevision, stamp, stamp,
+      );
+      this.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(nextRevision, worldId);
+      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run(worldId, nextRevision, 'time.trigger.registered', input.trigger_id, enc({
+          due_coordinate: input.due_coordinate,
+          trigger_hash: input.trigger_hash,
+          processing_mode: input.processing_mode,
+          interrupt_after_coordinate: input.interrupt_after_coordinate,
+        }), stamp);
+      return timeTrigger(this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?').get(worldId, input.trigger_id));
+    });
+  }
+
+  cancelTimeTrigger(worldId, triggerId) {
+    return this.tx(() => {
+      const worldAtStart = this.world(worldId);
+      if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const row = this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+        .get(worldId, triggerId);
+      if (!row) throw new EngineError('TIME_TRIGGER_NOT_FOUND', 'Time trigger not found.', 404);
+      if (row.status === 'cancelled') return timeTrigger(row);
+      if (row.status === 'completed') throw new EngineError('TIME_TRIGGER_ALREADY_COMPLETED', 'A completed trigger cannot be cancelled.', 409);
+      if (row.claimed_operation_id) throw new EngineError('TIME_TRIGGER_CLAIMED', 'A trigger reserved by a running or review-required operation cannot be cancelled.', 409, {
+        operation_id: row.claimed_operation_id,
+      });
+      const nextRevision = worldAtStart.world_revision + 1;
+      const stamp = now();
+      this.db.prepare("UPDATE world_time_triggers SET status='cancelled',updated_at=? WHERE world_id=? AND trigger_id=? AND status='pending'")
+        .run(stamp, worldId, triggerId);
+      this.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(nextRevision, worldId);
+      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run(worldId, nextRevision, 'time.trigger.cancelled', triggerId, enc({
+          due_coordinate: row.due_coordinate,
+          trigger_hash: row.trigger_hash,
+        }), stamp);
+      return timeTrigger(this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?').get(worldId, triggerId));
     });
   }
 
