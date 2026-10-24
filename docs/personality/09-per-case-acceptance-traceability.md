@@ -2,6 +2,8 @@
 
 Status: documentation-only crosswalk. “Specified” means expected behavior is documented; it does not mean an executable test exists or passed. Runtime claims require evidence from the approved production boundary.
 
+**Current-main evidence supplement (2026-10-24):** `tests/relationship-transition-core.test.js` on `main` (blob `9cf9020c554028f89dc8d8f97d6f7422f357fba1`) contains 21 production-path tests for the privileged admin-gated Relationship first slice. Named examples include `admin-gated typed transition commits directed state, event, revision and audit atomically`; `partial dimension patch preserves other dimensions and mixed invalid patch is atomic`; `HTTP idempotent retry returns the established transition without a second event`; `explicit neutral, cleared and unset remain distinct across replay`; `event insert and audit failures roll back the entire Relationship transition`; `Relationship projection survives store restart and deterministic rebuild from valid events`; and `source rollback invalidates a Relationship transition that cites the source`. This supplements the per-case rows below wherever they describe these first-slice guarantees as unverified. It does not close general authorized reads, trusted authoring/import/correction, NPC mutation authority/consumer tests, safe character-card projection, historical World Pack version selection/migration, or independent alternative-support semantics.
+
 Primary references:
 - `01-personality-and-relationship-semantics.md`: semantic invariants.
 - `03-core-decision-and-integration-gates.md`: Core-owned contracts and blockers.
@@ -15,16 +17,16 @@ Primary references:
 
 | ID | Primary reference | Closure owner / boundary | Specification status | Runtime status |
 |---|---|---|---|---|
-| PERS-SEM-001 | 01 §4 | Personality semantics; Core typed write | Specified | Blocked: typed write unverified |
-| PERS-SEM-002 | 01 §4; 05 §2 | Personality patch meaning; Core operation | Specified | Blocked: atomic partial update unverified |
-| PERS-SEM-003 | 01 §4; 05 §3 | Personality meaning; Core representation | Specified: unset (sometimes called unknown in this narrow sense) differs from neutral; conflict/insufficient-support unknown is separately defined by PERS-SEM-023 | Blocked: production representation unverified |
-| PERS-SEM-004 | 01 §4; 05 §3; 03 integration gates | Personality meaning; Core history/read authorization and representation | Specified: clear removes effective value while authorized history distinguishes explicit removal from never-set; exact representation unresolved | Blocked: typed write/read and disclosure policy unverified |
+| PERS-SEM-001 | 01 §4 | Personality semantics; Core typed write | Specified | Privileged directed typed write is production-path tested; broader actor authority/read scope remains blocked |
+| PERS-SEM-002 | 01 §4; 05 §2 | Personality patch meaning; Core operation | Specified | Partial patch and mixed-invalid-patch atomic rejection are production-path tested for the privileged first slice |
+| PERS-SEM-003 | 01 §4; 05 §3 | Personality meaning; Core representation | Specified: unset (sometimes called unknown in this narrow sense) differs from neutral; conflict/insufficient-support unknown is separately defined by PERS-SEM-023 | Unset/neutral/cleared are production-path tested across replay for the privileged subset; withheld/read authorization and conflict reconciliation remain unverified |
+| PERS-SEM-004 | 01 §4; 05 §3; 03 integration gates | Personality meaning; Core history/read authorization and representation | Specified: clear removes effective value while authorized history distinguishes explicit removal from never-set; exact representation unresolved | Clear behavior/replay is production-path tested for the privileged subset; authorized historical disclosure remains blocked |
 | PERS-SEM-005 | 05 §4 | Personality / World Pack | Specified as default non-implication | World-specific rule per dimension still required |
-| PERS-SEM-006 | 05 §§2, 6 | World Pack validation; Core enforcement | Specified | Blocked: production validation unverified |
-| PERS-SEM-007 | 05 §§2, 5 | World Pack transition policy; Core atomic rejection | Specified | Blocked: validation/atomicity unverified |
+| PERS-SEM-006 | 05 §§2, 6 | World Pack validation; Core enforcement | Specified | Supported rule/value validation is production-path tested for the privileged subset; broader rule/version policy remains unverified |
+| PERS-SEM-007 | 05 §§2, 5 | World Pack transition policy; Core atomic rejection | Specified | Mixed-invalid patch rejection is production-path tested for the privileged subset; full domain policy remains per active rules |
 | PERS-SEM-008 | 01 §4 | Personality semantic rule | Specified | No runtime claim |
-| PERS-SEM-009 | 01 §4; 03 identity gate | Core identity and typed write | Specified | Blocked: identity enforcement unverified |
-| PERS-SEM-010 | 01 §4; 05 §2 | Core identity; World Pack domain rule | Specified; domain opt-in only | Blocked pending production path |
+| PERS-SEM-009 | 01 §4; 03 identity gate | Core identity and typed write | Specified | Participant/world validation is production-path tested for the privileged subset |
+| PERS-SEM-010 | 01 §4; 05 §2 | Core identity; World Pack domain rule | Specified; domain opt-in only | Self-relation policy is tested within the supported typed operation; domain opt-in remains explicit |
 | PERS-SEM-011 | 01 §4.1; 03 provenance gate | Core trusted provenance operation | Specified | Blocked: trusted boundary unresolved |
 | PERS-SEM-012 | 01 §4.1; 06 §6 | Core-authorized correction/audit | Specified | Blocked: authorization/audit unverified |
 | PERS-SEM-013 | 03 provenance/authorization gates | Core authorization | Specified | Blocked: caller label alone is not authorization |
@@ -35,10 +37,10 @@ Primary references:
 | PERS-SEM-018 | 01 §§4–5; 05 §4 | Personality non-implications; knowledge boundary | Specified | Authorized consumer read remains blocked |
 | PERS-SEM-019 | 01 §4; 05 §§2, 4 | Personality / World Pack semantics | Specified | Domain rules must keep relationship and consent distinct |
 | PERS-SEM-020 | 01 §§4, 6; 05 §2 | Personality semantics; Core provenance/causality | Specified | Production provenance evidence blocked |
-| PERS-SEM-021 | 01 §6; 03 rollback gate | Core dependency rollback/rebuild | Target specified | Relationship replay unverified |
+| PERS-SEM-021 | 01 §6; 03 rollback gate | Core dependency rollback/rebuild | Target specified | Required-dependency invalidation and surviving-state rebuild are production-path tested for the privileged subset |
 | PERS-SEM-022 | 04 §4; 05 §§2–3 | Core causal representation; World Pack sufficiency rule | Conditional; source IDs alone insufficient | Blocked/deferred beyond proven replay-only subset |
 | PERS-SEM-023 | 04 §2; 05 §§2–3 | Core reconciliation; World Pack conflict policy | Specified: conflict/unknown is a reconciliation/read result, not a dimension value unless domain-defined | Conflict reconciliation unverified |
-| PERS-SEM-024 | 04 §4; 03 rollback gate | Core deterministic projection/replay | Target limited to replay-reconstructible state | Production-boundary test unverified |
+| PERS-SEM-024 | 04 §4; 03 rollback gate | Core deterministic projection/replay | Target limited to replay-reconstructible state | Production replay/rebuild is tested for the supported subset; deterministic evaluator repeat and historical version selection remain distinct claims |
 | PERS-SEM-025 | 01 §5; 03 authorized-read gate | Core actor/purpose-authorized read | Specified | Blocked: snapshot is not authorization |
 | PERS-SEM-026 | 05 §3; 03 authorized-read gate | Core safe read-result semantics | Specified | Blocked: withheld/unset distinction unverified at runtime |
 | PERS-SEM-027 | 01 §§2, 4; 07 handoff | Core/card projection; authorized canonical read | Derived/read-only target specified | Safe authorized projection unverified |
