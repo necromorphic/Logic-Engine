@@ -451,7 +451,7 @@ export class LogicEngine {
     const allowed = ['trigger_id', 'due_coordinate', 'dependencies', 'read_set', 'write_set', 'processing_mode', 'interrupt_after_coordinate', 'payload'];
     assert(Object.keys(input).every((key) => allowed.includes(key)),
       'UNSUPPORTED_TIME_TRIGGER_FIELD', 'Time-trigger registration contains an unsupported field.');
-    const world = this.getState(id);
+    this.getState(id);
     let trigger;
     try {
       trigger = normalizeTimeTrigger({ ...input, world_id: id, status: 'pending' }, id);
