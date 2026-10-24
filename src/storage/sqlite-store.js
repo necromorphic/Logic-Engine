@@ -572,12 +572,15 @@ export class SQLiteStore {
           throw new EngineError('MECHANIC_SNAPSHOT_TOO_LARGE', 'The world has more than 200 mechanic instances; bounded evaluation snapshot refused.', 409);
         }
         const instances = instanceRows.map((row) => {
-          const value = this.publicMechanicInstance(row);
-          if (row.needs_review_reason) value.status = 'needs_review';
-          return value;
+          if (row.needs_review_reason) {
+            throw new EngineError('MECHANIC_INSTANCE_REVIEW_STATE_UNSUPPORTED', 'A mechanic instance has a review reason that is not represented by an event-backed lifecycle status; evaluation snapshot refused.', 409, {
+              instance_id: row.instance_id,
+            });
+          }
+          return this.publicMechanicInstance(row);
         });
 
-        const relevantInstances = instances.filter((instance) => instance.status === 'enabled' || instance.status === 'needs_review');
+        const relevantInstances = instances.filter((instance) => instance.status === 'enabled');
         const templateKeys = new Set(relevantInstances.map((instance) => instance.template_id + '@' + instance.template_version));
         if (templateKeys.size > 200) {
           throw new EngineError('MECHANIC_SNAPSHOT_TOO_LARGE', 'The world references more than 200 mechanic template versions; bounded evaluation snapshot refused.', 409);
