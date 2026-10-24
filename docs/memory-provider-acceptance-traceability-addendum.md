@@ -42,3 +42,11 @@ PR #201 remains draft and unmerged, stacked on PR #182. Production Memory→NPC 
 - PR #183 adds real Core/NPC seam checks for query denial, per-record denial without identity/content leakage, read-only retrieval/context inclusion, and source-validator outage returning non-ready rather than ready-empty. Exact-head Runtime CI #40102217996 passed **298/298 tests** on `27523e0e592745ac995103b1a36e36d04f7f83c9`: https://github.com/necromorphic/Logic-Engine/actions/runs/40102217996.
 - The source-validator exception fix was applied to both stacked PR branches so each branch's tests exercise the same fail-closed behavior. An earlier #183 run failed because that branch still had the old provider implementation; the failure exposed the missing propagation, and the corrected exact head passed.
 - These tests establish only the in-process provider/Core/NPC seam and provider-local behavior. They do not close Core #140's authoritative source-version, complete-inventory, rollback/reconciliation, real host-adapter, or cross-store disclosure/revocation gates.
+
+## Source-currentness versus access-denial follow-up — 24 October 2026
+
+- Provider code/test HEAD `be20382ccc05cae5052de2223afc0d286a7728a5`; exact-head Runtime CI #40102439980 passed **287/287 tests**: https://github.com/necromorphic/Logic-Engine/actions/runs/40102439980.
+- Candidate-time source validator exceptions raise generic `MEMORY_SOURCE_VALIDATION_UNAVAILABLE`; a validator returning `false` raises generic `MEMORY_SOURCE_VERSION_UNVERIFIABLE`. Both cause the Core/NPC consumer to return non-ready instead of filtering a potentially stale record into a false ready-empty result. Host details are not surfaced.
+- New Provider unit coverage verifies that source version becoming unverifiable after a previously current reconciliation is not collapsed into an ordinary record denial.
+- PR #183 exact head `bd5dd74c5cbb159d244aa8517bb730c01d767baf`; exact-head Runtime CI #40102454110 passed **300/300 tests**: https://github.com/necromorphic/Logic-Engine/actions/runs/40102454110. Added real-seam tests for query authorization outage and source becoming stale after reconciliation.
+- Explicit Memory record grants remain ordinary access denials; trusted source validation failure is treated as source-currentness uncertainty, not as proof that the user has no accessible memories.
