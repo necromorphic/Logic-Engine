@@ -293,7 +293,7 @@ The contract/runtime distinction applies to the execution pipeline as a whole, n
 
 - The inspected `src/core/mechanics.js` exports mechanic-template and rule-module-manifest validators. These validate declared shapes and supported operator names; they do not execute an active mechanic set, select applicable instances, resolve conflicts, produce the structured Stage 1.3 result, or hand a result to the proposal lifecycle.
 - The inspected `src/core/rules.js` evaluates an individual declarative condition to a Boolean. It is not by itself the Stage 1.3 application service described by `docs/30`.
-- The schema/operator matrix tests verify that schema, validator, and evaluator agree on the currently supported operator vocabulary. They do not prove that the broader mechanic execution pipeline exists.
+- The schema/operator matrix tests verify that schema, validator, and evaluator agree on the currently supported operator vocabulary. They do not prove that the broader mechanic execution pipeline exists. The source audit also found that `mechanic-instance.schema.json` permits `needs_review`, while the current SQLite status constraint and event-backed lifecycle only support `disabled`/`enabled`; do not treat a durable review-state transition as available.
 
 Therefore `docs/30` is a core implementation contract, while the current source exposes lower-level validation and condition-evaluation pieces. Do not report Stage 1.3 execution as implemented or begin NPC runtime integration on the assumption that the documented pipeline exists. This is a source-level finding and should be rechecked against the exact target commit before implementation.
 
