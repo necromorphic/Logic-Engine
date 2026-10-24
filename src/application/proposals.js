@@ -158,9 +158,12 @@ export class ProposalService {
       && evaluation.guarantees.context_provider_attested_snapshot === true
       && evaluation.guarantees.context_policy_versioned === true
       && evaluation.guarantees.complete_mechanic_dependencies === true
+      && evaluation.guarantees.complete_global_mechanic_dependencies === false
       && evaluation.guarantees.proposal_created === false && evaluation.guarantees.canonical_state_mutated === false,
     'INVALID_MECHANIC_EVALUATION', 'Evaluation must carry read-only, snapshot-attestation, and dependency-completeness guarantees.');
     assert(object(evaluation.dependency_manifest)
+      && evaluation.dependency_manifest.scope === 'bounded_deterministic_action_v1'
+      && evaluation.dependency_manifest.global_mechanic_dependencies_complete === false
       && evaluation.dependency_manifest.condition_ast_dependencies_complete === true
       && evaluation.dependency_manifest.context_projection_dependencies_complete === true
       && evaluation.dependency_manifest.effect_target_dependencies_complete === true
