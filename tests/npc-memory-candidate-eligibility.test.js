@@ -456,6 +456,17 @@ test("candidate rejection output does not leak rejected record identifiers", () 
   assert.equal(serialized.includes("sensitive title"), false);
 });
 
+test("admission result and nested reference projections are immutable", () => {
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([candidate()]));
+  assert.equal(Object.isFrozen(result), true);
+  assert.equal(Object.isFrozen(result.admitted), true);
+  assert.equal(Object.isFrozen(result.admitted[0]), true);
+  assert.throws(() => { result.status = "non_ready"; }, TypeError);
+  assert.throws(() => { result.admitted.push({ record_ref: "forged", record_version: "v1" }); }, TypeError);
+  assert.throws(() => { result.admitted[0].record_ref = "forged"; }, TypeError);
+  assert.equal(result.admitted[0].record_ref, "memory:claim-1");
+});
+
 test("candidate admission does not mutate its request or result inputs", () => {
   const inputRequest = structuredClone(request);
   const inputResult = completeResult([
@@ -480,4 +491,47 @@ test("candidate admission does not mutate its request or result inputs", () => {
 
   assert.deepEqual(inputRequest, requestBefore);
   assert.deepEqual(inputResult, resultBefore);
+});
+
+
+test("non-finite numeric snapshot components fail closed", () => {
+  for (const component of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    for (const field of ["world_revision", "commit_sequence"]) {
+      const invalidSnapshot = { ...request.snapshot, [field]: component };
+      const trustedResult = evaluateMemoryCandidateAdmission(
+        { ...request, snapshot: invalidSnapshot },
+        completeResult([candidate()]),
+      );
+      assert.equal(trustedResult.status, "non_ready");
+      assert.equal(trustedResult.reason, "trusted_snapshot_incomplete");
+      assert.deepEqual(trustedResult.admitted, []);
+
+      const candidateResult = evaluateMemoryCandidateAdmission(
+        request,
+        completeResult([candidate({ snapshot: invalidSnapshot })]),
+      );
+      assert.equal(candidateResult.status, "ready");
+      assert.deepEqual(candidateResult.admitted, []);
+    }
+  }
+});
+
+
+test("malformed candidate entries are ignored without leaking or aborting valid peers", () => {
+  const valid = candidate({ record: { ref: "memory:valid-peer", version: "v1" } });
+  const result = evaluateMemoryCandidateAdmission(
+    request,
+    completeResult([null, undefined, "not-a-candidate", 42, [], valid]),
+  );
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, [{
+    record_ref: "memory:valid-peer",
+    record_version: "v1",
+    epistemic_kind: "acquired_report",
+    evidence_assessment: "unassessed",
+  }]);
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes("not-a-candidate"), false);
+  assert.equal(serialized.includes("invalid_candidate"), false);
 });
