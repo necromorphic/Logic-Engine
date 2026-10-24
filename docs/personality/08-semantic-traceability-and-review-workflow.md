@@ -40,6 +40,7 @@ If two sources conflict, do not silently choose a winner. Record the conflict, p
 | Actor-authorized reads and withheld values | `03-core-decision-and-integration-gates.md`, §4 | PERS-SEM-025–026; PERS-TRAIT-009 | Core | Blocking; snapshot consistency does not equal authorization |
 | Character-card projection | `01-personality-and-relationship-semantics.md`, §§2, 4; `07-cross-block-readiness-and-handoff.md` | PERS-SEM-027; PERS-REL-012 | Core/card owner for view; Core for authorized read | Read-only semantic target; safe runtime projection unverified |
 | Player agency | `01-personality-and-relationship-semantics.md`, §3; `06-stable-trait-lifecycle.md`, §7 | PERS-SEM-028; PERS-TRAIT-008 | Project-level player-control contract, respected by Personality/NPC | Semantic invariant specified |
+| Versioned relationship semantics | `05-world-pack-relationship-dimension-template.md`, §§2, 5–6 | PERS-SEM-029; PERS-SEM-024, with PERS-SEM-006–007 for active-rule validation | World Pack owns semantic version/compatibility policy; Core owns any version-pinning, migration, and replay mechanism | Authoring requirement specified; historical rule-version enforcement remains unverified/blocked |
 
 Acceptance IDs are stable references. If a scenario is split, renamed, or retired, preserve a redirect/cross-reference so downstream docs do not silently lose traceability.
 
