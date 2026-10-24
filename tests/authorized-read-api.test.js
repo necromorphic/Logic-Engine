@@ -173,7 +173,8 @@ test('host visibility revocation is re-evaluated on every authorized-read reques
       && context.recipient === 'model'
       && context.purpose === 'npc_decision'
       && entity.entity_id === 'other-a'
-      && (field === 'entity_id' || field === 'entity_type' || (field === 'attributes.name' && allowTargetName)));
+      && allowTargetName
+      && ['entity_id', 'entity_type', 'attributes.name'].includes(field));
 
   const read = () => fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
     method: 'POST',
@@ -196,9 +197,10 @@ test('host visibility revocation is re-evaluated on every authorized-read reques
   // remains host-owned configuration; no caller field can override it.
   allowTargetName = false;
   const revoked = await read();
-  assert.equal(revoked.status, 200);
+  assert.equal(revoked.status, 404);
   const revokedBody = await revoked.json();
-  assert.deepEqual(revokedBody.read.entities, [{ entity_id: 'other-a', entity_type: 'character' }]);
+  assert.equal(revokedBody.error.code, 'READ_NOT_AVAILABLE');
+  assert.equal(JSON.stringify(revokedBody).includes('other-a'), false);
   assert.equal(JSON.stringify(revokedBody).includes('Other'), false);
   assert.equal(JSON.stringify(revokedBody).includes('also-private'), false);
   assert.equal(JSON.stringify(revokedBody).includes('must-not-leak'), false);
