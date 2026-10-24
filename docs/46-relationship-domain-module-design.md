@@ -245,6 +245,8 @@ These scenarios extend the existing PERS-SEM cases; they do not replace or renum
 
 **Then** historical events are not silently reinterpreted under the new rules. A version/migration/replay policy must explicitly define any supported reconciliation.
 
+**Acceptance crosswalk:** this case directly reuses Personality criterion `PERS-SEM-029` for meaning-changing World Pack updates. `PERS-SEM-024` covers deterministic replay only within the same explicitly pinned inputs and rule versions; it is not a substitute for historical version pinning or migration policy.
+
 ## 10. Integration dependencies and readiness
 
 | Dependency | Owner | Current status | What closes it |
