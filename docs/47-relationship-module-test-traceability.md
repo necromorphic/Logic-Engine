@@ -52,7 +52,30 @@ This fixture is a test design only. It is not a proposed storage schema or an as
 | REL-MOD-011 — Player agency | NPC consumer | Relationship context never authors player voluntary dialogue, thought, decision, or action | Semantic requirement; runtime boundary must be verified |
 | REL-MOD-012 — Versioned semantics | Mechanic/World Pack lifecycle + Core replay | New version does not silently reinterpret previously committed transitions | Blocked on approved historical version/replay policy |
 
-## 4. Required negative tests when the Core interfaces exist
+## 4. Current executable pure-evaluator coverage
+
+The standalone evaluator in PR #62 is deliberately narrower than the full module contract. The following map records what its current unit suite actually exercises; it does not upgrade any consumer/Core requirement to implemented status.
+
+| Requirement | Current pure-evaluator coverage | Boundary / remaining work |
+|---|---|---|
+| Directed relationship and no implicit reciprocity | Covered: output retains subject/target direction and contains no reciprocal patch | Real storage/read/write direction still requires Core integration tests |
+| Partial patch and dimension isolation | Covered: omitted dimensions are omitted; a mixed valid/invalid patch is rejected as a whole | Full canonical-state atomicity remains unverified |
+| Unset vs explicit value vs cleared | Covered, including explicit transition rules and no-op clear of unset/already-cleared | Authorized reads must preserve these distinctions in production |
+| Withheld/conflict/insufficient/unsupported states | Covered at evaluator input/evidence boundary | Does not prove access-control or non-disclosure behavior |
+| Explicit domain transition rules and version pin | Covered for the supplied rule object and required version label | World Pack loading/version lifecycle and historical replay are not implemented here |
+| Malformed state/rule rejection | Covered for tagged-state shapes, out-of-domain values, transition-source declarations, and undeclared transition fields | Upstream parser/schema validation remains a separate boundary |
+| Deterministic repeat evaluation | Covered: identical bounded input produces the same non-mutating result | This is **not** duplicate-event/idempotency coverage; the evaluator has no event identity and can return the same candidate again. Host/NPC/Core must prevent duplicate canonical commits |
+| Same event, different actor interpretation | Not directly covered by current function signature | Requires subject-specific authorized knowledge/profile inputs and NPC consumer tests |
+| Unequal knowledge and hidden information | Not covered by pure evaluator tests | Requires acquisition/delivery and actor/purpose-authorized read tests |
+| Conduct vs internal relationship | Not covered by current evaluator API | Must remain separate in NPC/narration consumers |
+| Repair, irreversible transitions, disabled lifecycle | Only explicit generic transitions are tested; no dedicated repair/irreversibility/lifecycle policy is implemented | Requires authored World Pack rules and mechanic lifecycle/consumer tests |
+| Alternative-source sufficiency and rollback | Not covered | Blocked until the domain sufficiency rule and Core-owned support/replay contracts are approved |
+| Player agency | Not covered by evaluator unit tests | Requires NPC consumer boundary tests |
+| Version changes across committed history | Only the rule-version label on a candidate is tested | Requires explicit historical version/replay policy and Core tests |
+
+This table is an implementation trace, not a claim that the full acceptance suite has passed. The pure evaluator must remain a candidate producer; missing context or host capability must not be simulated as a successful integration.
+
+## 5. Required negative tests when the Core interfaces exist
 
 The first real integration suite must include at least:
 
@@ -74,7 +97,7 @@ The first real integration suite must include at least:
 
 Do not replace any of these with a mocked “successful” path when the corresponding production contract is absent.
 
-## 5. Exit criteria
+## 6. Exit criteria
 
 ### Domain specification can be reviewed when
 - every supported World Pack dimension fills the required template in `docs/personality/05-world-pack-relationship-dimension-template.md`;
