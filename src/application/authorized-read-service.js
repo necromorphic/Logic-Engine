@@ -94,6 +94,7 @@ export class AuthorizedReadService {
     }
 
     const entity = snapshot.entities[0];
+    if (entity.status === 'destroyed') throw unavailable();
     let allowedField = false;
     try {
       allowedField = this.fieldPolicy(context, Object.freeze({ ...entity }), 'attributes.' + request.attribute) === true;
