@@ -114,6 +114,29 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       const worldId = decodeURIComponent(parts[2]);
       const action = parts[3] || 'state';
 
+      if (action === 'time-triggers') {
+        if (!secretMatches(req.headers['x-engine-internal-token'], internalToken)) {
+          return send(res, 403, { error: { code: 'INTERNAL_REQUIRED', message: 'Time-trigger lifecycle requires the separately configured internal credential.' } });
+        }
+        if (parts.length === 4 && req.method === 'GET') {
+          return send(res, 200, { triggers: engine.listTimeTriggers(worldId) });
+        }
+        if (parts.length === 4 && req.method === 'POST') {
+          const trigger = engine.registerTimeTrigger(worldId, await readBody(req));
+          return send(res, trigger.idempotent_replay ? 200 : 201, { trigger });
+        }
+        if (parts.length === 6 && parts[5] === 'cancel' && req.method === 'POST') {
+          const body = await readBody(req);
+          if (!body || typeof body !== 'object' || Array.isArray(body)
+            || Object.keys(body).some((key) => key !== 'reason')) {
+            throw new EngineError('INVALID_TIME_TRIGGER_CANCEL', 'Trigger cancellation accepts only an optional reason.');
+          }
+          const trigger = engine.cancelTimeTrigger(worldId, decodeURIComponent(parts[4]), body.reason ?? null);
+          return send(res, 200, { trigger });
+        }
+        return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported time-trigger operation.' } });
+      }
+
       if (action === 'time-advances') {
         if (!secretMatches(req.headers['x-engine-internal-token'], internalToken)) {
           return send(res, 403, { error: { code: 'INTERNAL_REQUIRED', message: 'Time advancement requires the separately configured internal credential.' } });
