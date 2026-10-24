@@ -188,6 +188,27 @@ test('explicit skip is a canonical time.advance operation and cannot carry an ac
   assert.equal(engine.getState('time-config-world').world_revision, 1);
 });
 
+test('time-advance operation enforces the active skip limit on the whole requested interval', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  register(engine, { time_policy: { ...policy(), max_skip_duration_ms: 10000 } });
+
+  assert.throws(
+    () => engine.startTimeAdvance('time-config-world', {
+      idempotency_key: 'over-limit-operation',
+      expected_revision: 1,
+      to_coordinate: 11000,
+      triggers: [],
+      completed_trigger_ids: [],
+    }),
+    (error) => error.code === 'TIME_ADVANCE_TOO_LARGE'
+      && error.details.requested_duration_ms === 11000
+      && error.details.maximum_duration_ms === 10000,
+  );
+  assert.equal(engine.getState('time-config-world').game_time_coordinate, 0);
+  assert.equal(engine.getState('time-config-world').world_revision, 1);
+});
+
 test('activating a new config version preserves the old version and invalidates prior revision-bound requests', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
