@@ -323,3 +323,36 @@ test('registered overdue triggers block further time advancement instead of bein
   );
   assert.equal(engine.getState('time-operation-world').game_time_coordinate, 20000);
 });
+
+
+test('actual effect conflicts omitted from declared trigger sets fail before operation reservation', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  for (const triggerId of ['undeclared-writer-a', 'undeclared-writer-b']) {
+    engine.registerTimeTrigger('time-operation-world', {
+      trigger_id: triggerId,
+      due_coordinate: 10000,
+      read_set: [],
+      write_set: [],
+      payload: {
+        event: {
+          turn_id: 'turn-' + triggerId,
+          event_type: 'action.completed',
+          effects: [{ kind: 'entity.upsert', entity_id: 'same-entity', entity_type: 'object' }],
+        },
+      },
+    });
+  }
+  const revision = engine.getState('time-operation-world').world_revision;
+  assert.throws(
+    () => engine.startTimeAdvance('time-operation-world', {
+      idempotency_key: 'undeclared-conflict',
+      expected_revision: revision,
+      to_coordinate: 10000,
+    }),
+    (error) => error.code === 'SEGMENT_WRITE_CONFLICT',
+  );
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM time_advance_operations WHERE world_id=?').get('time-operation-world').count, 0);
+  assert.equal(engine.getState('time-operation-world').game_time_coordinate, 0);
+  assert.equal(engine.listTimeTriggers('time-operation-world').every((trigger) => trigger.status === 'pending' && trigger.claimed_operation_id === null), true);
+});
