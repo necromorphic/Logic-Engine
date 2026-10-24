@@ -12,9 +12,21 @@ Chosen policy: **hybrid**.
 - Permanent deletion is a distinct operation. It must remove the selected source content and dependent copies/index entries to the extent required by the retention/deletion policy.
 - A Core world rollback is a canonical-state lifecycle event, not an implicit instruction to erase archive history.
 
-### Current implementation boundary
+### Provider-local implementation now present
 
-The current SQLite provider vertical slice stores record metadata and lineage; it is not yet a raw message-body archive and has no approved source-change feed. Its schema therefore cannot honestly claim to implement active message versions, dependent-summary invalidation, or permanent text purge. Do not add guessed lifecycle columns or infer deletion from `world_revision + commit_sequence`. Implement those semantics only after the source identity/version and deletion signal are agreed.
+The SQLite provider now has an isolated raw-message archive slice in its provider-owned database:
+
+- `captureRawMessage` persists the exact UTF-8 text, role, metadata, capture time, and SHA-256 integrity digest under a world/conversation/message/version key. Identical retries are idempotent; a conflicting payload for the same version fails with `MEMORY_RAW_CAPTURE_CONFLICT`.
+- `selectActiveRawVersion` changes only the active-version pointer. It does not erase other swipe/generation alternatives.
+- `registerRawDerivedCopy` records a provider-local dependent copy with source-version lineage.
+- `markRawSourceDeleted` marks the selected version deleted, removes it from active selection, and marks registered dependent copies invalidated.
+- `purgeRawSource` is a separate explicit permanent operation. It removes the selected version and cascades to registered dependent copies in this provider database.
+
+### Remaining limits
+
+This is a provider-local persistence/lifecycle API, not a SillyTavern capture hook, public HTTP route, source-change feed, or production Memory→NPC integration. No active-message read API or search/vector index over raw message bodies is wired. Only dependent copies explicitly registered in this database are invalidated/purged; external stores and indexes are not managed by this operation. Retention duration, encryption-at-rest, and host authorization for capture/read remain host/deployment policy questions and are not inferred here.
+
+Do not infer source deletion or canonical freshness from `world_revision + commit_sequence`. The source identity/version and complete-inventory production gates remain blocked by Core #140.
 
 ## 2. `missing_ids` diagnostics
 
