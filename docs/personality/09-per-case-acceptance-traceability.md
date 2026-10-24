@@ -46,24 +46,20 @@ Primary references:
 
 ## PERS-TRAIT case crosswalk
 
-IDs are defined in `06-stable-trait-lifecycle.md`; this summary does not replace that document.
+These IDs are defined in `06-stable-trait-lifecycle.md`; this crosswalk makes each criterion individually traceable without implying runtime support.
 
-| ID(s) | Owner / boundary | Specification status | Runtime status |
-|---|---|---|---|
-| PERS-TRAIT-001–003 | Personality lifecycle semantics | Specified | Not runtime-tested |
-| PERS-TRAIT-004 | Core-authorized correction, provenance, audit | Specified | Integration blocked |
-| PERS-TRAIT-005–008 | Personality lifecycle; player-control boundary where relevant | Specified | Not runtime-tested |
-| PERS-TRAIT-009 | Core authorized read | Specified | Integration blocked |
-| PERS-TRAIT-010 | Core rollback/rebuild for supported trait-development event | Conditional target | Integration blocked |
-
-## Maintenance rules
-
-1. Do not renumber or reuse acceptance IDs.
-2. If a case is split, renamed, or retired, retain a redirect to its successor and update the primary matrix and this crosswalk.
-3. “Specified” is not “implemented”; “implemented” is not “tested on production boundary.”
-4. Do not close a Core-owned row without explicit contract/implementation evidence from Core.
-5. Do not invent universal relationship dimensions or infer runtime behavior from narrative examples.
-6. This is documentation only; no runtime code or executable tests were added.
+| ID | Primary reference | Closure owner / boundary | Specification status | Runtime status |
+|---|---|---|---|---|
+| PERS-TRAIT-001 | 06 §2 | Personality lifecycle semantics | Specified | Not runtime-tested |
+| PERS-TRAIT-002 | 06 §§2, 5 | Personality semantics; evidence versus canonical trait | Specified | Not runtime-tested |
+| PERS-TRAIT-003 | 06 §§3–4 | Personality lifecycle; no undeclared auto-update rule | Specified | Not runtime-tested |
+| PERS-TRAIT-004 | 06 §6; 03 §5 | Core-authorized correction, provenance, audit | Specified | Integration blocked |
+| PERS-TRAIT-005 | 06 §§4–5 | Personality semantics; inference remains non-canonical | Specified | Not runtime-tested |
+| PERS-TRAIT-006 | 06 §§3–4 | Personality semantics; World Pack/runtime capability boundary | Specified | No development operation claimed |
+| PERS-TRAIT-007 | 06 §§3, 7 | Personality semantics; context-sensitive manifestation | Specified | Not runtime-tested |
+| PERS-TRAIT-008 | 06 §7; 01 §3 | Project player-control contract; Personality/NPC must respect it | Specified | No runtime player-control test claimed |
+| PERS-TRAIT-009 | 06 §7; 03 §4 | Core actor/purpose-authorized read | Specified | Integration blocked |
+| PERS-TRAIT-010 | 06 §8; 03 §6 | Core rollback/rebuild for supported trait-development event | Conditional target | Integration blocked |
 
 ## Legacy relationship acceptance-ID crosswalk
 
