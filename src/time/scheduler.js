@@ -267,6 +267,9 @@ export function planDueWork(input) {
   for (const trigger of triggers) {
     if (allById.has(trigger.trigger_id)) fail('DUPLICATE_TRIGGER_ID', 'Trigger IDs must be unique.');
     allById.set(trigger.trigger_id, trigger);
+    if (completedIds.has(trigger.trigger_id) && trigger.status !== 'completed') {
+      fail('CONFLICTING_TRIGGER_STATUS', 'A trigger cannot be listed as completed and also have a non-completed status.', { trigger_id: trigger.trigger_id, status: trigger.status });
+    }
   }
 
   const allDue = triggers.filter((trigger) => trigger.status === 'pending'
