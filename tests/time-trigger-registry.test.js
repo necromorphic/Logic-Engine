@@ -211,6 +211,31 @@ test('Core derives scheduler write sets from trigger effects before grouping sam
   assert.equal(engine.listTimeTriggers('time-trigger-world').every((item) => item.status === 'pending'), true);
 });
 
+test('failed trigger segment rolls back time and trigger completion, leaving explicit review state', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const invalid = trigger('invalid-read', 10000, 'invalid-entity');
+  invalid.read_set = ['entity:missing-source'];
+  invalid.payload.event.read_set = ['entity:missing-source'];
+  engine.registerTimeTrigger('time-trigger-world', invalid);
+
+  const operation = engine.startTimeAdvance('time-trigger-world', {
+    idempotency_key: 'invalid-trigger-operation',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(operation.status, 'needs_review');
+  assert.equal(engine.getState('time-trigger-world').game_time_coordinate, 0);
+  assert.equal(engine.getEvents('time-trigger-world').length, 0);
+
+  const stored = engine.getTimeTrigger('time-trigger-world', 'invalid-read');
+  assert.equal(stored.status, 'pending');
+  assert.equal(stored.claimed_by_operation_id, operation.operation_id);
+  assert.equal(engine.cancelTimeTrigger('time-trigger-world', 'invalid-read', 'operator_reviewed_failure').status, 'cancelled');
+  assert.equal(engine.getTimeTrigger('time-trigger-world', 'invalid-read').claimed_by_operation_id, null);
+});
+
 test('a running operation claim prevents concurrent trigger cancellation', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
