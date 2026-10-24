@@ -70,7 +70,9 @@ test('health, auth, proposal approval, and canonical commit boundary', async (t)
   const fetchedProposal = await fetch(base + '/v1/worlds/api-world/proposals/' + proposal.proposal_id, { headers });
   assert.equal(fetchedProposal.status, 200);
   assert.equal((await fetchedProposal.json()).proposal.proposal_hash, proposal.proposal_hash);
-  assert.equal((await (await fetch(base + '/v1/worlds/api-world/state', { headers })).json()).state.world_revision, 0);
+  assert.equal((await fetch(base + '/v1/worlds/api-world/state', { headers })).status, 403);
+  const internalReadHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
+  assert.equal((await (await fetch(base + '/v1/worlds/api-world/state', { headers: internalReadHeaders })).json()).state.world_revision, 0);
 
   const duplicate = await fetch(base + '/v1/worlds/api-world/proposals', { method: 'POST', headers, body: json(proposalBody) });
   assert.equal(duplicate.status, 201);
@@ -92,7 +94,7 @@ test('health, auth, proposal approval, and canonical commit boundary', async (t)
   const result = await committed.json();
   assert.equal(result.proposal.status, 'committed');
   assert.equal(result.commit_result.world_revision, 1);
-  const state = await fetch(base + '/v1/worlds/api-world/state', { headers });
+  const state = await fetch(base + '/v1/worlds/api-world/state', { headers: internalReadHeaders });
   assert.equal((await state.json()).state.entities[0].attributes.name, 'Mira');
 
   const replay = await fetch(base + '/v1/worlds/api-world/proposals/' + proposal.proposal_id + '/commit', { method: 'POST', headers, body: '{}' });
@@ -209,7 +211,7 @@ test('proposal server-owned fields are rejected and cancelled proposals cannot c
 });
 
 test('proposal creation performs deterministic validation without mutating canonical state', async (t) => {
-  const base = await setup(t, { approvalToken: APPROVAL });
+  const base = await setup(t, { approvalToken: APPROVAL, adminToken: ADMIN });
   assert.equal((await createWorld(base, 'proposal-validation-world')).status, 201);
   const invalidBody = {
     idempotency_key: 'fixable-proposal',
@@ -218,7 +220,7 @@ test('proposal creation performs deterministic validation without mutating canon
   };
   const invalid = await fetch(base + '/v1/worlds/proposal-validation-world/proposals', { method: 'POST', headers, body: json(invalidBody) });
   assert.equal(invalid.status, 400);
-  const state = await fetch(base + '/v1/worlds/proposal-validation-world/state', { headers });
+  const state = await fetch(base + '/v1/worlds/proposal-validation-world/state', { headers: { ...headers, 'x-admin-token': ADMIN } });
   assert.equal((await state.json()).state.world_revision, 0);
 
   const corrected = await fetch(base + '/v1/worlds/proposal-validation-world/proposals', {
