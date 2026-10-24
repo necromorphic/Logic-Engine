@@ -18,7 +18,7 @@ Status: semantic specification, not an executable runtime test suite. These case
 | PERS-SEM-001 | Directed relationship A → B | Only A's relation toward B changes; B → A is untouched unless separately changed. | Personality semantics + typed write |
 | PERS-SEM-002 | Partial dimension update | Explicitly supplied dimensions change; omitted dimensions remain unchanged. | Personality semantics + typed write |
 | PERS-SEM-003 | Unknown versus neutral | Unset/unknown and an explicit neutral value remain distinguishable. | Personality semantics + typed write/read |
-| PERS-SEM-004 | Explicit clearing | Clearing an established value is distinguishable from leaving it unset, assigning neutral, or withholding it. | Contract decision + typed write/read |
+| PERS-SEM-004 | Explicit clearing | An authorized clear removes the current effective value and remains distinguishable in authorized canonical history/provenance from a dimension never established; it is not equivalent to neutral or a withheld read. Caller-facing disclosure of clear history remains authorization- and purpose-scoped. | Contract decision + typed write/read |
 | PERS-SEM-005 | Dimension isolation | Changing trust does not automatically change attraction, consent, knowledge, obligation, reciprocity, or another dimension. | Personality/World Pack semantics |
 | PERS-SEM-006 | Unsupported dimension/value | A dimension or value not supported by the active domain/World Pack is rejected rather than silently normalized. | World Pack validation + typed write |
 | PERS-SEM-007 | Unsupported transition | A transition disallowed by the active domain rules is rejected atomically. | World Pack validation + typed write |
