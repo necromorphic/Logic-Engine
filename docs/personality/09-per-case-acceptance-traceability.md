@@ -43,6 +43,7 @@ Primary references:
 | PERS-SEM-026 | 05 §3; 03 authorized-read gate | Core safe read-result semantics | Specified | Blocked: withheld/unset distinction unverified at runtime |
 | PERS-SEM-027 | 01 §§2, 4; 07 handoff | Core/card projection; authorized canonical read | Derived/read-only target specified | Safe authorized projection unverified |
 | PERS-SEM-028 | 01 §3; 06 §7 | Player-control contract; Personality/NPC must respect it | Specified | No runtime player-control test claimed |
+| PERS-SEM-029 | 05 §§2, 5–6; 03 rollback/version integration boundary | World Pack semantic version policy; Core for any version pinning/migration/replay enforcement | Specified: meaning-changing rules require explicit compatibility/migration or incompatibility handling; no Core mechanism is assumed | Blocked: historical rule-version pinning/migration and production replay policy unverified |
 
 ## PERS-TRAIT case crosswalk
 
