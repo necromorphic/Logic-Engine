@@ -103,6 +103,7 @@ function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10
       }),
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
+      authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
     };
   };
@@ -161,6 +162,7 @@ test('application executor fails closed without trusted context or with a mismat
       knownAbsentPaths: [],
       world_revision: snapshot.world_revision - 1,
       commit_sequence: snapshot.commit_sequence,
+      authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -245,6 +247,7 @@ test('mechanic evaluation hands off through the ordinary durable proposal lifecy
   assert.equal(proposal.base_commit_sequence, evaluation.snapshot_identity.commit_sequence);
   assert.equal(proposal.mechanic_execution.snapshot_identity.template_hash, evaluation.snapshot_identity.template_hash);
   assert.equal(proposal.mechanic_execution.context_policy_version, evaluation.context_policy_version);
+  assert.equal(proposal.mechanic_execution.authorization_scope, evaluation.authorization_scope);
   assert.equal(proposal.mechanic_execution.evaluation_fingerprint, evaluation.evaluation_fingerprint);
   assert.deepEqual(proposal.mechanic_execution.effect_provenance, evaluation.effect_provenance);
   assert.deepEqual(proposal.mechanic_execution.dependency_manifest, evaluation.dependency_manifest);
@@ -321,6 +324,7 @@ test('mechanic proposal handoff rejects incomplete or mismatched effect provenan
     action_id: tampered.action_id,
     context_fingerprint: tampered.context_fingerprint,
     context_policy_version: tampered.context_policy_version,
+    authorization_scope: tampered.authorization_scope,
     condition_result: tampered.condition_result,
     dependency_manifest: tampered.dependency_manifest,
     effects: tampered.effects,
@@ -667,7 +671,8 @@ test('application executor accepts only same-snapshot canonical absence evidence
     ],
     world_revision: snapshot.world_revision,
     commit_sequence: snapshot.commit_sequence,
-    policy_version: 'test-visibility-policy-v1',
+    authorization_scope: 'test-principal',
+      policy_version: 'test-visibility-policy-v1',
   });
   const provenAbsent = new MechanicExecutor(engine, { resolveAuthorizedContext: provider(['actor.injury']) })
     .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -694,6 +699,7 @@ test('application executor rejects known-absence claims outside the declared con
       ],
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
+      authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -777,6 +783,7 @@ test('application executor rejects non-canonical context values before hashing o
       ],
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
+      authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -793,6 +800,7 @@ test('canonical entity-attribute provider constructs versioned context and evide
   const snapshot = engine.getSnapshot(worldId, { includeMechanicEvaluationState: true });
   const provider = new CanonicalEntityAttributeContextProvider(engine, {
     policyVersion: 'visibility-policy-v1',
+    authorizationScope: 'test-principal',
     bindings: [
       { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
@@ -820,6 +828,7 @@ test('canonical entity-attribute provider fails closed for denied or unbound con
   const value = template();
   const denied = new CanonicalEntityAttributeContextProvider(engine, {
     policyVersion: 'visibility-policy-v1',
+    authorizationScope: 'test-principal',
     bindings: [
       { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
@@ -838,6 +847,7 @@ test('canonical entity-attribute provider fails closed for denied or unbound con
   enableFixture(unboundSetup.engine, unboundSetup.worldId, unboundTemplate);
   const unbound = new CanonicalEntityAttributeContextProvider(unboundSetup.engine, {
     policyVersion: 'visibility-policy-v1',
+    authorizationScope: 'test-principal',
     bindings: [
       { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
@@ -875,6 +885,7 @@ test('application executor rejects accessor-bearing trusted context without invo
       ],
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
+      authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
@@ -889,11 +900,13 @@ test('canonical context provider rejects unsafe and duplicate condition-path bin
   const { engine } = setup(t, 'executor-canonical-provider-binding-validation-world');
   assert.throws(() => new CanonicalEntityAttributeContextProvider(engine, {
     policyVersion: 'visibility-policy-v1',
+    authorizationScope: 'test-principal',
     bindings: [{ path: 'actor.hp', entity_id: 'entity.actor-context', attribute: '__proto__' }],
     canRead: () => true,
   }), /uniquely map a safe condition path/);
   assert.throws(() => new CanonicalEntityAttributeContextProvider(engine, {
     policyVersion: 'visibility-policy-v1',
+    authorizationScope: 'test-principal',
     bindings: [
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
       { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'health' },
@@ -925,6 +938,7 @@ test('application executor rejects accessor-backed context without invoking gett
       ],
       world_revision: snapshot.world_revision,
       commit_sequence: snapshot.commit_sequence,
+      authorization_scope: 'test-principal',
       policy_version: 'test-visibility-policy-v1',
     }),
   }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
