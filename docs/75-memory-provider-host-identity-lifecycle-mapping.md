@@ -434,9 +434,9 @@ The current pinned ST representation physically splices deleted swipes/messages 
 
 - Provider source/test head inspected: `0c7b4abd8a5b3547304f452380b310bb155aeb52`.
 - Test file blob: `1926af89dad7676b40b3cb84280885b098cdaea2`.
-- Existing CI run #1784: [Runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40121937992), conclusion `success`, reported 290/290 tests.
-- Evidence class: **FIXTURE-TESTED** for Provider-local raw archive behavior at that exact code head; **SOURCE-INSPECTED** for the listed Provider methods; **NOT REAL-RUNTIME-TESTED** for Android/Termux Host persistence, authoritative inventory/currentness, Host→Provider handoff, and final serialization/revocation race.
-- This record cites the existing successful run; it does not claim a new test execution was launched by this documentation change.
+- Frozen Provider source/test head: source blob `67c84de44ff2783d85a42fded1b583aa25abea99`, raw-archive test blob `1926af89dad7676b40b3cb84280885b098cdaea2`, package script blob `fb0851c43284e2709216a59c54e0df30506a7d4c`. These blobs are identical on the reviewed code head `0c7b4abd8a5b3547304f452380b310bb155aeb52` and the documentation branch commit below.
+- Re-run evidence: [Runtime tests #1793](https://github.com/necromorphic/Logic-Engine/actions/runs/40123262561), run against docs commit `ca3e2adcbf1f296828bb53ba03d4c08837973e0b`; the workflow ran `npm test` and completed successfully: **290/290 passed**. Because this commit changes only the canonical documentation file and the source/test/package blobs above are unchanged, it validates the same Provider code and test files at the frozen head. The focused command `npm test -- tests/memory-provider-raw-archive.test.js` was not separately invoked in the local shell.
+- Evidence class: **FIXTURE-TESTED** for Provider-local behavior; **SOURCE-INSPECTED** for the listed methods; **NOT REAL-RUNTIME-TESTED** for Android/Termux Host persistence, authoritative inventory/currentness, Host→Provider handoff, and final serialization/revocation race.
 
 #### Provider acceptance before any integration review
 
