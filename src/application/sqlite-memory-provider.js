@@ -169,8 +169,18 @@ export class SQLiteMemoryProvider {
       || !validId(input.message_id) || !validId(input.version_id)) {
       throw new TypeError('Invalid raw Memory read target');
     }
-    await this.#assertRawReadAllowed({ ...input, action: 'read_version' });
-    const row = this.db.prepare(`SELECT * FROM memory_raw_captures
+    const request = { ...input, action: 'read_version' };
+    await this.#assertRawReadAllowed(request);
+    let row = this.db.prepare(`SELECT * FROM memory_raw_captures
+      WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+      .get(input.world_id, input.conversation_id, input.message_id, input.version_id);
+    if (!row || row.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
+    if (rawDigest(row.content_text) !== row.content_sha256) throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
+
+    // Recheck at the disclosure boundary after the database read. This narrows
+    // authorization/deletion races but is not a cross-store atomicity guarantee.
+    await this.#assertRawReadAllowed(request);
+    row = this.db.prepare(`SELECT * FROM memory_raw_captures
       WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
       .get(input.world_id, input.conversation_id, input.message_id, input.version_id);
     if (!row || row.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
@@ -191,13 +201,20 @@ export class SQLiteMemoryProvider {
     if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)) {
       throw new TypeError('Invalid raw Memory conversation read');
     }
-    await this.#assertRawReadAllowed({ ...input, action: 'read_active' });
-    const rows = this.db.prepare(`SELECT c.* FROM memory_raw_active_versions a
+    const request = { ...input, action: 'read_active' };
+    await this.#assertRawReadAllowed(request);
+    const readRows = () => this.db.prepare(`SELECT c.* FROM memory_raw_active_versions a
       JOIN memory_raw_captures c ON c.world_id=a.world_id
         AND c.conversation_id=a.conversation_id AND c.message_id=a.message_id
         AND c.version_id=a.version_id
       WHERE a.world_id=? AND a.conversation_id=? AND c.deleted_at IS NULL
       ORDER BY c.message_id`).all(input.world_id, input.conversation_id);
+    let rows = readRows();
+    if (rows.some((row) => rawDigest(row.content_text) !== row.content_sha256)) {
+      throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
+    }
+    await this.#assertRawReadAllowed(request);
+    rows = readRows();
     if (rows.some((row) => rawDigest(row.content_text) !== row.content_sha256)) {
       throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
     }
