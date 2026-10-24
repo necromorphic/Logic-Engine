@@ -56,7 +56,7 @@ Evidence inspected on `main`: `src/storage/sqlite-store.js`, `src/application/en
 
 ## Authorized-read dependency checkpoint — 2026-10-24
 
-Reviewed open Draft PR #65, `core/authorized-read-service-prototype`, head `971fe4c7a4eeb3b49a688f87e2b73f3e080f196a`, against Memory's request requirements. This is a branch review, not a merged-main capability claim.
+Historical checkpoint before Core PR #65 was merged (superseded by the current-main audit in docs/73): this review examined the then-open Draft branch `core/authorized-read-service-prototype`, head `971fe4c7a4eeb3b49a688f87e2b73f3e080f196a`. Do not read its former PR state as current.
 
 What the PR proposes:
 - an internal `AuthorizedReadService` requiring canonical actor binding plus an explicit trusted field-policy callback;
@@ -71,9 +71,9 @@ What this does **not** close for Memory/NPC:
 - the PR body says its latest head needs CI revalidation; earlier-head success is not final-head validation.
 
 Decision impact:
-- MEM-O02 remains open. Reuse the service boundary only after the PR is reviewed/merged or explicitly adopted, and only where its actual scope matches the requested read. Do not treat the self-only route or a generic policy callback signature as the complete Memory visibility contract.
+- MEM-O02 remains open as a **production policy/integration decision**, not because PR #65 is unmerged. PR #65/#101 are now on main; the route remains self-only unless a trusted host policy is explicitly configured. Do not treat the seam or callback signature as the complete Memory visibility contract. See docs/73.
 - The Memory candidate contract must bind the authorization result to the exact request scope and revalidate before serialization; NPC's pure admission helper is downstream defense-in-depth, not a replacement for this boundary.
-- No dependency on PR #65 is assumed by PR #68, and no runtime integration is claimed.
+- At that historical checkpoint, PR #68 did not depend on PR #65 and claimed no runtime integration. Current Core/Memory integration limits are summarized in docs/73.
 
 ## Cross-block dependency: NPC knowledge proposal
 
@@ -155,7 +155,7 @@ This section answers the six questions in the NPC report. It distinguishes inspe
 - rollback-aware recoverable reconciliation;
 - explicit error, completeness, and lifecycle semantics.
 
-Open PR #65 is also an unmerged proposal and its self-only read path does not establish general Memory/NPC visibility policy. NPC's branch helper is a consumer-side candidate-admission oracle, not the missing trusted read boundary.
+Historical checkpoint before PR #65/#101 merged: the then-open PR #65 self-only read path did not establish general Memory/NPC visibility policy. Current state is recorded in docs/73. NPC's branch helper is a consumer-side candidate-admission oracle, not the missing trusted read boundary.
 
 ### 2. Retrieval contract NPC should treat as normative
 
@@ -425,9 +425,9 @@ Reviewed the NPC-owned proposal `docs/53-npc-memory-lifecycle-vocabulary-crosswa
 
 ### Current authorized-read and rollback PR status
 
-- Core PR #65 (`core/authorized-read-service-prototype`) is open Draft, unmerged, currently at head `2bc7b00c55074a14f7b7200ecae85cbae5f19162`. Runtime-tests run [40059975239](https://github.com/necromorphic/Logic-Engine/actions/runs/40059975239) is completed successfully for that SHA. This corrects the older PR body statement that no run had yet been reported. It validates the current PR's test suite only; it does not make the service part of `main` or expand its intentionally self-only HTTP route into general NPC/Memory visibility authorization.
+- Historical checkpoint before PR #65 merged: Core PR #65 (`core/authorized-read-service-prototype`) was then open Draft at head `2bc7b00c55074a14f7b7200ecae85cbae5f19162`. Runtime-tests run [40059975239](https://github.com/necromorphic/Logic-Engine/actions/runs/40059975239) is completed successfully for that SHA. This corrects the older PR body statement that no run had yet been reported. It validates the current PR's test suite only; it does not make the service part of `main` or expand its intentionally self-only HTTP route into general NPC/Memory visibility authorization.
 - PR #65's internal service uses a trusted injected field policy and a snapshot marker, but the HTTP route deliberately exposes only the bound actor's own `entity_id`, `entity_type`, and `status`. Arbitrary attributes and multi-entity knowledge reads remain disabled. The direct in-process snapshot APIs remain trusted surfaces requiring host-caller review. Therefore PR #65 is a possible building block, not the complete Memory/NPC authorization dependency.
-- Core PR #66 (`fix(core): require admin authority for canonical rollback`) remains open Draft and unmerged. Even when its HTTP rollback authorization is correct, it does not by itself provide a durable source-change outbox or an NPC-facing invalidation feed. Memory still needs a Core-approved recovery cursor/reconciliation guarantee that observes rollback/revision/validity changes.
+- Historical checkpoint: Core PR #66 (`fix(core): require admin authority for canonical rollback`) was then open Draft and unmerged; consult current main before relying on that status. Even when its HTTP rollback authorization is correct, it does not by itself provide a durable source-change outbox or an NPC-facing invalidation feed. Memory still needs a Core-approved recovery cursor/reconciliation guarantee that observes rollback/revision/validity changes.
 
 ### Current exact-head validation
 
@@ -452,3 +452,11 @@ Memory docs PR #68 has current-head CI success; Core PR #65 also has current-hea
 ### Post-update CI and moving-main correction — 2026-10-24
 
 After this audit commit, PR #68 advanced to `fb4c8b5d88981becd99f44cd9c21fc8beac2da45`. Runtime-tests run [40061844383](https://github.com/necromorphic/Logic-Engine/actions/runs/40061844383) was queued at the time of recheck; therefore the new head's CI is **pending**, while the previous head `2857c507...` remains CI-successful. The latest comparison against the moving `main` now reports this Memory branch 101 commits ahead / 5 behind, so the earlier 2-behind figure is historical only. Reconcile against the then-current `main` immediately before any integration. No PR was merged.
+
+## Current-main runtime checkpoint — Issue #129, 2026-10-24
+
+The authoritative post-Core-change audit is [docs/73-memory-current-main-core-boundary-handoff.md](73-memory-current-main-core-boundary-handoff.md), based on `main` SHA `908d9b8a157d374f8a72491d9f57878693f01452`. It supersedes older statements in this document about whether Core PRs #65, #101, #102, #103, #106, or #114 are open, merged, or absent from main.
+
+Current state: PRs #65/#101/#102/#103/#106/#114 are merged runtime changes, but #101's trusted `authorizedReadFieldPolicy` is opt-in and no production Memory policy is configured. The default HTTP read remains self-identity-only. PR #114 makes a trusted operational state snapshot revision-bound and exposes `world_revision` with `commit_sequence`; it does not supply Memory with a durable source-change feed or general authorized retrieval. The Memory record/retrieval/index/summary runtime remains unimplemented. Rollback-aware reconciliation, complete retrieval status, source/version lineage, summary permission propagation, and Memory persistence/transaction ownership remain blocked or proposal-only. See the handoff for exact owners, fail-closed rules, and acceptance tests.
+
+This checkpoint does not approve a new runtime API/schema/store/outbox/cursor/permission enum and does not close NPC Issue #70 or Core Issue #77.
