@@ -464,6 +464,8 @@ export class LogicEngine {
     assert(obj(proposal), 'TRIGGER_EVENT_PROPOSAL_REQUIRED', 'A persisted time trigger payload must contain an event proposal.');
     assert(proposal.event_type !== 'time.advance',
       'INVALID_TRIGGER_EVENT_TYPE', 'A scheduled trigger cannot itself be a canonical time-advance event.');
+    assert(proposal.event_type !== 'time.advance',
+      'INVALID_TRIGGER_EVENT_TYPE', 'A scheduled trigger cannot itself be a canonical time-advance event.');
     assert(proposal.expected_revision === undefined && proposal.expected_commit_sequence === undefined,
       'INVALID_TRIGGER_EVENT_CURSOR', 'A persisted trigger cannot choose its own revision or commit cursor.');
     assert(proposal.duration_proposal === undefined || proposal.duration_proposal === null,
