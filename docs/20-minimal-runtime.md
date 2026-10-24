@@ -4,11 +4,11 @@ The first executable slice is host-independent. SillyTavern is a future client a
 
 ## Requirements and startup
 
-Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for registry writes, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_DB_PATH`, then run `npm start`. See `.env.example`; run `npm test` for contract tests.
+Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for world creation, registry writes/audit, rollback and other administrative operations, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_DB_PATH`, then run `npm start`. See `.env.example`; run `npm test` for contract tests.
 
 ## Endpoints
 
-- `POST /v1/worlds` — create a world with a pinned World Pack ID/version and explicit in-world time.
+- `POST /v1/worlds` — create a world with a pinned World Pack ID/version and explicit in-world time (requires `x-admin-token`).
 - `POST /v1/worlds/:id/proposals` — create an adapter-owned proposal (requires configured adapter credentials).
 - `GET /v1/worlds/:id/proposals/:proposal_id` — retrieve a proposal as its creating adapter or a trusted administrator.
 - `POST /v1/worlds/:id/proposals/:proposal_id/approve` — approve a proposal (requires `x-approval-token`; valid body is `{}`).
@@ -29,7 +29,7 @@ Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in su
 - `GET /v1/rule-modules` — list registered versioned rule-module manifests.
 - `POST /v1/rule-modules` — validate and register a versioned rule-module manifest (requires `x-admin-token`).
 - `GET /v1/rule-modules/:module_id/:version` — retrieve one exact module manifest.
-- `GET /v1/mechanics/audit` — append-only registry audit records.
+- `GET /v1/mechanics/audit` — append-only registry audit records (requires `x-admin-token`).
 - `GET /v1/worlds/:id/state` — canonical entity/fact projections; raw reads require trusted internal/admin credentials.
 - `GET /v1/worlds/:id/events` — valid events; add `?include_invalid=true` to include retracted events (trusted internal/admin credentials required).
 - `GET /v1/worlds/:id/audit` — append-only audit (trusted internal/admin credentials required).
@@ -37,7 +37,7 @@ Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in su
 - `POST /v1/worlds/:id/rollback` — invalidate a causal branch and rebuild projections (requires `x-admin-token`).
 ## Trust-boundary note
 
-The API requires the general bearer token. Proposal creation and cancellation additionally require a configured per-adapter identity (`x-adapter-id`, `x-adapter-token`); cancellation is restricted to the creating adapter. Registry writes require `x-admin-token`. Approval requires the separate `x-approval-token`, which is a shared-secret gate and not proof of a named human identity. The internal events route cannot bypass the proposal lifecycle: it accepts only an already-approved `proposal_id`. Do not expose any credential to the LLM.
+The API requires the general bearer token. Proposal creation and cancellation additionally require a configured per-adapter identity (`x-adapter-id`, `x-adapter-token`); cancellation is restricted to the creating adapter. World creation, registry writes/audit, rollback, actor-binding changes, typed relationship transitions, and mechanic-instance operations require `x-admin-token`. Immutable mechanic-template and rule-module definitions are intentionally readable by any authenticated API client. Approval requires the separate `x-approval-token`, which is a shared-secret gate and not proof of a named human identity. The internal events route cannot bypass the proposal lifecycle: it accepts only an already-approved `proposal_id`. Do not expose any credential to the LLM.
 
 ## Implemented in this prototype
 
