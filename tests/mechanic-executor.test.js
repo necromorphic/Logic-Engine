@@ -422,6 +422,50 @@ test('mechanic proposals fail closed without current-policy validation and reche
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
 });
 
+
+test('proposal policy validation delegates to the active context provider and rejects a rotated provider', (t) => {
+  const { engine, worldId } = setup(t, 'executor-provider-policy-rotation-world');
+  enableFixture(engine, worldId);
+
+  const makeProvider = (policyVersion) => new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion,
+    authorizationScope: 'test-principal',
+    bindings: [
+      { path: 'world.weather', entity_id: 'entity.world-context', attribute: 'weather' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+    ],
+    canRead: () => true,
+  });
+
+  let activeProvider = makeProvider('visibility-policy-v1');
+  const evaluation = new MechanicExecutor(engine, {
+    resolveAuthorizedContext: (args) => activeProvider.resolve(args),
+  }).evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(evaluation.status, 'ready');
+  assert.equal(evaluation.context_policy_version, activeProvider.policyFingerprint);
+
+  const proposals = new ProposalService(engine, {
+    validateMechanicPolicy: (identity) => activeProvider.validateMechanicPolicy(identity),
+  });
+  const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: 'provider-policy-rotation',
+    turnId: 'turn-provider-policy-rotation',
+    sourceText: 'Policy rotation must invalidate stale mechanic proposals.',
+    adapterId: 'test-adapter',
+  });
+  proposals.approve(worldId, proposal.proposal_id);
+
+  activeProvider = makeProvider('visibility-policy-v2');
+  assert.notEqual(activeProvider.policyFingerprint, evaluation.context_policy_version);
+  assert.throws(
+    () => proposals.commit(worldId, proposal.proposal_id),
+    (error) => error.code === 'STALE_MECHANIC_POLICY' && error.status === 409,
+  );
+  assert.equal(proposals.get(worldId, proposal.proposal_id).status, 'approved');
+  assert.equal(engine.getState(worldId).world_revision, 2);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+});
+
 test('mechanic proposal handoff rejects a stale evaluation before creating a proposal', (t) => {
   const { engine, worldId } = setup(t);
   enableFixture(engine, worldId);
