@@ -1539,6 +1539,24 @@ export class SQLiteStore {
       }
       const existing = this.db.prepare('SELECT * FROM world_time_configurations WHERE world_id=? AND version=?')
         .get(worldId, config.version);
+      const activeConfig = worldAtStart.time_config_version
+        ? this.getTimeConfiguration(worldId, worldAtStart.time_config_version)
+        : null;
+      if (activeConfig && activeConfig.version !== config.version) {
+        const mapping = (calendar) => ({
+          calendar_id: calendar.calendar_id,
+          day_length_ms: calendar.day_length_ms,
+          weekdays: calendar.weekdays,
+          year_cycle: calendar.year_cycle,
+          epoch: calendar.epoch,
+        });
+        const oldMapping = hashRequest(mapping(activeConfig.calendar_definition));
+        const newMapping = hashRequest(mapping(config.calendar_definition));
+        const eventCount = this.db.prepare('SELECT COUNT(*) AS count FROM world_events WHERE world_id=?').get(worldId).count;
+        if (oldMapping !== newMapping && eventCount > 0) {
+          throw new EngineError('CALENDAR_REBASE_REQUIRES_AUTHOR_POLICY', 'Changing the calendar coordinate mapping after world history exists requires an explicit author rebase policy.', 409);
+        }
+      }
       if (existing && existing.content_hash !== config.content_hash) {
         throw new EngineError('TIME_CONFIG_VERSION_IMMUTABLE', 'A time configuration version cannot be overwritten with different content.', 409);
       }
