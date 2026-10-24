@@ -71,6 +71,7 @@ function contextProvider(context = { world: { weather: 'rain' }, actor: { hp: 10
   return ({ snapshot }) => ({
     context,
     knownAbsentPaths: [],
+    policy_version: 'test-policy-v1',
     world_revision: snapshot.world_revision,
     commit_sequence: snapshot.commit_sequence,
     policy_version: 'test-visibility-policy-v1',
@@ -87,6 +88,9 @@ test('application executor pins one enabled instance and exact template to a con
   assert.equal(result.snapshot_identity.commit_sequence, 2);
   assert.equal(result.snapshot_identity.template_id, 'test.executor');
   assert.equal(result.snapshot_identity.template_version, '1.0.0');
+  assert.equal(typeof result.context_fingerprint, 'string');
+  assert.equal(typeof result.evaluation_fingerprint, 'string');
+  assert.equal(result.commit_authority, 'none');
   assert.equal(typeof result.snapshot_identity.template_hash, 'string');
   assert.deepEqual(result.effects.map((effect) => effect.kind), ['entity.create']);
   assert.equal(result.guarantees.read_only, true);
@@ -104,6 +108,8 @@ test('application executor fails closed without trusted context or with a mismat
   const mismatch = new MechanicExecutor(engine, {
     resolveAuthorizedContext: ({ snapshot }) => ({
       context: { world: { weather: 'rain' }, actor: { hp: 10 } },
+      policy_version: 'test-policy-v1',
+      knownAbsentPaths: [],
       world_revision: snapshot.world_revision - 1,
       commit_sequence: snapshot.commit_sequence,
       policy_version: 'test-visibility-policy-v1',
