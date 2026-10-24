@@ -12,6 +12,9 @@ const ENTITY_STATUSES = new Set(['active', 'inactive', 'destroyed', 'unknown']);
 const TOP_LEVEL_FIELDS = new Set(['effect_id', 'kind', 'target_ref', 'payload', 'source_refs', 'caused_by']);
 const MAX_BATCH = 128;
 const MAX_ID = 200;
+const MAX_JSON_DEPTH = 32;
+const MAX_JSON_NODES = 10000;
+const MAX_CONTAINER_ITEMS = 1000;
 const UNSAFE_OBJECT_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function fail(code, message, details = undefined) {
@@ -55,7 +58,14 @@ function stringList(value, label) {
   return value;
 }
 
-function cloneJson(value, label, active = new Set()) {
+function cloneJson(value, label, active = new Set(), budget = { nodes: 0 }, depth = 0) {
+  budget.nodes += 1;
+  if (budget.nodes > MAX_JSON_NODES) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded JSON node limit.');
+  }
+  if (depth > MAX_JSON_DEPTH) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded JSON depth limit.');
+  }
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number') {
     if (!Number.isFinite(value)) fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must contain only finite numbers.');
@@ -68,15 +78,22 @@ function cloneJson(value, label, active = new Set()) {
   active.add(value);
   let result;
   if (Array.isArray(value)) {
-    result = value.map((item, index) => cloneJson(item, label + '[' + index + ']', active));
+    if (value.length > MAX_CONTAINER_ITEMS) {
+      fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded array length.');
+    }
+    result = value.map((item, index) => cloneJson(item, label + '[' + index + ']', active, budget, depth + 1));
   } else {
     object(value, label);
+    const entries = Object.entries(value);
+    if (entries.length > MAX_CONTAINER_ITEMS) {
+      fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded object field count.');
+    }
     result = {};
-    for (const [key, item] of Object.entries(value)) {
+    for (const [key, item] of entries) {
       if (UNSAFE_OBJECT_KEYS.has(key)) {
         fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' contains an unsafe object key: ' + key);
       }
-      Object.defineProperty(result, key, { value: cloneJson(item, label + '.' + key, active), enumerable: true, writable: true, configurable: true });
+      Object.defineProperty(result, key, { value: cloneJson(item, label + '.' + key, active, budget, depth + 1), enumerable: true, writable: true, configurable: true });
     }
   }
   active.delete(value);
@@ -90,7 +107,7 @@ function validatePayload(effect) {
   return object(effect.payload, 'payload');
 }
 
-function translateOne(effect, index) {
+function translateOne(effect, index, jsonBudget) {
   const label = 'intents[' + index + ']';
   object(effect, label);
   exactKeys(effect, TOP_LEVEL_FIELDS, label);
@@ -128,7 +145,7 @@ function translateOne(effect, index) {
       translated.status = payload.status;
     }
     if (Object.hasOwn(payload, 'attributes')) {
-      translated.attributes = cloneJson(object(payload.attributes, label + '.payload.attributes'), label + '.payload.attributes');
+      translated.attributes = cloneJson(object(payload.attributes, label + '.payload.attributes'), label + '.payload.attributes', new Set(), jsonBudget);
     }
   } else if (kind === 'update_attribute') {
     exactKeys(payload, new Set(['attributes', 'remove_attributes', 'status']), label + '.payload');
@@ -174,7 +191,7 @@ function translateOne(effect, index) {
       kind: 'fact.set',
       fact_id: targetRef,
       predicate,
-      value: cloneJson(payload.value, label + '.payload.value'),
+      value: cloneJson(payload.value, label + '.payload.value', new Set(), jsonBudget),
     };
     if (Object.hasOwn(payload, 'subject_ref')) {
       if (payload.subject_ref !== null && typeof payload.subject_ref !== 'string') {
@@ -206,7 +223,8 @@ export function translateMechanicEffectIntents(intents) {
     seenIds.add(id);
   }
 
-  const translated = intents.map(translateOne);
+  const jsonBudget = { nodes: 0 };
+  const translated = intents.map((intent, index) => translateOne(intent, index, jsonBudget));
   try {
     validateEffects(translated);
   } catch (error) {
