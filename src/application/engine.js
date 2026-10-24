@@ -90,6 +90,72 @@ const causalLinks = (value) => {
   return links.sort((a, b) => a.relation.localeCompare(b.relation) || JSON.stringify(a).localeCompare(JSON.stringify(b)));
 };
 
+const segmentRelationshipRef = (subjectId, targetId) => 'relationship:' + encodeURIComponent(subjectId) + '/' + encodeURIComponent(targetId);
+const isTypedProjectionRef = (ref) => typeof ref === 'string'
+  && (ref.startsWith('entity:') || ref.startsWith('fact:') || ref.startsWith('relationship:') || ref.startsWith('mechanic:'));
+
+function segmentAccess(event) {
+  const reads = new Set(event.read_set || []);
+  const writes = new Set();
+  for (const ref of event.depends_on || []) if (isTypedProjectionRef(ref)) reads.add(ref);
+  for (const link of event.causal_links || []) {
+    if (link.relation === 'READS_ENTITY') reads.add('entity:' + link.target_id);
+    else if (link.relation === 'READS_CLAIM') reads.add('fact:' + link.target_id);
+    else if (link.relation === 'REQUIRES') {
+      const predicate = link.predicate || {};
+      if (predicate.kind === 'fact_value' || predicate.kind === 'fact_absent') reads.add('fact:' + predicate.fact_id);
+      else if (predicate.entity_id) reads.add('entity:' + predicate.entity_id);
+    }
+  }
+  for (const effect of event.effects || []) {
+    if (effect.kind === 'relationship.transition') {
+      writes.add(segmentRelationshipRef(effect.subject_id, effect.target_id));
+      reads.add('entity:' + effect.subject_id);
+      reads.add('entity:' + effect.target_id);
+    } else if (effect.kind.startsWith('entity.')) {
+      writes.add('entity:' + effect.entity_id);
+    } else if (effect.kind.startsWith('mechanic.instance.')) {
+      writes.add('mechanic:' + effect.instance_id);
+    } else {
+      writes.add('fact:' + effect.fact_id);
+    }
+  }
+  return { reads, writes };
+}
+
+function validateIndependentSegment(events) {
+  const eventIds = new Set(events.map((event) => event.event_id));
+  for (const event of events) {
+    if ((event.caused_by || []).some((eventId) => eventIds.has(eventId))) {
+      throw new EngineError('SEGMENT_INTRA_DEPENDENCY_UNSUPPORTED', 'Events in one segment cannot depend on another event in the same segment; split at the dependency boundary.', 400);
+    }
+    if ((event.depends_on || []).some((ref) => !isTypedProjectionRef(ref) && eventIds.has(ref))) {
+      throw new EngineError('SEGMENT_INTRA_DEPENDENCY_UNSUPPORTED', 'Events in one segment cannot depend on another event in the same segment; split at the dependency boundary.', 400);
+    }
+    if ((event.causal_links || []).some((link) => link.relation === 'READS_SOURCE' && eventIds.has(link.target_id))) {
+      throw new EngineError('SEGMENT_INTRA_DEPENDENCY_UNSUPPORTED', 'READS_SOURCE cannot target another event in the same segment.', 400);
+    }
+  }
+  const access = events.map(segmentAccess);
+  for (let i = 0; i < events.length; i += 1) {
+    for (let j = i + 1; j < events.length; j += 1) {
+      for (const ref of access[i].writes) {
+        if (access[j].writes.has(ref)) {
+          throw new EngineError('SEGMENT_WRITE_CONFLICT', 'Two events in one segment write the same canonical projection; split the segment at this conflict.', 409, { reference: ref });
+        }
+        if (access[j].reads.has(ref)) {
+          throw new EngineError('SEGMENT_READ_WRITE_CONFLICT', 'An event in this segment reads a projection written by another event; split at the dependency boundary.', 409, { reference: ref });
+        }
+      }
+      for (const ref of access[j].writes) {
+        if (access[i].reads.has(ref)) {
+          throw new EngineError('SEGMENT_READ_WRITE_CONFLICT', 'An event in this segment reads a projection written by another event; split at the dependency boundary.', 409, { reference: ref });
+        }
+      }
+    }
+  }
+}
+
 export class LogicEngine {
   constructor(store) {
     this.store = store;
@@ -219,6 +285,48 @@ export class LogicEngine {
 
   commitEvent(id, x) {
     return this.store.commit(id, this.prepareEvent(x));
+  }
+
+  commitSegment(id, x, options = {}) {
+    assert(obj(x), 'INVALID_SEGMENT_BODY', 'Segment request must be an object.');
+    const allowed = ['idempotency_key', 'expected_revision', 'expected_commit_sequence', 'events'];
+    assert(Object.keys(x).every((key) => allowed.includes(key)), 'UNSUPPORTED_SEGMENT_FIELD', 'Segment request contains an unsupported field.');
+    assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'Segment idempotency_key is required.');
+    assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0, 'INVALID_REVISION', 'Segment expected_revision must be a non-negative safe integer.');
+    if (x.expected_commit_sequence !== undefined) {
+      assert(Number.isSafeInteger(x.expected_commit_sequence) && x.expected_commit_sequence >= 0, 'INVALID_COMMIT_SEQUENCE', 'Segment expected_commit_sequence must be a non-negative safe integer.');
+    }
+    assert(Array.isArray(x.events) && x.events.length >= 1 && x.events.length <= 32, 'INVALID_SEGMENT_SIZE', 'A segment must contain between 1 and 32 events.');
+
+    const preparedEvents = x.events.map((event) => {
+      assert(obj(event), 'INVALID_SEGMENT_EVENT', 'Every segment event must be an object.');
+      assert(event.expected_revision === undefined && event.expected_commit_sequence === undefined,
+        'INVALID_SEGMENT_EVENT_CURSOR', 'Per-event revision/cursor fields are not allowed; the segment owns its base cursor.');
+      const prepared = this.prepareEvent(event, options);
+      assert(typeof prepared.event_id === 'string' && prepared.event_id.trim(), 'SEGMENT_EVENT_ID_REQUIRED', 'Every segment event must have an explicit event_id.');
+      return prepared;
+    });
+    const ids = preparedEvents.map((event) => event.event_id);
+    const keys = preparedEvents.map((event) => event.idempotency_key);
+    assert(new Set(ids).size === ids.length, 'DUPLICATE_SEGMENT_EVENT_ID', 'Segment event IDs must be unique.');
+    assert(new Set(keys).size === keys.length, 'DUPLICATE_SEGMENT_EVENT_KEY', 'Segment event idempotency keys must be unique.');
+    validateIndependentSegment(preparedEvents);
+
+    const requestHash = hashRequest({
+      operation: 'event.segment.commit',
+      world_id: id,
+      expected_revision: x.expected_revision,
+      expected_commit_sequence: x.expected_commit_sequence ?? null,
+      events: preparedEvents.map(({ request_hash, idempotency_key, ...event }) => ({ ...event, request_hash, idempotency_key })),
+    });
+    return this.store.commitSegment(
+      id,
+      preparedEvents,
+      x.idempotency_key.trim(),
+      requestHash,
+      x.expected_revision,
+      x.expected_commit_sequence ?? null,
+    );
   }
 
 
