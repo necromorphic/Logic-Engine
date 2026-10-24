@@ -53,6 +53,28 @@ Evidence inspected on `main`: `src/storage/sqlite-store.js`, `src/application/en
 - **MEM-O03 (storage placement):** the existing SQLite transaction primitive makes same-database atomicity technically plausible, not approved. Do not choose placement until Core confirms coupling/migration policy and the implementation hook.
 - **MEM-O08 (vectorization):** not resolved by this audit; inspect the actual existing vectorization patch/host integration before recommending any index or storage change.
 
+
+## Authorized-read dependency checkpoint — 2026-10-24
+
+Reviewed open Draft PR #65, `core/authorized-read-service-prototype`, head `971fe4c7a4eeb3b49a688f87e2b73f3e080f196a`, against Memory's request requirements. This is a branch review, not a merged-main capability claim.
+
+What the PR proposes:
+- an internal `AuthorizedReadService` requiring canonical actor binding plus an explicit trusted field-policy callback;
+- a bounded HTTP route that, until a trusted visibility schema exists, exposes only the bound actor's own identity/type/status fields and denies arbitrary attributes;
+- distinct protection for raw canonical state/events/audit HTTP reads and adapter-scoped proposal payload reads;
+- fail-closed policy handling and a consistent snapshot marker.
+
+What this does **not** close for Memory/NPC:
+- it is not a general authorization policy for a subject to read arbitrary Memory records, source evidence, or multi-entity facts;
+- actor binding is still identity resolution, not the access decision for a declared recipient/subject and purpose;
+- direct in-process snapshot/state interfaces remain trusted internal surfaces and every serializing caller still needs auditing;
+- the PR body says its latest head needs CI revalidation; earlier-head success is not final-head validation.
+
+Decision impact:
+- MEM-O02 remains open. Reuse the service boundary only after the PR is reviewed/merged or explicitly adopted, and only where its actual scope matches the requested read. Do not treat the self-only route or a generic policy callback signature as the complete Memory visibility contract.
+- The Memory candidate contract must bind the authorization result to the exact request scope and revalidate before serialization; NPC's pure admission helper is downstream defense-in-depth, not a replacement for this boundary.
+- No dependency on PR #65 is assumed by PR #68, and no runtime integration is claimed.
+
 ## Cross-block dependency: NPC knowledge proposal
 
 The NPC branch proposal `feat/npc-subsystem:docs/39-npc-core-knowledge-contract-proposal.md` (section 10) records the Core owner's semantic decision that Core owns authoritative acquisition/provenance records, delivery attempts/status, source reconciliation, and persistent subject-relative belief state. This is not yet a merged runtime contract. Before Memory runtime implementation, reconcile the proposal with Core's current storage/API and decide whether any generic Memory persistence primitive may back these Core-owned record types. Do not implement parallel acquisition, delivery, belief, revision, causal graph, or rollback stores in the Memory block.
