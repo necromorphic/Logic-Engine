@@ -14,6 +14,7 @@ const timeAdvanceOperation = (row) => row && ({
   operation_id: row.operation_id,
   world_id: row.world_id,
   idempotency_key: row.idempotency_key,
+  request_hash: row.request_hash,
   from_coordinate: row.from_coordinate,
   target_coordinate: row.target_coordinate,
   confirmed_coordinate: row.confirmed_coordinate,
