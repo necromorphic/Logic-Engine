@@ -12,7 +12,6 @@
 const ALLOW = "allow";
 const SAFE_RESULT_COMPLETENESS = "complete";
 const READY_SOURCE_STATES = new Set(["current"]);
-const READY_LINEAGE_STATES = new Set(["complete"]);
 const KNOWN_CONTENT_KINDS = new Set([
   "claim",
   "report",
@@ -53,6 +52,26 @@ function validReference(record) {
     && isNonEmptyString(record.version);
 }
 
+function hasOwnerMetadata(value) {
+  // Require the semantic dimensions without freezing owner-defined enum values.
+  return value != null && value !== "" && value !== false;
+}
+
+function producerIsPresent(candidate) {
+  return candidate.producer != null
+    && isNonEmptyString(candidate.producer.kind);
+}
+
+function lifecycleIsPresent(candidate) {
+  const lifecycle = candidate.lifecycle;
+  return lifecycle != null
+    && hasOwnerMetadata(lifecycle.content_disposition)
+    && hasOwnerMetadata(lifecycle.source_reconciliation)
+    && hasOwnerMetadata(lifecycle.evidence_assessment)
+    && hasOwnerMetadata(lifecycle.access_outcome)
+    && hasOwnerMetadata(lifecycle.index_health);
+}
+
 function lineageIsSafe(candidate) {
   if (candidate.content_kind !== "summary") return true;
   if (candidate.lineage?.status !== "complete") return false;
@@ -76,6 +95,8 @@ function candidateRejection(candidate, request) {
   if (!validReference(candidate.record)) return "record_identity_incomplete";
   if (!KNOWN_CONTENT_KINDS.has(candidate.content_kind)) return "content_kind_unknown";
   if (!KNOWN_EPISTEMIC_KINDS.has(candidate.epistemic_kind)) return "epistemic_kind_unknown";
+  if (!producerIsPresent(candidate)) return "producer_provenance_incomplete";
+  if (!lifecycleIsPresent(candidate)) return "lifecycle_dimensions_incomplete";
   if (!READY_SOURCE_STATES.has(candidate.freshness?.status)) return "source_not_current";
   if (!sameSnapshot(candidate, request)) return "snapshot_mismatch";
   if (!lineageIsSafe(candidate)) return "lineage_not_safe";
