@@ -203,7 +203,9 @@ export function createCalendarDefinition(input) {
     const normalized = { id, name: nonEmptyString(holiday.name, 'holidays[' + i + '].name'), month_id: monthId, day_of_month: dayOfMonth };
     if (holiday.year_number !== undefined) {
       normalized.year_number = safeInteger(holiday.year_number, 'holidays[' + i + '].year_number');
-      const index = mod(epoch.year_cycle_index + (normalized.year_number - epoch.year_number), yearCycle.length);
+      const holidayYearOffset = normalized.year_number - epoch.year_number;
+      safeInteger(holidayYearOffset, 'Holiday year offset');
+      const index = mod(epoch.year_cycle_index + holidayYearOffset, yearCycle.length);
       const month = yearCycle[index].months.find((entry) => entry.id === monthId);
       if (!month || month.days < dayOfMonth) {
         fail('INVALID_ONE_OFF_HOLIDAY_DATE', 'One-off holiday date does not exist in its year.');
@@ -311,7 +313,7 @@ export function projectCalendarDate(definition, coordinate) {
     checkedAdd(checkedMultiply(cycleOffset, years.length, 'Calendar year offset'), yearOffsetWithinCycle, 'Calendar year offset'),
     'Calendar year number',
   );
-  const weekdayIndex = mod(checkedAdd(calendar.epoch.weekday_index, dayOffset, 'Weekday offset'), calendar.weekdays.length);
+  const weekdayIndex = mod(calendar.epoch.weekday_index + mod(dayOffset, calendar.weekdays.length), calendar.weekdays.length);
   const holidays = calendar.holidays
     .filter((holiday) => holiday.month_id === month.id
       && holiday.day_of_month === monthRemaining + 1
