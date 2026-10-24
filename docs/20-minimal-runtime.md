@@ -4,7 +4,7 @@ The first executable slice is host-independent. SillyTavern is a future client a
 
 ## Requirements and startup
 
-Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for registry writes, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_DB_PATH`, then run `npm start`. See `.env.example`; run `npm test` for contract tests.
+Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for world creation, global registry reads/writes/audit, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_DB_PATH`, then run `npm start`. See `.env.example`; run `npm test` for contract tests.
 
 ## Endpoints
 
