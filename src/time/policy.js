@@ -76,7 +76,7 @@ export function createTimePolicy(input) {
   return { policy_id, version, max_action_duration_ms, max_skip_duration_ms, duration_rules };
 }
 
-export function resolveDurationDecision(policyInput, eventType, proposal = null, requestedDurationMs = 0) {
+export function resolveDurationDecision(policyInput, eventType, proposal = null, requestedDurationMs = 0, options = {}) {
   const policy = createTimePolicy(policyInput);
   const rule = policy.duration_rules.find((entry) => entry.event_type === str(eventType, 'event_type'))?.rule;
   if (!rule) {
@@ -88,7 +88,26 @@ export function resolveDurationDecision(policyInput, eventType, proposal = null,
     return { status: 'resolved', certainty: 'fixed', duration_ms: rule.duration_ms, source: 'world_rule', policy_id: policy.policy_id, policy_version: policy.version };
   }
   if (rule.kind === 'range') {
-    if (rule.resolution === 'author') return { status: 'needs_author', min_duration_ms: rule.min_duration_ms, max_duration_ms: rule.max_duration_ms, policy_id: policy.policy_id, policy_version: policy.version };
+    if (rule.resolution === 'author') {
+      if (proposal == null) {
+        return { status: 'needs_author', min_duration_ms: rule.min_duration_ms, max_duration_ms: rule.max_duration_ms, policy_id: policy.policy_id, policy_version: policy.version };
+      }
+      if (!obj(proposal) || Object.keys(proposal).length !== 1 || !Object.hasOwn(proposal, 'duration_ms')
+        || !Number.isSafeInteger(proposal.duration_ms)) {
+        return { status: 'rejected', reason: 'INVALID_AUTHOR_DURATION_PROPOSAL', policy_id: policy.policy_id, policy_version: policy.version };
+      }
+      if (proposal.duration_ms < rule.min_duration_ms || proposal.duration_ms > rule.max_duration_ms) {
+        return { status: 'rejected', reason: 'AUTHOR_DURATION_OUT_OF_RANGE', min_duration_ms: rule.min_duration_ms, max_duration_ms: rule.max_duration_ms, proposed_duration_ms: proposal.duration_ms, policy_id: policy.policy_id, policy_version: policy.version };
+      }
+      if (options.authorApproved !== true) {
+        return { status: 'needs_author', min_duration_ms: rule.min_duration_ms, max_duration_ms: rule.max_duration_ms, proposed_duration_ms: proposal.duration_ms, policy_id: policy.policy_id, policy_version: policy.version };
+      }
+      return {
+        status: 'resolved', certainty: 'author', duration_ms: proposal.duration_ms,
+        min_duration_ms: rule.min_duration_ms, max_duration_ms: rule.max_duration_ms,
+        source: 'author_approved_range', policy_id: policy.policy_id, policy_version: policy.version,
+      };
+    }
     return { status: 'resolved', certainty: 'range', duration_ms: rule.min_duration_ms + Math.floor((rule.max_duration_ms - rule.min_duration_ms) / 2), min_duration_ms: rule.min_duration_ms, max_duration_ms: rule.max_duration_ms, source: 'world_rule_midpoint', policy_id: policy.policy_id, policy_version: policy.version };
   }
   if (proposal == null) return { status: 'needs_author', reason: 'CATEGORY_PROPOSAL_REQUIRED', policy_id: policy.policy_id, policy_version: policy.version };
