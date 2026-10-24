@@ -46,7 +46,7 @@ export function normalizeProcessDefinition(input, worldId, currentCoordinate) {
   const seen = new Set();
   const milestones = input.milestones.map((raw, index) => {
     if (!object(raw)) fail('INVALID_PROCESS_MILESTONE', 'Each milestone must be an object.');
-    const keys = ['milestone_id', 'due_coordinate', 'dependencies', 'read_set', 'write_set', 'processing_mode', 'interrupt_after_coordinate', 'event'];
+    const keys = ['milestone_id', 'due_coordinate', 'dependencies', 'read_set', 'write_set', 'source_event_ids', 'processing_mode', 'interrupt_after_coordinate', 'event'];
     if (Object.keys(raw).some((key) => !keys.includes(key))) fail('UNSUPPORTED_PROCESS_MILESTONE_FIELD', 'A milestone contains an unsupported field.');
     const milestoneId = text(raw.milestone_id, 'milestone_id');
     if (seen.has(milestoneId)) fail('DUPLICATE_PROCESS_MILESTONE', 'Milestone IDs must be unique within a process.');
@@ -60,6 +60,7 @@ export function normalizeProcessDefinition(input, worldId, currentCoordinate) {
       dependencies: strings(raw.dependencies, 'dependencies'),
       read_set: strings(raw.read_set, 'read_set'),
       write_set: strings(raw.write_set, 'write_set'),
+      source_event_ids: strings(raw.source_event_ids ?? input.source_event_ids, 'source_event_ids'),
       processing_mode: raw.processing_mode ?? 'exact',
       interrupt_after_coordinate: raw.interrupt_after_coordinate ?? false,
       event: structuredClone(raw.event),
