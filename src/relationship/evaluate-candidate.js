@@ -41,7 +41,7 @@ const isDataArray = (value) => {
   }
   const keys = Reflect.ownKeys(value);
   if (keys.some((key) => key !== "length"
-      && (typeof key !== "string" || !/^(0|[1-9]\\d*)$/.test(key)))) {
+      && (typeof key !== "string" || !/^(0|[1-9]\d*)$/.test(key)))) {
     return false;
   }
   for (let index = 0; index < value.length; index += 1) {
