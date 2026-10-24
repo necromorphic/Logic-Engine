@@ -348,7 +348,7 @@ test("rejects tagged current states with unexpected extra fields", () => {
   });
   const malformedUnset = evaluateRelationshipCandidate({
     ...base,
-    currentValues: { trust: { status: "unset", value: "low" } },
+    currentValues: { trust: { status: "unset" } },
     patch: { trust: "guarded" },
   });
 
