@@ -286,7 +286,7 @@ export class MechanicExecutor {
       condition_paths: conditionDependencyPaths,
       condition_ast_dependencies_complete: true,
       context_projection_dependencies_complete: true,
-      effect_target_dependencies,
+      effect_target_dependencies: effectTargetDependencies,
       effect_target_dependencies_complete: true,
       causal_read_set_complete_for_supported_slice: true,
       mechanic_dependencies_complete: true,
