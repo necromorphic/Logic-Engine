@@ -336,7 +336,7 @@ test('mechanic instance lifecycle API is admin-only, idempotent, and isolated fr
   assert.equal(enableReplayAfterRollbackBody.instance, null);
   assert.equal(enableReplayAfterRollbackBody.instance_current, false);
 
-  const afterReplay = await fetch(base + '/v1/worlds/mechanic-api-world/state', { headers });
+  const afterReplay = await fetch(base + '/v1/worlds/mechanic-api-world/state', { headers: adminHeaders });
   assert.equal((await afterReplay.json()).state.world_revision, rollbackBody.world_revision);
 });
 
