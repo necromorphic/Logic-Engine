@@ -1,5 +1,5 @@
 import { EngineError } from './errors.js';
-import { SUPPORTED_RULE_OPERATORS, collectConditionDependencies } from './rules.js';
+import { SUPPORTED_RULE_OPERATORS, collectConditionDependencies, evaluateConditionResult } from './rules.js';
 
 const obj = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$/;
@@ -237,5 +237,83 @@ export function collectMechanicConditionDependencies(value) {
     condition_dependencies_complete: true,
     mechanic_dependencies_complete: false,
     unresolved_sources: ['effect-intent payload binding', 'registered module inputs and reads'],
+  };
+}
+
+
+/**
+ * Read-only preflight for the condition-bearing part of one mechanic action.
+ *
+ * This is deliberately NOT a mechanic executor: it does not authorize context
+ * reads, resolve participants/conflicts, bind action inputs, interpret effect
+ * intents, call modules, or create proposals. The caller must supply an
+ * authorized context from the same immutable evaluation snapshot. Missing paths
+ * remain unknown unless a trusted caller proves them absent in that snapshot.
+ */
+export function evaluateMechanicActionConditions(value, actionId, context, options = {}) {
+  const template = validateMechanicTemplate(value);
+  if (typeof actionId !== 'string' || !actionId.trim()) {
+    fail('INVALID_MECHANIC_ACTION', 'actionId must be a non-empty string.');
+  }
+  if (!obj(context)) {
+    fail('INVALID_MECHANIC_CONTEXT', 'Condition context must be an object.');
+  }
+  if (!obj(options)) {
+    fail('INVALID_MECHANIC_EVALUATION_OPTIONS', 'Evaluation options must be an object.');
+  }
+  checkKeys(options, new Set(['knownAbsentPaths']), 'Evaluation options');
+
+  const action = template.actions.find((candidate) => candidate.action_id === actionId);
+  if (!action) {
+    return {
+      status: 'rejected',
+      reason_code: 'MECHANIC_ACTION_NOT_FOUND',
+      template_id: template.template_id,
+      template_version: template.version,
+      action_id: actionId,
+      condition_results: [],
+      unknown_paths: [],
+    };
+  }
+
+  const conditionResults = [];
+  const evaluateGroup = (scope, rules) => {
+    for (let index = 0; index < rules.length; index += 1) {
+      const result = evaluateConditionResult(rules[index], context, {
+        knownAbsentPaths: options.knownAbsentPaths ?? [],
+      });
+      conditionResults.push({
+        scope,
+        index,
+        status: result.status,
+        unknown_paths: result.unknown_paths,
+      });
+    }
+  };
+
+  evaluateGroup('applicability', template.applicability);
+  evaluateGroup('action.preconditions', action.preconditions);
+  evaluateGroup('action.constraints', action.constraints ?? []);
+
+  const statuses = conditionResults.map((item) => item.status);
+  const status = statuses.includes('false')
+    ? 'false'
+    : statuses.includes('unknown')
+      ? 'unknown'
+      : 'true';
+  const unknownPaths = [...new Set(conditionResults.flatMap((item) => item.unknown_paths))].sort();
+
+  return {
+    status,
+    reason_code: status === 'true'
+      ? null
+      : status === 'false'
+        ? 'MECHANIC_CONDITION_NOT_SATISFIED'
+        : 'MECHANIC_CONDITION_CONTEXT_UNKNOWN',
+    template_id: template.template_id,
+    template_version: template.version,
+    action_id: action.action_id,
+    condition_results: conditionResults,
+    unknown_paths: unknownPaths,
   };
 }
