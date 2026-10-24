@@ -190,3 +190,18 @@ test('completed trigger IDs cannot contradict pending trigger records', () => {
     (error) => error.code === 'CONFLICTING_TRIGGER_STATUS',
   );
 });
+
+
+test('large same-coordinate trigger sets remain deterministically ordered', () => {
+  const triggers = Array.from({ length: 2500 }, (_, index) => trigger('trigger-' + String(index).padStart(4, '0'), 5));
+  const plan = planDueWork({
+    world_id: 'world-a',
+    from_coordinate: 0,
+    to_coordinate: 5,
+    triggers,
+  });
+  assert.equal(plan.segments.length, 1);
+  assert.equal(plan.segments[0].trigger_ids.length, 2500);
+  assert.equal(plan.segments[0].trigger_ids[0], 'trigger-0000');
+  assert.equal(plan.segments[0].trigger_ids[2499], 'trigger-2499');
+});
