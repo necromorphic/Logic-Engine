@@ -524,3 +524,21 @@ The detailed authoring and integration proposal is in `docs/40-npc-social-identi
 ## Relationship-state proposal cross-reference
 
 The dedicated relationship-state contract proposal defines REL-001–012 in `docs/42-npc-relationship-state-contract-proposal.md`. These are proposed semantic acceptance scenarios, not executable tests. They cover asymmetry, unknown-versus-neutral, independent dimensions, evidence for changes, knowledge boundaries, references to people without NPC cards, read-only card summaries, causal rollback, independent support, attribution, and non-reciprocal inference. Reconcile these scenarios with the final core record/effect interface before implementing them; do not treat their presence here as runtime readiness.
+
+
+## Authoring, correction, and card-summary cases
+
+The detailed requirements and full Given/When/Then cases are specified in `docs/46-npc-authoring-correction-and-card-summary-contract.md`. The following case IDs must remain part of the NPC semantic acceptance set; they are not executable-test claims:
+
+- **NPC-AUTH-001:** Profile correction does not rewrite canon.
+- **NPC-AUTH-002:** Canonical correction does not teach every NPC or automatically rewrite belief.
+- **NPC-AUTH-003:** Unknown/unset is not explicit neutral.
+- **NPC-AUTH-004:** Withheld is not known absent.
+- **NPC-AUTH-005:** Character-card summary is not a source of truth and must respect freshness.
+- **NPC-AUTH-006:** Missing card entry does not prove nonexistence or lack of knowledge.
+- **NPC-AUTH-007:** Author-reserved editorial secret stays outside unauthorized model input.
+- **NPC-AUTH-008:** Author-mandated future outcome is not a committed event.
+- **NPC-AUTH-009:** Social-identity claims are not canonical evidence.
+- **NPC-AUTH-010:** Compact summaries preserve material uncertainty.
+
+The implementation gate for each case is the real production boundary named in `docs/35-npc-test-boundary-map.md`. Do not replace a missing boundary with a mock and report it as an integration pass.
