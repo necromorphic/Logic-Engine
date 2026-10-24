@@ -784,11 +784,9 @@ test('projection rebuild preserves the exact historical rule-version pin when it
     const projectionPin = reopenedStore.db.prepare(
       'SELECT rule_module_id, rule_module_version, last_event_id FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? AND dimension=?',
     ).get('world-relationship-test', 'A', 'B', 'trust');
-    assert.deepEqual(projectionPin, {
-      rule_module_id: 'relationship-rules',
-      rule_module_version: '1.0.0',
-      last_event_id: committed.event_id,
-    });
+    assert.equal(projectionPin.rule_module_id, 'relationship-rules');
+    assert.equal(projectionPin.rule_module_version, '1.0.0');
+    assert.equal(projectionPin.last_event_id, committed.event_id);
     assert.equal(reopenedStore.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
   } finally {
     store?.close();
