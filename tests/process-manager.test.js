@@ -230,3 +230,127 @@ test('process completion does not publish mechanic recalculation, NPC knowledge,
   const tables = store.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name.toLowerCase());
   assert.equal(tables.some((name) => name.includes('knowledge') || name.includes('delivery') || name.includes('narration')), false);
 });
+
+test('failed milestone segment is atomic, enters review, and can be explicitly cancelled', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.createProcess('process-world', {
+    process_id: 'failed-process',
+    idempotency_key: 'create-failed-process',
+    expected_revision: engine.getState('process-world').world_revision,
+    milestones: [milestone('will-fail', 10000, 'never-created')],
+  });
+  const originalCommitSegment = store.commitSegment;
+  store.commitSegment = () => { throw new Error('injected segment failure'); };
+  let result;
+  try {
+    result = engine.startTimeAdvance('process-world', {
+      idempotency_key: 'advance-failed-process',
+      expected_revision: engine.getState('process-world').world_revision,
+      to_coordinate: 10000,
+    });
+  } finally {
+    store.commitSegment = originalCommitSegment;
+  }
+  assert.equal(result.status, 'needs_review');
+  assert.equal(engine.getState('process-world').game_time_coordinate, 0);
+  assert.equal(engine.getState('process-world').entities.length, 0);
+  let process = engine.getProcess('process-world', 'failed-process');
+  assert.equal(process.status, 'needs_review');
+  assert.equal(process.milestones[0].status, 'needs_review');
+
+  const cancelled = engine.cancelProcess('process-world', 'failed-process', {
+    idempotency_key: 'cancel-failed-process',
+    expected_revision: engine.getState('process-world').world_revision,
+  });
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.milestones[0].status, 'cancelled');
+});
+
+test('processes are isolated by world and cross-world causal references are rejected', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.createWorld({
+    world_id: 'process-world-b',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2005-12-29T10:00:00.000Z',
+  });
+  engine.createProcess('process-world', {
+    process_id: 'shared-process',
+    idempotency_key: 'shared-create',
+    expected_revision: engine.getState('process-world').world_revision,
+    milestones: [milestone('stage', 10000, 'world-a-entity')],
+  });
+  engine.createProcess('process-world-b', {
+    process_id: 'shared-process',
+    idempotency_key: 'shared-create',
+    expected_revision: engine.getState('process-world-b').world_revision,
+    milestones: [milestone('stage', 10000, 'world-b-entity')],
+  });
+  const result = engine.startTimeAdvance('process-world', {
+    idempotency_key: 'advance-only-world-a',
+    expected_revision: engine.getState('process-world').world_revision,
+    to_coordinate: 10000,
+  });
+  assert.equal(result.status, 'completed');
+  assert.equal(engine.getProcess('process-world', 'shared-process').status, 'completed');
+  assert.equal(engine.getProcess('process-world-b', 'shared-process').status, 'scheduled');
+  assert.equal(engine.getState('process-world').entities.some((entity) => entity.entity_id === 'world-a-entity'), true);
+  assert.equal(engine.getState('process-world-b').entities.some((entity) => entity.entity_id === 'world-b-entity'), false);
+
+  engine.commitEvent('process-world-b', {
+    idempotency_key: 'world-b-root-key',
+    event_id: 'world-b-root',
+    turn_id: 'world-b-root-turn',
+    event_type: 'action.completed',
+    expected_revision: engine.getState('process-world-b').world_revision,
+    effects: [],
+  });
+  assert.throws(() => engine.createProcess('process-world', {
+    process_id: 'bad-cross-world-source',
+    idempotency_key: 'bad-cross-world-source-key',
+    expected_revision: engine.getState('process-world').world_revision,
+    milestones: [milestone('stage', 20000, 'bad-entity', { source_event_ids: ['world-b-root'] })],
+  }), (error) => error.code === 'PROCESS_SOURCE_EVENT_NOT_VALID');
+});
+
+test('stale process creation and unresolved same-coordinate conflicts fail closed', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.commitEvent('process-world', {
+    idempotency_key: 'advance-revision-key',
+    event_id: 'advance-revision-event',
+    turn_id: 'advance-revision-turn',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [],
+  });
+  assert.throws(() => engine.createProcess('process-world', {
+    process_id: 'stale-process',
+    idempotency_key: 'stale-process-key',
+    expected_revision: 0,
+    milestones: [milestone('stage', 10000, 'stale-entity')],
+  }), (error) => error.code === 'REVISION_CONFLICT');
+  assert.equal(engine.listProcesses('process-world').length, 0);
+  assert.equal(engine.listTimeTriggers('process-world').length, 0);
+
+  engine.createProcess('process-world', {
+    process_id: 'conflicting-process',
+    idempotency_key: 'conflicting-process-key',
+    expected_revision: engine.getState('process-world').world_revision,
+    milestones: [
+      milestone('writer-a', 10000, 'same-entity'),
+      milestone('writer-b', 10000, 'same-entity'),
+    ],
+  });
+  const before = engine.getState('process-world');
+  const result = engine.startTimeAdvance('process-world', {
+    idempotency_key: 'advance-conflicting-process',
+    expected_revision: before.world_revision,
+    to_coordinate: 10000,
+  });
+  assert.equal(result.status, 'blocked');
+  assert.equal(engine.getState('process-world').game_time_coordinate, 0);
+  assert.deepEqual(engine.getProcess('process-world', 'conflicting-process').milestones.map((item) => item.status), ['pending', 'pending']);
+});
