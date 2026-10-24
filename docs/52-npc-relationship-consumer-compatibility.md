@@ -152,7 +152,7 @@ For each future production-path test, record the exact Core commit, interfaces a
 At the time of this review:
 
 - Relationship PR #60 is a documentation-only module proposal; it is not runtime integration.
-- Relationship PR #62 describes a separate isolated pure evaluator. Its head commit `e42a115e607c5d16c4084a82a2bc623e347db677` has a successful GitHub Actions `Runtime tests` run (`npm test`); this verifies that PR's isolated test suite only. The evaluator's internal shape is not a Core API and it does not authorize writes or reads.
+- Relationship PR #62 describes a separate isolated pure evaluator. Its head commit `2141884ce50ee9a00bd02e432970559ecce23ba6` has a successful GitHub Actions `Runtime tests` run #463 (`npm test`); this verifies that PR's isolated test suite only. The NPC cross-check also reported one narrow normalization inconsistency for explicitly tagged `{ status: "unset" }` current values in PR #62; this does not affect the Core integration gates and awaits the evaluator author's disposition. The evaluator's internal shape is not a Core API and it does not authorize writes or reads.
 - Core's first-slice relationship replay boundary is documented separately; it does not establish that typed relationship writes, actor-authorized reads, trusted provenance, or relationship projection/replay are implemented.
 - NPC relationship documents define consumer and rollback gates but do not supply the missing Core-owned capabilities.
 
