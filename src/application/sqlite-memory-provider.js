@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
+import { createHash } from 'node:crypto';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = (value) => typeof value === 'string' && value === value.trim()
@@ -13,6 +14,7 @@ const sameSnapshot = (a, b) => !!snapshotOf(a) && !!snapshotOf(b)
   && a.world_revision === b.world_revision && a.commit_sequence === b.commit_sequence;
 const decode = (value) => JSON.parse(value);
 const encode = (value) => JSON.stringify(value);
+const rawDigest = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 
 /**
  * Durable provider adapter for the direct canonical-entity first slice.
@@ -26,7 +28,7 @@ const encode = (value) => JSON.stringify(value);
  * refuses retrieval until rebuild + reconciliation complete.
  */
 export class SQLiteMemoryProvider {
-  constructor({ path = ':memory:', getSnapshot, validateSourceVersion, validateInventory }) {
+  constructor({ path = ':memory:', getSnapshot, validateSourceVersion, validateInventory, authorizeRawRead }) {
     if (typeof getSnapshot !== 'function') throw new TypeError('SQLiteMemoryProvider requires trusted getSnapshot');
     if (typeof validateSourceVersion !== 'function') {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateSourceVersion');
@@ -37,6 +39,7 @@ export class SQLiteMemoryProvider {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateInventory');
     }
     this.validateInventory = validateInventory;
+    this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA foreign_keys = ON;
@@ -70,9 +73,274 @@ export class SQLiteMemoryProvider {
       CREATE TABLE IF NOT EXISTS memory_index_state (
         world_id TEXT PRIMARY KEY, index_health TEXT NOT NULL,
         source_reconciliation TEXT NOT NULL, snapshot_revision TEXT,
-        snapshot_sequence TEXT, updated_at TEXT NOT NULL
+        snapshot_sequence TEXT, failure_code TEXT, updated_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS memory_raw_captures (
+        world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
+        version_id TEXT NOT NULL, role TEXT NOT NULL, content_text TEXT NOT NULL,
+        content_sha256 TEXT NOT NULL, metadata_json TEXT NOT NULL,
+        captured_at TEXT NOT NULL, deleted_at TEXT,
+        PRIMARY KEY(world_id, conversation_id, message_id, version_id)
+      );
+      CREATE TABLE IF NOT EXISTS memory_raw_active_versions (
+        world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
+        version_id TEXT NOT NULL, selected_at TEXT NOT NULL,
+        PRIMARY KEY(world_id, conversation_id, message_id),
+        FOREIGN KEY(world_id, conversation_id, message_id, version_id)
+          REFERENCES memory_raw_captures(world_id, conversation_id, message_id, version_id)
+          ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS memory_raw_derived_copies (
+        world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
+        source_version_id TEXT NOT NULL, copy_ref TEXT NOT NULL, copy_version TEXT NOT NULL,
+        copy_kind TEXT NOT NULL, content_text TEXT NOT NULL, content_sha256 TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('current','invalidated')),
+        created_at TEXT NOT NULL, invalidated_at TEXT,
+        PRIMARY KEY(world_id, conversation_id, message_id, source_version_id, copy_ref, copy_version),
+        FOREIGN KEY(world_id, conversation_id, message_id, source_version_id)
+          REFERENCES memory_raw_captures(world_id, conversation_id, message_id, version_id)
+          ON DELETE CASCADE
       );
     `);
+    const indexStateColumns = new Set(this.db.prepare('PRAGMA table_info(memory_index_state)').all()
+      .map((column) => column.name));
+    if (!indexStateColumns.has('failure_code')) {
+      this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+    }
+  }
+
+  #withImmediateTransaction(work) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = work();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch {}
+      throw error;
+    }
+  }
+
+  /**
+   * Persist an immutable raw message version. The supplied version ID is an
+   * archive identity, not proof of canonical source freshness. Re-ingest is
+   * idempotent only when the complete captured payload is identical.
+   */
+  captureRawMessage(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.version_id) || !validId(input.role)
+      || typeof input.content !== 'string'
+      || (input.metadata !== undefined && !object(input.metadata))) {
+      throw new TypeError('Invalid raw Memory capture');
+    }
+    let metadataJson;
+    try { metadataJson = encode(input.metadata ?? {}); } catch {
+      throw new TypeError('Invalid raw Memory capture metadata');
+    }
+    const digest = rawDigest(input.content);
+    const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
+    return this.#withImmediateTransaction(() => {
+      const existing = this.db.prepare(`SELECT * FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
+      if (existing) {
+        if (existing.role !== input.role || existing.content_text !== input.content
+          || existing.content_sha256 !== digest || existing.metadata_json !== metadataJson) {
+          throw new Error('MEMORY_RAW_CAPTURE_CONFLICT');
+        }
+        return { status: 'duplicate', content_sha256: digest };
+      }
+      this.db.prepare(`INSERT INTO memory_raw_captures
+        (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,
+         metadata_json,captured_at,deleted_at)
+        VALUES(?,?,?,?,?,?,?,?,?,NULL)`)
+        .run(...key, input.role, input.content, digest, metadataJson, new Date().toISOString());
+      return { status: 'captured', content_sha256: digest };
+    });
+  }
+
+  async #assertRawReadAllowed(request) {
+    if (!this.authorizeRawRead) throw new Error('MEMORY_RAW_READ_DENIED');
+    let allowed = false;
+    try { allowed = await this.authorizeRawRead(Object.freeze({ ...request })) === true; } catch { allowed = false; }
+    if (!allowed) throw new Error('MEMORY_RAW_READ_DENIED');
+  }
+
+  /**
+   * Read one captured version only after an explicitly injected trusted host
+   * authorization callback approves this exact request. No default policy exists.
+   */
+  async readRawMessageVersion(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.version_id)) {
+      throw new TypeError('Invalid raw Memory read target');
+    }
+    const request = { ...input, action: 'read_version' };
+    await this.#assertRawReadAllowed(request);
+    let row = this.db.prepare(`SELECT * FROM memory_raw_captures
+      WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+      .get(input.world_id, input.conversation_id, input.message_id, input.version_id);
+    if (!row || row.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
+    if (rawDigest(row.content_text) !== row.content_sha256) throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
+
+    // Recheck at the disclosure boundary after the database read. This narrows
+    // authorization/deletion races but is not a cross-store atomicity guarantee.
+    await this.#assertRawReadAllowed(request);
+    row = this.db.prepare(`SELECT * FROM memory_raw_captures
+      WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+      .get(input.world_id, input.conversation_id, input.message_id, input.version_id);
+    if (!row || row.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
+    if (rawDigest(row.content_text) !== row.content_sha256) throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
+    return Object.freeze({
+      world_id: row.world_id, conversation_id: row.conversation_id, message_id: row.message_id,
+      version_id: row.version_id, role: row.role, content: row.content_text,
+      content_sha256: row.content_sha256, metadata: Object.freeze(decode(row.metadata_json)),
+      captured_at: row.captured_at,
+    });
+  }
+
+  /**
+   * Read only the selected, non-deleted version for each message in a
+   * conversation. Authorization is delegated to a trusted host callback.
+   */
+  async readActiveRawMessages(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)) {
+      throw new TypeError('Invalid raw Memory conversation read');
+    }
+    const request = { ...input, action: 'read_active' };
+    await this.#assertRawReadAllowed(request);
+    const readRows = () => this.db.prepare(`SELECT c.* FROM memory_raw_active_versions a
+      JOIN memory_raw_captures c ON c.world_id=a.world_id
+        AND c.conversation_id=a.conversation_id AND c.message_id=a.message_id
+        AND c.version_id=a.version_id
+      WHERE a.world_id=? AND a.conversation_id=? AND c.deleted_at IS NULL
+      ORDER BY c.message_id`).all(input.world_id, input.conversation_id);
+    let rows = readRows();
+    if (rows.some((row) => rawDigest(row.content_text) !== row.content_sha256)) {
+      throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
+    }
+    await this.#assertRawReadAllowed(request);
+    rows = readRows();
+    if (rows.some((row) => rawDigest(row.content_text) !== row.content_sha256)) {
+      throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
+    }
+    return rows.map((row) => Object.freeze({
+      world_id: row.world_id, conversation_id: row.conversation_id, message_id: row.message_id,
+      version_id: row.version_id, role: row.role, content: row.content_text,
+      content_sha256: row.content_sha256, metadata: Object.freeze(decode(row.metadata_json)),
+      captured_at: row.captured_at,
+    }));
+  }
+
+  /**
+   * Change only the selected version pointer. Older swipe/generation versions
+   * remain retained and are not interpreted as deletion requests.
+   */
+  selectActiveRawVersion(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.version_id)) {
+      throw new TypeError('Invalid raw Memory active-version selection');
+    }
+    return this.#withImmediateTransaction(() => {
+      const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
+      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
+      if (!source || source.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
+      this.db.prepare(`INSERT INTO memory_raw_active_versions
+        (world_id,conversation_id,message_id,version_id,selected_at) VALUES(?,?,?,?,?)
+        ON CONFLICT(world_id,conversation_id,message_id) DO UPDATE SET
+        version_id=excluded.version_id,selected_at=excluded.selected_at`)
+        .run(input.world_id, input.conversation_id, input.message_id, input.version_id, new Date().toISOString());
+      return { status: 'active', version_id: input.version_id };
+    });
+  }
+
+  /**
+   * Record a derived copy's provenance so source deletion can invalidate it and
+   * permanent purge can cascade-delete it. This does not authorize the copy for
+   * NPC disclosure or create a searchable summary index.
+   */
+  registerRawDerivedCopy(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.source_version_id)
+      || !validId(input.copy_ref) || !validId(input.copy_version) || !validId(input.copy_kind)
+      || typeof input.content !== 'string') throw new TypeError('Invalid raw Memory derived copy');
+    const digest = rawDigest(input.content);
+    const values = [input.world_id, input.conversation_id, input.message_id, input.source_version_id,
+      input.copy_ref, input.copy_version, input.copy_kind, input.content, digest];
+    return this.#withImmediateTransaction(() => {
+      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+        .get(input.world_id, input.conversation_id, input.message_id, input.source_version_id);
+      if (!source || source.deleted_at !== null) throw new Error('MEMORY_RAW_SOURCE_UNAVAILABLE');
+      const existing = this.db.prepare(`SELECT * FROM memory_raw_derived_copies
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?
+          AND copy_ref=? AND copy_version=?`).get(...values.slice(0, 6));
+      if (existing) {
+        if (existing.copy_kind !== input.copy_kind || existing.content_text !== input.content
+          || existing.content_sha256 !== digest) throw new Error('MEMORY_RAW_COPY_CONFLICT');
+        return { status: 'duplicate', content_sha256: digest };
+      }
+      this.db.prepare(`INSERT INTO memory_raw_derived_copies
+        (world_id,conversation_id,message_id,source_version_id,copy_ref,copy_version,copy_kind,
+         content_text,content_sha256,status,created_at,invalidated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,'current',?,NULL)`)
+        .run(...values, new Date().toISOString());
+      return { status: 'stored', content_sha256: digest };
+    });
+  }
+
+  /**
+   * Source deletion is a reversible lifecycle marker, not permanent erasure:
+   * it excludes the version from active selection and invalidates known derived
+   * copies. Permanent purge is a separate explicit operation.
+   */
+  markRawSourceDeleted(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.version_id)) {
+      throw new TypeError('Invalid raw Memory deletion target');
+    }
+    const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
+    return this.#withImmediateTransaction(() => {
+      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
+      if (!source) return { status: 'missing', invalidated_copies: 0 };
+      const now = new Date().toISOString();
+      this.db.prepare(`UPDATE memory_raw_captures SET deleted_at=COALESCE(deleted_at,?)
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(now, ...key);
+      this.db.prepare(`DELETE FROM memory_raw_active_versions
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
+      const result = this.db.prepare(`UPDATE memory_raw_derived_copies
+        SET status='invalidated', invalidated_at=COALESCE(invalidated_at,?)
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?
+          AND status='current'`).run(now, input.world_id, input.conversation_id, input.message_id, input.version_id);
+      return { status: 'deleted', invalidated_copies: result.changes };
+    });
+  }
+
+  /**
+   * Permanent purge removes the selected raw version and all registered
+   * dependent copies via foreign-key cascade. External stores/indexes are not
+   * managed by this provider-local operation and must not be claimed purged.
+   */
+  purgeRawSource(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.version_id)) {
+      throw new TypeError('Invalid raw Memory purge target');
+    }
+    const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
+    return this.#withImmediateTransaction(() => {
+      const source = this.db.prepare(`SELECT 1 AS found FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
+      if (!source) return { status: 'missing', purged_copies: 0 };
+      const copies = this.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_derived_copies
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`)
+        .get(input.world_id, input.conversation_id, input.message_id, input.version_id).count;
+      this.db.prepare(`DELETE FROM memory_raw_active_versions
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
+      this.db.prepare(`DELETE FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
+      return { status: 'purged', purged_copies: copies };
+    });
   }
 
   close() { this.db.close(); }
@@ -83,16 +351,37 @@ export class SQLiteMemoryProvider {
     return scope;
   }
 
-  #setState(worldId, indexHealth, reconciliation, snapshot = null) {
+  #setState(worldId, indexHealth, reconciliation, snapshot = null, failureCode = null) {
     this.db.prepare(`INSERT INTO memory_index_state
-      (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,updated_at)
-      VALUES(?,?,?,?,?,?)
+      (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
+      VALUES(?,?,?,?,?,?,?)
       ON CONFLICT(world_id) DO UPDATE SET index_health=excluded.index_health,
       source_reconciliation=excluded.source_reconciliation,
       snapshot_revision=excluded.snapshot_revision,snapshot_sequence=excluded.snapshot_sequence,
-      updated_at=excluded.updated_at`).run(worldId, indexHealth, reconciliation,
+      failure_code=excluded.failure_code,updated_at=excluded.updated_at`).run(worldId, indexHealth, reconciliation,
       snapshot ? String(snapshot.world_revision) : null,
-      snapshot ? String(snapshot.commit_sequence) : null, new Date().toISOString());
+      snapshot ? String(snapshot.commit_sequence) : null, failureCode, new Date().toISOString());
+  }
+
+  /**
+   * Provider-internal diagnostics only. Do not project this state, its reason
+   * codes, or any derived counts into NPC-facing results or public API envelopes.
+   */
+  getIndexStatusForDiagnostics(worldId) {
+    if (!validId(worldId)) throw new TypeError('Invalid world_id');
+    const row = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(worldId);
+    if (!row) return Object.freeze({
+      index_health: 'unavailable', source_reconciliation: 'stale',
+      snapshot: null, failure_code: 'INDEX_STATE_MISSING',
+    });
+    return Object.freeze({
+      index_health: row.index_health,
+      source_reconciliation: row.source_reconciliation,
+      snapshot: row.snapshot_revision === null || row.snapshot_sequence === null ? null : {
+        world_revision: row.snapshot_revision, commit_sequence: row.snapshot_sequence,
+      },
+      failure_code: row.failure_code ?? null,
+    });
   }
 
   grantQuery(scope, allowed) {
@@ -148,8 +437,17 @@ export class SQLiteMemoryProvider {
         source_kind: row.source_kind, source_entity_id: row.source_entity_id,
         source_version: row.source_version, lineage: Object.freeze(decode(row.lineage_json)),
       })) === true;
-    } catch { return false; }
-    if (!sourceValid) return false;
+    } catch {
+      // An unavailable host/Core validator is not an ordinary denial. Surface a
+      // generic failure so the consumer returns non-ready instead of turning an
+      // outage into an apparently complete-empty result. Never expose host details.
+      throw new Error('MEMORY_SOURCE_VALIDATION_UNAVAILABLE');
+    }
+    if (!sourceValid) {
+      // A stale/unverifiable source version is not an access denial. Do not let
+      // the consumer filter it into a false complete-empty result.
+      throw new Error('MEMORY_SOURCE_VERSION_UNVERIFIABLE');
+    }
 
     // Source validation may await a host/Core read. Recheck provider-owned grants
     // after that await so a revocation during validation cannot reuse the earlier
@@ -201,7 +499,7 @@ export class SQLiteMemoryProvider {
       this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
         .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString());
     } catch (error) {
-      this.#setState(record.world_id, 'unavailable', 'stale');
+      this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
       throw error;
     }
     return { status: 'stored', record_ref: record.record_ref, record_version: record.record_version };
@@ -220,7 +518,7 @@ export class SQLiteMemoryProvider {
       }
       return { status: 'rebuilt', count: records.length };
     } catch (error) {
-      this.#setState(worldId, 'unavailable', 'stale');
+      this.#setState(worldId, 'unavailable', 'stale', null, 'INDEX_REBUILD_FAILED');
       throw error;
     }
   }
@@ -231,8 +529,8 @@ export class SQLiteMemoryProvider {
     let before;
     try { before = snapshotOf(await this.getSnapshot(worldId)); } catch { before = null; }
     if (!before) {
-      this.#setState(worldId, 'unavailable', 'stale');
-      return { status: 'unavailable' };
+      this.#setState(worldId, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
+      return { status: 'unavailable', reason: 'CORE_SNAPSHOT_UNAVAILABLE' };
     }
     const records = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
     for (const row of records) {
@@ -240,8 +538,8 @@ export class SQLiteMemoryProvider {
         WHERE world_id=? AND record_ref=? AND record_version=?`)
         .get(worldId, row.record_ref, row.record_version);
       if (!entry) {
-        this.#setState(worldId, 'rebuilding', 'stale');
-        return { status: 'rebuilding' };
+        this.#setState(worldId, 'rebuilding', 'stale', null, 'INDEX_ENTRY_MISSING');
+        return { status: 'rebuilding', reason: 'INDEX_ENTRY_MISSING' };
       }
       let valid = false;
       try {
@@ -253,8 +551,8 @@ export class SQLiteMemoryProvider {
         })) === true;
       } catch { valid = false; }
       if (!valid) {
-        this.#setState(worldId, 'stale', 'stale');
-        return { status: 'stale' };
+        this.#setState(worldId, 'stale', 'stale', null, 'SOURCE_VALIDATION_FAILED');
+        return { status: 'stale', reason: 'SOURCE_VALIDATION_FAILED' };
       }
     }
     // Per-record validation cannot prove that the inventory itself is complete.
@@ -269,14 +567,14 @@ export class SQLiteMemoryProvider {
       })))) === true;
     } catch { inventoryComplete = false; }
     if (!inventoryComplete) {
-      this.#setState(worldId, 'stale', 'stale');
-      return { status: 'stale' };
+      this.#setState(worldId, 'stale', 'stale', null, 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE');
+      return { status: 'stale', reason: 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE' };
     }
     let after;
     try { after = snapshotOf(await this.getSnapshot(worldId)); } catch { after = null; }
     if (!sameSnapshot(before, after)) {
-      this.#setState(worldId, 'stale', 'stale');
-      return { status: 'stale' };
+      this.#setState(worldId, 'stale', 'stale', null, 'SNAPSHOT_CHANGED_DURING_RECONCILIATION');
+      return { status: 'stale', reason: 'SNAPSHOT_CHANGED_DURING_RECONCILIATION' };
     }
     this.#setState(worldId, 'ready', 'current', after);
     return { status: 'current', snapshot: after, records_checked: records.length };
@@ -293,16 +591,16 @@ export class SQLiteMemoryProvider {
     try {
       current = snapshotOf(await this.getSnapshot(scope.world_id));
     } catch {
-      this.#setState(scope.world_id, 'unavailable', 'stale');
+      this.#setState(scope.world_id, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
       throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
     }
     if (!current) {
-      this.#setState(scope.world_id, 'unavailable', 'stale');
+      this.#setState(scope.world_id, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
       throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
     }
     if (String(current.world_revision) !== state.snapshot_revision
       || String(current.commit_sequence) !== state.snapshot_sequence) {
-      this.#setState(scope.world_id, 'stale', 'stale');
+      this.#setState(scope.world_id, 'stale', 'stale', null, 'SNAPSHOT_STALE');
       throw new Error('MEMORY_SNAPSHOT_STALE');
     }
     const rows = this.db.prepare(`SELECT r.* FROM memory_records r
