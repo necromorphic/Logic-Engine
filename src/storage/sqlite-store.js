@@ -1530,6 +1530,11 @@ export class SQLiteStore {
             from_coordinate: fresh.from_coordinate, target_coordinate: fresh.target_coordinate,
             confirmed_coordinate: fresh.confirmed_coordinate, world_revision: fresh.current_world_revision,
             completed_trigger_ids: plan.completed_trigger_ids || [],
+            ...(plan.final_action_status ? {
+              final_action_status: plan.final_action_status === 'pending'
+                ? (finalStatus === 'completed' ? 'committed' : 'not_executed_interrupted')
+                : plan.final_action_status,
+            } : {}),
           };
           this.db.prepare('UPDATE time_advance_operations SET status=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?')
             .run(finalStatus, enc(result), now(), worldId, operationId);
@@ -1599,6 +1604,11 @@ export class SQLiteStore {
             from_coordinate: fresh.from_coordinate, target_coordinate: fresh.target_coordinate,
             confirmed_coordinate: segment.coordinate, world_revision: worldAfter.world_revision,
             last_segment: commitResult, completed_trigger_ids: completedTriggerIds,
+            ...(plan.final_action_status ? {
+              final_action_status: plan.final_action_status === 'pending'
+                ? (terminal && status === 'completed' ? 'committed' : 'pending')
+                : plan.final_action_status,
+            } : {}),
           };
           this.db.prepare(`UPDATE time_advance_operations SET
             confirmed_coordinate=?,current_world_revision=?,next_segment_index=?,status=?,result_json=?,error_json=NULL,updated_at=?
@@ -1608,12 +1618,17 @@ export class SQLiteStore {
         });
       } catch (error) {
         this.tx(() => {
-          const fresh = this.db.prepare('SELECT status FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+          const fresh = this.db.prepare('SELECT status,plan_json,result_json FROM time_advance_operations WHERE world_id=? AND operation_id=?')
             .get(worldId, operationId);
           if (!fresh || fresh.status !== 'running') return;
           const errorBody = { code: error?.code || 'TIME_ADVANCE_SEGMENT_FAILED', message: error?.message || 'Time-advance segment failed and requires review.' };
-          this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
-            .run(enc(errorBody), now(), worldId, operationId);
+          let result = dec(fresh.result_json);
+          const plan = dec(fresh.plan_json);
+          if (plan.final_action_status === 'pending' && result) {
+            result = { ...result, final_action_status: 'not_committed_needs_review' };
+          }
+          this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
+            .run(enc(errorBody), result ? enc(result) : null, now(), worldId, operationId);
         });
       }
     }
