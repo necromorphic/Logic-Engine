@@ -107,9 +107,12 @@ export class ProposalService {
     });
   }
 
-  get(worldId, proposalId) {
+  get(worldId, proposalId, adapterId = null) {
     const row = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND proposal_id=?').get(worldId, proposalId);
     if (!row) throw new EngineError('PROPOSAL_NOT_FOUND', 'Proposal not found.', 404);
+    if (adapterId !== null && row.created_by_adapter_id !== adapterId) {
+      throw new EngineError('PROPOSAL_ADAPTER_MISMATCH', 'Proposal is not available to this adapter.', 404);
+    }
     return this.publicProposal(row, false);
   }
 
