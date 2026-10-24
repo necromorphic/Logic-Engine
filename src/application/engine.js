@@ -640,6 +640,9 @@ export class LogicEngine {
     const segments = [];
     let cursor = from;
     const appendSegment = (coordinate, events, triggerIds = [], registeredTriggerIds = []) => {
+      if (segments.length >= 1024) {
+        throw new EngineError('TIME_ADVANCE_SEGMENT_LIMIT', 'Time advance requires more than 1024 atomic segments; split it into smaller operations.', 400);
+      }
       const index = segments.length;
       const segmentKey = 'time-segment:' + operationId + ':' + index;
       segments.push({
