@@ -745,3 +745,78 @@ test('rollback invalidates later transition dependent on the same directed pair 
     store.close();
   }
 });
+
+
+test('projection rebuild preserves the exact historical rule-version pin when its module is unavailable', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-relationship-version-pin-'));
+  const storagePath = join(directory, 'state.sqlite');
+  let store;
+  try {
+    const fixtureResult = await fixture(storagePath);
+    store = fixtureResult.store;
+    const { engine, seed } = fixtureResult;
+    const committed = engine.commitRelationshipTransition('world-relationship-test', transitionRequest(seed));
+    assert.equal(committed.accepted, true);
+
+    const committedEvent = engine.getEvents('world-relationship-test')
+      .find((event) => event.event_id === committed.event_id);
+    assert.equal(committedEvent.effects[0].rule_module_id, 'relationship-rules');
+    assert.equal(committedEvent.effects[0].rule_module_version, '1.0.0');
+    store.close();
+    store = null;
+
+    const reopenedStore = new SQLiteStore(storagePath);
+    store = reopenedStore;
+    const reopenedEngine = new LogicEngine(reopenedStore);
+
+    // Projection-only rebuild consumes the already-committed effect. It must
+    // preserve the historical pin, not resolve the current/latest module.
+    reopenedStore.db.prepare(
+      'DELETE FROM rule_module_manifests WHERE module_id=? AND version=?',
+    ).run('relationship-rules', '1.0.0');
+
+    // A newer version may be registered, but exact historical lookup must not
+    // silently substitute it for the event's pinned 1.0.0 module.
+    reopenedEngine.registerRuleModuleManifest({
+      module_id: 'relationship-rules',
+      version: '2.0.0',
+      contract_version: '1.0.0',
+      capabilities: [],
+      operations: ['validate_transition'],
+      input_schema: {},
+      output_schema: {},
+      failure_policy: 'fail_closed',
+      compatibility: { core_contract_versions: ['1.0.0'] },
+      metadata: {
+        relationship_domain: {
+          world_pack_id: 'test-pack',
+          world_pack_version: '1.0.0',
+          dimensions: rules,
+        },
+      },
+    });
+    assert.equal(reopenedEngine.getRuleModuleManifest('relationship-rules', '2.0.0').manifest.version, '2.0.0');
+    assert.throws(
+      () => reopenedEngine.getRuleModuleManifest('relationship-rules', '1.0.0'),
+      (error) => error.code === 'RULE_MODULE_NOT_FOUND',
+    );
+
+    reopenedStore.rebuild('world-relationship-test', 2);
+
+    const eventAfterRestart = reopenedEngine.getEvents('world-relationship-test')
+      .find((event) => event.event_id === committed.event_id);
+    assert.equal(eventAfterRestart.effects[0].rule_module_id, 'relationship-rules');
+    assert.equal(eventAfterRestart.effects[0].rule_module_version, '1.0.0');
+
+    const projectionPin = reopenedStore.db.prepare(
+      'SELECT rule_module_id, rule_module_version, last_event_id FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? AND dimension=?',
+    ).get('world-relationship-test', 'A', 'B', 'trust');
+    assert.equal(projectionPin.rule_module_id, 'relationship-rules');
+    assert.equal(projectionPin.rule_module_version, '1.0.0');
+    assert.equal(projectionPin.last_event_id, committed.event_id);
+    assert.equal(reopenedStore.getRelationshipPair('world-relationship-test', 'A', 'B').dimensions.trust, 'low');
+  } finally {
+    store?.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
