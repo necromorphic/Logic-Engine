@@ -178,9 +178,10 @@ export class SQLiteMemoryProvider {
       return { status: 'duplicate', record_ref: record.record_ref, record_version: record.record_version };
     }
 
-    // Authoritative raw record commit occurs first. Index failure must not erase it.
-    this.db.prepare(`INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values);
+    // Invalidate the readiness marker before any ingest mutation. If either the raw
+    // write or index write fails, retrieval cannot reuse a prior ready marker.
     this.#setState(record.world_id, 'rebuilding', 'stale');
+    this.db.prepare(`INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values);
     try {
       this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
         .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString());
@@ -212,7 +213,8 @@ export class SQLiteMemoryProvider {
   async reconcile(worldId) {
     if (!validId(worldId)) throw new TypeError('Invalid world_id');
     this.#setState(worldId, 'rebuilding', 'stale');
-    const before = snapshotOf(await this.getSnapshot(worldId));
+    let before;
+    try { before = snapshotOf(await this.getSnapshot(worldId)); } catch { before = null; }
     if (!before) {
       this.#setState(worldId, 'unavailable', 'stale');
       return { status: 'unavailable' };
@@ -240,7 +242,8 @@ export class SQLiteMemoryProvider {
         return { status: 'stale' };
       }
     }
-    const after = snapshotOf(await this.getSnapshot(worldId));
+    let after;
+    try { after = snapshotOf(await this.getSnapshot(worldId)); } catch { after = null; }
     if (!sameSnapshot(before, after)) {
       this.#setState(worldId, 'stale', 'stale');
       return { status: 'stale' };
