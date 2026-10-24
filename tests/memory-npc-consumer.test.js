@@ -268,3 +268,22 @@ test('rollback-only revision change invalidates a prior candidate without sequen
   assert.deepEqual(after.admitted, []);
   assert.deepEqual(after.candidates, []);
 });
+
+
+test('missing or non-object host request fails closed without throwing or calling Memory', async (t) => {
+  const { consumer, provider } = setup(t);
+  let queryCalled = false;
+  provider.authorizeQuery = async () => {
+    queryCalled = true;
+    return true;
+  };
+
+  for (const invalid of [null, undefined, [], 'not-a-request']) {
+    const result = await consumer.retrieveForNpc(invalid);
+    assert.equal(result.status, 'non_ready');
+    assert.equal(result.reason, 'trusted_scope_incomplete');
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.candidates, []);
+  }
+  assert.equal(queryCalled, false);
+});
