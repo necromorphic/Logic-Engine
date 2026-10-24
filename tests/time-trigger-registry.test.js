@@ -1,0 +1,188 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { SQLiteStore } from '../src/storage/sqlite-store.js';
+import { LogicEngine } from '../src/application/engine.js';
+
+function setup() {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  engine.createWorld({
+    world_id: 'time-trigger-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  return { store, engine };
+}
+
+function trigger(triggerId, dueCoordinate, entityId, dependencies = []) {
+  return {
+    trigger_id: triggerId,
+    due_coordinate: dueCoordinate,
+    dependencies,
+    read_set: [],
+    write_set: ['entity:' + entityId],
+    processing_mode: 'exact',
+    interrupt_after_coordinate: false,
+    payload: {
+      event: {
+        event_type: 'time.trigger',
+        effects: [{
+          kind: 'entity.upsert',
+          entity_id: entityId,
+          entity_type: 'object',
+          attributes: { trigger_id: triggerId },
+        }],
+      },
+    },
+  };
+}
+
+test('registered triggers are immutable, world-scoped, and registration replay is idempotent', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const input = trigger('first', 10000, 'trigger-entity');
+  const registered = engine.registerTimeTrigger('time-trigger-world', input);
+  assert.equal(registered.status, 'pending');
+  assert.equal(registered.idempotent_replay, false);
+  assert.equal(engine.getState('time-trigger-world').world_revision, 1);
+
+  const replay = engine.registerTimeTrigger('time-trigger-world', input);
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(replay.trigger_id, 'first');
+  assert.equal(engine.getState('time-trigger-world').world_revision, 1);
+
+  assert.throws(
+    () => engine.registerTimeTrigger('time-trigger-world', trigger('first', 20000, 'different-entity')),
+    (error) => error.code === 'TIME_TRIGGER_ID_IMMUTABLE',
+  );
+  assert.equal(engine.listTimeTriggers('time-trigger-world').length, 1);
+  assert.equal(engine.getAudit('time-trigger-world').filter((entry) => entry.action === 'time.trigger.registered').length, 1);
+});
+
+test('registered due triggers complete atomically with their event segment and operation checkpoint', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.registerTimeTrigger('time-trigger-world', trigger('at-ten', 10000, 'entity-ten'));
+  engine.registerTimeTrigger('time-trigger-world', trigger('at-twenty', 20000, 'entity-twenty'));
+
+  const operation = engine.startTimeAdvance('time-trigger-world', {
+    idempotency_key: 'registered-trigger-advance',
+    expected_revision: 2,
+    to_coordinate: 20000,
+  });
+  assert.equal(operation.status, 'completed');
+  assert.deepEqual(operation.result.completed_trigger_ids, ['at-ten', 'at-twenty']);
+  assert.equal(operation.confirmed_coordinate, 20000);
+
+  const triggers = engine.listTimeTriggers('time-trigger-world');
+  assert.deepEqual(triggers.map((item) => item.status), ['completed', 'completed']);
+  assert.deepEqual(triggers.map((item) => item.completed_operation_id), [operation.operation_id, operation.operation_id]);
+  assert.equal(engine.getState('time-trigger-world').entities.find((item) => item.entity_id === 'entity-ten').attributes.trigger_id, 'at-ten');
+  assert.equal(engine.getState('time-trigger-world').entities.find((item) => item.entity_id === 'entity-twenty').attributes.trigger_id, 'at-twenty');
+  assert.equal(engine.getAudit('time-trigger-world').filter((entry) => entry.action === 'time.trigger.completed').length, 2);
+
+  const replay = engine.startTimeAdvance('time-trigger-world', {
+    idempotency_key: 'registered-trigger-advance',
+    expected_revision: 2,
+    to_coordinate: 20000,
+  });
+  assert.equal(replay.operation_id, operation.operation_id);
+  assert.equal(replay.status, 'completed');
+  assert.deepEqual(replay.result.completed_trigger_ids, ['at-ten', 'at-twenty']);
+});
+
+test('blocked registered work does not claim triggers or advance canonical time', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.registerTimeTrigger('time-trigger-world', trigger('blocked', 10000, 'blocked-entity', ['missing']));
+  const result = engine.startTimeAdvance('time-trigger-world', {
+    idempotency_key: 'blocked-registered-advance',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(result.status, 'blocked');
+  assert.equal(result.confirmed_coordinate, 0);
+  assert.equal(engine.getState('time-trigger-world').game_time_coordinate, 0);
+  const [stored] = engine.listTimeTriggers('time-trigger-world');
+  assert.equal(stored.status, 'pending');
+  assert.equal(stored.claimed_by_operation_id, null);
+});
+
+test('cancellation is audited and overdue pending triggers fail closed instead of disappearing from (from,to]', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const input = trigger('cancel-me', 10000, 'cancelled-entity');
+  engine.registerTimeTrigger('time-trigger-world', input);
+  const cancelled = engine.cancelTimeTrigger('time-trigger-world', 'cancel-me', 'author_removed_process');
+  assert.equal(cancelled.status, 'cancelled');
+  assert.equal(cancelled.cancellation_reason, 'author_removed_process');
+  assert.equal(engine.getState('time-trigger-world').world_revision, 2);
+  assert.equal(engine.registerTimeTrigger('time-trigger-world', input).idempotent_replay, true);
+
+  engine.registerTimeTrigger('time-trigger-world', trigger('overdue', 20000, 'overdue-entity'));
+  const revision = engine.getState('time-trigger-world').world_revision;
+  engine.startTimeAdvance('time-trigger-world', {
+    idempotency_key: 'external-source-advance',
+    expected_revision: revision,
+    to_coordinate: 20000,
+    triggers: [],
+  });
+  const current = engine.getState('time-trigger-world');
+  assert.equal(current.game_time_coordinate, 20000);
+  assert.throws(
+    () => engine.startTimeAdvance('time-trigger-world', {
+      idempotency_key: 'registered-after-overdue',
+      expected_revision: current.world_revision,
+      to_coordinate: 30000,
+    }),
+    (error) => error.code === 'TIME_TRIGGER_OVERDUE_NEEDS_REVIEW'
+      && error.details.trigger_ids.includes('overdue'),
+  );
+  assert.equal(engine.listTimeTriggers('time-trigger-world').find((item) => item.trigger_id === 'overdue').status, 'pending');
+});
+
+test('a running operation claim prevents concurrent trigger cancellation', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.registerTimeTrigger('time-trigger-world', trigger('claimed', 10000, 'claimed-entity'));
+  const event = engine.prepareEvent({
+    event_id: 'claim-time-advance-event',
+    idempotency_key: 'claim-time-advance-event',
+    turn_id: 'claim-time-advance-event',
+    event_type: 'time.advance',
+    time_advance_seconds: 10,
+    time_mode: 'explicit_skip',
+    effects: [],
+  });
+  store.createTimeAdvanceOperation({
+    world_id: 'time-trigger-world',
+    operation_id: 'running-operation',
+    idempotency_key: 'running-operation-key',
+    request_hash: 'running-operation-hash',
+    from_coordinate: 0,
+    target_coordinate: 10000,
+    starting_world_revision: 1,
+    status: 'running',
+    segments: [{
+      coordinate: 10000,
+      trigger_ids: ['claimed'],
+      idempotency_key: 'running-segment-key',
+      request_hash: 'running-segment-hash',
+      events: [event],
+    }],
+    plan: { status: 'planned', completed_trigger_ids: ['claimed'] },
+    claimed_trigger_ids: ['claimed'],
+  });
+
+  assert.throws(
+    () => engine.cancelTimeTrigger('time-trigger-world', 'claimed', 'race'),
+    (error) => error.code === 'TIME_TRIGGER_CLAIMED',
+  );
+  assert.equal(engine.getTimeTrigger('time-trigger-world', 'claimed').claimed_by_operation_id, 'running-operation');
+});
