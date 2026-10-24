@@ -883,3 +883,21 @@ test('application executor rejects accessor-bearing trusted context without invo
   assert.equal(getterRead, false);
   assert.deepEqual(result.effects, []);
 });
+
+
+test('canonical context provider rejects unsafe and duplicate condition-path bindings', (t) => {
+  const { engine } = setup(t, 'executor-canonical-provider-binding-validation-world');
+  assert.throws(() => new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'visibility-policy-v1',
+    bindings: [{ path: 'actor.hp', entity_id: 'entity.actor-context', attribute: '__proto__' }],
+    canRead: () => true,
+  }), /uniquely map a safe condition path/);
+  assert.throws(() => new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'visibility-policy-v1',
+    bindings: [
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'hp' },
+      { path: 'actor.hp', entity_id: 'entity.actor-context', attribute: 'health' },
+    ],
+    canRead: () => true,
+  }), /uniquely map a safe condition path/);
+});
