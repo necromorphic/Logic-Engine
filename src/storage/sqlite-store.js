@@ -1539,6 +1539,23 @@ export class SQLiteStore {
         || worldAtStart.world_revision !== input.starting_world_revision) {
         throw new EngineError('TIME_ADVANCE_START_STALE', 'World time or revision changed before the time-advance operation was recorded.', 409);
       }
+      const registeredTriggerIds = input.registered_trigger_ids ?? [];
+      if (!Array.isArray(registeredTriggerIds) || new Set(registeredTriggerIds).size !== registeredTriggerIds.length) {
+        throw new EngineError('INVALID_TIME_TRIGGER_RESERVATION', 'Registered trigger IDs must be unique.');
+      }
+      const triggerRows = registeredTriggerIds.map((triggerId) => {
+        const trigger = this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+          .get(input.world_id, triggerId);
+        if (!trigger || trigger.status !== 'pending' || trigger.claimed_operation_id
+          || trigger.due_coordinate <= input.from_coordinate || trigger.due_coordinate > input.target_coordinate) {
+          throw new EngineError('TIME_TRIGGER_RESERVATION_CONFLICT', 'A registered trigger is no longer pending and claimable for this operation.', 409, {
+            trigger_id: triggerId,
+            status: trigger?.status ?? 'missing',
+            claimed_operation_id: trigger?.claimed_operation_id ?? null,
+          });
+        }
+        return trigger;
+      });
       const stamp = now();
       this.db.prepare(`INSERT INTO time_advance_operations(
         world_id,operation_id,idempotency_key,request_hash,from_coordinate,target_coordinate,confirmed_coordinate,
@@ -1550,6 +1567,10 @@ export class SQLiteStore {
         0, enc(input.segments), enc(input.plan), input.result ? enc(input.result) : null,
         input.error ? enc(input.error) : null, stamp, stamp,
       );
+      for (const trigger of triggerRows) {
+        this.db.prepare('UPDATE world_time_triggers SET claimed_operation_id=?,updated_at=? WHERE world_id=? AND trigger_id=? AND status=\'pending\' AND claimed_operation_id IS NULL')
+          .run(input.operation_id, stamp, input.world_id, trigger.trigger_id);
+      }
       return timeAdvanceOperation(this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
         .get(input.world_id, input.operation_id));
     });
@@ -1623,6 +1644,22 @@ export class SQLiteStore {
             worldAtStart.world_revision, this.currentCommitSequence(worldId),
           );
           const worldAfter = this.world(worldId);
+          for (const triggerId of segment.registry_trigger_ids ?? []) {
+            const completion = this.db.prepare(`UPDATE world_time_triggers
+              SET status='completed',claimed_operation_id=NULL,completed_operation_id=?,updated_at=?
+              WHERE world_id=? AND trigger_id=? AND status='pending' AND claimed_operation_id=?`)
+              .run(operationId, now(), worldId, triggerId, operationId);
+            if (completion.changes !== 1) {
+              throw new EngineError('TIME_TRIGGER_COMPLETION_CONFLICT', 'A segment trigger was not reserved by the advancing operation.', 409, {
+                trigger_id: triggerId, operation_id: operationId,
+              });
+            }
+            this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+              .run(worldId, worldAfter.world_revision, 'time.trigger.completed', triggerId, enc({
+                operation_id: operationId,
+                due_coordinate: segment.coordinate,
+              }), now());
+          }
           const nextIndex = fresh.next_segment_index + 1;
           const terminal = nextIndex >= segments.length;
           const plan = dec(fresh.plan_json);
