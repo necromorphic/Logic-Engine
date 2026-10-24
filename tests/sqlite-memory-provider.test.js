@@ -259,3 +259,28 @@ test('interrupted index rebuild remains unavailable after provider restart', asy
     /MEMORY_INDEX_NOT_READY/,
   );
 });
+
+test('source validator outage is not collapsed into ordinary record denial', async (t) => {
+  let unavailable = false;
+  const s = setup(t, {
+    validateSourceVersion: async (record) => {
+      if (unavailable) throw new Error('private host validator details');
+      return record.source_version === 'source-v1' && record.source_entity_id === 'entity-source-a';
+    },
+  });
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  await s.provider.rebuildIndex('world-a');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+
+  unavailable = true;
+  await assert.rejects(
+    () => s.provider.authorizeCandidate({
+      ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
+      source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    }),
+    (error) => error.message === 'MEMORY_SOURCE_VALIDATION_UNAVAILABLE'
+      && !error.message.includes('private host'),
+  );
+});
