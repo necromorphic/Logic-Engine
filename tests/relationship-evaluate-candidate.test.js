@@ -151,6 +151,16 @@ test("does not treat unsupported evidence as an empty or neutral relationship", 
   assert.equal(result.status, "unsupported");
 });
 
+test("preserves withheld evidence as an access outcome distinct from unsupported and insufficient", () => {
+  const result = evaluateRelationshipCandidate({
+    ...base,
+    evidence: { status: "withheld", refs: [] },
+  });
+
+  assert.equal(result.status, "withheld");
+  assert.equal(result.reason, "evidence_withheld");
+});
+
 test("requires explicit evidence references for a supported assessment", () => {
   const result = evaluateRelationshipCandidate({
     ...base,
@@ -163,7 +173,8 @@ test("requires explicit evidence references for a supported assessment", () => {
 test("does not silently apply a transition absent from the World Pack rules", () => {
   const result = evaluateRelationshipCandidate({
     ...base,
-    patch: { trust: "high" },
+    currentValues: { trust: "high", affection: "warm" },
+    patch: { trust: "low" },
   });
 
   assert.equal(result.status, "invalid_candidate");
