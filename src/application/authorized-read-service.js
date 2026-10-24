@@ -75,6 +75,14 @@ export class AuthorizedReadService {
       throw error;
     }
 
+    // Treat the requested target set atomically. A snapshot can omit missing IDs;
+    // returning the remaining entities would leak which requested IDs exist.
+    const returnedIds = new Set(snapshot.entities.map((entity) => entity.entity_id));
+    if (snapshot.entities.length !== request.entityIds.length
+      || request.entityIds.some((entityId) => !returnedIds.has(entityId))) {
+      throw unavailable();
+    }
+
     const entities = [];
     for (const entity of snapshot.entities) {
       const disclosed = {};
