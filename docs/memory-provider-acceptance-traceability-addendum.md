@@ -1,6 +1,6 @@
 # Memory Provider acceptance traceability — follow-up addendum
 
-**Applies to:** PR #201, current head `cb4cc33ec9627e35b073c68af76bfaa346a64345`.
+**Applies to:** PR #201. Test commit: `cb4cc33ec9627e35b073c68af76bfaa346a64345`; current documentation head at the time of this update is tracked by PR #201.
 
 This addendum supersedes the two completed Provider-owned items still listed as future work in the original `memory-provider-acceptance-traceability.md` checklist. The original file could not be safely replaced through the connected repository write path during this pass, so this explicit addendum preserves the correction without changing or hiding the original audit history.
 
@@ -12,8 +12,9 @@ This addendum supersedes the two completed Provider-owned items still listed as 
 
 ## Exact-head verification
 
-- Commit: `cb4cc33ec9627e35b073c68af76bfaa346a64345`
+- Test commit: `cb4cc33ec9627e35b073c68af76bfaa346a64345`
 - Runtime CI run #1190: **success** — https://github.com/necromorphic/Logic-Engine/actions/runs/40093202393
+- Documentation follow-up commit `5081175ad8088fab7822f13a796e9f1b43c6463b` also passed Runtime CI run #1194: https://github.com/necromorphic/Logic-Engine/actions/runs/40093261912
 - PR #201 remains open and draft. This is Provider-local evidence only, not proof of a real Core → Provider → NPC integration.
 
 ## Still open — do not mark complete
