@@ -93,7 +93,9 @@ test('bulk-clear journal primitive records affected inventory but clear-chat sou
   );
   assert.deepEqual(preClear.payload.affectedVersions.map(v => v.versionId).sort(), expectedVersionIds);
   assert.equal((await f.journal.verifyIntegrity('scenario-chat')).status, 'INTEGRITY_OK');
-  assert.equal((await f.bridge.reconcileCurrentConversation()).status, 'NON_READY');
+  const readiness = await f.bridge.reconcileCurrentConversation();
+  assert.equal(readiness.status, 'NON_READY');
+  assert.ok(readiness.missingPaths.includes('clear-chat'));
 });
 
 test('pinned patch explicitly hooks core mutations but does not pretend uncovered paths are hooked', async () => {
