@@ -387,6 +387,12 @@ test('edit/delete checkpoints preserve identity and digests without retaining ra
     version.parentVersionId === oldVersionId &&
     version.payloadDigest && !Object.hasOwn(version, 'content')
   ));
+  const persistedAfterEdit = JSON.stringify([...f.db.rows.values()]);
+  const exportedAfterEdit = JSON.stringify(ledgerAfterEdit);
+  for (const rawText of ['hello', 'answer', 'answer revised']) {
+    assert.equal(persistedAfterEdit.includes(rawText), false, `IndexedDB journal persisted raw message text: ${rawText}`);
+    assert.equal(exportedAfterEdit.includes(rawText), false, `capture-ledger export contains raw message text: ${rawText}`);
+  }
 
   await f.bridge.beforeMutation('delete-message', [1]);
   f.chat.splice(1, 1);
@@ -395,6 +401,12 @@ test('edit/delete checkpoints preserve identity and digests without retaining ra
   const beforeDelete = ledgerAfterDelete.records.find(row => row.operation === 'before:delete-message');
   assert.ok(beforeDelete.payload.affectedVersions.some(version => version.payloadDigest));
   assert.ok(beforeDelete.payload.affectedVersions.every(version => !Object.hasOwn(version, 'content')));
+  const persistedAfterDelete = JSON.stringify([...f.db.rows.values()]);
+  const exportedAfterDelete = JSON.stringify(ledgerAfterDelete);
+  for (const rawText of ['hello', 'answer', 'answer revised']) {
+    assert.equal(persistedAfterDelete.includes(rawText), false, `IndexedDB journal persisted raw message text after delete: ${rawText}`);
+    assert.equal(exportedAfterDelete.includes(rawText), false, `capture-ledger export contains raw message text after delete: ${rawText}`);
+  }
   assert.equal(ledgerAfterDelete.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
   assert.equal(ledgerAfterDelete.status, 'REVIEW_ONLY');
 });
