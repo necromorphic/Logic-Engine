@@ -68,3 +68,10 @@ The candidate patch now adds a **pre-mutation checkpoint for selecting an existi
 This is a reproducible patch artifact against SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`, not an installation on the user's Android/Termux instance. The journal is opt-in and records `UNKNOWN_UNRECOVERABLE` for history predating enrollment. It cannot retroactively prove versions already deleted before enrollment.
 
 **Readiness remains NON_READY** until exact-head CI passes, full hook coverage and actual browser/Android persistence are demonstrated, and a trusted source inventory/world binding plus final disclosure contract exists. No production Host→Provider listener is enabled. No Core, Provider, NPC, Process Manager, or vectorization source is changed by this follow-up.
+
+
+### Append-only content evidence
+
+The Host prototype now records exact pre-mutation content for affected versions and stores content for newly created/changed immutable versions in the journal. `exportCaptureLedger()` returns records only after journal-integrity verification and explicitly labels its boundary as enrollment-forward-only. This is a local evidence export primitive, not a Provider API and not a production handoff.
+
+This closes the prototype's previous content-loss gap for covered edit/delete hooks: a source version's last bytes are journaled before mutation; a new immutable version's bytes are journaled after native save. If native save or journal append fails, the conversation remains NON_READY. Uninstrumented paths, pre-enrollment deletions, copied/restored lineage, world/session authority and real device durability remain blockers.
