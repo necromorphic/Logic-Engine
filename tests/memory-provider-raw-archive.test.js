@@ -201,6 +201,31 @@ test('raw archive reads default-deny and require the trusted host authorization 
   );
 });
 
+test('raw read authorization receives only validated target fields, not caller-supplied policy labels', async (t) => {
+  const observed = [];
+  const s = setup(t, { authorizeRawRead: async (request) => {
+    observed.push(Object.keys(request).sort());
+    return true;
+  } });
+  s.provider.captureRawMessage(capture());
+  await s.provider.readRawMessageVersion({
+    ...sourceKey(),
+    subject_id: 'spoofed-subject',
+    purpose: 'npc_decision',
+    authorized: true,
+  });
+  await s.provider.readActiveRawMessages({
+    world_id: 'world-a',
+    conversation_id: 'chat-a',
+    subject_id: 'spoofed-subject',
+    purpose: 'npc_decision',
+    authorized: true,
+  });
+  const versionKeys = ['action', 'conversation_id', 'message_id', 'version_id', 'world_id'];
+  const activeKeys = ['action', 'conversation_id', 'world_id'];
+  assert.deepEqual(observed, [versionKeys, versionKeys, activeKeys, activeKeys]);
+});
+
 test('authorized raw reads expose only active versions and exclude source-deleted versions', async (t) => {
   const s = setup(t, {
     authorizeRawRead: async (request) => request.world_id === 'world-a'
