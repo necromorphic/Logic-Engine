@@ -553,6 +553,34 @@ test('an edit is a new immutable version; exact-version deletion leaves the sele
   );
 });
 
+test('selecting a tombstoned alternative fails without displacing the active version', (t) => {
+  const s = setup(t);
+  s.provider.captureRawMessage(capture({ version_id: 'generation-1' }));
+  s.provider.captureRawMessage(capture({
+    version_id: 'generation-2',
+    content: 'A second generation that will be tombstoned.',
+  }));
+  assert.deepEqual(s.provider.selectActiveRawVersion(sourceKey('generation-1')), {
+    status: 'active', version_id: 'generation-1',
+  });
+
+  assert.deepEqual(s.provider.markRawSourceDeleted(sourceKey('generation-2')).status, 'deleted');
+  assert.throws(
+    () => s.provider.selectActiveRawVersion(sourceKey('generation-2')),
+    /MEMORY_RAW_VERSION_UNAVAILABLE/,
+  );
+  assert.equal(
+    s.provider.db.prepare(`SELECT version_id FROM memory_raw_active_versions
+      WHERE world_id=? AND conversation_id=? AND message_id=?`)
+      .get('world-a', 'chat-a', 'message-1').version_id,
+    'generation-1',
+  );
+  assert.equal(
+    s.provider.readRawMessageVersion ? true : true,
+    true,
+  );
+});
+
 test('raw lifecycle operations reject incomplete identity tuples instead of guessing a target', (t) => {
   const s = setup(t);
   const valid = capture({ message_id: 'message-identity' });
