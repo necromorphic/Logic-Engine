@@ -15,9 +15,11 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 
 ## Pinned-source hook patch
 
-The reproducible patch artifact is `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`. On current HEAD `5af41313c419013e5e4fe1fe269bb6f70f8877ba`, it has been apply-checked and applied in a disposable checkout of the exact pinned SHA by [Host lifecycle patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40198889138). The patched `public/script.js` passes ESLint and both prototype modules pass Node syntax checks in [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40198889142). The full Logic-Engine test workflow passed in [run #40198889147](https://github.com/necromorphic/Logic-Engine/actions/runs/40198889147): 499 tests passed and the separate 8-test recalculation harness passed.
+Source audit: [`SOURCE-LIFECYCLE-AUDIT.md`](./SOURCE-LIFECYCLE-AUDIT.md) records pinned-source evidence and explicitly distinguishes source-confirmed behavior from unrun runtime experiments.
 
-The patch hooks the current source paths for:
+The reproducible patch artifact is `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`. On HEAD `0cc6359eb9dcc0fd2dfb45768b01e9bcdee43143`, the pinned-source patch was apply-checked and applied in disposable CI by [Host lifecycle patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40200213005). The patched `public/script.js` passes ESLint and both prototype modules pass Node syntax checks in [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40200212863). The repository test workflow passed in [run #40200212921](https://github.com/necromorphic/Logic-Engine/actions/runs/40200212921): 507 tests passed and the separate 8-test recalculation harness passed.
+
+The patch hooks the following current source paths (this is not full lifecycle coverage):
 - create-message and create-swipe / append-style version changes through `saveReply()`;
 - edit through `messageEditDone()`;
 - swipe selection through `endSwipe()`;
