@@ -1,15 +1,14 @@
 diff --git a/public/script.js b/public/script.js
 --- a/public/script.js
 +++ b/public/script.js
-@@ -1681,6 +1681,22 @@ export async function deleteMessage(id, swipeDeletionIndex = undefined, askConfirmation = false, deleteToolCalls = true) {
+@@ -1677,15 +1677,38 @@ export async function deleteMessage(id, swipeDeletionIndex = undefined, askConfirmation = false, deleteToolCalls = true) {
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
 +    const deletedTargets = messageIds.map(messageId => chat[messageId]).filter(Boolean);
  
-+    // Persist exact targets before splice. Abort mutation if the pre-save fails.
-+    for (const messageId of messageIds) {
-+        const target = chat[messageId];
-+        if (target) logicEngineRecordLifecycle('message-delete-intent', target, {
++    // Persist intent and exact pre-mutation snapshots before removing source records.
++    for (const target of deletedTargets) {
++        logicEngineRecordLifecycle('message-delete-intent', target, {
 +            snapshot: true,
 +            versionIds: Array.isArray(target.swipe_info)
 +                ? target.swipe_info.map(info => info?.logic_engine_version_id).filter(Boolean)
@@ -17,14 +16,17 @@ diff --git a/public/script.js b/public/script.js
 +        });
 +    }
 +    if (await saveChatConditional() !== true) {
-+        logicEngineMarkLastLifecycleEvents(messageIds.length, 'message-delete-persistence-failed');
++        logicEngineMarkLastLifecycleEvents(deletedTargets.length, 'message-delete-persistence-failed');
 +        return;
 +    }
 +
      // Delete from the end so earlier indices remain stable.
      for (const messageId of messageIds) {
          chat.splice(messageId, 1);
-@@ -1690,5 +1706,13 @@ export async function deleteMessage(id, swipeDeletionIndex = undefined, askConfirmation = false, deleteToolCalls = true) {
+         chatElement.find(`.mes[mesid="${messageId}"]`).remove();
+         deleteItemizedPromptForMessage(messageId);
+     }
+ 
      chat_metadata.tainted = true;
  
 +    for (const target of deletedTargets) {
@@ -39,7 +41,7 @@ diff --git a/public/script.js b/public/script.js
      updateViewMessageIds(startIndex);
 -    saveChatDebounced();
 +    await saveChatConditional();
-@@ -5858,6 +5882,124 @@
+@@ -5858,6 +5881,124 @@
      return (str ?? '').replace(/\{\{[\s\S]*?\}\}/gm, '').trim();
  }
  
@@ -164,7 +166,7 @@ diff --git a/public/script.js b/public/script.js
  /**
   * Inserts a user message into the chat history.
   * @param {string} messageText Message text.
-@@ -5884,6 +6026,9 @@ export async function sendMessageAsUser(messageText, messageBias, insertAt = null, compact = false, name = name1, avatar = user_avatar) {
+@@ -5884,6 +6025,9 @@ export async function sendMessageAsUser(messageText, messageBias, insertAt = null, compact = false, name = name1, avatar = user_avatar) {
          },
      };
  
@@ -174,7 +176,7 @@ diff --git a/public/script.js b/public/script.js
      if (power_user.message_token_count_enabled) {
          message.extra.token_count = await getTokenCountAsync(message.mes, 0);
      }
-@@ -6638,6 +6783,10 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+@@ -6638,6 +6782,10 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
      }
  
      const lastMessage = chat[chat.length - 1];
@@ -185,7 +187,7 @@ diff --git a/public/script.js b/public/script.js
  
      if (type != 'append' && type != 'continue' && type != 'appendFinal' && chat.length && (lastMessage.swipe_id === undefined ||
          lastMessage.is_user)) {
-@@ -6790,6 +6939,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+@@ -6790,6 +6938,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
          const swipeId = item.swipe_id;
          item.swipes[swipeId] = item.mes;
          item.swipe_info[swipeId] = {
@@ -193,7 +195,7 @@ diff --git a/public/script.js b/public/script.js
              send_date: item.send_date,
              gen_started: item.gen_started,
              gen_finished: item.gen_finished,
-@@ -6819,6 +6969,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+@@ -6819,6 +6968,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
              gen_started: item.gen_started,
              gen_finished: item.gen_finished,
              extra: swipeInfoExtra,
@@ -201,7 +203,7 @@ diff --git a/public/script.js b/public/script.js
          };
          const swipeInfoArray = Array(swipes.length).fill().map(() => structuredClone(swipeInfo));
          parseReasoningInSwipes(swipes, swipeInfoArray, item.extra?.reasoning_duration);
-@@ -6849,9 +7000,21 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+@@ -6849,9 +6999,21 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
          item.swipe_info[0] = {
              send_date: item.send_date,
              gen_started: item.gen_started,
@@ -223,7 +225,7 @@ diff --git a/public/script.js b/public/script.js
 +    });
 +
      if (Array.isArray(swipes) && swipes.length > 0) {
-@@ -7384,12 +7547,12 @@
+@@ -7384,12 +7546,12 @@
  /**
   * Saves the chat to the server.
   * @param {object} [options] - Additional options.
@@ -236,22 +238,22 @@ diff --git a/public/script.js b/public/script.js
 - * @returns {Promise<void>}
 + * @returns {Promise<boolean>} Whether the chat was persisted successfully.
   */
- export async function saveChat(
-@@ -7417,3 +7580,3 @@ export async function saveChat({ chatName, withMetadata, mesId, force = false, chatData = undefined } = {}) {
+ export async function saveChat({ chatName, withMetadata, mesId, force = false, chatData = undefined } = {}) {
+@@ -7417,3 +7579,3 @@ export async function saveChat({ chatName, withMetadata, mesId, force = false, chatData = undefined } = {}) {
      if (!fileName && name2 === neutralCharacterName) {
          // TODO: Do something for a temporary chat with no character.
 -        return;
 +        return false;
-@@ -7424,3 +7587,3 @@ export async function saveChat({ chatName, withMetadata, mesId, force = false, chatData = undefined } = {}) {
+@@ -7424,3 +7586,3 @@ export async function saveChat({ chatName, withMetadata, mesId, force = false, chatData = undefined } = {}) {
      if (!fileName) {
          console.warn('saveChat called without chat_name and no chat file found');
 -        return;
 +        return false;
-@@ -7450,2 +7613,2 @@ export async function saveChat({ chatName, withMetadata, mesId, force = false, chatData = undefined } = {}) {
+@@ -7450,2 +7612,2 @@ export async function saveChat({ chatName, withMetadata, mesId, force = false, chatData = undefined } = {}) {
          if (result.ok) {
 -            return;
 +            return true;
-@@ -7475,7 +7638,7 @@ export async function saveChat({ chatName, withMetadata, mesId, force = false, chatData = undefined } = {}) {
+@@ -7475,7 +7637,7 @@ export async function saveChat({ chatName, withMetadata, mesId, force = false, chatData = undefined } = {}) {
          if (!forceSaveConfirmed) {
              console.warn('Chat integrity check failed, and user did not confirm the overwrite. Reloading the page.');
              window.location.reload();
@@ -261,27 +263,27 @@ diff --git a/public/script.js b/public/script.js
  
 -        await saveChat({ chatName, withMetadata, mesId, force: true });
 +        return await saveChat({ chatName, withMetadata, mesId, force: true });
-@@ -7482,4 +7645,5 @@ export async function saveChat({ chatName, withMetadata, mesId, force = false, chatData = undefined } = {}) {
+@@ -7482,4 +7644,5 @@ export async function saveChat({ chatName, withMetadata, mesId, force = false, chatData = undefined } = {}) {
      } catch (error) {
          console.error(error);
          toastr.error(t`Check the server connection and reload the page to prevent data loss.`, t`Chat could not be saved`);
 +        return false;
      }
-@@ -7646,5 +7810,6 @@ export async function getChat() {
+@@ -7646,5 +7809,6 @@ export async function getChat() {
          if (!chat_metadata.integrity) {
              chat_metadata.integrity = uuidv4();
          }
          await getChatResult();
 +        await logicEngineReconcileLoadedChat();
          eventSource.emit(event_types.CHAT_LOADED, { detail: { id: this_chid, character: characters[this_chid] } });
-@@ -7711,4 +7876,5 @@
+@@ -7711,4 +7875,5 @@
 -    const message = {
 +    const message = {
 +        logic_engine_message_id: uuidv4(),
          name: name2,
          is_user: false,
          is_system: false,
-@@ -7718,5 +7884,15 @@
+@@ -7718,5 +7883,15 @@
          mes: getRegexedString(firstMes, regex_placement.AI_OUTPUT),
          extra: {},
      };
@@ -297,14 +299,14 @@ diff --git a/public/script.js b/public/script.js
 +    }];
 +
      if (Array.isArray(alternateGreetings) && alternateGreetings.length > 0) {
-@@ -7737,5 +7913,6 @@
+@@ -7737,5 +7912,6 @@
              send_date: message.send_date,
              gen_started: void 0,
              gen_finished: void 0,
 +            logic_engine_version_id: uuidv4(),
              extra: {},
          }));
-@@ -8149,7 +8326,13 @@ function updateMessage(div) {
+@@ -8149,7 +8325,13 @@ function updateMessage(div) {
      if (power_user.trim_spaces) {
          text = text.trim();
      }
@@ -318,7 +320,7 @@ diff --git a/public/script.js b/public/script.js
      const bias = substituteParams(extractMessageBias(text));
      text = substituteParams(text);
      if (bias) {
-@@ -8157,9 +8340,11 @@ function updateMessage(div) {
+@@ -8157,9 +8339,11 @@ function updateMessage(div) {
      }
      mes.mes = text;
      if (mes.swipe_id !== undefined) {
@@ -330,14 +332,14 @@ diff --git a/public/script.js b/public/script.js
  
      if (mes?.is_system || mes?.is_user || mes.extra?.type === system_message_types.NARRATOR) {
          mes.extra.bias = bias ?? null;
-@@ -8288,5 +8473,6 @@ async function messageEditCancel(messageId = this_edit_mes_id) {
+@@ -8288,5 +8472,6 @@ async function messageEditCancel(messageId = this_edit_mes_id) {
      if (reasoningEditDone.length > 0) {
          reasoningEditDone.trigger('click');
      }
  
 +    logicEngineRecordLifecycle('edit-editor-cancelled', chat[messageId], { snapshot: false });
      await eventSource.emit(event_types.MESSAGE_UPDATED, messageId);
-@@ -9360,6 +9546,20 @@ export async function deleteSwipe(swipeId = null, messageId = chat.length - 1) {
+@@ -9360,6 +9545,20 @@ export async function deleteSwipe(swipeId = null, messageId = chat.length - 1) {
          return;
      }
  
@@ -358,7 +360,7 @@ diff --git a/public/script.js b/public/script.js
      message.swipes.splice(swipeId, 1);
  
      if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
-@@ -9390,6 +9590,13 @@ export async function deleteSwipe(swipeId = null, messageId = chat.length - 1) {
+@@ -9390,6 +9589,13 @@ export async function deleteSwipe(swipeId = null, messageId = chat.length - 1) {
      messageId = Number(messageId);
      swipeId = Number(swipeId);
      message.swipe_id = newSwipeId;
@@ -372,21 +374,21 @@ diff --git a/public/script.js b/public/script.js
      await eventSource.emit(event_types.MESSAGE_SWIPE_DELETED, { messageId, swipeId, newSwipeId });
  
      if (swipeId === currentSwipeId) {
-@@ -9420,5 +9627,5 @@ export async function saveChatConditional() {
+@@ -9420,5 +9626,5 @@ export async function saveChatConditional() {
          console.warn('Timeout waiting for chat to save');
 -        return;
 +        return false;
      }
  
      try {
-@@ -9428,4 +9635,4 @@ export async function saveChatConditional() {
+@@ -9428,4 +9634,4 @@ export async function saveChatConditional() {
 -            await saveGroupChat(selected_group, true);
 +            if (await saveGroupChat(selected_group, true) !== true) return false;
          } else {
 -            await saveChat();
 +            if (await saveChat() !== true) return false;
          }
-@@ -9432,7 +9639,9 @@ export async function saveChatConditional() {
+@@ -9432,7 +9638,9 @@ export async function saveChatConditional() {
          // Save token and prompts cache to IndexedDB storage
          saveTokenCache();
          saveItemizedPrompts(getCurrentChatId());
@@ -408,7 +410,7 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
 - * @returns {Promise<void>} A promise that resolves when the group chat has been saved.
 + * @returns {Promise<boolean>} Whether the group chat was persisted successfully.
   */
- async function saveGroupChat(
+ async function saveGroupChat(groupId, shouldSaveGroup, force = false) {
 @@ -624,4 +624,4 @@ async function saveGroupChat(groupId, shouldSaveGroup, force = false) {
      const group = groups.find(x => x.id == groupId);
      if (!group) {
@@ -525,6 +527,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
              fs.unlinkSync(pathToUpload);
              response.send({ res: true, fileNames });
          }
+
 
 
 
