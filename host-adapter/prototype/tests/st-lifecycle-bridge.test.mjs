@@ -100,7 +100,7 @@ test('enrolled bridge writes event IDs and advances the fingerprint after an edi
   assert.equal(readiness.status, 'NON_READY');
   assert.ok(readiness.missingPaths.includes('cancel-generation'));
   assert.ok(readiness.missingPaths.includes('restore'));
-  for (const path of ['message-send', 'message-receive', 'generation-start', 'generation-end', 'generation-stop', 'partial-generation', 'persistence-ordering', 'export', 'copy-branch', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay']) {
+  for (const path of ['generation-start', 'generation-end', 'generation-stop', 'partial-generation', 'persistence-ordering', 'export', 'copy-branch', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay']) {
     assert.ok(readiness.missingPaths.includes(path), `expected uncovered lifecycle path: ${path}`);
   }
 });

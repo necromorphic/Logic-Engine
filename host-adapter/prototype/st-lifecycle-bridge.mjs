@@ -116,8 +116,12 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
 
     if (['create-message', 'message-send', 'message-receive'].includes(operation)) {
-      if (!Number.isInteger(createdMessageIndex) || createdMessageIndex !== chat.length - 1) {
-        throw Error('NON_READY: create-message hook lacks exact append boundary; abort inventory checkpoint');
+      const validCreatedIndex = Number.isInteger(createdMessageIndex)
+        && createdMessageIndex >= 0
+        && createdMessageIndex < chat.length;
+      const appendOnly = operation !== 'message-send';
+      if (!validCreatedIndex || (appendOnly && createdMessageIndex !== chat.length - 1)) {
+        throw Error('NON_READY: creation hook lacks an exact source insertion boundary; abort inventory checkpoint');
       }
       const expectedPriorFingerprint = await journal.latestSourceFingerprint(conversationId);
       const priorChat = chat.slice();
