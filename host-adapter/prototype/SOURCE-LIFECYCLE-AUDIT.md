@@ -67,7 +67,7 @@ A second source review found that pinned ST `clearChat({ clearData: true })` is 
 
 ## Latest exact-head CI evidence (25 Oct 2026)
 
-Current reviewed PR #323 HEAD: `e7a33a17874be7e4fd591cf2c79cf932a0e21d5e`. All three repository workflows completed successfully on this exact commit:
+The three successful workflows below ran on code/documentation HEAD `e7a33a17874be7e4fd591cf2c79cf932a0e21d5e`, immediately before this audit-only documentation addition. This audit update is commit `2e1a4e8235975c953206d4088df4c4903d2ab4fc`; no workflow result for this new commit is claimed here:
 
 - [Host lifecycle patch check #40222869285](https://github.com/necromorphic/Logic-Engine/actions/runs/40222869285) — SUCCESS.
 - [Runtime tests #40222869212](https://github.com/necromorphic/Logic-Engine/actions/runs/40222869212) — SUCCESS.
