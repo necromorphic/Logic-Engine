@@ -20,6 +20,13 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
     return fingerprintSource(chat);
   }
 
+  async function enrolledOrFailClosed(conversationId) {
+    const enrolled = await journal.isEnrolled(conversationId);
+    const marker = globalThis.localStorage?.getItem('logic-engine-host-lifecycle:' + conversationId);
+    if (!enrolled && marker) throw Error('NON_READY: enrollment marker exists without a valid journal baseline');
+    return enrolled;
+  }
+
   async function enrollCurrentConversation() {
     const conversationId = getConversationId(), chat = getChat();
     if (!conversationId || !Array.isArray(chat)) throw Error('No active conversation; enrollment refused');
