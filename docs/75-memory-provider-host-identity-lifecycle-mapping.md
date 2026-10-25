@@ -493,3 +493,45 @@ This addendum records the completed Provider-local test run and makes the bounda
 - **NOT PROVEN:** Android/Termux persistence, durable Host identity, real Host→Provider capture, exhaustive Host inventory, cross-store atomicity, complete invalidation of external copies, and actual serializer→transport revocation race.
 
 **Provider-owned next action:** keep existing operation semantics and tests frozen; review future Host/Core diffs against this caller matrix and report mismatches. No new API/schema/store/journal/cursor/outbox or production caller is introduced here. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**; vectorization remains untouched.
+
+
+### 11.7 Host ↔ Provider exact-head comparison (25 Oct 2026)
+
+Issue #181 comparison/evidence report: https://github.com/necromorphic/Logic-Engine/issues/181#issuecomment-6393926588
+
+#### Pinned Host evidence
+
+- Pinned SillyTavern source: `06bde939fb1e9c4c8d8641d810f0a916b5bce127` (`public/script.js`).
+- Host lifecycle evidence document: commit `b3878e45a59ff1581c98dfef4e09cc639080bdbc`.
+- Identity patch candidate: commit `f5a1f4265830ba2a24a0bec7068bef2d81e47c69`, patch blob `2c04a6ec54b8fa9a63e08051f824c503a786b9f7`; candidate only, not installed or merged into ST.
+- Disposable patch CI: [run #1814](https://github.com/necromorphic/Logic-Engine/actions/runs/40124854951). Exact target SHA, `git apply --check`, disposable application, `git diff --check`, dependency installation and `npx eslint public/script.js` passed. This is **patch applicability/lint only**, not lifecycle acceptance or Android/Termux persistence.
+- Source-inspected Host behavior: `deleteMessage()` and `deleteSwipe()` physically splice retained data; edit changes content before `MESSAGE_EDITED`. The candidate does not implement proven edit ancestry, pre-mutation deletion handoff, legacy/collision migration, copy/import/restore enforcement, or exhaustive historical inventory.
+
+#### Exact Host-to-Provider fit
+
+| Host event or lifecycle fact | Existing Provider operation | Result |
+|---|---|---|
+| Capture a completed immutable version | `captureRawMessage(input)` | Provider persists an exact tuple and content digest, makes identical retries idempotent, and conflicts on same tuple/different content. Host does not yet provide production-proven durable IDs/scope, so a real caller is not established. |
+| Select a retained swipe | `selectActiveRawVersion(tuple)` | Provider changes its active pointer. Native `swipe_id` is an array position, not a durable identity; proposed `swipe_info[i]` ID mapping is not deployed or phone-tested. |
+| Edit a message | No dedicated edit operation; immutable capture requires a new exact version identity | Host mutates content before its event; pre-edit immutable capture and parent ancestry are not demonstrated. Provider cannot reconstruct overwritten content. |
+| Delete one swipe | `markRawSourceDeleted(tuple)` | Provider can tombstone a known exact tuple and invalidate registered Provider-local copies. Host's existing splice precedes its event; no verified pre-splice identity handoff exists. |
+| Delete a message/chat including earlier deleted versions | Repeat `markRawSourceDeleted(tuple)` for every exact known version | Provider can act only on supplied tuples. Host physically removes data and no complete historical inventory/change journal is evidenced; deletion completeness cannot be asserted. |
+| Restart, replay, import, restore, or legacy migration | Capture/read/reconcile operations | Provider-local durability/idempotency do not prove Host ID persistence, collision-free migration, ancestry, or lineage through these Host lifecycle operations. |
+| Read and reconcile | `readRawMessageVersion`, `readActiveRawMessages`, `reconcile(worldId)` | Local authorization seams and Provider-record consistency are tested. They do not prove Core production authority, exhaustive Host inventory, or final outbound disclosure authorization. |
+
+#### Test pins and evidence classes
+
+- Provider frozen source/test head: `0c7b4abd8a5b3547304f452380b310bb155aeb52`; source blob `67c84de44ff2783d85a42fded1b583aa25abea99`; raw archive test blob `1926af89dad7676b40b3cb84280885b098cdaea2`; package script blob `fb0851c43284e2709216a59c54e0df30506a7d4c`.
+- Focused CI #1809: 19/19 passed across four Provider-local test files; full suite 290/290 passed: https://github.com/necromorphic/Logic-Engine/actions/runs/40124729340. Workflow-only PR #267 closed unmerged; frozen Provider source/test blobs unchanged.
+- Additional active-read revocation test: draft PR #271, head `3a447d9194657544b0014dbe6cdedfa141c86606`; CI #1822 passed: https://github.com/necromorphic/Logic-Engine/actions/runs/40126131698. This is a **separate test-only draft**, not part of frozen head `0c7b4ab...` and not merged.
+- **FIXTURE-TESTED:** Provider local archive, conflict/idempotency, tombstone, registered local-copy invalidation, guarded read, and Provider reconciliation behavior.
+- **SOURCE-INSPECTED / PATCH-CI-VALIDATED:** pinned Host mutation points and patch applicability/lint.
+- **NOT PROVEN:** installed ST/Termux durable identity, real Host→Provider caller, edit ancestry, pre-mutation deletion handoff, exhaustive historical Host inventory, copy/import/restore migration, cross-store atomicity, or actual serializer→transport revocation race.
+
+#### Remaining guarantees and owners
+
+- **Host owner:** durable identity/version persistence and migration; pre-mutation exact deletion capture; edit ancestry; copy/import/restore handling; completeness/currentness evidence.
+- **Core + Provider:** approved authoritative source-version and inventory/currentness semantics. Equality of `world_revision + commit_sequence` is not a source-specific journal and cannot alone prove no missed changes or rollback.
+- **Core + owner of the actual outbound response path:** identify and test final authorization immediately before serializer/transport release, and quantify or eliminate the residual post-check race. No production serializer→transport binding is currently evidenced.
+
+**Verdict:** Host inventory `NO SUCH MECHANISM FOUND / NON_READY`; final disclosure `NO PRODUCTION PATH FOUND / BLOCKED`; real Host→Provider vertical slice **NOT PROVEN**. Memory→NPC remains **DISABLED / FAIL-CLOSED**. No runtime/API/schema/store/journal/cursor/outbox changes; vectorization remains untouched.
