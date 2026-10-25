@@ -208,6 +208,37 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       };
     }
     const chat = getChat();
+    const messageIds = new Set();
+    const versionIds = new Set();
+    for (const message of chat) {
+      const identity = message?._logicEngineLifecycle;
+      const versions = rawVersions(message);
+      if (!identity || typeof identity.messageId !== 'string' || !identity.messageId
+        || !Array.isArray(identity.versions) || identity.versions.length !== versions.length) {
+        return { status: 'NON_READY', reason: 'native identity metadata is missing or does not match current versions' };
+      }
+      if (messageIds.has(identity.messageId)) {
+        return { status: 'NON_READY', reason: 'duplicate logical message identity' };
+      }
+      messageIds.add(identity.messageId);
+      if (!Number.isInteger(identity.activeVersionIndex)
+        || identity.activeVersionIndex < 0
+        || identity.activeVersionIndex >= versions.length
+        || identity.activeVersionIndex !== activeIndex(message)) {
+        return { status: 'NON_READY', reason: 'active version selection does not match native source' };
+      }
+      for (let index = 0; index < versions.length; index++) {
+        const version = identity.versions[index];
+        if (!version || typeof version.versionId !== 'string' || !version.versionId
+          || versionIds.has(version.versionId)) {
+          return { status: 'NON_READY', reason: 'missing or duplicate logical version identity' };
+        }
+        versionIds.add(version.versionId);
+        if (version.payloadDigest !== await contentDigest(versions[index])) {
+          return { status: 'NON_READY', reason: 'version digest does not match native source content' };
+        }
+      }
+    }
     const recordedSnapshot = await journal.latestIdentitySnapshot(conversationId);
     if (!Array.isArray(recordedSnapshot) || recordedSnapshot.length !== chat.length) {
       return { status: 'NON_READY', reason: 'journal identity snapshot is missing or has a different message count' };
@@ -237,37 +268,6 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
           || currentVersion.payloadDigest !== recordedVersion.payloadDigest
           || (currentVersion.parentVersionId ?? null) !== (recordedVersion.parentVersionId ?? null)) {
           return { status: 'NON_READY', reason: 'native version identity differs from the last journaled version snapshot' };
-        }
-      }
-    }
-    const messageIds = new Set();
-    const versionIds = new Set();
-    for (const message of chat) {
-      const identity = message?._logicEngineLifecycle;
-      const versions = rawVersions(message);
-      if (!identity || typeof identity.messageId !== 'string' || !identity.messageId
-        || !Array.isArray(identity.versions) || identity.versions.length !== versions.length) {
-        return { status: 'NON_READY', reason: 'native identity metadata is missing or does not match current versions' };
-      }
-      if (messageIds.has(identity.messageId)) {
-        return { status: 'NON_READY', reason: 'duplicate logical message identity' };
-      }
-      messageIds.add(identity.messageId);
-      if (!Number.isInteger(identity.activeVersionIndex)
-        || identity.activeVersionIndex < 0
-        || identity.activeVersionIndex >= versions.length
-        || identity.activeVersionIndex !== activeIndex(message)) {
-        return { status: 'NON_READY', reason: 'active version selection does not match native source' };
-      }
-      for (let index = 0; index < versions.length; index++) {
-        const version = identity.versions[index];
-        if (!version || typeof version.versionId !== 'string' || !version.versionId
-          || versionIds.has(version.versionId)) {
-          return { status: 'NON_READY', reason: 'missing or duplicate logical version identity' };
-        }
-        versionIds.add(version.versionId);
-        if (version.payloadDigest !== await contentDigest(versions[index])) {
-          return { status: 'NON_READY', reason: 'version digest does not match native source content' };
         }
       }
     }
