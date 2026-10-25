@@ -18,12 +18,12 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 
 Source audit: [`SOURCE-LIFECYCLE-AUDIT.md`](./SOURCE-LIFECYCLE-AUDIT.md) records pinned-source evidence and explicitly distinguishes source-confirmed behavior from unrun runtime experiments.
 
-The reproducible patch artifact is `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`. On exact HEAD `be86e167a4387feeb01107e38f3016d28762be11`, all three CI workflows passed: [Host lifecycle patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40204515448) — pinned-source apply-check/application, syntax checks, and all 28 Host prototype tests; [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40204515446) — patched ST entry point ESLint and prototype syntax checks; [Runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40204515445) — repository test suite plus the separate 8-test recalculation harness.
+The reproducible patch artifact is `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`. On exact HEAD `d302e8356eb90a704ae390b60832a424bb94df04`, all three CI workflows passed: [Host lifecycle patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40205729409) — pinned-source apply-check/application, syntax checks, and all Host prototype tests; [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40205729398) — patched ST entry point ESLint and prototype syntax checks; [Runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40205729460) — repository test suite plus the separate recalculation harness.
 
 The patch hooks the following current source paths (this is not full lifecycle coverage):
 - create-message and create-swipe / append-style version changes through `saveReply()`;
 - edit through `messageEditDone()`;
-- swipe selection through `endSwipe()`;
+- swipe selection through a write-ahead `standardSwipe()` checkpoint before `loadFromSwipeId()`, followed by a post-mutation `endSwipe()` checkpoint;
 - pre-mutation swipe deletion through `deleteSwipe()`;
 - pre-mutation message deletion through `deleteMessage()` and `deleteLastMessage()`;
 - pre-mutation full chat-data clear through `clearChat({ clearData: true })`.
