@@ -75,3 +75,8 @@ This is a reproducible patch artifact against SillyTavern commit `06bde939fb1e9c
 The Host prototype now records exact pre-mutation content for affected versions and stores content for newly created/changed immutable versions in the journal. `exportCaptureLedger()` returns records only after journal-integrity verification and explicitly labels its boundary as enrollment-forward-only. This is a local evidence export primitive, not a Provider API and not a production handoff.
 
 This closes the prototype's previous content-loss gap for covered edit/delete hooks: a source version's last bytes are journaled before mutation; a new immutable version's bytes are journaled after native save. If native save or journal append fails, the conversation remains NON_READY. Uninstrumented paths, pre-enrollment deletions, copied/restored lineage, world/session authority and real device durability remain blockers.
+
+
+### Chat unload is not deletion
+
+Source review found that pinned ST `clearChat({ clearData: true })` is used for chat switching/reload and other UI transitions. Treating that array clear as source deletion would incorrectly record the old chat as empty and could poison identity/reconciliation. The candidate patch therefore does **not** hook `clearChat` as deletion. The actual complete chat-file deletion path is still uncovered, especially when the target chat is not the currently loaded chat. `clear-chat` remains a required-but-missing coverage path, so readiness stays NON_READY.
