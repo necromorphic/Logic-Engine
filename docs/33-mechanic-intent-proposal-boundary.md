@@ -1,6 +1,6 @@
 # Mechanic intent integration boundary — proposal API
 
-Status: **design proposal; no runtime or API behavior changed by this document**.
+Status as of 2026-10-25: **implemented bounded integration in `main` via PR #280**. The document records the current proposal boundary and its remaining non-goals; it does not authorize a general mechanic-evaluation pipeline.
 
 This document records the integration boundary for the bounded translator in `docs/32-mechanic-effect-translator-contract.md` and `src/core/mechanic-effect-translator.js`. It does not authorize new commit/storage paths.
 
@@ -14,9 +14,9 @@ The current runtime already has a proposal boundary:
 4. Commit rechecks those values and calls `LogicEngine.commitEvent`, which validates and commits through the existing canonical event path.
 5. Proposal status, canonical event commit, and proposal audit are covered by the existing SQLite transaction.
 
-Mechanic-intent translation must be inserted before the rollback-only preview and must not create another persistence or commit route.
+Mechanic-intent translation is performed before the rollback-only preview and does not create another persistence or commit route.
 
-## 2. Proposed request boundary
+## 2. Implemented request boundary
 
 The existing proposal request's `event` object accepts either:
 
@@ -39,7 +39,7 @@ The public event/commit schema must continue to contain canonical effects only. 
 
 ## 4. Required integration tests
 
-Before implementation can leave draft status, add API-level tests proving:
+The merged implementation's acceptance tests must prove the following at the API/integration boundary:
 
 1. A valid intent batch is translated before canonical validation and the stored proposal contains canonical `effects`, never raw `effect_intents`.
 2. Both `effects` and `effect_intents` in one event are rejected.
@@ -56,14 +56,13 @@ Before implementation can leave draft status, add API-level tests proving:
 
 Capture before/after snapshots from the public API where possible and query proposal/audit tables only in focused service-level tests. Do not weaken existing tests to make integration pass.
 
-## 5. Implementation constraints
+## 5. Implementation boundary confirmed by the merged slice
 
-- Keep the change in a separate PR that depends on the translator contract and implementation PRs.
-- Do not modify `main` directly or merge any PR automatically.
-- No SQLite schema migration is expected for the initial request boundary. If implementation proves a migration is required, stop and document the reason rather than adding one implicitly.
-- No new HTTP endpoint, alternate event store, direct-commit path, or automatic approval behavior.
-- No changes to NPC/card modules, World Pack behavior, SillyTavern integration, or vectorization.
+- The bounded translator and proposal integration are in `main` through PR #280; this is no longer a pending implementation task.
+- No new SQLite schema migration, HTTP endpoint, alternate event store, direct-commit path, or automatic approval behavior was added for this boundary.
+- The implementation does not add mechanic evaluation, policy attestation, actor authorization, or a production executor.
+- No changes to NPC/card modules, World Pack behavior, SillyTavern integration, or vectorization are implied.
 
 ## 6. Explicitly unresolved
 
-This document does not decide the canonical identity/replacement semantics for `fact.set`, nor does it authorize any non-empty provenance mapping. It also does not specify mechanic evaluation, actor authorization, semantic matching against source text, or automatic ID allocation. Those remain separate decisions.
+The merged slice does not decide any additional canonical identity/replacement semantics beyond the existing Core guards, and it does not authorize non-empty intent provenance mapping. It also does not specify mechanic evaluation, actor authorization, semantic matching against source text, or automatic ID allocation. Those remain separate decisions.

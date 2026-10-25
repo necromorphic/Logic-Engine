@@ -1,6 +1,6 @@
 # Time-owned Process Manager contract reconciliation
 
-**Status:** Time review of the existing Core runtime draft; no second process model or scheduler is introduced here.
+**Status as of 2026-10-25:** merged Time/Process Manager contract reconciliation. PR #281 supplies the bounded runtime slice and PR #284 carries the Time-side contract review. This document records the implemented boundary and remaining acceptance gaps; it introduces no second process model or scheduler.
 
 Related work:
 - [Issue #243 — Process Manager acceptance](https://github.com/necromorphic/Logic-Engine/issues/243)
@@ -8,9 +8,9 @@ Related work:
 - [Core durable Process Manager runtime, PR #281](https://github.com/necromorphic/Logic-Engine/pull/281)
 - [Shared architecture and decision register](https://app.notion.com/p/403a42c0-fcaf-8145-850b-cd7cfd9bcdf7)
 
-## Contract agreed for review
+## Verified merged contract
 
-The merged runtime slice in #281 owns the durable process definition, lifecycle records, trigger registration, and process persistence. Time's responsibility is to verify that its milestone semantics are compatible with the existing deterministic scheduler and time-advance pipeline. This PR must not introduce a second process lifecycle implementation.
+The merged runtime slice in #281 owns the durable process definition, lifecycle records, trigger registration, and process persistence. Time's responsibility is to verify that its milestone semantics are compatible with the existing deterministic scheduler and time-advance pipeline. The Time-side work must not introduce a second process lifecycle implementation.
 
 The runtime behavior below was checked against the merged #281 implementation and tests. This document records the observed boundary, not a promise that unimplemented operations exist.
 
@@ -21,14 +21,14 @@ The shared contract is:
 - **Temporal rule (observed):** process-definition validation rejects unsafe coordinates, non-future creation coordinates, prerequisites scheduled later than their dependents, and cycles. Equal-coordinate prerequisites are passed to the existing planner as trigger dependencies; deterministic dependency order is applied there. The planner rejects unresolved read/write conflicts and honors interruption boundaries. These are separate validation layers, not a new process scheduler.
 - **Lifecycle:** `scheduled`, `running`, `paused`, `completed`, `cancelled`, `failed`, `needs_review`. Resume is an operation returning to `scheduled`, not a stored state. It must mint fresh trigger IDs for pending milestones only when their original due coordinates remain in the future; overdue resume fails with `PROCESS_RESUME_REQUIRES_REPLAN`.
 - **Commit authority:** Time proposes due work and interruption boundaries. Core validates current world/revision and event proposals, and commits canonical effects plus process/trigger/segment checkpoints atomically through the existing segment transaction.
-- **Rollback:** Core owns canonical rollback/rebuild. PR #281's current candidate expands invalidation from directly affected milestones through transitive `prerequisites` within the same process definition; completed descendants become `needs_review`, the process is gated, and the update is audited in the rollback transaction. Cross-process dependency closure and automatic recomputation remain unsupported; unknown causality stays `needs_review`.
+- **Rollback:** Core owns canonical rollback/rebuild. The merged #281 runtime expands invalidation from directly affected milestones through transitive `prerequisites` within the same process definition; completed descendants become `needs_review`, the process is gated, and the update is audited in the rollback transaction. Cross-process dependency closure and automatic recomputation remain unsupported; unknown causality stays `needs_review`.
 - **Knowledge/delivery:** process completion does not grant NPC knowledge, update beliefs, create reports, or notify the player.
 
 ## Ownership by PR
 
 - **#247 — Core boundary:** proposal/test matrix for atomicity, snapshot validation, idempotency, recovery, and rollback/rebuild. Documentation-only; not itself runtime implementation.
 - **#281 — Core runtime slice (merged):** durable process/milestone storage and lifecycle operations over existing triggers and segment transactions. Merge plus passing CI establishes repository integration, not production approval or complete cross-process causal reconstruction.
-- **#249 — Time contract review:** tests the existing scheduler semantics using process-shaped milestone fixtures and records any mismatch. It must not duplicate #281's runtime contract or add a second scheduler.
+- **#284 — Time contract review (merged):** records and tests the existing scheduler semantics using process-shaped milestone fixtures. These tests complement, rather than duplicate, #281's runtime contract or add a second scheduler.
 
 ## Time-owned acceptance
 
@@ -38,7 +38,7 @@ The shared contract is:
 4. Pure planner: interruption returns the stop coordinate, includes eligible work at that coordinate, and leaves later triggers unplanned. A second planner call with a simulated completed-trigger snapshot tests planner behavior only; durable interruption/restart/continuation is verified separately by the merged #281 integration suite.
 5. Durable interruption + SQLite close/reopen + continuation of the same process is covered by the integration tests merged through #281; Time's scheduler tests are complementary, not a replacement for that real-path test.
 
-The #249 tests are **pure scheduler tests with a fixture adapter**, not end-to-end runtime tests. Every fixture milestone declares a `trigger_id`; the adapter maps prerequisite milestone IDs only to those declared IDs and uses an explicit unresolved-dependency sentinel for deliberately missing prerequisites. It calls `planDueWork` directly and does not exercise persistence, API routing, lifecycle transitions, or the Core transaction. The merged #281 integration suite is the evidence for the real registered-trigger → time-advance → Core transaction path, including pause/resume restart and A→B→C rollback/restart. These results prove only within-process prerequisite invalidation, not cross-process causal rebuild. The overall issue remains open until the cross-PR review and all required acceptance evidence are complete.
+The Time contract tests merged through #284 are **pure scheduler tests with a fixture adapter**, not end-to-end runtime tests. Every fixture milestone declares a `trigger_id`; the adapter maps prerequisite milestone IDs only to those declared IDs and uses an explicit unresolved-dependency sentinel for deliberately missing prerequisites. It calls `planDueWork` directly and does not exercise persistence, API routing, lifecycle transitions, or the Core transaction. The merged #281 integration suite is the evidence for the real registered-trigger → time-advance → Core transaction path, including pause/resume restart and A→B→C rollback/restart. These results prove only within-process prerequisite invalidation, not cross-process causal rebuild. The implementation and contract review are merged, but Issue #243 remains open for any acceptance work not yet evidenced, especially cross-process causal closure and explicit replan semantics.
 
 
 ## Overdue resume and explicit replan contract (review proposal; no runtime API added)
@@ -51,4 +51,4 @@ The #249 tests are **pure scheduler tests with a fixture adapter**, not end-to-e
 
 ## Acceptance status after Core integration tests
 
-PR #281's current integration branch adds explicit stale-revision rejection and competing lifecycle checkpoint tests through the existing runtime path. These tests must assert no process/trigger/audit side effects on stale revision and exactly one successful audited transition when two commands target the same checkpoint version. They do not prove multi-process causal closure or automatic rebuild/replanning.
+The merged #281 runtime includes stale-revision rejection and competing lifecycle checkpoint tests through the existing runtime path. They verify no process/trigger/audit side effects on stale revision and one successful audited transition when commands target the same checkpoint version. They do not prove multi-process causal closure or automatic rebuild/replanning.

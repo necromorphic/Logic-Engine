@@ -1,16 +1,16 @@
 # Mechanic effect-intent translator contract — initial bounded slice
 
-Status: **proposed contract; not an implementation authorization**. This document defines the smallest defensible translation boundary between mechanic-template intents and the canonical effect vocabulary. It does not add an alternate commit path.
+Status as of 2026-10-25: **implemented bounded contract in `main` (PR #280)**. This document describes the supported translation boundary between mechanic-template intents and the canonical effect vocabulary. It does not add an alternate commit path or authorize a general-purpose mechanic executor.
 
 ## 1. Purpose and trust boundary
 
-Mechanic intents are untrusted declarative requests. They are not canonical effects and do not authorize a mutation. A future translator must be a pure, deterministic function: it validates an intent batch and either returns a complete translation or fails without returning a partial batch.
+Mechanic intents are untrusted declarative requests. They are not canonical effects and do not authorize a mutation. The implemented translator (`src/core/mechanic-effect-translator.js`) is a pure, deterministic function: it validates an intent batch and either returns a complete translation or fails without returning a partial batch.
 
 The caller must send translated effects through the existing event validation and proposal → approval → commit lifecycle. The translator must not access storage, allocate entity/fact IDs, evaluate world state, approve proposals, write audit records, or commit events.
 
 ## 2. Initial support set
 
-Only these three intent kinds are candidates for the initial translator:
+The implemented initial translator supports only these three intent kinds:
 
 - `create_entity` → `entity.create`
 - `update_attribute` → `entity.update`
@@ -88,7 +88,7 @@ Use stable machine-readable reason codes, at minimum:
 
 Failure must be all-or-nothing and side-effect free. The caller may turn a failure into a review result, but must not treat an unsupported intent as a no-op success.
 
-## 6. Required conformance tests before implementation is accepted
+## 6. Required conformance tests for the implemented boundary
 
 1. Golden mapping tests for each of the three supported intent kinds, including optional fields omitted versus supplied.
 2. Rejection tests for all 15 other declared intent kinds, including review/result kinds.
@@ -109,4 +109,4 @@ This contract does not implement mechanic evaluation, actor authorization, seman
 - A typed mapping from intent provenance to event-level causal/context fields. Until approved, non-empty provenance remains fail-closed as specified above.
 - Whether a future translator should support additional canonical effect kinds after their event, rollback, and audit semantics are independently specified.
 
-The candidate integration adds the canonical fact-identity guard at the commit boundary; it does not authorize the translator to implement a second identity policy or query storage.
+The merged integration includes the canonical fact-identity guard at the commit boundary; the translator does not implement a second identity policy or query storage.
