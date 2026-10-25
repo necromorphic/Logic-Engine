@@ -1,7 +1,7 @@
 name: Runtime tests
 on:
   push:
-    branches: [main]
+    branches: [main, 'work/**']
   pull_request:
   workflow_dispatch:
 
