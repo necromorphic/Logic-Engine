@@ -3,7 +3,7 @@ import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
 const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
 const activeIndex = message => Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
-const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'clear-chat']);
+const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'clear-chat']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
   return globalThis.crypto.randomUUID();
@@ -115,12 +115,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
     const chat = getChat();
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
 
-    if (operation === 'create-message') {
+    if (['create-message', 'message-send', 'message-receive'].includes(operation)) {
       if (!Number.isInteger(createdMessageIndex) || createdMessageIndex !== chat.length - 1) {
         throw Error('NON_READY: create-message hook lacks exact append boundary; abort inventory checkpoint');
       }
       const expectedPriorFingerprint = await journal.latestSourceFingerprint(conversationId);
-      const actualPriorFingerprint = await currentFingerprint(chat.slice(0, createdMessageIndex));
+      const priorChat = chat.slice();
+      priorChat.splice(createdMessageIndex, 1);
+      const actualPriorFingerprint = await currentFingerprint(priorChat);
       if (actualPriorFingerprint !== expectedPriorFingerprint) {
         throw Error('NON_READY: pre-existing source changed before create-message checkpoint; abort inventory checkpoint');
       }
@@ -130,7 +132,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       const message = chat[i], versions = rawVersions(message);
       let identity = message._logicEngineLifecycle;
       if (!identity) {
-        if (operation !== 'create-message' || i !== createdMessageIndex) {
+        if (!['create-message', 'message-send', 'message-receive'].includes(operation) || i !== createdMessageIndex) {
           throw Error('NON_READY: missing durable identity on pre-existing message; abort inventory checkpoint');
         }
         identity = { messageId: newId(), versions: [], activeVersionIndex: activeIndex(message) };
