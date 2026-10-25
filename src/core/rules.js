@@ -313,3 +313,71 @@ export function validateEffects(effects, options = {}) {
     }
   }
 }
+
+
+/**
+ * Conservatively enumerate every context path that a supported declarative
+ * condition can read, including paths in branches not taken by a particular
+ * evaluation. This is a static potential-read set, not authorization and not a
+ * claim about dependencies hidden in code outside this bounded AST.
+ *
+ * Returns a deterministic sorted list. Absence is still a dependency: callers
+ * must invalidate when a path changes from absent to present or vice versa.
+ */
+export function collectConditionDependencies(rule) {
+  const paths = new Set();
+  const visit = (current, depth = 0) => {
+    if (depth > 24) throw new EngineError('RULE_DEPTH_EXCEEDED', 'Rule nesting exceeds 24 levels.');
+    if (!current || typeof current !== 'object' || Array.isArray(current)) {
+      throw new EngineError('INVALID_RULE', 'Condition must be an object.');
+    }
+
+    const op = current.op;
+    if (!OPS.has(op)) throw new EngineError('UNSUPPORTED_RULE_OPERATOR', 'Unsupported operator: ' + String(op));
+    const allowed = {
+      eq: ['op', 'path', 'value'], neq: ['op', 'path', 'value'],
+      exists: ['op', 'path', 'value'],
+      gt: ['op', 'path', 'value'], gte: ['op', 'path', 'value'],
+      lt: ['op', 'path', 'value'], lte: ['op', 'path', 'value'],
+      in: ['op', 'path', 'values'],
+      all: ['op', 'rules', 'conditions'], any: ['op', 'rules', 'conditions'],
+      not: ['op', 'rules', 'condition'],
+    }[op];
+    if (Object.keys(current).some((key) => !allowed.includes(key))) {
+      throw new EngineError('INVALID_RULE', 'Unexpected field for rule operator: ' + op);
+    }
+
+    if (op === 'all' || op === 'any' || op === 'not') {
+      const children = nestedRules(current, op);
+      if (children.length > 64) throw new EngineError('INVALID_RULE', op + ' supports at most 64 nested rules.');
+      if (op === 'not' && children.length !== 1) {
+        throw new EngineError('INVALID_RULE', 'not requires exactly one nested rule.');
+      }
+      for (const child of children) visit(child, depth + 1);
+      return;
+    }
+
+    // Reuse the evaluator's path parser to enforce the same unsafe-path rules.
+    if (typeof current.path !== 'string' || !current.path) {
+      throw new EngineError('INVALID_RULE_PATH', 'Unsafe or empty rule path.');
+    }
+    readPath({}, current.path);
+    if (['eq', 'neq', 'gt', 'gte', 'lt', 'lte'].includes(op) && !Object.hasOwn(current, 'value')) {
+      throw new EngineError('INVALID_RULE', op + ' requires a value.');
+    }
+    if (['gt', 'gte', 'lt', 'lte'].includes(op)
+      && (typeof current.value !== 'number' || !Number.isFinite(current.value))) {
+      throw new EngineError('RULE_TYPE_MISMATCH', op + ' requires a finite numeric value.');
+    }
+    if (op === 'exists' && current.value !== undefined && typeof current.value !== 'boolean') {
+      throw new EngineError('INVALID_RULE', 'exists value must be boolean when provided.');
+    }
+    if (op === 'in' && (!Array.isArray(current.values) || current.values.length > 128)) {
+      throw new EngineError('INVALID_RULE', 'in requires at most 128 values.');
+    }
+    paths.add(current.path);
+  };
+
+  visit(rule);
+  return [...paths].sort();
+}
