@@ -225,3 +225,19 @@ test('reconciliation rejects identity metadata whose digest no longer matches na
   assert.equal(result.status, 'NON_READY');
   assert.match(result.reason, /version digest does not match native source content/);
 });
+
+test('new-message reconciliation fails closed when an existing identity is missing', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const before = await f.journal.verifyIntegrity('chat-1');
+  delete f.chat[0]._logicEngineLifecycle;
+  f.chat.push({ is_user: false, mes: 'new reply' });
+
+  await assert.rejects(
+    f.bridge.afterMutation('create-message'),
+    /missing durable identity on pre-existing message/,
+  );
+  const after = await f.journal.verifyIntegrity('chat-1');
+  assert.equal(after.sequence, before.sequence);
+  assert.equal(f.chat[0]._logicEngineLifecycle, undefined);
+});
