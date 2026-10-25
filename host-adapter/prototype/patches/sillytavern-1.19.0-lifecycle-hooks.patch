@@ -109,11 +109,16 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.afterMutation('edit-message');
      this_edit_mes_id = undefined;
      await saveChatConditional();
-@@ -9367,1 +9427,3 @@
--    message.swipes.splice(swipeId, 1);
+@@ -9363,7 +9423,9 @@
+         toastr.warning(t`Invalid swipe ID: ${swipeId + 1}`);
+         return;
+     }
+ 
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('delete-swipe', [messageId], { swipeIndex: swipeId });
-+    message.swipes.splice(swipeId, 1);
+     message.swipes.splice(swipeId, 1);
+ 
+     if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
 @@ -9399,5 +9461,6 @@
          refreshSwipeButtons();
          saveChatDebounced();
