@@ -715,3 +715,60 @@ test('authorized canonical commits preserve open domain event_type values', (t) 
   const event = h.engine.getEvents('w', true).find((item) => item.turn_id === 'open-domain-event-type');
   assert.equal(event.event_type, 'world.yakuza.custom_action');
 });
+
+test('proposal commit rejects a stale approved base without partial state and survives reopen', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'logic-engine-stale-proposal-'));
+  const path = join(dir, 'world.sqlite');
+  let store = new SQLiteStore(path);
+  let engine = new LogicEngine(store);
+  engine.createWorld({ world_id: 'w', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2005-12-29T10:00:00Z' });
+  let proposals = new ProposalService(engine);
+
+  const proposal = proposals.create('w', {
+    idempotency_key: 'stale-approved-proposal',
+    source_text: 'Propose a state change that must not commit against a stale base.',
+    event: {
+      turn_id: 'stale-approved-proposal',
+      event_type: 'action.completed',
+      effects: [{ kind: 'entity.upsert', entity_id: 'must-not-appear', entity_type: 'object' }],
+    },
+  }, 'unit-test-adapter');
+  proposals.approve('w', proposal.proposal_id);
+
+  const competing = engine.commitEvent('w', cmd({
+    idempotency_key: 'competing-canonical-event',
+    turn_id: 'competing-canonical-event',
+    expected_revision: 0,
+    effects: [{ kind: 'entity.upsert', entity_id: 'competing-event-survives', entity_type: 'object' }],
+  }));
+  assert.equal(competing.world_revision, 1);
+
+  const auditBeforeStaleCommit = engine.getAudit('w');
+  assert.throws(
+    () => proposals.commit('w', proposal.proposal_id),
+    (error) => error.code === 'STALE_PROPOSAL' && error.status === 409,
+  );
+  assert.equal(engine.getState('w').world_revision, 1);
+  assert.deepEqual(engine.getState('w').entities.map((entity) => entity.entity_id), ['competing-event-survives']);
+  assert.equal(engine.getEvents('w', true).length, 1);
+  assert.deepEqual(engine.getAudit('w'), auditBeforeStaleCommit);
+  assert.equal(proposals.get('w', proposal.proposal_id).status, 'approved');
+
+  store.close();
+  store = new SQLiteStore(path);
+  engine = new LogicEngine(store);
+  proposals = new ProposalService(engine);
+  assert.equal(engine.getState('w').world_revision, 1);
+  assert.deepEqual(engine.getState('w').entities.map((entity) => entity.entity_id), ['competing-event-survives']);
+  assert.equal(engine.getEvents('w', true).length, 1);
+  assert.equal(proposals.get('w', proposal.proposal_id).status, 'approved');
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key=?").get('proposal:' + proposal.proposal_id).count, 0);
+
+  store.close();
+  rmSync(dir, { recursive: true, force: true });
+  t.after(() => {
+    try { store.close(); } catch {}
+    rmSync(dir, { recursive: true, force: true });
+  });
+});
+
