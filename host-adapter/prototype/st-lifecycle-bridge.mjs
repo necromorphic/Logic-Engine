@@ -9,13 +9,14 @@ const newId = () => {
 };
 
 /**
- * Small adapter boundary intended for explicit native ST hooks.
- * It does not install hooks or auto-enroll chats by itself.
+ * Opt-in adapter boundary for explicit native ST hooks.
+ * This is not a complete inventory until every mutation path is wired and tested.
  */
 export function createStLifecycleBridge({ journal, getConversationId, getChat, saveChat }) {
   if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
 
   async function currentFingerprint(chat = getChat()) {
+    if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
     return fingerprintSource(chat);
   }
 
@@ -29,16 +30,28 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       activeVersionIndex: activeIndex(message),
     }));
     const result = await journal.enroll({ conversationId, sourceFingerprint: fingerprint, messages: descriptors });
-    for (let i = 0; i < chat.length; i++) {
-      const identity = result.mapping[i];
-      chat[i]._logicEngineLifecycle = {
-        messageId: identity.messageId,
-        versions: identity.versions.map(version => ({ ...version, parentVersionId: null })),
-        activeVersionIndex: identity.activeVersionIndex,
-      };
+    try {
+      for (let i = 0; i < chat.length; i++) {
+        const identity = result.mapping[i];
+        chat[i]._logicEngineLifecycle = {
+          messageId: identity.messageId,
+          versions: identity.versions.map(version => ({ ...version, parentVersionId: null })),
+          activeVersionIndex: identity.activeVersionIndex,
+        };
+      }
+      await saveChat();
+    } catch (error) {
+      // The durable baseline now exists but native metadata may not. Subsequent
+      // fingerprint/identity validation must fail closed; enrollment cannot be retried.
+      throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
     }
-    await saveChat();
-    return { conversationId, baselineSequence: result.baselineSequence, preEnrollmentHistory: result.preEnrollmentHistory, messageCount: chat.length };
+    return {
+      conversationId,
+      baselineSequence: result.baselineSequence,
+      preEnrollmentHistory: result.preEnrollmentHistory,
+      messageCount: chat.length,
+      status: 'REVIEW_ONLY',
+    };
   }
 
   async function beforeMutation(operation, messageIndexes, details = {}) {
@@ -46,35 +59,59 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
     if (!conversationId || !(await journal.isEnrolled(conversationId))) return { status: 'NOT_ENROLLED' };
     const chat = getChat(), fingerprint = await currentFingerprint(chat);
     const latestFingerprint = await journal.latestSourceFingerprint(conversationId);
-    if (latestFingerprint !== fingerprint) throw Error('NON_READY: source fingerprint differs from journal; abort mutation');
+    if (latestFingerprint !== fingerprint) {
+      throw Error('NON_READY: source fingerprint differs from journal; abort mutation');
+    }
+    if (!Array.isArray(messageIndexes)) throw TypeError('messageIndexes must be an array');
+
     const affectedVersions = [];
     for (const index of messageIndexes) {
       const message = chat[index], identity = message?._logicEngineLifecycle;
-      if (!message || !identity || !Array.isArray(identity.versions)) throw Error('NON_READY: missing durable identity mapping; abort mutation');
+      if (!message || !identity || !Array.isArray(identity.versions)) {
+        throw Error('NON_READY: missing durable identity mapping; abort mutation');
+      }
       const versions = rawVersions(message);
-      if (versions.length !== identity.versions.length) throw Error('NON_READY: version inventory mismatch; abort mutation');
-      for (const version of identity.versions) affectedVersions.push({
-        messageId: identity.messageId,
-        versionId: version.versionId,
-        parentVersionId: version.parentVersionId ?? null,
-        payloadDigest: version.payloadDigest,
-      });
+      if (versions.length !== identity.versions.length) {
+        throw Error('NON_READY: version inventory mismatch; abort mutation');
+      }
+      for (const version of identity.versions) {
+        affectedVersions.push({
+          messageId: identity.messageId,
+          versionId: version.versionId,
+          parentVersionId: version.parentVersionId ?? null,
+          payloadDigest: version.payloadDigest,
+        });
+      }
     }
-    return journal.beforeMutation({ conversationId, operation, affectedVersions, sourceFingerprint: fingerprint, details });
+    // eventId was previously omitted here, making every enrolled mutation fail
+    // with "Invalid event" before reaching the journal.
+    return journal.beforeMutation({
+      conversationId,
+      eventId: newId(),
+      operation,
+      affectedVersions,
+      sourceFingerprint: fingerprint,
+      details,
+    });
   }
 
   async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null } = {}) {
     const conversationId = getConversationId();
     if (!conversationId || !(await journal.isEnrolled(conversationId))) return { status: 'NOT_ENROLLED' };
-    const chat = getChat(), changes = [];
+    const chat = getChat();
+    if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
+
     for (let i = 0; i < chat.length; i++) {
-      const message = chat[i], versions = rawVersions(message), role = roleOf(message);
+      const message = chat[i], versions = rawVersions(message);
       let identity = message._logicEngineLifecycle;
       if (!identity) {
         identity = { messageId: newId(), versions: [], activeVersionIndex: activeIndex(message) };
         message._logicEngineLifecycle = identity;
       }
       if (operation === 'delete-swipe' && selectedMessageIndex === i && Number.isInteger(removedSwipeIndex)) {
+        if (removedSwipeIndex < 0 || removedSwipeIndex >= identity.versions.length) {
+          throw Error('NON_READY: deleted swipe has no matching version identity');
+        }
         identity.versions.splice(removedSwipeIndex, 1);
       }
       const nextVersions = [];
@@ -84,14 +121,31 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
         if (prior && prior.payloadDigest === textDigest) {
           nextVersions.push(prior);
         } else {
-          nextVersions.push({ versionId: newId(), versionIndex: j, payloadDigest: textDigest, parentVersionId: prior?.versionId ?? identity.versions[identity.activeVersionIndex]?.versionId ?? null });
+          nextVersions.push({
+            versionId: newId(),
+            versionIndex: j,
+            payloadDigest: textDigest,
+            parentVersionId: prior?.versionId
+              ?? identity.versions[identity.activeVersionIndex]?.versionId
+              ?? null,
+          });
         }
       }
       identity.versions = nextVersions;
       identity.activeVersionIndex = activeIndex(message);
-      changes.push({ messageId: identity.messageId, messageIndex: i, activeVersionIndex: identity.activeVersionIndex, versions: nextVersions });
     }
+
     const fingerprint = await currentFingerprint(chat);
+    // Save native state before advancing the journal checkpoint. If save or the
+    // subsequent append fails, the journal remains behind and the next pre-hook
+    // rejects the fingerprint mismatch instead of silently claiming completeness.
+    await saveChat();
+    const changes = chat.map((message, messageIndex) => ({
+      messageId: message._logicEngineLifecycle.messageId,
+      messageIndex,
+      activeVersionIndex: message._logicEngineLifecycle.activeVersionIndex,
+      versions: message._logicEngineLifecycle.versions,
+    }));
     const event = await journal.append({
       conversationId,
       eventId: newId(),
@@ -99,9 +153,37 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       sourceFingerprint: fingerprint,
       payload: { changes, removedSwipeIndex, selectedMessageIndex },
     });
-    await saveChat();
-    return { sequence: event.sequence, messageCount: chat.length };
+    return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY' };
   }
 
-  return Object.freeze({ enrollCurrentConversation, beforeMutation, afterMutation, currentFingerprint });
+  async function reconcileCurrentConversation() {
+    const conversationId = getConversationId();
+    if (!conversationId || !(await journal.isEnrolled(conversationId))) return { status: 'NOT_ENROLLED' };
+    const current = await currentFingerprint();
+    const recorded = await journal.latestSourceFingerprint(conversationId);
+    if (current !== recorded) {
+      return {
+        status: 'NON_READY',
+        reason: 'current source fingerprint differs from the last durable journal checkpoint',
+        currentFingerprint: current,
+        recordedFingerprint: recorded,
+      };
+    }
+    const chat = getChat();
+    const missingIdentity = chat.some(message => !message?._logicEngineLifecycle
+      || !Array.isArray(message._logicEngineLifecycle.versions)
+      || message._logicEngineLifecycle.versions.length !== rawVersions(message).length);
+    if (missingIdentity) {
+      return { status: 'NON_READY', reason: 'native identity metadata is missing or does not match current versions' };
+    }
+    return { status: 'REVIEW_ONLY', sourceFingerprintMatches: true, productionAuthority: false };
+  }
+
+  return Object.freeze({
+    enrollCurrentConversation,
+    beforeMutation,
+    afterMutation,
+    currentFingerprint,
+    reconcileCurrentConversation,
+  });
 }
