@@ -9,6 +9,24 @@
 
 Approve or reject the ownership split and minimum release contract below before implementation. Until approval and executable real-path evidence exist, production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
 
+
+## 0. Core decisions already taken (not pending owner vote)
+
+These are operational Core dispositions under the current approved contracts; they do not require guessing missing Provider or Host authority:
+
+| Topic | Core decision now | Operational consequence |
+|---|---|---|
+| Durable raw Host text | **NOT APPROVED** under current contract | Do not persist or transfer raw Host message text through the lifecycle journal/Provider/Core path. A separate explicit retention/purpose/access/deletion contract is required to change this. |
+| Host-originated source operations | **UNSUPPORTED / NON_READY for production Memory→NPC** | Create/edit/swipe/delete hooks in the reviewed prototype may be useful local evidence, but none establishes authoritative source version/lineage or complete active+historical+deleted inventory. Chat switch/reload is not deletion. No candidate from these operations may be admitted as authoritative today. |
+| Trusted world/session/recipient/actor | **Resolve from authenticated server-side context and existing Core actor-binding seam only** | Caller/body labels, prompt text, manifest membership and Host-generated IDs cannot choose the actor or recipient. A world/session binding must be proven by the real Host adapter; until then the request is non-ready. |
+| Read purpose | **No general-purpose Memory disclosure** | The proposed first slice is restricted to `npc_decision` only if owners approve that purpose and the exact field policy. No current production read is enabled merely by this proposal. |
+| Canonical Core fields | **Existing AuthorizedReadService only, under explicit field policy** | Authorization of canonical fields does not confer authority on a Host Memory record that references those fields. No arbitrary field expansion or raw Memory summary. |
+| Failure behavior | **FAIL-CLOSED** | Deny, stale, revoked, deleted, incomplete, unsupported, timeout or unavailable source/access validation means no protected bytes are released; no content/snippet/source ID/count/diagnostic side-channel. |
+| Release path | **No production seam verified in Core main** | Do not add a fake sender or wire a new API/schema. Host must name the real pinned final model-request hook; cross-owner release contract must be approved before runtime wiring. |
+
+These Core dispositions are decisions, not claims that Host/Provider capabilities have been implemented or verified end-to-end. The remaining cross-owner questions are listed in §7.
+
+
 ## 1. Source-inspected path and exact release boundary
 
 1. `MemoryNpcConsumer.retrieveForNpc()` in `src/application/memory-npc-consumer.js` retrieves candidates from injected Memory functions, checks Provider authorization twice, binds the actor through Core, reads selected canonical fields through `AuthorizedReadService`, compares the Core snapshot cursor, and invokes the NPC admission helper.
