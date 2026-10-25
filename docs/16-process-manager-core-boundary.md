@@ -1,6 +1,6 @@
 # Process Manager — Core transaction and recovery boundary
 
-Status: **proposal for review; not a runtime contract yet**.
+Status: **Core ownership boundary and acceptance register; runtime behavior is implemented only to the extent explicitly listed below in the unmerged #248 candidate. This document is not itself runtime implementation or production approval.**
 
 Related work:
 - [Issue #243 — first durable Process Manager slice](https://github.com/necromorphic/Logic-Engine/issues/243)
@@ -18,7 +18,7 @@ This document isolates the Core-owned portion of the first process slice: canoni
 
 A process must reuse the existing time-advance, registered-trigger, and Core segment pipeline. No process-specific code may write canonical projections or events outside Core's existing commit boundary.
 
-## 2. Proposed commit invariant
+## 2. Commit invariant and current evidence
 
 For one accepted milestone, these effects must succeed or fail together in the same existing Core segment transaction:
 
@@ -31,7 +31,7 @@ For one accepted milestone, these effects must succeed or fail together in the s
 
 **Invariant:** no observable state may say that a milestone is complete if its canonical effects were rolled back, and no canonical milestone effects may remain committed while the matching process checkpoint says the milestone did not occur.
 
-This is a proposed acceptance invariant derived from issue #243, not a claim that a process table or transaction path currently exists.
+The #248 draft candidate now has a durable process store and executes milestone completion through the existing Core segment transaction. Its integration tests verify that a process milestone checkpoint and trigger segment commit together, that an injected process-checkpoint failure rolls back the segment, and that the committed process state survives SQLite restart. This evidence is branch-local and unmerged. The broader invariant above remains the acceptance target; not every row in it has been independently proven by the current test suite.
 
 ### Failure behavior
 
@@ -77,7 +77,7 @@ Current guarantee is deliberately bounded:
 
 The new executable A→B→C integration test on PR #248 verifies within-process closure, audit/progress projection, blocked resume, and SQLite restart. Cross-process closure, proof that unrelated progress is independent, and automatic causal recomputation remain open acceptance items.
  
-## 6. Recovery contract
+## 6. Recovery contract and tested slice
 
 Recovery must reconcile the process checkpoint with the existing durable time-advance operation and trigger records. It must not create a second scheduler or wall-clock catch-up path.
 
@@ -90,7 +90,7 @@ On SQLite close/reopen:
 
 The process checkpoint and segment checkpoint should normally be transactionally consistent because the milestone invariant requires one transaction. If an existing code path cannot provide that boundary, document the exact limitation and keep that path unsupported for process milestones rather than simulating atomicity in application code.
 
-## 7. Core-owned acceptance test matrix
+## 7. Core-owned acceptance test matrix (mixed status)
 
 | Case | Setup / action | Required result |
 | --- | --- | --- |
@@ -108,7 +108,7 @@ The process checkpoint and segment checkpoint should normally be transactionally
 | Same-coordinate conflict | Two milestones produce conflicting writes at one coordinate | Explicit conflict/needs-review; no arbitrary ordering |
 | Knowledge/delivery separation | Process completes | No NPC acquisition/belief or player-delivery record is created implicitly |
 
-These are proposed tests; they are not represented as existing tests or executed evidence.
+Status of this matrix: **mixed**. The #248 branch has executable tests for stale revision rejection, competing lifecycle checkpoint versions, idempotent create/advance and lifecycle retries, injected checkpoint failure, interrupted-advance restart, pause/resume/cancel, overdue resume fail-closed, and within-process A→B→C rollback invalidation/restart. These are branch-local tests and do not make the unmerged PR a mainline guarantee. Rows not explicitly covered by those tests remain acceptance requirements, not completed evidence; in particular, cross-world replay coverage, response-loss replay at every commit boundary, full causal recomputation, cross-process closure, and proof that unrelated progress is independent must not be marked complete without direct tests.
 
 ## 8. Decisions required before schema/API work
 
@@ -125,9 +125,7 @@ These are proposed tests; they are not represented as existing tests or executed
 
 ## 9. Completion gate
 
-This Core slice is ready for implementation only when the Time block returns its state/transition and milestone contract, existing Core transaction paths are confirmed to support the atomicity invariant, and the rollback policy is sufficiently precise to test. Then implement the smallest vertical slice against the existing store/transaction seam, add failure injection and restart tests, and report exact-head Runtime CI.
-
-Until then this file is an architectural proposal and test plan only. It does not claim that Process Manager runtime, schema, API, rollback integration, or production readiness exists.
+The first runtime slice now exists on draft PR #248 and reuses the existing store/transaction seam, registered triggers, scheduler, and time-advance pipeline. The current branch evidence is not yet a merged or production guarantee. Remaining closure gates are cross-block review, explicit tests for any unverified matrix rows, safe branch refresh against current main, and the unresolved causal-rebuild scope described above. Do not describe the runtime as absent; do not describe all proposed invariants as implemented.
 
 
 ## Cross-block follow-up evidence (24 Oct 2026)
