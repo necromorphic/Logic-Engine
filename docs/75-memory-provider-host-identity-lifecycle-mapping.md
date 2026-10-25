@@ -1,8 +1,10 @@
 # Memory Provider ↔ Host/Adapter identity and lifecycle mapping
 
 **Owner:** Memory Provider  
-**Related:** [Provider issue #181](https://github.com/necromorphic/Logic-Engine/issues/181), [Core gate #140](https://github.com/necromorphic/Logic-Engine/issues/140), [Host/Adapter evidence PR #259](https://github.com/necromorphic/Logic-Engine/pull/259), [Provider SQLite PR #182](https://github.com/necromorphic/Logic-Engine/pull/182), [Provider lifecycle PR #201](https://github.com/necromorphic/Logic-Engine/pull/201).  
-**Status:** Provider-side mapping proposal grounded in the current draft implementation. It is not an approved cross-block schema or production handoff. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+**Related:** [Provider issue #181](https://github.com/necromorphic/Logic-Engine/issues/181), [Core gate #140](https://github.com/necromorphic/Logic-Engine/issues/140), [Host/Adapter evidence PR #295](https://github.com/necromorphic/Logic-Engine/pull/259), [Provider SQLite PR #182](https://github.com/necromorphic/Logic-Engine/pull/182), [Provider lifecycle PR #201](https://github.com/necromorphic/Logic-Engine/pull/201).  
+**Current status (2026-10-25):** Provider-local raw archive and lifecycle safeguards are present in current `main` at `9ca95312b35d6431699d736aef721602d26639f8`; Runtime CI run #2028 passed. The code/tests prove Provider-local persistence, tombstone, reconciliation, and revocation behavior only. This remains a mapping proposal, not an approved cross-block schema or production handoff. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+
+**Historical evidence below:** branch/head/CI references are retained as dated audit history where explicitly labeled; they must not be read as the current merge state.
 
 ## 1. Decision boundary
 
@@ -11,7 +13,7 @@ Core’s direction A requires a durable logical-message identity and a distinct 
 Provider can persist a supplied identity tuple and enforce its own duplicate/conflict/tombstone rules. Provider cannot certify that a supplied ID is authentic, current, complete, correctly world-bound, or derived from a particular SillyTavern source. Those are Host/Adapter and Core contracts still requiring owner approval.
 
 The following labels are used throughout:
-- **EXISTS (Provider draft):** executable behavior in the Provider draft branch, not necessarily merged or production-wired.
+- **EXISTS (current main, Provider-local):** executable behavior in the current-main Provider-local implementation branch, not necessarily merged or production-wired.
 - **HOST EVIDENCE / GAP:** observed SillyTavern behavior or missing durable host signal documented by Host/Adapter.
 - **PROPOSED:** minimal cross-block rule to review; not an approved field name, API, or wire schema.
 - **BLOCKED:** cannot be asserted until the named owner supplies authoritative evidence.
@@ -102,14 +104,14 @@ The current draft raw archive uses the composite identity `(world_id, conversati
 
 ## 8. Acceptance status
 
-- Provider-side immutable raw identity/version tuple and duplicate/conflict behavior: **implemented in draft; exact branch/CI status must be checked per head**.
+- Provider-side immutable raw identity/version tuple and duplicate/conflict behavior: **implemented in current main and covered by Provider-local tests; not a production Host handoff**.
 - Provider-side active-version selection and exact-version tombstone/known-copy invalidation: **implemented in draft; not a production Host handoff**.
 - Host durable logical/version IDs and before-mutation deletion identity: **not yet proven by the pinned ST evidence**.
 - Core-approved source version/currentness, complete source inventory/reconciliation, and authoritative final revocation: **blocked**.
 - Real Host→Provider capture, restart/replay and full end-to-end acceptance: **not proven**.
 - Production Memory→NPC: **DISABLED / FAIL-CLOSED**.
 
-This note deliberately does not introduce field names, APIs, routes, callbacks, schemas, stores, cursors, outboxes, or lifecycle hooks beyond the behavior already present in the draft Provider code. It is a reviewable mapping and decision request, not approval to wire production traffic.
+This note deliberately does not introduce field names, APIs, routes, callbacks, schemas, stores, cursors, outboxes, or lifecycle hooks beyond the behavior already present in the current-main Provider code. It is a reviewable mapping and decision request, not approval to wire production traffic.
 
 
 ## 9. Joint Host + Provider mapping after Core decision (24 Oct 2026)
@@ -151,7 +153,7 @@ This is the smallest set of owner decisions/evidence needed to turn the semantic
 
 | Case | Existing evidence | Acceptance required before production |
 |---|---|---|
-| Capture duplicate after Provider restart | **FIXTURE-TESTED / Provider-local** in draft tests; not Host-integrated | Real pinned ST event with durable IDs → approved handoff → Provider reopen; exact replay is duplicate |
+| Capture duplicate after Provider restart | **FIXTURE-TESTED / Provider-local** in current-main tests; not Host-integrated | Real pinned ST event with durable IDs → approved handoff → Provider reopen; exact replay is duplicate |
 | Same tuple, different payload | **FIXTURE-TESTED / Provider-local** conflict test | Real adapter collision is rejected; no overwrite/rebind |
 | Create/select/delete swipe and reindex | **SOURCE-INSPECTED** in pinned ST; limited event families **RUNTIME-OBSERVED** in existing samples | **NOT TESTED**: persisted IDs before/after on Android/Termux, pre-mutation exact target, restart persistence |
 | Edit and parent lineage | **SOURCE-INSPECTED**; no durable prior/next revision relation established | **NOT TESTED**: approved immutable revision + predecessor survives reload and is validated |
@@ -523,7 +525,7 @@ Issue #181 comparison/evidence report: https://github.com/necromorphic/Logic-Eng
 
 - Provider frozen source/test head: `0c7b4abd8a5b3547304f452380b310bb155aeb52`; source blob `67c84de44ff2783d85a42fded1b583aa25abea99`; raw archive test blob `1926af89dad7676b40b3cb84280885b098cdaea2`; package script blob `fb0851c43284e2709216a59c54e0df30506a7d4c`.
 - Focused CI #1809: 19/19 passed across four Provider-local test files; full suite 290/290 passed: https://github.com/necromorphic/Logic-Engine/actions/runs/40124729340. Workflow-only PR #267 closed unmerged; frozen Provider source/test blobs unchanged.
-- Additional active-read revocation test: draft PR #271, head `3a447d9194657544b0014dbe6cdedfa141c86606`; CI #1822 passed: https://github.com/necromorphic/Logic-Engine/actions/runs/40126131698. This is a **separate test-only draft**, not part of frozen head `0c7b4ab...` and not merged.
+- Active-read final-authorization recheck test is now present in current main `tests/memory-provider-raw-archive.test.js`; its guarantee is Provider-local only and does not establish cross-store atomic revocation or a production serialization boundary.
 - **FIXTURE-TESTED:** Provider local archive, conflict/idempotency, tombstone, registered local-copy invalidation, guarded read, and Provider reconciliation behavior.
 - **SOURCE-INSPECTED / PATCH-CI-VALIDATED:** pinned Host mutation points and patch applicability/lint.
 - **NOT PROVEN:** installed ST/Termux durable identity, real Host→Provider caller, edit ancestry, pre-mutation deletion handoff, exhaustive historical Host inventory, copy/import/restore migration, cross-store atomicity, or actual serializer→transport revocation race.
