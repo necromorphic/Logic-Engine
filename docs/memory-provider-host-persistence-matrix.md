@@ -2,7 +2,7 @@
 
 Date: 2026-10-25
 
-Status: current-main Provider-local implementation evidence at `9ca95312b35d6431699d736aef721602d26639f8` (Runtime CI run #2028 passed). This is not approval to enable production retrieval.
+Status: current-main Provider-local implementation evidence at `9ca95312b35d6431699d736aef721602d26639f8` (Runtime CI run #2030 passed (592/592 repository tests and 8/8 oracle-harness tests; [run #2030](https://github.com/necromorphic/Logic-Engine/actions/runs/40203468760))). This is not approval to enable production retrieval.
 
 ## Current executable path
 
