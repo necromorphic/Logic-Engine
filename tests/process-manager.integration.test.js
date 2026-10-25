@@ -336,9 +336,9 @@ test('failure checkpoint result survives restart and same-key replay without can
   const triggersAfterFailure = engine.listTimeTriggers('world-a');
   const processAfterFailure = engine.getProcess('world-a', 'journey-1');
   assert.equal(stateAfterFailure.game_time_coordinate, 0);
-  assert.equal(processAfterFailure.status, 'needs_review');
+  assert.equal(processAfterFailure.status, 'scheduled');
   assert.equal(processAfterFailure.progress.completed, 0);
-  assert.equal(processAfterFailure.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'needs_review');
+  assert.equal(processAfterFailure.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'pending');
 
   ({ engine } = reopen());
   assert.deepEqual(engine.getState('world-a'), stateAfterFailure);
