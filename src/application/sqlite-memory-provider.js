@@ -148,8 +148,16 @@ export class SQLiteMemoryProvider {
         source_kind: row.source_kind, source_entity_id: row.source_entity_id,
         source_version: row.source_version, lineage: Object.freeze(decode(row.lineage_json)),
       })) === true;
-    } catch { return false; }
-    if (!sourceValid) return false;
+    } catch {
+      // Host/Core validator outage is unavailable, not an ordinary denial.
+      // Throw a generic error so MemoryNpcConsumer fails non-ready without leaking details.
+      throw new Error('MEMORY_SOURCE_VALIDATION_UNAVAILABLE');
+    }
+    if (!sourceValid) {
+      // A stale/unverifiable source version is not an access denial. Do not let
+      // the consumer filter it into a false complete-empty result.
+      throw new Error('MEMORY_SOURCE_VERSION_UNVERIFIABLE');
+    }
 
     // Source validation may await a host/Core read. Recheck provider-owned grants
     // after that await so a revocation during validation cannot reuse the earlier
@@ -272,9 +280,35 @@ export class SQLiteMemoryProvider {
       this.#setState(worldId, 'stale', 'stale');
       return { status: 'stale' };
     }
+
+    // Provider-local writes can occur while source validation/inventory callbacks
+    // are awaited. Do not publish a current marker for a record set that was not
+    // the one reconciled; the Core snapshot alone cannot detect provider writes.
+    const recordSet = (rows) => rows.map((row) => ({
+      record_ref: row.record_ref,
+      record_version: row.record_version,
+      source_kind: row.source_kind,
+      source_entity_id: row.source_entity_id,
+      source_version: row.source_version,
+      lineage_json: row.lineage_json,
+    })).sort((a, b) => a.record_ref.localeCompare(b.record_ref)
+      || a.record_version.localeCompare(b.record_version));
+    const latestRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
+    if (!isDeepStrictEqual(recordSet(records), recordSet(latestRecords))) {
+      this.#setState(worldId, 'stale', 'stale');
+      return { status: 'stale' };
+    }
+
     let after;
     try { after = snapshotOf(await this.getSnapshot(worldId)); } catch { after = null; }
     if (!sameSnapshot(before, after)) {
+      this.#setState(worldId, 'stale', 'stale');
+      return { status: 'stale' };
+    }
+    // getSnapshot above is awaited too; recheck local inventory after that final
+    // await so an ingest cannot be hidden between validation and ready/current.
+    const finalRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
+    if (!isDeepStrictEqual(recordSet(records), recordSet(finalRecords))) {
       this.#setState(worldId, 'stale', 'stale');
       return { status: 'stale' };
     }
