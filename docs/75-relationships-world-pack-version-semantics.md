@@ -104,3 +104,21 @@ Cross-reviewed against Personality PR #141, `docs/personality/09-per-case-accept
 There is no semantic contradiction between PR #141 and this contract provided that `PERS-SEM-024` remains limited to deterministic evaluation/replay under identical pinned inputs and `PERS-SEM-029` remains the separate meaning-change/migration gate. The remaining gap is narrower: historical semantic re-evaluation with missing rules and executable migration refusal are **not** established by current runtime tests. Projection-only rebuild and preservation of the historical pin are now covered by Core PR #148 (Runtime CI #903). Keep semantic re-evaluation and migration rows blocked rather than presenting evaluator-only or documentation evidence as Core runtime proof.
 
 Ownership boundary remains unchanged: this PR changes only Relationships documentation. Core storage/replay/runtime and Personality traceability are untouched.
+
+
+## 9. Relationships compatibility decision boundary
+
+For domain interpretation, a version string is an identifier, not evidence of semantic compatibility. Semantic-version ordering (including patch/minor/major labels) alone must never authorize interpreting a historical Relationship transition under another World Pack version.
+
+Until a separately reviewed compatibility declaration and executable Core path exist, use this default:
+
+- **New typed transition:** accept only through the existing Core path with the exact registered `rule_module_id + rule_module_version` and the exact `world_pack_id + world_pack_version` match already required at commit. A different World Pack identity/version is incompatible; reject before mutation.
+- **Already-committed event, projection-only rebuild:** replay the committed effect and preserve its stored result and exact rule-module pin. Do not re-run current rules. This narrow operation may succeed even when the old manifest is unavailable, as covered by Core PR #148.
+- **Historical semantic re-evaluation:** exact historical executable rules and World Pack provenance are prerequisites. If either cannot be resolved unambiguously, the domain decision is **unsupported / fail closed**; never infer compatibility from the current world, a newer manifest, or semver distance. There is no shipped evaluator contract in current main.
+- **Meaning-changing migration:** unsupported in the current release. No implicit migration, in-place reinterpretation, or “best effort” conversion is permitted. A future migration requires an explicit Relationships-owned source→target semantic policy and a separately approved Core execution/audit contract; no such API/schema/path is implied here.
+
+### Acceptance boundary for tests
+
+Relationships can define these semantic outcomes, but cannot honestly add an executable end-to-end test for historical re-evaluation or migration refusal while Core exposes no approved runtime entry point for either operation. Such a test would be a fixture/pure-helper assertion, not proof of production behavior. Keep those rows **BLOCKED — Core runtime path + joint domain approval** until the actual entry point and contract exist. When they do, require no-write assertions for missing/unknown/incompatible provenance and refusal without an approved migration path; preserve the original event and verify deterministic projection rebuild independently.
+
+This section is a domain compatibility default, not a storage/API/schema change and not authorization to edit Core or Personality-owned files.
