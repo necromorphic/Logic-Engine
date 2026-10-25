@@ -23,7 +23,12 @@ The reproducible patch artifact is `host-adapter/prototype/patches/sillytavern-1
 - [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40220887545) — SUCCESS.
 - [Runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40220887657) — SUCCESS.
 
-These are repository CI results for that code HEAD. This README-only commit must receive its own workflow run; no CI result for the new documentation commit is claimed here. The workflows establish patch applicability, lint/syntax and automated test results only; they do not establish real browser/device persistence or lifecycle completeness.
+A later README-only evidence refresh is committed as `eeab0a3de1993b1433cba544ac421065a4500a72`. All three exact-head workflows have now also passed on that latest HEAD:
+- [Host lifecycle patch check #40221247981](https://github.com/necromorphic/Logic-Engine/actions/runs/40221247981) — SUCCESS.
+- [Runtime tests #40221247933](https://github.com/necromorphic/Logic-Engine/actions/runs/40221247933) — SUCCESS.
+- [Host lifecycle patch validation #40221247934](https://github.com/necromorphic/Logic-Engine/actions/runs/40221247934) — SUCCESS.
+
+These are repository CI results only. They establish patch applicability, lint/syntax and automated test results; they do not establish real browser/device persistence or lifecycle completeness.
 
 The patch hooks the following current source paths (this is not full lifecycle coverage):
 - create-message and create-swipe / append-style version changes through `saveReply()`;
