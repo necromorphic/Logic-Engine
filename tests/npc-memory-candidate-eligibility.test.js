@@ -587,3 +587,16 @@ test("revoked or no-longer-current synthetic candidates are excluded without sid
     assert.equal(JSON.stringify(decision).includes("memory:claim-1"), false);
   }
 });
+
+
+test("sparse candidate result arrays are malformed, not authorized complete-empty", () => {
+  const candidates = [];
+  candidates.length = 2;
+  candidates[1] = candidate({ record: { ref: "memory:claim-2", version: "v1" } });
+  const result = evaluateMemoryCandidateAdmission(request, completeResult(candidates));
+
+  assert.equal(result.status, "non_ready");
+  assert.equal(result.reason, "result_incomplete_or_unavailable");
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes("memory:claim-2"), false);
+});
