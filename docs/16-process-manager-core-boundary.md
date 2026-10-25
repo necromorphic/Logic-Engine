@@ -134,9 +134,9 @@ The following are executable branch tests in the merged Process Manager runtime 
 
 - **Stale canonical revision:** process creation with a stale `expected_revision` fails with `REVISION_CONFLICT`; no process, trigger, process-created audit record, or world-revision mutation is allowed.
 - **Competing process checkpoints:** two lifecycle commands target the same expected process version; one accepted transition increments the version and creates one lifecycle audit record; the competitor fails with `PROCESS_VERSION_CONFLICT` and no second transition.
-- **Rollback/rebuild boundary:** Core rollback returns the invalidated event closure; #248 tests the completed A→B→C chain, process/milestone `needs_review`, resume gating, audit affected IDs, and persistence after SQLite reopen. The existing Core rollback/rebuild path remains the canonical owner.
+- **Rollback/rebuild boundary:** Core rollback returns the invalidated event closure; #281 tests the completed A→B→C chain, process/milestone `needs_review`, resume gating, audit affected IDs, and persistence after SQLite reopen. The existing Core rollback/rebuild path remains the canonical owner.
 - **Atomicity/recovery:** #281's injected process-checkpoint failure verifies the existing Core segment transaction does not leave a partial time advance or completed process milestone. Its interruption/restart test verifies continuation from the last committed segment.
-- **Idempotency/lifecycle:** #248 covers create/advance replay, pause/resume/cancel retries, key-content conflict, and stale competing lifecycle version.
+- **Idempotency/lifecycle:** #281 covers create/advance replay, pause/resume/cancel retries, key-content conflict, and stale competing lifecycle version.
 
 These tests are evidence only for the exact #281 merged runtime head and do not become mainline guarantees until reviewed and merged. This document remains proposal/boundary documentation, not an implementation of the Core transaction contract.
 
