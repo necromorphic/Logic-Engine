@@ -1598,6 +1598,12 @@ export class SQLiteStore {
               .run(worldId, worldAfter.world_revision, 'time.trigger.completed', triggerId, enc({
                 operation_id: operationId, due_coordinate: segment.coordinate,
               }), triggerStamp);
+            if (this.processStore) {
+              const triggerIndex = (segment.trigger_ids || []).indexOf(triggerId);
+              const eventOffset = segment.events.length - (segment.trigger_ids || []).length;
+              const eventId = triggerIndex >= 0 ? segment.events[eventOffset + triggerIndex]?.event_id : null;
+              this.processStore.completeTrigger(worldId, triggerId, eventId ? [eventId] : [], operationId);
+            }
           }
           const result = {
             operation_id: operationId, world_id: worldId, status,
@@ -1974,6 +1980,7 @@ export class SQLiteStore {
       const update = this.db.prepare('UPDATE world_events SET validity=?,rollback_id=? WHERE world_id=? AND event_id=?');
       for (const eventId of ids) update.run(eventId === rootId ? 'retracted' : 'invalidated', rollbackId, id, eventId);
       this.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(revision, id);
+      if (this.processStore) this.processStore.invalidateEvents(id, ids, rollbackId);
       this.db.prepare('INSERT INTO rollbacks(rollback_id,world_id,root_event_id,invalidated_event_ids_json,world_revision,created_at,idempotency_key) VALUES(?,?,?,?,?,?,?)')
         .run(rollbackId, id, rootId, enc(ids), revision, createdAt, key);
       this.rebuild(id, revision);
