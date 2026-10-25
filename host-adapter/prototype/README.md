@@ -11,13 +11,14 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 - Idempotent same-event replay; reuse of an event ID with a different payload fails closed.
 - Strict-durability IndexedDB write transaction. A failed pre-mutation append throws so the caller must abort the mutation.
 - Startup/status verification detects sequence gaps, chain/digest mismatch, schema mismatch, and head-checkpoint mismatch.
+- Reconciliation compares native chat fingerprint **and** the current message/version IDs, active swipe, digests, and lineage against the last journaled identity snapshot. This catches copied/restored sidecar IDs even when message text is unchanged.
 - The prototype never asserts capture readiness from caller-supplied coverage. Without trusted pinned-source hook attestation it remains NON_READY.
 
 ## Pinned-source hook patch
 
 Source audit: [`SOURCE-LIFECYCLE-AUDIT.md`](./SOURCE-LIFECYCLE-AUDIT.md) records pinned-source evidence and explicitly distinguishes source-confirmed behavior from unrun runtime experiments.
 
-The reproducible patch artifact is `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`. On HEAD `0cc6359eb9dcc0fd2dfb45768b01e9bcdee43143`, the pinned-source patch was apply-checked and applied in disposable CI by [Host lifecycle patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40200213005). The patched `public/script.js` passes ESLint and both prototype modules pass Node syntax checks in [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40200212863). The repository test workflow passed in [run #40200212921](https://github.com/necromorphic/Logic-Engine/actions/runs/40200212921): 507 tests passed and the separate 8-test recalculation harness passed.
+The reproducible patch artifact is `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`. On exact HEAD `bda5d5b5639819b658ac7f1d43f1bf3eff14b1d0`, all three CI workflows passed: [Host lifecycle patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40204349112) — pinned-source apply-check/application, syntax checks, and all 28 Host prototype tests; [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40204349067) — patched ST entry point ESLint and prototype syntax checks; [Runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40204349065) — repository test suite plus the separate 8-test recalculation harness.
 
 The patch hooks the following current source paths (this is not full lifecycle coverage):
 - create-message and create-swipe / append-style version changes through `saveReply()`;
