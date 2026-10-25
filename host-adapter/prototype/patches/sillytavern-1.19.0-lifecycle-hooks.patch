@@ -48,12 +48,11 @@ diff --git a/public/script.js b/public/script.js
  
      // Delete from the end so earlier indices remain stable.
      for (const messageId of messageIds) {
-@@ -1688,6 +1715,7 @@
-         chatElement.find('.mes[mesid="' + messageId + '"]').remove();
+@@ -1688,4 +1715,5 @@
          deleteItemizedPromptForMessage(messageId);
      }
+
 +    await lifecycleBridge.afterMutation('delete-message');
- 
      chat_metadata.tainted = true;
 @@ -6653,6 +6681,13 @@
      if (type != 'append' && type != 'continue' && type != 'appendFinal' && chat.length && (lastMessage.swipe_id === undefined ||
@@ -91,15 +90,15 @@ diff --git a/public/script.js b/public/script.js
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('delete-swipe', [messageId], { swipeIndex: swipeId });
 +    message.swipes.splice(swipeId, 1);
-@@ -9400,8 +9441,9 @@
-        refreshSwipeButtons();
-        saveChatDebounced();
-    }
+@@ -9397,7 +9438,8 @@
+         refreshSwipeButtons();
+         saveChatDebounced();
+     }
 
 +    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });
-    await saveChatConditional();
+     await saveChatConditional();
 
-    return newSwipeId;
+     return newSwipeId;
 @@ -10091,6 +10133,11 @@
          } else if (source != SWIPE_SOURCE.BACK) {
              //Save the chat if swipe_id has changed.
