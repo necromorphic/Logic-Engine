@@ -36,12 +36,12 @@ The review-only prototype in [Draft PR #323](https://github.com/necromorphic/Log
 
 Earlier CI on head `a4e8cf3c1f4f54e9d1947634e0ff2204d56ecbe7` passed the pinned-source patch check (30/30 Host prototype tests), patched entry-point validation, and repository runtime tests; those historical runs are not used as proof for the current head.
 
-**Current exact-head CI:** PR #323 head `32a2ea3c158c904fa63d259ebd16f723e4508e74` has three successful workflows:
-- [Pinned-source patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40212296545): SUCCESS.
-- [Pinned-source patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40212296553): SUCCESS.
-- [Repository runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40212296547): SUCCESS.
+**Current exact-head CI:** PR #323 head `504057e4103452442dd3cb1256ba06ff5afbeeaa` has three successful workflows:
+- [Pinned-source patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40217059019): SUCCESS — patch applies to the exact pinned source; all 31 Host prototype tests pass.
+- [Pinned-source patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40217058981): SUCCESS — patched entry-point ESLint and module syntax checks.
+- [Repository runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40217059353): SUCCESS.
 
-These results validate the exact CI candidate and patch/prototype path against the pinned ST source. They do **not** establish real Android/Termux execution, complete inventory, restore/import/copy coverage, or production integration.
+During this follow-up, exact-head patch validation exposed a hunk-order/count defect; the candidate was corrected and re-run. The patch now checkpoints edit, swipe deletion, and enrolled whole-message deletion after the relevant awaited native save where that path supports one, and regression assertions enforce this ordering. The successful runs above apply to the corrected exact HEAD. They do **not** establish real Android/Termux execution, complete inventory, restore/import/copy coverage, or production integration.
 
 The prototype is not installed on the user's Android/Termux instance. It does not prove the real host's current complete inventory, pre-enrollment/deleted history, all import/copy/restore paths, or end-to-end Provider/Core authorization/revocation. No production Host→Provider listener is enabled.
 
