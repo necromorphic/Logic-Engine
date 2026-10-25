@@ -73,7 +73,7 @@ export class SQLiteMemoryProvider {
       CREATE TABLE IF NOT EXISTS memory_index_state (
         world_id TEXT PRIMARY KEY, index_health TEXT NOT NULL,
         source_reconciliation TEXT NOT NULL, snapshot_revision TEXT,
-        snapshot_sequence TEXT, updated_at TEXT NOT NULL
+        snapshot_sequence TEXT, failure_code TEXT, updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS memory_raw_captures (
         world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
@@ -102,6 +102,8 @@ export class SQLiteMemoryProvider {
           ON DELETE CASCADE
       );
     `);
+    const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
+    if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
   }
 
   #withImmediateTransaction(work) {
@@ -347,16 +349,16 @@ export class SQLiteMemoryProvider {
     return scope;
   }
 
-  #setState(worldId, indexHealth, reconciliation, snapshot = null) {
+  #setState(worldId, indexHealth, reconciliation, snapshot = null, failureCode = null) {
     this.db.prepare(`INSERT INTO memory_index_state
-      (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,updated_at)
-      VALUES(?,?,?,?,?,?)
+      (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
+      VALUES(?,?,?,?,?,?,?)
       ON CONFLICT(world_id) DO UPDATE SET index_health=excluded.index_health,
       source_reconciliation=excluded.source_reconciliation,
       snapshot_revision=excluded.snapshot_revision,snapshot_sequence=excluded.snapshot_sequence,
-      updated_at=excluded.updated_at`).run(worldId, indexHealth, reconciliation,
+      failure_code=excluded.failure_code,updated_at=excluded.updated_at`).run(worldId, indexHealth, reconciliation,
       snapshot ? String(snapshot.world_revision) : null,
-      snapshot ? String(snapshot.commit_sequence) : null, new Date().toISOString());
+      snapshot ? String(snapshot.commit_sequence) : null, failureCode, new Date().toISOString());
   }
 
   /** Provider-internal diagnostics; never project this state into NPC-facing results. */
