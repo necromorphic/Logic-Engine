@@ -51,3 +51,10 @@ The Host-owned patch now instruments the selection of an existing swipe with a b
 It does **not** close the source-inventory gap. History removed before explicit enrollment is `UNKNOWN_UNRECOVERABLE`; a current chat snapshot cannot reconstruct deleted bytes or prove the absence of previously missed mutations. The journal can establish a bounded, opt-in history from enrollment onward only to the extent every relevant native mutation is hooked and its native save succeeds. Missing hooks, failed saves, copied/restored identity metadata, or fingerprint/identity divergence must remain NON_READY.
 
 No real Android/Termux persistence or restart/replay test is claimed here. The patch must be applied and tested on the exact pinned source in CI, and then separately on a disposable copy of the user's actual ST install. Production Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+
+## Append-only content evidence decision (25 Oct 2026)
+
+The Host prototype records exact content for every affected version in a pre-mutation event and records content for each new/changed immutable version in the post-mutation event. The journal's `exportCaptureLedger()` requires a valid hash-chain/integrity check and returns a review-only, enrollment-forward-only ledger. This allows a covered edit or delete to retain the old bytes even after the native ST message/swipe is mutated.
+
+This is not proof of completeness outside the instrumented lifecycle paths. The ledger does not claim recovery of deleted history predating enrollment, authority to bind a chat to a Logic-Engine world, or a production Provider handoff. Content export must remain withheld if integrity verification fails.
