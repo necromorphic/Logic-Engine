@@ -115,3 +115,18 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
     assert.equal(patch.includes(`beforeMutation('${missing}'`), false, `unexpected unsupported claim: ${missing}`);
   }
 });
+
+
+test('pinned patch journals edit and swipe deletion only after awaited native save', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+
+  assert.ok(
+    patch.includes("     await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);\\n     this_edit_mes_id = undefined;\\n     await saveChatConditional();\\n+    await lifecycleBridge.afterMutation('edit-message');"),
+    'edit checkpoint must follow the awaited native save',
+  );
+  assert.ok(
+    patch.includes("     await saveChatConditional();\\n+    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });"),
+    'swipe-delete checkpoint must follow the awaited native save',
+  );
+});
