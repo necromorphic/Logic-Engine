@@ -167,8 +167,10 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
   async function reconcileCurrentConversation() {
     const conversationId = getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    const integrity = await journal.verifyIntegrity(conversationId);
+    if (integrity.status !== 'INTEGRITY_OK') return integrity;
     const current = await currentFingerprint();
-    const recorded = await journal.latestSourceFingerprint(conversationId);
+    const recorded = integrity.sourceFingerprint;
     if (current !== recorded) {
       return {
         status: 'NON_READY',
