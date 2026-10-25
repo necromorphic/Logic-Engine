@@ -58,3 +58,8 @@ No real Android/Termux persistence or restart/replay test is claimed here. The p
 The Host prototype records exact content for every affected version in a pre-mutation event and records content for each new/changed immutable version in the post-mutation event. The journal's `exportCaptureLedger()` requires a valid hash-chain/integrity check and returns a review-only, enrollment-forward-only ledger. This allows a covered edit or delete to retain the old bytes even after the native ST message/swipe is mutated.
 
 This is not proof of completeness outside the instrumented lifecycle paths. The ledger does not claim recovery of deleted history predating enrollment, authority to bind a chat to a Logic-Engine world, or a production Provider handoff. Content export must remain withheld if integrity verification fails.
+
+
+## Chat unload versus source deletion (25 Oct 2026)
+
+A second source review found that pinned ST `clearChat({ clearData: true })` is called by chat switch, reload, close-chat, and new-chat flows. It is a UI-state unload/reset path, not authoritative evidence that the underlying chat source was deleted. The earlier candidate hook incorrectly treated it as `clear-chat` deletion. The current patch removes that hook; `clear-chat` remains uncovered until the actual chat-file deletion path can identify and capture the exact source inventory before deletion. Non-current chats cannot be reconstructed from the currently loaded `chat` array. This correction prevents false tombstones / false empty inventory during normal chat navigation.
