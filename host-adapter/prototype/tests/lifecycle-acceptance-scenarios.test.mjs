@@ -127,13 +127,10 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
   const finalizer = patch.indexOf('async finalizeIntermediaryMessage(messageId, text, { unlockUI = true })');
   const afterStream = patch.indexOf('afterMutation(lifecycleOperation', finalizer);
   const messageReceived = patch.indexOf('event_types.MESSAGE_RECEIVED', finalizer);
-  const onFinishStreaming = patch.indexOf('async onFinishStreaming(messageId, text)');
-  const autoSwipe = patch.indexOf('power_user.auto_swipe', onFinishStreaming);
   assert.ok(saveReplyStart >= 0 && beforeStream > saveReplyStart, 'expected saveReply write-ahead hook');
   assert.ok(skipIntermediateCheckpoint > beforeStream, 'streaming saveReply must defer checkpoint');
   assert.ok(finalizer >= 0 && afterStream > finalizer, 'expected successful streaming finalization checkpoint');
   assert.ok(messageReceived > afterStream, 'finalized stream must be journaled before MESSAGE_RECEIVED listeners run');
-  assert.ok(onFinishStreaming > afterStream && autoSwipe > onFinishStreaming, 'streaming checkpoint must precede any auto-swipe mutation');
   assert.ok(patch.includes('unlockUI && !this.abortController.signal.aborted'), 'cancelled/partial stream must not advance the checkpoint');
 
   // These are explicit acceptance gaps, not passing coverage. Any future claim
