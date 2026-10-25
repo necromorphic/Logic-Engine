@@ -655,6 +655,19 @@ export class SQLiteMemoryProvider {
       WHERE r.world_id=? AND r.subject_id=? AND r.purpose=?
       ORDER BY r.record_ref,r.record_version LIMIT 51`)
       .all(scope.subject_id, scope.purpose, scope.world_id, scope.subject_id, scope.purpose);
+    // A query-authorized empty result is meaningful only when no indexed
+    // records exist in this scope. If scoped records exist but none are
+    // authorized for this subject/purpose, report a typed withheld failure
+    // rather than collapsing denial into successful complete-empty. No record
+    // identity, count, or content is included in the failure.
+    if (rows.length === 0) {
+      const withheld = this.db.prepare(`SELECT 1 AS found FROM memory_records r
+        JOIN memory_index_entries i USING(world_id,record_ref,record_version)
+        WHERE r.world_id=? AND r.subject_id=? AND r.purpose=? LIMIT 1`)
+        .get(scope.world_id, scope.subject_id, scope.purpose);
+      if (withheld) throw new Error('MEMORY_RECORDS_WITHHELD');
+    }
+
     const candidates = rows.slice(0, 50).map((row) => ({
       record: { ref: row.record_ref, version: row.record_version },
       source: { kind: row.source_kind, entity_id: row.source_entity_id },
