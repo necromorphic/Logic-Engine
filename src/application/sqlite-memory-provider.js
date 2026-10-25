@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
+import { createHash } from 'node:crypto';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = (value) => typeof value === 'string' && value === value.trim()
@@ -13,6 +14,7 @@ const sameSnapshot = (a, b) => !!snapshotOf(a) && !!snapshotOf(b)
   && a.world_revision === b.world_revision && a.commit_sequence === b.commit_sequence;
 const decode = (value) => JSON.parse(value);
 const encode = (value) => JSON.stringify(value);
+const rawDigest = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 
 /**
  * Durable provider adapter for the direct canonical-entity first slice.
@@ -26,7 +28,7 @@ const encode = (value) => JSON.stringify(value);
  * refuses retrieval until rebuild + reconciliation complete.
  */
 export class SQLiteMemoryProvider {
-  constructor({ path = ':memory:', getSnapshot, validateSourceVersion, validateInventory }) {
+  constructor({ path = ':memory:', getSnapshot, validateSourceVersion, validateInventory, authorizeRawRead = null }) {
     if (typeof getSnapshot !== 'function') throw new TypeError('SQLiteMemoryProvider requires trusted getSnapshot');
     if (typeof validateSourceVersion !== 'function') {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateSourceVersion');
@@ -37,6 +39,7 @@ export class SQLiteMemoryProvider {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateInventory');
     }
     this.validateInventory = validateInventory;
+    this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA foreign_keys = ON;
@@ -72,8 +75,269 @@ export class SQLiteMemoryProvider {
         source_reconciliation TEXT NOT NULL, snapshot_revision TEXT,
         snapshot_sequence TEXT, updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS memory_raw_captures (
+        world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
+        version_id TEXT NOT NULL, role TEXT NOT NULL, content_text TEXT NOT NULL,
+        content_sha256 TEXT NOT NULL, metadata_json TEXT NOT NULL,
+        captured_at TEXT NOT NULL, deleted_at TEXT,
+        PRIMARY KEY(world_id, conversation_id, message_id, version_id)
+      );
+      CREATE TABLE IF NOT EXISTS memory_raw_active_versions (
+        world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
+        version_id TEXT NOT NULL, selected_at TEXT NOT NULL,
+        PRIMARY KEY(world_id, conversation_id, message_id),
+        FOREIGN KEY(world_id, conversation_id, message_id, version_id)
+          REFERENCES memory_raw_captures(world_id, conversation_id, message_id, version_id)
+          ON DELETE CASCADE
+      );
+      CREATE TABLE IF NOT EXISTS memory_raw_derived_copies (
+        world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
+        source_version_id TEXT NOT NULL, copy_ref TEXT NOT NULL, copy_version TEXT NOT NULL,
+        copy_kind TEXT NOT NULL, content_text TEXT NOT NULL, content_sha256 TEXT NOT NULL,
+        status TEXT NOT NULL CHECK(status IN ('current','invalidated')),
+        created_at TEXT NOT NULL, invalidated_at TEXT,
+        PRIMARY KEY(world_id, conversation_id, message_id, source_version_id, copy_ref, copy_version),
+        FOREIGN KEY(world_id, conversation_id, message_id, source_version_id)
+          REFERENCES memory_raw_captures(world_id, conversation_id, message_id, version_id)
+          ON DELETE CASCADE
+      );
     `);
   }
+
+  #withImmediateTransaction(work) {
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const result = work();
+      this.db.exec('COMMIT');
+      return result;
+    } catch (error) {
+      try { this.db.exec('ROLLBACK'); } catch {}
+      throw error;
+    }
+  }
+
+  /**
+   * Persist an immutable raw message version. The supplied version ID is an
+   * archive identity, not proof of canonical source freshness. Re-ingest is
+   * idempotent only when the complete captured payload is identical.
+   */
+  captureRawMessage(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.version_id) || !validId(input.role)
+      || typeof input.content !== 'string'
+      || (input.metadata !== undefined && !object(input.metadata))) {
+      throw new TypeError('Invalid raw Memory capture');
+    }
+    let metadataJson;
+    try { metadataJson = encode(input.metadata ?? {}); } catch {
+      throw new TypeError('Invalid raw Memory capture metadata');
+    }
+    const digest = rawDigest(input.content);
+    const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
+    return this.#withImmediateTransaction(() => {
+      const existing = this.db.prepare(`SELECT * FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
+      if (existing) {
+        if (existing.role !== input.role || existing.content_text !== input.content
+          || existing.content_sha256 !== digest || existing.metadata_json !== metadataJson) {
+          throw new Error('MEMORY_RAW_CAPTURE_CONFLICT');
+        }
+        return { status: 'duplicate', content_sha256: digest };
+      }
+      this.db.prepare(`INSERT INTO memory_raw_captures
+        (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,
+         metadata_json,captured_at,deleted_at)
+        VALUES(?,?,?,?,?,?,?,?,?,NULL)`)
+        .run(...key, input.role, input.content, digest, metadataJson, new Date().toISOString());
+      return { status: 'captured', content_sha256: digest };
+    });
+  }
+
+  async #assertRawReadAllowed(request) {
+    if (!this.authorizeRawRead) throw new Error('MEMORY_RAW_READ_DENIED');
+    let allowed = false;
+    try { allowed = await this.authorizeRawRead(Object.freeze({ ...request })) === true; } catch { allowed = false; }
+    if (!allowed) throw new Error('MEMORY_RAW_READ_DENIED');
+  }
+
+  /**
+   * Read one captured version only after an explicitly injected trusted host
+   * authorization callback approves this exact request. No default policy exists.
+   */
+  async readRawMessageVersion(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.version_id)) {
+      throw new TypeError('Invalid raw Memory read target');
+    }
+    const request = { ...input, action: 'read_version' };
+    await this.#assertRawReadAllowed(request);
+    let row = this.db.prepare(`SELECT * FROM memory_raw_captures
+      WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+      .get(input.world_id, input.conversation_id, input.message_id, input.version_id);
+    if (!row || row.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
+    if (rawDigest(row.content_text) !== row.content_sha256) throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
+
+    // Recheck at the disclosure boundary after the database read. This narrows
+    // authorization/deletion races but is not a cross-store atomicity guarantee.
+    await this.#assertRawReadAllowed(request);
+    row = this.db.prepare(`SELECT * FROM memory_raw_captures
+      WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+      .get(input.world_id, input.conversation_id, input.message_id, input.version_id);
+    if (!row || row.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
+    if (rawDigest(row.content_text) !== row.content_sha256) throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
+    return Object.freeze({
+      world_id: row.world_id, conversation_id: row.conversation_id, message_id: row.message_id,
+      version_id: row.version_id, role: row.role, content: row.content_text,
+      content_sha256: row.content_sha256, metadata: Object.freeze(decode(row.metadata_json)),
+      captured_at: row.captured_at,
+    });
+  }
+
+  /**
+   * Read only the selected, non-deleted version for each message in a
+   * conversation. Authorization is delegated to a trusted host callback.
+   */
+  async readActiveRawMessages(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)) {
+      throw new TypeError('Invalid raw Memory conversation read');
+    }
+    const request = { ...input, action: 'read_active' };
+    await this.#assertRawReadAllowed(request);
+    const readRows = () => this.db.prepare(`SELECT c.* FROM memory_raw_active_versions a
+      JOIN memory_raw_captures c ON c.world_id=a.world_id
+        AND c.conversation_id=a.conversation_id AND c.message_id=a.message_id
+        AND c.version_id=a.version_id
+      WHERE a.world_id=? AND a.conversation_id=? AND c.deleted_at IS NULL
+      ORDER BY c.message_id`).all(input.world_id, input.conversation_id);
+    let rows = readRows();
+    if (rows.some((row) => rawDigest(row.content_text) !== row.content_sha256)) {
+      throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
+    }
+    await this.#assertRawReadAllowed(request);
+    rows = readRows();
+    if (rows.some((row) => rawDigest(row.content_text) !== row.content_sha256)) {
+      throw new Error('MEMORY_RAW_CONTENT_CORRUPT');
+    }
+    return rows.map((row) => Object.freeze({
+      world_id: row.world_id, conversation_id: row.conversation_id, message_id: row.message_id,
+      version_id: row.version_id, role: row.role, content: row.content_text,
+      content_sha256: row.content_sha256, metadata: Object.freeze(decode(row.metadata_json)),
+      captured_at: row.captured_at,
+    }));
+  }
+
+  /**
+   * Change only the selected version pointer. Older swipe/generation versions
+   * remain retained and are not interpreted as deletion requests.
+   */
+  selectActiveRawVersion(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.version_id)) {
+      throw new TypeError('Invalid raw Memory active-version selection');
+    }
+    return this.#withImmediateTransaction(() => {
+      const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
+      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
+      if (!source || source.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
+      this.db.prepare(`INSERT INTO memory_raw_active_versions
+        (world_id,conversation_id,message_id,version_id,selected_at) VALUES(?,?,?,?,?)
+        ON CONFLICT(world_id,conversation_id,message_id) DO UPDATE SET
+        version_id=excluded.version_id,selected_at=excluded.selected_at`)
+        .run(input.world_id, input.conversation_id, input.message_id, input.version_id, new Date().toISOString());
+      return { status: 'active', version_id: input.version_id };
+    });
+  }
+
+  /**
+   * Record a derived copy's provenance so source deletion can invalidate it and
+   * permanent purge can cascade-delete it. This does not authorize the copy for
+   * NPC disclosure or create a searchable summary index.
+   */
+  registerRawDerivedCopy(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.source_version_id)
+      || !validId(input.copy_ref) || !validId(input.copy_version) || !validId(input.copy_kind)
+      || typeof input.content !== 'string') throw new TypeError('Invalid raw Memory derived copy');
+    const digest = rawDigest(input.content);
+    const values = [input.world_id, input.conversation_id, input.message_id, input.source_version_id,
+      input.copy_ref, input.copy_version, input.copy_kind, input.content, digest];
+    return this.#withImmediateTransaction(() => {
+      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+        .get(input.world_id, input.conversation_id, input.message_id, input.source_version_id);
+      if (!source || source.deleted_at !== null) throw new Error('MEMORY_RAW_SOURCE_UNAVAILABLE');
+      const existing = this.db.prepare(`SELECT * FROM memory_raw_derived_copies
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?
+          AND copy_ref=? AND copy_version=?`).get(...values.slice(0, 6));
+      if (existing) {
+        if (existing.copy_kind !== input.copy_kind || existing.content_text !== input.content
+          || existing.content_sha256 !== digest) throw new Error('MEMORY_RAW_COPY_CONFLICT');
+        return { status: 'duplicate', content_sha256: digest };
+      }
+      this.db.prepare(`INSERT INTO memory_raw_derived_copies
+        (world_id,conversation_id,message_id,source_version_id,copy_ref,copy_version,copy_kind,
+         content_text,content_sha256,status,created_at,invalidated_at)
+        VALUES(?,?,?,?,?,?,?,?,?,'current',?,NULL)`)
+        .run(...values, new Date().toISOString());
+      return { status: 'stored', content_sha256: digest };
+    });
+  }
+
+  /**
+   * Source deletion is a reversible lifecycle marker, not permanent erasure:
+   * it excludes the version from active selection and invalidates known derived
+   * copies. Permanent purge is a separate explicit operation.
+   */
+  markRawSourceDeleted(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.version_id)) {
+      throw new TypeError('Invalid raw Memory deletion target');
+    }
+    const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
+    return this.#withImmediateTransaction(() => {
+      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
+      if (!source) return { status: 'missing', invalidated_copies: 0 };
+      const now = new Date().toISOString();
+      this.db.prepare(`UPDATE memory_raw_captures SET deleted_at=COALESCE(deleted_at,?)
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(now, ...key);
+      this.db.prepare(`DELETE FROM memory_raw_active_versions
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
+      const result = this.db.prepare(`UPDATE memory_raw_derived_copies
+        SET status='invalidated', invalidated_at=COALESCE(invalidated_at,?)
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?
+          AND status='current'`).run(now, input.world_id, input.conversation_id, input.message_id, input.version_id);
+      return { status: 'deleted', invalidated_copies: result.changes };
+    });
+  }
+
+  /**
+   * Permanent purge removes the selected raw version and all registered
+   * dependent copies via foreign-key cascade. External stores/indexes are not
+   * managed by this provider-local operation and must not be claimed purged.
+   */
+  purgeRawSource(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+      || !validId(input.message_id) || !validId(input.version_id)) {
+      throw new TypeError('Invalid raw Memory purge target');
+    }
+    const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
+    return this.#withImmediateTransaction(() => {
+      const source = this.db.prepare(`SELECT 1 AS found FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
+      if (!source) return { status: 'missing', purged_copies: 0 };
+      const copies = this.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_derived_copies
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`)
+        .get(input.world_id, input.conversation_id, input.message_id, input.version_id).count;
+      this.db.prepare(`DELETE FROM memory_raw_active_versions
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
+      this.db.prepare(`DELETE FROM memory_raw_captures
+        WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
+      return { status: 'purged', purged_copies: copies };
+    });
+  }
+
 
   close() { this.db.close(); }
 
