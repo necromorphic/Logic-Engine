@@ -82,6 +82,26 @@ export class HostLifecycleJournal {
     if(result?.status==='NON_READY') throw Error('NON_READY: '+result.reason+'; caller MUST abort mutation');
     return result;
   }
+  async verifyIntegrity(cid) {
+    if (this.#bad.has(cid)) return { status: 'NON_READY', reason: this.#bad.get(cid) };
+    let rows;
+    try {
+      rows = await this.#records(cid);
+    } catch (error) {
+      return this.#fail(cid, 'journal unreadable: ' + (error?.message || error));
+    }
+    const check = await this.#verify(rows);
+    if (!check.ok) return this.#fail(cid, check.reason);
+    if (!rows.length || rows[0].operation !== 'baseline') {
+      return { status: 'NON_READY', reason: 'missing baseline' };
+    }
+    return {
+      status: 'INTEGRITY_OK',
+      sequence: rows.at(-1).sequence,
+      sourceFingerprint: rows.at(-1).sourceFingerprint ?? null,
+    };
+  }
+
   async status(cid,{instrumentedPaths=[],sourceFingerprintMatches=false}={}) {
     if(this.#bad.has(cid)) return {status:'NON_READY',reason:this.#bad.get(cid)};
     let rows; try { rows=await this.#records(cid); } catch(e) { return this.#fail(cid,'journal unreadable: '+(e?.message||e)); }
