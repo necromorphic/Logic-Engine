@@ -228,11 +228,12 @@ export class LogicEngine {
   }
 
   prepareEventForWorld(id, x, options = {}) {
+    const { authorApprovedDuration = false, ...prepareOptions } = options;
     const config = this.store.getTimeConfiguration(id);
     if (!config) {
       assert(x.duration_proposal === undefined || x.duration_proposal === null,
         'TIME_POLICY_REQUIRED', 'Duration proposals require an active versioned TimePolicy.');
-      return this.prepareEvent(x, options);
+      return this.prepareEvent(x, prepareOptions);
     }
     const policy = config.time_policy;
     if (x.time_mode === 'explicit_skip') {
@@ -247,10 +248,10 @@ export class LogicEngine {
         status: 'resolved', certainty: 'fixed', duration_ms: seconds * 1000,
         source: 'explicit_skip_policy', policy_id: policy.policy_id, policy_version: policy.version,
       };
-      return this.prepareEvent(x, { ...options, maxActionDurationSeconds: Math.floor(policy.max_action_duration_ms / 1000), maxSkipDurationSeconds: Math.floor(policy.max_skip_duration_ms / 1000), durationDecision: { ...decision, time_config_version: config.version } });
+      return this.prepareEvent(x, { ...prepareOptions, maxActionDurationSeconds: Math.floor(policy.max_action_duration_ms / 1000), maxSkipDurationSeconds: Math.floor(policy.max_skip_duration_ms / 1000), durationDecision: { ...decision, time_config_version: config.version } });
     }
     const requestedMs = (x.time_advance_seconds ?? 0) * 1000;
-    const decision = resolveDurationDecision(policy, x.event_type, x.duration_proposal ?? null, requestedMs);
+    const decision = resolveDurationDecision(policy, x.event_type, x.duration_proposal ?? null, requestedMs, { authorApproved: authorApprovedDuration });
     if (decision.status === 'needs_author') {
       throw new EngineError('DURATION_NEEDS_AUTHOR', 'The active TimePolicy requires an author decision before this event can be timed.', 409, decision);
     }
@@ -267,7 +268,7 @@ export class LogicEngine {
       });
     }
     return this.prepareEvent({ ...x, time_advance_seconds: seconds }, {
-      ...options,
+      ...prepareOptions,
       maxActionDurationSeconds: Math.floor(policy.max_action_duration_ms / 1000),
       maxSkipDurationSeconds: Math.floor(policy.max_skip_duration_ms / 1000),
       durationDecision: { ...decision, time_config_version: config.version },
@@ -427,8 +428,8 @@ export class LogicEngine {
     }
   }
 
-  commitEvent(id, x) {
-    const prepared = this.prepareEventForWorld(id, x);
+  commitEvent(id, x, options = {}) {
+    const prepared = this.prepareEventForWorld(id, x, options);
     this.assertNoScheduledTriggerCrossing(id, [prepared], prepared.expected_revision);
     return this.store.commit(id, prepared);
   }
