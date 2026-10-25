@@ -33,6 +33,17 @@ The patch and bridge are still review-only; passing apply/lint/syntax checks is 
 The bridge regression tests also cover write-ahead event IDs, edit-version ancestry, post-mutation save failure, restart fingerprint mismatch, and corrupted journal detection. Reconciliation explicitly returns NON_READY while any required mutation path is not instrumented; the currently hooked subset does not satisfy complete inventory acceptance.
 
 
+## Newly requested P0 paths — patch boundary
+
+The current pinned-source patch does **not** instrument these operations and must not be represented as covering them:
+
+- `delChat()` / `deleteCharacterChatByName()`, group chat deletion, and recursive character-chat deletion: server-side file deletion may target a non-current conversation and supplies no durable per-message/version inventory to the current-chat bridge.
+- `importCharacterChat()`, `importGroupChat()`, and backup restore: these create files through server import routes; the current bridge has no approved lineage contract for imported bytes or restored identities.
+- `createBranch()`: writes a cloned prefix into a different chat and mutates the parent message's branch metadata; the current bridge cannot atomically checkpoint both persisted source and branch artifacts.
+- `migrateGroupChatsMetadataFormat()`: server-side migration rewrites group JSON and chat JSONL outside the browser message-array hooks.
+
+These are source-confirmed bypasses, not solved hooks. Adding client events alone would only record that an operation happened, not prove its persisted before/after state. Correctly covering them requires an approved design for the affected artifact set, durable identity/lineage, paired persisted-state digests, restart reconciliation, and failure behavior. This PR is submitted for Core review first; no new hook is installed on the user's ST instance. Until those decisions and real persisted-state tests exist, these paths remain **UNSUPPORTED / NON_READY** and Memory→NPC remains fail-closed.
+
 ## Remaining uninstrumented or unproven paths
 
 The readiness contract explicitly enumerates 25 lifecycle coverage paths: message create/send/receive, swipe create/select/delete, message delete/edit, regeneration, generation start/end/stop/cancel/partial-finalization, persistence ordering, clear, import/export, copy/branch, restore, chat switch, external edits, rollback, restart, and replay. This is a fail-closed coverage checklist, not a claim that those paths are currently hooked.
