@@ -1,11 +1,12 @@
 diff --git a/public/script.js b/public/script.js
 --- a/public/script.js
 +++ b/public/script.js
-@@ -1677,15 +1677,38 @@ export async function deleteMessage(id, swipeDeletionIndex = undefined, askConfirmation = false, deleteToolCalls = true) {
+@@ -1677,2 +1677,3 @@
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
 +    const deletedTargets = messageIds.map(messageId => chat[messageId]).filter(Boolean);
- 
+@@ -1680,1 +1681,15 @@
+     // Delete from the end so earlier indices remain stable.
 +    // Persist intent and exact pre-mutation snapshots before removing source records.
 +    for (const target of deletedTargets) {
 +        logicEngineRecordLifecycle('message-delete-intent', target, {
@@ -20,13 +21,7 @@ diff --git a/public/script.js b/public/script.js
 +        return;
 +    }
 +
-     // Delete from the end so earlier indices remain stable.
-     for (const messageId of messageIds) {
-         chat.splice(messageId, 1);
-         chatElement.find(`.mes[mesid="${messageId}"]`).remove();
-         deleteItemizedPromptForMessage(messageId);
-     }
- 
+@@ -1687,5 +1702,13 @@
      chat_metadata.tainted = true;
  
 +    for (const target of deletedTargets) {
@@ -401,7 +396,7 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
 --- a/public/scripts/group-chats.js
 +++ b/public/scripts/group-chats.js
-@@ -616,8 +616,8 @@
+@@ -616,6 +616,6 @@
  /**
   * Saves a group chat to the server.
   * @param {string} groupId Group ID
@@ -409,14 +404,15 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
   * @param {boolean} force Force the saving on integrity error
 - * @returns {Promise<void>} A promise that resolves when the group chat has been saved.
 + * @returns {Promise<boolean>} Whether the group chat was persisted successfully.
-  */
+@@ -623,7 +623,7 @@
  async function saveGroupChat(groupId, shouldSaveGroup, force = false) {
-@@ -624,4 +624,4 @@ async function saveGroupChat(groupId, shouldSaveGroup, force = false) {
      const group = groups.find(x => x.id == groupId);
      if (!group) {
          console.warn('Group not found', groupId);
 -        return;
 +        return false;
+     }
+     const chatId = group.chat_id;
 @@ -650,4 +650,4 @@ async function saveGroupChat(groupId, shouldSaveGroup, force = false) {
          if (!isIntegrityError) {
              toastr.error(t`Check the server connection and reload the page to prevent data loss.`, t`Group Chat could not be saved`);
@@ -527,6 +523,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
              fs.unlinkSync(pathToUpload);
              response.send({ res: true, fileNames });
          }
+
 
 
 
