@@ -16,7 +16,10 @@ const decode = (value) => JSON.parse(value);
 const encode = (value) => JSON.stringify(value);
 const rawDigest = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 
-const validDirectLineage = (row, lineage) => Array.isArray(lineage)
+const validDirectLineage = (row, lineage) => row.source_kind === 'canonical_entity'
+  && validId(row.source_entity_id)
+  && validId(row.source_version)
+  && Array.isArray(lineage)
   && lineage.length === 1
   && object(lineage[0])
   && lineage[0].source_kind === 'canonical_entity'
