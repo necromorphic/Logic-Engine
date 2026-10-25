@@ -404,6 +404,17 @@ test('duplicate record identity with conflicting semantic metadata fails closed'
   assert.deepEqual(result.candidates, []);
 });
 
+test('repeated identical Memory identity/version pairs are all excluded rather than first-wins admitted', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
+  setCandidates([candidate(), candidate()]);
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'ready');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+});
+
 test('rollback-only revision change invalidates a prior candidate without sequence growth', async (t) => {
   const { consumer, engine, store, snapshot } = setup(t);
   const beforeSequence = store.currentCommitSequence('memory-npc-world');
