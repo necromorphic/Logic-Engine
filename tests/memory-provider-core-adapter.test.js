@@ -137,3 +137,53 @@ test('source-validator outage on the real provider path is non-ready, not ready-
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('fixture source validator unavailable'), false);
 });
+
+test('revocation of candidate A while candidate B authorization is awaited is caught before Core disclosure', async (t) => {
+  const s = setup(t);
+  const second = {
+    ...s.scope,
+    record_ref: 'memory:claim-b',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'source-a',
+    source_version: 'fixture-source-version-1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'memory-index',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'canonical_entity',
+      entity_id: 'source-a',
+      source_version: 'fixture-source-version-1',
+    }],
+  };
+  s.provider.putRecord(second);
+  s.provider.grantRecord(s.scope, 'memory:claim-b', 'v1', true);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  const authorize = s.provider.authorizeCandidate.bind(s.provider);
+  let releaseB;
+  let startedB;
+  const waitingForB = new Promise((resolve) => { startedB = resolve; });
+  const blockB = new Promise((resolve) => { releaseB = resolve; });
+  let bCalls = 0;
+  s.provider.authorizeCandidate = async (input) => {
+    if (input.record_ref === 'memory:claim-b' && bCalls++ === 0) {
+      startedB();
+      await blockB;
+    }
+    return authorize(input);
+  };
+
+  const pending = s.consumer.retrieveForNpc(request());
+  await waitingForB;
+  s.provider.revokeRecord(s.scope, 'memory:claim-a', 'v1');
+  releaseB();
+
+  const result = await pending;
+  assert.equal(result.status, 'ready', JSON.stringify(result));
+  assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:claim-b']);
+  assert.equal(JSON.stringify(result).includes('source value'), true);
+});
