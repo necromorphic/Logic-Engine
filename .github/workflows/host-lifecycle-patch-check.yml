@@ -33,5 +33,5 @@ jobs:
           node --check sillytavern-host-checkout/public/script.js
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
-      - name: Run focused journal unit tests
-        run: node --test host-adapter/prototype/tests/lifecycle-journal.test.mjs
+      - name: Run all Host prototype tests
+        run: node --test host-adapter/prototype/tests/*.test.mjs
