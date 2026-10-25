@@ -150,5 +150,6 @@ test('branch creation from an enrolled conversation is rejected before branch pe
   assert.ok(bridgeExpose >= 0, 'the patched Host bridge must expose its existing operation guard to the branch entry point');
   assert.ok(branchHook > bridgeExpose, 'the branch entry point must call the Host guard');
   assert.ok(branchEntry > branchHook, 'the guard must run at function entry, before branch processing or persistence');
-  assert.ok(patch.includes("NON_READY: unsupported/uninstrumented Host lifecycle operation "), 'unsupported enrolled operations must reject at the bridge boundary');
+  const bridge = await readFile(resolve(here, '../st-lifecycle-bridge.mjs'), 'utf8');
+  assert.ok(bridge.includes('NON_READY: unsupported/uninstrumented Host lifecycle operation '), 'unsupported enrolled operations must reject at the bridge boundary');
 });
