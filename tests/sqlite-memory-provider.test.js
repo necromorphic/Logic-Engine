@@ -1,0 +1,177 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
+
+function setup(t, options = {}) {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-'));
+  const path = join(directory, 'memory-provider.sqlite');
+  let snapshot = { world_revision: 4, commit_sequence: 2 };
+  let sourceVersion = 'source-v1';
+  const providerOptions = {
+    path,
+    getSnapshot: async () => ({ ...snapshot }),
+    validateSourceVersion: async (record) => record.source_version === sourceVersion
+      && record.source_entity_id === 'entity-source-a',
+    validateInventory: async () => true,
+    ...options,
+  };
+  let provider = new SQLiteMemoryProvider(providerOptions);
+  const scope = { world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' };
+  const record = {
+    ...scope, record_ref: 'memory:record-a', record_version: 'record-v1',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
+    content_kind: 'claim', epistemic_kind: 'acquired_report', producer_kind: 'memory-index',
+    content_disposition: 'usable', evidence_assessment: 'unassessed',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-source-a', source_version: 'source-v1' }],
+  };
+  t.after(() => {
+    try { provider?.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+  return {
+    path, scope, record,
+    get provider() { return provider; },
+    reopen() { provider.close(); provider = new SQLiteMemoryProvider(providerOptions); },
+    setSnapshot(value) { snapshot = value; },
+    setSourceVersion(value) { sourceVersion = value; },
+  };
+}
+
+test('persists raw record identity/version and rebuilds its derived index after restart', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  assert.equal(s.provider.putRecord(s.record).status, 'stored');
+  assert.deepEqual(await s.provider.rebuildIndex('world-a'), { status: 'rebuilt', count: 1 });
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+  s.reopen();
+  const result = await s.provider.retrieveCandidates(s.scope);
+  assert.equal(result.completeness, 'complete');
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].record.ref, 'memory:record-a');
+  assert.equal(result.candidates[0].record.version, 'record-v1');
+  assert.equal(result.candidates[0].source.entity_id, 'entity-source-a');
+});
+
+test('denies by default and immediately honors record revocation', async (t) => {
+  const s = setup(t);
+  assert.equal(s.provider.authorizeQuery(s.scope), false);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  await s.provider.rebuildIndex('world-a');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+  assert.equal(await s.provider.authorizeCandidate({
+    ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+  }), true);
+  s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
+  assert.equal(await s.provider.authorizeCandidate({
+    ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+  }), false);
+  assert.equal((await s.provider.retrieveCandidates(s.scope)).candidates.length, 0);
+});
+
+
+test('marks provider unavailable when the current Core snapshot cannot be read', async (t) => {
+  let snapshotUnavailable = false;
+  const s = setup(t, {
+    getSnapshot: async () => {
+      if (snapshotUnavailable) throw new Error('host snapshot unavailable');
+      return { world_revision: 4, commit_sequence: 2 };
+    },
+  });
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  await s.provider.rebuildIndex('world-a');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+
+  snapshotUnavailable = true;
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_SNAPSHOT_UNAVAILABLE/);
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+});
+
+test('does not report current when Core snapshot changes after reconciliation', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  await s.provider.rebuildIndex('world-a');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+  s.setSnapshot({ world_revision: 5, commit_sequence: 2 });
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_SNAPSHOT_STALE/);
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+});
+
+test('fails reconciliation closed for stale source versions and conflicting duplicate identities', async (t) => {
+  const s = setup(t);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex('world-a');
+  s.setSourceVersion('source-v2');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'stale');
+  assert.throws(() => s.provider.putRecord({ ...s.record, source_entity_id: 'entity-other' }), /Invalid direct-source Memory record/);
+  assert.throws(() => s.provider.putRecord({ ...s.record, content_kind: 'summary' }), /Invalid direct-source Memory record/);
+});
+
+test('does not turn duplicate ingest into a second record or permit identity rebinding', async (t) => {
+  const s = setup(t);
+  assert.equal(s.provider.putRecord(s.record).status, 'stored');
+  assert.equal(s.provider.putRecord(s.record).status, 'duplicate');
+  assert.throws(() => s.provider.putRecord({ ...s.record, source_version: 'source-v2',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-source-a', source_version: 'source-v2' }] }),
+  /MEMORY_IDENTITY_CONFLICT/);
+});
+
+test('rechecks provider grants after asynchronous source validation', async (t) => {
+  let releaseValidation;
+  let validationStarted;
+  const started = new Promise((resolve) => { validationStarted = resolve; });
+  const pendingValidation = new Promise((resolve) => { releaseValidation = resolve; });
+  const s = setup(t, {
+    validateSourceVersion: async (candidate) => {
+      validationStarted();
+      await pendingValidation;
+      return candidate.source_version === 'source-v1';
+    },
+  });
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+
+  const authorization = s.provider.authorizeCandidate({
+    ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+  });
+  await started;
+  s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
+  releaseValidation();
+  assert.equal(await authorization, false);
+});
+
+test('does not publish current when source inventory completeness cannot be confirmed', async (t) => {
+  const s = setup(t, { validateInventory: async () => false });
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex('world-a');
+  assert.equal((await s.provider.reconcile('world-a')).status, 'stale');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+});
+test('raw ingest survives a derived-index failure and becomes usable only after rebuild', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.db.exec(`CREATE TRIGGER fail_index_insert BEFORE INSERT ON memory_index_entries
+    BEGIN SELECT RAISE(ABORT, 'injected index failure'); END;`);
+  assert.throws(() => s.provider.putRecord(s.record), /injected index failure/);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+    .get('world-a').count, 1);
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  s.provider.db.exec('DROP TRIGGER fail_index_insert');
+  assert.deepEqual(await s.provider.rebuildIndex('world-a'), { status: 'rebuilt', count: 1 });
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
+  assert.equal((await s.provider.retrieveCandidates(s.scope)).candidates.length, 0);
+});
