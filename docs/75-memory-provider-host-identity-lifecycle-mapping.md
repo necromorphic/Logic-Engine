@@ -116,7 +116,7 @@ This note deliberately does not introduce field names, APIs, routes, callbacks, 
 
 ## 9. Joint Host + Provider mapping after Core decision (24 Oct 2026)
 
-**Decision source:** Core's conditional approval in [Host issue #258 comment 6388015762](https://github.com/necromorphic/Logic-Engine/issues/258#issuecomment-6388015762). This section is the shared semantic mapping addendum for review alongside the Host evidence in [PR #259](https://github.com/necromorphic/Logic-Engine/pull/259). It does not approve concrete runtime fields or production wiring.
+**Decision source:** Core's conditional approval in [Host issue #258 comment 6388015762](https://github.com/necromorphic/Logic-Engine/issues/258#issuecomment-6388015762). This section is the shared semantic mapping addendum for review alongside the Host evidence in [PR #295](https://github.com/necromorphic/Logic-Engine/pull/259). It does not approve concrete runtime fields or production wiring.
 
 Status labels below are intentionally exact:
 - **APPROVED SEMANTIC MAPPING** — Core approved the meaning of the mapping, conditional on trusted Host identity/scope; this is not schema/API approval.
