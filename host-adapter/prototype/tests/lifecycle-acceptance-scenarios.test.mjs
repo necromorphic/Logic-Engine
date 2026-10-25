@@ -139,3 +139,16 @@ test('pinned patch journals edit and swipe deletion only after awaited native sa
     && bulkDeleteSave > bulkDeleteDebounce && bulkDeleteCheckpoint > bulkDeleteSave,
     'bulk-delete checkpoint must follow the awaited native save');
 });
+
+
+test('branch creation from an enrolled conversation is rejected before branch persistence', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const bridgeExpose = patch.indexOf('guardOperation: async (operation, messageIndexes = [], details = {}) =>');
+  const branchHook = patch.indexOf("guardOperation('create-branch', [mesId])");
+  const branchSave = patch.indexOf("await saveChat({ chatName: name, withMetadata: newMetadata, mesId, chatData: branchChatSnapshot })", branchHook);
+  assert.ok(bridgeExpose >= 0, 'the patched Host bridge must expose its existing operation guard to the branch entry point');
+  assert.ok(branchHook > bridgeExpose, 'the branch entry point must call the Host guard');
+  assert.ok(branchSave > branchHook, 'the guard must run before the new branch is persisted');
+  assert.ok(patch.includes("NON_READY: unsupported/uninstrumented Host lifecycle operation "), 'unsupported enrolled operations must reject at the bridge boundary');
+});
