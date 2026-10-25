@@ -480,3 +480,132 @@ test('active raw read returns no revoked content when a source is tombstoned dur
     /MEMORY_RAW_VERSION_UNAVAILABLE/,
   );
 });
+
+
+test('an edit is a new immutable version; exact-version deletion leaves the selected replacement intact', async (t) => {
+  const s = setup(t, { authorizeRawRead: async () => true });
+  const original = capture({
+    message_id: 'message-edit',
+    version_id: 'version-before-edit',
+    content: 'Original message before edit.',
+  });
+  const edited = capture({
+    message_id: 'message-edit',
+    version_id: 'version-after-edit',
+    content: 'Edited message with a distinct immutable version identity.',
+  });
+
+  assert.equal(s.provider.captureRawMessage(original).status, 'captured');
+  assert.equal(s.provider.captureRawMessage(edited).status, 'captured');
+  assert.throws(
+    () => s.provider.captureRawMessage({ ...original, content: edited.content }),
+    /MEMORY_RAW_CAPTURE_CONFLICT/,
+    'an edit cannot rewrite the old immutable version',
+  );
+  assert.deepEqual(s.provider.selectActiveRawVersion({
+    world_id: original.world_id,
+    conversation_id: original.conversation_id,
+    message_id: original.message_id,
+    version_id: edited.version_id,
+  }), { status: 'active', version_id: edited.version_id });
+
+  assert.deepEqual(s.provider.markRawSourceDeleted({
+    world_id: original.world_id,
+    conversation_id: original.conversation_id,
+    message_id: original.message_id,
+    version_id: original.version_id,
+  }), { status: 'deleted', invalidated_copies: 0 });
+
+  const active = await s.provider.readActiveRawMessages({
+    world_id: original.world_id,
+    conversation_id: original.conversation_id,
+  });
+  assert.equal(active.length, 1);
+  assert.equal(active[0].version_id, edited.version_id);
+  assert.equal(active[0].content, edited.content);
+  await assert.rejects(
+    () => s.provider.readRawMessageVersion({
+      world_id: original.world_id,
+      conversation_id: original.conversation_id,
+      message_id: original.message_id,
+      version_id: original.version_id,
+    }),
+    /MEMORY_RAW_VERSION_UNAVAILABLE/,
+  );
+});
+
+test('raw lifecycle operations reject incomplete identity tuples instead of guessing a target', (t) => {
+  const s = setup(t);
+  const valid = capture({ message_id: 'message-identity' });
+  s.provider.captureRawMessage(valid);
+
+  for (const incomplete of [
+    { ...valid, conversation_id: undefined },
+    { ...valid, message_id: undefined },
+    { ...valid, version_id: undefined },
+    { ...valid, version_id: '  ' },
+  ]) {
+    assert.throws(
+      () => s.provider.captureRawMessage(incomplete),
+      /Invalid raw Memory capture/,
+    );
+  }
+
+  for (const incomplete of [
+    { world_id: valid.world_id, conversation_id: valid.conversation_id, message_id: valid.message_id },
+    { world_id: valid.world_id, conversation_id: valid.conversation_id, message_id: valid.message_id, version_id: '  ' },
+  ]) {
+    assert.throws(
+      () => s.provider.markRawSourceDeleted(incomplete),
+      /Invalid raw Memory deletion target/,
+    );
+  }
+
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_captures').get().count, 1);
+  assert.equal(s.provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get(valid.world_id, valid.conversation_id, valid.message_id, valid.version_id).deleted_at, null);
+});
+
+test('same message identity in a different conversation is isolated; deletion does not infer branch scope', (t) => {
+  const s = setup(t);
+  const first = capture({
+    conversation_id: 'conversation-main',
+    message_id: 'message-reused',
+    version_id: 'version-main',
+    content: 'Main conversation copy.',
+  });
+  const branch = capture({
+    conversation_id: 'conversation-branch',
+    message_id: 'message-reused',
+    version_id: 'version-branch',
+    content: 'Branch conversation copy.',
+  });
+  s.provider.captureRawMessage(first);
+  s.provider.captureRawMessage(branch);
+  s.provider.selectActiveRawVersion({
+    world_id: branch.world_id,
+    conversation_id: branch.conversation_id,
+    message_id: branch.message_id,
+    version_id: branch.version_id,
+  });
+
+  assert.deepEqual(s.provider.markRawSourceDeleted({
+    world_id: first.world_id,
+    conversation_id: first.conversation_id,
+    message_id: first.message_id,
+    version_id: first.version_id,
+  }), { status: 'deleted', invalidated_copies: 0 });
+
+  const branchRows = s.provider.db.prepare(`SELECT c.version_id,c.content_text
+    FROM memory_raw_active_versions a
+    JOIN memory_raw_captures c ON c.world_id=a.world_id
+      AND c.conversation_id=a.conversation_id AND c.message_id=a.message_id
+      AND c.version_id=a.version_id
+    WHERE a.world_id=? AND a.conversation_id=? AND a.message_id=?`)
+    .all(branch.world_id, branch.conversation_id, branch.message_id);
+  assert.deepEqual(branchRows, [{
+    version_id: branch.version_id,
+    content_text: branch.content,
+  }]);
+});
