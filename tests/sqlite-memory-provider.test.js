@@ -73,7 +73,7 @@ test('denies by default and immediately honors record revocation', async (t) => 
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
     source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
   }), false);
-  assert.equal((await s.provider.retrieveCandidates(s.scope)).candidates.length, 0);
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
 });
 
 
@@ -173,7 +173,7 @@ test('raw ingest survives a derived-index failure and becomes usable only after 
   s.provider.db.exec('DROP TRIGGER fail_index_insert');
   assert.deepEqual(await s.provider.rebuildIndex('world-a'), { status: 'rebuilt', count: 1 });
   assert.equal((await s.provider.reconcile('world-a')).status, 'current');
-  assert.equal((await s.provider.retrieveCandidates(s.scope)).candidates.length, 0);
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
 });
 
 test('isolates identical record identities and grants across worlds', async (t) => {
@@ -322,4 +322,19 @@ test('source version becoming unverifiable at candidate authorization is not fil
     }),
     (error) => error.message === 'MEMORY_SOURCE_VERSION_UNVERIFIABLE',
   );
+});
+
+test('distinguishes indexed but ungranted records from authorized complete-empty', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  await assert.rejects(
+    () => s.provider.retrieveCandidates(s.scope),
+    (error) => error.message === 'MEMORY_RECORDS_WITHHELD',
+  );
+  assert.equal(JSON.stringify(s.provider.getIndexStatusForDiagnostics(s.scope.world_id))
+    .includes(s.record.record_ref), false);
 });
