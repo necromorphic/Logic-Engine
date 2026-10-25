@@ -1,6 +1,6 @@
 # Memory Provider acceptance traceability (Issue #181)
 
-**Status:** audit of the current provider vertical slice and stacked internal-import PR. This is a test-gap register, not an assertion that blocked behavior is implemented. The provider remains draft-only; Core issue #140 blocks production Memory→NPC wiring.
+**Status:** historical acceptance register, retained for traceability. Its older implementation/status rows are superseded by `memory-provider-acceptance-traceability-addendum.md` and the current-main lifecycle mapping. This remains a test-gap register, not an assertion that blocked behavior is implemented. Provider-local code/tests are in main; production Memory→NPC remains blocked by Core issue #140.
 
 ## Evidence boundary
 
@@ -24,7 +24,7 @@
 | Partial result semantics | Retrieval caps candidates at 50 and returns `partial` when a 51st exists | Covered by a 51-record regression test; exact-head CI passed |
 | Restart during reconciliation | Interrupted index rebuild + restart is tested and fails closed | Interrupted reconciliation itself remains untested; readiness marker should fail closed |
 | Rollback with unchanged `commit_sequence` | No approved source-specific rollback signal; snapshot revision comparison exists | **Blocked by Core #140**; needs approved source lifecycle signal and real-path test |
-| Source deletion/retraction and dependent invalidation | No raw content store, source deletion hook, dependent-copy graph, or purge operation | **Not implemented**; requires approved source identity/version/deletion contract |
+| Source deletion/retraction and dependent invalidation | Provider-local raw archive, tombstone, active-version pointer, dependent-copy invalidation, and explicit purge are present in current main and covered by `tests/memory-provider-raw-archive.test.js` | Provider-local only; requires approved source identity/version/deletion contract before Host wiring |
 | Derived summary with revoked/missing/stale/cross-world lineage source | Summary records are rejected at ingest | Direct-source first slice deliberately excludes summaries; derived-summary behavior needs separate approved lineage/authorization contract and tests |
 | Final disclosure-time revalidation for candidate A while candidate B authorization is awaited | Per-candidate authorization rechecks provider grants after its own awaited validation | **Not equivalent** to a consumer-side final sweep over a candidate batch; needs Core consumer integration and race test |
 | Complete-empty, denied, withheld, partial, unavailable, stale, rebuilding are distinct | Complete-empty/denied and unavailable/stale/rebuilding error paths partially covered | `withheld` is not an implemented Provider result state; complete state/status matrix and per-state tests remain |
