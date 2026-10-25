@@ -15,7 +15,7 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 
 ## Pinned-source hook patch
 
-The reproducible patch artifact is `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`. It has been apply-checked and applied in a disposable checkout of the exact pinned SHA by [Host lifecycle patch check #18](https://github.com/necromorphic/Logic-Engine/actions/runs/40198106441). The patched `public/script.js` passes ESLint; both prototype modules pass syntax checks in [Host lifecycle patch validation #24](https://github.com/necromorphic/Logic-Engine/actions/runs/40198106509). The full Logic-Engine test workflow passed in [run #1951](https://github.com/necromorphic/Logic-Engine/actions/runs/40198106490).
+The reproducible patch artifact is `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`. On current HEAD `73883ff3813c9120a549518aa68b9738443271e2`, it has been apply-checked and applied in a disposable checkout of the exact pinned SHA by [Host lifecycle patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40198269083). The patched `public/script.js` passes ESLint and both prototype modules pass Node syntax checks in [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40198269089). The full Logic-Engine test workflow passed in [run #40198269086](https://github.com/necromorphic/Logic-Engine/actions/runs/40198269086).
 
 The patch hooks the current source paths for:
 - create-message and create-swipe / append-style version changes through `saveReply()`;
@@ -25,6 +25,9 @@ The patch hooks the current source paths for:
 - pre-mutation message deletion through `deleteMessage()` and `deleteLastMessage()`.
 
 The patch and bridge are still review-only; passing apply/lint/syntax checks is not runtime correctness evidence.
+
+The bridge regression tests also cover write-ahead event IDs, edit-version ancestry, post-mutation save failure, restart fingerprint mismatch, and corrupted journal detection. Reconciliation explicitly returns NON_READY while any required mutation path is not instrumented; the currently hooked subset does not satisfy complete inventory acceptance.
+
 
 ## Remaining uninstrumented or unproven paths
 
