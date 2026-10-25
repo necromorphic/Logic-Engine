@@ -168,17 +168,14 @@ test('restart reconciliation rejects a corrupted journal even when chat fingerpr
   assert.match(result.reason, /digest mismatch/);
 });
 
-test('bulk-clear journal primitives retain affected versions, but clear-chat stays uncovered until true deletion is hooked', async () => {
+test('unhooked clear-chat fails closed before source mutation', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
-  const before = await f.bridge.beforeMutation('clear-chat', [0, 1]);
-  assert.equal(before.operation, 'before:clear-chat');
-  assert.equal(before.payload.affectedVersions.length, 2);
-
-  f.chat.length = 0;
-  await f.bridge.afterMutation('clear-chat');
-  assert.equal((await f.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
-
+  await assert.rejects(
+    f.bridge.beforeMutation('clear-chat', [0, 1]),
+    /NON_READY: unsupported\/uninstrumented Host lifecycle operation clear-chat/,
+  );
+  assert.equal(f.chat.length, 2);
   const readiness = await f.bridge.reconcileCurrentConversation();
   assert.equal(readiness.status, 'NON_READY');
   assert.ok(readiness.missingPaths.includes('clear-chat'));
