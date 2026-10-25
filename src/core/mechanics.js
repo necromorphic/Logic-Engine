@@ -1,5 +1,5 @@
 import { EngineError } from './errors.js';
-import { SUPPORTED_RULE_OPERATORS } from './rules.js';
+import { SUPPORTED_RULE_OPERATORS, collectConditionDependencies, evaluateConditionResult, validateEffects } from './rules.js';
 
 const obj = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const idPattern = /^[a-zA-Z0-9][a-zA-Z0-9._-]{2,127}$/;
@@ -182,6 +182,256 @@ export function validateMechanicTemplate(value) {
   if (value.metadata !== undefined) assertObject(value.metadata, 'metadata');
   return value;
 }
+
+
+/**
+ * Collect potential reads from every declarative condition in a validated
+ * mechanic template. This is intentionally explicit about its boundary:
+ * effect-intent payload binding and executable module inputs are not yet
+ * specified as dependency-bearing semantics, so the returned condition set
+ * must not be used as a proof of complete mechanic dependencies.
+ */
+export function collectMechanicConditionDependencies(value) {
+  const template = validateMechanicTemplate(value);
+  const paths = new Set();
+  const addRules = (rules = []) => {
+    for (const rule of rules) {
+      for (const path of collectConditionDependencies(rule)) paths.add(path);
+    }
+  };
+
+  addRules(template.applicability);
+  for (const participant of template.eligible_participants ?? []) addRules(participant.constraints);
+  for (const action of template.actions) {
+    addRules(action.preconditions);
+    addRules(action.constraints);
+  }
+  for (const interaction of template.interactions ?? []) addRules(interaction.conditions);
+
+  return {
+    condition_paths: [...paths].sort(),
+    condition_dependencies_complete: true,
+    mechanic_dependencies_complete: false,
+    unresolved_sources: ['effect-intent payload binding', 'registered module inputs and reads'],
+  };
+}
+
+
+/**
+ * Read-only preflight for the condition-bearing part of one mechanic action.
+ *
+ * This is deliberately NOT a mechanic executor: it does not authorize context
+ * reads, resolve participants/conflicts, bind action inputs, interpret effect
+ * intents, call modules, or create proposals. The caller must supply an
+ * authorized context from the same immutable evaluation snapshot. Missing paths
+ * remain unknown unless a trusted caller proves them absent in that snapshot.
+ */
+export function evaluateMechanicActionConditions(value, actionId, context, options = {}) {
+  const template = validateMechanicTemplate(value);
+  if (typeof actionId !== 'string' || !actionId.trim()) {
+    fail('INVALID_MECHANIC_ACTION', 'actionId must be a non-empty string.');
+  }
+  if (!obj(context)) {
+    fail('INVALID_MECHANIC_CONTEXT', 'Condition context must be an object.');
+  }
+  if (!obj(options)) {
+    fail('INVALID_MECHANIC_EVALUATION_OPTIONS', 'Evaluation options must be an object.');
+  }
+  checkKeys(options, new Set(['knownAbsentPaths']), 'Evaluation options');
+
+  const action = template.actions.find((candidate) => candidate.action_id === actionId);
+  if (!action) {
+    return {
+      status: 'rejected',
+      reason_code: 'MECHANIC_ACTION_NOT_FOUND',
+      template_id: template.template_id,
+      template_version: template.version,
+      action_id: actionId,
+      condition_results: [],
+      unknown_paths: [],
+    };
+  }
+
+  const conditionResults = [];
+  const evaluateGroup = (scope, rules) => {
+    for (let index = 0; index < rules.length; index += 1) {
+      const result = evaluateConditionResult(rules[index], context, {
+        knownAbsentPaths: options.knownAbsentPaths ?? [],
+      });
+      conditionResults.push({
+        scope,
+        index,
+        status: result.status,
+        unknown_paths: result.unknown_paths,
+      });
+    }
+  };
+
+  evaluateGroup('applicability', template.applicability);
+  evaluateGroup('action.preconditions', action.preconditions);
+  evaluateGroup('action.constraints', action.constraints ?? []);
+
+  const statuses = conditionResults.map((item) => item.status);
+  const status = statuses.includes('false')
+    ? 'false'
+    : statuses.includes('unknown')
+      ? 'unknown'
+      : 'true';
+  const unknownPaths = [...new Set(conditionResults.flatMap((item) => item.unknown_paths))].sort();
+
+  return {
+    status,
+    reason_code: status === 'true'
+      ? null
+      : status === 'false'
+        ? 'MECHANIC_CONDITION_NOT_SATISFIED'
+        : 'MECHANIC_CONDITION_CONTEXT_UNKNOWN',
+    template_id: template.template_id,
+    template_version: template.version,
+    action_id: action.action_id,
+    condition_results: conditionResults,
+    unknown_paths: unknownPaths,
+  };
+}
+
+
+/**
+ * Translate the intentionally small, literal effect-intent subset to existing
+ * Core effects. This function does not resolve references, interpolate strings,
+ * execute modules, create proposals, or mutate state. Callers must preserve the
+ * returned effect_provenance alongside any proposal/audit record; without that
+ * mapping this adapter is not sufficient for production execution.
+ *
+ * Supported mappings:
+ * - create_entity -> entity.create
+ * - update_attribute -> entity.update
+ * - assert_fact -> fact.set
+ *
+ * The entire batch fails closed: unsupported or malformed entries never yield a
+ * partial effects list.
+ */
+export function translateMechanicEffectIntents(value, actionId) {
+  const template = validateMechanicTemplate(value);
+  if (typeof actionId !== 'string' || !actionId.trim()) {
+    fail('INVALID_MECHANIC_ACTION', 'actionId must be a non-empty string.');
+  }
+  const action = template.actions.find((candidate) => candidate.action_id === actionId);
+  if (!action) {
+    return { status: 'rejected', reason_code: 'MECHANIC_ACTION_NOT_FOUND', template_id: template.template_id, template_version: template.version, action_id: actionId, effects: [], effect_provenance: [] };
+  }
+  const effects = [];
+  const effectProvenance = [];
+  const seenIds = new Set();
+  if (action.ambiguity_policy !== 'deterministic_only') {
+    return { status: 'unknown', reason_code: 'UNSUPPORTED_ACTION_AMBIGUITY_POLICY', template_id: template.template_id, template_version: template.version, action_id: actionId, effects: [], effect_provenance: [] };
+  }
+
+  {
+    for (let index = 0; index < action.effects.length; index += 1) {
+      const intent = action.effects[index];
+      const location = action.action_id + '.effects[' + index + ']';
+      const reject = (reasonCode, message) => ({
+        status: 'unknown',
+        reason_code: reasonCode,
+        reason: message,
+        template_id: template.template_id,
+        template_version: template.version,
+        effects: [],
+        effect_provenance: [],
+        rejected_intent: { action_id: action.action_id, index, effect_id: intent.effect_id },
+      });
+
+      if (seenIds.has(intent.effect_id)) {
+        return reject('DUPLICATE_EFFECT_ID', location + ' duplicates effect_id ' + intent.effect_id + '.');
+      }
+      seenIds.add(intent.effect_id);
+
+      if ((intent.source_refs?.length ?? 0) > 0 || (intent.caused_by?.length ?? 0) > 0) {
+        return reject('UNSUPPORTED_EFFECT_PROVENANCE', location + ' uses source_refs/caused_by without a defined provenance mapping.');
+      }
+
+      let translated;
+      const payload = intent.payload ?? {};
+      const allowedPayload = {
+        create_entity: new Set(['entity_type', 'status', 'attributes']),
+        update_attribute: new Set(['status', 'attributes', 'remove_attributes']),
+        assert_fact: new Set(['subject_ref', 'predicate', 'value']),
+      }[intent.kind];
+
+      if (!allowedPayload) {
+        return reject('UNSUPPORTED_EFFECT_INTENT', location + ' uses unsupported intent kind ' + intent.kind + '.');
+      }
+      if (Object.keys(payload).some((key) => !allowedPayload.has(key))) {
+        return reject('UNSUPPORTED_EFFECT_PAYLOAD_FIELD', location + ' contains a payload field not allowed for ' + intent.kind + '.');
+      }
+
+      if (intent.kind === 'create_entity') {
+        if (typeof payload.entity_type !== 'string' || !payload.entity_type.trim()) {
+          return reject('INVALID_EFFECT_PAYLOAD', location + ' requires payload.entity_type.');
+        }
+        translated = {
+          kind: 'entity.create',
+          entity_id: intent.target_ref,
+          entity_type: payload.entity_type,
+          ...(payload.status !== undefined ? { status: payload.status } : {}),
+          ...(payload.attributes !== undefined ? { attributes: payload.attributes } : {}),
+        };
+      } else if (intent.kind === 'update_attribute') {
+        const hasAttributes = payload.attributes && typeof payload.attributes === 'object'
+          && !Array.isArray(payload.attributes) && Object.keys(payload.attributes).length > 0;
+        const hasRemovals = Array.isArray(payload.remove_attributes) && payload.remove_attributes.length > 0;
+        if (payload.status === undefined && !hasAttributes && !hasRemovals) {
+          return reject('EMPTY_EFFECT_PATCH', location + ' must change status, set attributes, or remove attributes.');
+        }
+        translated = {
+          kind: 'entity.update',
+          entity_id: intent.target_ref,
+          ...(payload.status !== undefined ? { status: payload.status } : {}),
+          ...(payload.attributes !== undefined ? { attributes: payload.attributes } : {}),
+          ...(payload.remove_attributes !== undefined ? { remove_attributes: payload.remove_attributes } : {}),
+        };
+      } else {
+        if (typeof payload.predicate !== 'string' || !payload.predicate.trim() || !Object.hasOwn(payload, 'value')) {
+          return reject('INVALID_EFFECT_PAYLOAD', location + ' requires payload.predicate and payload.value.');
+        }
+        translated = {
+          kind: 'fact.set',
+          fact_id: intent.target_ref,
+          ...(payload.subject_ref !== undefined ? { subject_ref: payload.subject_ref } : {}),
+          predicate: payload.predicate,
+          value: payload.value,
+        };
+      }
+
+      try {
+        validateEffects([translated]);
+      } catch (error) {
+        return reject('INVALID_TRANSLATED_EFFECT', location + ' failed Core effect validation: ' + error.message);
+      }
+
+      effects.push(translated);
+      effectProvenance.push({
+        effect_index: effects.length - 1,
+        action_id: action.action_id,
+        intent_index: index,
+        effect_id: intent.effect_id,
+        intent_kind: intent.kind,
+        target_ref: intent.target_ref,
+      });
+    }
+  }
+
+  return {
+    status: 'ready',
+    reason_code: null,
+    template_id: template.template_id,
+    template_version: template.version,
+    action_id: action.action_id,
+    effects,
+    effect_provenance: effectProvenance,
+  };
+}
+
 
 export function validateRuleModuleManifest(value) {
   assertObject(value, 'Rule module manifest');
