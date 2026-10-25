@@ -97,7 +97,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
 
   async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null } = {}) {
     const conversationId = getConversationId();
-    if (!conversationId || !(await journal.isEnrolled(conversationId))) return { status: 'NOT_ENROLLED' };
+    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     const chat = getChat();
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
 
@@ -158,7 +158,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
 
   async function reconcileCurrentConversation() {
     const conversationId = getConversationId();
-    if (!conversationId || !(await journal.isEnrolled(conversationId))) return { status: 'NOT_ENROLLED' };
+    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     const current = await currentFingerprint();
     const recorded = await journal.latestSourceFingerprint(conversationId);
     if (current !== recorded) {
