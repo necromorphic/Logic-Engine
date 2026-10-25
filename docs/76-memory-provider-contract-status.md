@@ -39,14 +39,20 @@ These tests prove only their implemented test boundary. Fixture-injected validat
 ### Provider-local PR #331
 - `tests/memory-provider-tombstone-selection.test.js`: selecting an exact tombstoned version again must fail.
 - `tests/memory-provider-purge-boundary.test.js`: registered Provider-local dependent copy is purged while a sentinel in a separate external SQLite store remains.
-- Exact head `889d8f11fb4027030a9c608334fd81e37cae21d8`; Runtime CI run [40215757526](https://github.com/necromorphic/Logic-Engine/actions/runs/40215757526): 601/601 tests and 8/8 oracle harness reported passing. PR remains Draft/unmerged.
+- `tests/memory-provider-tombstone-replay.test.js`: exact replay of a tombstoned tuple+payload does not resurrect the row; tombstone and read/selection denial persist after restart.
+- Exact-head Runtime CI run [40216891045](https://github.com/necromorphic/Logic-Engine/actions/runs/40216891045) passed for head `46a19ef303e77624a161da2be7657b1bdc3f23c9`: `npm test` and the recalculation oracle harness. PR remains Draft/unmerged.
+
+### Additional purge/replay boundary found during this audit
+- Current `purgeRawSource` physically deletes the raw row and its registered copies. Because no durable purge tombstone/identity ledger is retained, a later replay of the same tuple+payload can be inserted as a fresh live capture; the existing tombstone-replay test covers replay after tombstoning, not replay after physical purge.
+- This is a Provider-local anti-resurrection gap if purge is intended to revoke that identity permanently. Do not silently patch it by inventing a tombstone ledger/table/schema or a new source identity contract. Core/Provider owners must decide whether purge means physical erasure only or permanent rejection of replayed identity, and approve a retention-compatible mechanism. Closure test: purge exact version, restart/reopen, replay same tuple+payload, and prove the approved semantics; also test conflicting payload for that tuple. Until this decision is approved, do not claim purge prevents replay resurrection.
 
 ## 3. Required closure evidence and owners
 
 1. **Host / #258 — durable identity and complete lifecycle inventory.** Prove stable logical-message/version IDs and lineage, exact pre-mutation deletion targets, and active + historical + deleted inventory across restart/replay/import/export/copy/restore/migration. Unknown pre-enrollment or unrecoverable history must remain explicitly incomplete.
 2. **Core / #140 — source and disclosure contract.** Approve a distinct Host-message source type, trusted world/session binding, version/lineage/currentness proof, and final disclosure-time authorization boundary. Existing canonical-entity-only ingestion cannot be reused as a substitute.
 3. **Memory Provider / #181 — resume executable integration only after prerequisites.** Map the approved contract to existing Provider operations, then add a real caller/integration test without enabling production traffic by default. Until the source contract exists, no safe Provider-only code change can establish missing Host identity or Core authority.
-4. **Provider-local limitation.** No current mechanism can guarantee atomic revocation across Provider storage, Core state, external derived-copy stores, and final transport. Sequential checks narrow races but do not eliminate the post-check race.
+4. **Provider-local purge/replay decision.** Confirm whether physical purge must also permanently prevent re-ingestion of the same source identity. This is unresolved; do not add schema or claim anti-resurrection after purge without approval and a regression test.
+5. **Cross-store boundary.** No current mechanism can guarantee atomic revocation across Provider storage, Core state, external derived-copy stores, and final transport. Sequential checks narrow races but do not eliminate the post-check race.
 
 ## 4. Decision
 
