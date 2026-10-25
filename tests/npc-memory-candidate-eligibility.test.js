@@ -505,6 +505,17 @@ test("candidate rejection output does not leak rejected record identifiers", () 
   assert.equal(serialized.includes("sensitive title"), false);
 });
 
+test("admission result and nested reference projections are immutable", () => {
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([candidate()]));
+  assert.equal(Object.isFrozen(result), true);
+  assert.equal(Object.isFrozen(result.admitted), true);
+  assert.equal(Object.isFrozen(result.admitted[0]), true);
+  assert.throws(() => { result.status = "non_ready"; }, TypeError);
+  assert.throws(() => { result.admitted.push({ record_ref: "forged", record_version: "v1" }); }, TypeError);
+  assert.throws(() => { result.admitted[0].record_ref = "forged"; }, TypeError);
+  assert.equal(result.admitted[0].record_ref, "memory:claim-1");
+});
+
 test("candidate admission does not mutate its request or result inputs", () => {
   const inputRequest = structuredClone(request);
   const inputResult = completeResult([
@@ -529,6 +540,135 @@ test("candidate admission does not mutate its request or result inputs", () => {
 
   assert.deepEqual(inputRequest, requestBefore);
   assert.deepEqual(inputResult, resultBefore);
+});
+
+
+test("candidate admission never implies delivery, receipt, acquisition, or belief", () => {
+  const input = completeResult([
+    candidate({
+      delivery: { status: "delivered", receipt_id: "host-receipt-secret" },
+      receipt: { status: "confirmed", evidence: "rendered-to-user" },
+      acquisition: { status: "acquired", event_id: "acquisition-secret" },
+      belief: { status: "believed", proposition: "the subject now believes this" },
+      context_inclusion: { status: "included", generation_id: "generation-secret" },
+    }),
+  ]);
+
+  const result = evaluateMemoryCandidateAdmission(request, input);
+
+  // Eligibility is only a safe reference projection. It cannot stand in for
+  // host delivery, a verified receipt, subject acquisition, or belief state.
+  assert.deepEqual(result, {
+    status: "ready",
+    admitted: [{
+      record_ref: "memory:claim-1",
+      record_version: "v3",
+      epistemic_kind: "acquired_report",
+      evidence_assessment: "unassessed",
+    }],
+    reason: null,
+  });
+
+  const serialized = JSON.stringify(result);
+  for (const marker of [
+    "delivered",
+    "host-receipt-secret",
+    "confirmed",
+    "rendered-to-user",
+    "acquisition-secret",
+    "believed",
+    "generation-secret",
+    "context_inclusion",
+  ]) {
+    assert.equal(serialized.includes(marker), false, `unexpected lifecycle marker leaked: ${marker}`);
+  }
+});
+
+
+test("snapshot pair rejects revision-only and sequence-only mismatches", () => {
+  // A rollback/validity change can matter even if commit_sequence does not
+  // increase. The oracle only compares the supplied pair; it does not
+  // discover rollback events or establish authoritative source validity.
+  for (const snapshot of [
+    { world_revision: 13, commit_sequence: 40 },
+    { world_revision: 12, commit_sequence: 41 },
+  ]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ snapshot }),
+    ]));
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.admitted, []);
+  }
+});
+
+test("non-finite numeric snapshot components fail closed", () => {
+  for (const snapshot of [
+    { world_revision: Number.NaN, commit_sequence: 40 },
+    { world_revision: 12, commit_sequence: Number.POSITIVE_INFINITY },
+    { world_revision: Number.NEGATIVE_INFINITY, commit_sequence: 40 },
+  ]) {
+    const result = evaluateMemoryCandidateAdmission(
+      { ...request, snapshot },
+      completeResult([candidate()]),
+    );
+    assert.equal(result.status, "non_ready");
+    assert.equal(result.reason, "trusted_snapshot_incomplete");
+    assert.deepEqual(result.admitted, []);
+  }
+
+  for (const snapshot of [
+    { world_revision: Number.NaN, commit_sequence: 40 },
+    { world_revision: 12, commit_sequence: Number.POSITIVE_INFINITY },
+  ]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ snapshot }),
+    ]));
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.admitted, []);
+  }
+});
+
+
+test("non-finite numeric snapshot components fail closed", () => {
+  for (const component of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    for (const field of ["world_revision", "commit_sequence"]) {
+      const invalidSnapshot = { ...request.snapshot, [field]: component };
+      const trustedResult = evaluateMemoryCandidateAdmission(
+        { ...request, snapshot: invalidSnapshot },
+        completeResult([candidate()]),
+      );
+      assert.equal(trustedResult.status, "non_ready");
+      assert.equal(trustedResult.reason, "trusted_snapshot_incomplete");
+      assert.deepEqual(trustedResult.admitted, []);
+
+      const candidateResult = evaluateMemoryCandidateAdmission(
+        request,
+        completeResult([candidate({ snapshot: invalidSnapshot })]),
+      );
+      assert.equal(candidateResult.status, "ready");
+      assert.deepEqual(candidateResult.admitted, []);
+    }
+  }
+});
+
+
+test("malformed candidate entries are ignored without leaking or aborting valid peers", () => {
+  const valid = candidate({ record: { ref: "memory:valid-peer", version: "v1" } });
+  const result = evaluateMemoryCandidateAdmission(
+    request,
+    completeResult([null, undefined, "not-a-candidate", 42, [], valid]),
+  );
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, [{
+    record_ref: "memory:valid-peer",
+    record_version: "v1",
+    epistemic_kind: "acquired_report",
+    evidence_assessment: "unassessed",
+  }]);
+  const serialized = JSON.stringify(result);
+  assert.equal(serialized.includes("not-a-candidate"), false);
+  assert.equal(serialized.includes("invalid_candidate"), false);
 });
 
 
