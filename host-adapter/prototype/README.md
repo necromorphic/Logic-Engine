@@ -18,7 +18,7 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 
 Source audit: [`SOURCE-LIFECYCLE-AUDIT.md`](./SOURCE-LIFECYCLE-AUDIT.md) records pinned-source evidence and explicitly distinguishes source-confirmed behavior from unrun runtime experiments.
 
-The reproducible patch artifact is `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`. On exact HEAD `be86e167a4387feeb01107e38f3016d28762be11`, all three CI workflows passed: [Host lifecycle patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40204515448) — pinned-source apply-check/application, syntax checks, and all 28 Host prototype tests; [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40204515446) — patched ST entry point ESLint and prototype syntax checks; [Runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40204515445) — repository test suite plus the separate 8-test recalculation harness.
+The reproducible patch artifact is `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`. On current candidate HEAD `dca43ba4201fef384522d6d375e9121ac84735f7`, all three associated CI workflows passed: [Host lifecycle patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40219803479), [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40219803458), and [Runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40219803439). These establish patch applicability, lint/syntax and automated test results only; they do not establish real browser/device persistence or lifecycle completeness.
 
 The patch hooks the following current source paths (this is not full lifecycle coverage):
 - create-message and create-swipe / append-style version changes through `saveReply()`;
@@ -26,7 +26,7 @@ The patch hooks the following current source paths (this is not full lifecycle c
 - swipe selection through `endSwipe()`;
 - pre-mutation swipe deletion through `deleteSwipe()`;
 - pre-mutation message deletion through `deleteMessage()` and `deleteLastMessage()`;
-- pre-mutation full chat-data clear through `clearChat({ clearData: true })`.
+- **No `clearChat({ clearData: true })` deletion hook:** pinned-source review confirms this path is also used for chat switching/reload. Treating it as deletion would create false deletion records. Actual chat-file deletion remains uncovered.
 
 The patch and bridge are still review-only; passing apply/lint/syntax checks is not runtime correctness evidence.
 
