@@ -213,7 +213,7 @@ diff --git a/public/script.js b/public/script.js
          delete document.body.dataset.swiping;
 @@ -10104,8 +10181,12 @@
      async function standardSwipe(newSwipeId) {
-         //If the swipe_id has changed, or the source is being deleted.
+         //If swipe_id has changed, or the source is being deleted.
          if (newSwipeId !== originalSwipeId || source == SWIPE_SOURCE.DELETE || source == SWIPE_SOURCE.BACK) {
 +            if (newSwipeId !== originalSwipeId && source !== SWIPE_SOURCE.DELETE && source !== SWIPE_SOURCE.BACK) {
 +                const lifecycleBridge = await getLogicEngineLifecycleBridge();
