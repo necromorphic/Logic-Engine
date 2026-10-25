@@ -1,10 +1,10 @@
 # Mechanics PR reconciliation: canonical lifecycle + recalculation oracle
 
-Status: integration candidate for review; not production enablement.
+Status as of 2026-10-25: **merged into `main` through PR #280; bounded integration only, not production enablement**.
 
 ## Canonical ownership
 
-The canonical shared implementation is the proposal lifecycle and storage path on the mechanics integration line:
+The canonical shared implementation now in `main` is the proposal lifecycle and storage path used by the bounded Mechanics integration:
 - `ProposalService` owns proposal creation, approval, idempotency, stale-snapshot checks, and commit handoff.
 - `LogicEngine.commitEvent` remains the only canonical event commit boundary.
 - `SQLiteStore` persists canonical events and projections transactionally.
@@ -17,7 +17,7 @@ For the three files shared by PR #180 and PR #225, keep the #180 canonical lifec
 
 ## What is kept from PR #225
 
-Only the isolated `experiments/recalculation-oracle/` harness, its independently authored tests, and this reconciliation note are carried into this candidate. The harness compares A/B/C strategies on a small in-memory dependency model. It does not read or mutate canonical world state, persist events, create proposals, or call Core commit APIs.
+The merged integration carries the isolated `experiments/recalculation-oracle/` harness, its independently authored tests, and this reconciliation note. The harness compares A/B/C strategies on a small in-memory dependency model. It does not read or mutate canonical world state, persist events, create proposals, or call Core commit APIs.
 
 ## What is deliberately not imported from PR #225
 
@@ -31,7 +31,7 @@ The following remain outside this candidate and must not be treated as canonical
 - `src/core/mechanics.js` and `src/core/rules.js` dependency-analysis additions unless a separate Core contract and production consumer are reviewed;
 - `src/storage/sqlite-store.js` schema migration and persistence of `mechanic_execution_json`.
 
-These may be reviewed in a later, explicitly scoped Core integration after the authoritative policy lifecycle decision and its end-to-end tests. The oracle must not become a second executor, second proposal authority, or alternate store.
+These remain possible future work only after the authoritative policy lifecycle decision and its end-to-end tests. The oracle must not become a second executor, second proposal authority, or alternate store.
 
 ## Validation boundary
 
@@ -41,4 +41,4 @@ Run the full suite with `npm test` and the oracle directly with:
 node --test experiments/recalculation-oracle/harness.test.mjs
 ```
 
-The oracle's independent expected projections test the harness only. They do not prove production dependency completeness, policy freshness, atomic revocation, SQLite rollback, or runtime performance. Executor remains bounded/opt-in and production mechanics remain disabled/fail-closed pending Core gates.
+The oracle's independent expected projections test the harness only. They do not prove production dependency completeness, policy freshness, atomic revocation, SQLite rollback, or runtime performance. A full dependency-aware executor is not established by this merge; production mechanics remain disabled/fail-closed pending the Core policy-freshness and end-to-end acceptance gates.
