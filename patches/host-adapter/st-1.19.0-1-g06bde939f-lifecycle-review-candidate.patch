@@ -21,7 +21,7 @@ diff --git a/public/script.js b/public/script.js
      // Delete from the end so earlier indices remain stable.
      for (const messageId of messageIds) {
          chat.splice(messageId, 1);
-@@ -5858,6 +5871,115 @@
+@@ -5858,6 +5871,119 @@
      return (str ?? '').replace(/\{\{[\s\S]*?\}\}/gm, '').trim();
  }
  
@@ -66,6 +66,10 @@ diff --git a/public/script.js b/public/script.js
 +        source_version_id: details.sourceVersionId,
 +    };
 +    lifecycle.events.push(event);
++    if (lifecycle.events.length > 2000) {
++        lifecycle.events.splice(0, lifecycle.events.length - 2000);
++        lifecycle.history_truncated = true;
++    }
 +    // This proposal never claims a complete historical inventory. In particular,
 +    // an existing/legacy chat can have versions deleted before this code runs.
 +    lifecycle.inventory_complete = false;
@@ -83,7 +87,7 @@ diff --git a/public/script.js b/public/script.js
 +    logicEngineRecordLifecycle(action, message, {
 +        versionId,
 +        parentVersionId: previousVersionId,
-+        snapshot: true,
++        snapshot: false,
 +    });
 +    return versionId;
 +}
@@ -137,7 +141,7 @@ diff --git a/public/script.js b/public/script.js
  /**
   * Inserts a user message into the chat history.
   * @param {string} messageText Message text.
-@@ -5884,6 +6006,9 @@ export async function sendMessageAsUser(messageText, messageBias, insertAt = null, compact = false, name = name1, avatar = user_avatar) {
+@@ -5884,6 +6010,9 @@ export async function sendMessageAsUser(messageText, messageBias, insertAt = null, compact = false, name = name1, avatar = user_avatar) {
          },
      };
  
@@ -147,18 +151,18 @@ diff --git a/public/script.js b/public/script.js
      if (power_user.message_token_count_enabled) {
          message.extra.token_count = await getTokenCountAsync(message.mes, 0);
      }
-@@ -6638,6 +6763,10 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+@@ -6638,6 +6767,10 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
      }
  
      const lastMessage = chat[chat.length - 1];
 +    const priorVersionId = lastMessage && !lastMessage.is_user ? lastMessage.logic_engine_version_id ?? null : null;
 +    if (lastMessage && !lastMessage.is_user && type !== 'swipe') {
-+        logicEngineRecordLifecycle('generation-before-mutation', lastMessage, { snapshot: true, versionId: priorVersionId });
++        logicEngineRecordLifecycle('generation-before-mutation', lastMessage, { snapshot: false, versionId: priorVersionId });
 +    }
  
      if (type != 'append' && type != 'continue' && type != 'appendFinal' && chat.length && (lastMessage.swipe_id === undefined ||
          lastMessage.is_user)) {
-@@ -6790,6 +6919,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+@@ -6790,6 +6923,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
          const swipeId = item.swipe_id;
          item.swipes[swipeId] = item.mes;
          item.swipe_info[swipeId] = {
@@ -166,7 +170,7 @@ diff --git a/public/script.js b/public/script.js
              send_date: item.send_date,
              gen_started: item.gen_started,
              gen_finished: item.gen_finished,
-@@ -6819,6 +6949,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+@@ -6819,6 +6953,7 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
              gen_started: item.gen_started,
              gen_finished: item.gen_finished,
              extra: swipeInfoExtra,
@@ -174,7 +178,7 @@ diff --git a/public/script.js b/public/script.js
          };
          const swipeInfoArray = Array(swipes.length).fill().map(() => structuredClone(swipeInfo));
          parseReasoningInSwipes(swipes, swipeInfoArray, item.extra?.reasoning_duration);
-@@ -6849,9 +6980,21 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+@@ -6849,9 +6984,21 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
          item.swipe_info[0] = {
              send_date: item.send_date,
              gen_started: item.gen_started,
@@ -192,25 +196,25 @@ diff --git a/public/script.js b/public/script.js
 +    logicEngineRecordLifecycle('assistant-version', item, {
 +        versionId: currentVersionId,
 +        parentVersionId: priorVersionId,
-+        snapshot: true,
++        snapshot: false,
 +    });
 +
      if (Array.isArray(swipes) && swipes.length > 0) {
-@@ -7646,5 +7789,6 @@ export async function getChat() {
+@@ -7646,5 +7793,6 @@ export async function getChat() {
          if (!chat_metadata.integrity) {
              chat_metadata.integrity = uuidv4();
          }
          await getChatResult();
 +        await logicEngineReconcileLoadedChat();
          eventSource.emit(event_types.CHAT_LOADED, { detail: { id: this_chid, character: characters[this_chid] } });
-@@ -7711,4 +7855,5 @@
+@@ -7711,4 +7859,5 @@
 -    const message = {
 +    const message = {
 +        logic_engine_message_id: uuidv4(),
          name: name2,
          is_user: false,
          is_system: false,
-@@ -7718,5 +7863,15 @@
+@@ -7718,5 +7867,15 @@
          mes: getRegexedString(firstMes, regex_placement.AI_OUTPUT),
          extra: {},
      };
@@ -226,14 +230,14 @@ diff --git a/public/script.js b/public/script.js
 +    }];
 +
      if (Array.isArray(alternateGreetings) && alternateGreetings.length > 0) {
-@@ -7737,5 +7892,6 @@
+@@ -7737,5 +7896,6 @@
              send_date: message.send_date,
              gen_started: void 0,
              gen_finished: void 0,
 +            logic_engine_version_id: uuidv4(),
              extra: {},
          }));
-@@ -8149,7 +8305,13 @@ function updateMessage(div) {
+@@ -8149,7 +8309,13 @@ function updateMessage(div) {
      if (power_user.trim_spaces) {
          text = text.trim();
      }
@@ -247,7 +251,7 @@ diff --git a/public/script.js b/public/script.js
      const bias = substituteParams(extractMessageBias(text));
      text = substituteParams(text);
      if (bias) {
-@@ -8157,9 +8319,11 @@ function updateMessage(div) {
+@@ -8157,9 +8323,11 @@ function updateMessage(div) {
      }
      mes.mes = text;
      if (mes.swipe_id !== undefined) {
@@ -259,14 +263,14 @@ diff --git a/public/script.js b/public/script.js
  
      if (mes?.is_system || mes?.is_user || mes.extra?.type === system_message_types.NARRATOR) {
          mes.extra.bias = bias ?? null;
-@@ -8288,5 +8452,6 @@ async function messageEditCancel(messageId = this_edit_mes_id) {
+@@ -8288,5 +8456,6 @@ async function messageEditCancel(messageId = this_edit_mes_id) {
      if (reasoningEditDone.length > 0) {
          reasoningEditDone.trigger('click');
      }
  
-+    logicEngineRecordLifecycle('edit-editor-cancelled', chat[messageId], { snapshot: true });
++    logicEngineRecordLifecycle('edit-editor-cancelled', chat[messageId], { snapshot: false });
      await eventSource.emit(event_types.MESSAGE_UPDATED, messageId);
-@@ -9360,6 +9525,15 @@ export async function deleteSwipe(swipeId = null, messageId = chat.length - 1) {
+@@ -9360,6 +9529,15 @@ export async function deleteSwipe(swipeId = null, messageId = chat.length - 1) {
          return;
      }
  
@@ -282,7 +286,7 @@ diff --git a/public/script.js b/public/script.js
      message.swipes.splice(swipeId, 1);
  
      if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
-@@ -9390,6 +9564,7 @@ export async function deleteSwipe(swipeId = null, messageId = chat.length - 1) {
+@@ -9390,6 +9568,7 @@ export async function deleteSwipe(swipeId = null, messageId = chat.length - 1) {
      messageId = Number(messageId);
      swipeId = Number(swipeId);
      message.swipe_id = newSwipeId;
@@ -290,14 +294,14 @@ diff --git a/public/script.js b/public/script.js
      await eventSource.emit(event_types.MESSAGE_SWIPE_DELETED, { messageId, swipeId, newSwipeId });
  
      if (swipeId === currentSwipeId) {
-@@ -9420,5 +9595,5 @@ export async function saveChatConditional() {
+@@ -9420,5 +9599,5 @@ export async function saveChatConditional() {
          console.warn('Timeout waiting for chat to save');
 -        return;
 +        return false;
      }
  
      try {
-@@ -9432,7 +9607,9 @@ export async function saveChatConditional() {
+@@ -9432,7 +9611,9 @@ export async function saveChatConditional() {
          // Save token and prompts cache to IndexedDB storage
          saveTokenCache();
          saveItemizedPrompts(getCurrentChatId());
@@ -310,7 +314,7 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 --- a/src/endpoints/chats.js
 +++ b/src/endpoints/chats.js
-@@ -740,6 +740,48 @@
+@@ -740,6 +740,54 @@
      }
  });
  
@@ -332,7 +336,13 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 +        schema_version: 1,
 +        chat_id: crypto.randomUUID(),
 +        source_chat_id: sourceChatId,
-+        source_lifecycle: sourceLifecycle ?? null,
++        source_lifecycle: sourceLifecycle ? {
++            schema_version: sourceLifecycle.schema_version,
++            chat_id: sourceLifecycle.chat_id ?? sourceChatId,
++            inventory_complete: sourceLifecycle.inventory_complete === true,
++            event_count: Array.isArray(sourceLifecycle.events) ? sourceLifecycle.events.length : null,
++            history_truncated: sourceLifecycle.history_truncated === true,
++        } : null,
 +        inventory_complete: false,
 +        events: [],
 +    };
@@ -359,7 +369,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
  router.post('/group/import', function (request, response) {
      try {
          const filedata = request.file;
-@@ -755,6 +797,7 @@
+@@ -755,6 +803,7 @@
          const chatname = humanizedDateTime();
          const pathToUpload = path.join(filedata.destination, filedata.filename);
          const pathToNewFile = path.join(request.user.directories.groupChats, `${chatname}.jsonl`);
@@ -368,7 +378,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 +        writeFileAtomicSync(pathToNewFile, importedChat, 'utf8');
          fs.unlinkSync(pathToUpload);
          return response.send({ res: chatname });
-@@ -816,6 +859,6 @@
+@@ -816,6 +865,6 @@
              const handleChat = (chat) => {
                  const fileName = `${characterName} - ${humanizedDateTime()} imported.jsonl`;
                  const filePath = path.join(directoryPath, fileName);
@@ -376,7 +386,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 -                writeFileAtomicSync(filePath, chat, 'utf8');
 +                writeFileAtomicSync(filePath, logicEngineRekeyImportedChatJsonl(chat), 'utf8');
              };
-@@ -859,10 +902,10 @@
+@@ -859,10 +908,10 @@
              const filePath = path.join(directoryPath, fileName);
              fileNames.push(fileName);
              if (flattenedChat !== data) {
@@ -389,6 +399,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
              fs.unlinkSync(pathToUpload);
              response.send({ res: true, fileNames });
          }
+
 
 
 
