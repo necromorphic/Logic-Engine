@@ -169,7 +169,10 @@ export class SQLiteMemoryProvider {
       || !validId(input.message_id) || !validId(input.version_id)) {
       throw new TypeError('Invalid raw Memory read target');
     }
-    const request = { ...input, action: 'read_version' };
+    const request = {
+      world_id: input.world_id, conversation_id: input.conversation_id,
+      message_id: input.message_id, version_id: input.version_id, action: 'read_version',
+    };
     await this.#assertRawReadAllowed(request);
     let row = this.db.prepare(`SELECT * FROM memory_raw_captures
       WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
@@ -201,7 +204,9 @@ export class SQLiteMemoryProvider {
     if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)) {
       throw new TypeError('Invalid raw Memory conversation read');
     }
-    const request = { ...input, action: 'read_active' };
+    const request = {
+      world_id: input.world_id, conversation_id: input.conversation_id, action: 'read_active',
+    };
     await this.#assertRawReadAllowed(request);
     const readRows = () => this.db.prepare(`SELECT c.* FROM memory_raw_active_versions a
       JOIN memory_raw_captures c ON c.world_id=a.world_id
