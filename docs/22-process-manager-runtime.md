@@ -1,8 +1,8 @@
 # Process Manager runtime slice — operator contract
 
-Status: **implemented in the draft vertical slice; not production-approved**.
+Status as of 2026-10-25: **implemented in `main`; bounded runtime slice, not full production readiness**.
 
-Implementation: [PR #248](https://github.com/necromorphic/Logic-Engine/pull/248). The process lifecycle is a durable domain layer over the existing Core time-trigger and segment pipeline. It is not a second scheduler or canonical writer.
+Implementation: [Process Manager runtime, PR #281](https://github.com/necromorphic/Logic-Engine/pull/281), with the Time contract review in [PR #284](https://github.com/necromorphic/Logic-Engine/pull/284). The process lifecycle is a durable domain layer over the existing Core time-trigger and segment pipeline. It is not a second scheduler or canonical writer. PR #248 is historical work and is not the current integration status reference.
 
 ## Internal API
 
@@ -108,4 +108,4 @@ This is intentionally conservative. Full causal closure, recomputation, and proo
 
 - Process completion does not grant NPC knowledge, alter beliefs, create a report, deliver information, or notify the player.
 - The process definition is data, not executable code; arbitrary scripts and a generic process DSL are out of scope.
-- A passing Runtime suite is not production authorization. PR #248 remains Draft until Time's scheduler/milestone review and the remaining rollback acceptance are resolved.
+- A passing Runtime suite is not production authorization. The merged #281/#284 work covers the current bounded lifecycle and scheduler contract, but does not establish complete cross-process causal closure, automatic recomputation/replanning, or production approval. Overdue resume remains fail-closed; no replan endpoint is implemented.
