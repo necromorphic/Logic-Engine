@@ -153,3 +153,22 @@ test('branch creation from an enrolled conversation is rejected before branch pe
   const bridge = await readFile(resolve(here, '../st-lifecycle-bridge.mjs'), 'utf8');
   assert.ok(bridge.includes('NON_READY: unsupported/uninstrumented Host lifecycle operation '), 'unsupported enrolled operations must reject at the bridge boundary');
 });
+
+
+test('uncovered import, restore, and chat-delete UI entry points invoke the fail-closed Host guard before network mutation', async () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const cases = [
+    ["await lifecycleBridge.beforeMutation('delete-chat', [], { characterId, fileName });", "const response = await fetch('/api/chats/delete'"],
+    ["await lifecycleBridge.beforeMutation('import-character-chat');", "const fetchResult = await fetch('/api/chats/import'"],
+    ["await window.logicEngineHostLifecycle.guardOperation('delete-group-chat', [], { groupId, chatName });", "fetch('/api/chats/group/delete'"],
+    ["await window.logicEngineHostLifecycle.guardOperation('import-group-chat');", "const fetchResult = await fetch('/api/chats/group/import'"],
+    ["await window.logicEngineHostLifecycle.guardOperation('backup-restore', [], { backupName: name });", "fetch('/api/backups/chat/download'"],
+  ];
+  for (const [guard, networkMutation] of cases) {
+    const guardIndex = patch.indexOf(guard);
+    assert.ok(guardIndex >= 0, `missing Host guard: ${guard}`);
+    const networkIndex = patch.indexOf(networkMutation, guardIndex);
+    assert.ok(networkIndex > guardIndex, `network mutation must follow guard: ${networkMutation}`);
+  }
+});
