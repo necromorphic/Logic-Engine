@@ -2,7 +2,7 @@
 
 **Owner:** Memory Provider  
 **Related:** [Provider issue #181](https://github.com/necromorphic/Logic-Engine/issues/181), [Core gate #140](https://github.com/necromorphic/Logic-Engine/issues/140), [Host/Adapter evidence PR #295](https://github.com/necromorphic/Logic-Engine/pull/259), [Provider SQLite PR #182](https://github.com/necromorphic/Logic-Engine/pull/182), [Provider lifecycle PR #201](https://github.com/necromorphic/Logic-Engine/pull/201).  
-**Current status (2026-10-25):** Provider-local raw archive and lifecycle safeguards are present in current `main` at `9ca95312b35d6431699d736aef721602d26639f8`; Runtime CI run #2028 passed. The code/tests prove Provider-local persistence, tombstone, reconciliation, and revocation behavior only. This remains a mapping proposal, not an approved cross-block schema or production handoff. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+**Current status (2026-10-25):** Provider-local raw archive and lifecycle safeguards are present in current `main` at `9ca95312b35d6431699d736aef721602d26639f8`; Runtime CI run #2030 passed (592/592 repository tests and 8/8 oracle-harness tests; [run #2030](https://github.com/necromorphic/Logic-Engine/actions/runs/40203468760)). The code/tests prove Provider-local persistence, tombstone, reconciliation, and revocation behavior only. This remains a mapping proposal, not an approved cross-block schema or production handoff. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
 
 **Historical evidence below:** branch/head/CI references are retained as dated audit history where explicitly labeled; they must not be read as the current merge state.
 
