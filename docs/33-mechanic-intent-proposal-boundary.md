@@ -39,7 +39,7 @@ The public event/commit schema must continue to contain canonical effects only. 
 
 ## 4. Required integration tests
 
-Before implementation can leave draft status, add API-level tests proving:
+The merged implementation's acceptance tests must prove the following at the API/integration boundary:
 
 1. A valid intent batch is translated before canonical validation and the stored proposal contains canonical `effects`, never raw `effect_intents`.
 2. Both `effects` and `effect_intents` in one event are rejected.
