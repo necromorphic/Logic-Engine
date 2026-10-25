@@ -129,7 +129,7 @@ diff --git a/public/script.js b/public/script.js
              await saveReply({ type: this.type, getMessage: text, fromStreaming: true });
              messageId = chat.length - 1;
 +            this.logicEngineLifecycleCreatedIndex = messageId;
-@@ -3808,6 +3864,12 @@
+@@ -3808,5 +3864,11 @@
      async onFinishStreaming(messageId, text) {
          await this.finalizeIntermediaryMessage(messageId, text, { unlockUI: true });
  
