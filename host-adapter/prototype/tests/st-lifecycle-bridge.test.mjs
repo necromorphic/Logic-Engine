@@ -363,3 +363,36 @@ test('swipe selection records a pre-mutation checkpoint and preserves immutable 
   assert.ok(beforeRow && afterRow);
   assert.ok(beforeRow.sequence < afterRow.sequence);
 });
+
+
+test('edit/delete checkpoints preserve old bytes and changed immutable version bytes in the capture ledger', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+
+  const oldMessageId = f.chat[1]._logicEngineLifecycle.messageId;
+  const oldVersionId = f.chat[1]._logicEngineLifecycle.versions[0].versionId;
+  await f.bridge.beforeMutation('edit-message', [1]);
+  f.chat[1].mes = 'answer revised';
+  await f.bridge.afterMutation('edit-message');
+
+  const ledgerAfterEdit = await f.journal.exportCaptureLedger('chat-1');
+  const beforeEdit = ledgerAfterEdit.records.find(row => row.operation === 'before:edit-message');
+  const afterEdit = ledgerAfterEdit.records.find(row => row.operation === 'after:edit-message');
+  assert.equal(beforeEdit.payload.affectedVersions[0].messageId, oldMessageId);
+  assert.equal(beforeEdit.payload.affectedVersions[0].versionId, oldVersionId);
+  assert.equal(beforeEdit.payload.affectedVersions[0].content, 'answer');
+  assert.ok(afterEdit.payload.versionPayloads.some(version =>
+    version.messageId === oldMessageId &&
+    version.parentVersionId === oldVersionId &&
+    version.content === 'answer revised'
+  ));
+
+  await f.bridge.beforeMutation('delete-message', [1]);
+  f.chat.splice(1, 1);
+  await f.bridge.afterMutation('delete-message');
+  const ledgerAfterDelete = await f.journal.exportCaptureLedger('chat-1');
+  const beforeDelete = ledgerAfterDelete.records.find(row => row.operation === 'before:delete-message');
+  assert.ok(beforeDelete.payload.affectedVersions.some(version => version.content === 'answer revised'));
+  assert.equal(ledgerAfterDelete.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
+  assert.equal(ledgerAfterDelete.status, 'REVIEW_ONLY');
+});
