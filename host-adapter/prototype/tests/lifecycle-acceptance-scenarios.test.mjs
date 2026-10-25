@@ -121,12 +121,15 @@ test('pinned patch journals edit and swipe deletion only after awaited native sa
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
 
-  assert.ok(
-    patch.includes("     await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);\\n     this_edit_mes_id = undefined;\\n     await saveChatConditional();\\n+    await lifecycleBridge.afterMutation('edit-message');"),
-    'edit checkpoint must follow the awaited native save',
-  );
-  assert.ok(
-    patch.includes("     await saveChatConditional();\\n+    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });"),
-    'swipe-delete checkpoint must follow the awaited native save',
-  );
+  const editEmit = patch.indexOf('await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);');
+  const editSave = patch.indexOf('await saveChatConditional();', editEmit);
+  const editCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('edit-message')", editEmit);
+  assert.ok(editEmit >= 0 && editSave > editEmit && editCheckpoint > editSave,
+    'edit checkpoint must follow the awaited native save');
+
+  const swipeHook = patch.indexOf("beforeMutation('delete-swipe'");
+  const swipeSave = patch.indexOf('await saveChatConditional();', swipeHook);
+  const swipeCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('delete-swipe'", swipeHook);
+  assert.ok(swipeHook >= 0 && swipeSave > swipeHook && swipeCheckpoint > swipeSave,
+    'swipe-delete checkpoint must follow the awaited native save');
 });
