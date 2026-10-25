@@ -3,7 +3,7 @@ import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
 const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
 const activeIndex = message => Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
-const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
+const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'clear-chat']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
   return globalThis.crypto.randomUUID();
