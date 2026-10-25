@@ -205,3 +205,45 @@ test('host visibility revocation is re-evaluated on every authorized-read reques
   assert.equal(JSON.stringify(revokedBody).includes('also-private'), false);
   assert.equal(JSON.stringify(revokedBody).includes('must-not-leak'), false);
 });
+
+
+test('host visibility revocation is re-evaluated on every authorized-read request', async (t) => {
+  let allowTargetName = true;
+  const base = await setup(t, (context, entity, field) =>
+    context.worldId === 'authorized-read-world'
+      && context.actor.entity_id === 'actor-a'
+      && context.recipient === 'model'
+      && context.purpose === 'npc_decision'
+      && entity.entity_id === 'other-a'
+      && allowTargetName
+      && ['entity_id', 'entity_type', 'attributes.name'].includes(field));
+
+  const read = () => fetch(base + '/v1/worlds/authorized-read-world/authorized-read', {
+    method: 'POST',
+    headers,
+    body: json({
+      actor_entity_id: 'actor-a',
+      purpose: 'npc_decision',
+      entity_ids: ['other-a'],
+      fields: ['entity_id', 'entity_type', 'attributes.name', 'attributes.secret'],
+    }),
+  });
+
+  const allowed = await read();
+  assert.equal(allowed.status, 200);
+  const allowedBody = await allowed.json();
+  assert.equal(allowedBody.read.entities[0]['attributes.name'], 'Other');
+  assert.equal(JSON.stringify(allowedBody).includes('also-private'), false);
+
+  // Simulate a trusted host policy revocation between two requests. The policy
+  // remains host-owned configuration; no caller field can override it.
+  allowTargetName = false;
+  const revoked = await read();
+  assert.equal(revoked.status, 404);
+  const revokedBody = await revoked.json();
+  assert.equal(revokedBody.error.code, 'READ_NOT_AVAILABLE');
+  assert.equal(JSON.stringify(revokedBody).includes('other-a'), false);
+  assert.equal(JSON.stringify(revokedBody).includes('Other'), false);
+  assert.equal(JSON.stringify(revokedBody).includes('also-private'), false);
+  assert.equal(JSON.stringify(revokedBody).includes('must-not-leak'), false);
+});
