@@ -71,12 +71,15 @@ diff --git a/public/script.js b/public/script.js
  
      if (clearData) chat.length = 0;
  }
-@@ -1607,6 +1657,9 @@
+@@ -1607,6 +1657,11 @@
  export async function deleteLastMessage() {
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
-+    if (chat.length) await lifecycleBridge.beforeMutation('delete-message', [chat.length - 1]);
++    const lifecycleBefore = chat.length
++        ? await lifecycleBridge.beforeMutation('delete-message', [chat.length - 1])
++        : { status: 'NOT_ENROLLED' };
      deleteItemizedPromptForMessage(chat.length - 1);
      chat.length = chat.length - 1;
++    if (lifecycleBefore.status !== 'NOT_ENROLLED') await saveChatConditional();
 +    await lifecycleBridge.afterMutation('delete-message');
      chatElement.children('.mes').last().remove();
      await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
@@ -85,7 +88,7 @@ diff --git a/public/script.js b/public/script.js
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
-+    await lifecycleBridge.beforeMutation('delete-message', messageIds);
++    const lifecycleBefore = await lifecycleBridge.beforeMutation('delete-message', messageIds);
  
      // Delete from the end so earlier indices remain stable.
      for (const messageId of messageIds) {
@@ -94,12 +97,13 @@ diff --git a/public/script.js b/public/script.js
          deleteItemizedPromptForMessage(messageId);
      }
  
-+    await lifecycleBridge.afterMutation('delete-message');
      chat_metadata.tainted = true;
  
      const startIndex = firstMessageId <= minId ? firstMessageId : null;
      updateViewMessageIds(startIndex);
      saveChatDebounced();
++    if (lifecycleBefore.status !== 'NOT_ENROLLED') await saveChatConditional();
++    await lifecycleBridge.afterMutation('delete-message');
  
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
