@@ -4,11 +4,11 @@ The first executable slice is host-independent. SillyTavern is a future client a
 
 ## Requirements and startup
 
-Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for registry writes, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_DB_PATH`, then run `npm start`. See `.env.example`; run `npm test` for contract tests.
+Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for world creation, global registry reads/writes/audit, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_DB_PATH`, then run `npm start`. See `.env.example`; run `npm test` for contract tests.
 
 ## Endpoints
 
-- `POST /v1/worlds` — create a world with a pinned World Pack ID/version and explicit in-world time.
+- `POST /v1/worlds` — create a world with a pinned World Pack ID/version and explicit in-world time (requires `x-admin-token`).
 - `POST /v1/worlds/:id/proposals` — create an adapter-owned proposal (requires configured adapter credentials).
 - `GET /v1/worlds/:id/proposals/:proposal_id` — retrieve a proposal as its creating adapter or a trusted administrator.
 - `POST /v1/worlds/:id/proposals/:proposal_id/approve` — approve a proposal (requires `x-approval-token`; valid body is `{}`).
@@ -23,13 +23,13 @@ Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in su
 - `GET /v1/worlds/:id/mechanic-instances` — list mechanic instances (requires `x-admin-token`).
 - `POST /v1/worlds/:id/mechanic-instances` — create a mechanic instance from an exact registered template version (requires `x-admin-token`).
 - `POST /v1/worlds/:id/mechanic-instances/:instance_id/enable` and `/disable` — change instance lifecycle (requires `x-admin-token`).
-- `GET /v1/mechanic-templates` — list immutable mechanic-template versions.
+- `GET /v1/mechanic-templates` — list immutable mechanic-template versions (requires `x-admin-token`).
 - `POST /v1/mechanic-templates` — validate and register an immutable template version (requires `x-admin-token`).
-- `GET /v1/mechanic-templates/:template_id/:version` — retrieve one exact template version.
-- `GET /v1/rule-modules` — list registered versioned rule-module manifests.
+- `GET /v1/mechanic-templates/:template_id/:version` — retrieve one exact template version (requires `x-admin-token`).
+- `GET /v1/rule-modules` — list registered versioned rule-module manifests (requires `x-admin-token`).
 - `POST /v1/rule-modules` — validate and register a versioned rule-module manifest (requires `x-admin-token`).
-- `GET /v1/rule-modules/:module_id/:version` — retrieve one exact module manifest.
-- `GET /v1/mechanics/audit` — append-only registry audit records.
+- `GET /v1/rule-modules/:module_id/:version` — retrieve one exact module manifest (requires `x-admin-token`).
+- `GET /v1/mechanics/audit` — append-only registry audit records (requires `x-admin-token`).
 - `GET /v1/worlds/:id/state` — canonical entity/fact projections; raw reads require trusted internal/admin credentials.
 - `GET /v1/worlds/:id/events` — valid events; add `?include_invalid=true` to include retracted events (trusted internal/admin credentials required).
 - `GET /v1/worlds/:id/audit` — append-only audit (trusted internal/admin credentials required).
