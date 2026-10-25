@@ -133,3 +133,13 @@ test('empty chat enrollment is explicit and does not imply pre-enrollment histor
   assert.equal(result.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
   assert.equal((await bridge.reconcileCurrentConversation()).status, 'REVIEW_ONLY');
 });
+
+test('restart reconciliation rejects a corrupted journal even when chat fingerprint still matches', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const baseline = [...f.db.rows.values()][0];
+  baseline.payload.messages[0].role = 'tampered';
+  const result = await f.bridge.reconcileCurrentConversation();
+  assert.equal(result.status, 'NON_READY');
+  assert.match(result.reason, /digest mismatch/);
+});
