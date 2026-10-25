@@ -72,6 +72,24 @@ test('conflicting payload cannot silently rebind an immutable raw version', (t) 
   );
 });
 
+test('same immutable raw tuple conflicts on role or metadata changes', (t) => {
+  const s = setup(t);
+  const original = capture();
+  assert.deepEqual(s.provider.captureRawMessage(original).status, 'captured');
+
+  assert.throws(
+    () => s.provider.captureRawMessage(capture({ role: 'user' })),
+    /MEMORY_RAW_CAPTURE_CONFLICT/,
+  );
+  assert.throws(
+    () => s.provider.captureRawMessage(capture({
+      metadata: { source: 'host-capture', sequence: 13 },
+    })),
+    /MEMORY_RAW_CAPTURE_CONFLICT/,
+  );
+  assert.equal(s.provider.captureRawMessage(original).status, 'duplicate');
+});
+
 test('active-version switching retains alternative generations rather than deleting them', (t) => {
   const s = setup(t);
   s.provider.captureRawMessage(capture());
