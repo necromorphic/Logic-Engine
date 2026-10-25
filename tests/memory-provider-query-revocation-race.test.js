@@ -47,5 +47,5 @@ test('query authorization revoked during source validation is denied', async (t)
   await validationStarted;
   provider.grantQuery(scope, false);
   release();
-  assert.equal(await pending, false);
+  await assert.rejects(pending, /MEMORY_QUERY_DENIED/);
 });
