@@ -205,3 +205,4 @@ test('host visibility revocation is re-evaluated on every authorized-read reques
   assert.equal(JSON.stringify(revokedBody).includes('also-private'), false);
   assert.equal(JSON.stringify(revokedBody).includes('must-not-leak'), false);
 });
+

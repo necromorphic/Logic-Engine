@@ -629,6 +629,92 @@ test("non-finite numeric snapshot components fail closed", () => {
 });
 
 
+test("candidate admission never implies delivery, receipt, acquisition, or belief", () => {
+  const input = completeResult([
+    candidate({
+      delivery: { status: "delivered", receipt_id: "host-receipt-secret" },
+      receipt: { status: "confirmed", evidence: "rendered-to-user" },
+      acquisition: { status: "acquired", event_id: "acquisition-secret" },
+      belief: { status: "believed", proposition: "the subject now believes this" },
+      context_inclusion: { status: "included", generation_id: "generation-secret" },
+    }),
+  ]);
+
+  const result = evaluateMemoryCandidateAdmission(request, input);
+
+  // Eligibility is only a safe reference projection. It cannot stand in for
+  // host delivery, a verified receipt, subject acquisition, or belief state.
+  assert.deepEqual(result, {
+    status: "ready",
+    admitted: [{
+      record_ref: "memory:claim-1",
+      record_version: "v3",
+      epistemic_kind: "acquired_report",
+      evidence_assessment: "unassessed",
+    }],
+    reason: null,
+  });
+
+  const serialized = JSON.stringify(result);
+  for (const marker of [
+    "delivered",
+    "host-receipt-secret",
+    "confirmed",
+    "rendered-to-user",
+    "acquisition-secret",
+    "believed",
+    "generation-secret",
+    "context_inclusion",
+  ]) {
+    assert.equal(serialized.includes(marker), false, `unexpected lifecycle marker leaked: ${marker}`);
+  }
+});
+
+
+test("snapshot pair rejects revision-only and sequence-only mismatches", () => {
+  // A rollback/validity change can matter even if commit_sequence does not
+  // increase. The oracle only compares the supplied pair; it does not
+  // discover rollback events or establish authoritative source validity.
+  for (const snapshot of [
+    { world_revision: 13, commit_sequence: 40 },
+    { world_revision: 12, commit_sequence: 41 },
+  ]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ snapshot }),
+    ]));
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.admitted, []);
+  }
+});
+
+test("non-finite numeric snapshot components fail closed", () => {
+  for (const snapshot of [
+    { world_revision: Number.NaN, commit_sequence: 40 },
+    { world_revision: 12, commit_sequence: Number.POSITIVE_INFINITY },
+    { world_revision: Number.NEGATIVE_INFINITY, commit_sequence: 40 },
+  ]) {
+    const result = evaluateMemoryCandidateAdmission(
+      { ...request, snapshot },
+      completeResult([candidate()]),
+    );
+    assert.equal(result.status, "non_ready");
+    assert.equal(result.reason, "trusted_snapshot_incomplete");
+    assert.deepEqual(result.admitted, []);
+  }
+
+  for (const snapshot of [
+    { world_revision: Number.NaN, commit_sequence: 40 },
+    { world_revision: 12, commit_sequence: Number.POSITIVE_INFINITY },
+  ]) {
+    const result = evaluateMemoryCandidateAdmission(request, completeResult([
+      candidate({ snapshot }),
+    ]));
+    assert.equal(result.status, "ready");
+    assert.deepEqual(result.admitted, []);
+  }
+});
+
+
 
 
 

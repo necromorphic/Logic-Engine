@@ -175,3 +175,4 @@ test('authorized read returns the current composite snapshot after rollback chan
   assert.deepEqual(after.entities, before.entities);
   assert.equal(store.currentCommitSequence('read-world'), before.commit_sequence);
 });
+
