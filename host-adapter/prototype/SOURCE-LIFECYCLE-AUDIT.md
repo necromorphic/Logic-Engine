@@ -55,7 +55,7 @@ No real Android/Termux persistence or restart/replay test is claimed here. The p
 
 ## Append-only content evidence decision (25 Oct 2026)
 
-The Host prototype records exact content for every affected version in a pre-mutation event and records content for each new/changed immutable version in the post-mutation event. The journal's `exportCaptureLedger()` requires a valid hash-chain/integrity check and returns a review-only, enrollment-forward-only ledger. This allows a covered edit or delete to retain the old bytes even after the native ST message/swipe is mutated.
+The Host prototype records identity, version lineage, active-version selection, and content digests for covered source versions in pre-/post-mutation journal events. The journal's `exportCaptureLedger()` requires a valid hash-chain/integrity check and returns a review-only, enrollment-forward-only ledger. **It does not retain exact message bytes and cannot recover old text after a native ST message/swipe is edited or deleted.** The digest-only policy is intentional and matches the Core decision; a digest is an integrity signal, not a content archive.
 
 This is not proof of completeness outside the instrumented lifecycle paths. The ledger does not claim recovery of deleted history predating enrollment, authority to bind a chat to a Logic-Engine world, or a production Provider handoff. Content export must remain withheld if integrity verification fails.
 
