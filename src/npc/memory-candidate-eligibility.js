@@ -69,6 +69,14 @@ function validReference(record) {
     && isNonEmptyString(record.version);
 }
 
+function isDenseArray(values) {
+  if (!Array.isArray(values)) return false;
+  for (let index = 0; index < values.length; index += 1) {
+    if (!Object.hasOwn(values, index)) return false;
+  }
+  return true;
+}
+
 function producerIsPresent(candidate) {
   return candidate.producer != null
     && isNonEmptyString(candidate.producer.kind);
@@ -101,16 +109,23 @@ function lineageIsSafe(candidate, request) {
     return false;
   }
 
-  return candidate.lineage.sources.every((source) =>
-    source != null
-      && isNonEmptyString(source.ref)
-      && isNonEmptyString(source.version)
-      && source.world_id === request.world_id
-      && source.access?.outcome === ALLOW
-      && source.access?.subject_id === request.subject_id
-      && source.access?.purpose === request.purpose
-      && READY_SOURCE_STATES.has(source.freshness?.status)
-  );
+  // Array.prototype.every skips holes. Check every own index explicitly so a
+  // sparse lineage cannot be mistaken for a complete list of authorized sources.
+  for (let index = 0; index < candidate.lineage.sources.length; index += 1) {
+    if (!Object.hasOwn(candidate.lineage.sources, index)) return false;
+    const source = candidate.lineage.sources[index];
+    if (
+      source == null
+      || !isNonEmptyString(source.ref)
+      || !isNonEmptyString(source.version)
+      || source.world_id !== request.world_id
+      || source.access?.outcome !== ALLOW
+      || source.access?.subject_id !== request.subject_id
+      || source.access?.purpose !== request.purpose
+      || !READY_SOURCE_STATES.has(source.freshness?.status)
+    ) return false;
+  }
+  return true;
 }
 
 function candidateRejection(candidate, request) {
@@ -155,7 +170,9 @@ export function evaluateMemoryCandidateAdmission(request, result) {
     });
   }
 
-  if (request.snapshot != null && !validSnapshot(request.snapshot)) {
+  // Snapshot evidence is mandatory for admission. Without it, a caller could
+  // bypass candidate/request snapshot comparison by omitting the request marker.
+  if (!validSnapshot(request.snapshot)) {
     return Object.freeze({
       status: "non_ready",
       admitted: Object.freeze([]),
@@ -163,7 +180,11 @@ export function evaluateMemoryCandidateAdmission(request, result) {
     });
   }
 
-  if (result == null || result.completeness !== SAFE_RESULT_COMPLETENESS || !Array.isArray(result.candidates)) {
+  if (
+    result == null
+    || result.completeness !== SAFE_RESULT_COMPLETENESS
+    || !isDenseArray(result.candidates)
+  ) {
     return Object.freeze({
       status: "non_ready",
       admitted: Object.freeze([]),
@@ -188,8 +209,18 @@ export function evaluateMemoryCandidateAdmission(request, result) {
     });
   }
 
+  // Pre-count identity/version pairs before admitting anything. Any repeated
+  // pair is ambiguous here: the NPC contract has no approved immutable payload
+  // digest with which to prove that duplicate answers are byte-identical. Drop
+  // every occurrence rather than silently choosing the first candidate.
+  const identityCounts = new Map();
+  for (const candidate of result.candidates) {
+    if (!validReference(candidate?.record)) continue;
+    const identity = JSON.stringify([candidate.record.ref, candidate.record.version]);
+    identityCounts.set(identity, (identityCounts.get(identity) ?? 0) + 1);
+  }
+
   const admitted = [];
-  const seen = new Set();
 
   for (const candidate of result.candidates) {
     const reason = candidateRejection(candidate, request);
@@ -199,11 +230,8 @@ export function evaluateMemoryCandidateAdmission(request, result) {
       continue;
     }
 
-    const identity = `${candidate.record.ref}\u0000${candidate.record.version}`;
-    if (seen.has(identity)) {
-      continue;
-    }
-    seen.add(identity);
+    const identity = JSON.stringify([candidate.record.ref, candidate.record.version]);
+    if (identityCounts.get(identity) !== 1) continue;
 
     // Only stable reference/version are returned. Content must be fetched or
     // projected by an authorized boundary; this helper never returns content.
