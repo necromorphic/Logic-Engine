@@ -8,7 +8,7 @@ Related work:
 - [Core durable Process Manager runtime, PR #281](https://github.com/necromorphic/Logic-Engine/pull/281)
 - [Shared architecture and decision register](https://app.notion.com/p/403a42c0-fcaf-8145-850b-cd7cfd9bcdf7)
 
-## Contract agreed for review
+## Verified merged contract
 
 The merged runtime slice in #281 owns the durable process definition, lifecycle records, trigger registration, and process persistence. Time's responsibility is to verify that its milestone semantics are compatible with the existing deterministic scheduler and time-advance pipeline. The Time-side work must not introduce a second process lifecycle implementation.
 
