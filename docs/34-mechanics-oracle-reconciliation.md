@@ -13,7 +13,7 @@ The canonical shared implementation now in `main` is the proposal lifecycle and 
 For the three files shared by PR #180 and PR #225, keep the #180 canonical lifecycle/fact-identity changes as the baseline:
 - `src/application/proposals.js`: preserve existing proposal → approval → `LogicEngine.commitEvent`, idempotency-before-translation and in-transaction recheck, `duration_proposal` allowlist, stale snapshot and atomic commit behavior. Do not import #225's evaluation attestation or add a second mechanic-evaluation handoff as part of this reconciliation.
 - `src/core/rules.js`: retain #180's strict canonical `fact.set` identity token validation and add the dependency collector only if/when a reviewed production consumer needs it. The oracle harness itself must not be coupled to this Core helper.
-- `src/storage/sqlite-store.js`: retain #180's canonical fact identity and duplicate-fact-effect guards. Do not add #225's `mechanic_execution_json` event metadata column or migration in this candidate; that metadata is not needed by the isolated oracle and would expand the persistence contract.
+- `src/storage/sqlite-store.js`: retain #180's canonical fact identity and duplicate-fact-effect guards. Do not add #225's `mechanic_execution_json` event metadata column or migration as part of this bounded integration; that metadata is not needed by the isolated oracle and would expand the persistence contract.
 
 ## What is kept from PR #225
 
@@ -21,7 +21,7 @@ The merged integration carries the isolated `experiments/recalculation-oracle/` 
 
 ## What is deliberately not imported from PR #225
 
-The following remain outside this candidate and must not be treated as canonical runtime code:
+The following remain outside the merged bounded integration and must not be treated as canonical runtime code:
 - `src/application/mechanic-executor.js`;
 - `src/application/entity-attribute-context-provider.js`;
 - `src/application/mechanic-evaluation-attestation.js`;
