@@ -40,7 +40,7 @@ test('readiness remains fail-closed when a mutation path is not instrumented',as
  const journal=new HostLifecycleJournal(new FakeDB());await journal.enroll(seed());
  const result=await journal.status('chat-1',{instrumentedPaths:['delete-message'],sourceFingerprintMatches:true});
  assert.equal(result.status,'NON_READY');assert.ok(result.missingPaths.includes('create-message'));
- assert.equal(lifecycleJournalContract.requiredMutationPaths.length, 19);
+ assert.equal(lifecycleJournalContract.requiredCoveragePaths.length, 25);
 });
 test('mutation before enrollment is NON_READY',async()=>{
  const journal=new HostLifecycleJournal(new FakeDB());
@@ -50,7 +50,7 @@ test('mutation before enrollment is NON_READY',async()=>{
 test('journal corruption is detected on status check',async()=>{
  const db=new FakeDB(),journal=new HostLifecycleJournal(db);await journal.enroll(seed());
  [...db.rows.values()][0].payload.messages[0].role='tampered';
- const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredMutationPaths,sourceFingerprintMatches:true});
+ const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredCoveragePaths,sourceFingerprintMatches:true});
  assert.equal(result.status,'NON_READY');assert.match(result.reason,/digest mismatch/);
 });
 test('concurrent appends serialize to a gap-free sequence',async()=>{
@@ -61,12 +61,12 @@ test('concurrent appends serialize to a gap-free sequence',async()=>{
 test('tail truncation is detected by the independent atomic head checkpoint',async()=>{
  const db=new FakeDB(),journal=new HostLifecycleJournal(db);await journal.enroll(seed());
  const tail=[...db.rows.values()][0];db.rows.delete(tail.id);
- const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredMutationPaths,sourceFingerprintMatches:true});
+ const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredCoveragePaths,sourceFingerprintMatches:true});
  assert.equal(result.status,'NON_READY');assert.match(result.reason,/records missing|head checkpoint mismatch/);
 });
 
 test('caller-supplied path list cannot assert trusted capture readiness',async()=>{
  const journal=new HostLifecycleJournal(new FakeDB());await journal.enroll(seed());
- const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredMutationPaths,sourceFingerprintMatches:true});
+ const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredCoveragePaths,sourceFingerprintMatches:true});
  assert.equal(result.status,'NON_READY');assert.match(result.reason,/no trusted pinned-source attestation/);
 });

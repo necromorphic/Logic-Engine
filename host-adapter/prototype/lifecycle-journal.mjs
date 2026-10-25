@@ -1,4 +1,4 @@
-const REQUIRED = Object.freeze(['create-message','create-swipe','select-swipe','delete-swipe','delete-message','edit-message','regenerate','cancel-generation','partial-generation','clear-chat','import','export','copy-branch','restore','chat-switch','external-edit','rollback','restart','replay']);
+const REQUIRED_COVERAGE = Object.freeze(['create-message','message-send','message-receive','create-swipe','select-swipe','delete-swipe','delete-message','edit-message','regenerate','generation-start','generation-end','generation-stop','cancel-generation','partial-generation','persistence-ordering','clear-chat','import','export','copy-branch','restore','chat-switch','external-edit','rollback','restart','replay']);
 const canonical = x => Array.isArray(x) ? '[' + x.map(canonical).join(',') + ']' : x && typeof x === 'object' ? '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonical(x[k])).join(',') + '}' : JSON.stringify(x);
 const digest = async x => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(x))))].map(n => n.toString(16).padStart(2, '0')).join('');
 const id = () => { if (!crypto.randomUUID) throw Error('crypto.randomUUID unavailable; NON_READY'); return crypto.randomUUID(); };
@@ -107,7 +107,7 @@ export class HostLifecycleJournal {
     let rows; try { rows=await this.#records(cid); } catch(e) { return this.#fail(cid,'journal unreadable: '+(e?.message||e)); }
     const check=await this.#verifyStored(cid,rows); if(!check.ok) return this.#fail(cid,check.reason);
     if(!rows.length||rows[0].operation!=='baseline') return {status:'NON_READY',reason:'missing baseline'};
-    const missing=REQUIRED.filter(p=>!instrumentedPaths.includes(p));
+    const missing=REQUIRED_COVERAGE.filter(p=>!instrumentedPaths.includes(p));
     if(missing.length) return {status:'NON_READY',reason:'incomplete mutation instrumentation',missingPaths:missing,baselineBoundary:'enrollment-forward-only'};
     if(!sourceFingerprintMatches) return {status:'NON_READY',reason:'source fingerprint mismatch or unverified'};
     return {status:'NON_READY',reason:'native hook coverage has no trusted pinned-source attestation',sequence:rows.at(-1).sequence,baselineBoundary:'enrollment-forward-only'};
@@ -130,4 +130,4 @@ export async function fingerprintSource(messages) {
   }));
   return digest(projection);
 }
-export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredMutationPaths:REQUIRED});
+export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredCoveragePaths:REQUIRED_COVERAGE});
