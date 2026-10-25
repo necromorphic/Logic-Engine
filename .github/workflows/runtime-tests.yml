@@ -26,3 +26,29 @@ jobs:
         with:
           node-version: '22.13.0'
       - run: npm test
+  host-lifecycle-patch-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22.13.0'
+      - name: Checkout exact pinned SillyTavern revision in disposable directory
+        run: |
+          git clone --no-checkout https://github.com/SillyTavern/SillyTavern.git "$RUNNER_TEMP/sillytavern"
+          git -C "$RUNNER_TEMP/sillytavern" checkout --detach 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          test "$(git -C "$RUNNER_TEMP/sillytavern" rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+      - name: Check and apply review patch only in disposable checkout
+        run: |
+          git -C "$RUNNER_TEMP/sillytavern" apply --check "$GITHUB_WORKSPACE/patches/host-adapter/st-1.19.0-1-g06bde939f-lifecycle-review-candidate.patch"
+          git -C "$RUNNER_TEMP/sillytavern" apply "$GITHUB_WORKSPACE/patches/host-adapter/st-1.19.0-1-g06bde939f-lifecycle-review-candidate.patch"
+          git -C "$RUNNER_TEMP/sillytavern" diff --check
+          git -C "$RUNNER_TEMP/sillytavern" diff --stat
+      - name: Install pinned checkout dependencies and lint changed source
+        working-directory: ${{ runner.temp }}/sillytavern
+        run: |
+          npm ci --ignore-scripts --no-audit --no-fund
+          npx eslint public/script.js src/endpoints/chats.js
