@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Build a human-approved next-action queue from the local coordinator snapshot.
+"""Build a human-approved next-action queue from live GitHub issue data.
 
-This helper does not call an LLM, assign issues, post comments, merge PRs, or
-change production gates. It ranks candidates for a person to review.
+Requires GitHub CLI (gh) authenticated on the PC. Read-only: no assignment,
+comments, merges, code changes, or production-gate changes.
 """
 import json
 import pathlib
-import re
+import subprocess
 import sys
 
 REPO = "necromorphic/Logic-Engine"
@@ -16,26 +16,26 @@ GATE_TERMS = (
     "authority", "reconciliation", "revocation", "lineage", "inventory",
 )
 BLOCKED_TERMS = ("memory→npc", "memory->npc", "memory to npc")
-EXCLUDED_PATHS = {
-    "src/endpoints/vectors.js",
-    "src/vectors/ollama-vectors.js",
-    "src/vectors/remote-store.js",
-}
 
 
-def load_snapshot(path):
-    # Deliberately consume the monitor's structured GitHub CLI export rather
-    # than scraping rendered Markdown. The monitor can write this JSON export.
-    data = json.loads(path.read_text(encoding="utf-8"))
-    if not isinstance(data, dict) or not isinstance(data.get("issues"), list):
-        raise ValueError("Snapshot must be JSON with an 'issues' array")
+def fetch_issues():
+    result = subprocess.run(
+        ["gh", "issue", "list", "--repo", REPO, "--state", "open",
+         "--limit", "200", "--json",
+         "number,title,body,labels,assignees,updatedAt,url"],
+        text=True, encoding="utf-8", errors="replace",
+        capture_output=True, timeout=90,
+    )
+    if result.returncode:
+        raise RuntimeError((result.stderr or result.stdout).strip())
+    data = json.loads(result.stdout)
+    if not isinstance(data, list):
+        raise ValueError("GitHub CLI returned unexpected issue data")
     return data
 
 
 def score(issue):
-    title = issue.get("title", "")
-    body = issue.get("body", "")
-    text = (title + "\n" + body).lower()
+    text = (issue.get("title", "") + "\n" + issue.get("body", "")).lower()
     labels = {x.get("name", "").lower() for x in issue.get("labels", [])}
     score = 0
     reasons = []
@@ -56,15 +56,14 @@ def score(issue):
 
 
 def main():
-    path = pathlib.Path(sys.argv[1]) if len(sys.argv) > 1 else OUT / "issues.json"
     try:
-        data = load_snapshot(path)
+        issues = fetch_issues()
     except Exception as exc:
         print(f"Cannot build queue: {exc}", file=sys.stderr)
         return 2
 
     rows = []
-    for issue in data["issues"]:
+    for issue in issues:
         value, reasons = score(issue)
         if value:
             rows.append((value, issue, reasons))
@@ -73,21 +72,18 @@ def main():
     lines = [
         "# Coordinator — human approval queue", "",
         "> Suggested order only. Nothing is assigned, dispatched, merged, or authorized automatically.",
-        "> Memory→NPC remains disabled/fail-closed until the required production evidence is independently verified.",
-        f"> Repository: {REPO}", "",
+        "> Memory→NPC remains disabled/fail-closed until required production evidence is independently verified.",
+        f"> Repository: {REPO}", f"> Open issues scanned: {len(issues)}", "",
     ]
     if not rows:
         lines += ["No candidate issues matched the conservative queue rules.", ""]
     for value, issue, reasons in rows:
-        number = issue.get("number", "?")
-        title = issue.get("title", "(untitled)")
-        url = issue.get("url", "")
         lines += [
-            f"## [{number} — {title}]({url})",
+            f"## [#{issue.get('number', '?')} — {issue.get('title', '(untitled)')}]({issue.get('url', '')})",
             f"- Priority score: {value}",
             "- Signals: " + "; ".join(reasons),
             "- Human action: inspect current comments, linked PRs, and exact-head evidence before assigning work.",
-            "- Required packet: objective, prerequisites, files/scope allowed, forbidden scope, acceptance criteria, evidence links, stop conditions.",
+            "- Task packet must state objective, prerequisites, allowed/forbidden scope, acceptance criteria, evidence links, and stop conditions.",
             "- Stop condition: if source authority, version/lineage, inventory, reconciliation, or revocation is unknown, mark BLOCKED; do not enable Memory→NPC.",
             "",
         ]
