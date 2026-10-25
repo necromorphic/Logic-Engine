@@ -73,7 +73,7 @@ export class SQLiteMemoryProvider {
       CREATE TABLE IF NOT EXISTS memory_index_state (
         world_id TEXT PRIMARY KEY, index_health TEXT NOT NULL,
         source_reconciliation TEXT NOT NULL, snapshot_revision TEXT,
-        snapshot_sequence TEXT, failure_code TEXT, updated_at TEXT NOT NULL
+        snapshot_sequence TEXT, updated_at TEXT NOT NULL
       );
       CREATE TABLE IF NOT EXISTS memory_raw_captures (
         world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
@@ -102,8 +102,12 @@ export class SQLiteMemoryProvider {
           ON DELETE CASCADE
       );
     `);
+    // Older provider databases predate typed failure diagnostics. Preserve their
+    // readiness state while adding the provider-internal column used for safe triage.
     const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
-    if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+    if (!stateColumns.some((column) => column.name === 'failure_code')) {
+      this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+    }
   }
 
   #withImmediateTransaction(work) {
@@ -493,7 +497,7 @@ export class SQLiteMemoryProvider {
       this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
         .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString());
     } catch (error) {
-      this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
+      this.#setState(record.world_id, 'unavailable', 'stale');
       throw error;
     }
     return { status: 'stored', record_ref: record.record_ref, record_version: record.record_version };
@@ -579,22 +583,22 @@ export class SQLiteMemoryProvider {
       || a.record_version.localeCompare(b.record_version));
     const latestRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
     if (!isDeepStrictEqual(recordSet(records), recordSet(latestRecords))) {
-      this.#setState(worldId, 'stale', 'stale');
-      return { status: 'stale' };
+      this.#setState(worldId, 'stale', 'stale', null, 'PROVIDER_RECORD_SET_CHANGED');
+      return { status: 'stale', reason: 'PROVIDER_RECORD_SET_CHANGED' };
     }
 
     let after;
     try { after = snapshotOf(await this.getSnapshot(worldId)); } catch { after = null; }
     if (!sameSnapshot(before, after)) {
-      this.#setState(worldId, 'stale', 'stale');
-      return { status: 'stale' };
+      this.#setState(worldId, 'stale', 'stale', null, 'SNAPSHOT_CHANGED_DURING_RECONCILIATION');
+      return { status: 'stale', reason: 'SNAPSHOT_CHANGED_DURING_RECONCILIATION' };
     }
     // getSnapshot above is awaited too; recheck local inventory after that final
     // await so an ingest cannot be hidden between validation and ready/current.
     const finalRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
     if (!isDeepStrictEqual(recordSet(records), recordSet(finalRecords))) {
-      this.#setState(worldId, 'stale', 'stale');
-      return { status: 'stale' };
+      this.#setState(worldId, 'stale', 'stale', null, 'PROVIDER_RECORD_SET_CHANGED');
+      return { status: 'stale', reason: 'PROVIDER_RECORD_SET_CHANGED' };
     }
     this.#setState(worldId, 'ready', 'current', after);
     return { status: 'current', snapshot: after, records_checked: records.length };
