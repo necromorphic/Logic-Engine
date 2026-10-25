@@ -71,7 +71,7 @@ diff --git a/public/script.js b/public/script.js
  
      if (clearData) chat.length = 0;
  }
-@@ -1607,6 +1657,11 @@
+@@ -1607,6 +1657,12 @@
  export async function deleteLastMessage() {
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    const lifecycleBefore = chat.length
