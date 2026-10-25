@@ -1,6 +1,6 @@
 # Memory Provider lifecycle decisions (implementation checkpoint)
 
-**Status:** owner decisions recorded; implementation is deliberately partial. This note does not approve production wiring or a Core source-change contract.
+**Status (2026-10-25):** owner decisions recorded; Provider-local raw archive and lifecycle safeguards are present in current main (`9ca95312b35d6431699d736aef721602d26639f8`, Runtime CI #2028 passed). This note does not approve production wiring or a Core source-change contract.
 
 ## 1. Record edits, active versions, deletion, and purge
 
