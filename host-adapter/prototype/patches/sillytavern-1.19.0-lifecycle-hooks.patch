@@ -108,7 +108,7 @@ diff --git a/public/script.js b/public/script.js
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
      }
-@@ -5905,16 +5961,21 @@
+@@ -5905,16 +5964,21 @@
      chat_metadata.tainted = true;
  
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -130,7 +130,7 @@ diff --git a/public/script.js b/public/script.js
          addOneMessage(message);
          await eventSource.emit(event_types.USER_MESSAGE_RENDERED, chat_id);
      }
-@@ -6653,3 +6714,12 @@
+@@ -6653,3 +6717,12 @@
          type = 'normal';
      }
 +
@@ -143,14 +143,14 @@ diff --git a/public/script.js b/public/script.js
 +        await lifecycleBridge.beforeMutation(lifecycleOperation, [chat.length - 1]);
 +    }
  
-@@ -6827,3 +6897,6 @@
+@@ -6827,3 +6900,6 @@
  
 +    await lifecycleBridge.afterMutation(lifecycleOperation, {
 +        createdMessageIndex: lifecycleOperation === 'create-message' ? lifecycleOriginalChatLength : null,
 +    });
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
-@@ -8400,5 +8471,7 @@
+@@ -8400,5 +8474,7 @@
          return;
      }
  
@@ -158,12 +158,12 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.beforeMutation('edit-message', [this_edit_mes_id]);
      let { mesBlock, text, mes, bias } = updateMessage(div);
  
-@@ -8431,3 +8504,4 @@
+@@ -8431,3 +8507,4 @@
      await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
      this_edit_mes_id = undefined;
      await saveChatConditional();
 +    await lifecycleBridge.afterMutation('edit-message');
-@@ -9363,7 +9437,9 @@
+@@ -9363,7 +9440,9 @@
          toastr.warning(t`Invalid swipe ID: ${swipeId + 1}`);
          return;
      }
@@ -173,7 +173,7 @@ diff --git a/public/script.js b/public/script.js
      message.swipes.splice(swipeId, 1);
  
      if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
-@@ -9395,11 +9472,12 @@
+@@ -9395,11 +9475,12 @@
          await updateSwipeCounter(messageId);
          if (messageId !== chat.length - 1) {
              await updateSwipeCounter(chat.length - 1);
@@ -186,7 +186,7 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });
  
      return newSwipeId;
-@@ -10090,11 +10167,16 @@
+@@ -10090,11 +10170,16 @@
                  await reloadCurrentChat();
              }
              //Out of bounds swipes should not be saved.
@@ -203,7 +203,7 @@ diff --git a/public/script.js b/public/script.js
          //Allow for another swipe.
          swipeState = SWIPE_STATE.NONE;
          delete document.body.dataset.swiping;
-@@ -10104,5 +10181,13 @@
+@@ -10104,5 +10184,13 @@
      async function standardSwipe(newSwipeId) {
          //If swipe_id has changed, or the source is being deleted.
          if (newSwipeId !== originalSwipeId || source == SWIPE_SOURCE.DELETE || source == SWIPE_SOURCE.BACK) {
