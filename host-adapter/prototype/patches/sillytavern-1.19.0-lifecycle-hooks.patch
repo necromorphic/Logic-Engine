@@ -91,10 +91,15 @@ diff --git a/public/script.js b/public/script.js
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('delete-swipe', [messageId], { swipeIndex: swipeId });
 +    message.swipes.splice(swipeId, 1);
-@@ -9400,6 +9441,7 @@
--    await saveChatConditional();
+@@ -9400,8 +9441,9 @@
+        refreshSwipeButtons();
+        saveChatDebounced();
+    }
+
 +    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });
-+    await saveChatConditional();
+    await saveChatConditional();
+
+    return newSwipeId;
 @@ -10091,6 +10133,11 @@
          } else if (source != SWIPE_SOURCE.BACK) {
              //Save the chat if swipe_id has changed.
