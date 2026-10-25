@@ -274,6 +274,14 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.beforeMutation('import-character-chat');
 +
      const fetchResult = await fetch('/api/chats/import', {
+@@ -10828,2 +10834,7 @@
+ export async function deleteCharacter(characterKey, { deleteChats = true } = {}) {
++    if (deleteChats) {
++        const lifecycleBridge = await getLogicEngineLifecycleBridge();
++        await lifecycleBridge.beforeMutation('delete-character-chat-recursive', [], { characterKey });
++    }
++
+     if (!Array.isArray(characterKey)) {
 diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
 --- a/public/scripts/group-chats.js
 +++ b/public/scripts/group-chats.js
