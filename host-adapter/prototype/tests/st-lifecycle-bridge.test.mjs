@@ -107,10 +107,21 @@ test('enrolled bridge writes event IDs and advances the fingerprint after an edi
 test('uncovered server-side lifecycle operations fail closed before a caller mutates source', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
-  for (const operation of ['delete-chat', 'delete-group-chat', 'delete-character-chat-recursive', 'import-character-chat', 'import-group-chat', 'backup-restore', 'create-branch', 'group-metadata-migration']) {
+  const unsupported = ['delete-chat', 'delete-group-chat', 'delete-character-chat-recursive', 'import-character-chat', 'import-group-chat', 'backup-restore', 'create-branch', 'group-metadata-migration'];
+  for (const operation of unsupported) {
     await assert.rejects(
       f.bridge.beforeMutation(operation, []),
-      new RegExp('NON_READY: unsupported/uninstrumented Host lifecycle operation ' + operation.replace(/[.*+?^${}()|[\\]\\\\]/g, '\\\\test('restart reconciliation fails closed when source changed after the last journal checkpoint', async () => {')),
+      error => error.message.includes('NON_READY: unsupported/uninstrumented Host lifecycle operation ' + operation),
+    );
+  }
+  const readiness = await f.bridge.reconcileCurrentConversation();
+  assert.equal(readiness.status, 'NON_READY');
+  for (const path of unsupported) {
+    assert.ok(readiness.missingPaths.includes(path), `expected unsupported operation to remain uncovered: ${path}`);
+  }
+});
+
+test('restart reconciliation fails closed when source changed after the last journal checkpoint', async () => {')),
     );
   }
   const readiness = await f.bridge.reconcileCurrentConversation();
