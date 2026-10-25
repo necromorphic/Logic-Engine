@@ -303,3 +303,29 @@ test('message-send supports insertion at a requested historical index', async ()
   assert.ok(f.chat[1]._logicEngineLifecycle.messageId);
   assert.equal((await f.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
 });
+
+test('reconciliation rejects copied/restored sidecar IDs even when native message content is unchanged', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const originalFingerprint = await f.bridge.currentFingerprint();
+  const originalMessageId = f.chat[0]._logicEngineLifecycle.messageId;
+  const originalVersionId = f.chat[0]._logicEngineLifecycle.versions[0].versionId;
+
+  // Simulate a copied/restored metadata snapshot whose native message text is
+  // identical, so the native-source fingerprint alone cannot detect the swap.
+  f.chat[0]._logicEngineLifecycle.messageId = 'copied-message-id';
+  f.chat[0]._logicEngineLifecycle.versions[0].versionId = 'copied-version-id';
+
+  assert.equal(await f.bridge.currentFingerprint(), originalFingerprint);
+  const result = await f.bridge.reconcileCurrentConversation();
+  assert.equal(result.status, 'NON_READY');
+  assert.match(result.reason, /identity metadata differs from the last journaled identity snapshot/);
+
+  // Restore the original identities; the same unchanged source should reconcile
+  // as integrity-valid, while still remaining NON_READY for incomplete coverage.
+  f.chat[0]._logicEngineLifecycle.messageId = originalMessageId;
+  f.chat[0]._logicEngineLifecycle.versions[0].versionId = originalVersionId;
+  const restored = await f.bridge.reconcileCurrentConversation();
+  assert.equal(restored.status, 'NON_READY');
+  assert.match(restored.reason, /incomplete mutation instrumentation|native hook coverage/);
+});
