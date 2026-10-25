@@ -65,6 +65,9 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
   async function beforeMutation(operation, messageIndexes, details = {}) {
     const conversationId = getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    if (!CURRENTLY_HOOKED_PATHS.includes(operation)) {
+      throw Error('NON_READY: unsupported/uninstrumented Host lifecycle operation ' + String(operation) + '; abort mutation before source change');
+    }
     const chat = getChat(), fingerprint = await currentFingerprint(chat);
     const latestFingerprint = await journal.latestSourceFingerprint(conversationId);
     if (latestFingerprint !== fingerprint) {
