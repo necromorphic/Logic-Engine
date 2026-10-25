@@ -720,6 +720,10 @@ test('proposal commit rejects a stale approved base without partial state and su
   const dir = mkdtempSync(join(tmpdir(), 'logic-engine-stale-proposal-'));
   const path = join(dir, 'world.sqlite');
   let store = new SQLiteStore(path);
+  t.after(() => {
+    try { store.close(); } catch {}
+    rmSync(dir, { recursive: true, force: true });
+  });
   let engine = new LogicEngine(store);
   engine.createWorld({ world_id: 'w', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2005-12-29T10:00:00Z' });
   let proposals = new ProposalService(engine);
@@ -765,10 +769,5 @@ test('proposal commit rejects a stale approved base without partial state and su
   assert.equal(store.db.prepare("SELECT COUNT(*) AS count FROM idempotency_keys WHERE idempotency_key=?").get('proposal:' + proposal.proposal_id).count, 0);
 
   store.close();
-  rmSync(dir, { recursive: true, force: true });
-  t.after(() => {
-    try { store.close(); } catch {}
-    rmSync(dir, { recursive: true, force: true });
-  });
 });
 
