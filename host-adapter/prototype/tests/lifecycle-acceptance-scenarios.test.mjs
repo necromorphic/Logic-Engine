@@ -132,4 +132,18 @@ test('pinned patch journals edit and swipe deletion only after awaited native sa
   const swipeCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('delete-swipe'", swipeHook);
   assert.ok(swipeHook >= 0 && swipeSave > swipeHook && swipeCheckpoint > swipeSave,
     'swipe-delete checkpoint must follow the awaited native save');
+
+  const deleteLastHook = patch.indexOf("beforeMutation('delete-message', [chat.length - 1])");
+  const deleteLastSave = patch.indexOf('await saveChatConditional();', deleteLastHook);
+  const deleteLastCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('delete-message')", deleteLastHook);
+  assert.ok(deleteLastHook >= 0 && deleteLastSave > deleteLastHook && deleteLastCheckpoint > deleteLastSave,
+    'delete-last checkpoint must follow the awaited native save');
+
+  const bulkDeleteHook = patch.indexOf("beforeMutation('delete-message', messageIds)");
+  const bulkDeleteDebounce = patch.indexOf('saveChatDebounced();', bulkDeleteHook);
+  const bulkDeleteSave = patch.indexOf('await saveChatConditional();', bulkDeleteDebounce);
+  const bulkDeleteCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('delete-message')", bulkDeleteHook);
+  assert.ok(bulkDeleteHook >= 0 && bulkDeleteDebounce > bulkDeleteHook
+    && bulkDeleteSave > bulkDeleteDebounce && bulkDeleteCheckpoint > bulkDeleteSave,
+    'bulk-delete checkpoint must follow the awaited native save');
 });
