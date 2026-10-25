@@ -491,7 +491,7 @@ export class SQLiteMemoryProvider {
       this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
         .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString());
     } catch (error) {
-      this.#setState(record.world_id, 'unavailable', 'stale');
+      this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
       throw error;
     }
     return { status: 'stored', record_ref: record.record_ref, record_version: record.record_version };
@@ -510,7 +510,7 @@ export class SQLiteMemoryProvider {
       }
       return { status: 'rebuilt', count: records.length };
     } catch (error) {
-      this.#setState(worldId, 'unavailable', 'stale');
+      this.#setState(worldId, 'unavailable', 'stale', null, 'INDEX_REBUILD_FAILED');
       throw error;
     }
   }
@@ -521,8 +521,8 @@ export class SQLiteMemoryProvider {
     let before;
     try { before = snapshotOf(await this.getSnapshot(worldId)); } catch { before = null; }
     if (!before) {
-      this.#setState(worldId, 'unavailable', 'stale');
-      return { status: 'unavailable' };
+      this.#setState(worldId, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
+      return { status: 'unavailable', reason: 'CORE_SNAPSHOT_UNAVAILABLE' };
     }
     const records = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
     for (const row of records) {
@@ -530,8 +530,8 @@ export class SQLiteMemoryProvider {
         WHERE world_id=? AND record_ref=? AND record_version=?`)
         .get(worldId, row.record_ref, row.record_version);
       if (!entry) {
-        this.#setState(worldId, 'rebuilding', 'stale');
-        return { status: 'rebuilding' };
+        this.#setState(worldId, 'rebuilding', 'stale', null, 'INDEX_ENTRY_MISSING');
+        return { status: 'rebuilding', reason: 'INDEX_ENTRY_MISSING' };
       }
       let valid = false;
       try {
@@ -543,8 +543,8 @@ export class SQLiteMemoryProvider {
         })) === true;
       } catch { valid = false; }
       if (!valid) {
-        this.#setState(worldId, 'stale', 'stale');
-        return { status: 'stale' };
+        this.#setState(worldId, 'stale', 'stale', null, 'SOURCE_VALIDATION_FAILED');
+        return { status: 'stale', reason: 'SOURCE_VALIDATION_FAILED' };
       }
     }
     // Per-record validation cannot prove that the inventory itself is complete.
@@ -609,16 +609,16 @@ export class SQLiteMemoryProvider {
     try {
       current = snapshotOf(await this.getSnapshot(scope.world_id));
     } catch {
-      this.#setState(scope.world_id, 'unavailable', 'stale');
+      this.#setState(scope.world_id, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
       throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
     }
     if (!current) {
-      this.#setState(scope.world_id, 'unavailable', 'stale');
+      this.#setState(scope.world_id, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
       throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
     }
     if (String(current.world_revision) !== state.snapshot_revision
       || String(current.commit_sequence) !== state.snapshot_sequence) {
-      this.#setState(scope.world_id, 'stale', 'stale');
+      this.#setState(scope.world_id, 'stale', 'stale', null, 'SNAPSHOT_STALE');
       throw new Error('MEMORY_SNAPSHOT_STALE');
     }
     const rows = this.db.prepare(`SELECT r.* FROM memory_records r
