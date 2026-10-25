@@ -603,6 +603,66 @@ export class LogicEngine {
 
   commitEvent(id, x, options = {}) {
     const prepared = this.prepareEventForWorld(id, x, options);
+    if (options.mechanicExecution !== undefined && options.mechanicExecution !== null) {
+      const metadata = options.mechanicExecution;
+      assert(obj(metadata) && obj(metadata.snapshot_identity)
+        && metadata.snapshot_identity.world_id === id
+        && metadata.snapshot_identity.world_revision === prepared.expected_revision
+        && metadata.snapshot_identity.commit_sequence === this.store.currentCommitSequence(id),
+      'STALE_MECHANIC_EVALUATION', 'Mechanic execution metadata must match the current world snapshot.');
+      assert(typeof metadata.action_id === 'string' && metadata.action_id.trim()
+        && obj(metadata.condition_result) && metadata.condition_result.status === 'true'
+        && typeof metadata.context_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.context_fingerprint)
+        && typeof metadata.context_policy_version === 'string' && metadata.context_policy_version.trim()
+        && typeof metadata.authorization_scope === 'string' && metadata.authorization_scope.trim()
+        && typeof metadata.evaluation_fingerprint === 'string' && /^[a-f0-9]{64}$/i.test(metadata.evaluation_fingerprint),
+      'INVALID_MECHANIC_EXECUTION_METADATA', 'Mechanic execution identity and fingerprints are required.');
+      assert(obj(metadata.dependency_manifest)
+        && metadata.dependency_manifest.scope === 'bounded_deterministic_action_v1'
+        && metadata.dependency_manifest.mechanic_dependencies_complete === true
+        && metadata.dependency_manifest.global_mechanic_dependencies_complete === false
+        && Array.isArray(metadata.dependency_manifest.assumptions)
+        && Array.isArray(metadata.dependency_manifest.unresolved_sources)
+        && metadata.dependency_manifest.unresolved_sources.length === 0
+        && metadata.semantic_review_required === true,
+      'INVALID_MECHANIC_EXECUTION_METADATA', 'Mechanic dependency scope and semantic-review requirement are invalid.');
+      assert(Array.isArray(metadata.effect_provenance)
+        && metadata.effect_provenance.length === (x.effects ?? []).length
+        && Array.isArray(metadata.read_set) && Array.isArray(metadata.causal_links)
+        && hashRequest(metadata.read_set) === hashRequest(x.read_set ?? [])
+        && hashRequest(metadata.causal_links) === hashRequest(x.causal_links ?? []),
+      'INVALID_MECHANIC_EXECUTION_METADATA', 'Mechanic provenance, read_set, and causal_links must match the event.');
+      const translatedKinds = { create_entity: 'entity.create', update_attribute: 'entity.update', assert_fact: 'fact.set' };
+      const seenEffectIds = new Set();
+      for (let index = 0; index < metadata.effect_provenance.length; index += 1) {
+        const item = metadata.effect_provenance[index];
+        assert(obj(item) && item.effect_index === index && item.action_id === metadata.action_id
+          && typeof item.effect_id === 'string' && item.effect_id.trim() && !seenEffectIds.has(item.effect_id)
+          && translatedKinds[item.intent_kind] === x.effects[index]?.kind,
+        'INVALID_MECHANIC_EXECUTION_METADATA', 'Mechanic effect provenance must map one-to-one to event effects.');
+        seenEffectIds.add(item.effect_id);
+      }
+      const expectedEvaluationFingerprint = hashRequest({
+        snapshot_identity: metadata.snapshot_identity,
+        action_id: metadata.action_id,
+        context_fingerprint: metadata.context_fingerprint,
+        context_policy_version: metadata.context_policy_version,
+        authorization_scope: metadata.authorization_scope,
+        condition_result: metadata.condition_result,
+        dependency_manifest: metadata.dependency_manifest,
+        effects: x.effects,
+        effect_provenance: metadata.effect_provenance,
+        read_set: x.read_set,
+        causal_links: x.causal_links,
+      });
+      assert(expectedEvaluationFingerprint === metadata.evaluation_fingerprint,
+        'INVALID_MECHANIC_EXECUTION_METADATA', 'Committed mechanic metadata does not match the evaluated content.');
+      prepared.mechanic_execution = metadata;
+      prepared.request_hash = hashRequest({
+        event_request_hash: prepared.request_hash,
+        mechanic_execution: metadata,
+      });
+    }
     this.assertNoScheduledTriggerCrossing(id, [prepared], prepared.expected_revision);
     return this.store.commit(id, prepared);
   }

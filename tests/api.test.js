@@ -4,7 +4,7 @@ import { once } from 'node:events';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ProposalService } from '../src/application/proposals.js';
-import { createApiServer } from '../src/api/server.js';
+import { createApiServer, createActiveMechanicPolicyValidator } from '../src/api/server.js';
 
 const TOKEN = 'test-token-long-enough-123456';
 const INTERNAL = 'internal-token-long-enough-123456';
@@ -1791,4 +1791,107 @@ test('approval rejects a pending proposal after an intervening canonical commit'
   assert.equal((await staleApproval.json()).error.code, 'STALE_PROPOSAL');
   const stillPending = await fetch(base + '/v1/worlds/proposal-stale-approval-world/proposals/' + stale.proposal_id, { headers });
   assert.equal((await stillPending.json()).proposal.status, 'pending');
+});
+
+test('active mechanic policy validator resolves the current owner on every check and fails closed', () => {
+  let activeProvider = {
+    validateMechanicPolicy(identity) {
+      return identity.policyVersion === 'v1' && identity.authorizationScope === 'scope-a';
+    },
+  };
+  const validate = createActiveMechanicPolicyValidator(() => activeProvider);
+  const pinnedV1 = { policyVersion: 'v1', authorizationScope: 'scope-a' };
+  assert.equal(validate(pinnedV1), true);
+
+  // Rotating the deployment-owned provider must affect the next boundary check.
+  activeProvider = {
+    validateMechanicPolicy(identity) {
+      return identity.policyVersion === 'v2' && identity.authorizationScope === 'scope-b';
+    },
+  };
+  assert.equal(validate(pinnedV1), false);
+  assert.equal(validate({ policyVersion: 'v2', authorizationScope: 'scope-b' }), true);
+
+  assert.equal(createActiveMechanicPolicyValidator(() => null)(pinnedV1), false);
+  assert.equal(createActiveMechanicPolicyValidator(() => { throw new Error('owner unavailable'); })(pinnedV1), false);
+  assert.equal(createActiveMechanicPolicyValidator(() => ({ validateMechanicPolicy() { throw new Error('policy failure'); } }))(pinnedV1), false);
+  assert.throws(() => createActiveMechanicPolicyValidator(null), /trusted application callback/);
+
+  const store = new SQLiteStore(':memory:');
+  try {
+    assert.throws(() => createApiServer({ engine: new LogicEngine(store), token: TOKEN, getActiveMechanicContextProvider: null }), /trusted application callback/);
+  } finally {
+    store.close();
+  }
+});
+
+
+test('proposal policy boundary rejects a proposal pinned to a rotated active provider', () => {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  let activeProvider = {
+    validateMechanicPolicy(identity) {
+      return identity.policyVersion === 'policy-v1' && identity.authorizationScope === 'npc:alice';
+    },
+  };
+  const proposals = new ProposalService(engine, {
+    validateMechanicPolicy: createActiveMechanicPolicyValidator(() => activeProvider),
+  });
+  const row = {
+    world_id: 'policy-rotation-world',
+    mechanic_execution_json: JSON.stringify({
+      context_policy_version: 'policy-v1',
+      authorization_scope: 'npc:alice',
+      snapshot_identity: { world_id: 'policy-rotation-world' },
+    }),
+  };
+  try {
+    assert.doesNotThrow(() => proposals.assertMechanicPolicyCurrent(row, 'approval'));
+    activeProvider = {
+      validateMechanicPolicy(identity) {
+        return identity.policyVersion === 'policy-v2' && identity.authorizationScope === 'npc:alice';
+      },
+    };
+    assert.throws(
+      () => proposals.assertMechanicPolicyCurrent(row, 'commit'),
+      (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'commit',
+    );
+  } finally {
+    store.close();
+  }
+});
+
+
+test('mechanic proposal policy boundary stays closed without a trusted validator or valid pinned identity', () => {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  const unconfigured = new ProposalService(engine);
+  const row = {
+    world_id: 'policy-fail-closed-world',
+    mechanic_execution_json: JSON.stringify({
+      context_policy_version: 'policy-v1',
+      authorization_scope: 'npc:alice',
+      snapshot_identity: { world_id: 'policy-fail-closed-world' },
+    }),
+  };
+  try {
+    assert.throws(
+      () => unconfigured.assertMechanicPolicyCurrent(row, 'approval'),
+      (error) => error.code === 'MECHANIC_POLICY_REVALIDATION_REQUIRED',
+    );
+
+    const configured = new ProposalService(engine, {
+      validateMechanicPolicy: () => true,
+    });
+    const malformed = {
+      ...row,
+      mechanic_execution_json: JSON.stringify({ context_policy_version: '', authorization_scope: 'npc:alice' }),
+    };
+    assert.throws(
+      () => configured.assertMechanicPolicyCurrent(malformed, 'commit'),
+      (error) => error.code === 'STALE_MECHANIC_POLICY' && error.details?.stage === 'commit',
+    );
+  } finally {
+    store.close();
+  }
 });
