@@ -158,9 +158,7 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.beforeMutation('edit-message', [this_edit_mes_id]);
      let { mesBlock, text, mes, bias } = updateMessage(div);
  
-@@ -8429,5 +8502,6 @@
-     }
- 
+@@ -8431,3 +8504,4 @@
      await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
      this_edit_mes_id = undefined;
      await saveChatConditional();
