@@ -102,6 +102,12 @@ export class SQLiteMemoryProvider {
           ON DELETE CASCADE
       );
     `);
+    // Older provider databases predate typed failure diagnostics. Preserve their
+    // readiness state while adding the provider-internal column used for safe triage.
+    const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
+    if (!stateColumns.some((column) => column.name === 'failure_code')) {
+      this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+    }
   }
 
   #withImmediateTransaction(work) {
