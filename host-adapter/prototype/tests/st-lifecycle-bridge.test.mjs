@@ -44,7 +44,8 @@ class FakeDB {
   finish() { const tx = this.txs.shift(); if (tx) setImmediate(() => tx.oncomplete?.()); }
 }
 
-function makeFixture({ failSave = false } = {}) {
+function makeFixture() {
+  let failSave = false;
   const db = new FakeDB();
   const journal = new HostLifecycleJournal(db);
   const chat = [{ is_user: true, mes: 'hello' }, { is_user: false, mes: 'answer' }];
@@ -58,7 +59,7 @@ function makeFixture({ failSave = false } = {}) {
       if (failSave) throw Error('simulated native chat save failure');
     },
   });
-  return { db, journal, chat, bridge, get saveCount() { return saveCount; } };
+  return { db, journal, chat, bridge, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
 
 test('enrolled bridge writes event IDs and advances the fingerprint after an edit', async () => {
@@ -96,10 +97,14 @@ test('restart reconciliation fails closed when source changed after the last jou
 });
 
 test('native save failure leaves the journal behind so the next mutation fails closed', async () => {
-  const f = makeFixture({ failSave: true });
-  await f.bridge.enrollCurrentConversation().catch(() => {});
-  // Enrollment save failure must not permit a mutation with an unpersisted mapping.
-  await assert.rejects(f.bridge.beforeMutation('edit-message', [0]), /missing durable identity mapping|fingerprint differs/);
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('edit-message', [0]);
+  f.chat[0].mes = 'changed by edit';
+  f.setFailSave(true);
+  await assert.rejects(f.bridge.afterMutation('edit-message'), /simulated native chat save failure/);
+  f.setFailSave(false);
+  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
 });
 
 test('empty chat enrollment is explicit and does not imply pre-enrollment history', async () => {
