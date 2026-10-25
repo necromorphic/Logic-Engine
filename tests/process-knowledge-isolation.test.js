@@ -38,7 +38,6 @@ const processInput = (worldId = 'world-a') => ({
       event: { turn_id: 'knowledge-boundary-second-event', event_type: 'process.milestone', effects: [] },
     },
   ],
-  world_id: worldId,
 });
 
 test('process completion is isolated from NPC knowledge, delivery, and receipt side effects', (t) => {
