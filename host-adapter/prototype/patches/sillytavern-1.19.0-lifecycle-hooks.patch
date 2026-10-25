@@ -113,18 +113,7 @@ diff --git a/public/script.js b/public/script.js
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
      }
-@@ -3621,14 +3677,20 @@
-     async onStartStreaming(text) {
-         const continueOnReasoning = !!(this.type === 'continue' && this.promptReasoning.prefixReasoning);
-         if (continueOnReasoning) {
-             this.reasoningHandler.initContinue(this.promptReasoning);
-         }
-
-         let messageId = -1;
-
-         if (this.type == 'impersonate') {
-             this.sendTextarea.value = '';
-             this.sendTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+@@ -3632,3 +3688,9 @@ async onStartStreaming(text) {
          } else {
 +            this.logicEngineLifecycleOperation = this.type === 'swipe' ? 'create-swipe'
 +                : ['append', 'continue', 'appendFinal'].includes(this.type) ? 'edit-message' : 'create-message';
