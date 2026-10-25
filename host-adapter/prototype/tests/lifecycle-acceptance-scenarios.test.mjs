@@ -117,23 +117,21 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
   assert.ok(beforeSelect > standardSwipe, 'expected pre-mutation select-swipe hook');
   assert.ok(loadSelectedSwipe > beforeSelect, 'select-swipe write-ahead hook must precede loadFromSwipeId');
 
-  // Streaming mutates the native message on every token. The write-ahead
-  // checkpoint belongs before placeholder creation, and the successful final
-  // checkpoint must happen before an auto-swipe can begin. Cancel/error paths
+  // Streaming mutates the native message on every token. saveReply must
+  // journal the pre-mutation state, then defer the post-mutation checkpoint
+  // until the streaming finalizer has the complete output. Cancel/error paths
   // intentionally do not advance the checkpoint and therefore remain NON_READY.
-  const onStartStreaming = patch.indexOf('async onStartStreaming(text)');
-  const beforeStream = patch.indexOf('beforeMutation(this.logicEngineLifecycleOperation', onStartStreaming);
-  const saveStreamingPlaceholder = patch.indexOf('await saveReply({ type: this.type, getMessage: text, fromStreaming: true })', onStartStreaming);
-  assert.ok(onStartStreaming >= 0 && beforeStream > onStartStreaming, 'expected streaming write-ahead hook');
-  assert.ok(saveStreamingPlaceholder > beforeStream, 'streaming write-ahead hook must precede placeholder mutation');
-
+  const saveReplyStart = patch.indexOf('const lifecycleOriginalChatLength = chat.length');
+  const beforeStream = patch.indexOf('beforeMutation(lifecycleOperation', saveReplyStart);
+  const skipIntermediateCheckpoint = patch.indexOf('if (!fromStreaming) await lifecycleBridge.afterMutation(lifecycleOperation', saveReplyStart);
   const onFinishStreaming = patch.indexOf('async onFinishStreaming(messageId, text)');
-  const afterStream = patch.indexOf('afterMutation(this.logicEngineLifecycleOperation', onFinishStreaming);
+  const afterStream = patch.indexOf('afterMutation(lifecycleOperation', onFinishStreaming);
   const streamAbortCheck = patch.indexOf('const isAborted = this.abortController.signal.aborted', onFinishStreaming);
   const autoSwipe = patch.indexOf('power_user.auto_swipe', onFinishStreaming);
+  assert.ok(saveReplyStart >= 0 && beforeStream > saveReplyStart, 'expected saveReply write-ahead hook');
+  assert.ok(skipIntermediateCheckpoint > beforeStream, 'streaming saveReply must defer checkpoint');
   assert.ok(onFinishStreaming >= 0 && afterStream > streamAbortCheck, 'expected successful streaming finalization checkpoint');
   assert.ok(autoSwipe > afterStream, 'streaming checkpoint must precede any auto-swipe mutation');
-  assert.ok(patch.includes('fromStreaming ? null : await getLogicEngineLifecycleBridge()'), 'saveReply must not double-hook streaming updates');
 
   // These are explicit acceptance gaps, not passing coverage. Any future claim
   // of completeness must add native hooks and runtime evidence for them.
