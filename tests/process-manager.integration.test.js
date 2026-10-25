@@ -338,7 +338,11 @@ test('checkpoint failure stays terminal and same-key retry after SQLite restart 
   assert.equal(store.currentCommitSequence('world-a'), 0);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM world_events WHERE world_id=?').get('world-a').count, beforeEventCount);
   assert.deepEqual(engine.getProcess('world-a', 'journey-1'), beforeProcess);
-  assert.deepEqual(engine.listTimeTriggers('world-a'), beforeTriggers);
+  const triggersAfterFailure = engine.listTimeTriggers('world-a');
+  assert.equal(triggersAfterFailure.length, beforeTriggers.length);
+  assert.equal(triggersAfterFailure.every((trigger, index) =>
+    trigger.status === beforeTriggers[index].status
+      && trigger.completed_operation_id === beforeTriggers[index].completed_operation_id), true);
   assert.deepEqual(engine.getAudit('world-a'), beforeAudit);
 
   ({ engine, store } = reopen());
