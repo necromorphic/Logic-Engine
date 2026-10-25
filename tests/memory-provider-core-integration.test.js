@@ -31,6 +31,7 @@ function setup(t, { twoRecords = false } = {}) {
   bindings.bind(worldId, adapterId, actorId);
   let provider;
   let triggerRace = false;
+  let triggerQueryRevocation = false;
   const snapshotReader = async (id) => {
     const snapshot = engine.getSnapshot(id);
     return { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence };
@@ -40,6 +41,10 @@ function setup(t, { twoRecords = false } = {}) {
     if (triggerRace && record.record_ref === 'memory:record-b') {
       triggerRace = false;
       provider.revokeRecord(scope, 'memory:record-a', 'record-v1');
+    }
+    if (triggerQueryRevocation && record.record_ref === 'memory:record-a') {
+      triggerQueryRevocation = false;
+      provider.grantQuery(scope, false);
     }
     try {
       const snapshot = engine.getSnapshot(record.world_id, { entityIds: [record.source_entity_id] });
@@ -87,6 +92,7 @@ function setup(t, { twoRecords = false } = {}) {
       return provider.reconcile(worldId);
     },
     triggerRace() { triggerRace = true; },
+    triggerQueryRevocation() { triggerQueryRevocation = true; },
   };
 }
 
@@ -114,6 +120,19 @@ test('real provider revocation during candidate B authorization excludes previou
   assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
+test('query access revoked during candidate source validation never becomes ready-empty', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.triggerQueryRevocation();
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.notEqual(result.status, 'ready');
+});
+
 test('Core rollback with unchanged commit_sequence invalidates provider currentness', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
