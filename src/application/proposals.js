@@ -81,7 +81,7 @@ export class ProposalService {
     if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
     const sequence = this.engine.store.currentCommitSequence(worldId);
     const request = { source_text: body.source_text, event: body.event };
-    const requestHash = hashRequest(request);
+    const requestHash = hashRequest(mechanicExecution === null ? request : { ...request, mechanic_execution: mechanicExecution });
     const existing = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND idempotency_key=?').get(worldId, body.idempotency_key.trim());
     if (existing) {
       if (existing.created_by_adapter_id !== adapterId) throw new EngineError('PROPOSAL_ADAPTER_MISMATCH', 'Proposal idempotency key belongs to another adapter.', 403);
