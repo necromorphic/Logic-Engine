@@ -160,6 +160,7 @@ test('uncovered import, restore, and chat-delete UI entry points invoke the fail
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
   const guards = [
     "await lifecycleBridge.beforeMutation('delete-chat', [], { characterId, fileName });",
+    "await lifecycleBridge.beforeMutation('delete-character-chat-recursive', [], { characterKey });",
     "await lifecycleBridge.beforeMutation('import-character-chat');",
     "await window.logicEngineHostLifecycle.guardOperation('delete-group-chat', [], { groupId, chatName });",
     "await window.logicEngineHostLifecycle.guardOperation('import-group-chat');",
