@@ -196,3 +196,32 @@ test('unavailable bridge re-checks enrollment marker for the current chat before
     /NON_READY: enrolled Host journal unavailable: IndexedDB unavailable/,
   );
 });
+
+test('pre-mutation rejects duplicate or out-of-range indexes and reconciliation rejects identity collisions', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+
+  await assert.rejects(
+    f.bridge.beforeMutation('delete-message', [0, 0]),
+    /duplicate source message indexes/,
+  );
+  await assert.rejects(
+    f.bridge.beforeMutation('delete-message', [f.chat.length]),
+    /invalid source message index/,
+  );
+
+  f.chat[1]._logicEngineLifecycle.versions[0].versionId =
+    f.chat[0]._logicEngineLifecycle.versions[0].versionId;
+  const result = await f.bridge.reconcileCurrentConversation();
+  assert.equal(result.status, 'NON_READY');
+  assert.match(result.reason, /duplicate logical version identity/);
+});
+
+test('reconciliation rejects identity metadata whose digest no longer matches native message content', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  f.chat[0]._logicEngineLifecycle.versions[0].payloadDigest = 'tampered-digest';
+  const result = await f.bridge.reconcileCurrentConversation();
+  assert.equal(result.status, 'NON_READY');
+  assert.match(result.reason, /version digest does not match native source content/);
+});

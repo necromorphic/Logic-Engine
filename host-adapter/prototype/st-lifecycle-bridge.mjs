@@ -71,6 +71,12 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       throw Error('NON_READY: source fingerprint differs from journal; abort mutation');
     }
     if (!Array.isArray(messageIndexes)) throw TypeError('messageIndexes must be an array');
+    if (messageIndexes.some(index => !Number.isInteger(index) || index < 0 || index >= chat.length)) {
+      throw Error('NON_READY: mutation contains an invalid source message index; abort mutation');
+    }
+    if (new Set(messageIndexes).size !== messageIndexes.length) {
+      throw Error('NON_READY: mutation contains duplicate source message indexes; abort mutation');
+    }
 
     const affectedVersions = [];
     for (const index of messageIndexes) {
@@ -127,7 +133,8 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
         const textDigest = await contentDigest(versions[j]);
         const prior = identity.versions[j];
         if (prior && prior.payloadDigest === textDigest) {
-          nextVersions.push(prior);
+          // Slot indexes can shift when a swipe is deleted; version identity must not.
+          nextVersions.push({ ...prior, versionIndex: j });
         } else {
           nextVersions.push({
             versionId: newId(),
@@ -181,11 +188,36 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       };
     }
     const chat = getChat();
-    const missingIdentity = chat.some(message => !message?._logicEngineLifecycle
-      || !Array.isArray(message._logicEngineLifecycle.versions)
-      || message._logicEngineLifecycle.versions.length !== rawVersions(message).length);
-    if (missingIdentity) {
-      return { status: 'NON_READY', reason: 'native identity metadata is missing or does not match current versions' };
+    const messageIds = new Set();
+    const versionIds = new Set();
+    for (const message of chat) {
+      const identity = message?._logicEngineLifecycle;
+      const versions = rawVersions(message);
+      if (!identity || typeof identity.messageId !== 'string' || !identity.messageId
+        || !Array.isArray(identity.versions) || identity.versions.length !== versions.length) {
+        return { status: 'NON_READY', reason: 'native identity metadata is missing or does not match current versions' };
+      }
+      if (messageIds.has(identity.messageId)) {
+        return { status: 'NON_READY', reason: 'duplicate logical message identity' };
+      }
+      messageIds.add(identity.messageId);
+      if (!Number.isInteger(identity.activeVersionIndex)
+        || identity.activeVersionIndex < 0
+        || identity.activeVersionIndex >= versions.length
+        || identity.activeVersionIndex !== activeIndex(message)) {
+        return { status: 'NON_READY', reason: 'active version selection does not match native source' };
+      }
+      for (let index = 0; index < versions.length; index++) {
+        const version = identity.versions[index];
+        if (!version || typeof version.versionId !== 'string' || !version.versionId
+          || versionIds.has(version.versionId)) {
+          return { status: 'NON_READY', reason: 'missing or duplicate logical version identity' };
+        }
+        versionIds.add(version.versionId);
+        if (version.payloadDigest !== await contentDigest(versions[index])) {
+          return { status: 'NON_READY', reason: 'version digest does not match native source content' };
+        }
+      }
     }
     // Integrity is not completeness: this patch does not intercept every mutation
     // path. Keep reconciliation NON_READY until all required paths are wired.

@@ -58,6 +58,7 @@ test('swipe deletion preserves surviving version IDs and does not treat selectio
 
   const after = f.chat[1]._logicEngineLifecycle;
   assert.deepEqual(after.versions.map(v => v.versionId), [ids[0], ids[2]]);
+  assert.deepEqual(after.versions.map(v => v.versionIndex), [0, 1]);
   assert.equal(after.activeVersionIndex, 1);
   assert.equal((await f.journal.verifyIntegrity('scenario-chat')).status, 'INTEGRITY_OK');
 });
