@@ -604,8 +604,7 @@ test('same message identity in a different conversation is isolated; deletion do
       AND c.version_id=a.version_id
     WHERE a.world_id=? AND a.conversation_id=? AND a.message_id=?`)
     .all(branch.world_id, branch.conversation_id, branch.message_id);
-  assert.deepEqual(branchRows, [{
-    version_id: branch.version_id,
-    content_text: branch.content,
-  }]);
+  assert.equal(branchRows.length, 1);
+  assert.equal(branchRows[0].version_id, branch.version_id);
+  assert.equal(branchRows[0].content_text, branch.content);
 });
