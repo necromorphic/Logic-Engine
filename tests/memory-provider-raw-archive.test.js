@@ -532,6 +532,25 @@ test('an edit is a new immutable version; exact-version deletion leaves the sele
     }),
     /MEMORY_RAW_VERSION_UNAVAILABLE/,
   );
+
+  // Restart must not revive the tombstoned old version or lose the selected edit.
+  s.reopen();
+  const activeAfterRestart = await s.provider.readActiveRawMessages({
+    world_id: original.world_id,
+    conversation_id: original.conversation_id,
+  });
+  assert.equal(activeAfterRestart.length, 1);
+  assert.equal(activeAfterRestart[0].version_id, edited.version_id);
+  assert.equal(activeAfterRestart[0].content, edited.content);
+  await assert.rejects(
+    () => s.provider.readRawMessageVersion({
+      world_id: original.world_id,
+      conversation_id: original.conversation_id,
+      message_id: original.message_id,
+      version_id: original.version_id,
+    }),
+    /MEMORY_RAW_VERSION_UNAVAILABLE/,
+  );
 });
 
 test('raw lifecycle operations reject incomplete identity tuples instead of guessing a target', (t) => {
