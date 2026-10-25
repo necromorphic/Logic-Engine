@@ -59,7 +59,7 @@ export class HostLifecycleJournal {
   }
   async beforeMutation(args) {
     if(!Array.isArray(args.affectedVersions)) throw TypeError('affectedVersions must be an array');
-    const result=await this.append({...args,operation:'before:'+args.operation,payload:{affectedVersions:args.affectedVersions}});
+    const result=await this.append({...args,operation:'before:'+args.operation,payload:{affectedVersions:args.affectedVersions,details:args.details??{}}});
     if(result?.status==='NON_READY') throw Error('NON_READY: '+result.reason+'; caller MUST abort mutation');
     return result;
   }
