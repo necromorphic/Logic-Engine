@@ -28,7 +28,7 @@ All references below are in the exact pinned revision above:
 - public/script.js line 8397 — messageEditDone(); current content is updated before the post-mutation MESSAGE_EDITED event.
 - public/script.js line 9339 — deleteSwipe(); message.swipes.splice() and swipe_info.splice() are destructive operations.
 
-These locations were inspected in source through GitHub at the pinned SHA. No mutation hook was added in this commit. The following are explicitly uninstrumented: message creation, all generation variants, edit, swipe selection, cancellation/partial generation, bulk deletion/clear, chat switching, import/export, copy/branch/restore, external chat-file edits, and restart/replay against real ST persistence.
+These locations were inspected in source through GitHub at the pinned SHA. A proposed unified-diff hook artifact is at host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch. It has not yet been apply-checked against a disposable checkout, so do not apply it to a working ST install. It expects the two prototype modules to be copied into public/scripts/logic-engine-lifecycle/ with their relative import preserved. The following are explicitly uninstrumented: message creation, all generation variants, edit, swipe selection, cancellation/partial generation, bulk deletion/clear, chat switching, import/export, copy/branch/restore, external chat-file edits, and restart/replay against real ST persistence.
 
 ## Local focused tests
 
