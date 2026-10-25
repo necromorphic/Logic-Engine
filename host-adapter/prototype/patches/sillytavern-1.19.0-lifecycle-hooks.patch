@@ -113,6 +113,33 @@ diff --git a/public/script.js b/public/script.js
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
      }
+@@ -3627,8 +3677,14 @@
+         let messageId = -1;
+ 
+         if (this.type == 'impersonate') {
+             this.sendTextarea.value = '';
+             this.sendTextarea.dispatchEvent(new Event('input', { bubbles: true }));
+         } else {
++            this.logicEngineLifecycleOperation = this.type === 'swipe' ? 'create-swipe'
++                : ['append', 'continue', 'appendFinal'].includes(this.type) ? 'edit-message' : 'create-message';
++            const lifecycleBridge = await getLogicEngineLifecycleBridge();
++            await lifecycleBridge.beforeMutation(this.logicEngineLifecycleOperation,
++                this.logicEngineLifecycleOperation === 'create-message' ? [] : [chat.length - 1]);
+             await saveReply({ type: this.type, getMessage: text, fromStreaming: true });
+             messageId = chat.length - 1;
++            this.logicEngineLifecycleCreatedIndex = messageId;
+@@ -3808,6 +3864,12 @@
+     async onFinishStreaming(messageId, text) {
+         await this.finalizeIntermediaryMessage(messageId, text, { unlockUI: true });
+ 
+         const isAborted = this.abortController.signal.aborted;
++        if (!isAborted && this.type !== 'impersonate') {
++            const lifecycleBridge = await getLogicEngineLifecycleBridge();
++            await lifecycleBridge.afterMutation(this.logicEngineLifecycleOperation, {
++                createdMessageIndex: this.logicEngineLifecycleOperation === 'create-message' ? this.logicEngineLifecycleCreatedIndex : null,
++            });
++        }
+         if (!isAborted && power_user.auto_swipe && generatedTextFiltered(text)) {
 @@ -5905,17 +5961,22 @@
      chat_metadata.tainted = true;
  
@@ -141,17 +168,17 @@ diff --git a/public/script.js b/public/script.js
      }
 +
 +    const lifecycleOriginalChatLength = chat.length;
-+    const lifecycleBridge = await getLogicEngineLifecycleBridge();
++    const lifecycleBridge = fromStreaming ? null : await getLogicEngineLifecycleBridge();
 +    const lifecycleOperation = type === 'swipe' ? 'create-swipe'
 +        : ['append', 'continue', 'appendFinal'].includes(type) ? 'edit-message'
 +            : 'create-message';
-+    if (chat.length && lifecycleOperation !== 'create-message') {
++    if (lifecycleBridge && chat.length && lifecycleOperation !== 'create-message') {
 +        await lifecycleBridge.beforeMutation(lifecycleOperation, [chat.length - 1]);
 +    }
  
 @@ -6827,3 +6897,6 @@
  
-+    await lifecycleBridge.afterMutation(lifecycleOperation, {
++    if (lifecycleBridge) await lifecycleBridge.afterMutation(lifecycleOperation, {
 +        createdMessageIndex: lifecycleOperation === 'create-message' ? lifecycleOriginalChatLength : null,
 +    });
      statMesProcess(item, type, characters, this_chid, oldMessage);
