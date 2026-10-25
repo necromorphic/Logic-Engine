@@ -40,7 +40,9 @@ test('readiness remains fail-closed when a mutation path is not instrumented',as
  const journal=new HostLifecycleJournal(new FakeDB());await journal.enroll(seed());
  const result=await journal.status('chat-1',{instrumentedPaths:['delete-message'],sourceFingerprintMatches:true});
  assert.equal(result.status,'NON_READY');assert.ok(result.missingPaths.includes('create-message'));
- assert.equal(lifecycleJournalContract.requiredCoveragePaths.length, 25);
+ for (const path of ['delete-chat', 'delete-group-chat', 'delete-character-chat-recursive', 'import-character-chat', 'import-group-chat', 'backup-restore', 'create-branch', 'group-metadata-migration']) {
+  assert.ok(lifecycleJournalContract.requiredCoveragePaths.includes(path), `missing required lifecycle coverage path: ${path}`);
+ }
 });
 test('mutation before enrollment is NON_READY',async()=>{
  const journal=new HostLifecycleJournal(new FakeDB());
