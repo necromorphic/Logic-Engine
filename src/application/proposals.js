@@ -87,11 +87,20 @@ export class ProposalService {
       };
     } catch (error) {
       if (error.code !== 'DURATION_NEEDS_AUTHOR') throw error;
-      validation = this.engine.validateEvent(worldId, {
+      const validationPayload = {
         ...eventPayload,
         idempotency_key: validationKey,
         expected_revision: world.world_revision,
+      };
+      // The duration remains unresolved at proposal creation, but generic event
+      // validation must still run without re-entering the TimePolicy approval gate.
+      const preparedForValidation = this.engine.prepareEvent(validationPayload);
+      preparedForValidation.request_hash = hashRequest({
+        operation: 'event.validate',
+        request_hash: preparedForValidation.request_hash,
+        idempotency_key: preparedForValidation.idempotency_key,
       });
+      validation = this.engine.store.validateCommit(worldId, preparedForValidation);
       timePolicyValidation = { status: 'needs_author', code: error.code, decision: error.details };
     }
     const validationResult = {
