@@ -1,0 +1,484 @@
+{
+  "$comment": "Review-only semantic acceptance corpus. This fixture format is test-only, not a runtime API/schema and not proof of LLM behavior.",
+  "version": 1,
+  "cases": [
+    {
+      "id": "CI-001",
+      "name": "ambiguous flirt or teasing",
+      "utterance": "Careful. I might start thinking you like me.",
+      "context": [
+        "speaker often teases the listener",
+        "no explicit clarification"
+      ],
+      "source_status": "verified",
+      "expected_status": "assessed",
+      "candidates": [
+        "flirtation",
+        "teasing",
+        "boundary_testing"
+      ],
+      "must_preserve": [
+        "alternatives",
+        "uncertainty",
+        "source_provenance"
+      ],
+      "forbidden_promotions": [
+        "confirmed_intent",
+        "consent",
+        "relationship_change"
+      ]
+    },
+    {
+      "id": "CI-002",
+      "name": "threat framed as a joke",
+      "utterance": "Touch my people again and I'll bury you.",
+      "context": [
+        "speaker laughs while saying it",
+        "speaker has previously acted on warnings"
+      ],
+      "source_status": "verified",
+      "expected_status": "disputed",
+      "candidates": [
+        "threat",
+        "intimidation",
+        "theatrical_banter"
+      ],
+      "must_preserve": [
+        "mixed_intent_possible",
+        "contradictory_evidence"
+      ],
+      "forbidden_promotions": [
+        "joke_cancels_threat",
+        "consent",
+        "canonical_fact"
+      ]
+    },
+    {
+      "id": "CI-003",
+      "name": "flirtation without consent",
+      "utterance": "You look good tonight.",
+      "context": [
+        "compliment in a social conversation",
+        "no invitation or agreement"
+      ],
+      "source_status": "verified",
+      "expected_status": "assessed",
+      "candidates": [
+        "compliment",
+        "flirtation",
+        "friendly_warmth"
+      ],
+      "must_preserve": [
+        "uncertainty"
+      ],
+      "forbidden_promotions": [
+        "consent",
+        "permission_to_touch",
+        "permission_to_escalate"
+      ]
+    },
+    {
+      "id": "CI-004",
+      "name": "explicit boundary overrides flirt hypothesis",
+      "utterance": "I was flirting, but I do not want you to touch me.",
+      "context": [
+        "speaker explicitly states boundary"
+      ],
+      "source_status": "verified",
+      "expected_status": "assessed",
+      "candidates": [
+        "flirtation",
+        "explicit_refusal"
+      ],
+      "must_preserve": [
+        "explicit_boundary",
+        "scope_of_confirmation"
+      ],
+      "forbidden_promotions": [
+        "consent",
+        "permission_to_touch"
+      ]
+    },
+    {
+      "id": "CI-005",
+      "name": "sarcasm mistaken for reassurance",
+      "utterance": "Oh, sure, everything is going wonderfully.",
+      "context": [
+        "speaker is facing an obvious crisis",
+        "previous sentence expresses frustration"
+      ],
+      "source_status": "verified",
+      "expected_status": "assessed",
+      "candidates": [
+        "sarcasm",
+        "literal_reassurance",
+        "frustration"
+      ],
+      "must_preserve": [
+        "context_evidence",
+        "alternatives"
+      ],
+      "forbidden_promotions": [
+        "literal_truth",
+        "canonical_fact"
+      ]
+    },
+    {
+      "id": "CI-006",
+      "name": "manipulation mixed with genuine reassurance",
+      "utterance": "Trust me, I'm the only one who can protect you.",
+      "context": [
+        "speaker offers help",
+        "speaker benefits if listener becomes dependent"
+      ],
+      "source_status": "verified",
+      "expected_status": "disputed",
+      "candidates": [
+        "reassurance",
+        "manipulation",
+        "possessive_control"
+      ],
+      "must_preserve": [
+        "mixed_intent_possible",
+        "evidence_for_and_against"
+      ],
+      "forbidden_promotions": [
+        "speaker_is_objectively_trustworthy",
+        "canonical_fact"
+      ]
+    },
+    {
+      "id": "CI-007",
+      "name": "explicit clarification narrows interpretation",
+      "utterance": "I meant that as a warning, not a joke.",
+      "context": [
+        "earlier utterance had competing threat and banter readings",
+        "speaker clarifies their own stated intent"
+      ],
+      "source_status": "verified",
+      "expected_status": "assessed",
+      "candidates": [
+        "warning",
+        "threat",
+        "earlier_banter_hypothesis"
+      ],
+      "must_preserve": [
+        "interpretation_history",
+        "confirmation_scope"
+      ],
+      "forbidden_promotions": [
+        "erase_prior_history",
+        "erase_listener_belief",
+        "automatic_relationship_change"
+      ]
+    },
+    {
+      "id": "CI-008",
+      "name": "listener and speaker disagree",
+      "utterance": "I was only joking.",
+      "context": [
+        "listener reports feeling threatened",
+        "speaker denies threatening intent"
+      ],
+      "source_status": "verified",
+      "expected_status": "disputed",
+      "candidates": [
+        "speaker_claimed_joke",
+        "listener_perceived_threat",
+        "mixed_intent"
+      ],
+      "must_preserve": [
+        "separate_subject_claims",
+        "disagreement",
+        "source_provenance"
+      ],
+      "forbidden_promotions": [
+        "speaker_claim_equals_objective_truth",
+        "listener_claim_equals_objective_truth"
+      ]
+    },
+    {
+      "id": "CI-009",
+      "name": "two NPCs interpret the same line differently",
+      "utterance": "You'll regret this.",
+      "context": [
+        "NPC-A knows the speaker's history of playful rivalry",
+        "NPC-B witnessed a recent violent incident"
+      ],
+      "source_status": "verified",
+      "expected_status": "assessed",
+      "candidates": [
+        "banter",
+        "warning",
+        "threat"
+      ],
+      "must_preserve": [
+        "subject_relative_interpretations",
+        "distinct_contexts"
+      ],
+      "forbidden_promotions": [
+        "shared_belief_without_communication",
+        "single_global_npc_belief"
+      ]
+    },
+    {
+      "id": "CI-010",
+      "name": "edited source reverses meaning",
+      "utterance": "I will not help you.",
+      "context": [
+        "previous source revision was 'I will help you'"
+      ],
+      "source_status": "edited_revision",
+      "expected_status": "stale_then_reassess",
+      "candidates": [
+        "refusal",
+        "revised_intent"
+      ],
+      "must_preserve": [
+        "prior_interpretation_history",
+        "revision_lineage",
+        "reassessment"
+      ],
+      "forbidden_promotions": [
+        "reuse_old_interpretation_as_current",
+        "silently_rewrite_past_belief"
+      ]
+    },
+    {
+      "id": "CI-011",
+      "name": "deleted source invalidates dependent reading",
+      "utterance": "I'll be there at midnight.",
+      "context": [
+        "the source message was deleted after an interpretation was created"
+      ],
+      "source_status": "deleted",
+      "expected_status": "stale_or_withheld",
+      "candidates": [
+        "promise",
+        "plan",
+        "bluff"
+      ],
+      "must_preserve": [
+        "history",
+        "invalidation"
+      ],
+      "forbidden_promotions": [
+        "current_use_without_valid_source",
+        "leak_via_summary"
+      ]
+    },
+    {
+      "id": "CI-012",
+      "name": "unknown source identity",
+      "utterance": "I never said that.",
+      "context": [
+        "message index changed after deletion",
+        "no durable source/version identity can be verified"
+      ],
+      "source_status": "unverifiable",
+      "expected_status": "unverified_non_ready",
+      "candidates": [
+        "denial",
+        "dispute",
+        "misattribution"
+      ],
+      "must_preserve": [
+        "source_uncertainty"
+      ],
+      "forbidden_promotions": [
+        "durably_grounded",
+        "confirmed_intent",
+        "canonical_fact"
+      ]
+    },
+    {
+      "id": "CI-013",
+      "name": "ambiguous emoji and short reply",
+      "utterance": "Fine 🙂",
+      "context": [
+        "preceding request is emotionally charged",
+        "speaker uses emoji inconsistently"
+      ],
+      "source_status": "verified",
+      "expected_status": "disputed",
+      "candidates": [
+        "agreement",
+        "reluctant_acceptance",
+        "sarcasm",
+        "deescalation"
+      ],
+      "must_preserve": [
+        "ambiguity",
+        "context_dependence"
+      ],
+      "forbidden_promotions": [
+        "unqualified_consent",
+        "certain_agreement"
+      ]
+    },
+    {
+      "id": "CI-014",
+      "name": "threat and affection coexist",
+      "utterance": "I love you, and I will destroy anyone who hurts you.",
+      "context": [
+        "relationship is close",
+        "speaker has a history of possessive behavior"
+      ],
+      "source_status": "verified",
+      "expected_status": "disputed",
+      "candidates": [
+        "affection",
+        "protective_intent",
+        "threat",
+        "possessive_control"
+      ],
+      "must_preserve": [
+        "mixed_intent_possible",
+        "nonexclusive_candidates"
+      ],
+      "forbidden_promotions": [
+        "affection_cancels_threat",
+        "threat_proves_love"
+      ]
+    },
+    {
+      "id": "CI-015",
+      "name": "literal request versus indirect hint",
+      "utterance": "It's cold in here.",
+      "context": [
+        "speaker looks toward an open window",
+        "no explicit request is spoken"
+      ],
+      "source_status": "verified",
+      "expected_status": "assessed",
+      "candidates": [
+        "literal_observation",
+        "indirect_request",
+        "complaint"
+      ],
+      "must_preserve": [
+        "inference_label",
+        "alternatives"
+      ],
+      "forbidden_promotions": [
+        "explicit_request",
+        "authorization_to_act"
+      ]
+    },
+    {
+      "id": "CI-016",
+      "name": "quoted or role-played threat",
+      "utterance": "He said, 'I'll kill you.'",
+      "context": [
+        "speaker is reporting a third party's words"
+      ],
+      "source_status": "verified",
+      "expected_status": "assessed",
+      "candidates": [
+        "reported_threat",
+        "quotation",
+        "speaker_repetition"
+      ],
+      "must_preserve": [
+        "speaker_attribution",
+        "quoted_source_distinction"
+      ],
+      "forbidden_promotions": [
+        "attribute_threat_to_reporter_without_evidence"
+      ]
+    },
+    {
+      "id": "CI-017",
+      "name": "reassurance contradicted by observed action",
+      "utterance": "Nobody will hurt you while I'm here.",
+      "context": [
+        "speaker leaves the vulnerable person alone immediately afterward"
+      ],
+      "source_status": "verified",
+      "expected_status": "disputed",
+      "candidates": [
+        "reassurance",
+        "failed_promise",
+        "manipulation"
+      ],
+      "must_preserve": [
+        "utterance_vs_outcome",
+        "later_evidence"
+      ],
+      "forbidden_promotions": [
+        "promise_equals_outcome",
+        "intent_equals_fact"
+      ]
+    },
+    {
+      "id": "CI-018",
+      "name": "cultural or world-pack convention",
+      "utterance": "You're asking for trouble, aren't you?",
+      "context": [
+        "world pack defines a local idiom",
+        "the rule version is pinned and available"
+      ],
+      "source_status": "verified",
+      "expected_status": "assessed",
+      "candidates": [
+        "warning",
+        "teasing",
+        "challenge"
+      ],
+      "must_preserve": [
+        "rule_version_provenance",
+        "contextual_alternatives"
+      ],
+      "forbidden_promotions": [
+        "world_rule_overrides_source_validity",
+        "universal_taxonomy_assumption"
+      ]
+    },
+    {
+      "id": "CI-019",
+      "name": "world-pack rule missing or changed",
+      "utterance": "You have invoked the old honor phrase.",
+      "context": [
+        "interpretation depends on a world-pack rule version that is unavailable"
+      ],
+      "source_status": "context_rule_unavailable",
+      "expected_status": "unverified_non_ready",
+      "candidates": [
+        "honor_challenge",
+        "ritual_phrase",
+        "unknown"
+      ],
+      "must_preserve": [
+        "missing_rule_status",
+        "uncertainty"
+      ],
+      "forbidden_promotions": [
+        "fallback_to_latest_rule",
+        "confirmed_intent"
+      ]
+    },
+    {
+      "id": "CI-020",
+      "name": "model confidence is not authority",
+      "utterance": "I know exactly what you want.",
+      "context": [
+        "model proposes one interpretation with high confidence",
+        "no independent confirmation exists"
+      ],
+      "source_status": "verified",
+      "expected_status": "assessed",
+      "candidates": [
+        "assertion",
+        "projection",
+        "manipulation"
+      ],
+      "must_preserve": [
+        "confidence_authority_separation"
+      ],
+      "forbidden_promotions": [
+        "confidence_equals_confirmation",
+        "infer_player_private_state"
+      ]
+    }
+  ]
+}
