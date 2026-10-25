@@ -56,7 +56,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
 
   async function beforeMutation(operation, messageIndexes, details = {}) {
     const conversationId = getConversationId();
-    if (!conversationId || !(await journal.isEnrolled(conversationId))) return { status: 'NOT_ENROLLED' };
+    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     const chat = getChat(), fingerprint = await currentFingerprint(chat);
     const latestFingerprint = await journal.latestSourceFingerprint(conversationId);
     if (latestFingerprint !== fingerprint) {
