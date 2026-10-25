@@ -212,7 +212,7 @@ diff --git a/public/script.js b/public/script.js
          swipeState = SWIPE_STATE.NONE;
          delete document.body.dataset.swiping;
 
-@@ -10104,5 +10104,13 @@
+@@ -10104,5 +10181,13 @@
      async function standardSwipe(newSwipeId) {
          //If swipe_id has changed, or the source is being deleted.
          if (newSwipeId !== originalSwipeId || source == SWIPE_SOURCE.DELETE || source == SWIPE_SOURCE.BACK) {
