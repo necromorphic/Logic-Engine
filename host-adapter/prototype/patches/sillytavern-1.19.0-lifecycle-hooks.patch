@@ -102,10 +102,13 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.beforeMutation('edit-message', [this_edit_mes_id]);
      let { mesBlock, text, mes, bias } = updateMessage(div);
  
-@@ -8431,2 +8490,3 @@
+@@ -8429,5 +8488,6 @@
+     }
+ 
      await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
 +    await lifecycleBridge.afterMutation('edit-message');
      this_edit_mes_id = undefined;
+     await saveChatConditional();
 @@ -9367,1 +9427,3 @@
 -    message.swipes.splice(swipeId, 1);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
