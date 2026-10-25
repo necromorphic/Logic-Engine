@@ -97,9 +97,6 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
           role: roleOf(message),
           parentVersionId: version.parentVersionId ?? null,
           payloadDigest: version.payloadDigest,
-          // Preserve the exact pre-mutation bytes so edit/delete cannot erase
-          // the last available source copy before the journal records it.
-          content: String(versions[versionIndex] ?? ''),
         });
       }
     }
@@ -173,8 +170,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
             payloadDigest: textDigest,
             parentVersionId,
           });
-          // Store content only for a new/changed immutable version, not for
-          // every unchanged version in every journal event.
+          // Store only identity, lineage and digest; raw content is excluded by the approved retention contract.
           versionPayloads.push({
             messageId: identity.messageId,
             versionId,
@@ -182,7 +178,6 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
             role: roleOf(message),
             parentVersionId,
             payloadDigest: textDigest,
-            content: String(versions[j] ?? ''),
           });
         }
       }
