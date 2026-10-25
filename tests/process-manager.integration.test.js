@@ -522,3 +522,65 @@ test('competing lifecycle checkpoints reject stale version and keep process, tri
   assert.deepEqual(engine.getAudit('world-a'), auditAfterWinner);
   assert.equal(engine.listTimeTriggers('world-a').every((trigger) => trigger.status === 'cancelled'), true);
 }));
+
+
+test('paused lifecycle state and trigger cancellation survive restart before resume', (t) => withDatabase(t, ({ engine, store, reopen }) => {
+  store.createWorld(worldInput());
+  const definition = processInput();
+  definition.milestones = definition.milestones.map((milestone, index) => ({
+    ...milestone,
+    due_coordinate: (index + 2) * 1000,
+  }));
+  const created = engine.createProcess('world-a', definition);
+  const originalDueCoordinates = created.process.milestones.map((milestone) => [
+    milestone.milestone_id, milestone.due_coordinate,
+  ]);
+  const originalTriggerIds = created.process.milestones.map((milestone) => milestone.trigger_id);
+
+  const paused = engine.transitionProcess('world-a', 'journey-1', {
+    action: 'pause',
+    expected_version: created.process.version,
+    idempotency_key: 'pause-before-restart',
+  });
+  assert.equal(paused.process.status, 'paused');
+  assert.equal(engine.listTimeTriggers('world-a').every((trigger) => trigger.status === 'cancelled'), true);
+
+  ({ engine } = reopen());
+  let process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'paused');
+  assert.deepEqual(process.milestones.map((milestone) => [
+    milestone.milestone_id, milestone.due_coordinate,
+  ]), originalDueCoordinates);
+  assert.deepEqual(process.milestones.map((milestone) => milestone.trigger_id), originalTriggerIds);
+  assert.equal(engine.listTimeTriggers('world-a').every((trigger) => trigger.status === 'cancelled'), true);
+
+  const resumed = engine.transitionProcess('world-a', 'journey-1', {
+    action: 'resume',
+    expected_version: process.version,
+    idempotency_key: 'resume-after-restart',
+  });
+  assert.equal(resumed.process.status, 'scheduled');
+  assert.deepEqual(resumed.process.milestones.map((milestone) => [
+    milestone.milestone_id, milestone.due_coordinate,
+  ]), originalDueCoordinates);
+  assert.equal(resumed.process.milestones.every((milestone) => !originalTriggerIds.includes(milestone.trigger_id)), true);
+
+  ({ engine } = reopen());
+  process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'scheduled');
+  assert.deepEqual(process.milestones.map((milestone) => [
+    milestone.milestone_id, milestone.due_coordinate,
+  ]), originalDueCoordinates);
+  assert.equal(process.milestones.every((milestone) => milestone.status === 'pending'), true);
+
+  const state = engine.getState('world-a');
+  const advance = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-after-pause-restart-resume',
+    expected_revision: state.world_revision,
+    to_coordinate: 2000,
+  });
+  assert.equal(advance.status, 'completed');
+  process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.progress.completed, 1);
+  assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'completed');
+}));
