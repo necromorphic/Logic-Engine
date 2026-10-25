@@ -33,8 +33,8 @@
 |---|---|
 | HTTP API, SQLite-журнал, проекции, базовые сущности/факты, аудит и идемпотентность | Есть в прототипе; гарантия ограничена кодом и тестами текущей версии |
 | Причинный откат и перестроение проекций | Частично реализованы; полная семантика независимых альтернативных причин не подтверждена |
-| Механики: approval → validation → canonical effects | Работа продолжается в открытой цепочке PR; не считать production-ready |
-| Recalculation/executor integration | PR #225 остаётся открытым Draft; executor ограничен и opt-in/disabled. CI ветки 391/391 не равен разрешению на production |
+| Механики: bounded effect-intent translation → proposal → approval → canonical commit | Ограниченный перевод трёх intent kinds и интеграция с существующим ProposalService находятся в `main` через PR #280; это не полноценный mechanic executor и не production approval |
+| Recalculation oracle / executor | Изолированный oracle и его тесты находятся в `main`; oracle не пересчитывает canonical world state. Полный dependency-aware executor, policy-freshness gate и production enablement не подтверждены |
 | Rollback transaction regression | Добавлена в рабочую ветку; сама по себе не закрывает полную policy-freshness интеграцию |
 | Типизированные отношения | Ограниченный admin-only transition есть; полноценный NPC-facing authorized read и причинная семантика не завершены |
 | Actor bindings / authorized read | Частичные инфраструктурные примитивы есть; полной модели приобретения знаний, убеждений, доставки и секретов нет |
@@ -81,6 +81,11 @@
 - `docs/21-stage1-causality-contract.md` — гарантии и ограничения текущей причинности, контракт будущей верификации.
 - `docs/25-universal-mechanics-system.md` — архитектура универсальной системы механик.
 - `docs/26-mechanics-contracts.md` — контракты шаблонов/экземпляров/модулей и текущая граница реализации.
+- `docs/32-mechanic-effect-translator-contract.md` — фактическая граница ограниченного translator (только `create_entity`, `update_attribute`, `assert_fact`).
+- `docs/33-mechanic-intent-proposal-boundary.md` — путь `effect_intents` через ProposalService и канонический commit.
+- `docs/34-mechanics-oracle-reconciliation.md` — что реально вошло в Mechanics/Core интеграцию и чего oracle не доказывает.
+- `docs/17-time-process-state-machine-proposal.md` — согласование Time scheduler с Process Manager runtime.
+- `docs/22-process-manager-runtime.md` — текущий runtime-контракт долговременных процессов.
 - `docs/57-core-evaluation-recalculation-boundary.md` — граница логического ядра: интерпретация, оценка, конфликты, commit, пересчёт производного состояния и авторизованная публикация; архитектурное предложение.
 
 ### Исполняемый прототип
