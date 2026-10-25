@@ -424,3 +424,46 @@ test('edit/delete checkpoints preserve identity and digests without retaining ra
   assert.equal(ledgerAfterDelete.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
   assert.equal(ledgerAfterDelete.status, 'REVIEW_ONLY');
 });
+
+test('fresh journal/bridge instances replay the persisted journal rows after restart', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('edit-message', [0]);
+  f.chat[0].mes = 'hello after restart';
+  await f.bridge.afterMutation('edit-message');
+
+  const rowsBeforeRestart = [...f.db.rows.values()]
+    .filter(row => row.conversationId === 'chat-1')
+    .sort((a, b) => a.sequence - b.sequence);
+  const headBeforeRestart = f.db.heads.get('chat-1');
+  assert.ok(rowsBeforeRestart.length >= 3);
+  assert.equal(headBeforeRestart.sequence, rowsBeforeRestart.at(-1).sequence);
+
+  // Simulate process restart by discarding both live objects and reconstructing
+  // them over the same persisted backing database. This remains a FakeDB test,
+  // not proof of real browser IndexedDB or Android/Termux crash durability.
+  const restartedJournal = new HostLifecycleJournal(f.db);
+  const restartedBridge = createStLifecycleBridge({
+    journal: restartedJournal,
+    getConversationId: () => 'chat-1',
+    getChat: () => f.chat,
+    saveChat: async () => {},
+  });
+  const integrity = await restartedJournal.verifyIntegrity('chat-1');
+  assert.equal(integrity.status, 'INTEGRITY_OK');
+  assert.equal(integrity.sequence, headBeforeRestart.sequence);
+
+  const ledger = await restartedJournal.exportCaptureLedger('chat-1');
+  assert.equal(ledger.status, 'REVIEW_ONLY');
+  assert.deepEqual(
+    ledger.records.map(row => [row.sequence, row.eventId, row.recordDigest]),
+    rowsBeforeRestart.map(row => [row.sequence, row.eventId, row.recordDigest]),
+  );
+
+  const reconciliation = await restartedBridge.reconcileCurrentConversation();
+  assert.equal(reconciliation.status, 'NON_READY');
+  assert.match(
+    reconciliation.reason,
+    /incomplete mutation instrumentation|native hook coverage|no trusted pinned-source attestation/,
+  );
+});
