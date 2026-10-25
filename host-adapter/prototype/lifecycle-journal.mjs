@@ -49,6 +49,14 @@ export class HostLifecycleJournal {
       return row;
     } finally { release(); if(this.#locks.get(conversationId)===chain) this.#locks.delete(conversationId); }
   }
+  async isEnrolled(cid) {
+    const rows = await this.#records(cid);
+    return rows.length > 0 && rows[0].operation === 'baseline';
+  }
+  async latestSourceFingerprint(cid) {
+    const rows = await this.#records(cid);
+    return rows.at(-1)?.sourceFingerprint ?? null;
+  }
   async beforeMutation(args) {
     if(!Array.isArray(args.affectedVersions)) throw TypeError('affectedVersions must be an array');
     const result=await this.append({...args,operation:'before:'+args.operation,payload:{affectedVersions:args.affectedVersions}});
@@ -73,4 +81,12 @@ export class HostLifecycleJournal {
   #fail(cid,reason) { this.#bad.set(cid,reason); return {status:'NON_READY',reason}; }
 }
 function txDone(tx) { return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||Error('IndexedDB transaction failed'));tx.onabort=()=>reject(tx.error||Error('IndexedDB transaction aborted'));}); }
+export async function fingerprintSource(messages) {
+  const projection = messages.map(message => ({
+    role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
+    versions: Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''],
+    activeVersionIndex: Number.isInteger(message.swipe_id) ? message.swipe_id : 0,
+  }));
+  return digest(projection);
+}
 export const lifecycleJournalContract=Object.freeze({schemaVersion:1,requiredMutationPaths:REQUIRED});
