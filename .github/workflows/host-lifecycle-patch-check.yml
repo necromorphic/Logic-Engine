@@ -17,21 +17,21 @@ jobs:
         with:
           repository: SillyTavern/SillyTavern
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
-          path: /tmp/sillytavern
+          path: sillytavern-host-checkout
       - name: Install prototype modules into the pinned host tree
         run: |
-          mkdir -p /tmp/sillytavern/public/scripts/logic-engine-lifecycle
-          cp host-adapter/prototype/lifecycle-journal.mjs /tmp/sillytavern/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
-          cp host-adapter/prototype/st-lifecycle-bridge.mjs /tmp/sillytavern/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+          mkdir -p sillytavern-host-checkout/public/scripts/logic-engine-lifecycle
+          cp host-adapter/prototype/lifecycle-journal.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
+          cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
       - name: Apply-check and apply the pinned-source patch
         run: |
-          cd /tmp/sillytavern
+          cd sillytavern-host-checkout
           git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
           git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
       - name: Syntax-check patched host and prototype modules
         run: |
-          node --check /tmp/sillytavern/public/script.js
-          node --check /tmp/sillytavern/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
-          node --check /tmp/sillytavern/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+          node --check sillytavern-host-checkout/public/script.js
+          node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
+          node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
       - name: Run focused journal unit tests
         run: node --test host-adapter/prototype/tests/lifecycle-journal.test.mjs
