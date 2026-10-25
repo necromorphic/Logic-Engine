@@ -22,7 +22,8 @@ The patch hooks the current source paths for:
 - edit through `messageEditDone()`;
 - swipe selection through `endSwipe()`;
 - pre-mutation swipe deletion through `deleteSwipe()`;
-- pre-mutation message deletion through `deleteMessage()` and `deleteLastMessage()`.
+- pre-mutation message deletion through `deleteMessage()` and `deleteLastMessage()`;
+- pre-mutation full chat-data clear through `clearChat({ clearData: true })`.
 
 The patch and bridge are still review-only; passing apply/lint/syntax checks is not runtime correctness evidence.
 
@@ -32,7 +33,7 @@ The bridge regression tests also cover write-ahead event IDs, edit-version ances
 ## Remaining uninstrumented or unproven paths
 
 - explicit generation cancellation / partial-output finalization semantics;
-- bulk chat clear vs chat switching, and all import/export, copy/branch/restore paths;
+- chat switching, and all import/export, copy/branch/restore paths;
 - arbitrary external chat-file edits and rollback/backup restoration;
 - identity metadata durability through SillyTavern's real save/restart/reload path;
 - Android/Termux browser storage durability, restart/replay and failure injection;
