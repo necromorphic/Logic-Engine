@@ -96,7 +96,10 @@ test('enrolled bridge writes event IDs and advances the fingerprint after an edi
 
   const next = await f.bridge.beforeMutation('delete-message', [0]);
   assert.equal(next.operation, 'before:delete-message');
-  assert.equal((await f.bridge.reconcileCurrentConversation()).status, 'REVIEW_ONLY');
+  const readiness = await f.bridge.reconcileCurrentConversation();
+  assert.equal(readiness.status, 'NON_READY');
+  assert.ok(readiness.missingPaths.includes('clear-chat'));
+  assert.ok(readiness.missingPaths.includes('restore'));
 });
 
 test('restart reconciliation fails closed when source changed after the last journal checkpoint', async () => {
@@ -131,7 +134,9 @@ test('empty chat enrollment is explicit and does not imply pre-enrollment histor
   const result = await bridge.enrollCurrentConversation();
   assert.equal(result.messageCount, 0);
   assert.equal(result.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
-  assert.equal((await bridge.reconcileCurrentConversation()).status, 'REVIEW_ONLY');
+  const readiness = await bridge.reconcileCurrentConversation();
+  assert.equal(readiness.status, 'NON_READY');
+  assert.ok(readiness.missingPaths.includes('cancel-generation'));
 });
 
 test('restart reconciliation rejects a corrupted journal even when chat fingerprint still matches', async () => {
