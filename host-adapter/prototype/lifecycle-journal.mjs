@@ -9,7 +9,7 @@ export class HostLifecycleJournal {
   constructor(db) { if (!db) throw TypeError('IndexedDB database required'); this.#db = db; }
   static async open(name = 'logic-engine-host-lifecycle-v1') {
     if (!globalThis.indexedDB) throw Error('IndexedDB unavailable; NON_READY');
-    const req = indexedDB.open(name, 1);
+    const req = indexedDB.open(name, 2);
     req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains('records')) { const s = db.createObjectStore('records', { keyPath: 'id' }); s.createIndex('conversationId', 'conversationId'); } if (!db.objectStoreNames.contains('heads')) db.createObjectStore('heads', { keyPath: 'conversationId' }); };
     const db = await new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); req.onblocked = () => reject(Error('IndexedDB upgrade blocked; NON_READY')); });
     return new HostLifecycleJournal(db);
@@ -62,7 +62,7 @@ export class HostLifecycleJournal {
       if(duplicate) return duplicate.eventDigest===eventDigest?duplicate:this.#fail(conversationId,'event ID conflict: '+eventId);
       if(operation==='baseline'&&rows.length) return this.#fail(conversationId,'baseline already exists');
       if(operation!=='baseline'&&!rows.length) return this.#fail(conversationId,'event before baseline');
-      const p=rows.at(-1), base={id:conversationId+':'+String((p?.sequence||0)+1).padStart(12,'0'),schemaVersion:1,conversationId,sequence:(p?.sequence||0)+1,eventId,operation,sourceFingerprint,payload,eventDigest,previousRecordDigest:p?.recordDigest??null};
+      const p=rows.at(-1), base={id:conversationId+':'+String((p?.sequence||0)+1).padStart(12,'0'),schemaVersion:2,conversationId,sequence:(p?.sequence||0)+1,eventId,operation,sourceFingerprint,payload,eventDigest,previousRecordDigest:p?.recordDigest??null};
       const row={...base,recordDigest:await digest(base)};
       try { await this.#put(row); } catch(e) { this.#bad.set(conversationId,'durable append failed: '+(e?.message||e)); throw Error('NON_READY: durable append failed; caller MUST abort mutation ('+(e?.message||e)+')'); }
       return row;
@@ -109,4 +109,4 @@ export async function fingerprintSource(messages) {
   }));
   return digest(projection);
 }
-export const lifecycleJournalContract=Object.freeze({schemaVersion:1,requiredMutationPaths:REQUIRED});
+export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredMutationPaths:REQUIRED});
