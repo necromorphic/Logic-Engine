@@ -109,16 +109,30 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
     });
   }
 
-  async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null } = {}) {
+  async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
     const conversationId = getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     const chat = getChat();
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
 
+    if (operation === 'create-message') {
+      if (!Number.isInteger(createdMessageIndex) || createdMessageIndex !== chat.length - 1) {
+        throw Error('NON_READY: create-message hook lacks exact append boundary; abort inventory checkpoint');
+      }
+      const expectedPriorFingerprint = await journal.latestSourceFingerprint(conversationId);
+      const actualPriorFingerprint = await currentFingerprint(chat.slice(0, createdMessageIndex));
+      if (actualPriorFingerprint !== expectedPriorFingerprint) {
+        throw Error('NON_READY: pre-existing source changed before create-message checkpoint; abort inventory checkpoint');
+      }
+    }
+
     for (let i = 0; i < chat.length; i++) {
       const message = chat[i], versions = rawVersions(message);
       let identity = message._logicEngineLifecycle;
       if (!identity) {
+        if (operation !== 'create-message' || i !== createdMessageIndex) {
+          throw Error('NON_READY: missing durable identity on pre-existing message; abort inventory checkpoint');
+        }
         identity = { messageId: newId(), versions: [], activeVersionIndex: activeIndex(message) };
         message._logicEngineLifecycle = identity;
       }

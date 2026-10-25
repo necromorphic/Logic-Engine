@@ -117,6 +117,7 @@ diff --git a/public/script.js b/public/script.js
          type = 'normal';
      }
 +
++    const lifecycleOriginalChatLength = chat.length;
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    const lifecycleOperation = type === 'swipe' ? 'create-swipe'
 +        : ['append', 'continue', 'appendFinal'].includes(type) ? 'edit-message'
@@ -127,7 +128,9 @@ diff --git a/public/script.js b/public/script.js
  
 @@ -6827,3 +6891,4 @@
  
-+    await lifecycleBridge.afterMutation(lifecycleOperation);
++    await lifecycleBridge.afterMutation(lifecycleOperation, {
++        createdMessageIndex: lifecycleOperation === 'create-message' ? lifecycleOriginalChatLength : null,
++    });
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
 @@ -8400,5 +8465,7 @@

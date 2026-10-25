@@ -256,3 +256,15 @@ test('create-message checkpoint refuses to absorb an unhooked edit in earlier me
   const after = await f.journal.verifyIntegrity('chat-1');
   assert.equal(after.sequence, before.sequence);
 });
+
+test('create-message assigns identity only to the explicitly appended tail message', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const oldMessageIds = f.chat.map(message => message._logicEngineLifecycle.messageId);
+  f.chat.push({ is_user: false, mes: 'new reply' });
+
+  const result = await f.bridge.afterMutation('create-message', { createdMessageIndex: 2 });
+  assert.equal(result.status, 'REVIEW_ONLY');
+  assert.deepEqual(f.chat.slice(0, 2).map(message => message._logicEngineLifecycle.messageId), oldMessageIds);
+  assert.ok(f.chat[2]._logicEngineLifecycle.messageId);
+});
