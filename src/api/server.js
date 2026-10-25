@@ -134,6 +134,32 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       const worldId = decodeURIComponent(parts[2]);
       const action = parts[3] || 'state';
 
+      if (action === 'processes') {
+        if (!secretMatches(req.headers['x-engine-internal-token'], internalToken)) {
+          return send(res, 403, { error: { code: 'INTERNAL_REQUIRED', message: 'Process lifecycle management requires the separately configured internal credential.' } });
+        }
+        if (parts.length === 4 && req.method === 'GET') {
+          return send(res, 200, { processes: engine.listProcesses(worldId) });
+        }
+        if (parts.length === 4 && req.method === 'POST') {
+          const result = engine.createProcess(worldId, await readBody(req));
+          return send(res, result.idempotent_replay ? 200 : 201, result);
+        }
+        if (parts.length === 5 && req.method === 'GET') {
+          return send(res, 200, { process: engine.getProcess(worldId, decodeURIComponent(parts[4])) });
+        }
+        if (parts.length === 6 && ['pause', 'resume', 'cancel'].includes(parts[5]) && req.method === 'POST') {
+          const body = await readBody(req);
+          if (!body || typeof body !== 'object' || Array.isArray(body)
+            || Object.keys(body).some((key) => !['expected_version', 'idempotency_key', 'reason'].includes(key))) {
+            throw new EngineError('INVALID_PROCESS_TRANSITION', 'Process transition accepts expected_version, idempotency_key and optional reason.', 400);
+          }
+          const result = engine.transitionProcess(worldId, decodeURIComponent(parts[4]), { ...body, action: parts[5] });
+          return send(res, result.process.status === 'needs_review' ? 409 : 200, result);
+        }
+        return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported process operation.' } });
+      }
+
       if (action === 'time-triggers') {
         if (!secretMatches(req.headers['x-engine-internal-token'], internalToken)) {
           return send(res, 403, { error: { code: 'INTERNAL_REQUIRED', message: 'Time-trigger management requires the separately configured internal credential.' } });
