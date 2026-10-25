@@ -64,3 +64,9 @@ test('tail truncation is detected by the independent atomic head checkpoint',asy
  const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredMutationPaths,sourceFingerprintMatches:true});
  assert.equal(result.status,'NON_READY');assert.match(result.reason,/records missing|head checkpoint mismatch/);
 });
+
+test('caller-supplied path list cannot assert trusted capture readiness',async()=>{
+ const journal=new HostLifecycleJournal(new FakeDB());await journal.enroll(seed());
+ const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredMutationPaths,sourceFingerprintMatches:true});
+ assert.equal(result.status,'NON_READY');assert.match(result.reason,/no trusted pinned-source attestation/);
+});
