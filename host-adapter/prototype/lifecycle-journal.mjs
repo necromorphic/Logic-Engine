@@ -76,6 +76,19 @@ export class HostLifecycleJournal {
     const rows = await this.#records(cid);
     return rows.at(-1)?.sourceFingerprint ?? null;
   }
+  async latestIdentitySnapshot(cid) {
+    const rows = await this.#records(cid);
+    for (let index = rows.length - 1; index >= 0; index--) {
+      const row = rows[index];
+      if (Array.isArray(row.payload?.changes)) {
+        return row.payload.changes;
+      }
+      if (row.operation === 'baseline' && Array.isArray(row.payload?.messages)) {
+        return row.payload.messages;
+      }
+    }
+    return null;
+  }
   async beforeMutation(args) {
     if(!Array.isArray(args.affectedVersions)) throw TypeError('affectedVersions must be an array');
     const result=await this.append({...args,operation:'before:'+args.operation,payload:{affectedVersions:args.affectedVersions,details:args.details??{}}});
