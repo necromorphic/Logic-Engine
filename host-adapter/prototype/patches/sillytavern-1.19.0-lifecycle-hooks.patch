@@ -63,26 +63,26 @@ diff --git a/public/script.js b/public/script.js
 +        await lifecycleBridge.beforeMutation(lifecycleOperation, [chat.length - 1]);
 +    }
  
-@@ -6828,3 +6863,4 @@
+@@ -6827,3 +6863,4 @@
  
 +    await lifecycleBridge.afterMutation(lifecycleOperation);
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
-@@ -8403,1 +8439,3 @@
+@@ -8403,1 +8440,3 @@
 -    let { mesBlock, text, mes, bias } = updateMessage(div);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('edit-message', [this_edit_mes_id]);
 +    let { mesBlock, text, mes, bias } = updateMessage(div);
-@@ -8431,2 +8469,3 @@
+@@ -8431,2 +8470,3 @@
      await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
 +    await lifecycleBridge.afterMutation('edit-message');
      this_edit_mes_id = undefined;
-@@ -9367,1 +9405,3 @@
+@@ -9367,1 +9407,3 @@
 -    message.swipes.splice(swipeId, 1);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('delete-swipe', [messageId], { swipeIndex: swipeId });
 +    message.swipes.splice(swipeId, 1);
-@@ -9397,5 +9437,6 @@
+@@ -9399,5 +9441,6 @@
          refreshSwipeButtons();
          saveChatDebounced();
      }
