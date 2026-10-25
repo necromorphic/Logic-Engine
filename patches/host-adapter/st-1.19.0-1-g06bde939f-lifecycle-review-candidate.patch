@@ -18,7 +18,7 @@
 diff --git a/public/script.js b/public/script.js
 --- a/public/script.js
 +++ b/public/script.js
-@@ -5858,6 +5858,84 @@
+@@ -5858,6 +5858,112 @@
      return (str ?? '').replace(/\{\{[\s\S]*?\}\}/gm, '').trim();
  }
  
@@ -141,7 +141,7 @@ diff --git a/public/script.js b/public/script.js
      if (power_user.message_token_count_enabled) {
          message.extra.token_count = await getTokenCountAsync(message.mes, 0);
      }
-@@ -6638,6 +6719,9 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+@@ -6638,6 +6719,10 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
      }
  
      const lastMessage = chat[chat.length - 1];
@@ -168,7 +168,7 @@ diff --git a/public/script.js b/public/script.js
          };
          const swipeInfoArray = Array(swipes.length).fill().map(() => structuredClone(swipeInfo));
          parseReasoningInSwipes(swipes, swipeInfoArray, item.extra?.reasoning_duration);
-@@ -6849,6 +6939,16 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
+@@ -6849,9 +6939,21 @@ export async function saveReply({ type, getMessage, fromStreaming = false, title = '', swipes = [], reasoning = '', imageUrls = [], reasoningSignature = null }) {
          item.swipe_info[0] = {
              send_date: item.send_date,
              gen_started: item.gen_started,
@@ -190,14 +190,14 @@ diff --git a/public/script.js b/public/script.js
 +    });
 +
      if (Array.isArray(swipes) && swipes.length > 0) {
-@@ -7646,6 +7747,7 @@ export async function getChat() {
+@@ -7646,5 +7747,6 @@ export async function getChat() {
          if (!chat_metadata.integrity) {
              chat_metadata.integrity = uuidv4();
          }
 +        await logicEngineReconcileLoadedChat();
          await getChatResult();
          eventSource.emit(event_types.CHAT_LOADED, { detail: { id: this_chid, character: characters[this_chid] } });
-@@ -8149,6 +8251,11 @@ function updateMessage(div) {
+@@ -8149,7 +8251,13 @@ function updateMessage(div) {
      if (power_user.trim_spaces) {
          text = text.trim();
      }
@@ -211,7 +211,7 @@ diff --git a/public/script.js b/public/script.js
      const bias = substituteParams(extractMessageBias(text));
      text = substituteParams(text);
      if (bias) {
-@@ -8157,6 +8264,7 @@ function updateMessage(div) {
+@@ -8157,9 +8264,11 @@ function updateMessage(div) {
      }
      mes.mes = text;
      if (mes.swipe_id !== undefined) {
@@ -223,7 +223,7 @@ diff --git a/public/script.js b/public/script.js
  
      if (mes?.is_system || mes?.is_user || mes.extra?.type === system_message_types.NARRATOR) {
          mes.extra.bias = bias ?? null;
-@@ -1681,6 +1789,14 @@ export async function deleteMessage(id, swipeDeletionIndex = undefined, askConfirmation = false, deleteToolCalls = true) {
+@@ -1681,6 +1789,19 @@ export async function deleteMessage(id, swipeDeletionIndex = undefined, askConfirmation = false, deleteToolCalls = true) {
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
  
@@ -267,14 +267,14 @@ diff --git a/public/script.js b/public/script.js
      await eventSource.emit(event_types.MESSAGE_SWIPE_DELETED, { messageId, swipeId, newSwipeId });
  
      if (swipeId === currentSwipeId) {
-@@ -7711,7 +7711,8 @@
+@@ -7711,4 +7711,5 @@
 -    const message = {
 +    const message = {
 +        logic_engine_message_id: uuidv4(),
          name: name2,
          is_user: false,
          is_system: false,
-@@ -7718,6 +7719,17 @@
+@@ -7718,5 +7719,15 @@
          mes: getRegexedString(firstMes, regex_placement.AI_OUTPUT),
          extra: {},
      };
@@ -290,14 +290,14 @@ diff --git a/public/script.js b/public/script.js
 +    }];
 +
      if (Array.isArray(alternateGreetings) && alternateGreetings.length > 0) {
-@@ -7737,6 +7749,7 @@
+@@ -7737,5 +7749,6 @@
              send_date: message.send_date,
              gen_started: void 0,
              gen_finished: void 0,
 +            logic_engine_version_id: uuidv4(),
              extra: {},
          }));
-@@ -8288,6 +8401,7 @@ async function messageEditCancel(messageId = this_edit_mes_id) {
+@@ -8288,5 +8401,6 @@ async function messageEditCancel(messageId = this_edit_mes_id) {
      if (reasoningEditDone.length > 0) {
          reasoningEditDone.trigger('click');
      }
@@ -307,7 +307,7 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 --- a/src/endpoints/chats.js
 +++ b/src/endpoints/chats.js
-@@ -740,6 +740,61 @@
+@@ -740,6 +740,48 @@
      }
  });
  
@@ -356,7 +356,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
  router.post('/group/import', function (request, response) {
      try {
          const filedata = request.file;
-@@ -755,7 +810,8 @@
+@@ -755,6 +810,7 @@
          const chatname = humanizedDateTime();
          const pathToUpload = path.join(filedata.destination, filedata.filename);
          const pathToNewFile = path.join(request.user.directories.groupChats, `${chatname}.jsonl`);
@@ -365,7 +365,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 +        writeFileAtomicSync(pathToNewFile, importedChat, 'utf8');
          fs.unlinkSync(pathToUpload);
          return response.send({ res: chatname });
-@@ -816,7 +872,7 @@
+@@ -816,6 +872,6 @@
              const handleChat = (chat) => {
                  const fileName = `${characterName} - ${humanizedDateTime()} imported.jsonl`;
                  const filePath = path.join(directoryPath, fileName);
@@ -373,7 +373,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
 -                writeFileAtomicSync(filePath, chat, 'utf8');
 +                writeFileAtomicSync(filePath, logicEngineRekeyImportedChatJsonl(chat), 'utf8');
              };
-@@ -859,7 +915,8 @@
+@@ -859,10 +915,10 @@
              const filePath = path.join(directoryPath, fileName);
              fileNames.push(fileName);
              if (flattenedChat !== data) {
