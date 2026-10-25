@@ -338,3 +338,44 @@ test('distinguishes indexed but ungranted records from authorized complete-empty
   assert.equal(JSON.stringify(s.provider.getIndexStatusForDiagnostics(s.scope.world_id))
     .includes(s.record.record_ref), false);
 });
+
+
+test('validator outage during reconciliation persists non-ready state across restart', async (t) => {
+  let unavailable = false;
+  const s = setup(t, {
+    validateSourceVersion: async (record) => {
+      if (unavailable) throw new Error('private validator outage details');
+      return record.source_version === 'source-v1'
+        && record.source_entity_id === 'entity-source-a';
+    },
+  });
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  unavailable = true;
+  assert.deepEqual(await s.provider.reconcile(s.scope.world_id), {
+    status: 'stale',
+    reason: 'SOURCE_VALIDATION_FAILED',
+  });
+  assert.deepEqual(s.provider.getIndexStatusForDiagnostics(s.scope.world_id), {
+    index_health: 'stale',
+    source_reconciliation: 'stale',
+    snapshot: null,
+    failure_code: 'SOURCE_VALIDATION_FAILED',
+  });
+
+  s.reopen();
+  assert.deepEqual(s.provider.getIndexStatusForDiagnostics(s.scope.world_id), {
+    index_health: 'stale',
+    source_reconciliation: 'stale',
+    snapshot: null,
+    failure_code: 'SOURCE_VALIDATION_FAILED',
+  });
+  await assert.rejects(
+    () => s.provider.retrieveCandidates(s.scope),
+    (error) => error.message === 'MEMORY_INDEX_NOT_READY',
+  );
+});
