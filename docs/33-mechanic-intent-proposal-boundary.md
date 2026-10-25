@@ -16,7 +16,7 @@ The current runtime already has a proposal boundary:
 
 Mechanic-intent translation is performed before the rollback-only preview and does not create another persistence or commit route.
 
-## 2. Proposed request boundary
+## 2. Implemented request boundary
 
 The existing proposal request's `event` object accepts either:
 
