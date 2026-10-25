@@ -5,7 +5,7 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 ## What this slice implements
 
 - Opt-in IndexedDB append-only journal primitive.
-- Per-conversation monotonically increasing sequence, event IDs, canonical SHA-256 payload/record digests, previous-record digest.
+- Per-conversation monotonically increasing sequence, event IDs, canonical SHA-256 payload/record digests, previous-record digest, and an atomic independent head checkpoint to detect tail truncation.
 - Baseline mapping with random logical-message/version IDs and content digests; no raw message text is written by this module.
 - Idempotent replay of the same event; same event ID with different payload is a conflict.
 - Strict-durability IndexedDB write transaction. An append error is a mutation-blocking error.
