@@ -42,3 +42,29 @@ node --test experiments/recalculation-oracle/harness.test.mjs
 ```
 
 The oracle's independent expected projections test the harness only. They do not prove production dependency completeness, policy freshness, atomic revocation, SQLite rollback, or runtime performance. A full dependency-aware executor is not established by this merge; production mechanics remain disabled/fail-closed pending the Core policy-freshness and end-to-end acceptance gates.
+
+
+## Current-tree correction — source presence is not production wiring (2026-10-25)
+
+This correction supersedes any wording above that could be read as asserting that the following files or code paths are absent from the current tree. A fresh default-branch source fetch found:
+
+- `src/application/mechanic-executor.js` exists and exports an opt-in, read-only `MechanicExecutor`. It requires a trusted `resolveAuthorizedContext` callback; this constructor requirement does not itself provide or authorize a deployment provider.
+- `src/application/mechanic-evaluation-attestation.js` exists and uses an in-process `WeakSet` marker. Its own source comment says it is an application wiring guard, not a cryptographic security boundary.
+- `src/application/proposals.js` contains mechanic evaluation/policy-related code and a `mechanic_execution_json` column in its proposal-table initialization/migration path. Therefore the earlier blanket statement that all mechanic-specific proposal metadata is absent from the tree is stale and must not be used as a source-presence claim.
+- `src/api/server.js` constructs `ProposalService` with `createActiveMechanicPolicyValidator(getActiveMechanicContextProvider)`. The default for `getActiveMechanicContextProvider` is `() => null`; the validator fails closed when it cannot resolve an active provider.
+- `src/index.js` calls `createApiServer({ engine, token, internalToken, approvalToken, adminToken, adapterTokens })` without supplying `getActiveMechanicContextProvider`, and does not construct/bind `MechanicExecutor` with an approved deployment-owned context resolver.
+
+### Correct interpretation
+
+The code presence and API-level validator seam are real, but the shipped entry point has no demonstrated trusted provider binding. A helper, in-process attestation marker, fixture provider, or callback seam is not evidence of an approved deployment policy authority. The current production verdict therefore remains **DISABLED / FAIL-CLOSED**, for a narrower and more accurate reason: the actual trusted provider is not wired and the complete real-authority lifecycle tests are not evidenced.
+
+### Closure evidence still required
+
+1. Name/approve the deployment-owned policy authority and document how it mints a trusted identity and active generation.
+2. Wire that same authority into context evaluation and approval/commit validation through the existing Core proposal path; do not create another writer or proposal route.
+3. Add production-entry-point/startup coverage proving the provider is present and correctly bound (and that absence/throwing/malformed identity fails closed).
+4. Add real-source end-to-end tests for stable policy success and rotation/revocation after evaluation, before proposal creation, between proposal creation and approval, and between approval and commit; assert stale cases produce no canonical event.
+5. State the revocation consistency guarantee honestly. An external callback check immediately before commit is not linearizable against a concurrent revocation unless the authority generation participates in the same canonical transaction or a reviewed equivalent.
+6. Reconcile the rest of this document against the exact reviewed head and run exact-head Runtime CI. The isolated recalculation oracle does not prove global dependency completeness or production executor readiness.
+
+This is a documentation correction only. It does not enable execution, approve a provider, expand the supported action subset, or claim that the required integration tests exist or pass.
