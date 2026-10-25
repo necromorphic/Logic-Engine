@@ -123,6 +123,24 @@ test('Core resolves fixed and category durations; arbitrary caller duration is r
   assert.equal(category.game_time_coordinate, 180000);
 });
 
+test('a range duration proposal cannot be committed without the author approval boundary', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  register(engine);
+  assert.throws(
+    () => engine.commitEvent('time-config-world', {
+      idempotency_key: 'unapproved-rest-duration',
+      turn_id: 'unapproved-rest-turn',
+      event_type: 'rest.completed',
+      duration_proposal: { duration_ms: 3600000 },
+      expected_revision: 1,
+      effects: [],
+    }),
+    (error) => error.code === 'DURATION_NEEDS_AUTHOR',
+  );
+  assert.equal(engine.getState('time-config-world').game_time_coordinate, 0);
+});
+
 test('ambiguous duration and unknown nonzero duration fail closed', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
