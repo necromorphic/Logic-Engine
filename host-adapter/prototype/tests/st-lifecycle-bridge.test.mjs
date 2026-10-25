@@ -287,3 +287,19 @@ test('message-send checkpoint records the inserted user message and receive pres
   assert.equal(f.chat[2]._logicEngineLifecycle.messageId, sentMessageId);
   assert.ok(f.chat[3]._logicEngineLifecycle.messageId);
 });
+
+test('message-send supports insertion at a requested historical index', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const oldMessageIds = f.chat.map(message => message._logicEngineLifecycle.messageId);
+
+  await f.bridge.beforeMutation('message-send', []);
+  f.chat.splice(1, 0, { is_user: true, mes: 'inserted in history' });
+  const sent = await f.bridge.afterMutation('message-send', { createdMessageIndex: 1 });
+
+  assert.equal(sent.status, 'REVIEW_ONLY');
+  assert.equal(f.chat[0]._logicEngineLifecycle.messageId, oldMessageIds[0]);
+  assert.equal(f.chat[2]._logicEngineLifecycle.messageId, oldMessageIds[1]);
+  assert.ok(f.chat[1]._logicEngineLifecycle.messageId);
+  assert.equal((await f.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
+});
