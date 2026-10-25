@@ -365,7 +365,7 @@ test('swipe selection records a pre-mutation checkpoint and preserves immutable 
 });
 
 
-test('edit/delete checkpoints preserve old bytes and changed immutable version bytes in the capture ledger', async () => {
+test('edit/delete checkpoints preserve identity and digests without retaining raw message text', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
 
@@ -380,11 +380,12 @@ test('edit/delete checkpoints preserve old bytes and changed immutable version b
   const afterEdit = ledgerAfterEdit.records.find(row => row.operation === 'after:edit-message');
   assert.equal(beforeEdit.payload.affectedVersions[0].messageId, oldMessageId);
   assert.equal(beforeEdit.payload.affectedVersions[0].versionId, oldVersionId);
-  assert.equal(beforeEdit.payload.affectedVersions[0].content, 'answer');
+  assert.equal(Object.hasOwn(beforeEdit.payload.affectedVersions[0], 'content'), false);
+  assert.ok(beforeEdit.payload.affectedVersions[0].payloadDigest);
   assert.ok(afterEdit.payload.versionPayloads.some(version =>
     version.messageId === oldMessageId &&
     version.parentVersionId === oldVersionId &&
-    version.content === 'answer revised'
+    version.payloadDigest && !Object.hasOwn(version, 'content')
   ));
 
   await f.bridge.beforeMutation('delete-message', [1]);
@@ -392,7 +393,8 @@ test('edit/delete checkpoints preserve old bytes and changed immutable version b
   await f.bridge.afterMutation('delete-message');
   const ledgerAfterDelete = await f.journal.exportCaptureLedger('chat-1');
   const beforeDelete = ledgerAfterDelete.records.find(row => row.operation === 'before:delete-message');
-  assert.ok(beforeDelete.payload.affectedVersions.some(version => version.content === 'answer revised'));
+  assert.ok(beforeDelete.payload.affectedVersions.some(version => version.payloadDigest));
+  assert.ok(beforeDelete.payload.affectedVersions.every(version => !Object.hasOwn(version, 'content')));
   assert.equal(ledgerAfterDelete.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
   assert.equal(ledgerAfterDelete.status, 'REVIEW_ONLY');
 });
