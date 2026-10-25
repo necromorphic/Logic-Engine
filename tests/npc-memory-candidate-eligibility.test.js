@@ -543,6 +543,48 @@ test("candidate admission does not mutate its request or result inputs", () => {
 });
 
 
+test("candidate admission never implies delivery, receipt, acquisition, or belief", () => {
+  const input = completeResult([
+    candidate({
+      delivery: { status: "delivered", receipt_id: "host-receipt-secret" },
+      receipt: { status: "confirmed", evidence: "rendered-to-user" },
+      acquisition: { status: "acquired", event_id: "acquisition-secret" },
+      belief: { status: "believed", proposition: "the subject now believes this" },
+      context_inclusion: { status: "included", generation_id: "generation-secret" },
+    }),
+  ]);
+
+  const result = evaluateMemoryCandidateAdmission(request, input);
+
+  // Eligibility is only a safe reference projection. It cannot stand in for
+  // host delivery, a verified receipt, subject acquisition, or belief state.
+  assert.deepEqual(result, {
+    status: "ready",
+    admitted: [{
+      record_ref: "memory:claim-1",
+      record_version: "v3",
+      epistemic_kind: "acquired_report",
+      evidence_assessment: "unassessed",
+    }],
+    reason: null,
+  });
+
+  const serialized = JSON.stringify(result);
+  for (const marker of [
+    "delivered",
+    "host-receipt-secret",
+    "confirmed",
+    "rendered-to-user",
+    "acquisition-secret",
+    "believed",
+    "generation-secret",
+    "context_inclusion",
+  ]) {
+    assert.equal(serialized.includes(marker), false, `unexpected lifecycle marker leaked: ${marker}`);
+  }
+});
+
+
 test("snapshot pair rejects revision-only and sequence-only mismatches", () => {
   // A rollback/validity change can matter even if commit_sequence does not
   // increase. The oracle only compares the supplied pair; it does not
