@@ -424,7 +424,7 @@ export class SQLiteMemoryProvider {
     if (!object(input) || !validId(input.world_id) || !validId(input.subject_id)
       || !validId(input.purpose) || !validId(input.record_ref) || !validId(input.record_version)) return false;
     const scope = { world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose };
-    if (!this.authorizeQuery(scope)) return false;
+    if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const grant = this.db.prepare(`SELECT allowed FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
@@ -462,7 +462,7 @@ export class SQLiteMemoryProvider {
     // Source validation may await a host/Core read. Recheck provider-owned grants
     // after that await so a revocation during validation cannot reuse the earlier
     // allow. This narrows the race; it is not a cross-store atomicity guarantee.
-    if (!this.authorizeQuery(scope)) return false;
+    if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const currentGrant = this.db.prepare(`SELECT allowed FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
