@@ -271,6 +271,10 @@ export class MechanicExecutor {
       };
     }
 
+    if (action.effects.length === 0) {
+      return { status: 'no_match', reason_code: 'MECHANIC_ACTION_HAS_NO_EFFECTS', snapshot_identity: identity, condition_result: conditionResult, effects: [], effect_provenance: [] };
+    }
+
     let translated;
     try {
       const effects = translateMechanicEffectIntents(action.effects);
