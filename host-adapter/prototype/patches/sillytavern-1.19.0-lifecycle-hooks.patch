@@ -71,7 +71,7 @@ diff --git a/public/script.js b/public/script.js
  
      if (clearData) chat.length = 0;
  }
-@@ -1607,6 +1657,12 @@
+@@ -1607,6 +1649,12 @@
  export async function deleteLastMessage() {
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    const lifecycleBefore = chat.length
@@ -84,7 +84,7 @@ diff --git a/public/script.js b/public/script.js
      chatElement.children('.mes').last().remove();
      await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
  }
-@@ -1677,19 +1732,23 @@
+@@ -1677,19 +1725,23 @@
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -108,7 +108,7 @@ diff --git a/public/script.js b/public/script.js
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
      }
-@@ -5905,16 +5964,21 @@
+@@ -5905,16 +5957,21 @@
      chat_metadata.tainted = true;
  
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -130,7 +130,7 @@ diff --git a/public/script.js b/public/script.js
          addOneMessage(message);
          await eventSource.emit(event_types.USER_MESSAGE_RENDERED, chat_id);
      }
-@@ -6653,3 +6717,12 @@
+@@ -6653,3 +6710,12 @@
          type = 'normal';
      }
 +
@@ -143,14 +143,14 @@ diff --git a/public/script.js b/public/script.js
 +        await lifecycleBridge.beforeMutation(lifecycleOperation, [chat.length - 1]);
 +    }
  
-@@ -6827,3 +6900,6 @@
+@@ -6827,3 +6893,6 @@
  
 +    await lifecycleBridge.afterMutation(lifecycleOperation, {
 +        createdMessageIndex: lifecycleOperation === 'create-message' ? lifecycleOriginalChatLength : null,
 +    });
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
-@@ -8400,5 +8474,7 @@
+@@ -8400,5 +8469,7 @@
          return;
      }
  
@@ -158,12 +158,12 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.beforeMutation('edit-message', [this_edit_mes_id]);
      let { mesBlock, text, mes, bias } = updateMessage(div);
  
-@@ -8431,3 +8507,4 @@
+@@ -8431,3 +8502,4 @@
      await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
      this_edit_mes_id = undefined;
      await saveChatConditional();
 +    await lifecycleBridge.afterMutation('edit-message');
-@@ -9363,7 +9440,9 @@
+@@ -9363,7 +9435,9 @@
          toastr.warning(t`Invalid swipe ID: ${swipeId + 1}`);
          return;
      }
@@ -173,7 +173,7 @@ diff --git a/public/script.js b/public/script.js
      message.swipes.splice(swipeId, 1);
  
      if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
-@@ -9395,11 +9475,12 @@
+@@ -9395,11 +9469,12 @@
          await updateSwipeCounter(messageId);
          if (messageId !== chat.length - 1) {
              await updateSwipeCounter(chat.length - 1);
@@ -186,7 +186,7 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });
  
      return newSwipeId;
-@@ -10090,11 +10170,16 @@
+@@ -10090,11 +10165,16 @@
                  await reloadCurrentChat();
              }
              //Out of bounds swipes should not be saved.
