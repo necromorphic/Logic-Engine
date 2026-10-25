@@ -83,7 +83,12 @@ test('clear-chat records the enrolled inventory before clearing and stays NON_RE
   const rows = [...f.db.rows.values()].sort((a, b) => a.sequence - b.sequence);
   const preClear = rows.find(r => r.operation === 'before:clear-chat');
   assert.ok(preClear);
-  assert.deepEqual(preClear.payload.affectedVersions.map(v => v.messageId), baselineIds);
+  assert.deepEqual(
+    [...new Set(preClear.payload.affectedVersions.map(v => v.messageId))].sort(),
+    [...baselineIds].sort(),
+  );
+  const expectedVersionIds = f.chat.flatMap(m => m._logicEngineLifecycle.versions.map(v => v.versionId)).sort();
+  assert.deepEqual(preClear.payload.affectedVersions.map(v => v.versionId).sort(), expectedVersionIds);
   assert.equal((await f.journal.verifyIntegrity('scenario-chat')).status, 'INTEGRITY_OK');
   assert.equal((await f.bridge.reconcileCurrentConversation()).status, 'NON_READY');
 });
