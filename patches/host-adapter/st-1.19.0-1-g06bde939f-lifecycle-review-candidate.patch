@@ -223,9 +223,20 @@ diff --git a/public/script.js b/public/script.js
 +    });
 +
      if (Array.isArray(swipes) && swipes.length > 0) {
-@@ -7380,1 +7543,1 @@
+@@ -7384,12 +7547,12 @@
+ /**
+  * Saves the chat to the server.
+  * @param {object} [options] - Additional options.
+  * @param {string} [options.chatName] The name of the chat file to save to
+  * @param {object} [options.withMetadata] Additional metadata to save with the chat
+  * @param {number} [options.mesId] The message ID to save the chat up to
+  * @param {boolean} [options.force] Force the saving despite the integrity check result
+  * @param {ChatMessage[]} [options.chatData] Chat snapshot to save instead of the current in-memory chat
+  *
 - * @returns {Promise<void>}
 + * @returns {Promise<boolean>} Whether the chat was persisted successfully.
+  */
+ export async function saveChat(
 @@ -7417,3 +7580,3 @@ export async function saveChat({ chatName, withMetadata, mesId, force = false, chatData = undefined } = {}) {
      if (!fileName && name2 === neutralCharacterName) {
          // TODO: Do something for a temporary chat with no character.
@@ -388,9 +399,16 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
 --- a/public/scripts/group-chats.js
 +++ b/public/scripts/group-chats.js
-@@ -620,1 +620,1 @@
+@@ -616,8 +616,8 @@
+ /**
+  * Saves a group chat to the server.
+  * @param {string} groupId Group ID
+  * @param {boolean} shouldSaveGroup Whether to save the group after saving the chat
+  * @param {boolean} force Force the saving on integrity error
 - * @returns {Promise<void>} A promise that resolves when the group chat has been saved.
 + * @returns {Promise<boolean>} Whether the group chat was persisted successfully.
+  */
+ async function saveGroupChat(
 @@ -624,4 +624,4 @@ async function saveGroupChat(groupId, shouldSaveGroup, force = false) {
      const group = groups.find(x => x.id == groupId);
      if (!group) {
@@ -507,6 +525,7 @@ diff --git a/src/endpoints/chats.js b/src/endpoints/chats.js
              fs.unlinkSync(pathToUpload);
              response.send({ res: true, fileNames });
          }
+
 
 
 
