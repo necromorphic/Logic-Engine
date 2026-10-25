@@ -40,7 +40,7 @@ test('readiness remains fail-closed when a mutation path is not instrumented',as
  const journal=new HostLifecycleJournal(new FakeDB());await journal.enroll(seed());
  const result=await journal.status('chat-1',{instrumentedPaths:['delete-message'],sourceFingerprintMatches:true});
  assert.equal(result.status,'NON_READY');assert.ok(result.missingPaths.includes('create-message'));
- assert.equal(lifecycleJournalContract.requiredMutationPaths.length,11);
+ assert.equal(lifecycleJournalContract.requiredMutationPaths.length, 19);
 });
 test('mutation before enrollment is NON_READY',async()=>{
  const journal=new HostLifecycleJournal(new FakeDB());

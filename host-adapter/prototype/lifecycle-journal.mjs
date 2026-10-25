@@ -1,4 +1,4 @@
-const REQUIRED = Object.freeze(['create-message','create-swipe','select-swipe','delete-swipe','delete-message','edit-message','regenerate','cancel-generation','clear-chat','import','restore']);
+const REQUIRED = Object.freeze(['create-message','create-swipe','select-swipe','delete-swipe','delete-message','edit-message','regenerate','cancel-generation','partial-generation','clear-chat','import','export','copy-branch','restore','chat-switch','external-edit','rollback','restart','replay']);
 const canonical = x => Array.isArray(x) ? '[' + x.map(canonical).join(',') + ']' : x && typeof x === 'object' ? '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonical(x[k])).join(',') + '}' : JSON.stringify(x);
 const digest = async x => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(x))))].map(n => n.toString(16).padStart(2, '0')).join('');
 const id = () => { if (!crypto.randomUUID) throw Error('crypto.randomUUID unavailable; NON_READY'); return crypto.randomUUID(); };

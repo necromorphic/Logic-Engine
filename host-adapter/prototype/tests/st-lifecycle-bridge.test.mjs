@@ -100,6 +100,9 @@ test('enrolled bridge writes event IDs and advances the fingerprint after an edi
   assert.equal(readiness.status, 'NON_READY');
   assert.ok(readiness.missingPaths.includes('cancel-generation'));
   assert.ok(readiness.missingPaths.includes('restore'));
+  for (const path of ['partial-generation', 'export', 'copy-branch', 'chat-switch', 'external-edit', 'rollback', 'restart', 'replay']) {
+    assert.ok(readiness.missingPaths.includes(path), `expected uncovered lifecycle path: ${path}`);
+  }
 });
 
 test('restart reconciliation fails closed when source changed after the last journal checkpoint', async () => {

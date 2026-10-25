@@ -32,6 +32,9 @@ The bridge regression tests also cover write-ahead event IDs, edit-version ances
 
 ## Remaining uninstrumented or unproven paths
 
+The readiness contract explicitly enumerates 19 lifecycle coverage paths, including partial generation, import/export, copy/branch, chat switch, external edits, rollback, restart, and replay. This is a fail-closed coverage checklist, not a claim that those paths are currently hooked.
+
+
 - explicit generation cancellation / partial-output finalization semantics;
 - chat switching, and all import/export, copy/branch/restore paths;
 - arbitrary external chat-file edits and rollback/backup restoration;
