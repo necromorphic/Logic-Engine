@@ -88,12 +88,18 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       if (versions.length !== identity.versions.length) {
         throw Error('NON_READY: version inventory mismatch; abort mutation');
       }
-      for (const version of identity.versions) {
+      for (let versionIndex = 0; versionIndex < identity.versions.length; versionIndex++) {
+        const version = identity.versions[versionIndex];
         affectedVersions.push({
           messageId: identity.messageId,
           versionId: version.versionId,
+          versionIndex,
+          role: roleOf(message),
           parentVersionId: version.parentVersionId ?? null,
           payloadDigest: version.payloadDigest,
+          // Preserve the exact pre-mutation bytes so edit/delete cannot erase
+          // the last available source copy before the journal records it.
+          content: String(versions[versionIndex] ?? ''),
         });
       }
     }
@@ -132,6 +138,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       }
     }
 
+    const versionPayloads = [];
     for (let i = 0; i < chat.length; i++) {
       const message = chat[i], versions = rawVersions(message);
       let identity = message._logicEngineLifecycle;
@@ -156,13 +163,26 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
           // Slot indexes can shift when a swipe is deleted; version identity must not.
           nextVersions.push({ ...prior, versionIndex: j });
         } else {
+          const versionId = newId();
+          const parentVersionId = prior?.versionId
+            ?? identity.versions[identity.activeVersionIndex]?.versionId
+            ?? null;
           nextVersions.push({
-            versionId: newId(),
+            versionId,
             versionIndex: j,
             payloadDigest: textDigest,
-            parentVersionId: prior?.versionId
-              ?? identity.versions[identity.activeVersionIndex]?.versionId
-              ?? null,
+            parentVersionId,
+          });
+          // Store content only for a new/changed immutable version, not for
+          // every unchanged version in every journal event.
+          versionPayloads.push({
+            messageId: identity.messageId,
+            versionId,
+            versionIndex: j,
+            role: roleOf(message),
+            parentVersionId,
+            payloadDigest: textDigest,
+            content: String(versions[j] ?? ''),
           });
         }
       }
@@ -186,7 +206,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       eventId: newId(),
       operation: 'after:' + operation,
       sourceFingerprint: fingerprint,
-      payload: { changes, removedSwipeIndex, selectedMessageIndex },
+      payload: { changes, removedSwipeIndex, selectedMessageIndex, versionPayloads },
     });
     if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
     return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY' };
