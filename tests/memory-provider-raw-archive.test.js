@@ -575,10 +575,6 @@ test('selecting a tombstoned alternative fails without displacing the active ver
       .get('world-a', 'chat-a', 'message-1').version_id,
     'generation-1',
   );
-  assert.equal(
-    s.provider.readRawMessageVersion ? true : true,
-    true,
-  );
 });
 
 test('raw lifecycle operations reject incomplete identity tuples instead of guessing a target', (t) => {
