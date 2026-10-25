@@ -7,20 +7,21 @@ import { createApiServer } from '../src/api/server.js';
 
 const TOKEN = 'process-api-test-token-123456789';
 const INTERNAL = 'process-api-internal-token-123456789';
+const ADMIN = 'process-api-admin-token-123456789';
 const headers = { authorization: 'Bearer ' + TOKEN, 'content-type': 'application/json' };
 const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
 const json = (body) => JSON.stringify(body);
 
 async function setup(t) {
   const store = new SQLiteStore(':memory:');
-  const server = createApiServer({ engine: new LogicEngine(store), token: TOKEN, internalToken: INTERNAL });
+  const server = createApiServer({ engine: new LogicEngine(store), token: TOKEN, internalToken: INTERNAL, adminToken: ADMIN });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
   t.after(() => { server.close(); store.close(); });
   const base = 'http://127.0.0.1:' + server.address().port;
   const created = await fetch(base + '/v1/worlds', {
     method: 'POST',
-    headers,
+    headers: { ...headers, 'x-admin-token': ADMIN },
     body: json({
       world_id: 'process-api-world',
       world_pack_id: 'test.world',
