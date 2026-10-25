@@ -1,0 +1,76 @@
+const REQUIRED = Object.freeze(['create-message','create-swipe','select-swipe','delete-swipe','delete-message','edit-message','regenerate','cancel-generation','clear-chat','import','restore']);
+const canonical = x => Array.isArray(x) ? '[' + x.map(canonical).join(',') + ']' : x && typeof x === 'object' ? '{' + Object.keys(x).sort().map(k => JSON.stringify(k) + ':' + canonical(x[k])).join(',') + '}' : JSON.stringify(x);
+const digest = async x => [...new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical(x))))].map(n => n.toString(16).padStart(2, '0')).join('');
+const id = () => { if (!crypto.randomUUID) throw Error('crypto.randomUUID unavailable; NON_READY'); return crypto.randomUUID(); };
+
+/** Opt-in IndexedDB journal. Never stores raw message text; caller must await before mutating ST state. */
+export class HostLifecycleJournal {
+  #db; #locks = new Map(); #bad = new Map();
+  constructor(db) { if (!db) throw TypeError('IndexedDB database required'); this.#db = db; }
+  static async open(name = 'logic-engine-host-lifecycle-v1') {
+    if (!globalThis.indexedDB) throw Error('IndexedDB unavailable; NON_READY');
+    const req = indexedDB.open(name, 1);
+    req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains('records')) { const s = db.createObjectStore('records', { keyPath: 'id' }); s.createIndex('conversationId', 'conversationId'); } };
+    const db = await new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); req.onblocked = () => reject(Error('IndexedDB upgrade blocked; NON_READY')); });
+    return new HostLifecycleJournal(db);
+  }
+  async #records(cid) {
+    const tx = this.#db.transaction(['records'], 'readonly'), done = txDone(tx);
+    const req = tx.objectStore('records').index('conversationId').getAll(IDBKeyRange.only(cid));
+    const rows = await new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
+    await done; return rows.sort((a,b) => a.sequence-b.sequence);
+  }
+  async #put(row) { const tx = this.#db.transaction(['records'], 'readwrite', { durability: 'strict' }); tx.objectStore('records').add(row); await txDone(tx); }
+  async enroll({ conversationId, sourceFingerprint, messages }) {
+    if (!conversationId || !sourceFingerprint || !Array.isArray(messages)) throw TypeError('Invalid baseline');
+    if ((await this.#records(conversationId)).length) throw Error('Already enrolled; explicit re-baseline is not supported');
+    const mapping = [];
+    for (let i=0;i<messages.length;i++) {
+      const m=messages[i], versions=Array.isArray(m.versions)&&m.versions.length?m.versions:[m.text ?? ''];
+      mapping.push({ messageId:id(), messageIndex:i, role:String(m.role ?? 'unknown'), activeVersionIndex:Number.isInteger(m.activeVersionIndex)?m.activeVersionIndex:0,
+        versions: await Promise.all(versions.map(async (text,j)=>({versionId:id(), versionIndex:j, payloadDigest:await digest(String(text))}))) });
+    }
+    const row=await this.append({conversationId,eventId:id(),operation:'baseline',sourceFingerprint,payload:{captureBoundary:'enrollment-forward-only',messages:mapping}});
+    return {mapping, baselineSequence:row.sequence, preEnrollmentHistory:'UNKNOWN_UNRECOVERABLE'};
+  }
+  async append({conversationId,eventId,operation,payload,sourceFingerprint=null}) {
+    if (!conversationId||!eventId||!operation||!payload||typeof payload!=='object') throw TypeError('Invalid event');
+    const prev=this.#locks.get(conversationId)||Promise.resolve(); let release; const hold=new Promise(r=>release=r), chain=prev.then(()=>hold); this.#locks.set(conversationId,chain); await prev;
+    try {
+      if(this.#bad.has(conversationId)) throw Error('NON_READY: '+this.#bad.get(conversationId));
+      const rows=await this.#records(conversationId), check=await this.#verify(rows);
+      if(!check.ok) return this.#fail(conversationId,check.reason);
+      const eventDigest=await digest({conversationId,eventId,operation,payload,sourceFingerprint}), duplicate=rows.find(r=>r.eventId===eventId);
+      if(duplicate) return duplicate.eventDigest===eventDigest?duplicate:this.#fail(conversationId,'event ID conflict: '+eventId);
+      if(operation!=='baseline'&&!rows.length) return this.#fail(conversationId,'event before baseline');
+      const p=rows.at(-1), base={id:conversationId+':'+String((p?.sequence||0)+1).padStart(12,'0'),schemaVersion:1,conversationId,sequence:(p?.sequence||0)+1,eventId,operation,sourceFingerprint,payload,eventDigest,previousRecordDigest:p?.recordDigest??null};
+      const row={...base,recordDigest:await digest(base)};
+      try { await this.#put(row); } catch(e) { this.#bad.set(conversationId,'durable append failed: '+(e?.message||e)); throw Error('NON_READY: durable append failed; caller MUST abort mutation ('+(e?.message||e)+')'); }
+      return row;
+    } finally { release(); if(this.#locks.get(conversationId)===chain) this.#locks.delete(conversationId); }
+  }
+  async beforeMutation(args) {
+    if(!Array.isArray(args.affectedVersions)) throw TypeError('affectedVersions must be an array');
+    const result=await this.append({...args,operation:'before:'+args.operation,payload:{affectedVersions:args.affectedVersions}});
+    if(result?.status==='NON_READY') throw Error('NON_READY: '+result.reason+'; caller MUST abort mutation');
+    return result;
+  }
+  async status(cid,{instrumentedPaths=[],sourceFingerprintMatches=false}={}) {
+    if(this.#bad.has(cid)) return {status:'NON_READY',reason:this.#bad.get(cid)};
+    let rows; try { rows=await this.#records(cid); } catch(e) { return this.#fail(cid,'journal unreadable: '+(e?.message||e)); }
+    const check=await this.#verify(rows); if(!check.ok) return this.#fail(cid,check.reason);
+    if(!rows.length||rows[0].operation!=='baseline') return {status:'NON_READY',reason:'missing baseline'};
+    const missing=REQUIRED.filter(p=>!instrumentedPaths.includes(p));
+    if(missing.length) return {status:'NON_READY',reason:'incomplete mutation instrumentation',missingPaths:missing,baselineBoundary:'enrollment-forward-only'};
+    if(!sourceFingerprintMatches) return {status:'NON_READY',reason:'source fingerprint mismatch or unverified'};
+    return {status:'CAPTURE_READY_FOR_REVIEW_ONLY',sequence:rows.at(-1).sequence,baselineBoundary:'enrollment-forward-only',productionAuthority:false};
+  }
+  async #verify(rows) {
+    let previous=null;
+    for(let i=0;i<rows.length;i++) { const r=rows[i]; if(r.sequence!==i+1)return {ok:false,reason:'sequence gap at '+(i+1)}; if(r.previousRecordDigest!==previous)return {ok:false,reason:'chain mismatch at '+r.sequence}; const {recordDigest,...base}=r; if(await digest(base)!==recordDigest)return {ok:false,reason:'record digest mismatch at '+r.sequence}; if(await digest({conversationId:r.conversationId,eventId:r.eventId,operation:r.operation,payload:r.payload,sourceFingerprint:r.sourceFingerprint})!==r.eventDigest)return {ok:false,reason:'event digest mismatch at '+r.sequence}; previous=recordDigest; }
+    return {ok:true};
+  }
+  #fail(cid,reason) { this.#bad.set(cid,reason); return {status:'NON_READY',reason}; }
+}
+function txDone(tx) { return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||Error('IndexedDB transaction failed'));tx.onabort=()=>reject(tx.error||Error('IndexedDB transaction aborted'));}); }
+export const lifecycleJournalContract=Object.freeze({schemaVersion:1,requiredMutationPaths:REQUIRED});
