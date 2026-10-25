@@ -88,7 +88,7 @@ Use stable machine-readable reason codes, at minimum:
 
 Failure must be all-or-nothing and side-effect free. The caller may turn a failure into a review result, but must not treat an unsupported intent as a no-op success.
 
-## 6. Required conformance tests before implementation is accepted
+## 6. Required conformance tests for the implemented boundary
 
 1. Golden mapping tests for each of the three supported intent kinds, including optional fields omitted versus supplied.
 2. Rejection tests for all 15 other declared intent kinds, including review/result kinds.
