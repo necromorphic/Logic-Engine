@@ -127,7 +127,7 @@ diff --git a/public/script.js b/public/script.js
      message.swipes.splice(swipeId, 1);
  
      if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
-@@ -9396,10 +9458,11 @@
+@@ -9395,11 +9458,12 @@
          await updateSwipeCounter(messageId);
          if (messageId !== chat.length - 1) {
              await updateSwipeCounter(chat.length - 1);
