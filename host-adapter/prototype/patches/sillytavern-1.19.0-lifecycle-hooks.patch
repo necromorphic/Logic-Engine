@@ -52,7 +52,7 @@ diff --git a/public/script.js b/public/script.js
  
 +    await lifecycleBridge.afterMutation('delete-message');
      chat_metadata.tainted = true;
-@@ -6653,3 +6681,10 @@
+@@ -6653,3 +6681,11 @@
          type = 'normal';
      }
 +
@@ -66,10 +66,9 @@ diff --git a/public/script.js b/public/script.js
  
 @@ -6828,3 +6863,4 @@
  
++    await lifecycleBridge.afterMutation(lifecycleOperation);
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
- }
-+
 @@ -8403,1 +8439,3 @@
 -    let { mesBlock, text, mes, bias } = updateMessage(div);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
