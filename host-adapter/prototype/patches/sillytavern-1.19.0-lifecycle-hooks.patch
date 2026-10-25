@@ -4,7 +4,7 @@ diff --git a/public/script.js b/public/script.js
 @@ -11,3 +11,5 @@
  } from './lib.js';
 +import { HostLifecycleJournal } from './scripts/logic-engine-lifecycle/lifecycle-journal.mjs';
-+import { createStLifecycleBridge } from './scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs';
++import { createStLifecycleBridge, createUnavailableStLifecycleBridge } from './scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs';
  
  import { humanizedDateTime, favsToHotswap, getMessageTimeStamp, dragElement, isMobile, initRossMods } from './scripts/RossAscends-mods.js';
 @@ -1583,23 +1585,71 @@
@@ -22,11 +22,11 @@ diff --git a/public/script.js b/public/script.js
 +        })).catch(error => {
 +            const marker = 'logic-engine-host-lifecycle:' + getCurrentChatId();
 +            if (localStorage.getItem(marker)) throw Error('NON_READY: enrolled Host journal unavailable: ' + error.message);
-+            return {
-+                enrollCurrentConversation: async () => { throw error; },
-+                beforeMutation: async () => ({ status: 'NOT_ENROLLED' }),
-+                afterMutation: async () => ({ status: 'NOT_ENROLLED' }),
-+            };
++            return createUnavailableStLifecycleBridge({
++                getConversationId: getCurrentChatId,
++                storage: localStorage,
++                error,
++            });
 +        });
 +    }
 +    return logicEngineLifecycleBridgePromise;

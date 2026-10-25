@@ -165,3 +165,31 @@ test('clear-chat captures all enrolled versions before removing the chat array',
   assert.ok(!readiness.missingPaths.includes('clear-chat'));
   assert.ok(readiness.missingPaths.includes('cancel-generation'));
 });
+
+test('unavailable bridge re-checks enrollment marker for the current chat before each mutation', async () => {
+  const { createUnavailableStLifecycleBridge } = await import('../st-lifecycle-bridge.mjs');
+  let conversationId = 'chat-1';
+  const markers = new Map();
+  const storage = { getItem: key => markers.get(key) ?? null };
+  const error = Error('IndexedDB unavailable');
+  const bridge = createUnavailableStLifecycleBridge({
+    getConversationId: () => conversationId,
+    storage,
+    error,
+  });
+
+  assert.deepEqual(await bridge.beforeMutation('delete-message', [0]), { status: 'NOT_ENROLLED' });
+  markers.set('logic-engine-host-lifecycle:chat-1', 'NON_READY');
+  await assert.rejects(
+    bridge.beforeMutation('delete-message', [0]),
+    /NON_READY: enrolled Host journal unavailable: IndexedDB unavailable/,
+  );
+
+  conversationId = 'chat-2';
+  assert.deepEqual(await bridge.beforeMutation('delete-message', [0]), { status: 'NOT_ENROLLED' });
+  conversationId = 'chat-1';
+  await assert.rejects(
+    bridge.afterMutation('delete-message'),
+    /NON_READY: enrolled Host journal unavailable: IndexedDB unavailable/,
+  );
+});

@@ -203,3 +203,30 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
     reconcileCurrentConversation,
   });
 }
+
+/**
+ * Fallback when IndexedDB cannot be opened. It must re-check the current chat's
+ * enrollment marker on every mutation; the bridge promise may have been created
+ * before a chat was enrolled or before the user switched conversations.
+ */
+export function createUnavailableStLifecycleBridge({ getConversationId, storage = globalThis.localStorage, error }) {
+  if (typeof getConversationId !== 'function') throw TypeError('getConversationId is required');
+  if (!error) throw TypeError('original journal-open error is required');
+
+  const assertUnavailableSafe = () => {
+    const conversationId = getConversationId();
+    const marker = conversationId
+      ? storage?.getItem('logic-engine-host-lifecycle:' + conversationId)
+      : null;
+    if (marker) {
+      throw Error('NON_READY: enrolled Host journal unavailable: ' + (error?.message || error));
+    }
+    return { status: 'NOT_ENROLLED' };
+  };
+
+  return Object.freeze({
+    enrollCurrentConversation: async () => { throw error; },
+    beforeMutation: async () => assertUnavailableSafe(),
+    afterMutation: async () => assertUnavailableSafe(),
+  });
+}
