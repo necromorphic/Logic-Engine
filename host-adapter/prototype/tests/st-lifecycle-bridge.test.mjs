@@ -9,7 +9,7 @@ globalThis.IDBKeyRange = { only: value => ({ only: value }) };
 
 class FakeRequest { result = undefined; error = null; onsuccess = null; onerror = null; }
 class FakeStore {
-  constructor(db) { this.db = db; }
+  constructor(db, tx, name) { this.db = db; this.tx = tx; this.name = name; }
   index() {
     return {
       getAll: range => {
@@ -17,11 +17,20 @@ class FakeStore {
         queueMicrotask(() => {
           request.result = [...this.db.rows.values()].filter(row => row.conversationId === range.only);
           request.onsuccess?.();
-          this.db.finish();
+          this.db.finish(this.tx);
         });
         return request;
       },
     };
+  }
+  get(key) {
+    const request = new FakeRequest();
+    queueMicrotask(() => {
+      request.result = this.db.heads.get(key);
+      request.onsuccess?.();
+      this.db.finish(this.tx);
+    });
+    return request;
   }
   add(record) {
     if (this.db.failNextWrite) {
@@ -30,18 +39,22 @@ class FakeStore {
     }
     if (this.db.rows.has(record.id)) throw Error('duplicate key');
     this.db.rows.set(record.id, structuredClone(record));
-    queueMicrotask(() => this.db.finish());
+    queueMicrotask(() => this.db.finish(this.tx));
+  }
+  put(record) {
+    this.db.heads.set(record.conversationId, structuredClone(record));
+    queueMicrotask(() => this.db.finish(this.tx));
   }
 }
 class FakeTransaction {
   error = null; oncomplete = null; onerror = null; onabort = null;
-  constructor(db) { this.db = db; }
-  objectStore() { return new FakeStore(this.db); }
+  constructor(db, names) { this.db = db; this.names = names; }
+  objectStore(name) { return new FakeStore(this.db, this, name); }
 }
 class FakeDB {
-  rows = new Map(); failNextWrite = false; txs = [];
-  transaction() { const tx = new FakeTransaction(this); this.txs.push(tx); return tx; }
-  finish() { const tx = this.txs.shift(); if (tx) setImmediate(() => tx.oncomplete?.()); }
+  rows = new Map(); heads = new Map(); failNextWrite = false;
+  transaction(names) { return new FakeTransaction(this, names); }
+  finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 
 function makeFixture() {
