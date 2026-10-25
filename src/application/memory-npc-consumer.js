@@ -319,7 +319,7 @@ export class MemoryNpcConsumer {
 
     // A stable Memory record identity/version must not be rebound to a
     // different source or different semantic metadata within one retrieval.
-    // Deduplicate identical repeats; fail closed on conflicting identities.
+    // Exclude every repeated ref/version pair as ambiguous; fail closed on conflicting semantic identities.
     const uniqueCandidates = [];
     const identitySignatures = new Map();
     const identityCounts = new Map();
