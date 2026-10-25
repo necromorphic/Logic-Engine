@@ -158,9 +158,9 @@ diff --git a/public/script.js b/public/script.js
      }
  
      await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
-+    await lifecycleBridge.afterMutation('edit-message');
      this_edit_mes_id = undefined;
      await saveChatConditional();
++    await lifecycleBridge.afterMutation('edit-message');
 @@ -9363,7 +9437,9 @@
          toastr.warning(t`Invalid swipe ID: ${swipeId + 1}`);
          return;
@@ -180,8 +180,8 @@ diff --git a/public/script.js b/public/script.js
          saveChatDebounced();
      }
  
-+    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });
      await saveChatConditional();
++    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });
  
      return newSwipeId;
 @@ -10090,11 +10167,16 @@
