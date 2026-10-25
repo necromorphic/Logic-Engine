@@ -359,6 +359,24 @@ export class SQLiteMemoryProvider {
       snapshot ? String(snapshot.commit_sequence) : null, new Date().toISOString());
   }
 
+  /** Provider-internal diagnostics; never project this state into NPC-facing results. */
+  getIndexStatusForDiagnostics(worldId) {
+    if (!validId(worldId)) throw new TypeError('Invalid world_id');
+    const row = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(worldId);
+    if (!row) return Object.freeze({
+      index_health: 'unavailable', source_reconciliation: 'stale',
+      snapshot: null, failure_code: 'INDEX_STATE_MISSING',
+    });
+    return Object.freeze({
+      index_health: row.index_health,
+      source_reconciliation: row.source_reconciliation,
+      snapshot: row.snapshot_revision === null || row.snapshot_sequence === null ? null : {
+        world_revision: row.snapshot_revision, commit_sequence: row.snapshot_sequence,
+      },
+      failure_code: row.failure_code ?? null,
+    });
+  }
+
   grantQuery(scope, allowed) {
     this.#scope(scope);
     if (typeof allowed !== 'boolean') throw new TypeError('allowed must be boolean');
