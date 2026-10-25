@@ -100,6 +100,8 @@ test('real SQLite provider adapter reaches Core consumer and returns only Core-a
   assert.deepEqual(await s.provider.rebuildIndex(s.scope.world_id), { status: 'rebuilt', count: 1 });
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
 
+  const eventsBefore = s.store.events(s.scope.world_id, true).length;
+  const auditBefore = s.store.audit(s.scope.world_id).length;
   const result = await s.consumer.retrieveForNpc(request());
   assert.equal(result.status, 'ready', JSON.stringify(result));
   assert.equal(result.candidates.length, 1);
@@ -109,8 +111,8 @@ test('real SQLite provider adapter reaches Core consumer and returns only Core-a
   assert.equal(JSON.stringify(result).includes('private_note'), false);
 
   // Retrieval/admission is not delivery, receipt, acquisition, or belief.
-  assert.equal(s.store.events(s.scope.world_id, true).length, 1);
-  assert.equal(s.store.audit(s.scope.world_id).length, 0);
+  assert.equal(s.store.events(s.scope.world_id, true).length, eventsBefore);
+  assert.equal(s.store.audit(s.scope.world_id).length, auditBefore);
 });
 
 test('real provider record revocation is honored by the Core consumer on the next retrieval', async (t) => {
