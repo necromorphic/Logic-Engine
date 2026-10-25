@@ -715,3 +715,56 @@ test('authorized canonical commits preserve open domain event_type values', (t) 
   const event = h.engine.getEvents('w', true).find((item) => item.turn_id === 'open-domain-event-type');
   assert.equal(event.event_type, 'world.yakuza.custom_action');
 });
+
+
+test('stale approved proposal commit leaves canonical state, audit, and proposal result unchanged', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  const proposals = new ProposalService(h.engine);
+  const proposal = proposals.create('w', {
+    idempotency_key: 'stale-approved-proposal',
+    source_text: 'A proposed action.',
+    event: { turn_id: 'stale-proposal-turn', event_type: 'action.completed', effects: [] },
+  }, 'unit-test-adapter');
+  proposals.approve('w', proposal.proposal_id);
+
+  h.engine.commitEvent('w', cmd({
+    idempotency_key: 'intervening-event',
+    turn_id: 'intervening-turn',
+    expected_revision: 0,
+    effects: [{ kind: 'entity.upsert', entity_id: 'intervening-entity', entity_type: 'object' }],
+  }));
+
+  const proposalCommitKey = 'proposal:' + proposal.proposal_id;
+  const before = {
+    state: h.engine.getState('w'),
+    events: h.engine.getEvents('w', true),
+    audit: h.engine.getAudit('w'),
+    proposal: proposals.get('w', proposal.proposal_id),
+    proposalCommitKeyCount: h.store.db.prepare(
+      'SELECT COUNT(*) AS count FROM idempotency_keys WHERE world_id=? AND idempotency_key=?',
+    ).get('w', proposalCommitKey).count,
+  };
+
+  assert.throws(
+    () => proposals.commit('w', proposal.proposal_id),
+    (error) => error.code === 'STALE_PROPOSAL' && error.status === 409,
+  );
+
+  assert.deepEqual(h.engine.getState('w'), before.state);
+  assert.deepEqual(h.engine.getEvents('w', true), before.events);
+  assert.deepEqual(h.engine.getAudit('w'), before.audit);
+  assert.deepEqual(proposals.get('w', proposal.proposal_id), before.proposal);
+  assert.equal(
+    h.store.db.prepare(
+      'SELECT COUNT(*) AS count FROM idempotency_keys WHERE world_id=? AND idempotency_key=?',
+    ).get('w', proposalCommitKey).count,
+    before.proposalCommitKeyCount,
+  );
+  assert.equal(
+    h.store.db.prepare(
+      "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.committed'",
+    ).get('w').count,
+    0,
+  );
+});
