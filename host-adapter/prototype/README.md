@@ -7,7 +7,7 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 - Opt-in IndexedDB append-only journal. Enrollment is explicit through the development-only `window.logicEngineHostLifecycle.enrollCurrentConversation()` hook; no chat is automatically enrolled.
 - Per-conversation sequence, random event IDs, canonical SHA-256 payload/record digests, and previous-record digest.
 - Atomic head checkpoint in a separate object store in the same IndexedDB database. It detects a missing/truncated record tail while the checkpoint remains; it is not a separate physical failure domain and does not protect against an attacker who can rewrite both stores.
-- Baseline mapping with random logical message/version IDs and content digests; raw message text is not written to the journal.
+- Baseline mapping with random logical message/version IDs and content digests; raw message text is not written to the journal. Mutation records retain identity, lineage and digests only.
 - Idempotent same-event replay; reuse of an event ID with a different payload fails closed.
 - Strict-durability IndexedDB write transaction. A failed pre-mutation append throws so the caller must abort the mutation.
 - Startup/status verification detects sequence gaps, chain/digest mismatch, schema mismatch, and head-checkpoint mismatch.
@@ -70,11 +70,11 @@ This is a reproducible patch artifact against SillyTavern commit `06bde939fb1e9c
 **Readiness remains NON_READY** until exact-head CI passes, full hook coverage and actual browser/Android persistence are demonstrated, and a trusted source inventory/world binding plus final disclosure contract exists. No production Host→Provider listener is enabled. No Core, Provider, NPC, Process Manager, or vectorization source is changed by this follow-up.
 
 
-### Append-only content evidence
+### Digest-only lifecycle evidence
 
-The Host prototype now records exact pre-mutation content for affected versions and stores content for newly created/changed immutable versions in the journal. `exportCaptureLedger()` returns records only after journal-integrity verification and explicitly labels its boundary as enrollment-forward-only. This is a local evidence export primitive, not a Provider API and not a production handoff.
+The candidate journal records pre-mutation affected-version identity, lineage and content digests, and post-mutation immutable version IDs/digests; it does **not** retain raw message text. This follows the existing approved retention boundary. `exportCaptureLedger()` returns records only after journal-integrity verification and explicitly labels its boundary as enrollment-forward-only. This is a local evidence export primitive, not a Provider API and not a production handoff.
 
-This closes the prototype's previous content-loss gap for covered edit/delete hooks: a source version's last bytes are journaled before mutation; a new immutable version's bytes are journaled after native save. If native save or journal append fails, the conversation remains NON_READY. Uninstrumented paths, pre-enrollment deletions, copied/restored lineage, world/session authority and real device durability remain blockers.
+Because the journal stores digests rather than source bytes, it cannot itself recover deleted message text or supply content for Provider capture. That limitation is intentional under the current retention contract; any future content transfer requires a separately approved contract and must not be inferred from this prototype. Uninstrumented paths, pre-enrollment deletions, copied/restored lineage, world/session authority and real device durability remain blockers.
 
 
 ### Chat unload is not deletion
