@@ -1,8 +1,8 @@
 # Memory Provider: existing persistence path and Host/Adapter blockers
 
-Date: 2026-10-24
+Date: 2026-10-25
 
-Status: implementation evidence for the current draft branch only. This is not approval to enable production retrieval.
+Status: current-main Provider-local implementation evidence at `9ca95312b35d6431699d736aef721602d26639f8` (Runtime CI run #2028 passed). This is not approval to enable production retrieval.
 
 ## Current executable path
 
@@ -10,14 +10,14 @@ Status: implementation evidence for the current draft branch only. This is not a
 - It writes to the existing Provider-owned SQLite table `memory_raw_captures`, keyed by `(world_id, conversation_id, message_id, version_id)`. It stores `role`, exact JavaScript string content encoded as UTF-8 for SHA-256, JSON metadata, capture time, and a provider-local deletion marker. A duplicate key with different role/content/digest/serialized metadata throws `MEMORY_RAW_CAPTURE_CONFLICT`; identical payload returns `duplicate`.
 - `selectActiveRawVersion(input)` changes the pointer in `memory_raw_active_versions` and retains alternate rows.
 - `markRawSourceDeleted(input)` marks one exact version deleted, removes the active pointer only if it points at that version, and invalidates registered dependent copies in `memory_raw_derived_copies`. `purgeRawSource(input)` permanently deletes that exact version and its Provider-local dependent copies.
-- These are callable Provider methods, not a Host/Adapter event listener or production ingest API. The repository's `docs/13-sillytavern-adapter-contract.md` is requirements-only. PR #259 documents the pinned host evidence; it does not add a listener.
+- These are callable Provider methods, not a Host/Adapter event listener or production ingest API. The repository's `docs/13-sillytavern-adapter-contract.md` is requirements-only. PR #295 documents the pinned host evidence; it does not add a listener.
 - `memory-provider-import-internal.js` is an internal test/import seam, not a production host transport. Raw archive rows are separate from `memory_records` / derived index entries; capture alone does not make a raw message an NPC retrieval candidate.
 
 ## Capability matrix
 
 | Capability | Existing file / function | Existing test evidence | Production status | Limit / safe behavior |
 |---|---|---|---|---|
-| Persist raw version and digest | `src/application/sqlite-memory-provider.js` — `captureRawMessage` | `tests/memory-provider-raw-archive.test.js`: durable capture, digest, duplicate and conflict cases | Provider-local implementation in draft PR #201; not wired to ST | Accepts caller-supplied identity; does not prove it came from the host or Core. Do not ingest an event until identity is resolved by an approved adapter contract. |
+| Persist raw version and digest | `src/application/sqlite-memory-provider.js` — `captureRawMessage` | `tests/memory-provider-raw-archive.test.js`: durable capture, digest, duplicate and conflict cases | Provider-local implementation in current main; not wired to ST | Accepts caller-supplied identity; does not prove it came from the host or Core. Do not ingest an event until identity is resolved by an approved adapter contract. |
 | Duplicate delivery | `captureRawMessage` compares key + role/content/digest/metadata inside `BEGIN IMMEDIATE` transaction | `raw message capture is durable, integrity-tagged, and idempotent across restart` | Implemented/tested locally | Identical payload is a duplicate. Same key with different payload is `MEMORY_RAW_CAPTURE_CONFLICT`; never overwrite. No host redelivery path is connected. |
 | Selected swipe/version | `selectActiveRawVersion`, `readActiveRawMessages` | `active-version switching retains alternative generations`; new regression verifies selection survives restart and deleting inactive alternative preserves it | Provider-local implementation; not host-mapped | Requires known `message_id` and `version_id`. ST `MESSAGE_SWIPED` supplies a numeric chat-array index in the pinned source/sample, not a proven durable branch/generation ID. Fail closed rather than map the index. |
 | Edit creates immutable version | `captureRawMessage` can store a distinct caller-provided `version_id` | Conflict and multi-version archive tests | Primitive only; no edit adapter | `MESSAGE_EDITED` / `MESSAGE_UPDATED` report an index, not an approved immutable revision ID or before/after bytes. A later edit cannot safely be linked to a prior source version today. |
