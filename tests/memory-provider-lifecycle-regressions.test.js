@@ -108,3 +108,32 @@ test('rollback is stale even when commit_sequence does not increase', async (t) 
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_SNAPSHOT_STALE/);
   assert.notEqual(s.provider.getIndexStatusForDiagnostics(s.scope.world_id).source_reconciliation, 'current');
 });
+
+test('corrupted or missing persisted direct-source lineage fails closed at authorization and reconciliation', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  s.provider.db.prepare('UPDATE memory_records SET lineage_json=? WHERE world_id=? AND record_ref=?')
+    .run('{broken-json', s.scope.world_id, s.record.record_ref);
+  await assert.rejects(() => s.provider.authorizeCandidate({
+    ...s.scope,
+    record_ref: s.record.record_ref,
+    record_version: s.record.record_version,
+    source_kind: 'canonical_entity',
+    source_entity_id: s.record.source_entity_id,
+  }), /MEMORY_LINEAGE_INVALID/);
+  const corrupt = await s.provider.reconcile(s.scope.world_id);
+  assert.deepEqual(corrupt, { status: 'stale', reason: 'LINEAGE_INVALID' });
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+
+  // Restore syntactically valid JSON but remove required ancestry: it is still invalid.
+  s.provider.db.prepare('UPDATE memory_records SET lineage_json=? WHERE world_id=? AND record_ref=?')
+    .run('[]', s.scope.world_id, s.record.record_ref);
+  const missing = await s.provider.reconcile(s.scope.world_id);
+  assert.deepEqual(missing, { status: 'stale', reason: 'LINEAGE_INVALID' });
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+});
