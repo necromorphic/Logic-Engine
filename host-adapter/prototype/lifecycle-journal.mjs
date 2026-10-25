@@ -94,7 +94,7 @@ export class HostLifecycleJournal {
   }
   async #verify(rows) {
     let previous=null;
-    for(let i=0;i<rows.length;i++) { const r=rows[i]; if(r.sequence!==i+1)return {ok:false,reason:'sequence gap at '+(i+1)}; if(r.previousRecordDigest!==previous)return {ok:false,reason:'chain mismatch at '+r.sequence}; const {recordDigest,...base}=r; if(await digest(base)!==recordDigest)return {ok:false,reason:'record digest mismatch at '+r.sequence}; if(await digest({conversationId:r.conversationId,eventId:r.eventId,operation:r.operation,payload:r.payload,sourceFingerprint:r.sourceFingerprint})!==r.eventDigest)return {ok:false,reason:'event digest mismatch at '+r.sequence}; previous=recordDigest; }
+    for(let i=0;i<rows.length;i++) { const r=rows[i]; if(r.schemaVersion!==2)return {ok:false,reason:'unsupported journal schema at '+(i+1)}; if(r.sequence!==i+1)return {ok:false,reason:'sequence gap at '+(i+1)}; if(r.previousRecordDigest!==previous)return {ok:false,reason:'chain mismatch at '+r.sequence}; const {recordDigest,...base}=r; if(await digest(base)!==recordDigest)return {ok:false,reason:'record digest mismatch at '+r.sequence}; if(await digest({conversationId:r.conversationId,eventId:r.eventId,operation:r.operation,payload:r.payload,sourceFingerprint:r.sourceFingerprint})!==r.eventDigest)return {ok:false,reason:'event digest mismatch at '+r.sequence}; previous=recordDigest; }
     return {ok:true};
   }
   #fail(cid,reason) { this.#bad.set(cid,reason); return {status:'NON_READY',reason}; }
@@ -104,6 +104,7 @@ export async function contentDigest(text) { return digest(String(text)); }
 export async function fingerprintSource(messages) {
   const projection = messages.map(message => ({
     role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
+    currentMessage: message.mes ?? '',
     versions: Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''],
     activeVersionIndex: Number.isInteger(message.swipe_id) ? message.swipe_id : 0,
   }));
