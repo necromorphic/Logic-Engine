@@ -5,7 +5,7 @@ OUT=pathlib.Path('coordinator-output')
 INTERVAL=int(sys.argv[1]) if len(sys.argv)>1 else 300
 
 def gh(args):
- p=subprocess.run(['gh',*args],text=True,capture_output=True,timeout=90)
+ p=subprocess.run(['gh',*args],text=True,encoding='utf-8',errors='replace',capture_output=True,timeout=90)
  if p.returncode: raise RuntimeError((p.stderr or p.stdout).strip())
  return json.loads(p.stdout)
 def snapshot():
