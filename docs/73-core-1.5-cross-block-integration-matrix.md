@@ -331,3 +331,16 @@ This is a bounded inventory of the code present in this repository, not a claim 
 **Result of this inventory:** within the checked-in runtime, no production Memory→NPC consumer or character-card response route was found. The concrete in-repository model-facing read is the bounded authorized-read route, whose shipped default remains self-only. Direct engine methods and the card projector remain trusted/internal building blocks, not an alternate public visibility path. This closes only the repository inventory/documentation subtask; it does not prove how an external host serializes data.
 
 **Acceptance for any future in-process consumer:** name its exact call site, show that authorization runs before serialization (including snippets/counts/diagnostics and derived summaries), carry the composite freshness markers, and add a real-path non-disclosure test on the exact consuming boundary. Until such a consumer exists in this repository, classify external host wiring as **unverified / owner contract required**, not as a runtime defect that justifies inventing a new API.
+
+
+### Gate G — Core owner decision for the first canonical-entity Memory→NPC slice
+
+**Decision recorded 2026-10-26; linked implementation task:** [#140 comment](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6402324143), originating task [#6402119782](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6402119782).
+
+- **Disposition: B — DENY / NON_READY until the contract is explicit.** For recipient `model` and purpose `npc_decision`, no canonical entity fields are currently approved for production Memory→NPC disclosure. The integration-test fixture allowlist `attributes.public_note` is not production policy.
+- **Source-version blocker:** no verified existing Core contract maps Provider `source_version` to authoritative per-entity current state. Do not infer this mapping from `world_revision` or `commit_sequence`, and do not trust a Provider row's currentness claim. Do not wire a test-supplied validator as production authority.
+- **Runtime disposition:** no safe runtime composition diff can be made under this decision without inventing an allowlist or source-version meaning. Existing fail-closed behavior remains; production Memory→NPC stays **DISABLED / FAIL-CLOSED**. This is not a claim that the consumer is implemented.
+- **Exact remaining blockers before reconsidering A:** (1) an owner-approved finite list of canonical fields for recipient/purpose; (2) an existing authoritative Core source-version/currentness operation and explicit mapping to the stored `source_version`.
+- **Required real-path acceptance when those blockers are resolved:** `SQLiteMemoryProvider → AuthorizedReadService → MemoryNpcConsumer`; allowed fields only, denied fields absent, stale/retracted/unverifiable versions `NON_READY` without content/candidate-metadata leakage, plus revocation-during-read and restart/reconciliation coverage. Fixture-only callbacks do not satisfy this gate.
+- This decision does not authorize raw Host text, caller-supplied authority, wildcard attributes, new API/schema/store/outbox/cursor/lease, or a broader read policy. It does not choose a reconciliation mechanism; Gate C remains pending concrete consumer requirements from Memory/NPC.
+
