@@ -1,0 +1,59 @@
+name: Host lifecycle patch validation
+
+on:
+  pull_request:
+    paths:
+      - "host-adapter/prototype/**"
+      - ".github/workflows/host-lifecycle-patch-validation.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-sillytavern-patch:
+    name: Apply-check and lint pinned SillyTavern patch (not runtime proof)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Checkout exact SillyTavern target
+        shell: bash
+        run: |
+          set -euo pipefail
+          git clone --no-checkout https://github.com/SillyTavern/SillyTavern.git "$RUNNER_TEMP/st"
+          git -C "$RUNNER_TEMP/st" checkout --detach 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          test "$(git -C "$RUNNER_TEMP/st" rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+      - name: Stage prototype modules into disposable checkout
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle"
+          cp host-adapter/prototype/lifecycle-journal.mjs "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle/"
+          cp host-adapter/prototype/st-lifecycle-bridge.mjs "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle/"
+      - name: Apply-check and apply candidate patch
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd "$RUNNER_TEMP/st"
+          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git diff --check
+      - name: Install pinned host dependencies
+        shell: bash
+        run: npm ci --ignore-scripts --no-audit --no-fund
+        working-directory: ${{ runner.temp }}/st
+      - name: Lint patched host entry point and prototype modules
+        shell: bash
+        run: |
+          set -euo pipefail
+          npx eslint public/script.js public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+        working-directory: ${{ runner.temp }}/st
+      - name: Syntax-check prototype modules
+        shell: bash
+        run: |
+          node --check public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
+          node --check public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+        working-directory: ${{ runner.temp }}/st
