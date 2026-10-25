@@ -400,7 +400,7 @@ export class ProposalService {
         ...payload,
         idempotency_key: 'proposal-approval-validation:' + row.proposal_id,
         expected_revision: world.world_revision,
-      }, { authorApprovedDuration: true, ...(row.mechanic_execution_json ? { mechanicExecution: dec(row.mechanic_execution_json) } : {}) });
+      }, { authorApprovedDuration: true });
       const durationDecision = approvalValidation.duration_decision ?? null;
       const approvedAt = now();
       this.db.prepare("UPDATE event_proposals SET status='approved',approved_at=? WHERE proposal_id=? AND status='pending'").run(approvedAt, proposalId);
@@ -436,7 +436,7 @@ export class ProposalService {
         ...payload,
         idempotency_key: 'proposal:' + row.proposal_id,
         expected_revision: row.base_world_revision,
-      }, { authorApprovedDuration: true });
+      }, { authorApprovedDuration: true, ...(row.mechanic_execution_json ? { mechanicExecution: dec(row.mechanic_execution_json) } : {}) });
       const committedAt = now();
       this.db.prepare("UPDATE event_proposals SET status='committed',committed_at=?,commit_result_json=? WHERE proposal_id=? AND status='approved'")
         .run(committedAt, enc(result), proposalId);
