@@ -34,12 +34,14 @@ Pinned source: [main message/generation paths](https://github.com/SillyTavern/Si
 
 The review-only prototype in [Draft PR #323](https://github.com/necromorphic/Logic-Engine/pull/323) adds an opt-in journal, integrity-chain/head checks, a source snapshot comparison, pre-mutation checkpoints, and capture-ledger export bounded to forward-only enrollment. The PR describes tests for swipe checkpoint ordering and old/new content around edit/delete.
 
-CI evidence recorded on #258 for head `a4e8cf3c1f4f54e9d1947634e0ff2204d56ecbe7`:
-- [Pinned-source patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40211783880): PASS, patch applied to the exact pinned ST commit and 30/30 Host prototype tests passed.
-- [Pinned-source validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40211783954): PASS, patched entry-point ESLint and module syntax checks.
-- [Repository runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40211783900): PASS.
+Earlier CI on head `a4e8cf3c1f4f54e9d1947634e0ff2204d56ecbe7` passed the pinned-source patch check (30/30 Host prototype tests), patched entry-point validation, and repository runtime tests; those historical runs are not used as proof for the current head.
 
-**CI-head caveat:** PR #323 currently reports head `32a2ea3c158c904fa63d259ebd16f723e4508e74`, which differs from the head named in the recorded CI milestone. The connector returned no combined status checks for `32a2ea3c158c904fa63d259ebd16f723e4508e74`. Therefore those PASS results must not be represented as verification of the PR's current head until exact-head CI is rerun and recorded.
+**Current exact-head CI:** PR #323 head `32a2ea3c158c904fa63d259ebd16f723e4508e74` has three successful workflows:
+- [Pinned-source patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40212296545): SUCCESS.
+- [Pinned-source patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40212296553): SUCCESS.
+- [Repository runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40212296547): SUCCESS.
+
+These results validate the exact CI candidate and patch/prototype path against the pinned ST source. They do **not** establish real Android/Termux execution, complete inventory, restore/import/copy coverage, or production integration.
 
 The prototype is not installed on the user's Android/Termux instance. It does not prove the real host's current complete inventory, pre-enrollment/deleted history, all import/copy/restore paths, or end-to-end Provider/Core authorization/revocation. No production Host→Provider listener is enabled.
 
@@ -77,5 +79,5 @@ The Provider's own SQLite persistence, tombstone, reconciliation and revocation 
 
 - Pinned source inspected: `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
 - Existing redacted runtime samples: issue #258; not re-requested and not reinterpreted as proof of ordering.
-- Prototype CI: links above, with the explicit current-head caveat.
+- Prototype CI: current-head checks for `32a2ea3c158c904fa63d259ebd16f723e4508e74` pass (links above); scope remains CI patch/prototype only.
 - Real Android/Termux restart/replay and end-to-end Provider/Core integration: **not run / not proven**.
