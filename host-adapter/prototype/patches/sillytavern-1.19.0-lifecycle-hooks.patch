@@ -62,21 +62,29 @@ diff --git a/public/script.js b/public/script.js
      chatElement.children('.mes').last().remove();
      await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
  }
-@@ -1674,6 +1719,8 @@
-         return;
-     }
- 
+@@ -1677,19 +1722,22 @@
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('delete-message', messageIds);
  
-@@ -1684,4 +1731,5 @@
+     // Delete from the end so earlier indices remain stable.
+     for (const messageId of messageIds) {
+         chat.splice(messageId, 1);
+         chatElement.find(`.mes[mesid="${messageId}"]`).remove();
          deleteItemizedPromptForMessage(messageId);
      }
  
 +    await lifecycleBridge.afterMutation('delete-message');
      chat_metadata.tainted = true;
+ 
+     const startIndex = firstMessageId <= minId ? firstMessageId : null;
+     updateViewMessageIds(startIndex);
+     saveChatDebounced();
+ 
+     if (this_edit_mes_id === id) {
+         this_edit_mes_id = undefined;
+     }
 @@ -6653,3 +6701,11 @@
          type = 'normal';
      }
