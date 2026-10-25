@@ -108,6 +108,7 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
     "afterMutation('delete-swipe'",
     "beforeMutation('select-swipe'",
     "afterMutation('select-swipe'",
+    "['swipe', 'regenerate'].includes(type) ? 'create-swipe'",
   ]) assert.ok(patch.includes(marker), `expected pinned patch hook: ${marker}`);
 
   // These are explicit acceptance gaps, not passing coverage. Any future claim
