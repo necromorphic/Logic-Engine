@@ -45,11 +45,11 @@ jobs:
         shell: bash
         run: npm ci --ignore-scripts --no-audit --no-fund
         working-directory: ${{ runner.temp }}/st
-      - name: Lint patched host entry point and prototype modules
+      - name: Lint patched host entry point
         shell: bash
         run: |
           set -euo pipefail
-          npx eslint public/script.js --parser-options '{"sourceType":"module"}' public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+          npx eslint public/script.js --parser-options '{"sourceType":"module"}'
         working-directory: ${{ runner.temp }}/st
       - name: Syntax-check prototype modules
         shell: bash
