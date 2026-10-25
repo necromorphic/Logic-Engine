@@ -1,6 +1,6 @@
 # Memory Provider lifecycle decisions (implementation checkpoint)
 
-**Status (2026-10-25):** owner decisions recorded; Provider-local raw archive and lifecycle safeguards are present in current main (`9ca95312b35d6431699d736aef721602d26639f8`, Runtime CI #2028 passed). This note does not approve production wiring or a Core source-change contract.
+**Status (2026-10-25):** owner decisions recorded; Provider-local raw archive and lifecycle safeguards are present in current main (`9ca95312b35d6431699d736aef721602d26639f8`, Runtime CI #2030 passed (592/592 repository tests and 8/8 oracle-harness tests; [run #2030](https://github.com/necromorphic/Logic-Engine/actions/runs/40203468760))). This note does not approve production wiring or a Core source-change contract.
 
 ## 1. Record edits, active versions, deletion, and purge
 
