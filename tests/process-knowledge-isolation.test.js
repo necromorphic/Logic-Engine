@@ -89,7 +89,11 @@ test('process completion stays separate from NPC knowledge, delivery, and receip
     const eventRows = store.db.prepare(
       'SELECT event_type, effects_json FROM world_events WHERE world_id=? ORDER BY commit_sequence',
     ).all('isolation-world');
-    assert.deepEqual(eventRows.map((row) => row.event_type), ['process.first', 'process.second']);
+    assert.deepEqual(
+      eventRows.filter((row) => row.event_type !== 'time.advance').map((row) => row.event_type),
+      ['process.first', 'process.second'],
+      'both process milestone events must be canonical; time.advance wrapper events are expected',
+    );
     assert.equal(eventRows.every((row) => JSON.parse(row.effects_json).length === 0), true);
 
     const auditActions = store.db.prepare(
