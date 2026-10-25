@@ -1,4 +1,4 @@
-import { fingerprintSource } from './lifecycle-journal.mjs';
+import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 
 const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
 const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
@@ -79,7 +79,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       }
       const nextVersions = [];
       for (let j = 0; j < versions.length; j++) {
-        const textDigest = await fingerprintSource([{ is_user: role === 'user', is_system: role === 'system', mes: versions[j] }]);
+        const textDigest = await contentDigest(versions[j]);
         const prior = identity.versions[j];
         if (prior && prior.payloadDigest === textDigest) {
           nextVersions.push(prior);
