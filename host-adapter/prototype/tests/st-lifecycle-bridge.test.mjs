@@ -241,3 +241,18 @@ test('new-message reconciliation fails closed when an existing identity is missi
   assert.equal(after.sequence, before.sequence);
   assert.equal(f.chat[0]._logicEngineLifecycle, undefined);
 });
+
+test('create-message checkpoint refuses to absorb an unhooked edit in earlier messages', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const before = await f.journal.verifyIntegrity('chat-1');
+  f.chat[0].mes = 'external edit before new message';
+  f.chat.push({ is_user: false, mes: 'new reply' });
+
+  await assert.rejects(
+    f.bridge.afterMutation('create-message', { createdMessageIndex: 2 }),
+    /pre-existing source changed before create-message checkpoint/,
+  );
+  const after = await f.journal.verifyIntegrity('chat-1');
+  assert.equal(after.sequence, before.sequence);
+});
