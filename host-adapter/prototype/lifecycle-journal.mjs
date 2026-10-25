@@ -76,6 +76,22 @@ export class HostLifecycleJournal {
     const rows = await this.#records(cid);
     return rows.at(-1)?.sourceFingerprint ?? null;
   }
+  async exportCaptureLedger(cid) {
+    const integrity = await this.verifyIntegrity(cid);
+    if (integrity.status !== 'INTEGRITY_OK') {
+      throw Error('NON_READY: cannot export an unverified Host capture ledger: ' + integrity.reason);
+    }
+    const records = await this.#records(cid);
+    return {
+      status: 'REVIEW_ONLY',
+      conversationId: cid,
+      captureBoundary: 'enrollment-forward-only',
+      preEnrollmentHistory: 'UNKNOWN_UNRECOVERABLE',
+      sourceFingerprint: integrity.sourceFingerprint,
+      sequence: integrity.sequence,
+      records,
+    };
+  }
   async latestIdentitySnapshot(cid) {
     const rows = await this.#records(cid);
     for (let index = rows.length - 1; index >= 0; index--) {
