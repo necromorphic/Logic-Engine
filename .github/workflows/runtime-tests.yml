@@ -51,4 +51,4 @@ jobs:
         working-directory: ${{ runner.temp }}/sillytavern
         run: |
           npm ci --ignore-scripts --no-audit --no-fund
-          npx eslint public/script.js src/endpoints/chats.js
+          npx eslint public/script.js public/scripts/group-chats.js src/endpoints/chats.js
