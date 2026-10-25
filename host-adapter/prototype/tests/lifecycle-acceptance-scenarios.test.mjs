@@ -71,10 +71,12 @@ test('write-ahead failure prevents the simulated destructive mutation', async ()
   await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /MUST abort mutation/);
   // The host call site must await beforeMutation; this test models that contract.
   assert.equal(f.chat[0].mes, beforeText);
-  assert.equal((await f.bridge.reconcileCurrentConversation()).status, 'NON_READY');
+  const readiness = await f.bridge.reconcileCurrentConversation();
+  assert.equal(readiness.status, 'NON_READY');
+  assert.ok(readiness.missingPaths.includes('clear-chat'));
 });
 
-test('clear-chat records the enrolled inventory before clearing and stays NON_READY', async () => {
+test('bulk-clear journal primitive records affected inventory but clear-chat source coverage stays NON_READY', async () => {
   const f = fixture();
   await f.bridge.enrollCurrentConversation();
   const baselineIds = f.chat.map(m => m._logicEngineLifecycle.messageId);
@@ -98,11 +100,11 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
   for (const marker of [
-    "beforeMutation('clear-chat'",
     "beforeMutation('delete-message'",
     "beforeMutation('delete-swipe'",
     "beforeMutation('edit-message'",
     "afterMutation('delete-swipe'",
+    "beforeMutation('select-swipe'",
     "afterMutation('select-swipe'",
   ]) assert.ok(patch.includes(marker), `expected pinned patch hook: ${marker}`);
 
