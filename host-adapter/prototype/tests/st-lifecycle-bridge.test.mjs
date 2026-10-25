@@ -148,3 +148,20 @@ test('restart reconciliation rejects a corrupted journal even when chat fingerpr
   assert.equal(result.status, 'NON_READY');
   assert.match(result.reason, /digest mismatch/);
 });
+
+test('clear-chat captures all enrolled versions before removing the chat array', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const before = await f.bridge.beforeMutation('clear-chat', [0, 1]);
+  assert.equal(before.operation, 'before:clear-chat');
+  assert.equal(before.payload.affectedVersions.length, 2);
+
+  f.chat.length = 0;
+  await f.bridge.afterMutation('clear-chat');
+  assert.equal((await f.journal.verifyIntegrity('chat-1')).status, 'INTEGRITY_OK');
+
+  const readiness = await f.bridge.reconcileCurrentConversation();
+  assert.equal(readiness.status, 'NON_READY');
+  assert.ok(!readiness.missingPaths.includes('clear-chat'));
+  assert.ok(readiness.missingPaths.includes('cancel-generation'));
+});
