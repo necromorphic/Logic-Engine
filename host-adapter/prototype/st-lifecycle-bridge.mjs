@@ -3,6 +3,7 @@ import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
 const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
 const activeIndex = message => Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
   return globalThis.crypto.randomUUID();
@@ -186,7 +187,12 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
     if (missingIdentity) {
       return { status: 'NON_READY', reason: 'native identity metadata is missing or does not match current versions' };
     }
-    return { status: 'REVIEW_ONLY', sourceFingerprintMatches: true, productionAuthority: false };
+    // Integrity is not completeness: this patch does not intercept every mutation
+    // path. Keep reconciliation NON_READY until all required paths are wired.
+    return journal.status(conversationId, {
+      instrumentedPaths: CURRENTLY_HOOKED_PATHS,
+      sourceFingerprintMatches: true,
+    });
   }
 
   return Object.freeze({
