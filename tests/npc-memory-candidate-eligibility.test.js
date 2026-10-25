@@ -284,7 +284,7 @@ test("stale, retracted, unavailable, and unknown freshness are not current knowl
 });
 
 test("malformed trusted or candidate snapshots fail closed", () => {
-  for (const snapshot of [{}, { world_revision: 12 }, { world_revision: "", commit_sequence: 40 }]) {
+  for (const snapshot of [undefined, null, {}, { world_revision: 12 }, { world_revision: "", commit_sequence: 40 }]) {
     const result = evaluateMemoryCandidateAdmission(
       { ...request, snapshot },
       completeResult([candidate()]),
@@ -387,13 +387,62 @@ test("summary lineage sources must match the requested world, subject, and purpo
   }
 });
 
-test("duplicate record/version is admitted once without text-based identity", () => {
+test("repeated record/version candidates are all excluded when immutable equality cannot be proven", () => {
   const first = candidate({ content: "first wording" });
   const duplicate = candidate({ content: "different wording" });
   const result = evaluateMemoryCandidateAdmission(request, completeResult([first, duplicate]));
 
   assert.equal(result.status, "ready");
-  assert.equal(result.admitted.length, 1);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes("first wording"), false);
+  assert.equal(JSON.stringify(result).includes("different wording"), false);
+  assert.equal(JSON.stringify(result).includes("memory:claim-1"), false);
+});
+
+test("identity tuple encoding does not collide when references or versions contain separators", () => {
+  const first = candidate({ record: { ref: "a\\u0000b", version: "c" } });
+  const second = candidate({ record: { ref: "a", version: "b\\u0000c" } });
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([first, second]));
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted.map((item) => [item.record_ref, item.record_version]), [
+    ["a\\u0000b", "c"],
+    ["a", "b\\u0000c"],
+  ]);
+});
+
+test("summary lineage rejects sparse arrays instead of skipping missing source slots", () => {
+  const sources = [];
+  sources.length = 2;
+  sources[0] = {
+    ref: "source:a",
+    version: "1",
+    world_id: request.world_id,
+    access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
+    freshness: { status: "current" },
+  };
+  const summary = candidate({
+    content_kind: "summary",
+    lineage: { status: "complete", sources },
+  });
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes("source:a"), false);
+});
+
+test("re-evaluating the same result is deterministic and has no lifecycle side effects", () => {
+  const input = completeResult([candidate()]);
+  const before = structuredClone(input);
+  const first = evaluateMemoryCandidateAdmission(request, input);
+  const second = evaluateMemoryCandidateAdmission(request, input);
+
+  assert.deepEqual(second, first);
+  assert.deepEqual(input, before);
+  for (const state of ["included_in_context", "rendered", "delivered", "received", "acquired", "believed"]) {
+    assert.equal(Object.hasOwn(first, state), false);
+  }
 });
 
 test("partial, unavailable, rebuilding, malformed, or unknown retrieval is not treated as complete-empty", () => {
@@ -480,4 +529,74 @@ test("candidate admission does not mutate its request or result inputs", () => {
 
   assert.deepEqual(inputRequest, requestBefore);
   assert.deepEqual(inputResult, resultBefore);
+});
+
+
+test("synthetic Core-authorized-result fixture: admission does not imply later lifecycle states", () => {
+  // This is a contract fixture, not proof of real Core authorization or host integration.
+  const lifecycleFacts = {
+    captured: true,
+    persisted: true,
+    indexed: true,
+    authorized: true,
+    admitted: false,
+    included_in_context: false,
+    rendered: false,
+    delivered: false,
+    received: false,
+    acquired: false,
+    believed: false,
+  };
+  const inputRequest = structuredClone(request);
+  const inputResult = completeResult([
+    candidate({ lifecycle_facts: lifecycleFacts }),
+  ]);
+  const beforeRequest = structuredClone(inputRequest);
+  const beforeResult = structuredClone(inputResult);
+
+  const decision = evaluateMemoryCandidateAdmission(inputRequest, inputResult);
+
+  assert.equal(decision.status, "ready");
+  assert.equal(decision.admitted.length, 1);
+  assert.deepEqual(inputRequest, beforeRequest);
+  assert.deepEqual(inputResult, beforeResult);
+  assert.equal(Object.hasOwn(decision, "delivered"), false);
+  assert.equal(Object.hasOwn(decision, "received"), false);
+  assert.equal(Object.hasOwn(decision, "acquired"), false);
+  assert.equal(Object.hasOwn(decision, "believed"), false);
+});
+
+test("revoked or no-longer-current synthetic candidates are excluded without side effects", () => {
+  const variants = [
+    candidate({ access: { outcome: "deny", subject_id: request.subject_id, purpose: request.purpose } }),
+    candidate({ lifecycle: { ...candidate().lifecycle, access_outcome: "deny" } }),
+    candidate({ lifecycle: { ...candidate().lifecycle, content_disposition: "retracted" } }),
+    candidate({ lifecycle: { ...candidate().lifecycle, source_reconciliation: "pending_reconciliation" } }),
+    candidate({ freshness: { status: "unknown" } }),
+    candidate({ record: { ref: "memory:claim-1" } }),
+  ];
+
+  for (const revoked of variants) {
+    const inputResult = completeResult([revoked]);
+    const before = structuredClone(inputResult);
+    const decision = evaluateMemoryCandidateAdmission(request, inputResult);
+
+    assert.equal(decision.status, "ready");
+    assert.deepEqual(decision.admitted, []);
+    assert.deepEqual(inputResult, before);
+    assert.equal(JSON.stringify(decision).includes("memory:claim-1"), false);
+  }
+});
+
+
+test("sparse candidate result arrays are malformed, not authorized complete-empty", () => {
+  const candidates = [];
+  candidates.length = 2;
+  candidates[1] = candidate({ record: { ref: "memory:claim-2", version: "v1" } });
+  const result = evaluateMemoryCandidateAdmission(request, completeResult(candidates));
+
+  assert.equal(result.status, "non_ready");
+  assert.equal(result.reason, "result_incomplete_or_unavailable");
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes("memory:claim-2"), false);
 });
