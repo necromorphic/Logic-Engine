@@ -10,7 +10,7 @@ Related work:
 
 ## Contract agreed for review
 
-The merged runtime slice in #281 owns and owns the durable process definition, lifecycle records, trigger registration, and process persistence. Time's responsibility is to verify that its milestone semantics are compatible with the existing deterministic scheduler and time-advance pipeline. This PR must not introduce a second process lifecycle implementation.
+The merged runtime slice in #281 owns the durable process definition, lifecycle records, trigger registration, and process persistence. Time's responsibility is to verify that its milestone semantics are compatible with the existing deterministic scheduler and time-advance pipeline. This PR must not introduce a second process lifecycle implementation.
 
 The runtime behavior below was checked against the merged #281 implementation and tests. This document records the observed boundary, not a promise that unimplemented operations exist.
 
