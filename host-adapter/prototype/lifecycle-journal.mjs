@@ -81,6 +81,7 @@ export class HostLifecycleJournal {
   #fail(cid,reason) { this.#bad.set(cid,reason); return {status:'NON_READY',reason}; }
 }
 function txDone(tx) { return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||Error('IndexedDB transaction failed'));tx.onabort=()=>reject(tx.error||Error('IndexedDB transaction aborted'));}); }
+export async function contentDigest(text) { return digest(String(text)); }
 export async function fingerprintSource(messages) {
   const projection = messages.map(message => ({
     role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
