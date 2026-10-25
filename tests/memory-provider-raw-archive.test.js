@@ -575,6 +575,18 @@ test('selecting a tombstoned alternative fails without displacing the active ver
       .get('world-a', 'chat-a', 'message-1').version_id,
     'generation-1',
   );
+
+  s.reopen();
+  assert.equal(
+    s.provider.db.prepare(`SELECT version_id FROM memory_raw_active_versions
+      WHERE world_id=? AND conversation_id=? AND message_id=?`)
+      .get('world-a', 'chat-a', 'message-1').version_id,
+    'generation-1',
+  );
+  assert.throws(
+    () => s.provider.selectActiveRawVersion(sourceKey('generation-2')),
+    /MEMORY_RAW_VERSION_UNAVAILABLE/,
+  );
 });
 
 test('raw lifecycle operations reject incomplete identity tuples instead of guessing a target', (t) => {
