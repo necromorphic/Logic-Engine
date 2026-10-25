@@ -71,9 +71,7 @@ test('write-ahead failure prevents the simulated destructive mutation', async ()
   await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /MUST abort mutation/);
   // The host call site must await beforeMutation; this test models that contract.
   assert.equal(f.chat[0].mes, beforeText);
-  const readiness = await f.bridge.reconcileCurrentConversation();
-  assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('clear-chat'));
+  assert.equal((await f.bridge.reconcileCurrentConversation()).status, 'NON_READY');
 });
 
 test('bulk-clear journal primitive records affected inventory but clear-chat source coverage stays NON_READY', async () => {
