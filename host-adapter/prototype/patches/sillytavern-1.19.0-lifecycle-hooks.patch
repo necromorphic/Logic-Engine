@@ -1,13 +1,14 @@
 diff --git a/public/script.js b/public/script.js
 --- a/public/script.js
 +++ b/public/script.js
-@@ -11,6 +11,8 @@
+@@ -11,3 +11,5 @@
  } from './lib.js';
+ 
 +import { HostLifecycleJournal } from './scripts/logic-engine-lifecycle/lifecycle-journal.mjs';
 +import { createStLifecycleBridge } from './scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs';
  
  import { humanizedDateTime, favsToHotswap, getMessageTimeStamp, dragElement, isMobile, initRossMods } from './scripts/RossAscends-mods.js';
-@@ -1583,6 +1585,26 @@
+@@ -1586,1 +1588,21 @@
 -export async function clearChat({ clearData = false } = {}) {
 +let logicEngineLifecycleBridgePromise;
 +async function getLogicEngineLifecycleBridge() {
@@ -30,7 +31,7 @@ diff --git a/public/script.js b/public/script.js
 +}
 +
 +export async function clearChat({ clearData = false } = {}) {
-@@ -1598,9 +1620,12 @@
+@@ -1607,6 +1629,9 @@
  export async function deleteLastMessage() {
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    if (chat.length) await lifecycleBridge.beforeMutation('delete-message', [chat.length - 1]);
@@ -40,23 +41,18 @@ diff --git a/public/script.js b/public/script.js
      chatElement.children('.mes').last().remove();
      await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
  }
-@@ -1681,6 +1706,8 @@
+@@ -1677,2 +1702,4 @@
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('delete-message', messageIds);
- 
-     // Delete from the end so earlier indices remain stable.
-     for (const messageId of messageIds) {
-@@ -1688,4 +1715,5 @@
+@@ -1690,4 +1717,5 @@
          deleteItemizedPromptForMessage(messageId);
      }
-
+ 
 +    await lifecycleBridge.afterMutation('delete-message');
      chat_metadata.tainted = true;
-@@ -6653,6 +6681,13 @@
-     if (type != 'append' && type != 'continue' && type != 'appendFinal' && chat.length && (lastMessage.swipe_id === undefined ||
-         lastMessage.is_user)) {
+@@ -6653,3 +6681,10 @@
          type = 'normal';
      }
 +
@@ -68,46 +64,42 @@ diff --git a/public/script.js b/public/script.js
 +        await lifecycleBridge.beforeMutation(lifecycleOperation, [chat.length - 1]);
 +    }
  
-     if (chat.length && (!lastMessage.extra || typeof lastMessage.extra !== 'object')) {
-@@ -6829,6 +6864,7 @@
-     }
+@@ -6828,3 +6863,4 @@
  
-+    await lifecycleBridge.afterMutation(lifecycleOperation);
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
  }
-@@ -8399,7 +8435,9 @@
++
+@@ -8403,1 +8439,3 @@
 -    let { mesBlock, text, mes, bias } = updateMessage(div);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('edit-message', [this_edit_mes_id]);
 +    let { mesBlock, text, mes, bias } = updateMessage(div);
-@@ -8428,6 +8466,7 @@
+@@ -8431,2 +8469,3 @@
      await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
 +    await lifecycleBridge.afterMutation('edit-message');
      this_edit_mes_id = undefined;
-@@ -9366,6 +9405,8 @@
+@@ -9367,1 +9405,3 @@
 -    message.swipes.splice(swipeId, 1);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('delete-swipe', [messageId], { swipeIndex: swipeId });
 +    message.swipes.splice(swipeId, 1);
-@@ -9397,7 +9438,8 @@
+@@ -9397,5 +9437,6 @@
          refreshSwipeButtons();
          saveChatDebounced();
      }
-
+ 
 +    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });
      await saveChatConditional();
-
-     return newSwipeId;
-@@ -10091,6 +10133,11 @@
+@@ -10110,6 +10151,11 @@
          } else if (source != SWIPE_SOURCE.BACK) {
              //Save the chat if swipe_id has changed.
              saveChatDebounced();
          }
-+
+ 
 +        if (source !== SWIPE_SOURCE.BACK && source !== SWIPE_SOURCE.DELETE && clampedId !== originalSwipeId) {
 +            const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +            await lifecycleBridge.afterMutation('select-swipe', { selectedMessageIndex: mesId });
 +        }
- 
++
          //Allow for another swipe.
