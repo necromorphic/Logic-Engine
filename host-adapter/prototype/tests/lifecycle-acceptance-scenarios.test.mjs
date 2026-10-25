@@ -77,6 +77,7 @@ test('clear-chat records the enrolled inventory before clearing and stays NON_RE
   const f = fixture();
   await f.bridge.enrollCurrentConversation();
   const baselineIds = f.chat.map(m => m._logicEngineLifecycle.messageId);
+  const expectedVersionIds = f.chat.flatMap(m => m._logicEngineLifecycle.versions.map(v => v.versionId)).sort();
   await f.bridge.beforeMutation('clear-chat', [0, 1]);
   f.chat.length = 0;
   await f.bridge.afterMutation('clear-chat');
@@ -87,7 +88,6 @@ test('clear-chat records the enrolled inventory before clearing and stays NON_RE
     [...new Set(preClear.payload.affectedVersions.map(v => v.messageId))].sort(),
     [...baselineIds].sort(),
   );
-  const expectedVersionIds = f.chat.flatMap(m => m._logicEngineLifecycle.versions.map(v => v.versionId)).sort();
   assert.deepEqual(preClear.payload.affectedVersions.map(v => v.versionId).sort(), expectedVersionIds);
   assert.equal((await f.journal.verifyIntegrity('scenario-chat')).status, 'INTEGRITY_OK');
   assert.equal((await f.bridge.reconcileCurrentConversation()).status, 'NON_READY');
