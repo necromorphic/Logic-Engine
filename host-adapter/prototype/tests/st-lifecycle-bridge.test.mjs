@@ -98,7 +98,7 @@ test('enrolled bridge writes event IDs and advances the fingerprint after an edi
   assert.equal(next.operation, 'before:delete-message');
   const readiness = await f.bridge.reconcileCurrentConversation();
   assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('clear-chat'));
+  assert.ok(readiness.missingPaths.includes('cancel-generation'));
   assert.ok(readiness.missingPaths.includes('restore'));
 });
 
