@@ -69,6 +69,14 @@ function validReference(record) {
     && isNonEmptyString(record.version);
 }
 
+function isDenseArray(values) {
+  if (!Array.isArray(values)) return false;
+  for (let index = 0; index < values.length; index += 1) {
+    if (!Object.hasOwn(values, index)) return false;
+  }
+  return true;
+}
+
 function producerIsPresent(candidate) {
   return candidate.producer != null
     && isNonEmptyString(candidate.producer.kind);
@@ -172,7 +180,11 @@ export function evaluateMemoryCandidateAdmission(request, result) {
     });
   }
 
-  if (result == null || result.completeness !== SAFE_RESULT_COMPLETENESS || !Array.isArray(result.candidates)) {
+  if (
+    result == null
+    || result.completeness !== SAFE_RESULT_COMPLETENESS
+    || !isDenseArray(result.candidates)
+  ) {
     return Object.freeze({
       status: "non_ready",
       admitted: Object.freeze([]),
