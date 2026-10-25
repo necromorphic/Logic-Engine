@@ -74,23 +74,15 @@ test('write-ahead failure prevents the simulated destructive mutation', async ()
   assert.equal((await f.bridge.reconcileCurrentConversation()).status, 'NON_READY');
 });
 
-test('bulk-clear journal primitive records affected inventory but clear-chat source coverage stays NON_READY', async () => {
+test('clear-chat is rejected before source mutation because no native deletion hook exists', async () => {
   const f = fixture();
   await f.bridge.enrollCurrentConversation();
-  const baselineIds = f.chat.map(m => m._logicEngineLifecycle.messageId);
-  const expectedVersionIds = f.chat.flatMap(m => m._logicEngineLifecycle.versions.map(v => v.versionId)).sort();
-  await f.bridge.beforeMutation('clear-chat', [0, 1]);
-  f.chat.length = 0;
-  await f.bridge.afterMutation('clear-chat');
-  const rows = [...f.db.rows.values()].sort((a, b) => a.sequence - b.sequence);
-  const preClear = rows.find(r => r.operation === 'before:clear-chat');
-  assert.ok(preClear);
-  assert.deepEqual(
-    [...new Set(preClear.payload.affectedVersions.map(v => v.messageId))].sort(),
-    [...baselineIds].sort(),
+  const before = f.chat.map(m => m._logicEngineLifecycle.messageId);
+  await assert.rejects(
+    f.bridge.beforeMutation('clear-chat', [0, 1]),
+    /NON_READY: unsupported\/uninstrumented Host lifecycle operation clear-chat/,
   );
-  assert.deepEqual(preClear.payload.affectedVersions.map(v => v.versionId).sort(), expectedVersionIds);
-  assert.equal((await f.journal.verifyIntegrity('scenario-chat')).status, 'INTEGRITY_OK');
+  assert.deepEqual(f.chat.map(m => m._logicEngineLifecycle.messageId), before);
   const readiness = await f.bridge.reconcileCurrentConversation();
   assert.equal(readiness.status, 'NON_READY');
   assert.ok(readiness.missingPaths.includes('clear-chat'));
