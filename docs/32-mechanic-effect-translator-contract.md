@@ -10,7 +10,7 @@ The caller must send translated effects through the existing event validation an
 
 ## 2. Initial support set
 
-Only these three intent kinds are candidates for the initial translator:
+The implemented initial translator supports only these three intent kinds:
 
 - `create_entity` → `entity.create`
 - `update_attribute` → `entity.update`
