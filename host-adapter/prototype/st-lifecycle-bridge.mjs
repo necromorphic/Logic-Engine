@@ -160,6 +160,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       sourceFingerprint: fingerprint,
       payload: { changes, removedSwipeIndex, selectedMessageIndex },
     });
+    if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
     return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY' };
   }
 
