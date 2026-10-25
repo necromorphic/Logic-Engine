@@ -22,3 +22,30 @@ test('raw purge covers registered Provider copies, not copies in an external sto
   assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_raw_derived_copies').get().n, 0);
   assert.equal(external.prepare('SELECT content FROM copies WHERE copy_ref=?').get('unregistered-external').content, 'outside Provider');
 });
+
+
+test('purging the selected raw version clears only its active pointer and preserves alternatives', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'memory-purge-active-pointer-'));
+  const provider = new SQLiteMemoryProvider({ path: join(dir, 'provider.sqlite'),
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true, validateInventory: async () => true });
+  t.after(() => { try { provider.close(); } catch {} rmSync(dir, { recursive: true, force: true }); });
+
+  const selected = { world_id: 'w', conversation_id: 'c', message_id: 'm', version_id: 'v1' };
+  const alternative = { ...selected, version_id: 'v2' };
+  provider.captureRawMessage({ ...selected, role: 'assistant', content: 'selected', metadata: {} });
+  provider.captureRawMessage({ ...alternative, role: 'assistant', content: 'alternative', metadata: {} });
+  provider.selectActiveRawVersion(selected);
+
+  assert.deepEqual(provider.purgeRawSource(selected), { status: 'purged', purged_copies: 0 });
+  assert.equal(provider.db.prepare(`SELECT COUNT(*) AS n FROM memory_raw_active_versions
+    WHERE world_id=? AND conversation_id=? AND message_id=?`).get('w', 'c', 'm').n, 0);
+  assert.equal(provider.db.prepare(`SELECT COUNT(*) AS n FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get('w', 'c', 'm', 'v1').n, 0);
+  assert.equal(provider.db.prepare(`SELECT content_text FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get('w', 'c', 'm', 'v2').content_text, 'alternative');
+
+  assert.deepEqual(provider.selectActiveRawVersion(alternative), { status: 'active', version_id: 'v2' });
+});
