@@ -113,7 +113,8 @@ diff --git a/public/script.js b/public/script.js
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
      }
-@@ -3627,8 +3677,14 @@
+@@ -3621,9 +3671,15 @@
+     async onStartStreaming(text) {
          let messageId = -1;
  
          if (this.type == 'impersonate') {
