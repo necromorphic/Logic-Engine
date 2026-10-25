@@ -109,15 +109,27 @@ function lineageIsSafe(candidate, request) {
     return false;
   }
 
-  // Array.prototype.every skips holes. Check every own index explicitly so a
-  // sparse lineage cannot be mistaken for a complete list of authorized sources.
+  // Reject repeated source identities: without an approved immutable digest,
+  // repeated ref/version pairs cannot be assumed to be identical or independent.
+  const sourceIdentityCounts = new Map();
   for (let index = 0; index < candidate.lineage.sources.length; index += 1) {
     if (!Object.hasOwn(candidate.lineage.sources, index)) return false;
     const source = candidate.lineage.sources[index];
+    if (source == null) return false;
+    if (isNonEmptyString(source.ref) && isNonEmptyString(source.version)) {
+      const identity = JSON.stringify([source.ref, source.version]);
+      sourceIdentityCounts.set(identity, (sourceIdentityCounts.get(identity) ?? 0) + 1);
+    }
+  }
+
+  // Array.prototype.every skips holes. Check every own index explicitly so a
+  // sparse lineage cannot be mistaken for a complete list of authorized sources.
+  for (let index = 0; index < candidate.lineage.sources.length; index += 1) {
+    const source = candidate.lineage.sources[index];
     if (
-      source == null
-      || !isNonEmptyString(source.ref)
+      !isNonEmptyString(source.ref)
       || !isNonEmptyString(source.version)
+      || sourceIdentityCounts.get(JSON.stringify([source.ref, source.version])) !== 1
       || source.world_id !== request.world_id
       || source.access?.outcome !== ALLOW
       || source.access?.subject_id !== request.subject_id
