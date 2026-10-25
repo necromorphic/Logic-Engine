@@ -1,0 +1,228 @@
+diff --git a/public/script.js b/public/script.js
+--- a/public/script.js
++++ b/public/script.js
+@@ -11,3 +11,5 @@
+ } from './lib.js';
++import { HostLifecycleJournal } from './scripts/logic-engine-lifecycle/lifecycle-journal.mjs';
++import { createStLifecycleBridge, createUnavailableStLifecycleBridge } from './scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs';
+ 
+ import { humanizedDateTime, favsToHotswap, getMessageTimeStamp, dragElement, isMobile, initRossMods } from './scripts/RossAscends-mods.js';
+@@ -1583,23 +1585,71 @@
+  * @param {object} [options] Options
+  * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
+  */
++let logicEngineLifecycleBridgePromise;
++async function getLogicEngineLifecycleBridge() {
++    if (!logicEngineLifecycleBridgePromise) {
++        logicEngineLifecycleBridgePromise = HostLifecycleJournal.open().then(journal => createStLifecycleBridge({
++            journal,
++            getConversationId: getCurrentChatId,
++            getChat: () => chat,
++            saveChat: () => saveChatConditional(),
++        })).catch(error => {
++            const marker = 'logic-engine-host-lifecycle:' + getCurrentChatId();
++            if (localStorage.getItem(marker)) throw Error('NON_READY: enrolled Host journal unavailable: ' + error.message);
++            return createUnavailableStLifecycleBridge({
++                getConversationId: getCurrentChatId,
++                storage: localStorage,
++                error,
++            });
++        });
++    }
++    return logicEngineLifecycleBridgePromise;
++}
++
++// Explicit development-only enrollment; no chat is enrolled automatically.
++if (typeof window !== 'undefined') {
++    window.logicEngineHostLifecycle = {
++        enrollCurrentConversation: async () => {
++            const conversationId = getCurrentChatId();
++            const marker = 'logic-engine-host-lifecycle:' + conversationId;
++            localStorage.setItem(marker, 'enrolling');
++            try {
++                const result = await (await getLogicEngineLifecycleBridge()).enrollCurrentConversation();
++                localStorage.setItem(marker, 'enrolled');
++                return result;
++            } catch (error) {
++                localStorage.setItem(marker, 'NON_READY');
++                throw error;
++            }
++        },
++    };
++}
++
+ export async function clearChat({ clearData = false } = {}) {
+     cancelDebouncedChatSave();
+     cancelDebouncedMetadataSave();
+     closeMessageEditor();
+     extension_prompts = {};
+     if (is_delete_mode) {
+         $('#dialogue_del_mes_cancel').trigger('click');
+     }
+     //This will also remove non '.mes' elements, e.g. '<div id="show_more_messages">Show more messages</div>'.
+     chatElement.children().remove();
+     if ($('.zoomed_avatar[forChar]').length) {
+         console.debug('saw avatars to remove');
+         $('.zoomed_avatar[forChar]').remove();
+     } else { console.debug('saw no avatars'); }
+ 
+     await saveItemizedPrompts(getCurrentChatId());
+     itemizedPrompts.length = 0;
+ 
++    let lifecycleBridge;
++    if (clearData) {
++        lifecycleBridge = await getLogicEngineLifecycleBridge();
++        await lifecycleBridge.beforeMutation('clear-chat', Array.from({ length: chat.length }, (_, index) => index));
++    }
+-    if (clearData) chat.length = 0;
++    if (clearData) {
++        chat.length = 0;
++        await lifecycleBridge.afterMutation('clear-chat');
++    }
+ }
+@@ -1607,6 +1657,9 @@
+ export async function deleteLastMessage() {
++    const lifecycleBridge = await getLogicEngineLifecycleBridge();
++    if (chat.length) await lifecycleBridge.beforeMutation('delete-message', [chat.length - 1]);
+     deleteItemizedPromptForMessage(chat.length - 1);
+     chat.length = chat.length - 1;
++    await lifecycleBridge.afterMutation('delete-message');
+     chatElement.children('.mes').last().remove();
+     await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
+ }
+@@ -1677,19 +1730,22 @@
+     const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
+     const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
++    const lifecycleBridge = await getLogicEngineLifecycleBridge();
++    await lifecycleBridge.beforeMutation('delete-message', messageIds);
+ 
+     // Delete from the end so earlier indices remain stable.
+     for (const messageId of messageIds) {
+         chat.splice(messageId, 1);
+         chatElement.find(`.mes[mesid="${messageId}"]`).remove();
+         deleteItemizedPromptForMessage(messageId);
+     }
+ 
++    await lifecycleBridge.afterMutation('delete-message');
+     chat_metadata.tainted = true;
+ 
+     const startIndex = firstMessageId <= minId ? firstMessageId : null;
+     updateViewMessageIds(startIndex);
+     saveChatDebounced();
+ 
+     if (this_edit_mes_id === id) {
+         this_edit_mes_id = undefined;
+     }
+@@ -5905,17 +5961,22 @@
+     chat_metadata.tainted = true;
+ 
++    const lifecycleBridge = await getLogicEngineLifecycleBridge();
++    await lifecycleBridge.beforeMutation('message-send', []);
++
+     if (typeof insertAt === 'number' && insertAt >= 0 && insertAt <= chat.length) {
+         chat.splice(insertAt, 0, message);
+         await saveChatConditional();
++        await lifecycleBridge.afterMutation('message-send', { createdMessageIndex: insertAt });
+         await eventSource.emit(event_types.MESSAGE_SENT, insertAt);
+         await reloadCurrentChat();
+         await eventSource.emit(event_types.USER_MESSAGE_RENDERED, insertAt);
+     } else {
+         chat.push(message);
+         await saveChatConditional();
+         const chat_id = (chat.length - 1);
++        await lifecycleBridge.afterMutation('message-send', { createdMessageIndex: chat_id });
+         await eventSource.emit(event_types.MESSAGE_SENT, chat_id);
+         addOneMessage(message);
+         await eventSource.emit(event_types.USER_MESSAGE_RENDERED, chat_id);
+     }
+
+@@ -6653,3 +6714,12 @@
+         type = 'normal';
+     }
++
++    const lifecycleOriginalChatLength = chat.length;
++    const lifecycleBridge = await getLogicEngineLifecycleBridge();
++    const lifecycleOperation = type === 'swipe' ? 'create-swipe'
++        : ['append', 'continue', 'appendFinal'].includes(type) ? 'edit-message'
++            : 'create-message';
++    if (chat.length && lifecycleOperation !== 'create-message') {
++        await lifecycleBridge.beforeMutation(lifecycleOperation, [chat.length - 1]);
++    }
+ 
+@@ -6827,3 +6897,6 @@
+ 
++    await lifecycleBridge.afterMutation(lifecycleOperation, {
++        createdMessageIndex: lifecycleOperation === 'create-message' ? lifecycleOriginalChatLength : null,
++    });
+     statMesProcess(item, type, characters, this_chid, oldMessage);
+     return { type, getMessage };
+@@ -8400,5 +8471,7 @@
+         return;
+     }
+ 
++    const lifecycleBridge = await getLogicEngineLifecycleBridge();
++    await lifecycleBridge.beforeMutation('edit-message', [this_edit_mes_id]);
+     let { mesBlock, text, mes, bias } = updateMessage(div);
+ 
+@@ -8429,5 +8502,6 @@
+     }
+ 
+     await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
++    await lifecycleBridge.afterMutation('edit-message');
+     this_edit_mes_id = undefined;
+     await saveChatConditional();
+@@ -9363,7 +9437,9 @@
+         toastr.warning(t`Invalid swipe ID: ${swipeId + 1}`);
+         return;
+     }
+ 
++    const lifecycleBridge = await getLogicEngineLifecycleBridge();
++    await lifecycleBridge.beforeMutation('delete-swipe', [messageId], { swipeIndex: swipeId });
+     message.swipes.splice(swipeId, 1);
+ 
+     if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
+@@ -9395,11 +9472,12 @@
+         await updateSwipeCounter(messageId);
+         if (messageId !== chat.length - 1) {
+             await updateSwipeCounter(chat.length - 1);
+         }
+         refreshSwipeButtons();
+         saveChatDebounced();
+     }
+ 
++    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });
+     await saveChatConditional();
+ 
+     return newSwipeId;
+@@ -10104,6 +10104,14 @@
+     async function standardSwipe(newSwipeId) {
+         //If swipe_id has changed, or the source is being deleted.
+         if (newSwipeId !== originalSwipeId || source == SWIPE_SOURCE.DELETE || source == SWIPE_SOURCE.BACK) {
++            if (source !== SWIPE_SOURCE.BACK && source !== SWIPE_SOURCE.DELETE
++                && Number.isInteger(newSwipeId)
++                && newSwipeId >= 0
++                && newSwipeId < (chat[mesId]?.swipes?.length ?? 0)
++                && newSwipeId !== originalSwipeId) {
++                const lifecycleBridge = await getLogicEngineLifecycleBridge();
++                await lifecycleBridge.beforeMutation('select-swipe', [mesId], { targetSwipeIndex: newSwipeId });
++            }
+             //Update the chat.
+             await loadFromSwipeId(mesId, newSwipeId);
+
+@@ -10090,11 +10167,16 @@
+                 await reloadCurrentChat();
+             }
+             //Out of bounds swipes should not be saved.
+         } else if (source != SWIPE_SOURCE.BACK) {
+             //Save the chat if swipe_id has changed.
+             saveChatDebounced();
+         }
+ 
++        if (source !== SWIPE_SOURCE.BACK && source !== SWIPE_SOURCE.DELETE && clampedId !== originalSwipeId) {
++            const lifecycleBridge = await getLogicEngineLifecycleBridge();
++            await lifecycleBridge.afterMutation('select-swipe', { selectedMessageIndex: mesId });
++        }
++
+         //Allow for another swipe.
+         swipeState = SWIPE_STATE.NONE;
+         delete document.body.dataset.swiping;
