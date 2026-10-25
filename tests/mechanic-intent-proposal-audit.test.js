@@ -8,6 +8,7 @@ import { ProposalService } from '../src/application/proposals.js';
 import { translateMechanicEffectIntents } from '../src/core/mechanic-effect-translator.js';
 
 const TOKEN = 'test-token-long-enough-123456';
+const ADMIN = 'test-admin-token-long-enough-123456';
 const ADAPTER = 'adapter-a-token-long-enough-123456';
 const headers = {
   authorization: 'Bearer ' + TOKEN,
@@ -23,6 +24,7 @@ async function setup(t) {
   const server = createApiServer({
     engine,
     token: TOKEN,
+    adminToken: ADMIN,
     adapterTokens: { 'adapter-a': ADAPTER },
   });
   server.listen(0, '127.0.0.1');
@@ -34,7 +36,7 @@ async function setup(t) {
 async function createWorld(base, worldId) {
   return fetch(base + '/v1/worlds', {
     method: 'POST',
-    headers,
+    headers: { ...headers, 'x-admin-token': ADMIN },
     body: json({
       world_id: worldId,
       world_pack_id: 'test.world',
