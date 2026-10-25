@@ -94,11 +94,14 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.afterMutation(lifecycleOperation);
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
-@@ -8403,1 +8460,3 @@
--    let { mesBlock, text, mes, bias } = updateMessage(div);
+@@ -8400,5 +8457,7 @@
+         return;
+     }
+ 
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('edit-message', [this_edit_mes_id]);
-+    let { mesBlock, text, mes, bias } = updateMessage(div);
+     let { mesBlock, text, mes, bias } = updateMessage(div);
+ 
 @@ -8431,2 +8490,3 @@
      await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
 +    await lifecycleBridge.afterMutation('edit-message');
