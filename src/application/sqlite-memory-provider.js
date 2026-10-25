@@ -16,6 +16,13 @@ const decode = (value) => JSON.parse(value);
 const encode = (value) => JSON.stringify(value);
 const rawDigest = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 
+const validDirectLineage = (row, lineage) => Array.isArray(lineage)
+  && lineage.length === 1
+  && object(lineage[0])
+  && lineage[0].source_kind === 'canonical_entity'
+  && lineage[0].entity_id === row.source_entity_id
+  && lineage[0].source_version === row.source_version;
+
 /**
  * Durable provider adapter for the direct canonical-entity first slice.
  *
@@ -424,13 +431,19 @@ export class SQLiteMemoryProvider {
       .get(input.world_id, input.record_ref, input.record_version);
     if (!row || row.subject_id !== input.subject_id || row.purpose !== input.purpose
       || row.source_kind !== input.source_kind || row.source_entity_id !== input.source_entity_id) return false;
+    let lineage;
+    try { lineage = decode(row.lineage_json); } catch {
+      throw new Error('MEMORY_LINEAGE_INVALID');
+    }
+    if (!validDirectLineage(row, lineage)) throw new Error('MEMORY_LINEAGE_INVALID');
+
     let sourceValid = false;
     try {
       sourceValid = await this.validateSourceVersion(Object.freeze({
         world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
         record_ref: row.record_ref, record_version: row.record_version,
         source_kind: row.source_kind, source_entity_id: row.source_entity_id,
-        source_version: row.source_version, lineage: Object.freeze(decode(row.lineage_json)),
+        source_version: row.source_version, lineage: Object.freeze(lineage),
       })) === true;
     } catch {
       // Host/Core validator outage is unavailable, not an ordinary denial.
@@ -535,13 +548,22 @@ export class SQLiteMemoryProvider {
         this.#setState(worldId, 'rebuilding', 'stale', null, 'INDEX_ENTRY_MISSING');
         return { status: 'rebuilding', reason: 'INDEX_ENTRY_MISSING' };
       }
+      let lineage;
+      try { lineage = decode(row.lineage_json); } catch {
+        this.#setState(worldId, 'stale', 'stale', null, 'LINEAGE_INVALID');
+        return { status: 'stale', reason: 'LINEAGE_INVALID' };
+      }
+      if (!validDirectLineage(row, lineage)) {
+        this.#setState(worldId, 'stale', 'stale', null, 'LINEAGE_INVALID');
+        return { status: 'stale', reason: 'LINEAGE_INVALID' };
+      }
       let valid = false;
       try {
         valid = await this.validateSourceVersion(Object.freeze({
           world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
           record_ref: row.record_ref, record_version: row.record_version,
           source_kind: row.source_kind, source_entity_id: row.source_entity_id,
-          source_version: row.source_version, lineage: Object.freeze(decode(row.lineage_json)),
+          source_version: row.source_version, lineage: Object.freeze(lineage),
         })) === true;
       } catch { valid = false; }
       if (!valid) {
