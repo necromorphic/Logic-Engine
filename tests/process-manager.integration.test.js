@@ -311,6 +311,56 @@ test('failure between canonical segment commit and process checkpoint rolls back
   assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'pending');
 }));
 
+test('checkpoint failure stays terminal and same-key retry after SQLite restart leaves no residue', (t) => withDatabase(t, ({ engine, store, reopen }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput());
+  const beforeState = engine.getState('world-a');
+  const beforeProcess = engine.getProcess('world-a', 'journey-1');
+  const beforeTriggers = engine.listTimeTriggers('world-a');
+  const beforeAudit = engine.getAudit('world-a');
+  const beforeEventCount = store.db.prepare('SELECT COUNT(*) AS count FROM world_events WHERE world_id=?').get('world-a').count;
+
+  const complete = engine.processStore.completeTrigger.bind(engine.processStore);
+  engine.processStore.completeTrigger = () => { throw new Error('injected checkpoint failure'); };
+  const request = {
+    idempotency_key: 'advance-checkpoint-failure-replay',
+    expected_revision: beforeState.world_revision,
+    to_coordinate: 1000,
+  };
+  const failed = engine.startTimeAdvance('world-a', request);
+  engine.processStore.completeTrigger = complete;
+
+  assert.equal(failed.status, 'needs_review');
+  const operationBeforeRestart = store.getTimeAdvanceOperationByKey('world-a', request.idempotency_key);
+  assert.equal(operationBeforeRestart.status, 'needs_review');
+  assert.equal(engine.getState('world-a').game_time_coordinate, beforeState.game_time_coordinate);
+  assert.equal(engine.getState('world-a').world_revision, beforeState.world_revision);
+  assert.equal(store.currentCommitSequence('world-a'), 0);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM world_events WHERE world_id=?').get('world-a').count, beforeEventCount);
+  assert.deepEqual(engine.getProcess('world-a', 'journey-1'), beforeProcess);
+  assert.deepEqual(engine.listTimeTriggers('world-a'), beforeTriggers);
+  assert.deepEqual(engine.getAudit('world-a'), beforeAudit);
+
+  ({ engine, store } = reopen());
+  const persistedOperation = store.getTimeAdvanceOperationByKey('world-a', request.idempotency_key);
+  assert.equal(persistedOperation.status, 'needs_review');
+  const stateAfterRestart = engine.getState('world-a');
+  const processAfterRestart = engine.getProcess('world-a', 'journey-1');
+  const triggersAfterRestart = engine.listTimeTriggers('world-a');
+  const auditAfterRestart = engine.getAudit('world-a');
+  const eventCountAfterRestart = store.db.prepare('SELECT COUNT(*) AS count FROM world_events WHERE world_id=?').get('world-a').count;
+
+  const replay = engine.startTimeAdvance('world-a', request);
+  assert.equal(replay.status, 'needs_review');
+  assert.deepEqual(replay, persistedOperation);
+  assert.deepEqual(engine.getState('world-a'), stateAfterRestart);
+  assert.deepEqual(engine.getProcess('world-a', 'journey-1'), processAfterRestart);
+  assert.deepEqual(engine.listTimeTriggers('world-a'), triggersAfterRestart);
+  assert.deepEqual(engine.getAudit('world-a'), auditAfterRestart);
+  assert.equal(store.currentCommitSequence('world-a'), 0);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM world_events WHERE world_id=?').get('world-a').count, eventCountAfterRestart);
+}));
+
 test('resume rejects a paused process whose milestone became overdue', (t) => withDatabase(t, ({ engine, store }) => {
   store.createWorld(worldInput());
   const created = engine.createProcess('world-a', processInput());
