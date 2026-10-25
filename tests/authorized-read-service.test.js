@@ -176,36 +176,3 @@ test('authorized read returns the current composite snapshot after rollback chan
   assert.equal(store.currentCommitSequence('read-world'), before.commit_sequence);
 });
 
-
-test('authorized read returns the current composite snapshot after rollback changes revision without sequence growth', (t) => {
-  const { service, engine, store } = setup(t, (context, entity, field) =>
-    entity.entity_id === 'actor-a' && ['entity_id', 'entity_type', 'status'].includes(field));
-
-  engine.commitEvent('read-world', {
-    event_id: 'temporary-target',
-    idempotency_key: 'temporary-target',
-    turn_id: 'temporary-target-turn',
-    event_type: 'action.completed',
-    expected_revision: 1,
-    effects: [{ kind: 'entity.create', entity_id: 'temporary-target', entity_type: 'character' }],
-  });
-
-  const before = service.readEntityFields(request({
-    entityIds: ['actor-a'],
-    fields: ['entity_id', 'entity_type', 'status'],
-  }));
-  const rollback = engine.rollbackEvent('read-world', {
-    root_event_id: 'temporary-target',
-    idempotency_key: 'rollback-temporary-target',
-  });
-  assert.deepEqual(rollback.invalidated_event_ids, ['temporary-target']);
-
-  const after = service.readEntityFields(request({
-    entityIds: ['actor-a'],
-    fields: ['entity_id', 'entity_type', 'status'],
-  }));
-  assert.equal(after.world_revision, before.world_revision + 1);
-  assert.equal(after.commit_sequence, before.commit_sequence);
-  assert.deepEqual(after.entities, before.entities);
-  assert.equal(store.currentCommitSequence('read-world'), before.commit_sequence);
-});
