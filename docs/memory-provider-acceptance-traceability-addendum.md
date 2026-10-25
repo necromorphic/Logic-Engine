@@ -1,6 +1,6 @@
 # Memory Provider acceptance traceability — follow-up addendum
 
-**Applies to:** PR #201. Provider code/test HEAD `88451463bf4545adaaa38eab42e3df30f28da54f` passed Runtime CI run #1616 with **283/283 tests**.
+**Current-main update (2026-10-25):** Provider lifecycle safeguards are merged in `9ca95312b35d6431699d736aef721602d26639f8`; Runtime CI run #2028 passed. The historical PR #201 heads/runs below are preserved as historical evidence only.
 
 This addendum corrects the two completed Provider-owned items still listed as future work in the original `memory-provider-acceptance-traceability.md` checklist and records the raw archive and typed-failure slices. The original register is retained as historical context rather than silently rewritten.
 
@@ -32,11 +32,11 @@ This addendum corrects the two completed Provider-owned items still listed as fu
 - Summary admission and NPC knowledge side effects remain excluded. Retrieval/context inclusion does not create belief, acquisition, receipt, or delivery.
 - No universal source schema/version field, API, outbox, cursor, source-change journal, or parallel canonical store is introduced.
 
-PR #201 remains draft and unmerged, stacked on PR #182. Production Memory→NPC stays disabled until the owners approve the missing source/inventory/reconciliation/disclosure contract and real-adapter acceptance tests pass.
+PR #201 is now superseded for code/tests by current-main integration #313. Production Memory→NPC stays disabled until owners approve the missing source/inventory/reconciliation/disclosure contract and real-adapter acceptance tests pass.
 
 ## Follow-up acceptance batch — 24 October 2026
 
-- Exact PR #201 code/test HEAD before this documentation-only traceability update: `21a405c608c8599a135f5a35d4f544a2a2f0894b`; Runtime CI #40102186709 passed **286/286 tests**: https://github.com/necromorphic/Logic-Engine/actions/runs/40102186709.
+- Historical PR #201 code/test HEAD before its documentation-only traceability update: `21a405c608c8599a135f5a35d4f544a2a2f0894b`; Runtime CI #40102186709 passed **286/286 tests**: https://github.com/necromorphic/Logic-Engine/actions/runs/40102186709.
 - `tests/sqlite-memory-provider.test.js` now verifies that a thrown host/Core source-version validator is not collapsed into a normal record denial. Provider authorization raises only `MEMORY_SOURCE_VALIDATION_UNAVAILABLE`; host exception details are not propagated.
 - The same test file verifies direct-source ingestion rejects derived summaries while lineage-wide authorization is unavailable.
 - PR #183 adds real Core/NPC seam checks for query denial, per-record denial without identity/content leakage, read-only retrieval/context inclusion, and source-validator outage returning non-ready rather than ready-empty. Exact-head Runtime CI #40102217996 passed **298/298 tests** on `27523e0e592745ac995103b1a36e36d04f7f83c9`: https://github.com/necromorphic/Logic-Engine/actions/runs/40102217996.
