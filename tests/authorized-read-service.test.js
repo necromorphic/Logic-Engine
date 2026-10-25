@@ -84,6 +84,113 @@ test('unknown, throwing, or non-true field-policy decisions fail closed', (t) =>
   );
 });
 
+test('actor binding revoked during field-policy evaluation prevents content return', (t) => {
+  let bindingsRef;
+  const { service, bindings } = setup(t, (_context, _entity, field) => {
+    if (field === 'attributes.name') {
+      const revoked = bindingsRef.revoke('read-world', 'adapter-a', 'actor-a');
+      assert.equal(revoked.changed, true);
+    }
+    return field !== 'attributes.secret';
+  });
+  bindingsRef = bindings;
+
+  assert.throws(
+    () => service.readEntityFields(request()),
+    (error) => error.code === 'READ_NOT_AVAILABLE' && error.status === 404,
+  );
+});
+
+test('canonical snapshot mutation during field-policy evaluation prevents stale content return', (t) => {
+  let engineRef;
+  let mutated = false;
+  const { service, engine } = setup(t, (_context, _entity, field) => {
+    if (field === 'attributes.name' && !mutated) {
+      mutated = true;
+      const revision = engineRef.getState('read-world').world_revision;
+      const result = engineRef.commitEvent('read-world', {
+        idempotency_key: 'mutate-during-authorized-read',
+        turn_id: 'mutate-during-authorized-read',
+        event_type: 'action.completed',
+        expected_revision: revision,
+        effects: [{ kind: 'entity.create', entity_id: 'read-race-created', entity_type: 'object' }],
+      });
+      assert.equal(result.accepted, true);
+    }
+    return true;
+  });
+  engineRef = engine;
+
+  assert.throws(
+    () => service.readEntityFields(request()),
+    (error) => error.code === 'STALE_AUTHORIZED_READ_SNAPSHOT' && error.status === 409,
+  );
+});
+
+test('mechanic attribute read rechecks actor binding after field-policy evaluation', (t) => {
+  let bindingsRef;
+  const { service, bindings, engine, store } = setup(t, (_context, _entity, field) => {
+    if (field === 'attributes.name') {
+      const revoked = bindingsRef.revoke('read-world', 'adapter-a', 'actor-a');
+      assert.equal(revoked.changed, true);
+    }
+    return true;
+  });
+  bindingsRef = bindings;
+  const base = {
+    worldId: 'read-world',
+    adapterId: 'adapter-a',
+    actorEntityId: 'actor-a',
+    recipient: 'model',
+    purpose: 'npc_decision',
+    entityId: 'target-a',
+    expectedWorldRevision: engine.getState('read-world').world_revision,
+    expectedCommitSequence: store.currentCommitSequence('read-world'),
+  };
+
+  assert.throws(
+    () => service.readEntityAttributeForMechanic({ ...base, attribute: 'name' }),
+    (error) => error.code === 'READ_NOT_AVAILABLE' && error.status === 404,
+  );
+});
+
+test('mechanic attribute read rejects canonical mutation during field-policy evaluation', (t) => {
+  let engineRef;
+  let mutated = false;
+  const { service, engine, store } = setup(t, (_context, _entity, field) => {
+    if (field === 'attributes.name' && !mutated) {
+      mutated = true;
+      const revision = engineRef.getState('read-world').world_revision;
+      const result = engineRef.commitEvent('read-world', {
+        idempotency_key: 'mutate-during-mechanic-read',
+        turn_id: 'mutate-during-mechanic-read',
+        event_type: 'action.completed',
+        expected_revision: revision,
+        effects: [{ kind: 'entity.create', entity_id: 'mechanic-read-race-created', entity_type: 'object' }],
+      });
+      assert.equal(result.accepted, true);
+    }
+    return true;
+  });
+  engineRef = engine;
+  const requestSnapshot = {
+    worldId: 'read-world',
+    adapterId: 'adapter-a',
+    actorEntityId: 'actor-a',
+    recipient: 'model',
+    purpose: 'npc_decision',
+    entityId: 'target-a',
+    attribute: 'name',
+    expectedWorldRevision: engine.getState('read-world').world_revision,
+    expectedCommitSequence: store.currentCommitSequence('read-world'),
+  };
+
+  assert.throws(
+    () => service.readEntityAttributeForMechanic(requestSnapshot),
+    (error) => error.code === 'STALE_AUTHORIZED_READ_SNAPSHOT' && error.status === 409,
+  );
+});
+
 test('missing and fully withheld targets have the same externally safe error', (t) => {
   const { service } = setup(t, () => false);
   const denied = (() => {
