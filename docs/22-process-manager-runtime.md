@@ -100,9 +100,9 @@ with idempotency_key, expected_revision, and to_coordinate. No wall-clock schedu
 
 ## Rollback boundary
 
-If rollback invalidates a canonical event that directly supports a completed process milestone, the affected milestone and process are moved to needs_review in the rollback transaction. Resume is blocked until reconciliation.
+If rollback invalidates a canonical event that supports a completed process milestone, the runtime marks the directly affected milestone and its transitive completed descendants (following the declared `prerequisites` graph within that same process) as `needs_review` in the rollback transaction. The process is gated, the decision is audited, and restart preserves the result. Resume is blocked until reconciliation.
 
-This is intentionally conservative. Full causal closure, recomputation, and proof that unrelated process progress remains independent are **not implemented**. Do not describe rollback integration as complete or infer that a later milestone survives solely because its timestamp is later.
+This is intentionally bounded. Cross-process dependency closure, general causal recomputation, automatic replan, and proof that unrelated progress remains independent are **not implemented**. Do not infer causality from timestamps alone.
 
 ## Non-implications
 
