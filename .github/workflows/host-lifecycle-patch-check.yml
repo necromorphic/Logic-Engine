@@ -1,0 +1,37 @@
+name: Host lifecycle patch check
+
+on:
+  pull_request:
+    paths:
+      - "host-adapter/prototype/**"
+      - ".github/workflows/host-lifecycle-patch-check.yml"
+
+jobs:
+  pinned-st-host-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Logic-Engine branch
+        uses: actions/checkout@v4
+      - name: Checkout exact approved SillyTavern revision
+        uses: actions/checkout@v4
+        with:
+          repository: SillyTavern/SillyTavern
+          ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          path: sillytavern-host-checkout
+      - name: Install prototype modules into the pinned host tree
+        run: |
+          mkdir -p sillytavern-host-checkout/public/scripts/logic-engine-lifecycle
+          cp host-adapter/prototype/lifecycle-journal.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
+          cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+      - name: Apply-check and apply the pinned-source patch
+        run: |
+          cd sillytavern-host-checkout
+          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+      - name: Syntax-check patched host and prototype modules
+        run: |
+          node --check sillytavern-host-checkout/public/script.js
+          node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
+          node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+      - name: Run all Host prototype tests
+        run: node --test host-adapter/prototype/tests/*.test.mjs
