@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx eslint public/script.js public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+          npx eslint public/script.js --parser-options '{"sourceType":"module"}' public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
         working-directory: ${{ runner.temp }}/st
       - name: Syntax-check prototype modules
         shell: bash
