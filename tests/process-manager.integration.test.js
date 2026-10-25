@@ -311,6 +311,51 @@ test('failure between canonical segment commit and process checkpoint rolls back
   assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'pending');
 }));
 
+test('failure checkpoint result survives restart and same-key replay without canonical residue', (t) => withDatabase(t, ({ engine, store, reopen }) => {
+  store.createWorld(worldInput());
+  engine.createProcess('world-a', processInput());
+  const before = engine.getState('world-a');
+  const request = {
+    idempotency_key: 'advance-failed-checkpoint-replay',
+    expected_revision: before.world_revision,
+    to_coordinate: 1000,
+  };
+  const complete = engine.processStore.completeTrigger.bind(engine.processStore);
+  engine.processStore.completeTrigger = () => {
+    const error = new Error('injected checkpoint failure');
+    error.code = 'INJECTED_PROCESS_CHECKPOINT_FAILURE';
+    throw error;
+  };
+  const failed = engine.startTimeAdvance('world-a', request);
+  engine.processStore.completeTrigger = complete;
+
+  assert.equal(failed.status, 'needs_review');
+  const stateAfterFailure = engine.getState('world-a');
+  const eventsAfterFailure = engine.getEvents('world-a', true);
+  const auditAfterFailure = engine.getAudit('world-a');
+  const triggersAfterFailure = engine.listTimeTriggers('world-a');
+  const processAfterFailure = engine.getProcess('world-a', 'journey-1');
+  assert.equal(stateAfterFailure.game_time_coordinate, 0);
+  assert.equal(processAfterFailure.status, 'needs_review');
+  assert.equal(processAfterFailure.progress.completed, 0);
+  assert.equal(processAfterFailure.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'needs_review');
+
+  ({ engine } = reopen());
+  assert.deepEqual(engine.getState('world-a'), stateAfterFailure);
+  assert.deepEqual(engine.getEvents('world-a', true), eventsAfterFailure);
+  assert.deepEqual(engine.getAudit('world-a'), auditAfterFailure);
+  assert.deepEqual(engine.listTimeTriggers('world-a'), triggersAfterFailure);
+  assert.deepEqual(engine.getProcess('world-a', 'journey-1'), processAfterFailure);
+
+  const replay = engine.startTimeAdvance('world-a', request);
+  assert.deepEqual(replay, failed);
+  assert.deepEqual(engine.getState('world-a'), stateAfterFailure);
+  assert.deepEqual(engine.getEvents('world-a', true), eventsAfterFailure);
+  assert.deepEqual(engine.getAudit('world-a'), auditAfterFailure);
+  assert.deepEqual(engine.listTimeTriggers('world-a'), triggersAfterFailure);
+  assert.deepEqual(engine.getProcess('world-a', 'journey-1'), processAfterFailure);
+}));
+
 test('resume rejects a paused process whose milestone became overdue', (t) => withDatabase(t, ({ engine, store }) => {
   store.createWorld(worldInput());
   const created = engine.createProcess('world-a', processInput());
