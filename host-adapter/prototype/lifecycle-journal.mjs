@@ -90,7 +90,7 @@ export class HostLifecycleJournal {
     const missing=REQUIRED.filter(p=>!instrumentedPaths.includes(p));
     if(missing.length) return {status:'NON_READY',reason:'incomplete mutation instrumentation',missingPaths:missing,baselineBoundary:'enrollment-forward-only'};
     if(!sourceFingerprintMatches) return {status:'NON_READY',reason:'source fingerprint mismatch or unverified'};
-    return {status:'CAPTURE_READY_FOR_REVIEW_ONLY',sequence:rows.at(-1).sequence,baselineBoundary:'enrollment-forward-only',productionAuthority:false};
+    return {status:'NON_READY',reason:'native hook coverage has no trusted pinned-source attestation',sequence:rows.at(-1).sequence,baselineBoundary:'enrollment-forward-only'};
   }
   async #verify(rows) {
     let previous=null;
