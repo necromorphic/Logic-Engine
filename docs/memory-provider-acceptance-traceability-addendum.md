@@ -1,6 +1,6 @@
 # Memory Provider acceptance traceability — follow-up addendum
 
-**Current-main update (2026-10-25):** Provider lifecycle safeguards are merged in `9ca95312b35d6431699d736aef721602d26639f8`; Runtime CI run #2028 passed. The historical PR #201 heads/runs below are preserved as historical evidence only.
+**Current-main update (2026-10-25):** Provider lifecycle safeguards are merged in `9ca95312b35d6431699d736aef721602d26639f8`; Runtime CI run #2030 passed (592/592 repository tests and 8/8 oracle-harness tests; [run #2030](https://github.com/necromorphic/Logic-Engine/actions/runs/40203468760)). The historical PR #201 heads/runs below are preserved as historical evidence only.
 
 This addendum corrects the two completed Provider-owned items still listed as future work in the original `memory-provider-acceptance-traceability.md` checklist and records the raw archive and typed-failure slices. The original register is retained as historical context rather than silently rewritten.
 
