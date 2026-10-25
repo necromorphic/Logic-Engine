@@ -47,8 +47,7 @@ export class ProposalService {
     assert(typeof body.idempotency_key === 'string' && body.idempotency_key.trim() && body.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key is required.');
     assert(typeof body.source_text === 'string' && body.source_text.length <= 50000, 'INVALID_SOURCE_TEXT', 'source_text must be a string of at most 50000 characters.');
     assert(object(body.event), 'INVALID_EVENT_PROPOSAL', 'event must be an object containing the proposed event payload.');
-    // Resolve an existing idempotency key before translating untrusted intents.
-    // A changed request remains an idempotency conflict even if the new intent is malformed.
+    // Resolve idempotency before translating untrusted mechanic intents.
     const request = { source_text: body.source_text, event: body.event };
     const requestHash = hashRequest(request);
     const existingBeforeTranslation = this.db.prepare('SELECT * FROM event_proposals WHERE world_id=? AND idempotency_key=?')
@@ -59,12 +58,12 @@ export class ProposalService {
       return this.publicProposal(existingBeforeTranslation, true);
     }
     const allowedEventFields = ['turn_id', 'event_type', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'duration_proposal', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects', 'effect_intents'];
-    assert(Object.keys(body.event).every((key) => allowedEventFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event payload contains a server-owned or unsupported field.');
+    assert(Object.keys(body.event).every((key) => allowedEventFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event payload contains an unsupported or server-owned field.');
+    assert(typeof body.event.turn_id === 'string' && body.event.turn_id.trim(), 'TURN_ID_REQUIRED', 'event.turn_id is required.');
+    assert(typeof body.event.event_type === 'string' && body.event.event_type.trim(), 'EVENT_TYPE_REQUIRED', 'event.event_type is required.');
     const hasEffects = Object.hasOwn(body.event, 'effects');
     const hasEffectIntents = Object.hasOwn(body.event, 'effect_intents');
     assert(!(hasEffects && hasEffectIntents), 'MUTUALLY_EXCLUSIVE_EFFECT_FIELDS', 'Provide either event.effects or event.effect_intents, not both.');
-    assert(typeof body.event.turn_id === 'string' && body.event.turn_id.trim(), 'TURN_ID_REQUIRED', 'event.turn_id is required.');
-    assert(typeof body.event.event_type === 'string' && body.event.event_type.trim(), 'EVENT_TYPE_REQUIRED', 'event.event_type is required.');
     assert(Array.isArray(body.event.effects ?? []), 'INVALID_EFFECTS', 'event.effects must be an array.');
     let translatedEffects;
     if (hasEffectIntents) translatedEffects = translateMechanicEffectIntents(body.event.effect_intents);
@@ -174,10 +173,21 @@ export class ProposalService {
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
       const sequence = this.engine.store.currentCommitSequence(worldId);
       if (world.world_revision !== row.base_world_revision || sequence !== row.base_commit_sequence) throw new EngineError('STALE_PROPOSAL', 'World history changed after this proposal was created.', 409, { base_world_revision: row.base_world_revision, current_world_revision: world.world_revision, base_commit_sequence: row.base_commit_sequence, current_commit_sequence: sequence });
+      const payload = dec(row.event_payload_json);
+      const approvalValidation = this.engine.prepareEventForWorld(worldId, {
+        ...payload,
+        idempotency_key: 'proposal-approval-validation:' + row.proposal_id,
+        expected_revision: world.world_revision,
+      }, { authorApprovedDuration: true });
+      const durationDecision = approvalValidation.duration_decision ?? null;
       const approvedAt = now();
       this.db.prepare("UPDATE event_proposals SET status='approved',approved_at=? WHERE proposal_id=? AND status='pending'").run(approvedAt, proposalId);
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
-        .run(worldId, world.world_revision, 'proposal.approved', proposalId, enc({ proposal_hash: row.proposal_hash, approver: 'approval_credential' }), approvedAt);
+        .run(worldId, world.world_revision, 'proposal.approved', proposalId, enc({
+          proposal_hash: row.proposal_hash,
+          approver: 'approval_credential',
+          ...(durationDecision ? { duration_decision: durationDecision } : {}),
+        }), approvedAt);
       return this.publicProposal(this.db.prepare('SELECT * FROM event_proposals WHERE proposal_id=?').get(proposalId), false);
     });
   }
@@ -203,7 +213,7 @@ export class ProposalService {
         ...payload,
         idempotency_key: 'proposal:' + row.proposal_id,
         expected_revision: row.base_world_revision,
-      });
+      }, { authorApprovedDuration: true });
       const committedAt = now();
       this.db.prepare("UPDATE event_proposals SET status='committed',committed_at=?,commit_result_json=? WHERE proposal_id=? AND status='approved'")
         .run(committedAt, enc(result), proposalId);
