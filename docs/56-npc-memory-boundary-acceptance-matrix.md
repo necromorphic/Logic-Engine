@@ -164,8 +164,157 @@ The oracle implementation and original focused test file are already on `main` t
 
 The baseline native Runtime run [#40061707222](https://github.com/necromorphic/Logic-Engine/actions/runs/40061707222) passed on commit `e06cb35b85a399238cea5ad0ac6dcb3043792b05`; it is evidence for that exact merged slice, not for the old superseded PR #76 head `e3e8fc43e2488227b74ded67434aed522c5ec484`, for which no workflow run was found. The separate evidence-note PR #135 was tested on its own exact head `bcb9e1345d17fe0370d005ffc59340c1ba700bfc` by Runtime run [#40068270957](https://github.com/necromorphic/Logic-Engine/actions/runs/40068270957), with the test job and `Run npm test` step successful.
 
-PR #138 adds focused negative assertions and corrects the vacuous input-nonmutation test; its exact-head CI is recorded separately in that PR. These hashes/runs establish source and test provenance only. They do not authenticate caller-supplied metadata or establish Memory authorization, retrieval, delivery, receipt, acquisition, belief, or production integration.
+The reconciled current-main NPC eligibility tests now also cover separator-safe identity, sparse lineage, immutable result projection, snapshot-pair mismatch, malformed entries, and lifecycle separation. PR #290 adds HTTP caller-override rejection and host visibility revocation regression tests. Runtime CI passed on the exact PR heads for #279 and #290. These checks establish only the tested helper/API boundaries; they do not authenticate arbitrary source metadata or establish a production Memory→NPC delivery/acquisition/belief path.
 
 ## 8. Completion statement
 
 NPC-owned design and current-helper test traceability can be reviewed independently. Issue #70 must remain open until this matrix is cross-reviewed and the owner-approved integration gates are resolved; no documentation-only result should be represented as production Memory→NPC completion.
+
+
+## 9. Cross-check against current Core rollback, snapshot, and read tests
+
+This section maps NPC handoff claims to the current Core test suite without changing Core-owned files. These are existing tests on `main`; they are evidence about Core behavior, not evidence that Memory retrieval or NPC knowledge persistence is integrated.
+
+| Boundary claim | Existing Core evidence | What that evidence establishes | What it does not establish for NPC/Memory |
+|---|---|---|---|
+| `commit_sequence` is not a rollback event feed | `tests/causality-contract.test.js`: **`commit_sequence is per-world, stable across rollback, and distinct from world_revision`** (around lines 660–695) | Rollback preserves the sequence assigned to committed events while world revision changes; a later committed event receives the next sequence. This directly supports treating the cursor as a committed-event ordering marker, not as a rollback notification stream. | No durable source-change feed or Memory consumer notification is established. NPC must not expect a larger sequence for every validity change. |
+| Rollback can invalidate causal readers while preserving independently supported claims | `tests/causality-contract.test.js`: **`typed READS_CLAIM link invalidates a reader when the claim loses its only source`**, **`typed READS_CLAIM reader survives rollback while another valid source still supports the claim`**, **`sequential rollbacks invalidate a READS_CLAIM reader when its last remaining support is removed`** | Core tests cover dependency-sensitive invalidation and preservation when an independent valid source remains. | They do not reconcile Memory summaries, NPC acquisition records, or subject-relative beliefs, and do not prove summary lineage exists in Memory. |
+| Rollback updates the canonical projection and advances revision without rewinding game time | `tests/core.test.js`: **`rollback restores projections, preserves independent branch, and never rewinds game time`** (around lines 95–126) | Canonical projections are rebuilt; a causally dependent event is invalidated; an independent branch remains; game time stays advanced; world revision advances. | This is not an NPC-side cache invalidation mechanism and does not establish a race-free read/serialization guarantee for a future Memory adapter. |
+| Rollback and audit mutation are atomic in the tested failure path | `tests/core.test.js`: **`a failed rollback audit write leaves the world and rollback metadata unchanged`** (around lines 300–329) | Injected audit failure leaves revision, projection, event validity, and rollback-row count unchanged; a subsequent successful rollback changes them together. | It does not provide a transaction spanning Core and a future Memory index, derived summaries, acquisition, delivery, or belief persistence. |
+| Rollback retry uses an existing idempotency key; a new key after an applied rollback is a no-op | `tests/causality-contract.test.js`: **`rollback idempotency replays its original result after history changes and a new key is a no-op`** (around lines 1543–1595) | Existing Core rollback idempotency semantics are exercised for replay and no-op retry. | It does not define delivery/acquisition/belief idempotency keys or make external side effects safe to repeat. |
+| Authorized reads preserve a consistent snapshot marker and avoid state mutation | `tests/authorized-read-service.test.js`: **`authorized read emits only fields explicitly allowed by trusted policy and preserves snapshot cursor`** (around lines 49–74) | The internal authorized-read service applies its trusted field policy, returns `world_revision` and `commit_sequence`, withholds a protected field, and leaves revision, sequence, events, and audit unchanged. Related tests cover fail-closed policy errors and non-disclosure for missing/withheld targets. | This service is not yet the approved Memory→NPC adapter contract. The test does not establish a re-check immediately before future content serialization, Memory source identity/lineage, or delivery/receipt/acquisition/belief. |
+
+### Resulting NPC boundary interpretation
+
+- The Core suite already contains meaningful rollback and atomicity tests. The remaining gap is **not** “Core has no rollback tests”; it is the absence of an approved, authoritative handoff from those Core validity changes to Memory source/index/summary reconciliation and then to NPC consumption.
+- Because Core deliberately keeps `commit_sequence` stable across rollback, a consumer that only polls for a higher sequence can miss a rollback. The current snapshot pair is useful for detecting that the observed world revision differs from the revision on which a candidate was evaluated, but it is not a replayable change feed and does not by itself identify affected source records.
+- Existing `READS_CLAIM` tests demonstrate causal invalidation at the canonical event/fact layer. They do not establish lineage for Memory-derived summaries or policy for reconciling already acquired subject knowledge. Those remain Memory/Core owner gates from Issues #140 and #142.
+- Keep the NPC pure oracle and production consumer boundary unchanged until the owners specify the real validity/reconciliation signal and tests exercise it across Core → Memory → NPC. No new cursor, outbox, API, store, or cross-store transaction is introduced by this traceability note.
+
+
+## NPC-side handoff refresh — 2026-10-24 (supersedes stale PR #138/#139 evidence wording)
+
+### Clean-path reconciliation against current main
+
+- [PR #138](https://github.com/necromorphic/Logic-Engine/pull/138) is closed unmerged and explicitly superseded by [PR #157](https://github.com/necromorphic/Logic-Engine/pull/157). Its intended NPC change was the focused test file tests/npc-memory-candidate-eligibility.test.js. The nine docs/personality/* files are not NPC-owned deliverables: eight have the exact same blob SHA as current main at PR #138 head, and docs/personality/09-per-case-acceptance-traceability.md is stale relative to main (the PR branch would roll it back to an older blob), not a new NPC change to port.
+- [PR #139](https://github.com/necromorphic/Logic-Engine/pull/139) is closed unmerged and explicitly superseded by [PR #159](https://github.com/necromorphic/Logic-Engine/pull/159). Its intended NPC deliverable is docs/56-npc-memory-boundary-acceptance-matrix.md. The same nine Personality paths are ancestry/base contamination, not a reason to modify or port Personality content; eight match current-main blobs exactly and the remaining traceability file is stale.
+- The clean, reviewable path is already merged: [PR #157](https://github.com/necromorphic/Logic-Engine/pull/157) changes only tests/npc-memory-candidate-eligibility.test.js; [PR #159](https://github.com/necromorphic/Logic-Engine/pull/159) changes only this NPC-owned matrix. No Personality/Core/Memory/Relationships file is to be edited as part of NPC follow-up.
+
+### Evidence map: what NPC can test independently
+
+| NPC concern | Exact test/evidence | What it establishes | Limit |
+|---|---|---|---|
+| Candidate metadata, scope, lifecycle and freshness | [tests/npc-memory-candidate-eligibility.test.js](https://github.com/necromorphic/Logic-Engine/blob/main/tests/npc-memory-candidate-eligibility.test.js): “candidate exclusions expose neither per-record reasons nor rejection counts”; “partial, unavailable, rebuilding, malformed, or unknown retrieval is not treated as complete-empty”; “a derived summary requires complete lineage and current authorized sources”; “summary lineage sources must match the requested world, subject, and purpose”; “candidate admission does not mutate its request or result inputs” | Pure helper fails closed on the metadata it receives, returns references only, and has no state side effects | Injected metadata is not authenticated; this is not an authorized read or production integration |
+| Sparse summary lineage | `tests/npc-memory-candidate-eligibility.test.js`: “summary lineage rejects sparse arrays instead of skipping missing source slots” | Current main rejects sparse lineage arrays; this is pure-helper behavior only | Present on main via the reconciled NPC eligibility integration; it does not establish trusted source authority |
+| Collision-safe record identity | `tests/npc-memory-candidate-eligibility.test.js`: “identity tuple encoding does not collide when references or versions contain separators” | Current main uses separator-safe tuple identity for candidate reference/version pairs | Present on main; this remains helper-level identity safety, not proof of immutable source payload equality |
+| Immutable result and malformed input regression | `tests/npc-memory-candidate-eligibility.test.js`: “admission result and nested reference projections are immutable”, “non-finite numeric snapshot components fail closed”, and “malformed candidate entries are ignored without leaking or aborting valid peers” | Current main checks helper output immutability and rejects malformed values without exposing them | Present on main after #290; not proof of trusted inputs or authorization |
+
+### Cross-block acceptance and exact blockers
+
+| Requirement | Exact test/evidence now available | Owner and remaining closure test |
+|---|---|---|
+| Authorized content read and non-disclosure | `tests/authorized-read-service.test.js` and `tests/authorized-read-api.test.js` cover trusted field-policy checks, fail-closed behavior, and non-disclosure for missing/withheld targets; `tests/npc-memory-candidate-eligibility.test.js` covers reference-only admission | The service/API tests are current-main authorization-boundary tests; old PR #183 was closed unmerged and its fixture results are not current-main evidence | Core + Memory + Host still need an approved real source-version/lineage contract and an end-to-end disclosure test |
+| Revocation at the authorized-read boundary | `tests/authorized-read-api.test.js`: “host visibility revocation is re-evaluated on every authorized-read request”; raw Provider revocation-race coverage is being reviewed separately in PR #292 | The current HTTP test proves the trusted host policy is re-evaluated between requests; it does not prove atomic revocation across serialization or Memory→NPC | Core + Memory + Host must define the final disclosure/serialization guarantee and exercise it across the real source adapter |
+| Rollback with unchanged commit sequence | `tests/authorized-read-service.test.js`: “authorized read returns the current composite snapshot after rollback changes revision without sequence growth”; `tests/causality-contract.test.js` covers Core rollback/cursor semantics | The tested service returns the current revision/sequence pair after rollback, but no Provider reconciliation journal or production NPC handoff is implied | Core + Memory must define and test authoritative rollback/source invalidation propagation through Provider and dependent summaries |
+| Source version authority and complete inventory | PR #183 tests “real Core entity existence does not substitute for an approved source-version proof”, “real SQLite provider stays non-current when the source inventory boundary cannot attest completeness”, “source version becoming unverifiable after indexing invalidates prior provider currentness”, and “inventory completeness becoming unavailable invalidates previously current reconciliation” | Memory + Core: supply the actual authoritative source/version and complete-inventory contract or keep result non-current. Fixture callbacks returning positive values are not evidence that such a contract exists. |
+| Retrieval readiness vs complete-empty | Current oracle test “partial, unavailable, rebuilding, malformed, or unknown retrieval is not treated as complete-empty”; PR #183 tests “source validator outage makes the real Core/NPC consumer non-ready instead of ready-empty”, “query authorization outage is non-ready and does not become complete-empty”, and “source becoming stale after reconciliation is non-ready, not a filtered ready-empty result” | Memory: demonstrate real adapter status propagation for complete-empty, partial, denied, stale/reconciliation-pending, rebuilding, and unavailable. Keep each distinct; do not synthesize statuses in NPC. |
+| Delivery, receipt, acquisition and belief | `tests/npc-memory-candidate-eligibility.test.js`: “candidate admission never implies delivery, receipt, acquisition, or belief”; the existing synthetic fixture also checks later lifecycle properties remain absent | Admission output is reference-only and does not accept caller-supplied lifecycle markers as proof of downstream state | Core + Host still need authoritative render/receipt evidence and an approved persistence/idempotency boundary before any positive delivery/acquisition/belief test |
+| Stale derived summary after revocation/reconciliation | Current oracle test “a derived summary requires complete lineage and current authorized sources”; PR #183 revocation test covers supplied candidate metadata | Memory/Core: test an actual derived record whose source is revoked/retracted and verify no content/snippet leaks before serialization; define any allowed independent-support/declassification rule first. No approved lineage/reconciliation authority means the production test is not yet faithful. |
+
+### Acceptance rule and next actions
+
+1. Keep NPC code limited to the pure admission consumer and its tests. The clean mainline baseline is PR #157 + PR #159; review NPC draft fixes #174, #175, #177 independently and do not describe them as merged.
+2. For each new NPC-only test, assert safe reference-only output, generic exclusion/no per-item diagnostic leakage, no input mutation, and no side effects where applicable. Use the real current-main helper for unit tests; label injected seams explicitly as fixtures.
+3. Cross-block tests must identify the actual Core/Memory/host implementation under test, not only a callback interface. Record source SHA, test name, exact-head CI, and whether authority comes from production owner code or a fixture.
+4. Production Memory→NPC remains disabled until Core approves authoritative source validity/version, complete inventory and rollback/reconciliation semantics, and Core/Memory/host approve final disclosure/revocation semantics. NPC cannot manufacture those guarantees in a local helper.
+
+
+## NPC consumer entry point and lifecycle-separated admission tests — 2026-10-24
+
+### Entry point in the current NPC slice
+
+The only implemented NPC-side decision point in this slice is `evaluateMemoryCandidateAdmission(request, result)` in `src/npc/memory-candidate-eligibility.js`. It is a pure eligibility/admission oracle called by an owner-approved caller; it is **not** the runtime Memory retrieval entry point, an authorization service, a Core adapter, or proof that the result came from Core. It returns a bounded list of reference/version projections and never returns candidate content.
+
+The decision is usable only when the upstream integration has already supplied trustworthy request bindings and an owner-authorized result. The helper's fields (`access.outcome`, scope, snapshot, lifecycle labels, and lineage) are input claims; this function cannot authenticate their origin. A fixture that says `allow` is not Core authorization evidence. Until Core defines and the host/adapter supplies the actual provenance-bound result, no production consumer may call this helper with arbitrary Memory/model/caller data.
+
+### Admission/fail-closed test coverage
+
+- Request scope and snapshot absent/malformed → `non_ready`, no admitted references.
+- Result unavailable/partial/rebuilding/unknown or malformed → `non_ready`; never equivalent to authorized complete-empty.
+- Request-level or per-candidate access denied/withheld/unknown, subject/purpose mismatch, wrong world, stale/retracted/unavailable source, unknown freshness, incomplete identity/version, malformed lifecycle, or mismatched snapshot → no candidate admitted.
+- Summary candidates require a nonempty complete lineage whose every source has identity/version, matching world, subject/purpose-bound allow, and current freshness. Sparse array slots are rejected explicitly by the current helper tests; that still does not authenticate the source or make reconciliation authoritative.
+- Identity pairs containing separators must remain distinct; this is covered by the current helper tests and does not prove immutable source payload equality.
+- Rejected identifiers, contents, per-item reasons and rejection counts are not exposed.
+- The updated #246 branch adds synthetic fixture tests asserting that admission is a pure projection and does not mutate or set delivery/receipt/acquisition/belief lifecycle facts. These are local contract tests only; they do not establish host/Core integration.
+
+### State vocabulary — no implicit transitions
+
+| State | Meaning / authority | What does not prove it |
+|---|---|---|
+| captured | Host observed an input/event | A database row or index entry |
+| persisted | Provider durable write completed under its contract | Capture or in-memory candidate |
+| indexed | Search index contains a projection | Currentness, authorization, or complete inventory |
+| authorized | Core/approved policy boundary permits this exact subject, purpose, scope, and content/version | Caller-provided `allow`, candidate metadata, or fixture callback |
+| admitted | NPC helper accepted a reference projection for bounded context preparation | Delivery or any knowledge transition |
+| included in context | Content was actually inserted into a particular generation's context | Admission/reference alone |
+| rendered | Host UI rendered the output | Generation completion or adapter invocation |
+| delivered | An owner-defined host signal establishes delivery to the intended target | Context inclusion or a generated claim |
+| received | An explicit supported receipt/observation event exists | Rendered/delivered alone unless policy says so |
+| acquired | Core-owned policy records that the subject acquired a proposition from supported evidence | Retrieval, prompt inclusion, delivery attempt, or receipt alone |
+| believed | A separate subject-relative belief transition was justified and recorded under Core policy | Acquisition or canonical truth alone |
+
+No NPC-side test or helper should mutate, synthesize, or infer the later states. A successful admission test establishes only that the supplied fixture metadata passed the local predicate.
+
+### Required real Core-authorized result evidence before production use
+
+Core + trusted host/source adapter must provide evidence for all applicable items below, with stable semantics and owner approval:
+
+1. **Provenance and binding:** an unforgeable/owner-trusted indication that this result was produced by the approved Core authorized-read path, bound to the actual world/session, requesting actor, subject/recipient, purpose, and generation/context request. Caller labels or fixture booleans are insufficient.
+2. **Authorization:** the effective policy decision for the exact recipient, purpose, record/version, and every source in a derived summary; denied, withheld, ambiguous, or missing decisions fail closed.
+3. **Identity/version/lineage:** stable record identity and authoritative source version; complete, non-sparse, versioned lineage for derived summaries; collision-safe identity semantics.
+4. **Snapshot/freshness:** trusted snapshot provenance and currentness; a snapshot marker alone is not a durable edit/delete/swipe/rollback journal.
+5. **Inventory/completeness:** authoritative evidence that the result is complete for its scope, distinct from partial/unavailable/rebuilding/denied and distinct from authorized complete-empty.
+6. **Lifecycle/revocation:** authoritative deletion, edit, swipe, cancellation, rollback, retraction and reconciliation state; dependent indexes/summaries must be invalidated or re-authorized.
+7. **Disclosure-time check:** a Core/Memory/host-defined consistency guarantee that closes or explicitly blocks revocation between final authorization and content serialization/rendering. Sequential fixture callbacks do not prove the final-check/output race is closed.
+8. **Host outcome evidence:** actual host-owned signals for rendered/delivered/received, plus Core-owned policies and idempotent persistence boundaries for acquisition and belief. These are separate follow-on gates, not part of admission.
+
+Until these inputs and the end-to-end tests against the real approved adapter exist, the current helper remains NPC-only test code. **Production Memory retrieval / Memory→NPC remains disabled.**
+
+
+## Follow-up: Core/Memory/Host contract gate and collision-safe NPC oracle — 24 Oct 2026
+
+### Existing entry point and hard limit
+
+`evaluateMemoryCandidateAdmission(request, result)` remains the only existing NPC-owned pure decision point. It is **not** a production Core-result receiver and the current repo does not define an approved versioned Core→Memory→NPC result contract. Do not invent a `contract_version` field, a new inventory protocol, or a fake adapter just to make the NPC predicate appear complete.
+
+Therefore the NPC oracle can validate only the proposal-shaped fields already used by its tests. It cannot honestly verify a contract version, authenticate Core provenance, prove complete source inventory, or distinguish a trusted snapshot from a caller-supplied imitation. These are production blockers, not optional defaults. Production wiring must remain absent/disabled until Core and Provider owners approve and implement the actual contract.
+
+### Additional NPC-only hardening
+
+- Summary lineage now checks every numeric array slot explicitly; sparse arrays fail closed rather than bypassing `Array.prototype.every()`.
+- Candidate identity tuples are encoded as a JSON pair, avoiding delimiter-based pair collisions.
+- If a result repeats the same `record.ref + record.version` pair, all occurrences are excluded. The approved contract does not currently supply a canonical immutable payload digest that lets NPC prove repeated answers are identical; first-wins deduplication would be unsafe.
+- Re-evaluation of the same supplied result is tested for deterministic output and no mutation / lifecycle side effects.
+- Exclusion output remains content-free and does not reveal denied IDs, snippets, rejection reasons, or rejection counts.
+
+These are pure NPC helper/unit-test guarantees only. They do not establish that the supplied identity, version, lineage, snapshot, freshness, or access claims are authoritative.
+
+### Owner-contract reconciliation
+
+- **Core #140:** no approved universal Memory source identity/version contract or durable source-change feed; `world_revision + commit_sequence` is a snapshot freshness marker, not a source-specific journal. Rollback can invalidate data without a higher commit sequence. Core must approve source-type-specific version/validity proof, result-contract versioning, and authorized-read binding.
+- **Host/Adapter #258:** the observed SillyTavern 1.19.0-1-g06bde939f event samples establish event presence/shapes only. Array indices and swipe IDs remain host-local; no production capture/persistence mapping, stable source version, or complete restart/replay inventory is proven. Host + Provider must establish the real lifecycle-to-persisted-source mapping before any result can be considered production input.
+- **Memory Provider #181:** a real Provider vertical slice and durable inventory/reconciliation/access contract are still required. SQLite/provider tests and injected `validateSourceVersion` / `validateInventory` callbacks are not production authority. Provider must supply authoritative record version/lineage, index health, reconciliation status and complete inventory evidence, or mark the result non-ready.
+
+### Required result distinctions and fail-closed behavior
+
+- **Non-ready:** contract/version unknown or unsupported; provenance not trusted; snapshot absent/stale/unverifiable; inventory incomplete/unknown/rebuilding; lineage incomplete/sparse; source identity/version missing or conflicting; freshness unknown; source retracted/revoked; authorization unavailable. No candidate content or counts escape.
+- **Authorized complete-empty:** only possible after an approved real contract proves authorized scope plus complete inventory and current snapshot. The current helper's `completeness: "complete"` fixture field is not that proof.
+- **Ordinary access denial/withheld:** must remain distinct from complete-empty. Current helper maps request-level unconfirmed/denied access to a generic `non_ready` decision to avoid disclosing which condition occurred; it does not expose a separate public denial diagnostic. If Core requires a typed outward denial, Core must define its safe public semantics first.
+- **Retrieval/admission/context inclusion:** are not render, delivery, receipt, acquisition, or belief. The NPC oracle returns references only and creates none of those downstream facts.
+- **Repeated answers and races:** repeated same identity/version within one candidate set is excluded; repeated invocation is deterministic. The helper cannot detect a source change/rollback that leaves the supplied snapshot marker unchanged, and cannot close the last authorization-check→serialization race. Those require authoritative Core/Provider/Host contracts and real-path tests.
+
+### Production gate remains closed
+
+Do not call the pure oracle from production with arbitrary Provider/model/caller data. Required real path remains: pinned Host capture with durable identity → Provider persistence and complete reconciliation → Core-authorized result with approved contract version, trusted provenance, per-source version/lineage and complete inventory → NPC admission → owner-defined disclosure-time boundary → actual host serialization evidence. Repeat after restart and exercise edit, swipe, delete, cancel, rollback, revocation-after-check and duplicate/conflicting responses.
+
+No Core, Memory Provider, Host/Adapter, Personality or Relationships files were changed by this NPC work.
