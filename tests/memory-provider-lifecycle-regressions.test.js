@@ -77,6 +77,7 @@ test('reconciliation refuses to publish current if the provider record set chang
       return record.source_version === 'source-v1';
     },
   });
+  s.provider.grantQuery(s.scope, true);
   s.provider.putRecord(s.record);
   await s.provider.rebuildIndex(s.scope.world_id);
 
