@@ -126,6 +126,7 @@ test('raw archive survives a failed derived-index rebuild without becoming a sea
   assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_captures').get().count, 1);
   assert.equal(provider.db.prepare('SELECT content_text FROM memory_raw_captures').get().content_text, rawInput().content);
   assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=?').get('world-a').count, 0);
+  provider.grantQuery({ world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' }, true);
   await assert.rejects(() => provider.retrieveCandidates({
     world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision',
   }), /MEMORY_INDEX_NOT_READY/);
