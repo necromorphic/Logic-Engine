@@ -27,8 +27,8 @@ The shared contract is:
 ## Ownership by PR
 
 - **#247 — Core boundary:** proposal/test matrix for atomicity, snapshot validation, idempotency, recovery, and rollback/rebuild. Documentation-only; not itself runtime implementation.
-- **#248 — Core runtime candidate:** durable process/milestone storage and lifecycle operations over existing triggers and segment transactions. Draft/unmerged; exact-head CI is branch evidence, not production approval.
-- **#249 — Time contract review:** tests the existing scheduler semantics using process-shaped milestone fixtures and records any mismatch. It must not duplicate #248's runtime contract or add a second scheduler.
+- **#281 — Core runtime slice (merged):** durable process/milestone storage and lifecycle operations over existing triggers and segment transactions. Merge plus passing CI establishes repository integration, not production approval or complete cross-process causal reconstruction.
+- **#249 — Time contract review:** tests the existing scheduler semantics using process-shaped milestone fixtures and records any mismatch. It must not duplicate #281's runtime contract or add a second scheduler.
 
 ## Time-owned acceptance
 
@@ -38,7 +38,7 @@ The shared contract is:
 4. Pure planner: interruption returns the stop coordinate, includes eligible work at that coordinate, and leaves later triggers unplanned. A second planner call with a simulated completed-trigger snapshot tests planner behavior only; durable interruption/restart/continuation is verified separately by the merged #281 integration suite.
 5. Durable interruption + SQLite close/reopen + continuation of the same process is covered by the integration tests merged through #281; Time's scheduler tests are complementary, not a replacement for that real-path test.
 
-The #249 tests are **pure scheduler tests with a fixture adapter**, not end-to-end runtime tests. Every fixture milestone declares a `trigger_id`; the adapter maps prerequisite milestone IDs only to those declared IDs and uses an explicit unresolved-dependency sentinel for deliberately missing prerequisites. It calls `planDueWork` directly and does not exercise persistence, API routing, lifecycle transitions, or the Core transaction. The #248 integration suite is the evidence for the real registered-trigger → time-advance → Core transaction path, including pause/resume restart and A→B→C rollback/restart. These results prove only within-process prerequisite invalidation, not cross-process causal rebuild. The overall issue remains open until the cross-PR review and all required acceptance evidence are complete.
+The #249 tests are **pure scheduler tests with a fixture adapter**, not end-to-end runtime tests. Every fixture milestone declares a `trigger_id`; the adapter maps prerequisite milestone IDs only to those declared IDs and uses an explicit unresolved-dependency sentinel for deliberately missing prerequisites. It calls `planDueWork` directly and does not exercise persistence, API routing, lifecycle transitions, or the Core transaction. The merged #281 integration suite is the evidence for the real registered-trigger → time-advance → Core transaction path, including pause/resume restart and A→B→C rollback/restart. These results prove only within-process prerequisite invalidation, not cross-process causal rebuild. The overall issue remains open until the cross-PR review and all required acceptance evidence are complete.
 
 
 ## Overdue resume and explicit replan contract (review proposal; no runtime API added)
