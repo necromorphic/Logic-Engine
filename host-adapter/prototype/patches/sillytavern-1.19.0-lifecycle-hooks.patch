@@ -62,11 +62,15 @@ diff --git a/public/script.js b/public/script.js
      chatElement.children('.mes').last().remove();
      await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
  }
-@@ -1677,2 +1722,4 @@
+@@ -1674,6 +1719,8 @@
+         return;
+     }
+ 
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('delete-message', messageIds);
+ 
 @@ -1684,4 +1731,5 @@
          deleteItemizedPromptForMessage(messageId);
      }
