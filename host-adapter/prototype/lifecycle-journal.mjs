@@ -10,7 +10,7 @@ export class HostLifecycleJournal {
   static async open(name = 'logic-engine-host-lifecycle-v1') {
     if (!globalThis.indexedDB) throw Error('IndexedDB unavailable; NON_READY');
     const req = indexedDB.open(name, 1);
-    req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains('records')) { const s = db.createObjectStore('records', { keyPath: 'id' }); s.createIndex('conversationId', 'conversationId'); } };
+    req.onupgradeneeded = () => { const db = req.result; if (!db.objectStoreNames.contains('records')) { const s = db.createObjectStore('records', { keyPath: 'id' }); s.createIndex('conversationId', 'conversationId'); } if (!db.objectStoreNames.contains('heads')) db.createObjectStore('heads', { keyPath: 'conversationId' }); };
     const db = await new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); req.onblocked = () => reject(Error('IndexedDB upgrade blocked; NON_READY')); });
     return new HostLifecycleJournal(db);
   }
@@ -20,10 +20,27 @@ export class HostLifecycleJournal {
     const rows = await new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
     await done; return rows.sort((a,b) => a.sequence-b.sequence);
   }
-  async #put(row) { const tx = this.#db.transaction(['records'], 'readwrite', { durability: 'strict' }); tx.objectStore('records').add(row); await txDone(tx); }
+  async #head(cid) {
+    const tx = this.#db.transaction(['heads'], 'readonly'), done = txDone(tx), req = tx.objectStore('heads').get(cid);
+    const head = await new Promise((resolve, reject) => { req.onsuccess = () => resolve(req.result ?? null); req.onerror = () => reject(req.error); });
+    await done; return head;
+  }
+  async #verifyStored(cid, rows) {
+    const chain = await this.#verify(rows); if (!chain.ok) return chain;
+    const head = await this.#head(cid), tail = rows.at(-1);
+    if (!tail && head) return { ok: false, reason: 'records missing but head checkpoint exists' };
+    if (tail && (!head || head.sequence !== tail.sequence || head.recordDigest !== tail.recordDigest)) return { ok: false, reason: 'head checkpoint mismatch' };
+    return { ok: true };
+  }
+  async #put(row) {
+    const tx = this.#db.transaction(['records','heads'], 'readwrite', { durability: 'strict' });
+    tx.objectStore('records').add(row);
+    tx.objectStore('heads').put({ conversationId: row.conversationId, sequence: row.sequence, recordDigest: row.recordDigest, sourceFingerprint: row.sourceFingerprint });
+    await txDone(tx);
+  }
   async enroll({ conversationId, sourceFingerprint, messages }) {
     if (!conversationId || !sourceFingerprint || !Array.isArray(messages)) throw TypeError('Invalid baseline');
-    if ((await this.#records(conversationId)).length) throw Error('Already enrolled; explicit re-baseline is not supported');
+    if ((await this.#records(conversationId)).length || await this.#head(conversationId)) throw Error('Already enrolled or checkpoint exists; explicit re-baseline is not supported');
     const mapping = [];
     for (let i=0;i<messages.length;i++) {
       const m=messages[i], versions=Array.isArray(m.versions)&&m.versions.length?m.versions:[m.text ?? ''];
@@ -31,6 +48,7 @@ export class HostLifecycleJournal {
         versions: await Promise.all(versions.map(async (text,j)=>({versionId:id(), versionIndex:j, payloadDigest:await digest(String(text))}))) });
     }
     const row=await this.append({conversationId,eventId:id(),operation:'baseline',sourceFingerprint,payload:{captureBoundary:'enrollment-forward-only',messages:mapping}});
+    if (row?.status === 'NON_READY') throw Error('NON_READY: baseline append rejected: ' + row.reason);
     return {mapping, baselineSequence:row.sequence, preEnrollmentHistory:'UNKNOWN_UNRECOVERABLE'};
   }
   async append({conversationId,eventId,operation,payload,sourceFingerprint=null}) {
@@ -38,10 +56,11 @@ export class HostLifecycleJournal {
     const prev=this.#locks.get(conversationId)||Promise.resolve(); let release; const hold=new Promise(r=>release=r), chain=prev.then(()=>hold); this.#locks.set(conversationId,chain); await prev;
     try {
       if(this.#bad.has(conversationId)) throw Error('NON_READY: '+this.#bad.get(conversationId));
-      const rows=await this.#records(conversationId), check=await this.#verify(rows);
+      const rows=await this.#records(conversationId), check=await this.#verifyStored(conversationId, rows);
       if(!check.ok) return this.#fail(conversationId,check.reason);
       const eventDigest=await digest({conversationId,eventId,operation,payload,sourceFingerprint}), duplicate=rows.find(r=>r.eventId===eventId);
       if(duplicate) return duplicate.eventDigest===eventDigest?duplicate:this.#fail(conversationId,'event ID conflict: '+eventId);
+      if(operation==='baseline'&&rows.length) return this.#fail(conversationId,'baseline already exists');
       if(operation!=='baseline'&&!rows.length) return this.#fail(conversationId,'event before baseline');
       const p=rows.at(-1), base={id:conversationId+':'+String((p?.sequence||0)+1).padStart(12,'0'),schemaVersion:1,conversationId,sequence:(p?.sequence||0)+1,eventId,operation,sourceFingerprint,payload,eventDigest,previousRecordDigest:p?.recordDigest??null};
       const row={...base,recordDigest:await digest(base)};
@@ -66,7 +85,7 @@ export class HostLifecycleJournal {
   async status(cid,{instrumentedPaths=[],sourceFingerprintMatches=false}={}) {
     if(this.#bad.has(cid)) return {status:'NON_READY',reason:this.#bad.get(cid)};
     let rows; try { rows=await this.#records(cid); } catch(e) { return this.#fail(cid,'journal unreadable: '+(e?.message||e)); }
-    const check=await this.#verify(rows); if(!check.ok) return this.#fail(cid,check.reason);
+    const check=await this.#verifyStored(cid,rows); if(!check.ok) return this.#fail(cid,check.reason);
     if(!rows.length||rows[0].operation!=='baseline') return {status:'NON_READY',reason:'missing baseline'};
     const missing=REQUIRED.filter(p=>!instrumentedPaths.includes(p));
     if(missing.length) return {status:'NON_READY',reason:'incomplete mutation instrumentation',missingPaths:missing,baselineBoundary:'enrollment-forward-only'};
