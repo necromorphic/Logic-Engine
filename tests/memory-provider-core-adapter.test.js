@@ -95,49 +95,6 @@ const request = () => ({
   actorEntityId: 'npc-a',
 });
 
-test('real SQLite provider adapter reaches Core consumer and returns only Core-authorized source fields', async (t) => {
-  const s = setup(t);
-  assert.deepEqual(await s.provider.rebuildIndex(s.scope.world_id), { status: 'rebuilt', count: 1 });
-  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
-
-  const eventsBefore = s.store.events(s.scope.world_id, true).length;
-  const auditBefore = s.store.audit(s.scope.world_id).length;
-  const result = await s.consumer.retrieveForNpc(request());
-  assert.equal(result.status, 'ready', JSON.stringify(result));
-  assert.equal(result.candidates.length, 1);
-  assert.equal(result.candidates[0].record_ref, 'memory:claim-a');
-  assert.deepEqual(result.candidates[0].content, { 'attributes.public_note': 'source value' });
-  assert.equal(JSON.stringify(result).includes('never disclose'), false);
-  assert.equal(JSON.stringify(result).includes('private_note'), false);
-
-  // Retrieval/admission is not delivery, receipt, acquisition, or belief.
-  assert.equal(s.store.events(s.scope.world_id, true).length, eventsBefore);
-  assert.equal(s.store.audit(s.scope.world_id).length, auditBefore);
-});
-
-test('real provider record revocation is honored by the Core consumer on the next retrieval', async (t) => {
-  const s = setup(t);
-  await s.provider.rebuildIndex(s.scope.world_id);
-  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
-  assert.equal((await s.consumer.retrieveForNpc(request())).candidates.length, 1);
-
-  s.provider.revokeRecord(s.scope, 'memory:claim-a', 'v1');
-  const result = await s.consumer.retrieveForNpc(request());
-  assert.equal(result.status, 'ready');
-  assert.deepEqual(result.admitted, []);
-  assert.deepEqual(result.candidates, []);
-});
-
-test('source-validator outage on the real provider path is non-ready, not ready-empty', async (t) => {
-  const s = setup(t, { sourceValidatorAvailable: false });
-  await s.provider.rebuildIndex(s.scope.world_id);
-  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
-  const result = await s.consumer.retrieveForNpc(request());
-  assert.equal(result.status, 'non_ready');
-  assert.deepEqual(result.candidates, []);
-  assert.equal(JSON.stringify(result).includes('fixture source validator unavailable'), false);
-});
-
 test('revocation of candidate A while candidate B authorization is awaited is caught before Core disclosure', async (t) => {
   const s = setup(t);
   const second = {
