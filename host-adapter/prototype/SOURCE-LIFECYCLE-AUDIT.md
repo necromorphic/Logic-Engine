@@ -63,3 +63,14 @@ This is not proof of completeness outside the instrumented lifecycle paths. The 
 ## Chat unload versus source deletion (25 Oct 2026)
 
 A second source review found that pinned ST `clearChat({ clearData: true })` is called by chat switch, reload, close-chat, and new-chat flows. It is a UI-state unload/reset path, not authoritative evidence that the underlying chat source was deleted. The earlier candidate hook incorrectly treated it as `clear-chat` deletion. The current patch removes that hook; `clear-chat` remains uncovered until the actual chat-file deletion path can identify and capture the exact source inventory before deletion. Non-current chats cannot be reconstructed from the currently loaded `chat` array. This correction prevents false tombstones / false empty inventory during normal chat navigation.
+
+
+## Latest exact-head CI evidence (25 Oct 2026)
+
+Current reviewed PR #323 HEAD: `e7a33a17874be7e4fd591cf2c79cf932a0e21d5e`. All three repository workflows completed successfully on this exact commit:
+
+- [Host lifecycle patch check #40222869285](https://github.com/necromorphic/Logic-Engine/actions/runs/40222869285) — SUCCESS.
+- [Runtime tests #40222869212](https://github.com/necromorphic/Logic-Engine/actions/runs/40222869212) — SUCCESS.
+- [Host lifecycle patch validation #40222869210](https://github.com/necromorphic/Logic-Engine/actions/runs/40222869210) — SUCCESS.
+
+These results establish repository CI only. They do not establish native-browser IndexedDB crash durability, real SillyTavern persistence/restart/replay, Android/Termux behavior, complete source inventory, trusted world/session binding, or a production Host→Provider release boundary. PR #323 remains Draft/unmerged and is not approved for installation or production handoff. Required Host inventory answer remains `NO SUCH MECHANISM FOUND / NON_READY`; Memory→NPC remains `DISABLED / FAIL-CLOSED`.
