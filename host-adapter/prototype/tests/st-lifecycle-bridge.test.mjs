@@ -234,7 +234,7 @@ test('new-message reconciliation fails closed when an existing identity is missi
   f.chat.push({ is_user: false, mes: 'new reply' });
 
   await assert.rejects(
-    f.bridge.afterMutation('create-message'),
+    f.bridge.afterMutation('create-message', { createdMessageIndex: 2 }),
     /missing durable identity on pre-existing message/,
   );
   const after = await f.journal.verifyIntegrity('chat-1');

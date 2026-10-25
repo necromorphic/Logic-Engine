@@ -118,6 +118,7 @@ diff --git a/public/script.js b/public/script.js
      }
 +
 +    const lifecycleOriginalChatLength = chat.length;
++    const lifecycleOriginalChatLength = chat.length;
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    const lifecycleOperation = type === 'swipe' ? 'create-swipe'
 +        : ['append', 'continue', 'appendFinal'].includes(type) ? 'edit-message'
