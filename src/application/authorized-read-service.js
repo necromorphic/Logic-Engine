@@ -37,6 +37,42 @@ export class AuthorizedReadService {
     this.fieldPolicy = fieldPolicy;
   }
 
+  _assertDisclosureStillCurrent(request, snapshot, entityIds) {
+    // Revalidate both authorization and canonical state after trusted policy
+    // callbacks. This narrows in-process TOCTOU windows; it is not a
+    // cross-process atomic lease.
+    try {
+      const binding = this.actorBindingService.resolve(
+        request.worldId,
+        request.adapterId,
+        request.actorEntityId,
+      );
+      if (binding.world_id !== request.worldId
+        || binding.adapter_id !== request.adapterId
+        || binding.actor?.entity_id !== request.actorEntityId) {
+        throw unavailable();
+      }
+    } catch {
+      throw unavailable();
+    }
+
+    let current;
+    try {
+      current = this.engine.getSnapshot(request.worldId, { entityIds });
+    } catch {
+      throw unavailable();
+    }
+    if (current.world_revision !== snapshot.world_revision
+      || current.commit_sequence !== snapshot.commit_sequence) {
+      throw new EngineError('STALE_AUTHORIZED_READ_SNAPSHOT', 'Authorized read snapshot is stale.', 409);
+    }
+    const currentIds = new Set(current.entities.map((entity) => entity.entity_id));
+    if (current.entities.length !== entityIds.length
+      || entityIds.some((entityId) => !currentIds.has(entityId))) {
+      throw unavailable();
+    }
+  }
+
   /**
    * Internal field-level read used by trusted application services that must
    * distinguish an authorized, absent attribute from an unavailable/denied read.
@@ -103,6 +139,7 @@ export class AuthorizedReadService {
     }
     if (!allowedField) throw unavailable();
 
+    this._assertDisclosureStillCurrent(request, snapshot, [request.entityId]);
     const present = object(entity.attributes) && Object.hasOwn(entity.attributes, request.attribute);
     return Object.freeze({
       world_id: snapshot.world_id,
@@ -189,6 +226,8 @@ export class AuthorizedReadService {
       if (Object.keys(disclosed).length === 0) throw unavailable();
       entities.push(disclosed);
     }
+
+    this._assertDisclosureStillCurrent(request, snapshot, request.entityIds);
 
     return Object.freeze({
       world_id: snapshot.world_id,

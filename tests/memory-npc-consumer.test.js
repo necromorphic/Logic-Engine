@@ -91,7 +91,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   });
   t.after(() => store.close());
   return {
-    store, engine, consumer, provider, scope, snapshot,
+    store, engine, bindings, consumer, provider, scope, snapshot,
     setCandidates(next) { candidateList = next; },
     getLastCandidateAuthorization() { return lastCandidateAuthorization; },
     revokeContent() { contentVisible = false; },
@@ -429,6 +429,72 @@ test('rollback-only revision change invalidates a prior candidate without sequen
   assert.deepEqual(after.candidates, []);
 });
 
+
+
+test('actor binding revoked during asynchronous Memory retrieval cannot disclose canonical source', async (t) => {
+  const { consumer, provider, bindings } = setup(t);
+  const originalRetrieve = provider.retrieveCandidates;
+  provider.retrieveCandidates = async (scope) => {
+    const result = await originalRetrieve(scope);
+    const revoked = bindings.revoke('memory-npc-world', 'adapter-a', 'npc-a');
+    assert.equal(revoked.changed, true);
+    return result;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'authorized_source_read_unavailable');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+});
+
+
+test('revoked actor binding cannot turn a complete-empty Memory result into ready', async (t) => {
+  const { consumer, provider, bindings, setCandidates } = setup(t);
+  setCandidates([]);
+  const originalRetrieve = provider.retrieveCandidates;
+  provider.retrieveCandidates = async (scope) => {
+    const result = await originalRetrieve(scope);
+    const revoked = bindings.revoke('memory-npc-world', 'adapter-a', 'npc-a');
+    assert.equal(revoked.changed, true);
+    return result;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('memory-npc-world'), false);
+});
+
+test('Core mutation during asynchronous Memory authorization invalidates the captured snapshot', async (t) => {
+  const { consumer, provider, engine, snapshot } = setup(t);
+  let mutated = false;
+  provider.authorizeCandidate = async () => {
+    if (!mutated) {
+      mutated = true;
+      const current = engine.getState('memory-npc-world').world_revision;
+      const committed = engine.commitEvent('memory-npc-world', {
+        idempotency_key: 'mutate-during-memory-npc-read',
+        turn_id: 'mutate-during-memory-npc-read',
+        event_type: 'action.completed',
+        expected_revision: current,
+        effects: [{ kind: 'entity.create', entity_id: 'during-read', entity_type: 'object' }],
+      });
+      assert.equal(committed.accepted, true);
+    }
+    return true;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_snapshot_stale');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.notEqual(engine.getState('memory-npc-world').world_revision, snapshot.world_revision);
+  assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+});
 
 test('missing or non-object host request fails closed without throwing or calling Memory', async (t) => {
   const { consumer, provider } = setup(t);
