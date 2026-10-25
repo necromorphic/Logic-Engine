@@ -561,8 +561,8 @@ export class SQLiteMemoryProvider {
       })))) === true;
     } catch { inventoryComplete = false; }
     if (!inventoryComplete) {
-      this.#setState(worldId, 'stale', 'stale');
-      return { status: 'stale' };
+      this.#setState(worldId, 'stale', 'stale', null, 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE');
+      return { status: 'stale', reason: 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE' };
     }
 
     // Provider-local writes can occur while source validation/inventory callbacks
