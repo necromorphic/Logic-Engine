@@ -208,6 +208,38 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       };
     }
     const chat = getChat();
+    const recordedSnapshot = await journal.latestIdentitySnapshot(conversationId);
+    if (!Array.isArray(recordedSnapshot) || recordedSnapshot.length !== chat.length) {
+      return { status: 'NON_READY', reason: 'journal identity snapshot is missing or has a different message count' };
+    }
+    // The source fingerprint intentionally covers native chat content, not our
+    // sidecar identity metadata. Compare the latter against the last journaled
+    // snapshot too, so a restore/copy that reuses content but swaps IDs cannot pass.
+    for (let index = 0; index < chat.length; index++) {
+      const currentIdentity = chat[index]?._logicEngineLifecycle;
+      const recordedIdentity = recordedSnapshot[index];
+      if (!currentIdentity
+        || currentIdentity.messageId !== recordedIdentity.messageId
+        || (recordedIdentity.messageIndex ?? index) !== index
+        || currentIdentity.activeVersionIndex !== recordedIdentity.activeVersionIndex
+        || !Array.isArray(currentIdentity.versions)
+        || !Array.isArray(recordedIdentity.versions)
+        || currentIdentity.versions.length !== recordedIdentity.versions.length) {
+        return { status: 'NON_READY', reason: 'native identity metadata differs from the last journaled identity snapshot' };
+      }
+      for (let versionIndex = 0; versionIndex < currentIdentity.versions.length; versionIndex++) {
+        const currentVersion = currentIdentity.versions[versionIndex];
+        const recordedVersion = recordedIdentity.versions[versionIndex];
+        if (!currentVersion || !recordedVersion
+          || currentVersion.versionId !== recordedVersion.versionId
+          || currentVersion.versionIndex !== versionIndex
+          || recordedVersion.versionIndex !== versionIndex
+          || currentVersion.payloadDigest !== recordedVersion.payloadDigest
+          || (currentVersion.parentVersionId ?? null) !== (recordedVersion.parentVersionId ?? null)) {
+          return { status: 'NON_READY', reason: 'native version identity differs from the last journaled version snapshot' };
+        }
+      }
+    }
     const messageIds = new Set();
     const versionIds = new Set();
     for (const message of chat) {
