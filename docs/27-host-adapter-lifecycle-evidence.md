@@ -133,3 +133,31 @@ For each runtime scenario, capture a redacted, paired record with the exact pinn
 5. **Decision:** mark `PASS` only if the affected set is complete, durable identity/lineage survives, before/after state reconciles without silent overwrite, and unknown/conflicting state fails closed. Otherwise keep `BLOCKED` or `NOT TESTED`.
 
 These measurements must not be represented as already performed: this document currently contains source-inspected paths and CI prototype evidence, not paired persisted-state captures. Do not add a production listener, new API/schema, or Provider/Core wiring to collect them without owner approval.
+
+
+## Additional exact event-contract audit — pinned source (25 Oct 2026)
+
+This is a static call-site inventory from `public/script.js` at pinned SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`, cross-checked against the event-name catalog in `public/scripts/events.js`. The counts below are the call sites found in that source file, **not** runtime callback counts. The source does not establish that a listener fires exactly once per user intention; repeated operations, multiple branches and event subscribers can produce repeated deliveries. Existing redacted diagnostics in #258 are not a new experiment.
+
+| Event | Static call sites in `public/script.js` | Exact argument shape visible at emit site | Host interpretation / caveat |
+|---|---:|---|---|
+| `MESSAGE_SENT` | 2 | One argument: `insertAt` or `chat_id` (both are positional indices in their respective branches). | Same event has distinct call sites; index is not durable identity. |
+| `MESSAGE_RECEIVED` | 8 | Two arguments: `messageId/chat_id` and `type`; first-message paths pass `'first_message'` as the second argument. | Not equivalent to rendered output or persisted acknowledgement; emit ordering differs by path and must be audited at the surrounding call site. |
+| `CHARACTER_MESSAGE_RENDERED` | 8 | Two arguments: `messageId/chat_id` and `type`; first-message paths pass `'first_message'`. | Stronger evidence of the render routine being reached, but not proof of user seeing it, transport delivery, NPC receipt, acquisition, or belief. |
+| `USER_MESSAGE_RENDERED` | 2 | One positional argument: `insertAt` or `chat_id`. | Index only; does not establish durable identity. |
+| `MESSAGE_EDITED` | 1 | One positional argument: `this_edit_mes_id`. | The event does not include old/new content or revision ancestry. |
+| `MESSAGE_UPDATED` | 2 | One positional argument: `messageId` or `this_edit_mes_id`. | Multiple mutation pathways; no durable revision ID in payload. |
+| `MESSAGE_DELETED` | 4 | One argument: current `chat.length` after mutation/truncation. | Post-mutation length is not the deleted message ID or complete affected set. |
+| `MESSAGE_SWIPED` | 1 | One positional argument: `mesId`. | Message index, not a stable swipe/version ID. |
+| `MESSAGE_SWIPE_DELETED` | 1 | One object: `{ messageId, swipeId, newSwipeId }`. | Fields are mutable array/swipe positions in the inspected implementation; not a durable identity contract. |
+| `GENERATION_STARTED` | 1 | Three arguments: `type`, an options object, and `dryRun`. | Start notification; not a durable generation ID or persistence event. |
+| `GENERATION_STOPPED` | 1 | No arguments. | Does not identify partial output, outcome or persisted version. |
+| `GENERATION_ENDED` | 1 | One argument: `chat.length`. | End event alone does not prove final version persistence or delivery. |
+| `CHAT_CHANGED` | 4 | One argument: `getCurrentChatId()`. | Locator/name, not trusted Core world/session authorization. |
+| `CHAT_DELETED` | 3 | One argument: `name` or `fileName`. | Chat-level notification, not per-message/per-version tombstones. |
+
+The `MESSAGE_RECEIVED` and `CHARACTER_MESSAGE_RENDERED` static call-site totals happen to match, but that is **not** evidence of a one-to-one runtime pairing: paths and conditions differ, and no runtime trace was collected here that pairs each emit by operation ID. The event catalog declares names, not a formal payload schema or exactly-once delivery guarantee.
+
+Source links: [pinned main source](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/script.js), [pinned event catalog](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/scripts/events.js).
+
+**Result:** this closes a source-documentation gap around event names, static call-site count and argument shapes. It does not close runtime callback multiplicity, async persistence ordering across all branches, durable identity, or complete source inventory. Those remain NOT PROVEN; binary inventory remains `NON_READY / NO SUCH MECHANISM FOUND`.
