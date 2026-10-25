@@ -121,16 +121,6 @@ test('uncovered server-side lifecycle operations fail closed before a caller mut
   }
 });
 
-test('restart reconciliation fails closed when source changed after the last journal checkpoint', async () => {')),
-    );
-  }
-  const readiness = await f.bridge.reconcileCurrentConversation();
-  assert.equal(readiness.status, 'NON_READY');
-  for (const path of ['delete-chat', 'delete-group-chat', 'delete-character-chat-recursive', 'import-character-chat', 'import-group-chat', 'backup-restore', 'create-branch', 'group-metadata-migration']) {
-    assert.ok(readiness.missingPaths.includes(path), `expected unsupported operation to remain uncovered: ${path}`);
-  }
-});
-
 test('restart reconciliation fails closed when source changed after the last journal checkpoint', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
