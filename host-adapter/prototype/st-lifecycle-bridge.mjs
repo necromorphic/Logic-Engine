@@ -84,7 +84,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
         if (prior && prior.payloadDigest === textDigest) {
           nextVersions.push(prior);
         } else {
-          nextVersions.push({ versionId: newId(), versionIndex: j, payloadDigest: textDigest, parentVersionId: prior?.versionId ?? null });
+          nextVersions.push({ versionId: newId(), versionIndex: j, payloadDigest: textDigest, parentVersionId: prior?.versionId ?? identity.versions[identity.activeVersionIndex]?.versionId ?? null });
         }
       }
       identity.versions = nextVersions;
