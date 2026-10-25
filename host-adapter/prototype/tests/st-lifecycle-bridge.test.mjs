@@ -268,3 +268,22 @@ test('create-message assigns identity only to the explicitly appended tail messa
   assert.deepEqual(f.chat.slice(0, 2).map(message => message._logicEngineLifecycle.messageId), oldMessageIds);
   assert.ok(f.chat[2]._logicEngineLifecycle.messageId);
 });
+
+test('message-send checkpoint records the inserted user message and receive preserves the lineage', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const oldMessageIds = f.chat.map(message => message._logicEngineLifecycle.messageId);
+
+  await f.bridge.beforeMutation('message-send', []);
+  f.chat.push({ is_user: true, mes: 'new user turn' });
+  const sent = await f.bridge.afterMutation('message-send', { createdMessageIndex: 2 });
+  assert.equal(sent.status, 'REVIEW_ONLY');
+  assert.deepEqual(f.chat.slice(0, 2).map(message => message._logicEngineLifecycle.messageId), oldMessageIds);
+  const sentMessageId = f.chat[2]._logicEngineLifecycle.messageId;
+
+  f.chat.push({ is_user: false, mes: 'assistant reply' });
+  const received = await f.bridge.afterMutation('message-receive', { createdMessageIndex: 3 });
+  assert.equal(received.status, 'REVIEW_ONLY');
+  assert.equal(f.chat[2]._logicEngineLifecycle.messageId, sentMessageId);
+  assert.ok(f.chat[3]._logicEngineLifecycle.messageId);
+});
