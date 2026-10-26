@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
-import { projectHostInventoryForComparison } from '../inventory-projection.mjs';
+import { projectHostCaptureLedgerForComparison, projectHostInventoryForComparison } from '../inventory-projection.mjs';
 
 const hostDigest = text => createHash('sha256').update(JSON.stringify(String(text)), 'utf8').digest('hex');
 const message = ({ id, versions, active = 0 }) => ({
