@@ -31,6 +31,18 @@ for (const [id, secret] of Object.entries(adapterTokens)) {
 }
 
 const dbPath = process.env.ENGINE_DB_PATH || './data/logic-engine.sqlite';
+// Runtime must use an explicit shared coordinator path. A per-Core-DB fallback
+// is acceptable for isolated tests, but cannot coordinate a separate Provider DB
+// or another process unless every participant is configured with the same path.
+const coordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+if (typeof coordinatorPath !== 'string' || !coordinatorPath.trim()) {
+  process.stderr.write('LOGIC_ENGINE_COORDINATOR_DB_PATH must point to the shared coordinator SQLite file.\n');
+  process.exit(1);
+}
+if (resolve(coordinatorPath) === resolve(dbPath)) {
+  process.stderr.write('LOGIC_ENGINE_COORDINATOR_DB_PATH must be separate from ENGINE_DB_PATH.\n');
+  process.exit(1);
+}
 if (dbPath !== ':memory:') mkdirSync(dirname(resolve(dbPath)), { recursive: true });
 const port = Number(process.env.ENGINE_PORT || 8787), host = process.env.ENGINE_HOST || '127.0.0.1';
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('ENGINE_PORT must be between 1 and 65535.');
