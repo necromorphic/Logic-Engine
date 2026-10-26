@@ -34,9 +34,9 @@ The helper's statuses are gate outcomes over supplied assessments, not universal
 |---|---|---|
 | `supported` | The supplied assessments agree on one normalized interpretation and each supported assessment has non-empty unique refs. The candidate may proceed to domain-rule evaluation if its declared interpretation matches. | Truth, intent, consent, attraction, belief of a particular NPC, evidence authorization, or permission to commit. |
 | `insufficient_evidence` | At least one assessment says the supplied basis is insufficient; do not promote another reading from the same batch. | That the interaction did not happen or that the opposite interpretation is true. |
-| `conflict_review_required` | Explicit conflict exists, distinct supported readings remain, or the proposed candidate's interpretation differs from the assessed reading. | Which interpretation should win. |
+| `conflict_review_required` | Explicit conflict exists, distinct supported readings remain, or the proposed candidate's interpretation differs from the assessed reading. | Which interpretation should win, objective truth, or permission to commit. |
 | `unsupported` | At least one assessment is marked unsupported; no relationship candidate is promoted by this helper. | A negative relationship value or proof that a source is false. |
-| `withheld` | At least one assessment is withheld; the helper suppresses interpretation and evidence-reference details in its result. | That the withheld interpretation is false or absent. |
+| `withheld` | At least one assessment is withheld; the helper suppresses interpretation and evidence-reference details in its result. | That the withheld interpretation is false or absent, that withheld material may be disclosed, or permission to commit. |
 | `invalid_input` | The internal input shape is malformed or outside the helper's narrow contract. | A semantic judgment about the interaction. |
 
 An assessment's inclusion in context, retrieval, admission, or a list of candidates is not itself a status of `supported`. A non-empty reference is a reference string only; the helper does not authenticate its source, validate access, or establish provenance. Core owns those checks.
