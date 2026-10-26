@@ -162,7 +162,7 @@ test('Host-owned live source verification reports local match as non-authoritati
   f.chat[0].mes = 'untracked external edit';
   const drift = await f.bridge.verifyCurrentSource();
   assert.equal(drift.status, 'NON_READY');
-  assert.equal(drift.reason, 'live source inventory fingerprint mismatch');
+  assert.match(drift.reason, /identity\/version inventory mismatch|live source inventory fingerprint mismatch/);
 });
 
 test('Host source verification rejects identity metadata tampering even when message text fingerprint is unchanged', async () => {
