@@ -1,6 +1,6 @@
 # Universal mechanics contracts and safe defaults
 
-Status: accepted implementation contract. Immutable template/module registries and the world-scoped MechanicInstance lifecycle slice are implemented; mechanic execution, conflict evaluation/adjudication, template-defined parameter/state validation, and active-process lifecycle policy execution remain future work. This document narrows the open points in `docs/25-universal-mechanics-system.md`; it does not add genre-specific behavior or a World Pack example.
+Status: accepted implementation contract. Immutable template/module registries and the world-scoped MechanicInstance lifecycle slice are implemented. A bounded, opt-in application-layer executor/effect-intent path also exists, but it does not establish universal dependency closure/recalculation, general conflict evaluation/adjudication, complete template-defined parameter/state validation, production policy-provider freshness/lifecycle wiring, or active-process lifecycle policy execution. This document narrows the open points in `docs/25-universal-mechanics-system.md`; it does not add genre-specific behavior or a World Pack example.
 
 ## 1. Contract artifacts
 
@@ -49,7 +49,7 @@ This is a coarse shared-credential boundary, not proof of a named human identity
 1. **Implemented:** immutable, versioned template and module-manifest registries, content hashes, exact-version lookup, and append-only registry audit. The authenticated API client is recorded as the registration principal; this does not identify a human author.
 2. **Implemented:** authenticated registry list/register/read routes and tests for empty registries, exact-version lookup, duplicate registration, immutability, and audit.
 3. **Implemented — lifecycle slice:** world-scoped `MechanicInstance` projection pinned to an exact template version; admin-only create/list/enable/disable routes; expected-revision and idempotency checks; lifecycle predecessor causality; rebuild from valid event history; rollback dependency tracking; adapter-proposal rejection.
-4. **Not implemented:** mechanic execution, parameter/state schema validation against template-defined schemas, process lifecycle policy execution, conflict evaluation/adjudication, and structured `mark_unknown` behavior. These must be designed and tested before connecting a World Pack or SillyTavern adapter.
+4. **Partially implemented / remaining work:** a bounded, opt-in executor and effect-intent/proposal path exist, but they are not a universal production executor. Universal dependency closure/recalculation, general conflict evaluation/adjudication, parameter/state schema validation against template-defined schemas, production policy-provider freshness/lifecycle wiring, process lifecycle policy execution, and end-to-end structured `mark_unknown` behavior remain incomplete. These gaps must be resolved and tested before treating World Pack-driven autonomous execution as production-ready or enabling it through a SillyTavern adapter.
 5. Define a richer trusted host actor/authorization contract if the deployment needs per-user attribution or roles beyond the shared admin credential.
 
 The runtime contract validator is a dedicated bounded validator, not a general JSON Schema 2020-12 implementation. Schema files are structurally checked by tests, but full JSON Schema conformance testing remains open.
