@@ -300,7 +300,9 @@ diff --git a/public/scripts/bookmarks.js b/public/scripts/bookmarks.js
 diff --git a/public/script.js b/public/script.js
 --- a/public/script.js
 +++ b/public/script.js
-@@ -1338,1 +1338,2 @@
+@@ -1336,3 +1336,4 @@
+ }
+ 
  async function delChat(chatfile) {
 +    await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatfile.replace('.jsonl', ''));
 @@ -1364,3 +1364,5 @@
@@ -357,7 +359,12 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
 --- a/public/scripts/group-chats.js
 +++ b/public/scripts/group-chats.js
-@@ -1323,1 +1323,2 @@
+@@ -1318,6 +1318,7 @@
+ /**
+  * Deletes a group from the server by ID.
+  * @param {string} id Group ID to delete
+  * @returns {Promise<void>} Promise that resolves when the group is deleted
+  */
  async function deleteGroup(id) {
 +    await window.logicEngineHostLifecycle?.guardBulkMutation?.();
 @@ -2242,5 +2242,9 @@
