@@ -44,6 +44,12 @@ diff --git a/public/script.js b/public/script.js
 +            && key.endsWith(':' + existing) && key !== activeMarker) {
 +            throw Error('NON_READY: Host conversation identity is already enrolled elsewhere');
 +        }
++        const markerValue = typeof key === 'string' ? localStorage.getItem(key) : null;
++        if (typeof key === 'string' && key.startsWith('logic-engine-host-lifecycle:')
++            && typeof markerValue === 'string' && markerValue.endsWith(':' + locator)
++            && key !== activeMarker) {
++            throw Error('NON_READY: Host locator is associated with another conversation identity');
++        }
 +    }
 +    if (typeof existing === 'string' && existing.length > 0
 +        && existing === existing.trim() && existing.length <= 200) {
