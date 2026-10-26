@@ -49,6 +49,14 @@ diff --git a/public/script.js b/public/script.js
 +            journal,
 +            getConversationId: getLogicEngineConversationId,
 +            getSourceLocator: getCurrentChatId,
++            // Fingerprint native ST lineage metadata with the message/version inventory.
++            // main_chat is a mutable name and integrity is local metadata, not trusted authority.
++            getSourceLineage: () => ({
++                mainChat: chat_metadata?.main_chat ?? null,
++                integrity: chat_metadata?.integrity ?? null,
++                sessionName: getCurrentChatDetails()?.sessionName ?? null,
++                groupId: selected_group ?? null,
++            }),
 +            getChat: () => chat,
 +            saveChat: () => saveChatConditional(),
 +            publishDigest: async entry => {
