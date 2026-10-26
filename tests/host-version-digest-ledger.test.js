@@ -81,6 +81,19 @@ test('known version disappearance from full snapshot fails closed', async (t) =>
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 });
 
+test('complete snapshot rejects a deleted version marked active', async (t) => {
+  const ledger = setup(t);
+  const result = await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true,
+    versions: [entry({ deleted: true, active: true })]
+  });
+  assert.deepEqual(result, {
+    status: 'non_ready', code: 'HOST_INVENTORY_DELETED_VERSION_ACTIVE'
+  });
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+});
+
 test('duplicate identities in a snapshot are rejected', async (t) => {
   const ledger = setup(t);
   assert.deepEqual(await ledger.reconcileConversation({
