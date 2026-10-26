@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
+import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
 const waitFor = async (predicate, timeoutMs = 4000) => {
   const deadline = Date.now() + timeoutMs;
@@ -31,6 +32,21 @@ const record = {
   evidence_assessment: 'unassessed',
   lineage: [{ source_kind: 'canonical_entity', entity_id: 'source-entity', source_version: 'source-v1' }],
 };
+
+test('file-backed Provider still fails closed when no coordinator path is explicitly supplied', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'logic-provider-no-coordinator-'));
+  try {
+    assert.throws(() => new SQLiteMemoryProvider({
+      path: join(dir, 'provider.sqlite'),
+      coordinatorPath: null,
+      getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+      validateSourceVersion: async () => true,
+      validateInventory: async () => true,
+    }), /requires the shared LOGIC_ENGINE_COORDINATOR_DB_PATH/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
 
 test('Provider startup, grants, source-version records, tombstones, indexing and reconciliation join Core shared coordinator across processes', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'logic-provider-coordinator-'));
