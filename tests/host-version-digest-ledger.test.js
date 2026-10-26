@@ -35,6 +35,24 @@ test('digest-only capture is idempotent and stores no raw text', (t) => {
   assert.equal(ledger.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='memory_records'").get(), undefined);
 });
 
+test('digest conflict and NON_READY state survive Provider restart', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-digest-ledger-restart-'));
+  const path = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  let ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  ledger.captureVersion(entry());
+  ledger.captureVersion(entry({ content_sha256: digest('conflicting durable bytes') }));
+  ledger.close();
+
+  ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.db.prepare('SELECT version_id FROM host_version_active_pointer').get().version_id, 'version-a');
+  t.after(() => {
+    try { ledger.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+});
+
 test('same identity with different digest records conflict and forces NON_READY', (t) => {
   const ledger = setup(t);
   ledger.captureVersion(entry());
