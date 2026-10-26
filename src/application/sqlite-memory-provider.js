@@ -1,7 +1,33 @@
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { createHash } from 'node:crypto';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
+import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 
+const canonicalFilePath = (path) => {
+  let candidate = resolve(path);
+  const suffix = [];
+  // Resolve symlinked ancestors even when the final database file does not
+  // exist yet. DatabaseSync may create the file, so checking only realpath(file)
+  // misses aliases through a symlinked parent directory.
+  while (!existsSync(candidate)) {
+    const parent = dirname(candidate);
+    if (parent === candidate) break;
+    suffix.unshift(basename(candidate));
+    candidate = parent;
+  }
+  return resolve(realpathSync(candidate), ...suffix);
+};
+const aliasesSameFile = (left, right) => {
+  const canonicalLeft = canonicalFilePath(left);
+  const canonicalRight = canonicalFilePath(right);
+  if (canonicalLeft === canonicalRight) return true;
+  if (!existsSync(canonicalLeft) || !existsSync(canonicalRight)) return false;
+  const leftStat = statSync(canonicalLeft);
+  const rightStat = statSync(canonicalRight);
+  return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
+};
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
@@ -38,7 +64,7 @@ const validDirectLineage = (row, lineage) => row.source_kind === 'canonical_enti
  * refuses retrieval until rebuild + reconciliation complete.
  */
 export class SQLiteMemoryProvider {
-  constructor({ path = ':memory:', getSnapshot, validateSourceVersion, validateInventory, authorizeRawRead = null }) {
+  constructor({ path = ':memory:', coordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH ?? null, getSnapshot, validateSourceVersion, validateInventory, authorizeRawRead = null }) {
     if (typeof getSnapshot !== 'function') throw new TypeError('SQLiteMemoryProvider requires trusted getSnapshot');
     if (typeof validateSourceVersion !== 'function') {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateSourceVersion');
@@ -50,12 +76,33 @@ export class SQLiteMemoryProvider {
     }
     this.validateInventory = validateInventory;
     this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
+    // In-memory instances are deliberately isolated test stores and do not
+    // join a process-global coordinator merely because the test runner set one.
+    const sharedCoordinatorPath = path === ':memory:' ? null : coordinatorPath;
+    if (path !== ':memory:' && (typeof sharedCoordinatorPath !== 'string' || !sharedCoordinatorPath.trim())) {
+      throw new TypeError('File-backed Memory Provider requires the shared LOGIC_ENGINE_COORDINATOR_DB_PATH');
+    }
+    if (sharedCoordinatorPath && !isAbsolute(sharedCoordinatorPath)) {
+      throw new TypeError('Memory Provider coordinator path must be absolute and shared with Core');
+    }
+    if (path !== ':memory:' && sharedCoordinatorPath && aliasesSameFile(path, sharedCoordinatorPath)) {
+      throw new Error('Coordinator DB must be separate from the Memory Provider DB, including filesystem aliases.');
+    }
     this.reconcileGeneration = new Map();
+    this.transactionDepth = 0;
+    this.coordinatorDepth = 0;
     this.stateGeneration = new Map();
     this.queryAuthorizationGeneration = new Map();
     this.recordAuthorizationGeneration = new Map();
-    this.db = new DatabaseSync(path);
-    this.db.exec(`
+    // Open the coordinator first so a failed coordinator open cannot leak a Provider DB handle.
+    this.coordinatorDb = sharedCoordinatorPath ? openCoordinatorDatabase(sharedCoordinatorPath) : null;
+    this.db = null;
+    let releaseStartupLock = () => {};
+    let startupError = null;
+    try {
+      releaseStartupLock = this.#acquireCoordinatorLock();
+      this.db = new DatabaseSync(path);
+      this.db.exec(`
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS memory_records (
         world_id TEXT NOT NULL, subject_id TEXT NOT NULL, purpose TEXT NOT NULL,
@@ -116,8 +163,34 @@ export class SQLiteMemoryProvider {
           ON DELETE CASCADE
       );
     `);
-    const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
-    if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+      const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
+      if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+    } catch (error) {
+      startupError = error;
+    } finally {
+      try { releaseStartupLock(); } catch (error) { startupError ??= error; }
+    }
+    if (startupError) {
+      try { this.db.close(); } catch {}
+      try { this.coordinatorDb?.close(); } catch {}
+      throw startupError;
+    }
+  }
+
+  #acquireCoordinatorLock() {
+    if (!this.coordinatorDb) return () => {};
+    return beginCoordinatorLock(this.coordinatorDb);
+  }
+
+  #withCoordinatorLock(work) {
+    if (this.coordinatorDepth > 0) return work();
+    const release = this.#acquireCoordinatorLock();
+    this.coordinatorDepth += 1;
+    try { return work(); }
+    finally {
+      this.coordinatorDepth -= 1;
+      release();
+    }
   }
 
   #dataVersion() {
@@ -125,15 +198,28 @@ export class SQLiteMemoryProvider {
   }
 
   #withImmediateTransaction(work) {
-    this.db.exec('BEGIN IMMEDIATE');
-    try {
-      const result = work();
-      this.db.exec('COMMIT');
-      return result;
-    } catch (error) {
-      try { this.db.exec('ROLLBACK'); } catch {}
-      throw error;
-    }
+    return this.#withCoordinatorLock(() => {
+      this.db.exec('BEGIN IMMEDIATE');
+      this.transactionDepth += 1;
+      try {
+        const result = work();
+        this.db.exec('COMMIT');
+        return result;
+      } catch (error) {
+        try { this.db.exec('ROLLBACK'); } catch {}
+        throw error;
+      } finally {
+        this.transactionDepth -= 1;
+      }
+    });
+  }
+
+  // Access grants, readiness transitions, and Provider-owned record/index writes
+  // share SQLite's writer serialization order. Existing compound transactions
+  // reuse their transaction instead of attempting a nested BEGIN IMMEDIATE.
+  #withSerializedWrite(work) {
+    if (this.transactionDepth > 0) return work();
+    return this.#withImmediateTransaction(work);
   }
 
   /**
@@ -370,7 +456,10 @@ export class SQLiteMemoryProvider {
   }
 
 
-  close() { this.db.close(); }
+  close() {
+    try { this.db.close(); }
+    finally { this.coordinatorDb?.close(); }
+  }
 
   #scope(scope) {
     if (!object(scope) || !validId(scope.world_id) || !validId(scope.subject_id)
@@ -379,16 +468,18 @@ export class SQLiteMemoryProvider {
   }
 
   #setState(worldId, indexHealth, reconciliation, snapshot = null, failureCode = null) {
+    this.#withSerializedWrite(() => {
+      this.db.prepare(`INSERT INTO memory_index_state
+        (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
+        VALUES(?,?,?,?,?,?,?)
+        ON CONFLICT(world_id) DO UPDATE SET index_health=excluded.index_health,
+        source_reconciliation=excluded.source_reconciliation,
+        snapshot_revision=excluded.snapshot_revision,snapshot_sequence=excluded.snapshot_sequence,
+        failure_code=excluded.failure_code,updated_at=excluded.updated_at`).run(worldId, indexHealth, reconciliation,
+        snapshot ? String(snapshot.world_revision) : null,
+        snapshot ? String(snapshot.commit_sequence) : null, failureCode, new Date().toISOString());
+    });
     this.stateGeneration.set(worldId, (this.stateGeneration.get(worldId) ?? 0) + 1);
-    this.db.prepare(`INSERT INTO memory_index_state
-      (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
-      VALUES(?,?,?,?,?,?,?)
-      ON CONFLICT(world_id) DO UPDATE SET index_health=excluded.index_health,
-      source_reconciliation=excluded.source_reconciliation,
-      snapshot_revision=excluded.snapshot_revision,snapshot_sequence=excluded.snapshot_sequence,
-      failure_code=excluded.failure_code,updated_at=excluded.updated_at`).run(worldId, indexHealth, reconciliation,
-      snapshot ? String(snapshot.world_revision) : null,
-      snapshot ? String(snapshot.commit_sequence) : null, failureCode, new Date().toISOString());
   }
 
   /** Provider-internal diagnostics; never project this state into NPC-facing results. */
@@ -412,9 +503,11 @@ export class SQLiteMemoryProvider {
   grantQuery(scope, allowed) {
     this.#scope(scope);
     if (typeof allowed !== 'boolean') throw new TypeError('allowed must be boolean');
-    this.db.prepare(`INSERT INTO memory_query_grants VALUES(?,?,?,?)
-      ON CONFLICT(world_id,subject_id,purpose) DO UPDATE SET allowed=excluded.allowed`)
-      .run(scope.world_id, scope.subject_id, scope.purpose, allowed ? 1 : 0);
+    this.#withSerializedWrite(() => {
+      this.db.prepare(`INSERT INTO memory_query_grants VALUES(?,?,?,?)
+        ON CONFLICT(world_id,subject_id,purpose) DO UPDATE SET allowed=excluded.allowed`)
+        .run(scope.world_id, scope.subject_id, scope.purpose, allowed ? 1 : 0);
+    });
     const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose]);
     this.queryAuthorizationGeneration.set(key, (this.queryAuthorizationGeneration.get(key) ?? 0) + 1);
   }
@@ -424,10 +517,12 @@ export class SQLiteMemoryProvider {
     if (!validId(recordRef) || !validId(recordVersion) || typeof allowed !== 'boolean') {
       throw new TypeError('Invalid record grant');
     }
-    this.db.prepare(`INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)
-      ON CONFLICT(world_id,subject_id,purpose,record_ref,record_version)
-      DO UPDATE SET allowed=excluded.allowed`)
-      .run(scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion, allowed ? 1 : 0);
+    this.#withSerializedWrite(() => {
+      this.db.prepare(`INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)
+        ON CONFLICT(world_id,subject_id,purpose,record_ref,record_version)
+        DO UPDATE SET allowed=excluded.allowed`)
+        .run(scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion, allowed ? 1 : 0);
+    });
     const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion]);
     this.recordAuthorizationGeneration.set(key, (this.recordAuthorizationGeneration.get(key) ?? 0) + 1);
   }
@@ -540,6 +635,13 @@ export class SQLiteMemoryProvider {
   }
 
   putRecord(record) {
+    // Serialize identity lookup and both durable record/index phases as one
+    // coordinator window. The local record transaction still commits before
+    // the separate index transaction so index failure remains recoverable.
+    return this.#withCoordinatorLock(() => this.#putRecordUnderLock(record));
+  }
+
+  #putRecordUnderLock(record) {
     if (!object(record) || !validId(record.world_id) || !validId(record.subject_id)
       || !validId(record.purpose) || !validId(record.record_ref) || !validId(record.record_version)
       || record.source_kind !== 'canonical_entity' || !validId(record.source_entity_id)
@@ -578,8 +680,8 @@ export class SQLiteMemoryProvider {
       if (!indexed) {
         this.#setState(record.world_id, 'rebuilding', 'stale', null, 'INDEX_ENTRY_MISSING');
         try {
-          this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
-            .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString());
+          this.#withSerializedWrite(() => this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
+            .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString()));
         } catch (error) {
           this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
           throw error;
@@ -595,10 +697,10 @@ export class SQLiteMemoryProvider {
     // Invalidate the readiness marker before any ingest mutation. If either the raw
     // write or index write fails, retrieval cannot reuse a prior ready marker.
     this.#setState(record.world_id, 'rebuilding', 'stale');
-    this.db.prepare(`INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values);
+    this.#withSerializedWrite(() => this.db.prepare(`INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values));
     try {
-      this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
-        .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString());
+      this.#withSerializedWrite(() => this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
+        .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString()));
     } catch (error) {
       this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
       throw error;
