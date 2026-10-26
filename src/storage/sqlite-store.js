@@ -198,7 +198,7 @@ function createGuardedDatabaseFacade(store, database) {
     if (store.txDepth > 0 || store.coordinatorDepth > 0) return;
     throw new Error('SQLITE_STORE_WRITE_OUTSIDE_TRANSACTION: mutate Core data through SQLiteStore.tx() or a store-owned operation.');
   };
-  return Object.freeze({
+  return {
     exec(sql) {
       const control = /^\\s*(?:BEGIN(?:\\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE))?|COMMIT|END|ROLLBACK(?:\\s+TO(?:\\s+SAVEPOINT)?\\s+[A-Za-z_][A-Za-z0-9_]*)?|SAVEPOINT\\s+[A-Za-z_][A-Za-z0-9_]*|RELEASE(?:\\s+SAVEPOINT)?\\s+[A-Za-z_][A-Za-z0-9_]*)\\s*;?\\s*$/i;
       if (!control.test(sql)) assertWriteLease();
@@ -222,7 +222,7 @@ function createGuardedDatabaseFacade(store, database) {
     close() {
       throw new Error('Use SQLiteStore.close() to close the owned database handles.');
     },
-  });
+  };
 }
 
 export class SQLiteStore {
