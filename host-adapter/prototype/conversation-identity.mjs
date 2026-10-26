@@ -118,6 +118,27 @@ export async function resolveStableHostConversationIdentity({
   };
 }
 
+export function hostLocatorHasEnrollment(locator, storage) {
+  if (typeof locator !== 'string' || !locator.trim() || !storage) return false;
+  if (storage.getItem(locatorKey(locator)) || storage.getItem(MARKER_PREFIX + locator)) return true;
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i);
+    const value = typeof key === 'string' ? storage.getItem(key) : null;
+    if (typeof key === 'string' && key.startsWith(MARKER_PREFIX)
+      && typeof value === 'string' && value.endsWith(':' + locator)) return true;
+  }
+  return false;
+}
+
+export function hasAnyHostEnrollment(storage) {
+  if (!storage || typeof storage.getItem !== 'function') return true;
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i);
+    if (typeof key === 'string' && key.startsWith(MARKER_PREFIX) && storage.getItem(key)) return true;
+  }
+  return false;
+}
+
 export const stableHostIdentityContract = Object.freeze({
   installationKey: INSTALLATION_KEY,
   markerPrefix: MARKER_PREFIX,
