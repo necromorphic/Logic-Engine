@@ -76,3 +76,21 @@ test('separate Core stores serialize their write transactions through the shared
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test('Core transaction callbacks reject async functions before commit', () => {
+  const store = new SQLiteStore(':memory:');
+  try {
+    assert.throws(
+      () => store.tx(async () => 1),
+      /SQLiteStore\.tx callback must be synchronous/,
+    );
+    assert.throws(
+      () => store.tx(() => store.tx(async () => 1)),
+      /SQLiteStore\.tx callback must be synchronous/,
+    );
+    assert.equal(store.tx(() => 7), 7);
+  } finally {
+    store.close();
+  }
+});
