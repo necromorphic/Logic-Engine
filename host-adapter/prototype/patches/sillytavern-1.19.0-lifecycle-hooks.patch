@@ -8,7 +8,7 @@ diff --git a/public/script.js b/public/script.js
 +import { resolveStableHostConversationIdentity } from './scripts/logic-engine-lifecycle/conversation-identity.mjs';
  
  import { humanizedDateTime, favsToHotswap, getMessageTimeStamp, dragElement, isMobile, initRossMods } from './scripts/RossAscends-mods.js';
-@@ -1583,23 +1585,86 @@
+@@ -1583,23 +1585,87 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -24,7 +24,8 @@ diff --git a/public/script.js b/public/script.js
 +        pendingRenameId: logicEngineLifecyclePendingRenameId,
 +    });
 +    return result.status === 'NON_READY' ? null : result.conversationId;
-+}+
++}
++
 +let logicEngineLifecycleBridgePromise;
 +async function getLogicEngineLifecycleBridge() {
 +    if (!logicEngineLifecycleBridgePromise) {
