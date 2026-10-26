@@ -131,6 +131,7 @@ test('file-backed Provider rejects a pinned R2 source after Core rolls the entit
     turn_id: 'provider-file-source-update-r2',
     event_type: 'action.completed',
     expected_revision: beforeUpdate.world_revision,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'source-a' } }],
     effects: [{ kind: 'entity.update', entity_id: 'source-a', attributes: { public_note: 'R2' } }],
   });
   assert.equal(update.accepted, true);
