@@ -146,3 +146,45 @@ test('legacy raw purge removes only registered Provider copies and preserves ext
   assert.equal(external.prepare('SELECT content FROM copies WHERE copy_ref=?').get('unregistered-external').content,
     'external copy remains outside Provider');
 });
+
+test('exact-version tombstone invalidates only dependent copies and preserves an alternate active version', (t) => {
+  const provider = setup(t);
+  const selected = { world_id: 'tombstone-w', conversation_id: 'tombstone-c', message_id: 'tombstone-m', version_id: 'tombstone-v1' };
+  const alternate = { ...selected, version_id: 'tombstone-v2' };
+  insertLegacyRawVersion(provider, { ...selected, content: 'version one' });
+  insertLegacyRawVersion(provider, { ...alternate, content: 'version two' });
+
+  const insertCopy = (source, copyRef) => {
+    const content = `copy of ${source.version_id}`;
+    provider.db.prepare(`INSERT INTO memory_raw_derived_copies
+      (world_id,conversation_id,message_id,source_version_id,copy_ref,copy_version,copy_kind,
+       content_text,content_sha256,status,created_at,invalidated_at)
+      VALUES(?,?,?,?,?,?,?, ?,?,'current',?,NULL)`)
+      .run(source.world_id, source.conversation_id, source.message_id, source.version_id,
+        copyRef, 'v1', 'summary', content, createHash('sha256').update(content, 'utf8').digest('hex'),
+        '2026-01-01T00:00:00.000Z');
+  };
+  insertCopy(selected, 'copy-v1');
+  insertCopy(alternate, 'copy-v2');
+  provider.db.prepare(`INSERT INTO memory_raw_active_versions
+    (world_id,conversation_id,message_id,version_id,selected_at) VALUES(?,?,?,?,?)`)
+    .run(alternate.world_id, alternate.conversation_id, alternate.message_id, alternate.version_id,
+      '2026-01-01T00:00:00.000Z');
+
+  assert.deepEqual(provider.markRawSourceDeleted(selected), { status: 'deleted', invalidated_copies: 1 });
+  const deleted = provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get(selected.world_id, selected.conversation_id, selected.message_id, selected.version_id);
+  assert.notEqual(deleted.deleted_at, null);
+  assert.equal(provider.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?').get('copy-v1').status,
+    'invalidated');
+  assert.equal(provider.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?').get('copy-v2').status,
+    'current');
+  assert.equal(provider.db.prepare(`SELECT version_id FROM memory_raw_active_versions
+    WHERE world_id=? AND conversation_id=? AND message_id=?`)
+    .get(alternate.world_id, alternate.conversation_id, alternate.message_id).version_id, alternate.version_id);
+
+  assert.deepEqual(provider.markRawSourceDeleted(selected), { status: 'deleted', invalidated_copies: 0 });
+  assert.equal(provider.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?').get('copy-v2').status,
+    'current');
+});
