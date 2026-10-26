@@ -158,6 +158,35 @@ test('raw lifecycle targets reject Proxy/accessor-backed input before field read
   assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_derived_copies').get().count, 0);
 });
 
+test('Provider constructor rejects non-string paths before coercing caller objects', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-path-types-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  let coercions = 0;
+  const hostilePath = {
+    [Symbol.toPrimitive]() {
+      coercions += 1;
+      throw new Error('path coercion must not execute');
+    },
+  };
+  const base = {
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  };
+
+  assert.throws(
+    () => new SQLiteMemoryProvider({ ...base, path: hostilePath, coordinatorPath: join(directory, 'coordinator.sqlite') }),
+    /path must be a non-empty string/,
+  );
+  assert.throws(
+    () => new SQLiteMemoryProvider({ ...base, path: join(directory, 'provider.sqlite'), coordinatorPath: hostilePath }),
+    /coordinatorPath must be a string or null/,
+  );
+  assert.equal(coercions, 0);
+  assert.equal(existsSync(join(directory, 'provider.sqlite')), false);
+  assert.equal(existsSync(join(directory, 'coordinator.sqlite')), false);
+});
+
 test('Provider constructor rejects Proxy-backed options before destructuring them', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-proxy-options-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
