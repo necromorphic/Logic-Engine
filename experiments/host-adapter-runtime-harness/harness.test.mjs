@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
 import { once } from 'node:events';
+import { pathToFileURL } from 'node:url';
 
 const stRoot = resolve(process.env.SILLYTAVERN_DIR ?? 'SillyTavern');
 const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
@@ -14,10 +15,7 @@ console.debug = () => {};
 
 const requireFromST = createRequire(resolve(stRoot, 'package.json'));
 const express = requireFromST('express');
-const { router } = await import(new URL(
-  './src/endpoints/backends/chat-completions.js',
-  `file://${stRoot.replaceAll('\\\\', '/')}/`,
-).href);
+const { router } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backends/chat-completions.js')).href);
 
 test('real pinned server Chat Completions handler reaches a recording fake provider exactly once', async (t) => {
   const { execFileSync } = await import('node:child_process');
