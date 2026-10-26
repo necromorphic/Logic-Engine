@@ -157,15 +157,16 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           throw new EngineError('INVALID_HOST_VERSION_CAPTURE',
             'Capture accepts only conversation/message/version IDs, a SHA-256 digest, active and deleted flags; raw content and world_id are forbidden.', 400);
         }
-        const binding = hostConversationBindings.resolve({ adapterId, conversationId: body.conversation_id });
-        const result = hostVersionLedger.captureVersion({
-          world_id: binding.world_id,
-          conversation_id: binding.conversation_id,
+        const result = hostVersionLedger.captureBoundVersion({
+          adapterId,
+          conversationId: body.conversation_id,
           message_id: body.message_id,
           version_id: body.version_id,
           content_sha256: body.content_sha256,
           active: body.active,
           deleted: body.deleted,
+          resolveBinding: ({ adapterId: authenticatedAdapterId, conversationId }) =>
+            hostConversationBindings.resolve({ adapterId: authenticatedAdapterId, conversationId }),
         });
         if (result.status === 'conflict' || result.status === 'non_ready') {
           return send(res, 409, { capture: result, inventory_status: 'NON_READY' });
