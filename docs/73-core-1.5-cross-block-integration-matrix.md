@@ -7,6 +7,8 @@
 
 This document records observed repository state and integration gates. It does not approve a new API, schema, storage model, authorization policy, or merge. Re-check branch heads before acting on this snapshot.
 
+> **Historical snapshot notice (2026-10-26):** this matrix was audited against `f70e353ada10994f43b01a0ce1ddb46abe6a344e` on 2026-10-24 and is not a current-main inventory. Some PR numbers, implementation statuses, and open gaps below may have changed. Use [portfolio tracker #252](https://github.com/necromorphic/Logic-Engine/issues/252) for the current dependency/PR reconciliation; do not use this historical matrix alone to decide mergeability or production readiness.
+
 ## 1. Evidence vocabulary
 
 - **Main runtime** — code/docs present on the recorded `main` baseline.
