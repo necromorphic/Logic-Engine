@@ -150,7 +150,7 @@ test('rechecks provider grants after asynchronous source validation', async (t) 
   await started;
   s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
   releaseValidation();
-  assert.equal(await authorization, false);
+  await assert.rejects(authorization, /MEMORY_RECORD_ACCESS_REVOKED/);
 });
 
 test('does not publish current when source inventory completeness cannot be confirmed', async (t) => {
