@@ -2,13 +2,14 @@
 
 **Status:** NPC-owned conceptual specification for review. This document does not define a runtime API, persisted schema, database, event bus, or cross-block contract. It does not claim these transitions are implemented.
 
-**Scope:** Clarify the meaning and ordering of information exposure, acquisition, belief, doubt, forgetting, revision, and observable behavior. Any shared state or persistence implementation requires review by Core, Personality, Relationships, Memory Provider, and Host/UI owners as applicable.
+**Scope:** Clarify the meaning and ordering of information exposure, observation, receipt, acquisition, belief, doubt, forgetting, revision, and observable behavior. Any shared state or persistence implementation requires review by Core, Personality, Relationships, Memory Provider, and Host/UI owners as applicable.
 
 ## Non-equivalent states
 
 | Concept | Meaning | Does not establish |
 |---|---|---|
-| Observed / exposed | An authoritative event indicates that the character perceived or was exposed to a specific event or statement. | That the character understood, retained, or believed it. |
+| Exposure | An authoritative source/host event establishes that information was available in the character's environment or eligible context. | That the character actually perceived, attended to, understood, retained, or believed it. |
+| Observed | Supported evidence indicates that the character perceived or attended to a specific event or statement. | That the character understood, retained, or believed it. |
 | Received | A supported host/source signal says information reached the intended character boundary. | That it was incorporated into knowledge or belief. |
 | Acquired | A character-relative decision records information as learned from eligible evidence. | That the information is true or believed. |
 | Belief | The character's current stance toward a proposition, with uncertainty where appropriate. | Source authorization or canonical truth. |
@@ -22,17 +23,19 @@
 
 These are semantic distinctions, not a mandated linear pipeline. A system may need to model skipped, failed, repeated, or competing events explicitly once the owning contracts exist.
 
-1. **Exposure:** a source/host event establishes that information was available to the character. Prompt inclusion, retrieval, or a model-generated assertion alone is not reliable receipt evidence.
-2. **Acquisition decision:** the system decides whether the character actually learned the information. The decision must be separate from retrieval and must retain provenance under an approved owner contract.
-3. **Interpretation and belief revision:** acquired information is assessed against existing beliefs, prior evidence, contradictions, source reliability, and character-specific interpretation. Personality may influence interpretation but must not grant access to sources or alter source authority.
-4. **Current belief stance:** the character may believe, disbelieve, doubt, suspend judgment, or have no settled view. Confidence is character-relative and must not be conflated with factual validity or access permission.
-5. **Later reassessment:** new evidence, correction, contradiction, or changed context can alter the stance. Preserve distinctions between the source claim, the character's interpretation, and the current belief; do not silently rewrite provenance.
-6. **Recall and forgetting:** reduced recall/accessibility is a character-memory behavior. It must not erase the authoritative source record or simulate deletion/revocation. A forgotten proposition may still exist in authoritative history, if policy permits.
-7. **External expression:** action and dialogue are selected from internal state through an explicit output/disclosure boundary. Hidden motives, private belief state, and internal reasoning are not automatically exposed.
+1. **Exposure:** a source/host event establishes that information was available to the character. Prompt inclusion, retrieval, or a model-generated assertion alone is not reliable evidence of observation or receipt.
+2. **Observation / receipt:** supported evidence may establish that the character perceived something or that information reached the intended character boundary. These are distinct claims and must not be inferred from exposure alone.
+3. **Acquisition decision:** the system decides whether the character actually learned the information. The decision must be separate from retrieval and must retain provenance under an approved owner contract.
+4. **Interpretation and belief revision:** acquired information is assessed against existing beliefs, prior evidence, contradictions, source reliability, and character-specific interpretation. Personality may influence interpretation but must not grant access to sources or alter source authority.
+5. **Current belief stance:** the character may believe, disbelieve, doubt, suspend judgment, or have no settled view. Confidence is character-relative and must not be conflated with factual validity or access permission.
+6. **Later reassessment:** new evidence, correction, contradiction, or changed context can alter the stance. Preserve distinctions between the source claim, the character's interpretation, and the current belief; do not silently rewrite provenance.
+7. **Recall and forgetting:** reduced recall/accessibility is a character-memory behavior. It must not erase the authoritative source record or simulate deletion/revocation. A forgotten proposition may still exist in authoritative history, if policy permits.
+8. **External expression:** action and dialogue are selected from internal state through an explicit output/disclosure boundary. Hidden motives, private belief state, and internal reasoning are not automatically exposed.
 
 ## Required invariants
 
-- Exposure is not acquisition.
+- Exposure is not observation, receipt, or acquisition.
+- Observation or receipt is not acquisition.
 - Acquisition is not belief.
 - Belief is not canonical truth.
 - Confidence is not source authority or authorization.
@@ -50,6 +53,7 @@ A future implementation should keep these questions distinct, without assuming a
 
 - **Source authority:** who/what is permitted to establish or revise the authoritative record and its version?
 - **Evidence provenance:** which source/version supports a claim, and what is known about its currentness and authorization?
+- **Exposure / observation / receipt evidence:** what event establishes availability, what evidence supports actual perception, and what signal establishes arrival at the intended character boundary?
 - **Character interpretation:** what did this character infer from the evidence, with what uncertainty?
 - **Character belief:** what stance does the character currently hold, and why?
 - **Behavioral expression:** what is safe and appropriate to expose through dialogue/action?
@@ -58,7 +62,7 @@ A character may sincerely believe a false claim; a canonical record may be true 
 
 ## Failure and conflict handling
 
-- **Missing/ambiguous exposure evidence:** do not claim receipt or acquisition.
+- **Missing/ambiguous exposure, observation, or receipt evidence:** do not claim the corresponding state or infer acquisition.
 - **Unavailable source or uncertain authorization:** fail closed for source disclosure; do not convert an access failure into a belief update.
 - **Conflicting claims:** preserve provenance and represent unresolved conflict; resolution policy is a separate decision.
 - **Insufficient evidence:** allow uncertainty or suspension of judgment rather than forced certainty.
@@ -74,6 +78,6 @@ This proposal is NPC-owned semantic guidance only. It does not introduce shared 
 - Personality must approve how stable traits and temporary state influence interpretation without changing evidence authority.
 - Relationships must approve any relationship updates caused by events or belief changes.
 - Memory Provider must approve provenance, source version, lineage, revocation, and derived-copy behavior.
-- Host/UI must define what counts as actual exposure, receipt, rendering, and user/character-facing disclosure.
+- Host/UI must define what counts as actual exposure, observation, receipt, rendering, and user/character-facing disclosure.
 
 Until those boundaries are approved, do not represent these semantics as implemented runtime behavior. Production Memory→NPC remains DISABLED / FAIL-CLOSED under issue #317.
