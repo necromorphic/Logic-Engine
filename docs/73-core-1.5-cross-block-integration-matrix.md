@@ -1,5 +1,7 @@
 # Core 1.5 cross-block integration matrix
 
+> **Historical snapshot notice (2026-10-26):** this audit remains a record of the repository at baseline `f70e353ada10994f43b01a0ce1ddb46abe6a344e`, audited on 2026-10-24. It is not a current-main status report. Use the current portfolio register [#252](https://github.com/necromorphic/Logic-Engine/issues/252) and active integration gate [#264](https://github.com/necromorphic/Logic-Engine/issues/264) for current owners, PR heads, and acceptance evidence. Do not interpret old PR states in this document as current; re-check exact head/base SHAs and current-main tests before any merge or readiness decision.
+
 **Status:** evidence-based integration audit, documentation only.  
 **Audit date:** 2026-10-24.  
 **Main baseline checked:** `f70e353ada10994f43b01a0ce1ddb46abe6a344e`...
