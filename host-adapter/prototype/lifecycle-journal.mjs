@@ -153,6 +153,9 @@ export async function contentDigest(text) { return digest(String(text)); }
 export async function fingerprintSource(messages) {
   const projection = messages.map(message => ({
     role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
+    isUser: message.is_user === true,
+    isSystem: message.is_system === true,
+    systemType: message.extra?.type ?? null,
     name: message.name ?? null,
     currentMessage: message.mes ?? '',
     versions: Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''],
