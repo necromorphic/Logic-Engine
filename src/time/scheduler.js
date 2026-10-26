@@ -56,9 +56,14 @@ function stringSet(value, name, max = 1000) {
 }
 
 function assertTriggerRecord(input) {
+  // The durable registry returns lifecycle metadata alongside the immutable
+  // trigger definition. These fields are accepted only as known registry
+  // metadata; the pure planner does not use them to determine scheduling.
   const allowed = new Set([
     'trigger_id', 'world_id', 'due_coordinate', 'status', 'dependencies',
     'read_set', 'write_set', 'processing_mode', 'interrupt_after_coordinate', 'payload',
+    'content_hash', 'claimed_by_operation_id', 'completed_operation_id',
+    'cancellation_reason', 'created_revision', 'created_at', 'updated_at',
   ]);
   const invalid = () => fail('INVALID_TRIGGER', 'Trigger fields must be own enumerable data properties on a plain object.');
   const prototype = Object.getPrototypeOf(input);
