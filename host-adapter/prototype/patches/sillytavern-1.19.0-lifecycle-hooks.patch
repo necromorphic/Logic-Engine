@@ -11,6 +11,7 @@ diff --git a/public/script.js b/public/script.js
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
++let logicEngineLifecyclePendingRenameId = null;
 +async function getLogicEngineConversationId() {
 +    const locator = getCurrentChatId();
 +    if (!locator) return null;
@@ -44,7 +45,15 @@ diff --git a/public/script.js b/public/script.js
 +        if (localStorage.getItem(legacyMarker) && existing !== locator) {
 +            throw Error('NON_READY: conflicting Host identity marker');
 +        }
-+        return installId + ':' + existing;
++        const resolvedId = installId + ':' + existing;
++        const locatorKey = 'logic-engine-host-lifecycle-locator:' + locator;
++        const mappedId = localStorage.getItem(locatorKey);
++        if (mappedId && mappedId !== resolvedId) throw Error('NON_READY: Host locator identity mismatch');
++        if (!mappedId && localStorage.getItem('logic-engine-host-lifecycle:' + resolvedId)
++            && logicEngineLifecyclePendingRenameId !== resolvedId) {
++            throw Error('NON_READY: Host locator binding missing');
++        }
++        return resolvedId;
 +    }
 +    if (localStorage.getItem(legacyMarker)) throw Error('NON_READY: identity migration required');
 +    if (!globalThis.crypto?.randomUUID) throw Error('NON_READY: crypto.randomUUID unavailable');
