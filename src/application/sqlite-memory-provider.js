@@ -133,6 +133,14 @@ export class SQLiteMemoryProvider {
       validateInventory,
       authorizeRawRead = null,
     } = options;
+    // Reject non-string paths before Node path helpers can coerce caller-owned
+    // objects and execute their Symbol.toPrimitive/valueOf hooks.
+    if (typeof path !== 'string' || path.length === 0) {
+      throw new TypeError('SQLiteMemoryProvider path must be a non-empty string');
+    }
+    if (coordinatorPath !== null && typeof coordinatorPath !== 'string') {
+      throw new TypeError('SQLiteMemoryProvider coordinatorPath must be a string or null');
+    }
     if (typeof getSnapshot !== 'function') throw new TypeError('SQLiteMemoryProvider requires trusted getSnapshot');
     if (typeof validateSourceVersion !== 'function') {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateSourceVersion');
