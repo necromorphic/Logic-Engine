@@ -25,10 +25,32 @@ function nonEmptyString(value, name) {
   return value.trim();
 }
 
+function denseArrayValues(value, name, max, errorCode) {
+  if (!Array.isArray(value) || value.length > max) {
+    fail(errorCode, name + ' must be an array with at most ' + max + ' entries.');
+  }
+  const values = [];
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index)) {
+      fail(errorCode, name + ' cannot contain sparse array entries.', { index });
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      fail(errorCode, name + ' entries must be own enumerable data properties.', { index });
+    }
+    values.push(descriptor.value);
+  }
+  const allowedKeys = new Set(['length', ...values.map((_, index) => String(index)]);
+  if (Reflect.ownKeys(value).some((key) => typeof key !== 'string' || !allowedKeys.has(key))) {
+    fail(errorCode, name + ' cannot contain extra array properties.');
+  }
+  return values;
+}
+
 function stringSet(value, name, max = 1000) {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > max) fail('INVALID_REFERENCE_LIST', name + ' must be an array with at most ' + max + ' entries.');
-  const normalized = value.map((item, index) => nonEmptyString(item, name + '[' + index + ']'));
+  const entries = denseArrayValues(value, name, max, 'INVALID_REFERENCE_LIST');
+  const normalized = entries.map((item, index) => nonEmptyString(item, name + '[' + index + ']'));
   if (new Set(normalized).size !== normalized.length) fail('DUPLICATE_REFERENCE', name + ' cannot contain duplicate entries.');
   return normalized.sort();
 }
@@ -328,9 +350,9 @@ export function planDueWork(input) {
   const from = safeInteger(input.from_coordinate, 'from_coordinate');
   const to = safeInteger(input.to_coordinate, 'to_coordinate');
   if (to < from) fail('REVERSED_INTERVAL', 'Due-work interval end must not precede its start.');
-  if (!Array.isArray(input.triggers) || input.triggers.length > 10000) fail('INVALID_TRIGGER_LIST', 'triggers must be an array of at most 10000 entries.');
+  const triggerEntries = denseArrayValues(input.triggers, 'triggers', 10000, 'INVALID_TRIGGER_LIST');
   const completedIds = new Set(stringSet(input.completed_trigger_ids, 'completed_trigger_ids', 10000));
-  const triggers = input.triggers.map((trigger) => normalizeTimeTrigger(trigger, worldId));
+  const triggers = triggerEntries.map((trigger) => normalizeTimeTrigger(trigger, worldId));
   const allById = new Map();
   for (const trigger of triggers) {
     if (allById.has(trigger.trigger_id)) fail('DUPLICATE_TRIGGER_ID', 'Trigger IDs must be unique.');
