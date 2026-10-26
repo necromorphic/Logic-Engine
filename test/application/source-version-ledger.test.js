@@ -7,9 +7,11 @@ import { join } from 'node:path';
 import { SQLiteSourceVersionLedger } from '../src/application/source-version-ledger.js';
 
 const sha = s => createHash('sha256').update(s).digest('hex');
+const canonical = value => Array.isArray(value) ? '['+value.map(canonical).join(',')+']' : value && typeof value==='object' ? '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}' : JSON.stringify(value);
+const inventorySha = versions => sha(canonical([...versions].map(v=>({message_id:v.message_id,version_id:v.version_id,payload_sha256:v.payload_sha256,parent_version_id:v.parent_version_id??null,active:v.active===true})).sort((a,b)=>a.message_id.localeCompare(b.message_id)||a.version_id.localeCompare(b.version_id))));
 const base = { world_id:'world-a', conversation_id:'chat-a', host_installation_id:'host-a', branch_id:'branch-a' };
 const version = (message_id, version_id, text, parent_version_id = null) => ({message_id,version_id,payload_sha256:sha(text),parent_version_id});
-const snapshot = (sequence, versions, extra = {}) => ({...base,snapshot_id:'snapshot-'+sequence,snapshot_sequence:sequence,complete:true,inventory_sha256:sha(JSON.stringify(versions)),versions,...extra});
+const snapshot = (sequence, versions, extra = {}) => ({...base,snapshot_id:'snapshot-'+sequence,snapshot_sequence:sequence,complete:true,inventory_sha256:inventorySha(versions),versions,...extra});
 const make = path => new SQLiteSourceVersionLedger({path,validateSnapshot:s=>s.complete===true&&s.world_id==='world-a'&&s.host_installation_id==='host-a'&&s.branch_id==='branch-a',validateVersion:v=>v.world_id==='world-a'&&v.conversation_id==='chat-a'&&v.host_installation_id==='host-a'&&v.branch_id==='branch-a'});
 
 test('digest-only storage and duplicate idempotency',()=>{const db=make(':memory:'),v={...base,...version('m1','v1','private text'),snapshot_sequence:1};assert.equal(db.recordVersion(v).status,'recorded');assert.equal(db.recordVersion(v).status,'duplicate');assert.equal(JSON.stringify(db.getVersion(v)).includes('private text'),false);db.close();});
