@@ -137,3 +137,41 @@ This checkpoint records observed evidence, not an authorization change. The owne
 - These are independent gates; one owner's PASS cannot be inherited by another owner.
 
 Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+## 9. Blocker 1 — real Memory adapter/index, not fixture authority (26 Oct 2026)
+
+**Scope of this closure pass:** distinguish the actual SQLite Provider and consumer integration test from the still-fixture-backed source-authority callbacks. This section is a source-backed implementation disposition; it does not authorize production wiring.
+
+### 9.1 What is already real
+
+- Provider PR #344 contains `src/application/sqlite-memory-provider.js`, a real SQLite-backed Provider with persisted records, index entries/state, query grants, per-record grants, lineage validation, tombstones, rebuild and reconciliation. Its current PR head is `27129f70d7f33f3c6cf8e1c378e8203038605f62`; exact-head Runtime CI #40298048164 passed 602/602 repository tests and 8/8 recalculation-oracle tests. This is Provider-local evidence, not production connection evidence.
+- `src/application/memory-npc-consumer.js` is an existing internal consumer seam. It requires injected `AuthorizedReadService`, `ActorBindingService`, and a Provider implementing `authorizeQuery`, `retrieveCandidates`, and `authorizeCandidate`; it fails closed on missing/invalid readiness and reads canonical fields through Core's authorized read service.
+- `tests/memory-provider-core-integration.test.js` instantiates the real `SQLiteMemoryProvider`, `LogicEngine`, `ActorBindingService`, `AuthorizedReadService`, and `MemoryNpcConsumer`. It is therefore not a fake Provider implementation.
+
+### 9.2 What is still fixture-backed or absent
+
+- The same integration test injects `validateSourceVersion` that accepts the literal `fixture-source-v1`, and `validateInventory` that returns `true`. These callbacks simulate positive evidence; they do not prove Core source authority or inventory completeness.
+- Runtime entrypoint `src/index.js` currently constructs `SQLiteStore`, `LogicEngine`, and the API server only. It does not instantiate or wire `SQLiteMemoryProvider` or `MemoryNpcConsumer` into a production request path.
+- Core's decision in issue #140 explicitly says universal source authority/currentness is unsupported and no approved callable disclosure seam exists. Provider's injected validators cannot be promoted to production validators by renaming or wiring them.
+
+### 9.3 Existing Provider operations and their actual evidence boundary
+
+| Existing operation | What the code can establish | What it cannot establish by itself |
+|---|---|---|
+| `putRecord(record)` | Persists a direct `canonical_entity` record with an explicit source version and exactly one matching direct-source lineage entry; duplicate/conflicting immutable record handling is Provider-local. | That the supplied source version is Core-authoritative or current. |
+| `authorizeQuery(scope)` / `grantQuery(scope, allowed)` | Provider-persisted query grant for the exact world/subject/purpose tuple. | Core authorization to disclose to a model, or atomicity with a later dispatch. |
+| `authorizeCandidate(input)` / `grantRecord` / `revokeRecord` | Provider-persisted record grant, exact record/version/scope/source match, lineage validation, and a grant recheck after the asynchronous source-validation callback. | Cross-store linearization against Core source mutation or Host dispatch; the recheck narrows but does not eliminate TOCTOU. |
+| `retrieveCandidates(scope)` | Enforces query grant, Provider index readiness/reconciliation, current Core snapshot cursor, and Provider result scoping; denial/stale/unavailable/index-not-ready are errors, not complete-empty. | A trustworthy source-version mapping, complete external inventory, or final egress authorization. |
+| `rebuildIndex(worldId)` / `reconcile(worldId)` | Rebuilds the Provider's derived index and reconciles persisted Provider records against injected snapshot/source/inventory validators; readiness is withheld on detected failures. | Completeness of an external source inventory unless an approved trusted validator proves it. |
+| `markRawSourceDeleted` / `purgeRawSource` / raw-version selection methods | Apply Provider-local lifecycle actions to an exact supplied raw-source identity/version. | Correct Host deletion target, all historical source versions, or retraction of canonical entities. These raw-archive methods are not substitutes for direct canonical-entity currentness. |
+
+### 9.4 Minimum closure sequence without inventing an API
+
+1. **Core-owned source proof:** Core must explicitly approve the existing authoritative evidence for a direct canonical entity's source identity/version, currentness, retraction and rollback. The current `updated_revision` and world snapshot cursor must not be mapped to Provider `source_version` by assumption. If no existing approved operation supplies this proof, this row stays blocked; the smallest new contract requires Core review before implementation.
+2. **Real Provider dependency binding:** only after step 1, bind the existing Provider `getSnapshot`, `validateSourceVersion`, and `validateInventory` dependencies to that approved Core evidence, rather than test callbacks. The adapter must return non-ready on unavailable/unknown/partial evidence and must not claim complete-empty.
+3. **Persistent restart/rebuild proof:** run the real SQLite Provider with a file-backed temporary database, restart it, rebuild the derived index, reconcile against the approved evidence, and show revoked grants/tombstones and stale-source outcomes remain fail-closed. Existing unit tests are not a substitute for a single reproducible integration report at the approved dependency boundary.
+4. **Consumer wiring remains disabled:** do not wire this into `src/index.js` or expose an endpoint until Core approves a callable subject-relative disclosure contract and a real final-dispatch boundary. The present consumer is internal and intentionally dependency-injected; adding a default fixture provider or fake production receiver would conceal the blocker, not close it.
+5. **End-to-end exit:** the approved vertical slice must prove exact source/version/lineage → persisted Provider record/index → restart/reconciliation → Core-authorized read → NPC admission, with the final disclosure boundary tested separately. Any unresolved source authority, inventory, or final-dispatch condition keeps production disabled.
+
+**Disposition for blocker 1:** the actual SQLite Provider and real-component test scaffold exist in a draft branch; the production adapter binding does not. The remaining critical gap is not “write another fixture test”; it is the absence of approved Core source/version/inventory evidence to bind into the existing Provider dependencies. No runtime code/API/schema change is made by this section. Memory → NPC remains **DISABLED / FAIL-CLOSED**.
