@@ -94,6 +94,13 @@ test('exact-version tombstone invalidates only known dependent copies and preser
     .get('copy-from-b').status, 'current');
 
   assert.deepEqual(s.provider.markRawSourceDeleted({
+    world_id: 'world-a', conversation_id: 'chat-a', message_id: 'message-a', version_id: 'version-a',
+  }), { status: 'deleted', invalidated_copies: 0 },
+  'repeating the same tombstone does not invalidate an unrelated or already-invalidated copy');
+  assert.equal(s.provider.db.prepare('SELECT version_id FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
+    .get('world-a', 'chat-a', 'message-a').version_id, 'version-b');
+
+  assert.deepEqual(s.provider.markRawSourceDeleted({
     world_id: 'world-a', conversation_id: 'chat-a', message_id: 'message-a', version_id: 'version-b',
   }), { status: 'deleted', invalidated_copies: 1 });
   assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
