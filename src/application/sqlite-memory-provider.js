@@ -266,6 +266,10 @@ export class SQLiteMemoryProvider {
       try { this.#coordinatorDb?.close(); } catch {}
       throw startupError;
     }
+    // The Provider is a capability boundary: callers may invoke its public
+    // methods but cannot shadow authorization/retrieval methods or attach
+    // writable state to the instance. Private fields remain mutable internally.
+    Object.preventExtensions(this);
   }
 
   #acquireCoordinatorLock() {

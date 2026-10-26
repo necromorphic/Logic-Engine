@@ -1086,15 +1086,16 @@ test('Provider trust callbacks and authorization epochs cannot be shadowed throu
     assert.equal(s.provider[name], undefined, `Provider must not expose ${name}`);
   }
 
-  // Public properties may be shadowed by a caller, but Provider internals must
-  // continue using the constructor-captured trusted callbacks and private epochs.
-  s.provider.getSnapshot = async () => ({ world_revision: 4, commit_sequence: 2 });
-  s.provider.validateSourceVersion = async () => true;
-  s.provider.validateInventory = async () => true;
-  s.provider.transactionDepth = 1;
-  s.provider.coordinatorDepth = 1;
-  s.provider.queryAuthorizationGeneration = new Map();
-  s.provider.recordAuthorizationGeneration = new Map();
+  // A caller cannot shadow public methods or attach state to this capability.
+  for (const name of [
+    'getSnapshot', 'validateSourceVersion', 'validateInventory', 'authorizeRawRead',
+    'transactionDepth', 'coordinatorDepth', 'queryAuthorizationGeneration',
+    'recordAuthorizationGeneration', 'authorizeQuery', 'authorizeCandidate',
+    'retrieveCandidates', 'grantRecord', 'revokeRecord',
+  ]) {
+    assert.equal(Reflect.set(s.provider, name, () => true), false, `must not shadow ${name}`);
+    assert.equal(Object.hasOwn(s.provider, name), false);
+  }
   s.setSourceVersion('source-v2');
 
   s.provider.putRecord(s.record);

@@ -321,7 +321,7 @@ test('source validator outage makes the real Core/NPC consumer non-ready instead
 test('query authorization outage is non-ready and does not become complete-empty', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
-  s.provider.authorizeQuery = async () => { throw new Error('private query authorization detail'); };
+  s.db.exec('DROP TABLE memory_query_grants');
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
