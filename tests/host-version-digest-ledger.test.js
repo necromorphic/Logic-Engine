@@ -147,3 +147,39 @@ test('rejected inventory cannot leave a previously READY state published', async
   assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS' });
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 });
+
+
+test('capturing a new version invalidates a previously READY inventory', async (t) => {
+  const ledger = setup(t);
+  assert.equal((await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  })).status, 'ready');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'READY');
+
+  ledger.captureVersion(entry({ message_id: 'message-b', version_id: 'version-b', content_sha256: digest('new version') }));
+
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+});
+
+test('changing the active version invalidates a previously READY inventory', async (t) => {
+  const ledger = setup(t);
+  const alternative = entry({ version_id: 'version-b', content_sha256: digest('alternative'), active: false });
+  assert.equal((await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry(), alternative]
+  })).status, 'ready');
+
+  assert.deepEqual(ledger.selectActiveVersion({ ...tuple, version_id: 'version-b' }), { status: 'selected' });
+
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+});
+
+test('tombstoning a version invalidates a previously READY inventory', async (t) => {
+  const ledger = setup(t);
+  assert.equal((await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  })).status, 'ready');
+
+  assert.deepEqual(ledger.tombstoneVersion(tuple), { status: 'tombstoned' });
+
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+});
