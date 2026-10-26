@@ -439,3 +439,121 @@ This is a source inspection, not a test run. The references below are on current
 The smallest defensible next code step is **not** to add another scheduler or to call `commitEvent` directly from a model. First, an owner-reviewed mapping must establish how an NPC action candidate maps to an existing mechanic template/action, how the actor-specific context is assembled and authorized, and how Core expects the validated action to become a canonical event. The existing tri-state condition evaluator is a useful validation primitive: `false` can reject a candidate; `unknown` must not be treated as true. But choosing among candidates, personality/role scoring, conflict arbitration, and outcome-based reassessment remain separate responsibilities.
 
 Until those mappings are approved, do not create a new action schema, decision API, NPC executor, conflict queue, or persistence model in this NPC documentation task. A pure NPC-owned function may be considered only after its input contract can be expressed using already-approved structures and its output cannot bypass Core validation/commit. Memory-dependent facts remain unavailable unless supplied by the real approved path; test fixtures must be labeled as test-only.
+
+
+## 15. First work item — define the minimal NPC decision cycle
+
+**Purpose:** make the first item from §13 implementable and reviewable without depending on Memory integration. This is a behavioral contract proposal, not a new runtime schema or a claim that the cycle already exists.
+
+### 15.1 The cycle has six decision stages
+
+**Stage A — Establish the decision frame**
+
+Before reasoning, identify the acting NPC, world, decision point, canonical pre-state/snapshot, and pinned rule/template versions available through approved mechanisms. The frame must not be reconstructed from narrative text alone.
+
+- If actor identity is unresolved, stop.
+- If required world/rule version is missing or incompatible, stop.
+- If the canonical state needed to evaluate an action is incomplete, preserve the relevant condition as unknown; do not assume it is false or true.
+- A test may provide a synthetic frame, but it must be marked as a fixture and cannot establish production authorization or Memory provenance.
+
+**Stage B — Build the actor-relative situation**
+
+Separate available propositions into: established canonical state; facts this actor has actually observed or received through an approved path; inferences/suspicions; and unknowns. Keep the source and temporal scope wherever the existing input contract supplies them.
+
+The model must not fill gaps by importing general world knowledge as if the NPC had learned it. The same event can therefore be available to one NPC and unavailable to another. This stage describes a future input requirement; the current Memory candidate oracle does not build this context.
+
+**Stage C — Determine applicable rules and constraints**
+
+Select only already-pinned, applicable mechanic/template and domain rules. Separate:
+- hard constraints: action unavailable, prohibited, impossible, or missing required capability;
+- preconditions: facts that must hold at the point of execution;
+- soft preferences: goals, costs, risk tolerance, role priorities, personality and temporary state.
+
+Soft preferences may rank feasible actions; they must never override a hard constraint. The existing `evaluateMechanicActionConditions` helper can evaluate a declared action's applicability, preconditions and constraints. Its `unknown` result must remain unresolved and must not be treated as permission.
+
+**Stage D — Generate and screen candidate actions**
+
+Candidate generation proposes possibilities from the already-supported action vocabulary. Each candidate must be traceable to its actor and decision frame. Screen candidates before ranking:
+
+- reject an action whose required precondition is known false;
+- do not mark an action feasible when a required precondition is unknown;
+- reject actions outside the actor's established capabilities/permissions;
+- do not invent an action kind, effect, rule, or mechanic because it would make a story more dramatic.
+
+The model may help propose candidates in a future approved implementation, but a model-generated statement is not proof that a condition holds and is not a canonical event.
+
+**Stage E — Rank feasible candidates or defer**
+
+Compare only candidates that survive screening. Use the pinned domain policy and explicit priorities. Personality and temporary state can change preferences among feasible choices; they cannot change facts, permissions, or world rules.
+
+A choice is allowed only when the applicable policy supports it. If two choices are incomparable, a required input is unknown, or the policy is missing, return a non-committal unresolved decision with a safe reason category. Do not silently break a semantic tie by array order, model wording, or response timing. Technical deterministic tie-breaking is acceptable only after the world semantics already establish that either outcome is equivalent.
+
+**Stage F — Hand off, then reassess from evidence**
+
+A selected candidate remains a proposal. The approved Core path must validate it, resolve any conflicts, and commit canonical effects. The NPC decision component must not call around that boundary.
+
+Afterward, reassessment uses the actual committed outcome:
+- committed success: evaluate the state change and any separately authorized knowledge/relationship transitions;
+- rejected or stale proposal: re-evaluate against the current state;
+- failed/interrupted/cancelled action: apply only the explicitly recorded outcome semantics;
+- no commit/outcome evidence: do not narrate success as canonical fact.
+
+Scheduling a later action is a follow-up, not proof that it executed. Narration reports established outcomes and actor-relative understanding; it does not create the outcome.
+
+### 15.2 Minimal decision result categories (semantic labels, not API values)
+
+For design and test discussion, use these meanings without introducing a new wire contract:
+
+| Semantic result | Meaning | May produce a canonical event? |
+|---|---|---|
+| **blocked** | Required identity, version, authorization, or canonical input is unavailable | No |
+| **no feasible candidate** | Candidates were evaluated, but each is prohibited, impossible, or known to violate a precondition | No |
+| **unresolved** | Required condition is unknown, policy is missing, or viable options cannot be compared under approved rules | No |
+| **proposal selected** | One feasible candidate is preferred under the applicable pinned policy | Not by itself; must pass Core validation/arbitration/commit |
+| **outcome observed** | A separately established canonical result is available for reassessment | This is a post-commit input, not a decision result |
+
+These labels are explanatory only. They are not a proposed JSON schema, enum, API response, database status, or permission grant.
+
+### 15.3 Worked logic example — a guard decides whether to intervene
+
+Use an isolated test fixture, not Memory production data.
+
+- Canonical fixture: a guard is on duty at a public entrance; an NPC approaches; the guard has authority to ask questions but the fixture does not grant authority to detain without a stated precondition.
+- Actor-relative fixture: the guard has observed an argument and heard a witness say that a threat was made; the threat is reported, not directly confirmed by the guard.
+- Candidate A: ask the approaching NPC a question. Preconditions in the test rules are satisfied.
+- Candidate B: detain the NPC. A test rule requires a confirmed immediate threat; the current context contains only a report, so that precondition is unknown or false according to the explicitly declared test semantics.
+- Expected result: A may be proposed if no other constraint blocks it. B must not be selected as feasible merely because the model considers detention narratively plausible. If the rule evaluator returns `unknown`, the system must not coerce that to `true`; it either defers or selects another independently feasible action.
+
+The fixture must state whether the witness report satisfies any rule condition. Do not let a test silently equate “reported threat” with “confirmed threat.”
+
+### 15.4 Acceptance matrix for the minimal cycle
+
+| Case | Expected behavior |
+|---|---|
+| Actor binding absent or ambiguous | Blocked; no proposal eligible for commit |
+| Required pinned rule/template version missing | Blocked; never substitute latest version |
+| Required state field is missing | Unknown/unresolved; do not assume a favorable value |
+| Required precondition is false | Candidate rejected before ranking |
+| Required precondition is unknown | Candidate is not commit-ready |
+| Actor lacks a required capability/permission | Candidate rejected |
+| Personality prefers an otherwise prohibited action | Prohibition wins; personality cannot override it |
+| Two feasible candidates have a clear policy-defined preference | Select the preferred candidate as a proposal |
+| Two feasible candidates have no approved comparison policy | Unresolved; no invented winner |
+| State changes after candidate evaluation | Revalidate against current canonical state before commit |
+| Core rejects proposal or reports stale state | No success narration; reassess from current evidence |
+| Core commits a different/partial outcome | Reassess only from that actual outcome |
+| Decision is retried with identical inputs | Same candidate result; no canonical side effect from evaluation itself |
+| Decision inputs or pinned versions differ | Do not claim deterministic equivalence; evaluate under the explicitly supplied version/state |
+| Model adds a fact absent from actor context | Treat as unsupported for that actor; do not use it as established knowledge |
+
+### 15.5 Implementation boundary and next concrete task
+
+Before coding, map each stage to an existing approved callable contract:
+1. actor/world/snapshot and pinned versions;
+2. approved actor-relative context source;
+3. existing mechanic/template lookup and condition evaluation;
+4. approved action proposal representation;
+5. Core's accepted event validation, arbitration and commit route;
+6. evidence available for post-commit outcome and reassessment.
+
+Only stages with an existing contract may be wired. If stages 2, 4, or 5 have no approved seam, the implementation task is blocked at that exact seam; do not compensate by creating an NPC-local schema or calling Core commit directly. A safe first implementation, if the mapping permits it, is a pure evaluator over explicitly supplied test context that returns screened candidate references and never writes state. Its tests must not be described as end-to-end NPC runtime or Memory integration tests.
