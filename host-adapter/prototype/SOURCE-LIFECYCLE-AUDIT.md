@@ -74,3 +74,29 @@ The three successful workflows below ran on code/documentation HEAD `e7a33a17874
 - [Host lifecycle patch validation #40222869210](https://github.com/necromorphic/Logic-Engine/actions/runs/40222869210) — SUCCESS.
 
 These results establish repository CI only. They do not establish native-browser IndexedDB crash durability, real SillyTavern persistence/restart/replay, Android/Termux behavior, complete source inventory, trusted world/session binding, or a production Host→Provider release boundary. PR #323 remains Draft/unmerged and is not approved for installation or production handoff. Required Host inventory answer remains `NO SUCH MECHANISM FOUND / NON_READY`; Memory→NPC remains `DISABLED / FAIL-CLOSED`.
+
+
+## Final provider-send boundary audit — 26 Oct 2026
+
+This section is a source inspection of the pinned upstream revision, not a runtime experiment. Pinned source links:
+
+- Browser Chat Completions: [`public/scripts/openai.js` at pinned SHA](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/public/scripts/openai.js#L135953-L136600). In `sendOpenAIRequest()`, `createGenerationParameters(...)` is followed by awaited `CHAT_COMPLETION_SETTINGS_READY`; then the browser calls `fetch('/api/backends/chat-completions/generate', ... body: JSON.stringify(generate_data) ...)`. This is the last obvious browser-owned hook before request serialization and the ST server request. It is **not** the final provider-send boundary.
+- Chat Completions server dispatcher: [`src/endpoints/backends/chat-completions.js` at pinned SHA](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/src/endpoints/backends/chat-completions.js#L94830-L95080). `POST /generate` post-processes the received request and dispatches across multiple provider-specific `send*Request` functions; several branches return before the generic sender. A hook placed only in one generic sender would miss those branches.
+- Text Completions server dispatcher: [`src/endpoints/backends/text-completions.js` at pinned SHA](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/src/endpoints/backends/text-completions.js#L9316-L9430). It builds `args.body = JSON.stringify(request.body)`, applies provider-specific filtering/rewrites, and then performs multiple `fetch(url, args)` paths. This is a separate API family.
+- The server also has other independent outbound request paths (for example multimodal captioning in `src/endpoints/openai.js`); this audit does not claim an exhaustive inventory of every model-capable endpoint.
+
+### Boundary conclusion
+
+1. **Browser-side candidate gate (source-inspected):** the awaited `CHAT_COMPLETION_SETTINGS_READY` event occurs before `JSON.stringify(generate_data)` and the browser's ST `fetch`. It is a pre-serialization hook for that browser Chat Completions path only. It does not by itself cover Text Completions, native/server calls, alternate endpoints, or callers that bypass that UI function.
+2. **Actual outbound-provider boundary (source-inspected):** no single shared final-send function was established across the reviewed Chat Completions provider branches and Text Completions API. Provider-specific serializers/senders mean a hook at the browser event or at one generic sender cannot be represented as universal enforcement.
+3. **Revocation/edit/delete race (not demonstrated):** the current Host journal captures local lifecycle metadata; it is not an authority source for whether a candidate is still permitted to disclose. A check before candidate assembly or at `CHAT_COMPLETION_SETTINGS_READY` does not prove that a revocation/change occurring after assembly and before the provider request will be observed. No approved Core authorization contract or atomic/short-lived authorization token is present in this Host task, so no safe final-send gate can be implemented here without inventing semantics.
+4. **No raw text:** the audit does not add or retain message text. It records only source paths and boundary conclusions.
+5. **Disposition:** do not add a fake universal callback or claim final-send enforcement. Keep all uncovered endpoints unsupported / NON_READY and Memory→NPC DISABLED / FAIL-CLOSED until Core defines the authorization contract and a complete endpoint inventory is reviewed.
+
+### Evidence classes
+
+- **Source-inspected:** the pinned file paths and ordering above.
+- **Fixture-tested:** existing Host prototype tests and exact-head CI only; they do not exercise the real provider network path.
+- **Real browser / real IndexedDB:** not run in this environment.
+- **Android / Termux:** not run in this environment.
+- **Provider-send revocation race:** not proven; requires a Core-approved contract plus a test that revokes/edits/deletes after candidate assembly and asserts no provider request is emitted.
