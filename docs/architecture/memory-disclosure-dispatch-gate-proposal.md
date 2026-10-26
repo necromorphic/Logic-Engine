@@ -109,3 +109,16 @@ Makes the same component responsible for the final gate and outbound transport. 
 - No modification to the existing SillyTavern vectorization / remote vector storage patch.
 - No claim that Core alone can atomically revoke bytes already handed to an external network.
 - No production enablement until the cross-owner contract is approved and real-path acceptance tests pass.
+
+
+## Evidence checkpoint — current owner state (26 Oct 2026)
+
+This checkpoint distinguishes newly demonstrated narrow paths from the still-blocking production requirements.
+
+- **Core rollback/currentness:** Core PR #355 exact-head Runtime CI passed on commit `54bdcc59d66a110be1f9c77c43efee22cda33c74`: `npm test` 602/602 and recalculation harness 8/8. It covers R1→R2→rollback for both attribute update and entity deletion, including restored `updated_revision`, unchanged `commit_sequence`, advancing `world_revision`, and stale-cursor rejection. CI: https://github.com/necromorphic/Logic-Engine/actions/runs/40309904999.
+- **Host baseline transport harness:** Host PR #358 pins SillyTavern `06bde939fb1e9c4c8d8641d810f0a916b5bce127`, passes 7/7 source assertions, and demonstrates one server-side Chat Completions request reaching a recording fake provider. This is a bounded baseline handler test, not full ST/browser/Android coverage and not a deny/revocation/zero-egress proof. Details: https://github.com/necromorphic/Logic-Engine/issues/258#issuecomment-6414086193.
+- **Host inventory:** Host issue #258 reports no existing authoritative complete active + historical/deleted inventory with missed-change, rollback, and replay detection. Therefore full inventory remains NON_READY.
+- **Provider:** Provider issue #181 reports no Provider-owned serialized dispatch seam. Provider-local grants and reconciliation are hardened and tested, but they cannot serialize their separate SQLite writes with Core writes and the Host network handoff.
+- **Core:** The source-authority audit and cross-block contract-path matrix are now recorded in this PR. The approved source-version mapping remains limited to `canonical_entity`; injected fixture callbacks are not production authority.
+
+**Result:** the baseline request path is now more concrete, but no shared serialization boundary spans Provider revocation, Core source invalidation, and final outbound transport. The proposed PC-side egress gateway still requires owner approval and implementation. Production Memory→NPC remains `DISABLED / FAIL-CLOSED`.
