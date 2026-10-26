@@ -130,18 +130,24 @@ test('does not turn duplicate ingest into a second record or permit identity reb
 test('rechecks provider grants after asynchronous source validation', async (t) => {
   let releaseValidation;
   let validationStarted;
+  let holdValidation = false;
   const started = new Promise((resolve) => { validationStarted = resolve; });
   const pendingValidation = new Promise((resolve) => { releaseValidation = resolve; });
   const s = setup(t, {
     validateSourceVersion: async (candidate) => {
-      validationStarted();
-      await pendingValidation;
+      if (holdValidation) {
+        validationStarted();
+        await pendingValidation;
+      }
       return candidate.source_version === 'source-v1';
     },
   });
   s.provider.grantQuery(s.scope, true);
   s.provider.putRecord(s.record);
   s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  holdValidation = true;
 
   const authorization = s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
