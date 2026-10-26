@@ -334,3 +334,54 @@ test('candidate authorization fails closed when a grant is revoked and re-grante
   release();
   await assert.rejects(pending, /MEMORY_AUTHORIZATION_CHANGED/);
 });
+
+
+test('retrieval fails closed when query permission is revoked and re-granted during snapshot lookup', async (t) => {
+  let releaseSnapshot;
+  let signalSnapshot;
+  const snapshotStarted = new Promise((resolve) => { signalSnapshot = resolve; });
+  const snapshotGate = new Promise((resolve) => { releaseSnapshot = resolve; });
+  let holdSnapshot = false;
+  const scope = { world_id: 'query-grant-cycle-world', subject_id: 'query-grant-cycle-npc', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'query-grant-cycle-record',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'query-grant-cycle-entity',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'query-grant-cycle-entity', source_version: 'source-v1' }],
+  };
+  const provider = new SQLiteMemoryProvider({
+    getSnapshot: async () => {
+      if (holdSnapshot) {
+        signalSnapshot();
+        await snapshotGate;
+      }
+      return { world_revision: 1, commit_sequence: 1 };
+    },
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  });
+  t.after(() => provider.close());
+
+  provider.grantQuery(scope, true);
+  provider.putRecord(record);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  await provider.rebuildIndex(scope.world_id);
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+
+  holdSnapshot = true;
+  const pending = provider.retrieveCandidates(scope);
+  await snapshotStarted;
+  provider.grantQuery(scope, false);
+  provider.grantQuery(scope, true);
+  releaseSnapshot();
+
+  await assert.rejects(pending, /MEMORY_AUTHORIZATION_CHANGED/);
+});
