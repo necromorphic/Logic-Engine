@@ -632,8 +632,8 @@ export class SQLiteMemoryProvider {
       if (!indexed) {
         this.#setState(record.world_id, 'rebuilding', 'stale', null, 'INDEX_ENTRY_MISSING');
         try {
-          this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
-            .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString());
+          this.#withSerializedWrite(() => this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
+            .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString()));
         } catch (error) {
           this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
           throw error;
@@ -649,10 +649,10 @@ export class SQLiteMemoryProvider {
     // Invalidate the readiness marker before any ingest mutation. If either the raw
     // write or index write fails, retrieval cannot reuse a prior ready marker.
     this.#setState(record.world_id, 'rebuilding', 'stale');
-    this.db.prepare(`INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values);
+    this.#withSerializedWrite(() => this.db.prepare(`INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values));
     try {
-      this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
-        .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString());
+      this.#withSerializedWrite(() => this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
+        .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString()));
     } catch (error) {
       this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
       throw error;
