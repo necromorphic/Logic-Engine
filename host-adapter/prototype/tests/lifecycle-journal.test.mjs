@@ -89,8 +89,17 @@ test('tail truncation is detected by the independent atomic head checkpoint',asy
  assert.equal(result.status,'NON_READY');assert.match(result.reason,/records missing|head checkpoint mismatch/);
 });
 
-test('caller-supplied path list cannot assert trusted capture readiness',async()=>{
- const journal=new HostLifecycleJournal(new FakeDB());await journal.enroll(seed());
- const result=await journal.status('chat-1',{instrumentedPaths:lifecycleJournalContract.requiredCoveragePaths,sourceFingerprintMatches:true});
- assert.equal(result.status,'NON_READY');assert.match(result.reason,/no trusted pinned-source attestation/);
+test('caller-supplied coverage cannot assert readiness; current inventory is computed and trust stays denied',async()=>{
+ const messages=[{is_user:true,mes:'hello',swipes:['hello'],swipe_id:0}];
+ const sourceFingerprint=await fingerprintSource(messages,'chat.jsonl');
+ const journal=new HostLifecycleJournal(new FakeDB());
+ await journal.enroll({conversationId:'chat-1',sourceFingerprint,messages:[{role:'user',text:'hello'}]});
+ const result=await journal.status('chat-1',{
+  instrumentedPaths:lifecycleJournalContract.requiredCoveragePaths,
+  currentMessages:messages,
+  sourceLocator:'chat.jsonl',
+ });
+ assert.equal(result.status,'NON_READY');
+ assert.match(result.reason,/no trusted pinned-source attestation/);
+ assert.equal(result.localSourceCheck,'LOCAL_MATCH_NON_AUTHORITATIVE');
 });
