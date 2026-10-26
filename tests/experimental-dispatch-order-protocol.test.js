@@ -91,6 +91,27 @@ async function runWorker(role, directory) {
     }
     coordinator.exec('COMMIT;');
     emit('RELEASED', { role });
+  } else if (role === 'gateway-crash-before-transport' || role === 'gateway-crash-after-transport') {
+    const source = core.prepare('SELECT valid FROM source_validity WHERE id = 1').get();
+    const access = provider.prepare('SELECT grant_valid, ready FROM provider_readiness WHERE id = 1').get();
+    if (source.valid !== 1 || access.grant_valid !== 1 || access.ready !== 1) {
+      throw new Error('Crash scenario requires valid source and Provider access');
+    }
+    ledger.exec("BEGIN IMMEDIATE; INSERT INTO dispatch(outcome) VALUES ('dispatch-start'); COMMIT;");
+    const event = role === 'gateway-crash-before-transport'
+      ? 'CRASH_AFTER_DURABLE_START_BEFORE_TRANSPORT'
+      : 'CRASH_AFTER_TRANSPORT_BEFORE_RESPONSE';
+    if (role === 'gateway-crash-after-transport') {
+      ledger.prepare('INSERT INTO transport_calls DEFAULT VALUES').run();
+    }
+    process.stdout.write(JSON.stringify({ event }) + '\\n', () => process.exit(73));
+    return;
+  } else if (role === 'recovery') {
+    const marker = ledger.prepare("SELECT 1 AS found FROM dispatch WHERE outcome = 'dispatch-start' LIMIT 1").get();
+    const calls = ledger.prepare('SELECT COUNT(*) AS count FROM transport_calls').get().count;
+    emit(marker ? 'AMBIGUOUS_NO_RETRY' : 'NO_DISPATCH_TO_RECOVER', { transportCalls: calls });
+    coordinator.exec('COMMIT;');
+    emit('RELEASED', { role });
   } else {
     throw new Error('Unknown proof worker role: ' + role);
   }
@@ -145,6 +166,11 @@ if (workerRole && workerDirectory) {
     throw new Error(`timed out waiting for ${event}; stderr=${worker.stderr()}`);
   }
 
+  async function waitForExit(worker) {
+    if (worker.child.exitCode !== null) return worker.child.exitCode;
+    return await new Promise((resolve) => worker.child.once('exit', (code) => resolve(code)));
+  }
+
   async function stop(worker) {
     if (worker.child.exitCode === null) {
       const exited = new Promise((resolve) => worker.child.once('exit', resolve));
@@ -152,6 +178,34 @@ if (workerRole && workerDirectory) {
       await exited;
     }
     assert.equal(worker.child.exitCode, 0, worker.stderr());
+  }
+
+  async function crashRecovery(crashRole, expectedTransportCalls) {
+    const directory = mkdtempSync(join(tmpdir(), 'logic-engine-dispatch-crash-'));
+    initialize(directory);
+    try {
+      const gateway = startWorker(crashRole, directory);
+      const expectedEvent = crashRole === 'gateway-crash-before-transport'
+        ? 'CRASH_AFTER_DURABLE_START_BEFORE_TRANSPORT'
+        : 'CRASH_AFTER_TRANSPORT_BEFORE_RESPONSE';
+      await waitFor(gateway, expectedEvent);
+      assert.equal(await waitForExit(gateway), 73, gateway.stderr());
+
+      const recovery = startWorker('recovery', directory);
+      const recovered = await waitFor(recovery, 'AMBIGUOUS_NO_RETRY');
+      assert.equal(recovered.transportCalls, expectedTransportCalls);
+      await waitFor(recovery, 'RELEASED');
+      await stop(recovery);
+
+      const ledger = openDb(join(directory, 'dispatch-ledger.sqlite'));
+      const outcomes = ledger.prepare('SELECT outcome FROM dispatch ORDER BY id').all().map((row) => row.outcome);
+      const calls = ledger.prepare('SELECT COUNT(*) AS count FROM transport_calls').get().count;
+      ledger.close();
+      assert.deepEqual(outcomes, ['dispatch-start']);
+      assert.equal(calls, expectedTransportCalls, 'restart must not automatically retry an ambiguous dispatch');
+    } finally {
+      rmSync(directory, { recursive: true, force: true });
+    }
   }
 
   async function exercise(writerRole, writerFirst) {
@@ -222,4 +276,12 @@ if (workerRole && workerDirectory) {
       if (writerRole === 'provider-not-ready') assert.equal(result.ready, 0);
     });
   }
+
+  test('restart after durable dispatch-start but before transport does not auto-retry', async () => {
+    await crashRecovery('gateway-crash-before-transport', 0);
+  });
+
+  test('restart after transport invocation but before response does not auto-retry', async () => {
+    await crashRecovery('gateway-crash-after-transport', 1);
+  });
 }
