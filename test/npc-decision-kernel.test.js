@@ -147,3 +147,8 @@ test("selection result is stable across several explicit input permutations", ()
     assert.deepEqual(evaluateNpcDecisionPrototype(permutation), expected);
   }
 });
+
+test("rejects sparse candidate arrays instead of silently skipping missing entries", () => {
+  const sparse = new Array(1);
+  assert.throws(() => evaluateNpcDecisionPrototype(sparse), /candidate must be an object/);
+});
