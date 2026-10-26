@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { resolveStableHostConversationIdentity } from '../conversation-identity.mjs';
+import { hasAnyHostEnrollment, hostLocatorHasEnrollment, resolveStableHostConversationIdentity } from '../conversation-identity.mjs';
 
 const INSTALL_A = '11111111-1111-4111-8111-111111111111';
 const INSTALL_B = '22222222-2222-4222-8222-222222222222';
@@ -116,3 +116,18 @@ test('failed metadata persistence does not leave an in-memory identity assigned'
   );
   assert.equal(metadata.logic_engine_conversation_id, undefined);
 });
+
+test('locator enrollment lookup is conservative for single and bulk operations', () => {
+  const storage = new Storage();
+  storage.setItem('logic-engine-host-installation-id', INSTALL_A);
+  const conversationId = INSTALL_A + ':' + CHAT_A;
+  storage.setItem(locatorKey('enrolled-chat.jsonl'), conversationId);
+  storage.setItem(prefix + conversationId, 'enrolled:enrolled-chat.jsonl');
+  assert.equal(hostLocatorHasEnrollment('enrolled-chat.jsonl', storage), true);
+  assert.equal(hostLocatorHasEnrollment('other-chat.jsonl', storage), false);
+  assert.equal(hasAnyHostEnrollment(storage), true);
+  storage.removeItem(prefix + conversationId);
+  storage.removeItem(locatorKey('enrolled-chat.jsonl'));
+  assert.equal(hasAnyHostEnrollment(storage), false);
+});
+
