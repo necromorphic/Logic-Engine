@@ -9,6 +9,14 @@ import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidat
 import { beginCoordinatorLock, openCoordinatorDatabase } from './coordinator-lock.js';
 
 const now = () => new Date().toISOString();
+
+function requireSynchronousTransactionResult(result) {
+  if (result !== null && (typeof result === 'object' || typeof result === 'function')
+    && typeof result.then === 'function') {
+    throw new TypeError('SQLiteStore.tx callback must be synchronous; do not await while a SQLite transaction or coordinator lock is held.');
+  }
+  return result;
+}
 const enc = (x) => JSON.stringify(x);
 const dec = (x) => x == null ? null : JSON.parse(x);
 const timeAdvanceOperation = (row) => row && ({
@@ -516,7 +524,7 @@ export class SQLiteStore {
       this.db.exec('SAVEPOINT ' + savepoint);
       this.txDepth += 1;
       try {
-        const result = fn();
+        const result = requireSynchronousTransactionResult(fn());
         this.db.exec('RELEASE SAVEPOINT ' + savepoint);
         return result;
       } catch (error) {
@@ -544,7 +552,7 @@ export class SQLiteStore {
       this.db.exec('BEGIN IMMEDIATE');
       this.txDepth = 1;
       try {
-        const result = fn();
+        const result = requireSynchronousTransactionResult(fn());
         this.db.exec('COMMIT');
         return result;
       } catch (error) {
