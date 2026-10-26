@@ -53,6 +53,16 @@ export class HostVersionDigestLedger {
     return this.db.prepare('SELECT * FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?').get(...tuple(v));
   }
 
+  #fingerprint(worldId, conversationId) {
+    const versions = this.db.prepare('SELECT message_id,version_id,content_sha256,lifecycle,created_at,updated_at,tombstoned_at FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? ORDER BY message_id,version_id')
+      .all(worldId, conversationId);
+    const pointers = this.db.prepare('SELECT message_id,version_id,updated_at FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? ORDER BY message_id')
+      .all(worldId, conversationId);
+    const state = this.db.prepare('SELECT status,snapshot_digest,failure_code,updated_at FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
+      .get(worldId, conversationId) ?? null;
+    return digest(JSON.stringify({ versions, pointers, state }));
+  }
+
   #invalidateReadiness(worldId, conversationId, now) {
     this.db.prepare("UPDATE host_version_inventory_state SET status='NON_READY',failure_code='HOST_LEDGER_MUTATED_AFTER_RECONCILIATION',updated_at=? WHERE world_id=? AND conversation_id=?")
       .run(now, worldId, conversationId);
@@ -172,6 +182,11 @@ export class HostVersionDigestLedger {
       if (activeByMessage.has(key)) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS');
       activeByMessage.add(key);
     }
+    // Capture the local state before the asynchronous trust check. If another
+    // writer changes versions, pointers, or readiness while verification awaits,
+    // this snapshot must not publish READY against a different local state.
+    const preVerificationFingerprint = this.#write(() =>
+      this.#fingerprint(snapshot.world_id, snapshot.conversation_id));
     let trusted = false;
     try {
       trusted = await this.verifyInventorySnapshot(Object.freeze({
@@ -184,6 +199,10 @@ export class HostVersionDigestLedger {
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const snapshotDigest = digest(JSON.stringify(canonical));
     return this.#write(() => {
+      if (this.#fingerprint(snapshot.world_id, snapshot.conversation_id) !== preVerificationFingerprint) {
+        this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_LEDGER_CHANGED_DURING_VERIFICATION', new Date().toISOString(), snapshotDigest);
+        return { status: 'non_ready', code: 'HOST_LEDGER_CHANGED_DURING_VERIFICATION' };
+      }
       const known = this.db.prepare('SELECT * FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=?')
         .all(snapshot.world_id, snapshot.conversation_id);
       const now = new Date().toISOString();
