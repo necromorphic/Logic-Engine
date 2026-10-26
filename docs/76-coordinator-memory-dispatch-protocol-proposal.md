@@ -119,20 +119,21 @@ Until then, **Memory → NPC remains DISABLED / FAIL-CLOSED**. Passing Provider 
 
 ## 8. Evidence checkpoint — 26 Oct 2026
 
-This checkpoint records observed evidence, not an authorization change.
+This checkpoint records observed evidence, not an authorization change. The owner responses are classified by what they actually prove; no cross-owner guarantee is inferred from local tests.
 
 | Owner / artifact | Exact evidence observed | Current disposition |
 |---|---|---|
-| Provider PR #344 | Current PR head `27129f70d7f33f3c6cf8e1c378e8203038605f62`; Runtime CI [#40298048164](https://github.com/necromorphic/Logic-Engine/actions/runs/40298048164) succeeded. The run log shows `npm test` **602/602** and recalculation oracle **8/8**. | **PASS — Provider-local tests only.** Does not prove Host identity/inventory or dispatch authorization. Provider operation/evidence map remains outstanding. |
-| Core issue #140 | Coordinator's narrowed request is recorded at [comment #6412542516](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6412542516). The current issue timeline has no subsequent Core decision answering the requested authority/inventory/serialization points. | **BLOCKED — decision/evidence pending.** Do not infer an approved source authority or serialized dispatch seam. |
-| Host issue #258 | The latest route-by-route evidence remains explicitly source-inspection-only. The bounded harness follow-up is recorded at [comment #6412541665](https://github.com/necromorphic/Logic-Engine/issues/258#issuecomment-6412541665); no executed harness result is currently evidenced in the issue timeline. | **BLOCKED / NOT YET EVIDENCED.** Do not report zero-egress, race, browser, or Android/Termux runtime tests as passed. |
-| Coordinator PR #354 | Documentation-only head `9815530c052eb64c1ee495df25bdcf4b34ce69b3`; Runtime CI [#40298693971](https://github.com/necromorphic/Logic-Engine/actions/runs/40298693971) succeeded. | **PASS — documentation CI only.** PR remains draft/unmerged and does not authorize runtime changes. |
+| Core issue #140 | Core 1.9 decision matrix at [comment #6411984242](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6411984242): accepts the server-side Chat Completions location as a bounded experiment candidate only; states **NO APPROVED CALLABLE SEAM**; states revocation-after-validation is unsupported for production; universal source authority/currentness and subject-relative acquisition remain unsupported/non-ready. Core's later checkpoint request [#6412542516](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6412542516) asks for any further unresolved authority/inventory/retention decisions to be explicit. | **DECISION RECEIVED, PRODUCTION BLOCKED.** No approved callable disclosure gate, no atomic check-to-fetch, and no complete trusted source inventory/anti-rollback authority evidenced. |
+| Provider PR #344 | Current PR head `27129f70d7f33f3c6cf8e1c378e8203038605f62`; exact-head Runtime CI [#40298048164](https://github.com/necromorphic/Logic-Engine/actions/runs/40298048164): `npm test` **602/602** and recalculation oracle **8/8**. Provider's current handoff request [#6412540990](https://github.com/necromorphic/Logic-Engine/issues/181#issuecomment-6412540990) still awaits the compact existing-operation → evidence/outcome map and explicit serialized-dispatch statement. | **PASS — Provider-local tests only; HANDOFF OPEN.** No claim about Host identity/inventory, Core source authority, or dispatch serialization. |
+| Host issue #258 | Pinned source inventory for ST SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127` remains **SOURCE-INSPECTED ONLY**. Coordinator's latest bounded-harness request [#6412541665](https://github.com/necromorphic/Logic-Engine/issues/258#issuecomment-6412541665) is not followed by an evidenced execution report in the current issue timeline. | **BLOCKED / NOT YET EVIDENCED.** No request counts, deny/zero-egress results, or race results may be reported as passed. Browser/IndexedDB and Android/Termux tests remain separate and unproven. |
+| Coordinator PR #354 | Current head `c128e8560a132c2824bc812591a1f37e4ac4fa2e`; exact-head Runtime CI [#40299127540](https://github.com/necromorphic/Logic-Engine/actions/runs/40299127540): `npm test` **599/599** and recalculation oracle **8/8**. PR is documentation-only, draft and unmerged. | **PASS — documentation-branch CI only.** Does not authorize runtime changes or prove production behavior. |
 
-### Cross-block interpretation
+### Cross-block interpretation and next gate
 
-- Provider CI closes only the tested Provider-local recovery regression on the exact head.
-- Host's source inventory and outbound-route audit do not substitute for an executed recording fake-provider harness.
-- Core semantic review does not substitute for an approved callable disclosure decision or a mechanism serializing it with dispatch-start.
-- These results are independent gates; one owner's PASS cannot be inherited by another owner.
+- Core has now answered the central feasibility question: there is **no approved callable seam** and no demonstrated atomic revocation-to-dispatch guarantee. The proposed route is an experiment boundary, not an authorization boundary.
+- The next Provider result must be a compact map of existing operations and typed outcomes, separating Provider-persisted grants/index/lineage from Host-supplied identity/inventory and Core-authoritative source currentness/retraction/rollback. If there is no Provider-owned serialization operation, the handoff must say so explicitly.
+- The next Host result must be a reproducible artifact on the disposable pinned checkout: exact diff and commands, recording fake provider that stores counts only, and results only for cases actually runnable without the missing Core seam. Cases requiring that seam must be **BLOCKED**, not passed by a fake callback.
+- No new runtime API/schema, universal interceptor, raw Host-text retention, or changes to the existing Ollama vectorization/remote-store patch are authorized by this checkpoint.
+- These are independent gates; one owner's PASS cannot be inherited by another owner.
 
-Production Memory → NPC remains **DISABLED / FAIL-CLOSED**. The existing Ollama vectorization/remote-store patch remains outside this work and unchanged.
+Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
