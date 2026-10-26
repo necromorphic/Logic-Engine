@@ -124,6 +124,40 @@ test('Provider record ingestion rejects Proxy/accessor-backed input before readi
   assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_records').get().count, 0);
 });
 
+test('raw lifecycle targets reject Proxy/accessor-backed input before field reads or mutation', (t) => {
+  const s = setup(t);
+  let getterCalls = 0;
+  const target = {
+    world_id: 'world-a',
+    conversation_id: 'chat-a',
+    message_id: 'message-a',
+    version_id: 'version-a',
+  };
+  const proxyTarget = new Proxy(target, {
+    get() {
+      getterCalls += 1;
+      throw new Error('raw lifecycle Proxy getter must not execute');
+    },
+  });
+  assert.throws(() => s.provider.markRawSourceDeleted(proxyTarget), /Invalid raw Memory deletion target/);
+  assert.throws(() => s.provider.purgeRawSource(proxyTarget), /Invalid raw Memory purge target/);
+
+  const accessorTarget = { ...target };
+  Object.defineProperty(accessorTarget, 'version_id', {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      throw new Error('raw lifecycle accessor must not execute');
+    },
+  });
+  assert.throws(() => s.provider.markRawSourceDeleted(accessorTarget), /Invalid raw Memory deletion target/);
+  assert.throws(() => s.provider.purgeRawSource(accessorTarget), /Invalid raw Memory purge target/);
+
+  assert.equal(getterCalls, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_captures').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_derived_copies').get().count, 0);
+});
+
 test('Provider constructor rejects Proxy-backed options before destructuring them', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-proxy-options-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
