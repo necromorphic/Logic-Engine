@@ -258,6 +258,38 @@ test('trigger payload normalization copies plain JSON data and canonicalizes neg
 });
 
 
+test('due-work requests reject unknown fields instead of silently dropping misspelled coordinates', () => {
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinte: 5,
+      triggers: [],
+    }),
+    (error) => error.code === 'INVALID_DUE_WORK_FIELD' && error.details.field === 'to_coordinte',
+  );
+});
+
+test('due-work requests reject accessors without invoking them', () => {
+  let getterCalled = false;
+  const request = {
+    world_id: 'world-a',
+    from_coordinate: 0,
+    to_coordinate: 5,
+    triggers: [],
+  };
+  Object.defineProperty(request, 'to_coordinate', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return 5; },
+  });
+  assert.throws(
+    () => planDueWork(request),
+    (error) => error.code === 'INVALID_DUE_WORK_REQUEST',
+  );
+  assert.equal(getterCalled, false);
+});
+
 test('trigger records reject unknown fields instead of silently dropping misspelled scheduling intent', () => {
   assert.throws(
     () => planDueWork({
