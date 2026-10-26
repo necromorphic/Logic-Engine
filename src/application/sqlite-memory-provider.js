@@ -663,6 +663,20 @@ export class SQLiteMemoryProvider {
     // must not authorize this retrieval using the pre-await allow.
     if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
 
+    // A Provider write can invalidate readiness while getSnapshot() is awaited.
+    // Re-read the readiness marker after the await; the earlier state object is
+    // only a snapshot of readiness before that asynchronous boundary.
+    const latestState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
+    if (!latestState || latestState.index_health !== 'ready'
+      || latestState.source_reconciliation !== 'current') {
+      throw new Error('MEMORY_INDEX_NOT_READY');
+    }
+    if (String(current.world_revision) !== latestState.snapshot_revision
+      || String(current.commit_sequence) !== latestState.snapshot_sequence) {
+      this.#setState(scope.world_id, 'stale', 'stale', null, 'SNAPSHOT_STALE');
+      throw new Error('MEMORY_SNAPSHOT_STALE');
+    }
+
     const rows = this.db.prepare(`SELECT r.* FROM memory_records r
       JOIN memory_index_entries i USING(world_id,record_ref,record_version)
       JOIN memory_record_grants g ON g.world_id=r.world_id AND g.record_ref=r.record_ref
@@ -690,15 +704,15 @@ export class SQLiteMemoryProvider {
       content_kind: row.content_kind, epistemic_kind: row.epistemic_kind,
       producer: { kind: row.producer_kind },
       lifecycle: { content_disposition: row.content_disposition,
-        source_reconciliation: state.source_reconciliation,
-        evidence_assessment: row.evidence_assessment, index_health: state.index_health },
+        source_reconciliation: latestState.source_reconciliation,
+        evidence_assessment: row.evidence_assessment, index_health: latestState.index_health },
       freshness: { status: 'current' },
       snapshot: current,
     }));
     return {
       completeness: rows.length > 50 ? 'partial' : 'complete',
       index_health: state.index_health,
-      source_reconciliation: state.source_reconciliation,
+      source_reconciliation: latestState.source_reconciliation,
       scope: { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose },
       snapshot: current,
       candidates,
