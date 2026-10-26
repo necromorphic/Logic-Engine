@@ -72,6 +72,12 @@ diff --git a/public/script.js b/public/script.js
 +            (await getLogicEngineLifecycleBridge()).beforeMutation(operation, messageIndexes, details),
 +        completeOperation: async (operation, details = {}) =>
 +            (await getLogicEngineLifecycleBridge()).afterMutation(operation, details),
++        guardChatLocatorMutation: async locator => {
++            if (hostLocatorHasEnrollment(locator, localStorage)) {
++                throw Error('NON_READY: enrolled chat locator mutation requires an identity-preserving lifecycle handler');
++            }
++            return { status: 'NOT_ENROLLED' };
++        },
 +        guardChatLocatorDeletion: async locator => {
 +            if (hostLocatorHasEnrollment(locator, localStorage)) {
 +                throw Error('NON_READY: target chat requires a tombstone-aware deletion handler');
@@ -362,7 +368,7 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
      const group = groups.find((x) => x.id === id);
 @@ -2219,2 +2220,3 @@
  export async function renameGroupChat(groupId, oldChatId, newChatId) {
-+    await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(oldChatId);
++    await window.logicEngineHostLifecycle?.guardChatLocatorMutation?.(oldChatId);
      const group = groups.find(x => x.id === groupId);
 @@ -2242,5 +2244,9 @@
  export async function deleteGroupChatByName(groupId, chatName) {
