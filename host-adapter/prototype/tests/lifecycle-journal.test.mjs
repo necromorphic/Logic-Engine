@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
-import { HostLifecycleJournal, lifecycleJournalContract } from '../lifecycle-journal.mjs';
+import { HostLifecycleJournal, fingerprintSource, lifecycleJournalContract } from '../lifecycle-journal.mjs';
 
 globalThis.crypto ??= webcrypto;
 globalThis.IDBKeyRange = { only: value => ({ only: value }) };
@@ -44,6 +44,28 @@ test('readiness remains fail-closed when a mutation path is not instrumented',as
   assert.ok(lifecycleJournalContract.requiredCoveragePaths.includes(path), `missing required lifecycle coverage path: ${path}`);
  }
 });
+test('live source inventory is compared to the journaled checkpoint but a match remains non-authoritative',async()=>{
+ const messages=[{is_user:true,mes:'hello',swipes:['hello'],swipe_id:0}];
+ const sourceFingerprint=await fingerprintSource(messages,'chat.jsonl');
+ const journal=new HostLifecycleJournal(new FakeDB());
+ await journal.enroll({conversationId:'chat-1',sourceFingerprint,messages:[{role:'user',text:'hello'}]});
+ const result=await journal.verifyCurrentSource('chat-1',{messages,sourceLocator:'chat.jsonl'});
+ assert.equal(result.status,'LOCAL_MATCH_NON_AUTHORITATIVE');
+ assert.equal(result.authority,'NON_AUTHORITATIVE');
+ assert.equal(result.trustDecision,'NON_READY');
+ assert.ok(result.blockers.includes('NO_INDEPENDENT_TRUST_ANCHOR'));
+});
+test('live source inventory drift fails closed even when local journal integrity is intact',async()=>{
+ const messages=[{is_user:true,mes:'hello',swipes:['hello'],swipe_id:0}];
+ const sourceFingerprint=await fingerprintSource(messages,'chat.jsonl');
+ const journal=new HostLifecycleJournal(new FakeDB());
+ await journal.enroll({conversationId:'chat-1',sourceFingerprint,messages:[{role:'user',text:'hello'}]});
+ const changed=[{is_user:true,mes:'tampered',swipes:['tampered'],swipe_id:0}];
+ const result=await journal.verifyCurrentSource('chat-1',{messages:changed,sourceLocator:'chat.jsonl'});
+ assert.equal(result.status,'NON_READY');
+ assert.equal(result.reason,'live source inventory fingerprint mismatch');
+});
+
 test('mutation before enrollment is NON_READY',async()=>{
  const journal=new HostLifecycleJournal(new FakeDB());
  const result=await journal.append({conversationId:'chat-1',eventId:'evt-1',operation:'before:delete-message',payload:{affectedVersions:[]}});
