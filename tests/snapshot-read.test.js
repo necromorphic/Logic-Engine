@@ -22,11 +22,20 @@ function setup(t, options = {}) {
     world_pack_version: '1.0.0',
     game_time: '2005-12-29T10:00:00Z',
   });
+  const additionalCleanups = [];
   t.after(() => {
+    for (const cleanup of additionalCleanups) {
+      try { cleanup(); } catch {}
+    }
     try { store.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
   });
-  return { store, engine, databasePath };
+  return {
+    store,
+    engine,
+    databasePath,
+    registerCleanup: (cleanup) => additionalCleanups.push(cleanup),
+  };
 }
 
 function commit(engine, worldId, eventId, expectedRevision, effects) {
@@ -128,11 +137,11 @@ test('internal snapshot rejects malformed or duplicate requested identifiers', (
 });
 
 test('SQLite read transaction keeps a coherent view when a rollback-journal writer has uncommitted changes', (t) => {
-  const { store, engine, databasePath } = setup(t);
+  const { store, engine, databasePath, registerCleanup } = setup(t);
   seedCharacter(engine, 'snapshot-world', 'npc-a');
   const writer = new DatabaseSync(databasePath);
   writer.exec('PRAGMA busy_timeout=0');
-  t.after(() => { try { writer.close(); } catch {} });
+  registerCleanup(() => writer.close());
 
   store.db.exec('BEGIN');
   const initialWorld = store.db.prepare('SELECT world_revision FROM worlds WHERE world_id=?').get('snapshot-world');
@@ -155,10 +164,10 @@ test('SQLite read transaction keeps a coherent view when a rollback-journal writ
 });
 
 test('SQLite read transaction retains its established snapshot when a WAL writer commits mid-read', (t) => {
-  const { store, engine, databasePath } = setup(t, { journalMode: 'WAL' });
+  const { store, engine, databasePath, registerCleanup } = setup(t, { journalMode: 'WAL' });
   seedCharacter(engine, 'snapshot-world', 'npc-a');
   const writer = new DatabaseSync(databasePath);
-  t.after(() => { try { writer.close(); } catch {} });
+  registerCleanup(() => writer.close());
 
   store.db.exec('BEGIN');
   const initialWorld = store.db.prepare('SELECT world_revision FROM worlds WHERE world_id=?').get('snapshot-world');
