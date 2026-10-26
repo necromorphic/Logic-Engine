@@ -16,32 +16,34 @@ export class ProposalService {
     this.validateMechanicPolicy = validateMechanicPolicy ?? null;
     this.engine = engine;
     this.db = engine.store.db;
-    this.engine.store.tx(() => this.db.exec(`
-      CREATE TABLE IF NOT EXISTS event_proposals (
-        proposal_id TEXT PRIMARY KEY,
-        world_id TEXT NOT NULL REFERENCES worlds(world_id),
-        idempotency_key TEXT NOT NULL,
-        request_hash TEXT NOT NULL,
-        proposal_hash TEXT NOT NULL,
-        status TEXT NOT NULL CHECK(status IN ('pending','approved','committed','cancelled')),
-        base_world_revision INTEGER NOT NULL,
-        base_commit_sequence INTEGER NOT NULL,
-        event_payload_json TEXT NOT NULL,
-        source_text TEXT NOT NULL,
-        created_at TEXT NOT NULL,
-        approved_at TEXT,
-        committed_at TEXT,
-        commit_result_json TEXT,
-        validation_result_json TEXT NOT NULL DEFAULT '{}',
-        created_by_adapter_id TEXT,
-        mechanic_execution_json TEXT,
-        UNIQUE(world_id, idempotency_key)
-      );
-    `));
-    const columns = this.db.prepare('PRAGMA table_info(event_proposals)').all();
-    if (!columns.some((column) => column.name === 'validation_result_json')) this.db.exec("ALTER TABLE event_proposals ADD COLUMN validation_result_json TEXT NOT NULL DEFAULT '{}'");
-    if (!columns.some((column) => column.name === 'created_by_adapter_id')) this.db.exec('ALTER TABLE event_proposals ADD COLUMN created_by_adapter_id TEXT');
-    if (!columns.some((column) => column.name === 'mechanic_execution_json')) this.db.exec('ALTER TABLE event_proposals ADD COLUMN mechanic_execution_json TEXT');
+    this.engine.store.tx(() => {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS event_proposals (
+          proposal_id TEXT PRIMARY KEY,
+          world_id TEXT NOT NULL REFERENCES worlds(world_id),
+          idempotency_key TEXT NOT NULL,
+          request_hash TEXT NOT NULL,
+          proposal_hash TEXT NOT NULL,
+          status TEXT NOT NULL CHECK(status IN ('pending','approved','committed','cancelled')),
+          base_world_revision INTEGER NOT NULL,
+          base_commit_sequence INTEGER NOT NULL,
+          event_payload_json TEXT NOT NULL,
+          source_text TEXT NOT NULL,
+          created_at TEXT NOT NULL,
+          approved_at TEXT,
+          committed_at TEXT,
+          commit_result_json TEXT,
+          validation_result_json TEXT NOT NULL DEFAULT '{}',
+          created_by_adapter_id TEXT,
+          mechanic_execution_json TEXT,
+          UNIQUE(world_id, idempotency_key)
+        );
+      `);
+      const columns = this.db.prepare('PRAGMA table_info(event_proposals)').all();
+      if (!columns.some((column) => column.name === 'validation_result_json')) this.db.exec("ALTER TABLE event_proposals ADD COLUMN validation_result_json TEXT NOT NULL DEFAULT '{}'");
+      if (!columns.some((column) => column.name === 'created_by_adapter_id')) this.db.exec('ALTER TABLE event_proposals ADD COLUMN created_by_adapter_id TEXT');
+      if (!columns.some((column) => column.name === 'mechanic_execution_json')) this.db.exec('ALTER TABLE event_proposals ADD COLUMN mechanic_execution_json TEXT');
+    });
   }
 
   create(worldId, body, adapterId, mechanicExecution = null) {
