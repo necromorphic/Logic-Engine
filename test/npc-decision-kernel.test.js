@@ -102,3 +102,48 @@ test("candidate ID ordering uses locale-independent code-unit order", () => {
     ["Z", "a"],
   );
 });
+
+test("does not mutate caller-owned candidate objects or the input array", () => {
+  const first = { id: "alpha", feasibility: "feasible", preference: 3 };
+  const second = { id: "beta", feasibility: "blocked", preference: 99 };
+  const candidates = [first, second];
+  const before = structuredClone(candidates);
+
+  evaluateNpcDecisionPrototype(candidates);
+
+  assert.deepEqual(candidates, before);
+  assert.equal(candidates[0], first);
+  assert.equal(candidates[1], second);
+});
+
+test("returns a detached result that cannot change when caller inputs change later", () => {
+  const candidate = { id: "alpha", feasibility: "unknown", preference: 3 };
+  const candidates = [candidate];
+  const result = evaluateNpcDecisionPrototype(candidates);
+
+  candidate.id = "changed";
+  candidates.push({ id: "later", feasibility: "feasible", preference: 100 });
+
+  assert.deepEqual(result, {
+    status: "unresolved",
+    reason: "unknown_feasibility",
+    candidateIds: ["alpha"],
+  });
+});
+
+test("selection result is stable across several explicit input permutations", () => {
+  const a = { id: "a", feasibility: "feasible", preference: 7 };
+  const b = { id: "b", feasibility: "blocked", preference: 700 };
+  const c = { id: "c", feasibility: "feasible", preference: 2 };
+  const d = { id: "d", feasibility: "feasible", preference: 7 };
+
+  const expected = evaluateNpcDecisionPrototype([a, b, c, d]);
+  for (const permutation of [
+    [d, c, b, a],
+    [b, a, d, c],
+    [c, d, a, b],
+    [a, c, d, b],
+  ]) {
+    assert.deepEqual(evaluateNpcDecisionPrototype(permutation), expected);
+  }
+});
