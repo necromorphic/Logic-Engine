@@ -510,6 +510,27 @@ export class SQLiteMemoryProvider {
         content_disposition: record.content_disposition, evidence_assessment: record.evidence_assessment,
         lineage_json: record.lineage, created_at: undefined };
       if (!isDeepStrictEqual(prior, next)) throw new Error('MEMORY_IDENTITY_CONFLICT');
+
+      // An earlier ingest may have committed the durable record but failed while
+      // writing its derived index entry. An identical replay must not report a
+      // fully ordinary duplicate while silently leaving that entry absent.
+      const indexed = this.db.prepare(`SELECT 1 AS ok FROM memory_index_entries
+        WHERE world_id=? AND record_ref=? AND record_version=?`)
+        .get(record.world_id, record.record_ref, record.record_version);
+      if (!indexed) {
+        this.#setState(record.world_id, 'rebuilding', 'stale', null, 'INDEX_ENTRY_MISSING');
+        try {
+          this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
+            .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString());
+        } catch (error) {
+          this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
+          throw error;
+        }
+        return {
+          status: 'duplicate', record_ref: record.record_ref, record_version: record.record_version,
+          index_repaired: true, reconciliation_required: true,
+        };
+      }
       return { status: 'duplicate', record_ref: record.record_ref, record_version: record.record_version };
     }
 
