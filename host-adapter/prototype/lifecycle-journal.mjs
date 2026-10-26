@@ -198,6 +198,14 @@ export async function fingerprintSource(messages, sourceLocator = null) {
     if (message.swipes !== undefined && !Array.isArray(message.swipes)) {
       throw TypeError('Malformed native swipe inventory');
     }
+    if (message.swipe_id !== undefined && !Number.isInteger(message.swipe_id)) {
+      throw TypeError('Malformed native active-swipe index');
+    }
+    const versions = Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
+    const activeVersionIndex = message.swipe_id ?? 0;
+    if (activeVersionIndex < 0 || activeVersionIndex >= versions.length) {
+      throw TypeError('Native active-swipe index is out of range');
+    }
     const branchReferences = message.extra?.branches;
     if (branchReferences !== undefined && !Array.isArray(branchReferences)) {
       throw TypeError('Malformed native branch-reference inventory');
@@ -212,8 +220,8 @@ export async function fingerprintSource(messages, sourceLocator = null) {
       branchReferences: branchReferences ?? [],
       name: message.name ?? null,
       currentMessage: message.mes ?? '',
-      versions: Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''],
-      activeVersionIndex: Number.isInteger(message.swipe_id) ? message.swipe_id : 0,
+      versions,
+      activeVersionIndex,
     };
   });
   return digest({ sourceLocator: sourceLocator ?? null, projection });
