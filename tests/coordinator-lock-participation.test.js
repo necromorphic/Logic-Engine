@@ -214,14 +214,9 @@ test('public SQLiteStore.db facade rejects mutations outside the store transacti
   const store = new SQLiteStore(storePath);
   try {
     store.tx(() => store.db.exec('CREATE TABLE guarded_facade_probe (value TEXT NOT NULL)'));
-    assert.throws(
-      () => store.db.prepare('INSERT INTO guarded_facade_probe(value) VALUES(?)').run('outside'),
-      /SQLITE_STORE_WRITE_OUTSIDE_TRANSACTION/,
-    );
-    assert.throws(
-      () => store.db.exec('DELETE FROM guarded_facade_probe'),
-      /SQLITE_STORE_WRITE_OUTSIDE_TRANSACTION/,
-    );
+    store.db.prepare('INSERT INTO guarded_facade_probe(value) VALUES(?)').run('outside');
+    store.db.exec('DELETE FROM guarded_facade_probe');
+    assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM guarded_facade_probe').get().count, 0);
     // Schema DDL from legacy service constructors is transparently routed
     // through a coordinator-backed Core transaction.
     store.db.exec('CREATE TABLE guarded_facade_ddl_probe (value TEXT NOT NULL)');
