@@ -193,7 +193,41 @@ const world = (r) => r && ({
   created_at: r.created_at,
 });
 
+function createGuardedDatabaseFacade(store, database) {
+  const assertWriteLease = () => {
+    if (store.txDepth > 0 || store.coordinatorDepth > 0) return;
+    throw new Error('SQLITE_STORE_WRITE_OUTSIDE_TRANSACTION: mutate Core data through SQLiteStore.tx() or a store-owned operation.');
+  };
+  return Object.freeze({
+    exec(sql) {
+      assertWriteLease();
+      return database.exec(sql);
+    },
+    prepare(sql) {
+      const statement = database.prepare(sql);
+      return new Proxy(statement, {
+        get(target, property) {
+          const value = Reflect.get(target, property, target);
+          if (property === 'run') {
+            return (...args) => {
+              assertWriteLease();
+              return value.apply(target, args);
+            };
+          }
+          return typeof value === 'function' ? value.bind(target) : value;
+        },
+      });
+    },
+    close() {
+      throw new Error('Use SQLiteStore.close() to close the owned database handles.');
+    },
+  });
+}
+
 export class SQLiteStore {
+  get db() {
+    return this._publicDb;
+  }
   constructor(path = ':memory:') {
     // Validate and canonicalize the shared coordinator before opening either
     // handle, so invalid configuration cannot leak an already-open Core DB.
@@ -218,12 +252,13 @@ export class SQLiteStore {
     // opened coordinator handle so failed construction does not leak resources.
     this.coordinatorDb = absoluteCoordinatorPath ? openCoordinatorDatabase(absoluteCoordinatorPath) : null;
     try {
-      this.db = new DatabaseSync(corePath);
+      this._db = new DatabaseSync(corePath);
     } catch (error) {
       try { this.coordinatorDb?.close(); } catch {}
       this.coordinatorDb = null;
       throw error;
     }
+    this._publicDb = createGuardedDatabaseFacade(this, this._db);
     // Core-side participation prototype. This does not enroll the separate
     // Memory Provider or make network dispatch gateway-only.
     this.coordinatorStartupRelease = null;
@@ -236,7 +271,7 @@ export class SQLiteStore {
         this.coordinatorStartupRelease = beginCoordinatorLock(this.coordinatorDb);
         this.coordinatorDepth = 1;
       }
-    this.db.exec(`
+    this._db.exec(`
       PRAGMA foreign_keys=ON;
       PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS worlds(
@@ -330,7 +365,7 @@ export class SQLiteStore {
       try { this.coordinatorStartupRelease?.(); } catch {}
       this.coordinatorStartupRelease = null;
       this.coordinatorDepth = 0;
-      try { this.db.close(); } catch {}
+      try { this._db.close(); } catch {}
       try { this.coordinatorDb?.close(); } catch {}
       throw error;
     }
@@ -341,62 +376,62 @@ export class SQLiteStore {
       {
         version: 1,
         apply: () => {
-          const columns = this.db.prepare('PRAGMA table_info(idempotency_keys)').all();
+          const columns = this._db.prepare('PRAGMA table_info(idempotency_keys)').all();
           if (!columns.some((column) => column.name === 'request_hash')) {
-            this.db.exec('ALTER TABLE idempotency_keys ADD COLUMN request_hash TEXT');
+            this._db.exec('ALTER TABLE idempotency_keys ADD COLUMN request_hash TEXT');
           }
         },
       },
       {
         version: 2,
         apply: () => {
-          const columns = this.db.prepare('PRAGMA table_info(world_events)').all();
+          const columns = this._db.prepare('PRAGMA table_info(world_events)').all();
           if (!columns.some((column) => column.name === 'causal_links_json')) {
-            this.db.exec("ALTER TABLE world_events ADD COLUMN causal_links_json TEXT NOT NULL DEFAULT '[]'");
+            this._db.exec("ALTER TABLE world_events ADD COLUMN causal_links_json TEXT NOT NULL DEFAULT '[]'");
           }
         },
       },
       {
         version: 3,
         apply: () => {
-          const columns = this.db.prepare('PRAGMA table_info(world_events)').all();
+          const columns = this._db.prepare('PRAGMA table_info(world_events)').all();
           if (!columns.some((column) => column.name === 'commit_sequence')) {
-            this.db.exec('ALTER TABLE world_events ADD COLUMN commit_sequence INTEGER');
+            this._db.exec('ALTER TABLE world_events ADD COLUMN commit_sequence INTEGER');
           }
-          const worldRows = this.db.prepare('SELECT world_id FROM worlds ORDER BY world_id').all();
-          const events = this.db.prepare('SELECT event_id FROM world_events WHERE world_id=? AND commit_sequence IS NULL ORDER BY committed_revision,event_id');
-          const setSequence = this.db.prepare('UPDATE world_events SET commit_sequence=? WHERE world_id=? AND event_id=?');
-          const nextSequence = this.db.prepare('SELECT COALESCE(MAX(commit_sequence),0)+1 AS next FROM world_events WHERE world_id=?');
+          const worldRows = this._db.prepare('SELECT world_id FROM worlds ORDER BY world_id').all();
+          const events = this._db.prepare('SELECT event_id FROM world_events WHERE world_id=? AND commit_sequence IS NULL ORDER BY committed_revision,event_id');
+          const setSequence = this._db.prepare('UPDATE world_events SET commit_sequence=? WHERE world_id=? AND event_id=?');
+          const nextSequence = this._db.prepare('SELECT COALESCE(MAX(commit_sequence),0)+1 AS next FROM world_events WHERE world_id=?');
           for (const { world_id: worldId } of worldRows) {
             let sequence = nextSequence.get(worldId).next;
             for (const { event_id: eventId } of events.all(worldId)) setSequence.run(sequence++, worldId, eventId);
           }
-          this.db.exec('CREATE UNIQUE INDEX IF NOT EXISTS events_world_commit_sequence ON world_events(world_id,commit_sequence)');
+          this._db.exec('CREATE UNIQUE INDEX IF NOT EXISTS events_world_commit_sequence ON world_events(world_id,commit_sequence)');
         },
       },
       {
         version: 4,
         apply: () => {
-          const columns = this.db.prepare('PRAGMA table_info(world_events)').all();
+          const columns = this._db.prepare('PRAGMA table_info(world_events)').all();
           if (!columns.some((column) => column.name === 'context_manifest_id')) {
-            this.db.exec('ALTER TABLE world_events ADD COLUMN context_manifest_id TEXT');
+            this._db.exec('ALTER TABLE world_events ADD COLUMN context_manifest_id TEXT');
           }
-          this.db.exec(`CREATE TABLE IF NOT EXISTS context_manifests(
+          this._db.exec(`CREATE TABLE IF NOT EXISTS context_manifests(
             manifest_id TEXT PRIMARY KEY, world_id TEXT NOT NULL REFERENCES worlds(world_id),
             generation_id TEXT NOT NULL, base_commit_sequence INTEGER NOT NULL, base_world_revision INTEGER NOT NULL DEFAULT 0,
             items_json TEXT NOT NULL, manifest_hash TEXT NOT NULL, created_at TEXT NOT NULL,
             UNIQUE(world_id,generation_id)
           )`);
-          const manifestColumns = this.db.prepare('PRAGMA table_info(context_manifests)').all();
+          const manifestColumns = this._db.prepare('PRAGMA table_info(context_manifests)').all();
           if (!manifestColumns.some((column) => column.name === 'base_world_revision')) {
-            this.db.exec('ALTER TABLE context_manifests ADD COLUMN base_world_revision INTEGER NOT NULL DEFAULT 0');
+            this._db.exec('ALTER TABLE context_manifests ADD COLUMN base_world_revision INTEGER NOT NULL DEFAULT 0');
           }
         },
       },
       {
         version: 5,
         apply: () => {
-          this.db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS events_world_event_id ON world_events(world_id,event_id);
+          this._db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS events_world_event_id ON world_events(world_id,event_id);
             CREATE TABLE IF NOT EXISTS mechanic_instances(
               world_id TEXT NOT NULL REFERENCES worlds(world_id), instance_id TEXT NOT NULL,
               template_id TEXT NOT NULL, template_version TEXT NOT NULL,
@@ -415,24 +450,24 @@ export class SQLiteStore {
       {
         version: 6,
         apply: () => {
-          const worldColumns = this.db.prepare('PRAGMA table_info(worlds)').all();
+          const worldColumns = this._db.prepare('PRAGMA table_info(worlds)').all();
           if (!worldColumns.some((column) => column.name === 'initial_game_time_coordinate')) {
-            this.db.exec('ALTER TABLE worlds ADD COLUMN initial_game_time_coordinate INTEGER NOT NULL DEFAULT 0');
+            this._db.exec('ALTER TABLE worlds ADD COLUMN initial_game_time_coordinate INTEGER NOT NULL DEFAULT 0');
           }
           if (!worldColumns.some((column) => column.name === 'game_time_coordinate')) {
-            this.db.exec('ALTER TABLE worlds ADD COLUMN game_time_coordinate INTEGER NOT NULL DEFAULT 0');
+            this._db.exec('ALTER TABLE worlds ADD COLUMN game_time_coordinate INTEGER NOT NULL DEFAULT 0');
           }
-          const eventColumns = this.db.prepare('PRAGMA table_info(world_events)').all();
+          const eventColumns = this._db.prepare('PRAGMA table_info(world_events)').all();
           if (!eventColumns.some((column) => column.name === 'game_time_coordinate')) {
-            this.db.exec('ALTER TABLE world_events ADD COLUMN game_time_coordinate INTEGER NOT NULL DEFAULT 0');
+            this._db.exec('ALTER TABLE world_events ADD COLUMN game_time_coordinate INTEGER NOT NULL DEFAULT 0');
           }
           if (!eventColumns.some((column) => column.name === 'time_advance_ms')) {
-            this.db.exec('ALTER TABLE world_events ADD COLUMN time_advance_ms INTEGER NOT NULL DEFAULT 0');
+            this._db.exec('ALTER TABLE world_events ADD COLUMN time_advance_ms INTEGER NOT NULL DEFAULT 0');
           }
 
-          const worldRows = this.db.prepare('SELECT world_id,initial_game_time,game_time FROM worlds ORDER BY world_id').all();
+          const worldRows = this._db.prepare('SELECT world_id,initial_game_time,game_time FROM worlds ORDER BY world_id').all();
           const initialTimeByWorld = new Map();
-          const updateWorldTime = this.db.prepare('UPDATE worlds SET initial_game_time_coordinate=0,game_time_coordinate=? WHERE world_id=?');
+          const updateWorldTime = this._db.prepare('UPDATE worlds SET initial_game_time_coordinate=0,game_time_coordinate=? WHERE world_id=?');
           for (const row of worldRows) {
             const initialMs = Date.parse(row.initial_game_time);
             const currentMs = Date.parse(row.game_time);
@@ -444,8 +479,8 @@ export class SQLiteStore {
             updateWorldTime.run(coordinate, row.world_id);
           }
 
-          const eventRows = this.db.prepare('SELECT event_id,world_id,game_time,time_advance_seconds FROM world_events ORDER BY world_id,commit_sequence').all();
-          const updateEventTime = this.db.prepare('UPDATE world_events SET game_time_coordinate=?,time_advance_ms=? WHERE world_id=? AND event_id=?');
+          const eventRows = this._db.prepare('SELECT event_id,world_id,game_time,time_advance_seconds FROM world_events ORDER BY world_id,commit_sequence').all();
+          const updateEventTime = this._db.prepare('UPDATE world_events SET game_time_coordinate=?,time_advance_ms=? WHERE world_id=? AND event_id=?');
           for (const row of eventRows) {
             const initialMs = initialTimeByWorld.get(row.world_id);
             const eventMs = Date.parse(row.game_time);
@@ -463,7 +498,7 @@ export class SQLiteStore {
       {
         version: 7,
         apply: () => {
-          this.db.exec(`CREATE TABLE IF NOT EXISTS time_advance_operations(
+          this._db.exec(`CREATE TABLE IF NOT EXISTS time_advance_operations(
             world_id TEXT NOT NULL REFERENCES worlds(world_id),
             operation_id TEXT NOT NULL,
             idempotency_key TEXT NOT NULL,
@@ -491,11 +526,11 @@ export class SQLiteStore {
       {
         version: 8,
         apply: () => {
-          const worldColumns = this.db.prepare('PRAGMA table_info(worlds)').all();
+          const worldColumns = this._db.prepare('PRAGMA table_info(worlds)').all();
           if (!worldColumns.some((column) => column.name === 'time_config_version')) {
-            this.db.exec('ALTER TABLE worlds ADD COLUMN time_config_version TEXT');
+            this._db.exec('ALTER TABLE worlds ADD COLUMN time_config_version TEXT');
           }
-          this.db.exec(`CREATE TABLE IF NOT EXISTS world_time_configurations(
+          this._db.exec(`CREATE TABLE IF NOT EXISTS world_time_configurations(
             world_id TEXT NOT NULL REFERENCES worlds(world_id),
             version TEXT NOT NULL,
             world_pack_id TEXT NOT NULL,
@@ -515,7 +550,7 @@ export class SQLiteStore {
       {
         version: 9,
         apply: () => {
-          this.db.exec(`CREATE TABLE IF NOT EXISTS world_time_triggers(
+          this._db.exec(`CREATE TABLE IF NOT EXISTS world_time_triggers(
             world_id TEXT NOT NULL REFERENCES worlds(world_id),
             trigger_id TEXT NOT NULL,
             due_coordinate INTEGER NOT NULL,
@@ -543,41 +578,41 @@ export class SQLiteStore {
       {
         version: 10,
         apply: () => {
-          const columns = this.db.prepare('PRAGMA table_info(world_events)').all();
+          const columns = this._db.prepare('PRAGMA table_info(world_events)').all();
           if (!columns.some((column) => column.name === 'mechanic_execution_json')) {
-            this.db.exec('ALTER TABLE world_events ADD COLUMN mechanic_execution_json TEXT');
+            this._db.exec('ALTER TABLE world_events ADD COLUMN mechanic_execution_json TEXT');
           }
         },
       },
     ];
     for (const migration of migrations) {
-      const applied = this.db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
+      const applied = this._db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
       if (applied) continue;
       this.tx(() => {
         migration.apply();
-        this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(?,?)').run(migration.version, now());
+        this._db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(?,?)').run(migration.version, now());
       });
     }
   }
 
   close() {
-    try { this.db.close(); } finally { this.coordinatorDb?.close(); }
+    try { this._db.close(); } finally { this.coordinatorDb?.close(); }
   }
 
   tx(fn) {
     requireSynchronousCallback(fn, 'SQLiteStore.tx callback');
     if (this.txDepth > 0) {
       const savepoint = 'logic_engine_nested_' + this.txDepth;
-      this.db.exec('SAVEPOINT ' + savepoint);
+      this._db.exec('SAVEPOINT ' + savepoint);
       this.txDepth += 1;
       try {
         const result = requireSynchronousTransactionResult(fn());
-        this.db.exec('RELEASE SAVEPOINT ' + savepoint);
+        this._db.exec('RELEASE SAVEPOINT ' + savepoint);
         return result;
       } catch (error) {
         try {
-          this.db.exec('ROLLBACK TO SAVEPOINT ' + savepoint);
-          this.db.exec('RELEASE SAVEPOINT ' + savepoint);
+          this._db.exec('ROLLBACK TO SAVEPOINT ' + savepoint);
+          this._db.exec('RELEASE SAVEPOINT ' + savepoint);
         } catch {}
         throw error;
       } finally {
@@ -596,14 +631,14 @@ export class SQLiteStore {
         releaseCoordinator = beginCoordinatorLock(this.coordinatorDb);
         coordinatorHeld = true;
       }
-      this.db.exec('BEGIN IMMEDIATE');
+      this._db.exec('BEGIN IMMEDIATE');
       this.txDepth = 1;
       try {
         const result = requireSynchronousTransactionResult(fn());
-        this.db.exec('COMMIT');
+        this._db.exec('COMMIT');
         return result;
       } catch (error) {
-        try { this.db.exec('ROLLBACK'); } catch {}
+        try { this._db.exec('ROLLBACK'); } catch {}
         throw error;
       } finally {
         this.txDepth = 0;
@@ -618,20 +653,20 @@ export class SQLiteStore {
   }
 
   world(id) {
-    return world(this.db.prepare('SELECT * FROM worlds WHERE world_id=?').get(id));
+    return world(this._db.prepare('SELECT * FROM worlds WHERE world_id=?').get(id));
   }
 
   createWorld(w) {
     return this.tx(() => {
       const t = now();
       try {
-        this.db.prepare('INSERT INTO worlds(world_id,world_pack_id,world_pack_version,initial_game_time,game_time,created_at) VALUES(?,?,?,?,?,?)')
+        this._db.prepare('INSERT INTO worlds(world_id,world_pack_id,world_pack_version,initial_game_time,game_time,created_at) VALUES(?,?,?,?,?,?)')
           .run(w.world_id, w.world_pack_id, w.world_pack_version, w.game_time, w.game_time, t);
       } catch (error) {
         if (String(error.message).includes('UNIQUE')) throw new EngineError('WORLD_ALREADY_EXISTS', 'World already exists.', 409);
         throw error;
       }
-      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,0,?,?,?,?)')
+      this._db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,0,?,?,?,?)')
         .run(w.world_id, 'world.created', w.world_id, enc({ world_pack_id: w.world_pack_id, world_pack_version: w.world_pack_version }), t);
       return this.world(w.world_id);
     });
@@ -640,7 +675,7 @@ export class SQLiteStore {
   registerMechanicTemplate(template, templateHash) {
     return this.tx(() => {
       const registeredBy = 'authenticated_api_client';
-      const existing = this.db.prepare('SELECT * FROM mechanic_templates WHERE template_id=? AND version=?')
+      const existing = this._db.prepare('SELECT * FROM mechanic_templates WHERE template_id=? AND version=?')
         .get(template.template_id, template.version);
       if (existing) {
         if (existing.template_hash !== templateHash) {
@@ -655,16 +690,16 @@ export class SQLiteStore {
         };
       }
       const registeredAt = now();
-      this.db.prepare('INSERT INTO mechanic_templates(template_id,version,template_hash,template_json,registered_by,registered_at) VALUES(?,?,?,?,?,?)')
+      this._db.prepare('INSERT INTO mechanic_templates(template_id,version,template_hash,template_json,registered_by,registered_at) VALUES(?,?,?,?,?,?)')
         .run(template.template_id, template.version, templateHash, enc(template), registeredBy, registeredAt);
-      this.db.prepare('INSERT INTO mechanic_registry_audit(action,target_id,version,payload_json,registered_by,occurred_at) VALUES(?,?,?,?,?,?)')
+      this._db.prepare('INSERT INTO mechanic_registry_audit(action,target_id,version,payload_json,registered_by,occurred_at) VALUES(?,?,?,?,?,?)')
         .run('mechanic_template.registered', template.template_id, template.version, enc({ template_hash: templateHash }), registeredBy, registeredAt);
       return { template, template_hash: templateHash, registered_by: registeredBy, registered_at: registeredAt, already_registered: false };
     });
   }
 
   getMechanicTemplate(templateId, version) {
-    const row = this.db.prepare('SELECT * FROM mechanic_templates WHERE template_id=? AND version=?').get(templateId, version);
+    const row = this._db.prepare('SELECT * FROM mechanic_templates WHERE template_id=? AND version=?').get(templateId, version);
     if (!row) throw new EngineError('MECHANIC_TEMPLATE_NOT_FOUND', 'Mechanic template version not found.', 404);
     return {
       template: dec(row.template_json), template_hash: row.template_hash,
@@ -674,8 +709,8 @@ export class SQLiteStore {
 
   listMechanicTemplates(templateId = null) {
     const rows = templateId === null
-      ? this.db.prepare('SELECT * FROM mechanic_templates ORDER BY template_id,version').all()
-      : this.db.prepare('SELECT * FROM mechanic_templates WHERE template_id=? ORDER BY version').all(templateId);
+      ? this._db.prepare('SELECT * FROM mechanic_templates ORDER BY template_id,version').all()
+      : this._db.prepare('SELECT * FROM mechanic_templates WHERE template_id=? ORDER BY version').all(templateId);
     return rows.map((row) => ({
       template: dec(row.template_json), template_hash: row.template_hash,
       registered_by: row.registered_by, registered_at: row.registered_at,
@@ -685,7 +720,7 @@ export class SQLiteStore {
   registerRuleModuleManifest(manifest, manifestHash) {
     return this.tx(() => {
       const registeredBy = 'authenticated_api_client';
-      const existing = this.db.prepare('SELECT * FROM rule_module_manifests WHERE module_id=? AND version=?')
+      const existing = this._db.prepare('SELECT * FROM rule_module_manifests WHERE module_id=? AND version=?')
         .get(manifest.module_id, manifest.version);
       if (existing) {
         if (existing.manifest_hash !== manifestHash) {
@@ -700,16 +735,16 @@ export class SQLiteStore {
         };
       }
       const registeredAt = now();
-      this.db.prepare('INSERT INTO rule_module_manifests(module_id,version,manifest_hash,manifest_json,registered_by,registered_at) VALUES(?,?,?,?,?,?)')
+      this._db.prepare('INSERT INTO rule_module_manifests(module_id,version,manifest_hash,manifest_json,registered_by,registered_at) VALUES(?,?,?,?,?,?)')
         .run(manifest.module_id, manifest.version, manifestHash, enc(manifest), registeredBy, registeredAt);
-      this.db.prepare('INSERT INTO mechanic_registry_audit(action,target_id,version,payload_json,registered_by,occurred_at) VALUES(?,?,?,?,?,?)')
+      this._db.prepare('INSERT INTO mechanic_registry_audit(action,target_id,version,payload_json,registered_by,occurred_at) VALUES(?,?,?,?,?,?)')
         .run('rule_module.registered', manifest.module_id, manifest.version, enc({ manifest_hash: manifestHash }), registeredBy, registeredAt);
       return { manifest, manifest_hash: manifestHash, registered_by: registeredBy, registered_at: registeredAt, already_registered: false };
     });
   }
 
   getRuleModuleManifest(moduleId, version) {
-    const row = this.db.prepare('SELECT * FROM rule_module_manifests WHERE module_id=? AND version=?').get(moduleId, version);
+    const row = this._db.prepare('SELECT * FROM rule_module_manifests WHERE module_id=? AND version=?').get(moduleId, version);
     if (!row) throw new EngineError('RULE_MODULE_NOT_FOUND', 'Rule module version not found.', 404);
     return {
       manifest: dec(row.manifest_json), manifest_hash: row.manifest_hash,
@@ -719,8 +754,8 @@ export class SQLiteStore {
 
   listRuleModuleManifests(moduleId = null) {
     const rows = moduleId === null
-      ? this.db.prepare('SELECT * FROM rule_module_manifests ORDER BY module_id,version').all()
-      : this.db.prepare('SELECT * FROM rule_module_manifests WHERE module_id=? ORDER BY version').all(moduleId);
+      ? this._db.prepare('SELECT * FROM rule_module_manifests ORDER BY module_id,version').all()
+      : this._db.prepare('SELECT * FROM rule_module_manifests WHERE module_id=? ORDER BY version').all(moduleId);
     return rows.map((row) => ({
       manifest: dec(row.manifest_json), manifest_hash: row.manifest_hash,
       registered_by: row.registered_by, registered_at: row.registered_at,
@@ -728,7 +763,7 @@ export class SQLiteStore {
   }
 
   mechanicRegistryAudit() {
-    return this.db.prepare('SELECT * FROM mechanic_registry_audit ORDER BY audit_id').all().map((row) => ({
+    return this._db.prepare('SELECT * FROM mechanic_registry_audit ORDER BY audit_id').all().map((row) => ({
       audit_id: row.audit_id,
       action: row.action,
       target_id: row.target_id,
@@ -780,7 +815,7 @@ export class SQLiteStore {
       if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
       const commitSequence = this.currentCommitSequence(id);
       const contextManifests = contextManifestIds.length
-        ? this.db.prepare('SELECT manifest_id,world_id,generation_id,base_commit_sequence,base_world_revision,items_json,manifest_hash,created_at FROM context_manifests WHERE world_id=? AND manifest_id IN (' + contextManifestIds.map(() => '?').join(',') + ') ORDER BY manifest_id')
+        ? this._db.prepare('SELECT manifest_id,world_id,generation_id,base_commit_sequence,base_world_revision,items_json,manifest_hash,created_at FROM context_manifests WHERE world_id=? AND manifest_id IN (' + contextManifestIds.map(() => '?').join(',') + ') ORDER BY manifest_id')
           .all(id, ...contextManifestIds).map((row) => ({
             manifest_id: row.manifest_id,
             world_id: row.world_id,
@@ -834,7 +869,7 @@ export class SQLiteStore {
       const snapshotEventIds = combineIds(eventIds, derivedEventIds, 'eventIds');
 
       const entities = snapshotEntityIds.length
-        ? this.db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...snapshotEntityIds).map((r) => ({
+        ? this._db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...snapshotEntityIds).map((r) => ({
           entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
           created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
         }))
@@ -845,7 +880,7 @@ export class SQLiteStore {
       }
 
       const facts = snapshotFactIds.length
-        ? this.db.prepare('SELECT * FROM facts WHERE world_id=? AND fact_id IN (' + snapshotFactIds.map(() => '?').join(',') + ') ORDER BY fact_id').all(id, ...snapshotFactIds).map((r) => ({
+        ? this._db.prepare('SELECT * FROM facts WHERE world_id=? AND fact_id IN (' + snapshotFactIds.map(() => '?').join(',') + ') ORDER BY fact_id').all(id, ...snapshotFactIds).map((r) => ({
           fact_id: r.fact_id, subject_ref: r.subject_ref, predicate: r.predicate, status: r.status,
           value: dec(r.value_json), candidates: dec(r.candidates_json), source_event_ids: dec(r.source_event_ids_json),
           updated_revision: r.updated_revision,
@@ -858,7 +893,7 @@ export class SQLiteStore {
       }
 
       const events = snapshotEventIds.length
-        ? this.db.prepare('SELECT event_id,turn_id,generation_id,context_manifest_id,event_type,game_time,committed_revision,commit_sequence,validity,caused_by_json,depends_on_json,read_set_json,causal_links_json,source_message_id,created_at,rollback_id FROM world_events WHERE world_id=? AND event_id IN (' + snapshotEventIds.map(() => '?').join(',') + ') ORDER BY commit_sequence').all(id, ...snapshotEventIds).map((r) => ({
+        ? this._db.prepare('SELECT event_id,turn_id,generation_id,context_manifest_id,event_type,game_time,committed_revision,commit_sequence,validity,caused_by_json,depends_on_json,read_set_json,causal_links_json,source_message_id,created_at,rollback_id FROM world_events WHERE world_id=? AND event_id IN (' + snapshotEventIds.map(() => '?').join(',') + ') ORDER BY commit_sequence').all(id, ...snapshotEventIds).map((r) => ({
           event_id: r.event_id, turn_id: r.turn_id, generation_id: r.generation_id, context_manifest_id: r.context_manifest_id ?? null,
           event_type: r.event_type, game_time: r.game_time, committed_revision: r.committed_revision,
           commit_sequence: r.commit_sequence, validity: r.validity, caused_by: dec(r.caused_by_json),
@@ -883,7 +918,7 @@ export class SQLiteStore {
         // Keep the active mechanic set and its exact immutable definitions in
         // the same SQLite read view as the world revision and event cursor.
         // Fail closed rather than silently evaluating a truncated active set.
-        const instanceRows = this.db.prepare(
+        const instanceRows = this._db.prepare(
           'SELECT * FROM mechanic_instances WHERE world_id=? ORDER BY instance_id LIMIT 201',
         ).all(id);
         if (instanceRows.length > 200) {
@@ -907,7 +942,7 @@ export class SQLiteStore {
           const split = key.indexOf('@');
           const templateId = key.slice(0, split);
           const templateVersion = key.slice(split + 1);
-          const row = this.db.prepare('SELECT template_json,template_hash,registered_by,registered_at FROM mechanic_templates WHERE template_id=? AND version=?')
+          const row = this._db.prepare('SELECT template_json,template_hash,registered_by,registered_at FROM mechanic_templates WHERE template_id=? AND version=?')
             .get(templateId, templateVersion);
           if (!row) {
             throw new EngineError('MECHANIC_TEMPLATE_NOT_FOUND', 'An instance references a missing exact mechanic template version.', 409, {
@@ -936,7 +971,7 @@ export class SQLiteStore {
           const split = key.indexOf('@');
           const moduleId = key.slice(0, split);
           const moduleVersion = key.slice(split + 1);
-          const row = this.db.prepare('SELECT manifest_json,manifest_hash,registered_by,registered_at FROM rule_module_manifests WHERE module_id=? AND version=?')
+          const row = this._db.prepare('SELECT manifest_json,manifest_hash,registered_by,registered_at FROM rule_module_manifests WHERE module_id=? AND version=?')
             .get(moduleId, moduleVersion);
           if (!row) {
             throw new EngineError('RULE_MODULE_NOT_FOUND', 'An active mechanic references a missing exact rule-module version.', 409, {
@@ -977,15 +1012,15 @@ export class SQLiteStore {
     // from independent autocommit SELECT statements.
     let began = false;
     try {
-      this.db.exec('BEGIN');
+      this._db.exec('BEGIN');
       began = true;
       const snapshot = read();
-      this.db.exec('COMMIT');
+      this._db.exec('COMMIT');
       began = false;
       return snapshot;
     } catch (error) {
       if (began) {
-        try { this.db.exec('ROLLBACK'); } catch {}
+        try { this._db.exec('ROLLBACK'); } catch {}
       }
       throw error;
     }
@@ -996,11 +1031,11 @@ export class SQLiteStore {
       const w = this.world(id);
       if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
       const commitSequence = this.currentCommitSequence(id);
-      const entities = this.db.prepare('SELECT * FROM entities WHERE world_id=? ORDER BY entity_id').all(id).map((r) => ({
+      const entities = this._db.prepare('SELECT * FROM entities WHERE world_id=? ORDER BY entity_id').all(id).map((r) => ({
         entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
         created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
       }));
-      const facts = this.db.prepare('SELECT * FROM facts WHERE world_id=? ORDER BY fact_id').all(id).map((r) => ({
+      const facts = this._db.prepare('SELECT * FROM facts WHERE world_id=? ORDER BY fact_id').all(id).map((r) => ({
         fact_id: r.fact_id, subject_ref: r.subject_ref, predicate: r.predicate, status: r.status,
         value: dec(r.value_json), candidates: dec(r.candidates_json), source_event_ids: dec(r.source_event_ids_json),
         updated_revision: r.updated_revision,
@@ -1010,15 +1045,15 @@ export class SQLiteStore {
     if (this.txDepth > 0) return read();
     let began = false;
     try {
-      this.db.exec('BEGIN');
+      this._db.exec('BEGIN');
       began = true;
       const snapshot = read();
-      this.db.exec('COMMIT');
+      this._db.exec('COMMIT');
       began = false;
       return snapshot;
     } catch (error) {
       if (began) {
-        try { this.db.exec('ROLLBACK'); } catch {}
+        try { this._db.exec('ROLLBACK'); } catch {}
       }
       throw error;
     }
@@ -1026,7 +1061,7 @@ export class SQLiteStore {
 
   events(id, includeInvalid = false) {
     if (!this.world(id)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-    const rows = this.db.prepare('SELECT * FROM world_events WHERE world_id=? ' + (includeInvalid ? '' : "AND validity='valid' ") + 'ORDER BY commit_sequence').all(id);
+    const rows = this._db.prepare('SELECT * FROM world_events WHERE world_id=? ' + (includeInvalid ? '' : "AND validity='valid' ") + 'ORDER BY commit_sequence').all(id);
     return rows.map((r) => ({
       event_id: r.event_id, turn_id: r.turn_id, generation_id: r.generation_id, context_manifest_id: r.context_manifest_id ?? null, event_type: r.event_type,
       game_time: r.game_time, game_time_coordinate: r.game_time_coordinate, committed_revision: r.committed_revision, commit_sequence: r.commit_sequence, validity: r.validity,
@@ -1039,14 +1074,14 @@ export class SQLiteStore {
 
   audit(id) {
     if (!this.world(id)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-    return this.db.prepare('SELECT * FROM audit_entries WHERE world_id=? ORDER BY audit_id').all(id).map((r) => ({
+    return this._db.prepare('SELECT * FROM audit_entries WHERE world_id=? ORDER BY audit_id').all(id).map((r) => ({
       audit_id: r.audit_id, world_revision: r.world_revision, action: r.action, target_id: r.target_id,
       payload: dec(r.payload_json), occurred_at: r.occurred_at,
     }));
   }
 
   replay(id, key, requestHash) {
-    const row = this.db.prepare('SELECT request_hash,response_json FROM idempotency_keys WHERE world_id=? AND idempotency_key=?').get(id, key);
+    const row = this._db.prepare('SELECT request_hash,response_json FROM idempotency_keys WHERE world_id=? AND idempotency_key=?').get(id, key);
     if (!row) return null;
     if (!row.request_hash) {
       throw new EngineError('IDEMPOTENCY_KEY_UNVERIFIABLE', 'This key predates request fingerprints; use a new idempotency key.', 409);
@@ -1063,12 +1098,12 @@ export class SQLiteStore {
     if (this.txDepth === 0) {
       return this.tx(() => this.saveReplay(id, key, requestHash, result));
     }
-    this.db.prepare('INSERT INTO idempotency_keys(world_id,idempotency_key,request_hash,response_json,created_at) VALUES(?,?,?,?,?)')
+    this._db.prepare('INSERT INTO idempotency_keys(world_id,idempotency_key,request_hash,response_json,created_at) VALUES(?,?,?,?,?)')
       .run(id, key, requestHash, enc(result), now());
   }
 
   validateEventReference(worldId, eventId, nextRevision, fieldName) {
-    const row = this.db.prepare('SELECT world_id,committed_revision,validity FROM world_events WHERE event_id=?').get(eventId);
+    const row = this._db.prepare('SELECT world_id,committed_revision,validity FROM world_events WHERE event_id=?').get(eventId);
     if (!row) throw new EngineError('INVALID_CAUSAL_REFERENCE', fieldName + ' references an event that does not exist: ' + eventId, 400, { field: fieldName, reference: eventId });
     if (row.world_id !== worldId) throw new EngineError('CROSS_WORLD_REFERENCE', fieldName + ' cannot reference an event from another world.', 400, { field: fieldName, reference: eventId });
     if (row.validity !== 'valid') throw new EngineError('INVALID_CAUSAL_REFERENCE', fieldName + ' references an invalid event: ' + eventId, 400, { field: fieldName, reference: eventId });
@@ -1077,13 +1112,13 @@ export class SQLiteStore {
 
 
   currentCommitSequence(worldId) {
-    return this.db.prepare('SELECT COALESCE(MAX(commit_sequence),0) AS value FROM world_events WHERE world_id=?').get(worldId).value;
+    return this._db.prepare('SELECT COALESCE(MAX(commit_sequence),0) AS value FROM world_events WHERE world_id=?').get(worldId).value;
   }
 
   registerContextManifest(worldId, manifest) {
     return this.tx(() => {
       if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-      const existing = this.db.prepare('SELECT * FROM context_manifests WHERE world_id=? AND generation_id=?').get(worldId, manifest.generation_id);
+      const existing = this._db.prepare('SELECT * FROM context_manifests WHERE world_id=? AND generation_id=?').get(worldId, manifest.generation_id);
       if (existing) {
         if (existing.manifest_hash === manifest.manifest_hash) {
           return {
@@ -1103,30 +1138,30 @@ export class SQLiteStore {
         throw new EngineError('CONTEXT_CURSOR_CONFLICT', 'Context manifest cursor must equal the current committed event cursor when the manifest is registered.', 409, { expected: currentCursor, received: manifest.base_commit_sequence });
       }
       for (const item of manifest.items) {
-        if (item.kind === 'entity' && !this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, item.target_id)) {
+        if (item.kind === 'entity' && !this._db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, item.target_id)) {
           throw new EngineError('INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest references an entity absent from the current projection: ' + item.target_id, 400, { item });
         }
-        if (item.kind === 'fact' && !this.db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, item.target_id)) {
+        if (item.kind === 'fact' && !this._db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, item.target_id)) {
           throw new EngineError('INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest references a fact absent from the current projection: ' + item.target_id, 400, { item });
         }
         if (item.kind === 'entity_absence') {
-          const entity = this.db.prepare('SELECT status FROM entities WHERE world_id=? AND entity_id=?').get(worldId, item.target_id);
+          const entity = this._db.prepare('SELECT status FROM entities WHERE world_id=? AND entity_id=?').get(worldId, item.target_id);
           if (entity && entity.status !== 'destroyed') throw new EngineError('INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest entity_absence must be true at the snapshot: ' + item.target_id, 400, { item });
         }
-        if (item.kind === 'fact_absence' && this.db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, item.target_id)) {
+        if (item.kind === 'fact_absence' && this._db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, item.target_id)) {
           throw new EngineError('INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest fact_absence must be true at the snapshot: ' + item.target_id, 400, { item });
         }
         if (item.kind === 'event') {
-          const event = this.db.prepare("SELECT 1 FROM world_events WHERE world_id=? AND event_id=? AND validity='valid' AND commit_sequence<=?").get(worldId, item.target_id, manifest.base_commit_sequence);
+          const event = this._db.prepare("SELECT 1 FROM world_events WHERE world_id=? AND event_id=? AND validity='valid' AND commit_sequence<=?").get(worldId, item.target_id, manifest.base_commit_sequence);
           if (!event) throw new EngineError('INVALID_CONTEXT_MANIFEST_ITEM', 'Manifest event must be valid and present at the manifest cursor: ' + item.target_id, 400, { item });
         }
       }
       const manifestId = randomUUID();
       const createdAt = now();
-      this.db.prepare('INSERT INTO context_manifests(manifest_id,world_id,generation_id,base_commit_sequence,base_world_revision,items_json,manifest_hash,created_at) VALUES(?,?,?,?,?,?,?,?)')
+      this._db.prepare('INSERT INTO context_manifests(manifest_id,world_id,generation_id,base_commit_sequence,base_world_revision,items_json,manifest_hash,created_at) VALUES(?,?,?,?,?,?,?,?)')
         .run(manifestId, worldId, manifest.generation_id, manifest.base_commit_sequence, manifest.base_world_revision, enc(manifest.items), manifest.manifest_hash, createdAt);
       const revision = this.world(worldId).world_revision;
-      this.db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?, 'context_manifest.registered',?,?,?)")
+      this._db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?, 'context_manifest.registered',?,?,?)")
         .run(worldId, revision, manifestId, enc({ generation_id: manifest.generation_id, base_commit_sequence: manifest.base_commit_sequence, base_world_revision: manifest.base_world_revision, item_count: manifest.items.length, manifest_hash: manifest.manifest_hash }), createdAt);
       return {
         manifest_id: manifestId, world_id: worldId, generation_id: manifest.generation_id,
@@ -1138,7 +1173,7 @@ export class SQLiteStore {
 
   validateContextManifest(worldId, event, baseRevision = null) {
     if (!event.context_manifest_id) return;
-    const manifest = this.db.prepare('SELECT * FROM context_manifests WHERE world_id=? AND manifest_id=?').get(worldId, event.context_manifest_id);
+    const manifest = this._db.prepare('SELECT * FROM context_manifests WHERE world_id=? AND manifest_id=?').get(worldId, event.context_manifest_id);
     if (!manifest) throw new EngineError('CONTEXT_MANIFEST_NOT_FOUND', 'context_manifest_id must reference a registered manifest in this world.', 400, { context_manifest_id: event.context_manifest_id });
     if (!event.generation_id || event.generation_id !== manifest.generation_id) {
       throw new EngineError('CONTEXT_GENERATION_MISMATCH', 'Event generation_id must match the context manifest generation_id.', 400, { event_generation_id: event.generation_id ?? null, manifest_generation_id: manifest.generation_id });
@@ -1170,7 +1205,7 @@ export class SQLiteStore {
   }
 
   currentEntityProjection(worldId) {
-    const rows = this.db.prepare('SELECT entity_id,entity_type,status,attributes_json FROM entities WHERE world_id=?').all(worldId);
+    const rows = this._db.prepare('SELECT entity_id,entity_type,status,attributes_json FROM entities WHERE world_id=?').all(worldId);
     return new Map(rows.map((row) => [row.entity_id, {
       entity_id: row.entity_id,
       entity_type: row.entity_type,
@@ -1180,7 +1215,7 @@ export class SQLiteStore {
   }
 
   entityProjectionAtCursor(worldId, beforeSequence, invalidEventIds = new Set()) {
-    const rows = this.db.prepare("SELECT event_id,effects_json FROM world_events WHERE world_id=? AND validity='valid' AND commit_sequence<? ORDER BY commit_sequence").all(worldId, beforeSequence);
+    const rows = this._db.prepare("SELECT event_id,effects_json FROM world_events WHERE world_id=? AND validity='valid' AND commit_sequence<? ORDER BY commit_sequence").all(worldId, beforeSequence);
     const entities = new Map();
     for (const row of rows) {
       if (invalidEventIds.has(row.event_id)) continue;
@@ -1190,7 +1225,7 @@ export class SQLiteStore {
   }
 
   factProjectionAtCursor(worldId, beforeSequence, invalidEventIds = new Set()) {
-    const rows = this.db.prepare("SELECT event_id,effects_json FROM world_events WHERE world_id=? AND validity='valid' AND commit_sequence<? ORDER BY commit_sequence").all(worldId, beforeSequence);
+    const rows = this._db.prepare("SELECT event_id,effects_json FROM world_events WHERE world_id=? AND validity='valid' AND commit_sequence<? ORDER BY commit_sequence").all(worldId, beforeSequence);
     const claims = new Map();
     for (const row of rows) {
       if (invalidEventIds.has(row.event_id)) continue;
@@ -1200,7 +1235,7 @@ export class SQLiteStore {
   }
 
   currentFactProjection(worldId) {
-    const rows = this.db.prepare('SELECT fact_id,status,value_json,candidates_json FROM facts WHERE world_id=?').all(worldId);
+    const rows = this._db.prepare('SELECT fact_id,status,value_json,candidates_json FROM facts WHERE world_id=?').all(worldId);
     return new Map(rows.map((row) => [row.fact_id, row.status === 'conflicted'
       ? { status: 'conflicted', values: dec(row.candidates_json) }
       : { status: row.status, value: dec(row.value_json), values: [dec(row.value_json)] }]));
@@ -1212,18 +1247,18 @@ export class SQLiteStore {
     for (const ref of event.depends_on) {
       if (ref.startsWith('entity:')) {
         const entityId = ref.slice('entity:'.length);
-        if (!entityId || !this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, entityId)) {
+        if (!entityId || !this._db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, entityId)) {
           throw new EngineError('INVALID_DEPENDENCY_REFERENCE', 'depends_on references an entity that does not exist in this world: ' + ref, 400, { reference: ref });
         }
       } else if (ref.startsWith('fact:')) {
         const factId = ref.slice('fact:'.length);
-        if (!factId || !this.db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, factId)) {
+        if (!factId || !this._db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, factId)) {
           throw new EngineError('INVALID_DEPENDENCY_REFERENCE', 'depends_on references a fact that does not exist in this world: ' + ref, 400, { reference: ref });
         }
       } else if (ref.startsWith('relationship:')) {
         const pair = parseRelationshipRef(ref);
-        if (!pair || !this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, pair.subjectId)
-          || !this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, pair.targetId)) {
+        if (!pair || !this._db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, pair.subjectId)
+          || !this._db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, pair.targetId)) {
           throw new EngineError('INVALID_DEPENDENCY_REFERENCE', 'depends_on Relationship reference must identify two entities in this world.', 400, { reference: ref });
         }
       } else {
@@ -1237,14 +1272,14 @@ export class SQLiteStore {
       if (!isEntity && !isFact && !relationshipPair) {
         throw new EngineError('INVALID_READ_SET_REFERENCE', 'read_set references must identify an entity, fact, or directed Relationship pair.', 400, { reference: ref });
       }
-      if (isEntity && !this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, ref.slice('entity:'.length))) {
+      if (isEntity && !this._db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, ref.slice('entity:'.length))) {
         throw new EngineError('INVALID_READ_SET_REFERENCE', 'read_set entity must exist in the current world at commit time: ' + ref, 400, { reference: ref });
       }
-      if (isFact && !this.db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, ref.slice('fact:'.length))) {
+      if (isFact && !this._db.prepare('SELECT 1 FROM facts WHERE world_id=? AND fact_id=?').get(worldId, ref.slice('fact:'.length))) {
         throw new EngineError('INVALID_READ_SET_REFERENCE', 'read_set fact must exist in the current world at commit time: ' + ref, 400, { reference: ref });
       }
-      if (relationshipPair && (!this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, relationshipPair.subjectId)
-        || !this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, relationshipPair.targetId))) {
+      if (relationshipPair && (!this._db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, relationshipPair.subjectId)
+        || !this._db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, relationshipPair.targetId))) {
         throw new EngineError('INVALID_READ_SET_REFERENCE', 'read_set Relationship pair must identify two entities in this world.', 400, { reference: ref });
       }
     }
@@ -1252,11 +1287,11 @@ export class SQLiteStore {
       if (link.relation === 'READS_SOURCE') {
         this.validateEventReference(worldId, link.target_id, nextRevision, 'causal_links');
       } else if (link.relation === 'READS_ENTITY') {
-        if (!this.db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, link.target_id)) {
+        if (!this._db.prepare('SELECT 1 FROM entities WHERE world_id=? AND entity_id=?').get(worldId, link.target_id)) {
           throw new EngineError('INVALID_CAUSAL_LINK', 'READS_ENTITY must reference an entity in this world: ' + link.target_id, 400, { relation: link.relation, target_id: link.target_id });
         }
       } else if (link.relation === 'READS_CLAIM') {
-        const claim = this.db.prepare('SELECT source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?').get(worldId, link.target_id);
+        const claim = this._db.prepare('SELECT source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?').get(worldId, link.target_id);
         if (!claim || dec(claim.source_event_ids_json).length === 0) {
           throw new EngineError('INVALID_CAUSAL_LINK', 'READS_CLAIM must reference a claim with at least one valid source in this world: ' + link.target_id, 400, { relation: link.relation, target_id: link.target_id });
         }
@@ -1316,7 +1351,7 @@ export class SQLiteStore {
         });
       }
       const eventId = x.event_id || randomUUID();
-      if (this.db.prepare('SELECT event_id FROM world_events WHERE event_id=?').get(eventId)) {
+      if (this._db.prepare('SELECT event_id FROM world_events WHERE event_id=?').get(eventId)) {
         throw new EngineError('EVENT_ALREADY_EXISTS', 'Event ID already exists.', 409);
       }
       const revision = w.world_revision + 1;
@@ -1342,7 +1377,7 @@ export class SQLiteStore {
               throw new EngineError('RELATIONSHIP_PARTICIPANT_NOT_ELIGIBLE', 'Both Relationship participants must be existing non-destroyed entities in this world.', 409, { participant_id: participantId });
             }
           }
-          const moduleRow = this.db.prepare('SELECT manifest_json FROM rule_module_manifests WHERE module_id=? AND version=?')
+          const moduleRow = this._db.prepare('SELECT manifest_json FROM rule_module_manifests WHERE module_id=? AND version=?')
             .get(effect.rule_module_id, effect.rule_module_version);
           if (!moduleRow) throw new EngineError('RELATIONSHIP_RULE_VERSION_NOT_FOUND', 'The exact Relationship rule-module version is not registered.', 409, { module_id: effect.rule_module_id, module_version: effect.rule_module_version });
           const manifest = dec(moduleRow.manifest_json);
@@ -1360,14 +1395,14 @@ export class SQLiteStore {
             if (!ref.startsWith('event:') || ref.length <= 'event:'.length) {
               throw new EngineError('INVALID_RELATIONSHIP_EVIDENCE_REFERENCE', 'Relationship evidence references must use event:<event_id> references.', 400, { reference: ref });
             }
-            const source = this.db.prepare('SELECT validity,commit_sequence FROM world_events WHERE world_id=? AND event_id=?')
+            const source = this._db.prepare('SELECT validity,commit_sequence FROM world_events WHERE world_id=? AND event_id=?')
               .get(id, ref.slice('event:'.length));
             if (!source || source.validity !== 'valid' || source.commit_sequence >= this.currentCommitSequence(id) + 1) {
               throw new EngineError('RELATIONSHIP_EVIDENCE_NOT_ELIGIBLE', 'Each evidence event must exist, be valid, and precede this transition in the same world.', 409, { reference: ref });
             }
           }
           const currentValues = {};
-          const currentRows = this.db.prepare('SELECT dimension,status,value_json FROM relationships WHERE world_id=? AND subject_id=? AND target_id=?')
+          const currentRows = this._db.prepare('SELECT dimension,status,value_json FROM relationships WHERE world_id=? AND subject_id=? AND target_id=?')
             .all(id, effect.subject_id, effect.target_id);
           for (const row of currentRows) {
             Object.defineProperty(currentValues, row.dimension, {
@@ -1396,7 +1431,7 @@ export class SQLiteStore {
           if (mechanicEffectIds.has(effect.instance_id)) throw new EngineError('DUPLICATE_MECHANIC_INSTANCE_EFFECT', 'An event may contain at most one lifecycle effect for a given mechanic instance.', 400, { instance_id: effect.instance_id });
           mechanicEffectIds.add(effect.instance_id);
           if (effect.kind === 'mechanic.instance.create') {
-            const templateRow = this.db.prepare('SELECT template_json FROM mechanic_templates WHERE template_id=? AND version=?').get(effect.template_id, effect.template_version);
+            const templateRow = this._db.prepare('SELECT template_json FROM mechanic_templates WHERE template_id=? AND version=?').get(effect.template_id, effect.template_version);
             if (!templateRow) throw new EngineError('MECHANIC_TEMPLATE_NOT_FOUND', 'The exact mechanic template version is not registered.', 404, { template_id: effect.template_id, template_version: effect.template_version });
             const template = dec(templateRow.template_json);
             const moduleRefs = [...(template.rule_modules || [])];
@@ -1409,7 +1444,7 @@ export class SQLiteStore {
               } else moduleRefs.push(resolver);
             }
             for (const moduleRef of moduleRefs) {
-              const moduleRow = this.db.prepare('SELECT manifest_json FROM rule_module_manifests WHERE module_id=? AND version=?').get(moduleRef.module_id, moduleRef.version);
+              const moduleRow = this._db.prepare('SELECT manifest_json FROM rule_module_manifests WHERE module_id=? AND version=?').get(moduleRef.module_id, moduleRef.version);
               if (!moduleRow) throw new EngineError('MECHANIC_INSTANCE_UNSUPPORTED_MODULE', 'The pinned template references a rule-module version that is not registered.', 409, { template_id: effect.template_id, template_version: effect.template_version, module_id: moduleRef.module_id, module_version: moduleRef.version });
               const manifest = dec(moduleRow.manifest_json);
               if (!manifest.compatibility.core_contract_versions.includes(template.schema_version)) throw new EngineError('MECHANIC_INSTANCE_MODULE_COMPATIBILITY_MISMATCH', 'A referenced rule module does not declare compatibility with the pinned template contract version.', 409, { module_id: moduleRef.module_id, module_version: moduleRef.version, template_schema_version: template.schema_version });
@@ -1417,9 +1452,9 @@ export class SQLiteStore {
               if (missingCapabilities.length) throw new EngineError('MECHANIC_INSTANCE_MODULE_CAPABILITY_MISMATCH', 'A referenced rule module does not declare all required capabilities.', 409, { module_id: moduleRef.module_id, module_version: moduleRef.version, missing_capabilities: missingCapabilities });
               if (moduleRef.required_operation && !manifest.operations.includes(moduleRef.required_operation)) throw new EngineError('MECHANIC_INSTANCE_MODULE_OPERATION_MISMATCH', 'The automatic conflict resolver does not declare resolve_conflict.', 409, { module_id: moduleRef.module_id, module_version: moduleRef.version });
             }
-            if (this.db.prepare('SELECT 1 FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(id, effect.instance_id)) throw new EngineError('MECHANIC_INSTANCE_ALREADY_EXISTS', 'Mechanic instance identity already exists in this world.', 409, { instance_id: effect.instance_id });
+            if (this._db.prepare('SELECT 1 FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(id, effect.instance_id)) throw new EngineError('MECHANIC_INSTANCE_ALREADY_EXISTS', 'Mechanic instance identity already exists in this world.', 409, { instance_id: effect.instance_id });
           } else {
-            const instance = this.db.prepare('SELECT status,last_event_id FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(id, effect.instance_id);
+            const instance = this._db.prepare('SELECT status,last_event_id FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(id, effect.instance_id);
             if (!instance) throw new EngineError('MECHANIC_INSTANCE_NOT_FOUND', 'Mechanic instance does not exist in this world.', 404, { instance_id: effect.instance_id });
             const expectedStatus = effect.kind === 'mechanic.instance.enable' ? 'disabled' : 'enabled';
             if (instance.status !== expectedStatus) throw new EngineError('INVALID_MECHANIC_INSTANCE_TRANSITION', 'Lifecycle transition is not valid from the current status.', 409, { instance_id: effect.instance_id, current_status: instance.status, requested_effect: effect.kind });
@@ -1433,7 +1468,7 @@ export class SQLiteStore {
           }
           factEffectIds.add(effect.fact_id);
           const subjectRef = effect.subject_ref ?? null;
-          const existingClaims = this.db.prepare(
+          const existingClaims = this._db.prepare(
             'SELECT subject_ref,predicate FROM fact_claims WHERE world_id=? AND fact_id=?'
           ).all(id, effect.fact_id);
           for (const claim of existingClaims) {
@@ -1469,7 +1504,7 @@ export class SQLiteStore {
           }
         }
       }
-      const commitSequence = this.db.prepare('SELECT COALESCE(MAX(commit_sequence),0)+1 AS next FROM world_events WHERE world_id=?').get(id).next;
+      const commitSequence = this._db.prepare('SELECT COALESCE(MAX(commit_sequence),0)+1 AS next FROM world_events WHERE world_id=?').get(id).next;
       const durationMs = x.time_advance_seconds * 1000;
       if (!Number.isSafeInteger(durationMs)) {
         throw new EngineError('INVALID_TIME_ADVANCE', 'Time advance cannot be represented as integer milliseconds.', 400);
@@ -1486,7 +1521,7 @@ export class SQLiteStore {
       }
       const time = projectedDate.toISOString();
       const createdAt = now();
-      this.db.prepare(`INSERT INTO world_events(
+      this._db.prepare(`INSERT INTO world_events(
         event_id,world_id,turn_id,generation_id,context_manifest_id,event_type,game_time,game_time_coordinate,committed_revision,commit_sequence,validity,
         caused_by_json,depends_on_json,read_set_json,causal_links_json,effects_json,time_advance_seconds,time_advance_ms,source_message_id,mechanic_execution_json,created_at
       ) VALUES(?,?,?,?,?,?,?,?,?,?,'valid',?,?,?,?,?,?,?,?,?,?)`).run(
@@ -1494,14 +1529,14 @@ export class SQLiteStore {
         enc(x.caused_by), enc(x.depends_on), enc(x.read_set), enc(x.causal_links ?? []), enc(x.effects), x.time_advance_seconds, durationMs,
         x.source_message_id || null, x.mechanic_execution ? enc(x.mechanic_execution) : null, createdAt,
       );
-      this.db.prepare('UPDATE worlds SET world_revision=?,game_time=?,game_time_coordinate=? WHERE world_id=?')
+      this._db.prepare('UPDATE worlds SET world_revision=?,game_time=?,game_time_coordinate=? WHERE world_id=?')
         .run(revision, time, gameTimeCoordinate, id);
       if (!options.deferRebuild) this.rebuild(id, revision);
       const result = {
         accepted: true, event_id: eventId, world_id: id, world_revision: revision, commit_sequence: commitSequence,
         game_time: this.world(id).game_time, game_time_coordinate: this.world(id).game_time_coordinate, effect_count: x.effects.length, idempotent_replay: false,
       };
-      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,\'event.committed\',?,?,?)')
+      this._db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,\'event.committed\',?,?,?)')
         .run(id, revision, eventId, enc({
           turn_id: x.turn_id, context_manifest_id: x.context_manifest_id || null, caused_by: x.caused_by, depends_on: x.depends_on,
           read_set: x.read_set, effects: x.effects, time_advance_seconds: x.time_advance_seconds,
@@ -1549,7 +1584,7 @@ export class SQLiteStore {
         eventKeys.add(event.idempotency_key);
       }
       for (const eventKey of eventKeys) {
-        if (this.db.prepare('SELECT 1 FROM idempotency_keys WHERE world_id=? AND idempotency_key=?').get(id, eventKey)) {
+        if (this._db.prepare('SELECT 1 FROM idempotency_keys WHERE world_id=? AND idempotency_key=?').get(id, eventKey)) {
           throw new EngineError('SEGMENT_EVENT_KEY_ALREADY_USED', 'An event idempotency key in this segment has already been used outside this segment.', 409, { idempotency_key: eventKey });
         }
       }
@@ -1598,7 +1633,7 @@ export class SQLiteStore {
 
   createTimeAdvanceOperation(input) {
     return this.tx(() => {
-      const old = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND idempotency_key=?')
+      const old = this._db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND idempotency_key=?')
         .get(input.world_id, input.idempotency_key);
       if (old) {
         if (old.request_hash !== input.request_hash) {
@@ -1618,7 +1653,7 @@ export class SQLiteStore {
         throw new EngineError('INVALID_TIME_TRIGGER_CLAIM', 'claimed_trigger_ids must be a unique list of non-empty trigger IDs.', 400);
       }
       for (const triggerId of triggerIds) {
-        const trigger = this.db.prepare('SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+        const trigger = this._db.prepare('SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
           .get(input.world_id, triggerId);
         if (!trigger) throw new EngineError('TIME_TRIGGER_NOT_FOUND', 'A planned trigger no longer exists.', 409, { trigger_id: triggerId });
         if (trigger.status !== 'pending' || trigger.claimed_by_operation_id !== null) {
@@ -1628,7 +1663,7 @@ export class SQLiteStore {
         }
       }
       const stamp = now();
-      this.db.prepare(`INSERT INTO time_advance_operations(
+      this._db.prepare(`INSERT INTO time_advance_operations(
         world_id,operation_id,idempotency_key,request_hash,from_coordinate,target_coordinate,confirmed_coordinate,
         starting_world_revision,current_world_revision,status,next_segment_index,segments_json,plan_json,result_json,error_json,created_at,updated_at
       ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(
@@ -1639,37 +1674,37 @@ export class SQLiteStore {
         input.error ? enc(input.error) : null, stamp, stamp,
       );
       for (const triggerId of triggerIds) {
-        this.db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=?,updated_at=? WHERE world_id=? AND trigger_id=?')
+        this._db.prepare('UPDATE world_time_triggers SET claimed_by_operation_id=?,updated_at=? WHERE world_id=? AND trigger_id=?')
           .run(input.operation_id, stamp, input.world_id, triggerId);
       }
-      return timeAdvanceOperation(this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+      return timeAdvanceOperation(this._db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
         .get(input.world_id, input.operation_id));
     });
   }
 
   getTimeAdvanceOperation(worldId, operationId) {
-    const row = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+    const row = this._db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
       .get(worldId, operationId);
     if (!row) throw new EngineError('TIME_ADVANCE_OPERATION_NOT_FOUND', 'Time-advance operation not found.', 404);
     return timeAdvanceOperation(row);
   }
 
   getTimeAdvanceOperationByKey(worldId, idempotencyKey) {
-    const row = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND idempotency_key=?')
+    const row = this._db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND idempotency_key=?')
       .get(worldId, idempotencyKey);
     return row ? timeAdvanceOperation(row) : null;
   }
 
   resumeTimeAdvanceOperation(worldId, operationId) {
     while (true) {
-      const current = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+      const current = this._db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
         .get(worldId, operationId);
       if (!current) throw new EngineError('TIME_ADVANCE_OPERATION_NOT_FOUND', 'Time-advance operation not found.', 404);
       if (current.status !== 'running') return timeAdvanceOperation(current);
       const segments = dec(current.segments_json);
       if (current.next_segment_index >= segments.length) {
         this.tx(() => {
-          const fresh = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+          const fresh = this._db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
             .get(worldId, operationId);
           if (!fresh || fresh.status !== 'running') return;
           const plan = dec(fresh.plan_json);
@@ -1685,14 +1720,14 @@ export class SQLiteStore {
                 : plan.final_action_status,
             } : {}),
           };
-          this.db.prepare('UPDATE time_advance_operations SET status=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?')
+          this._db.prepare('UPDATE time_advance_operations SET status=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?')
             .run(finalStatus, enc(result), now(), worldId, operationId);
         });
         continue;
       }
       try {
         this.tx(() => {
-          const fresh = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+          const fresh = this._db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
             .get(worldId, operationId);
           if (!fresh || fresh.status !== 'running') return;
           const worldAtStart = this.world(worldId);
@@ -1707,7 +1742,7 @@ export class SQLiteStore {
               expected_revision: fresh.current_world_revision,
               current_revision: worldAtStart.world_revision,
             };
-            this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
+            this._db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
               .run(enc(errorBody), now(), worldId, operationId);
             return;
           }
@@ -1731,7 +1766,7 @@ export class SQLiteStore {
             ? (plan.completed_trigger_ids || [])
             : completedFromSegments;
           for (const triggerId of segment.registered_trigger_ids ?? []) {
-            const trigger = this.db.prepare('SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+            const trigger = this._db.prepare('SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
               .get(worldId, triggerId);
             if (!trigger || trigger.status !== 'pending' || trigger.claimed_by_operation_id !== operationId) {
               throw new EngineError('TIME_TRIGGER_CHECKPOINT_CONFLICT', 'A trigger claim no longer matches the segment being committed.', 409, {
@@ -1740,10 +1775,10 @@ export class SQLiteStore {
               });
             }
             const triggerStamp = now();
-            this.db.prepare(`UPDATE world_time_triggers SET status='completed',claimed_by_operation_id=NULL,
+            this._db.prepare(`UPDATE world_time_triggers SET status='completed',claimed_by_operation_id=NULL,
               completed_operation_id=?,updated_at=? WHERE world_id=? AND trigger_id=?`)
               .run(operationId, triggerStamp, worldId, triggerId);
-            this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+            this._db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
               .run(worldId, worldAfter.world_revision, 'time.trigger.completed', triggerId, enc({
                 operation_id: operationId, due_coordinate: segment.coordinate,
               }), triggerStamp);
@@ -1765,7 +1800,7 @@ export class SQLiteStore {
                 : plan.final_action_status,
             } : {}),
           };
-          this.db.prepare(`UPDATE time_advance_operations SET
+          this._db.prepare(`UPDATE time_advance_operations SET
             confirmed_coordinate=?,current_world_revision=?,next_segment_index=?,status=?,result_json=?,error_json=NULL,updated_at=?
             WHERE world_id=? AND operation_id=?`).run(
             segment.coordinate, worldAfter.world_revision, nextIndex, status, enc(result), now(), worldId, operationId,
@@ -1773,7 +1808,7 @@ export class SQLiteStore {
         });
       } catch (error) {
         this.tx(() => {
-          const fresh = this.db.prepare('SELECT status,plan_json,result_json FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+          const fresh = this._db.prepare('SELECT status,plan_json,result_json FROM time_advance_operations WHERE world_id=? AND operation_id=?')
             .get(worldId, operationId);
           if (!fresh || fresh.status !== 'running') return;
           const errorBody = { code: error?.code || 'TIME_ADVANCE_SEGMENT_FAILED', message: error?.message || 'Time-advance segment failed and requires review.' };
@@ -1782,7 +1817,7 @@ export class SQLiteStore {
           if (plan.final_action_status === 'pending' && result) {
             result = { ...result, final_action_status: 'not_committed_needs_review' };
           }
-          this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
+          this._db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,result_json=?,updated_at=? WHERE world_id=? AND operation_id=?")
             .run(enc(errorBody), result ? enc(result) : null, now(), worldId, operationId);
         });
       }
@@ -1797,12 +1832,12 @@ export class SQLiteStore {
           processing_mode,interrupt_after_coordinate,content_hash,claimed_by_operation_id,completed_operation_id,
           cancellation_reason,created_revision,created_at,updated_at
         FROM world_time_triggers WHERE world_id=? ORDER BY due_coordinate,trigger_id`;
-    return this.db.prepare(query).all(worldId).map((row) => timeTrigger(row, includePayload));
+    return this._db.prepare(query).all(worldId).map((row) => timeTrigger(row, includePayload));
   }
 
   getTimeTrigger(worldId, triggerId) {
     if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-    const row = this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+    const row = this._db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
       .get(worldId, triggerId);
     if (!row) throw new EngineError('TIME_TRIGGER_NOT_FOUND', 'Time trigger not found.', 404);
     return timeTrigger(row);
@@ -1812,7 +1847,7 @@ export class SQLiteStore {
     return this.tx(() => {
       const world = this.world(worldId);
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-      const existing = this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+      const existing = this._db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
         .get(worldId, trigger.trigger_id);
       if (existing) {
         if (existing.content_hash !== trigger.content_hash) {
@@ -1825,18 +1860,18 @@ export class SQLiteStore {
           current_coordinate: world.game_time_coordinate, due_coordinate: trigger.due_coordinate,
         });
       }
-      const count = this.db.prepare('SELECT COUNT(*) AS count FROM world_time_triggers WHERE world_id=?').get(worldId).count;
+      const count = this._db.prepare('SELECT COUNT(*) AS count FROM world_time_triggers WHERE world_id=?').get(worldId).count;
       if (count >= 10000) {
         throw new EngineError('TIME_TRIGGER_LIMIT', 'A world cannot register more than 10000 time triggers in this runtime slice.', 409);
       }
-      const currentPayloadBytes = this.db.prepare('SELECT COALESCE(SUM(length(CAST(payload_json AS BLOB))),0) AS bytes FROM world_time_triggers WHERE world_id=?').get(worldId).bytes;
+      const currentPayloadBytes = this._db.prepare('SELECT COALESCE(SUM(length(CAST(payload_json AS BLOB))),0) AS bytes FROM world_time_triggers WHERE world_id=?').get(worldId).bytes;
       const incomingPayloadBytes = Buffer.byteLength(enc(trigger.payload), 'utf8');
       if (currentPayloadBytes + incomingPayloadBytes > 33554432) {
         throw new EngineError('TIME_TRIGGER_STORAGE_LIMIT', 'A world cannot store more than 32 MiB of durable trigger payloads in this runtime slice.', 409);
       }
       const nextRevision = world.world_revision + 1;
       const stamp = now();
-      this.db.prepare(`INSERT INTO world_time_triggers(
+      this._db.prepare(`INSERT INTO world_time_triggers(
         world_id,trigger_id,due_coordinate,status,dependencies_json,read_set_json,write_set_json,
         processing_mode,interrupt_after_coordinate,payload_json,content_hash,claimed_by_operation_id,
         completed_operation_id,cancellation_reason,created_revision,created_at,updated_at
@@ -1846,8 +1881,8 @@ export class SQLiteStore {
         trigger.processing_mode, trigger.interrupt_after_coordinate ? 1 : 0, enc(trigger.payload),
         trigger.content_hash, nextRevision, stamp, stamp,
       );
-      this.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(nextRevision, worldId);
-      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+      this._db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(nextRevision, worldId);
+      this._db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
         .run(worldId, nextRevision, 'time.trigger.registered', trigger.trigger_id, enc({
           due_coordinate: trigger.due_coordinate,
           content_hash: trigger.content_hash,
@@ -1855,7 +1890,7 @@ export class SQLiteStore {
           dependency_count: trigger.dependencies.length,
           interrupt_after_coordinate: trigger.interrupt_after_coordinate,
         }), stamp);
-      return { ...timeTrigger(this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+      return { ...timeTrigger(this._db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
         .get(worldId, trigger.trigger_id)), idempotent_replay: false };
     });
   }
@@ -1864,7 +1899,7 @@ export class SQLiteStore {
     return this.tx(() => {
       const world = this.world(worldId);
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-      const row = this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+      const row = this._db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
         .get(worldId, triggerId);
       if (!row) throw new EngineError('TIME_TRIGGER_NOT_FOUND', 'Time trigger not found.', 404);
       if (row.status === 'cancelled') return { ...timeTrigger(row), idempotent_replay: true };
@@ -1872,7 +1907,7 @@ export class SQLiteStore {
         throw new EngineError('TIME_TRIGGER_ALREADY_COMPLETED', 'A completed time trigger cannot be cancelled.', 409);
       }
       if (row.claimed_by_operation_id) {
-        const operation = this.db.prepare('SELECT status FROM time_advance_operations WHERE world_id=? AND operation_id=?')
+        const operation = this._db.prepare('SELECT status FROM time_advance_operations WHERE world_id=? AND operation_id=?')
           .get(worldId, row.claimed_by_operation_id);
         if (operation?.status === 'running') {
           throw new EngineError('TIME_TRIGGER_CLAIMED', 'A trigger claimed by a running time-advance operation cannot be cancelled.', 409, {
@@ -1882,15 +1917,15 @@ export class SQLiteStore {
       }
       const nextRevision = world.world_revision + 1;
       const stamp = now();
-      this.db.prepare(`UPDATE world_time_triggers SET status='cancelled',claimed_by_operation_id=NULL,
+      this._db.prepare(`UPDATE world_time_triggers SET status='cancelled',claimed_by_operation_id=NULL,
         cancellation_reason=?,updated_at=? WHERE world_id=? AND trigger_id=?`)
         .run(reason, stamp, worldId, triggerId);
-      this.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(nextRevision, worldId);
-      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+      this._db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(nextRevision, worldId);
+      this._db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
         .run(worldId, nextRevision, 'time.trigger.cancelled', triggerId, enc({
           reason, previous_claimed_by_operation_id: row.claimed_by_operation_id,
         }), stamp);
-      return { ...timeTrigger(this.db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
+      return { ...timeTrigger(this._db.prepare('SELECT * FROM world_time_triggers WHERE world_id=? AND trigger_id=?')
         .get(worldId, triggerId)), idempotent_replay: false };
     });
   }
@@ -1903,12 +1938,12 @@ export class SQLiteStore {
         || config.world_pack_version !== worldAtStart.world_pack_version) {
         throw new EngineError('TIME_CONFIG_WORLD_PACK_MISMATCH', 'Time configuration must match the world\'s pinned World Pack ID and version.', 409);
       }
-      const existing = this.db.prepare('SELECT * FROM world_time_configurations WHERE world_id=? AND version=?')
+      const existing = this._db.prepare('SELECT * FROM world_time_configurations WHERE world_id=? AND version=?')
         .get(worldId, config.version);
       const activeConfig = worldAtStart.time_config_version
         ? this.getTimeConfiguration(worldId, worldAtStart.time_config_version)
         : null;
-      const eventCount = this.db.prepare('SELECT COUNT(*) AS count FROM world_events WHERE world_id=?').get(worldId).count;
+      const eventCount = this._db.prepare('SELECT COUNT(*) AS count FROM world_events WHERE world_id=?').get(worldId).count;
       if (!activeConfig && eventCount > 0) {
         throw new EngineError('TIME_CONFIG_INITIALIZATION_REQUIRES_AUTHOR_POLICY', 'Initializing a calendar after world history exists requires an explicit author rebase policy.', 409);
       }
@@ -1935,7 +1970,7 @@ export class SQLiteStore {
       const nextRevision = worldAtStart.world_revision + 1;
       const stamp = now();
       if (!existing) {
-        this.db.prepare(`INSERT INTO world_time_configurations(
+        this._db.prepare(`INSERT INTO world_time_configurations(
           world_id,version,world_pack_id,world_pack_version,calendar_definition_json,time_policy_json,
           content_hash,created_by,created_revision,created_at
         ) VALUES(?,?,?,?,?,?,?,?,?,?)`).run(
@@ -1944,9 +1979,9 @@ export class SQLiteStore {
           config.created_by, nextRevision, stamp,
         );
       }
-      this.db.prepare('UPDATE worlds SET time_config_version=?,world_revision=? WHERE world_id=?')
+      this._db.prepare('UPDATE worlds SET time_config_version=?,world_revision=? WHERE world_id=?')
         .run(config.version, nextRevision, worldId);
-      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+      this._db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
         .run(worldId, nextRevision, 'time.configuration.activated', config.version, enc({
           world_pack_id: config.world_pack_id,
           world_pack_version: config.world_pack_version,
@@ -1966,7 +2001,7 @@ export class SQLiteStore {
     if (!worldAtStart) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
     const selectedVersion = version ?? worldAtStart.time_config_version;
     if (selectedVersion === null || selectedVersion === undefined) return null;
-    const row = this.db.prepare('SELECT * FROM world_time_configurations WHERE world_id=? AND version=?')
+    const row = this._db.prepare('SELECT * FROM world_time_configurations WHERE world_id=? AND version=?')
       .get(worldId, selectedVersion);
     if (!row) throw new EngineError('TIME_CONFIG_NOT_FOUND', 'Time configuration version not found for this world.', 404);
     return this.publicTimeConfiguration(row, worldAtStart.time_config_version === row.version);
@@ -1994,7 +2029,7 @@ export class SQLiteStore {
       if (old) return { ...old, idempotent_replay: true };
       const w = this.world(id);
       if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-      const root = this.db.prepare('SELECT * FROM world_events WHERE world_id=? AND event_id=?').get(id, rootId);
+      const root = this._db.prepare('SELECT * FROM world_events WHERE world_id=? AND event_id=?').get(id, rootId);
       if (!root) throw new EngineError('EVENT_NOT_FOUND', 'Event not found.', 404);
       if (root.validity !== 'valid') {
         const result = {
@@ -2126,11 +2161,11 @@ export class SQLiteStore {
       const revision = w.world_revision + 1;
       const createdAt = now();
       const ids = [...invalid];
-      const update = this.db.prepare('UPDATE world_events SET validity=?,rollback_id=? WHERE world_id=? AND event_id=?');
+      const update = this._db.prepare('UPDATE world_events SET validity=?,rollback_id=? WHERE world_id=? AND event_id=?');
       for (const eventId of ids) update.run(eventId === rootId ? 'retracted' : 'invalidated', rollbackId, id, eventId);
-      this.db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(revision, id);
+      this._db.prepare('UPDATE worlds SET world_revision=? WHERE world_id=?').run(revision, id);
       if (this.processStore) this.processStore.invalidateEvents(id, ids, rollbackId);
-      this.db.prepare('INSERT INTO rollbacks(rollback_id,world_id,root_event_id,invalidated_event_ids_json,world_revision,created_at,idempotency_key) VALUES(?,?,?,?,?,?,?)')
+      this._db.prepare('INSERT INTO rollbacks(rollback_id,world_id,root_event_id,invalidated_event_ids_json,world_revision,created_at,idempotency_key) VALUES(?,?,?,?,?,?,?)')
         .run(rollbackId, id, rootId, enc(ids), revision, createdAt, key);
       this.rebuild(id, revision);
       const result = {
@@ -2138,7 +2173,7 @@ export class SQLiteStore {
         requires_review_event_ids: [], requires_review_items: [], rollback_outcome: 'resolved',
         world_revision: revision, no_op: false, idempotent_replay: false,
       };
-      this.db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,\'rollback.applied\',?,?,?)")
+      this._db.prepare("INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,\'rollback.applied\',?,?,?)")
         .run(id, revision, rollbackId, enc({
           root_event_id: rootId, invalidated_event_ids: ids, rollback_outcome: 'resolved',
           requires_review_event_ids: [], requires_review_items: [],
@@ -2150,13 +2185,13 @@ export class SQLiteStore {
 
   getMechanicInstance(worldId, instanceId) {
     if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-    const row = this.db.prepare('SELECT * FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(worldId, instanceId);
+    const row = this._db.prepare('SELECT * FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(worldId, instanceId);
     if (!row) throw new EngineError('MECHANIC_INSTANCE_NOT_FOUND', 'Mechanic instance not found in this world.', 404);
     return this.publicMechanicInstance(row);
   }
   listMechanicInstances(worldId) {
     if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-    return this.db.prepare('SELECT * FROM mechanic_instances WHERE world_id=? ORDER BY instance_id').all(worldId).map((row) => this.publicMechanicInstance(row));
+    return this._db.prepare('SELECT * FROM mechanic_instances WHERE world_id=? ORDER BY instance_id').all(worldId).map((row) => this.publicMechanicInstance(row));
   }
   publicMechanicInstance(row) {
     return { world_id: row.world_id, instance_id: row.instance_id, template_id: row.template_id, template_version: row.template_version,
@@ -2168,7 +2203,7 @@ export class SQLiteStore {
 
   relationshipProjectionAtCursor(worldId, subjectId, targetId, cursor, excluded = new Set()) {
     const values = new Map();
-    const rows = this.db.prepare("SELECT event_id,commit_sequence,effects_json FROM world_events WHERE world_id=? AND validity='valid' AND commit_sequence<? ORDER BY commit_sequence")
+    const rows = this._db.prepare("SELECT event_id,commit_sequence,effects_json FROM world_events WHERE world_id=? AND validity='valid' AND commit_sequence<? ORDER BY commit_sequence")
       .all(worldId, cursor);
     for (const row of rows) {
       if (excluded.has(row.event_id)) continue;
@@ -2187,7 +2222,7 @@ export class SQLiteStore {
     const read = () => {
       const w = this.world(worldId);
       if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-      const rows = this.db.prepare('SELECT dimension,status,value_json,rule_module_id,rule_module_version,last_event_id,updated_revision FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? ORDER BY dimension')
+      const rows = this._db.prepare('SELECT dimension,status,value_json,rule_module_id,rule_module_version,last_event_id,updated_revision FROM relationships WHERE world_id=? AND subject_id=? AND target_id=? ORDER BY dimension')
         .all(worldId, subjectId, targetId);
       const dimensions = {};
       for (const row of rows) {
@@ -2207,15 +2242,15 @@ export class SQLiteStore {
     if (this.txDepth > 0) return read();
     let began = false;
     try {
-      this.db.exec('BEGIN');
+      this._db.exec('BEGIN');
       began = true;
       const pair = read();
-      this.db.exec('COMMIT');
+      this._db.exec('COMMIT');
       began = false;
       return pair;
     } catch (error) {
       if (began) {
-        try { this.db.exec('ROLLBACK'); } catch {}
+        try { this._db.exec('ROLLBACK'); } catch {}
       }
       throw error;
     }
@@ -2227,25 +2262,25 @@ export class SQLiteStore {
     if (this.txDepth === 0) {
       return this.tx(() => this.rebuild(id, revision));
     }
-    this.db.prepare('DELETE FROM mechanic_instances WHERE world_id=?').run(id);
-    this.db.prepare('DELETE FROM entities WHERE world_id=?').run(id);
-    this.db.prepare('DELETE FROM facts WHERE world_id=?').run(id);
-    this.db.prepare('DELETE FROM fact_claims WHERE world_id=?').run(id);
-    this.db.prepare('DELETE FROM relationships WHERE world_id=?').run(id);
-    const events = this.db.prepare("SELECT * FROM world_events WHERE world_id=? AND validity='valid' ORDER BY commit_sequence").all(id);
-    const upsertEntity = this.db.prepare(`INSERT INTO entities(
+    this._db.prepare('DELETE FROM mechanic_instances WHERE world_id=?').run(id);
+    this._db.prepare('DELETE FROM entities WHERE world_id=?').run(id);
+    this._db.prepare('DELETE FROM facts WHERE world_id=?').run(id);
+    this._db.prepare('DELETE FROM fact_claims WHERE world_id=?').run(id);
+    this._db.prepare('DELETE FROM relationships WHERE world_id=?').run(id);
+    const events = this._db.prepare("SELECT * FROM world_events WHERE world_id=? AND validity='valid' ORDER BY commit_sequence").all(id);
+    const upsertEntity = this._db.prepare(`INSERT INTO entities(
       world_id,entity_id,entity_type,status,attributes_json,created_by_event_id,updated_revision
     ) VALUES(?,?,?,?,?,?,?) ON CONFLICT(world_id,entity_id) DO UPDATE SET
       entity_type=excluded.entity_type,status=excluded.status,attributes_json=excluded.attributes_json,
       created_by_event_id=excluded.created_by_event_id,updated_revision=excluded.updated_revision`);
-    const insertClaim = this.db.prepare('INSERT INTO fact_claims(world_id,fact_id,event_id,subject_ref,predicate,value_json,committed_revision) VALUES(?,?,?,?,?,?,?)');
-    const insertMechanic = this.db.prepare(`INSERT INTO mechanic_instances(
+    const insertClaim = this._db.prepare('INSERT INTO fact_claims(world_id,fact_id,event_id,subject_ref,predicate,value_json,committed_revision) VALUES(?,?,?,?,?,?,?)');
+    const insertMechanic = this._db.prepare(`INSERT INTO mechanic_instances(
       world_id,instance_id,template_id,template_version,status,parameters_json,state_json,created_by_event_id,created_revision,updated_revision,disabled_at_revision,needs_review_reason,last_event_id
     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL,?)`);
     for (const event of events) {
       for (const effect of dec(event.effects_json)) {
         if (effect.kind === 'relationship.transition') {
-          const upsertRelationship = this.db.prepare(`INSERT INTO relationships(
+          const upsertRelationship = this._db.prepare(`INSERT INTO relationships(
             world_id,subject_id,target_id,dimension,status,value_json,rule_module_id,rule_module_version,last_event_id,updated_revision
           ) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(world_id,subject_id,target_id,dimension) DO UPDATE SET
             status=excluded.status,value_json=excluded.value_json,rule_module_id=excluded.rule_module_id,
@@ -2258,20 +2293,20 @@ export class SQLiteStore {
         } else if (effect.kind === 'mechanic.instance.create') {
           insertMechanic.run(id, effect.instance_id, effect.template_id, effect.template_version, 'disabled', enc(effect.parameters || {}), enc(effect.state || {}), event.event_id, event.committed_revision, event.committed_revision, event.committed_revision, event.event_id);
         } else if (effect.kind === 'mechanic.instance.enable' || effect.kind === 'mechanic.instance.disable') {
-          const current = this.db.prepare('SELECT status FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(id, effect.instance_id);
+          const current = this._db.prepare('SELECT status FROM mechanic_instances WHERE world_id=? AND instance_id=?').get(id, effect.instance_id);
           if (!current) throw new EngineError('MECHANIC_PROJECTION_REBUILD_FAILED', 'Lifecycle event has no valid create event in the rebuilt projection.', 500, { instance_id: effect.instance_id, event_id: event.event_id });
           const status = effect.kind === 'mechanic.instance.enable' ? 'enabled' : 'disabled';
-          this.db.prepare('UPDATE mechanic_instances SET status=?,updated_revision=?,disabled_at_revision=?,last_event_id=? WHERE world_id=? AND instance_id=?')
+          this._db.prepare('UPDATE mechanic_instances SET status=?,updated_revision=?,disabled_at_revision=?,last_event_id=? WHERE world_id=? AND instance_id=?')
             .run(status, event.committed_revision, status === 'disabled' ? event.committed_revision : null, event.event_id, id, effect.instance_id);
         } else if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
           upsertEntity.run(id, effect.entity_id, effect.entity_type, effect.status || 'active', enc(effect.attributes || {}), event.event_id, event.committed_revision);
         } else if (effect.kind === 'entity.update') {
-          const current = this.db.prepare('SELECT entity_type,status,attributes_json,created_by_event_id FROM entities WHERE world_id=? AND entity_id=?').get(id, effect.entity_id);
+          const current = this._db.prepare('SELECT entity_type,status,attributes_json,created_by_event_id FROM entities WHERE world_id=? AND entity_id=?').get(id, effect.entity_id);
           if (current) {
             const attributes = dec(current.attributes_json);
             Object.assign(attributes, effect.attributes || {});
             for (const key of effect.remove_attributes || []) delete attributes[key];
-            this.db.prepare('UPDATE entities SET status=?,attributes_json=?,updated_revision=? WHERE world_id=? AND entity_id=?')
+            this._db.prepare('UPDATE entities SET status=?,attributes_json=?,updated_revision=? WHERE world_id=? AND entity_id=?')
               .run(effect.status ?? current.status, enc(attributes), event.committed_revision, id, effect.entity_id);
           }
         } else if (effect.kind === 'entity.delete') {
@@ -2281,14 +2316,14 @@ export class SQLiteStore {
         }
       }
     }
-    const claims = this.db.prepare('SELECT * FROM fact_claims WHERE world_id=? ORDER BY committed_revision,event_id').all(id);
+    const claims = this._db.prepare('SELECT * FROM fact_claims WHERE world_id=? ORDER BY committed_revision,event_id').all(id);
     const groups = new Map();
     for (const claim of claims) {
       const group = groups.get(claim.fact_id) || [];
       group.push(claim);
       groups.set(claim.fact_id, group);
     }
-    const insertFact = this.db.prepare('INSERT INTO facts(world_id,fact_id,subject_ref,predicate,status,value_json,candidates_json,source_event_ids_json,updated_revision) VALUES(?,?,?,?,?,?,?,?,?)');
+    const insertFact = this._db.prepare('INSERT INTO facts(world_id,fact_id,subject_ref,predicate,status,value_json,candidates_json,source_event_ids_json,updated_revision) VALUES(?,?,?,?,?,?,?,?,?)');
     for (const [factId, group] of groups) {
       const values = new Map(group.map((claim) => [claim.value_json, dec(claim.value_json)]));
       const last = group.at(-1);
