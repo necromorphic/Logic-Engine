@@ -254,5 +254,5 @@ test('trigger payload normalization copies plain JSON data and canonicalizes neg
   const normalized = plan.segments[0].triggers[0].payload;
   assert.deepEqual(normalized, { nested: [{ value: 0 }, null, true] });
   normalized.nested[0].value = 99;
-  assert.equal(payload.nested[0].value, 0);
+  assert.equal(Object.is(payload.nested[0].value, -0), true);
 });
