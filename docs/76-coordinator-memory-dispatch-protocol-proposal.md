@@ -175,3 +175,38 @@ Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
 5. **End-to-end exit:** the approved vertical slice must prove exact source/version/lineage → persisted Provider record/index → restart/reconciliation → Core-authorized read → NPC admission, with the final disclosure boundary tested separately. Any unresolved source authority, inventory, or final-dispatch condition keeps production disabled.
 
 **Disposition for blocker 1:** the actual SQLite Provider and real-component test scaffold exist in a draft branch; the production adapter binding does not. The remaining critical gap is not “write another fixture test”; it is the absence of approved Core source/version/inventory evidence to bind into the existing Provider dependencies. No runtime code/API/schema change is made by this section. Memory → NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+## 10. Superseding checkpoint — source-version mapping approved; independent gates remain (26 Oct 2026)
+
+This section supersedes any earlier statement in sections 8–9 that the bounded direct-canonical-entity source-version mapping is still awaiting Core approval. It does **not** supersede the fail-closed disposition for inventory completeness or final dispatch.
+
+### Core decision now accepted
+
+Core issue #140 has conditionally approved the following existing-code mapping for **direct `canonical_entity` records only**:
+
+- `source_entity_id` must identify exactly one canonical entity in the same `worldId`.
+- Provider `source_version` must equal the canonical decimal string of the current entity `updated_revision` returned by `engine.getSnapshot(worldId, { entityIds: [source_entity_id] })`.
+- Missing, malformed, mismatched, destroyed, unknown-status, unavailable or stale evidence means NON_READY/DENY. Do not accept `fixture-source-v1` as authority.
+- Revalidate the existing snapshot cursor where supported, but do not treat `commit_sequence` as a source-change journal.
+- Rollback R2→R1 must reject a record pinned to R2 even if `commit_sequence` is unchanged. If the actual Core projection cannot demonstrate that result, the case remains unsupported and denied.
+
+Decision references:
+- [Core bounded source-version decision](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6413031215)
+- [Core rollback/retraction rule and required regression](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6413100985)
+
+### Corrected owner sequence
+
+1. **Memory Provider:** implement the approved mapping through the existing injected dependency seam; remove positive fixture source-version acceptance from the relevant integration proof; add rollback, missing/mismatch/destroyed/unknown/unavailable fail-closed cases; separately prove file-backed SQLite restart → rebuild → reconcile → retrieve/deny and that revoked grants do not reappear. Report the actual PR HEAD, changed files, exact command, and exact-HEAD Runtime CI. No new API/schema/store or production wiring.
+2. **Coordinator:** compare the returned Provider diff and tests to the exact Core acceptance conditions, and do not treat comments about a commit as proof that it is the current PR HEAD. The PR's actual current head must be read from GitHub before assigning CI evidence.
+3. **Host/Adapter:** the complete active + historical/deleted inventory remains **NO SUCH MECHANISM FOUND / NON_READY**. The bounded recording-fake-provider harness on the disposable pinned ST checkout remains a separate required artifact; no raw prompt retention and no production interceptor.
+4. **Core + Host + Product/Security:** the final model-disclosure/dispatch seam remains unapproved. There is no demonstrated serialization of revocation against dispatch-start and no real-path zero-egress proof. The documentation proposal in this PR is not an implementation or approval.
+5. **Coordinator exit decision:** source-version mapping and Provider persistence evidence can close only their own sub-gates. They cannot close Host inventory completeness, raw-source retention policy, subject-relative disclosure authorization, or dispatch/revocation atomicity.
+
+### Current disposition
+
+- Bounded direct canonical-entity source mapping: **CORE-APPROVED, IMPLEMENTATION/CI STILL TO VERIFY**.
+- Provider restart/rebuild/revocation persistence: **SEPARATE PROVIDER ACCEPTANCE GATE**.
+- Complete Host source inventory across edit/delete/swipe/import/restore/restart/replay: **NON_READY**.
+- Callable final-disclosure gate and revoke-to-dispatch serialization: **NOT APPROVED / NOT PROVEN**.
+- Production Memory → NPC: **DISABLED / FAIL-CLOSED**.
