@@ -105,6 +105,35 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
   assert.ok(published.every(entry => !JSON.stringify(entry).includes('edited answer')));
 });
 
+test('digest sync retry replays durable tombstones after a partial failed publication', async () => {
+  let fail = false;
+  const published = [];
+  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }], {
+    publishDigest: async entry => {
+      if (fail) throw Error('upstream unavailable');
+      published.push(structuredClone(entry));
+    },
+  });
+  await f.bridge.enrollCurrentConversation();
+  published.length = 0;
+  const removedVersionId = f.chat[0]._logicEngineLifecycle.versions[0].versionId;
+
+  await f.bridge.beforeMutation('delete-swipe', [0], { swipeIndex: 0 });
+  f.chat[0].swipes.splice(0, 1);
+  f.chat[0].mes = 'swipe B';
+  f.chat[0].swipe_id = 0;
+  fail = true;
+  const after = await f.bridge.afterMutation('delete-swipe', { removedSwipeIndex: 0, selectedMessageIndex: 0 });
+  assert.equal(after.coreCaptureStatus, 'NON_READY');
+
+  fail = false;
+  published.length = 0;
+  const retry = await f.bridge.syncCurrentDigestInventory();
+  assert.equal(retry.status, 'CAPTURED_REVIEW_ONLY');
+  assert.ok(published.some(entry => entry.version_id === removedVersionId
+    && entry.deleted === true && entry.active === false));
+});
+
 test('Core publisher failure stays NON_READY and can be retried without re-enrolling', async () => {
   let fail = true;
   const f = makeFixture([{ is_user: false, mes: 'hello' }], {
