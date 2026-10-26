@@ -104,6 +104,43 @@ test('enrolled bridge writes event IDs and advances the fingerprint after an edi
   }
 });
 
+test('message deletion emits digest-only tombstones for every removed version', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const removed = f.chat[0]._logicEngineLifecycle;
+  await f.bridge.beforeMutation('delete-message', [0]);
+  f.chat.splice(0, 1);
+  await f.bridge.afterMutation('delete-message');
+
+  const latest = [...f.db.rows.values()].sort((a, b) => b.sequence - a.sequence)[0];
+  assert.equal(latest.operation, 'after:delete-message');
+  assert.deepEqual(latest.payload.tombstones.map(v => ({
+    messageId: v.messageId, versionId: v.versionId, deleted: v.deleted, active: v.active,
+  })), removed.versions.map(v => ({
+    messageId: removed.messageId, versionId: v.versionId, deleted: true, active: false,
+  })));
+  assert.ok(latest.payload.tombstones.every(v => !Object.keys(v).some(key => /text|content|raw/i.test(key))));
+});
+
+test('swipe deletion emits an explicit tombstone for the removed version identity', async () => {
+  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }]);
+  await f.bridge.enrollCurrentConversation();
+  const identity = f.chat[0]._logicEngineLifecycle;
+  const removedVersionId = identity.versions[0].versionId;
+
+  await f.bridge.beforeMutation('delete-swipe', [0], { swipeIndex: 0 });
+  f.chat[0].swipes.splice(0, 1);
+  f.chat[0].mes = 'swipe B';
+  f.chat[0].swipe_id = 0;
+  await f.bridge.afterMutation('delete-swipe', { removedSwipeIndex: 0, selectedMessageIndex: 0 });
+
+  const latest = [...f.db.rows.values()].sort((a, b) => b.sequence - a.sequence)[0];
+  assert.ok(latest.payload.tombstones.some(v =>
+    v.messageId === identity.messageId && v.versionId === removedVersionId
+      && v.deleted === true && v.active === false && v.reason === 'swipe-deleted'));
+  assert.deepEqual(f.chat[0]._logicEngineLifecycle.versions.map(v => v.versionId), [identity.versions[0].versionId]);
+});
+
 test('uncovered server-side lifecycle operations fail closed before a caller mutates source', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
