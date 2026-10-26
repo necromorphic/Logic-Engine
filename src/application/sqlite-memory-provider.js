@@ -64,8 +64,10 @@ export class SQLiteMemoryProvider {
     // Core and Provider must receive the same explicitly configured coordinator path.
     // File-backed Provider instances refuse to start without it; in-memory tests remain isolated.
     this.coordinatorDb = coordinatorPath ? openCoordinatorDatabase(coordinatorPath) : null;
-    const releaseStartupLock = this.#acquireCoordinatorLock();
+    let releaseStartupLock = () => {};
+    let startupError = null;
     try {
+      releaseStartupLock = this.#acquireCoordinatorLock();
       this.db.exec(`
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS memory_records (
@@ -130,11 +132,14 @@ export class SQLiteMemoryProvider {
       const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
       if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
     } catch (error) {
+      startupError = error;
+    } finally {
+      try { releaseStartupLock(); } catch (error) { startupError ??= error; }
+    }
+    if (startupError) {
       try { this.db.close(); } catch {}
       try { this.coordinatorDb?.close(); } catch {}
-      throw error;
-    } finally {
-      releaseStartupLock();
+      throw startupError;
     }
   }
 
