@@ -1,6 +1,6 @@
 # 04. World Pack format and validation contract
 
-Status: proposed Stage 1 schema contract. Exact JSON Schema files are a follow-up artifact.
+Status: **proposed Stage 1 pack contract; partial schema artifacts exist, but the complete World Pack format is not finalized.** The repository already contains schemas for mechanic templates, mechanic instances, rule-module manifests, and declarative rules. Those artifacts do not constitute a complete World Pack manifest schema, a production loader, or full conformance validation.
 
 ## 1. Purpose
 
@@ -22,6 +22,8 @@ A pack manifest should define:
 - `time_policy` overrides only where core allows them.
 - `conformance_tests[]`.
 - `unknown_mechanics_policy`.
+
+This list is a proposed pack-level contract, not a claim that every field is accepted by an existing schema or consumed by a runtime loader.
 
 ## 3. Declarative rule shape
 
@@ -69,7 +71,7 @@ Rule conditions are evaluated by the engine against a validated state snapshot. 
 }
 ```
 
-This example demonstrates shape only. It is not a finalized JSON Schema and does not specify a full executable runtime.
+This example demonstrates a proposed shape only. It is not a finalized World Pack JSON Schema, does not prove that the example is accepted by the current runtime, and does not specify a complete executable pack loader.
 
 ## 5. Unknown and unsupported mechanics
 
@@ -91,8 +93,12 @@ A world pins one immutable pack version. Updating to another version is an expli
 6. commit migration as a new revision and append audit;
 7. retain old pack/version references for historical event interpretation.
 
-No rule update silently rewrites past event outcomes. Migration logic itself must be versioned, tested and auditable.
+No rule update silently rewrites past event outcomes. Migration logic itself must be versioned, tested and auditable. Historical replay, semantic re-evaluation, and meaning-changing migration are distinct operations and must not be treated as interchangeable.
 
 ## 7. Security and trust
 
 World Pack content is data, not executable code. Reject unknown operators, oversized/deep ASTs, invalid references, unsafe regexes or unbounded evaluation. Never allow a pack or retrieved lore text to override core instructions or access controls.
+
+## 8. Implementation boundary
+
+Existing mechanic-template and declarative-rule schemas cover parts of the mechanics subsystem only. Before calling World Pack support complete, the project still needs an agreed full pack format, a loader/validation path, compatibility/conformance tests, and evidence that each declared field is either consumed or explicitly rejected. The presence of individual schema files must not be represented as completion of those requirements.
