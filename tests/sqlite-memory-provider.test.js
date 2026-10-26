@@ -1075,3 +1075,31 @@ test('Provider input snapshot rejects Object.prototype pollution before inherite
   assert.equal(getterCalls, 0);
   assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_records').get().count, 0);
 });
+
+test('Provider trust callbacks and authorization epochs cannot be shadowed through public properties', async (t) => {
+  const s = setup(t);
+  for (const name of [
+    'getSnapshot', 'validateSourceVersion', 'validateInventory', 'authorizeRawRead',
+    'reconcileGeneration', 'transactionDepth', 'coordinatorDepth', 'stateGeneration',
+    'queryAuthorizationGeneration', 'recordAuthorizationGeneration',
+  ]) {
+    assert.equal(s.provider[name], undefined, `Provider must not expose ${name}`);
+  }
+
+  // Public properties may be shadowed by a caller, but Provider internals must
+  // continue using the constructor-captured trusted callbacks and private epochs.
+  s.provider.getSnapshot = async () => ({ world_revision: 4, commit_sequence: 2 });
+  s.provider.validateSourceVersion = async () => true;
+  s.provider.validateInventory = async () => true;
+  s.provider.transactionDepth = 1;
+  s.provider.coordinatorDepth = 1;
+  s.provider.queryAuthorizationGeneration = new Map();
+  s.provider.recordAuthorizationGeneration = new Map();
+  s.setSourceVersion('source-v2');
+
+  s.provider.putRecord(s.record);
+  s.provider.grantQuery(s.scope, true);
+  const result = await s.provider.reconcile(s.scope.world_id);
+  assert.equal(result.status, 'stale');
+  assert.match(result.reason, /SOURCE|LINEAGE|INVENTORY|VALIDATION/);
+});
