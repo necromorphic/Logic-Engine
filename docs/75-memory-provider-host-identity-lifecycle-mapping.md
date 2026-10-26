@@ -537,3 +537,29 @@ Issue #181 comparison/evidence report: https://github.com/necromorphic/Logic-Eng
 - **Core + owner of the actual outbound response path:** identify and test final authorization immediately before serializer/transport release, and quantify or eliminate the residual post-check race. No production serializer→transport binding is currently evidenced.
 
 **Verdict:** Host inventory `NO SUCH MECHANISM FOUND / NON_READY`; final disclosure `NO PRODUCTION PATH FOUND / BLOCKED`; real Host→Provider vertical slice **NOT PROVEN**. Memory→NPC remains **DISABLED / FAIL-CLOSED**. No runtime/API/schema/store/journal/cursor/outbox changes; vectorization remains untouched.
+
+
+## 12. Coordinator decision update — Provider report and safe work boundary (2026-10-26)
+
+**Evidence source:** Provider's code-grounded report on PR #344 head `55a8d13efc359dd5d002360eb380feffb7b1b495`, [issue #181 report](https://github.com/necromorphic/Logic-Engine/issues/181#issuecomment-6409424750). This is branch-specific evidence and must not be misrepresented as merged-main or production wiring.
+
+### Verified semantics on the reported Provider head
+
+- `record_version` versions a Provider Memory record, keyed with `world_id` and `record_ref`; it does not version a canonical Core entity.
+- `source_version` is a required opaque supplied string structurally repeated in direct-source lineage. The Provider does not define its authority, revision namespace, monotonicity, rollback semantics, or equivalence to Core `updated_revision`.
+- `world_revision` and `commit_sequence` are world-level snapshot markers. They are not a source-specific change journal.
+- The current Provider record contract has no durable subject-relative acquisition evidence proving which subject acquired which proposition, through which allowed mechanism, with what delivery/observation evidence.
+- Provider reconciliation and authorization depend on injected validation/inventory authorities. Fixture callbacks are test evidence, not production authority.
+- The report does not establish complete Host/Core inventory, canonical source retraction feed, final disclosure-time revalidation, or cross-store atomicity.
+
+### Permissions and limits
+
+**Allowed now, within Provider ownership:** maintain immutable Provider record identity/version and direct-source lineage checks; preserve idempotent duplicate/conflict behavior; harden tombstone/revocation/rebuild/restart/replay and non-ready behavior; keep summaries with incomplete lineage ineligible; report exact code/test/commit evidence. These are Provider-local safeguards only.
+
+**Not authorized:** persist or disclose raw SillyTavern message text; claim that a Provider row or caller-supplied `source_version` is authoritative; equate `source_version` with `updated_revision`; use test-supplied validators as production authority; create a guessed cross-block API/schema/store/journal/cursor/outbox; or enable production Memory→NPC.
+
+### Dependency and acceptance gate
+
+Core #140 owns the subject-relative knowledge/acquisition contract, trusted scope, canonical source validity/currentness, disclosure policy, and Core validation boundary. NPC owns the meaning and safe projection of admission, without delivery/acquisition/belief side effects. Host #258 owns evidence from the pinned SillyTavern target and the real final pre-send interception; unsupported paths remain NON_READY. Provider can connect to these authorities only after the owners approve the exact contract and a real callable composition exists.
+
+Production remains **DISABLED / FAIL-CLOSED** until the agreed contract is implemented and tested through actual owner components, including stale/revoked/deleted sources and invalidation between candidate assembly and final send, with no protected content or metadata side-channel leakage.
