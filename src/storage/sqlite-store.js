@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from './coordinator-lock.js';
 import { randomUUID } from 'node:crypto';
@@ -166,13 +166,19 @@ function requireSynchronousCallback(fn, label) {
 }
 
 function aliasesSameFile(left, right) {
-  const canonical = (value) => {
+  const identity = (value) => {
     const absolute = resolve(value);
-    try { return realpathSync(absolute); } catch {}
-    try { return join(realpathSync(dirname(absolute)), basename(absolute)); } catch {}
-    return absolute;
+    if (existsSync(absolute)) {
+      try {
+        const stat = statSync(absolute);
+        return 'inode:' + stat.dev + ':' + stat.ino;
+      } catch {}
+    }
+    try { return 'path:' + realpathSync(absolute); } catch {}
+    try { return 'path:' + join(realpathSync(dirname(absolute)), basename(absolute)); } catch {}
+    return 'path:' + absolute;
   };
-  return canonical(left) === canonical(right);
+  return identity(left) === identity(right);
 }
 
 export class SQLiteStore {
