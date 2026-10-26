@@ -162,6 +162,33 @@ test('ledger mutations after READY invalidate the published inventory state', as
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 });
 
+test('reconciliation rejects if ledger changes while the verifier is awaiting', async (t) => {
+  let entered;
+  let release;
+  const enteredPromise = new Promise((resolve) => { entered = resolve; });
+  const releasePromise = new Promise((resolve) => { release = resolve; });
+  const ledger = setup(t, async () => {
+    entered();
+    await releasePromise;
+    return true;
+  });
+  const snapshot = {
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  };
+  const pending = ledger.reconcileConversation(snapshot);
+  await enteredPromise;
+  ledger.captureVersion(entry({
+    message_id: 'concurrent-message', version_id: 'concurrent-version',
+    content_sha256: digest('concurrent'), active: false
+  }));
+  release();
+  assert.deepEqual(await pending, {
+    status: 'non_ready', code: 'HOST_LEDGER_CHANGED_DURING_VERIFICATION'
+  });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE message_id='message-a'").get().n, 0);
+});
+
 test('verifier exception leaves an existing READY conversation NON_READY', async (t) => {
   let reject = false;
   const ledger = setup(t, async () => {
