@@ -85,6 +85,7 @@ test('live source inventory drift fails closed even when local journal integrity
  const changed=[{is_user:true,mes:'tampered',swipes:['tampered'],swipe_id:0}];
  const result=await journal.verifyCurrentSource('chat-1',{messages:changed,sourceLocator:'chat.jsonl'});
  assert.equal(result.status,'NON_READY');
+ assert.equal(result.journalIntegrity,'VERIFIED');
  assert.equal(result.reason,'live source inventory fingerprint mismatch');
 });
 
