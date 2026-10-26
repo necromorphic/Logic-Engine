@@ -1,0 +1,29 @@
+name: Host browser IndexedDB restart
+on:
+  pull_request:
+    paths:
+      - 'host-adapter/prototype/**'
+      - '.github/workflows/host-lifecycle-browser-storage.yml'
+  push:
+    branches:
+      - host/lifecycle-completeness-followup-2026-10-25
+    paths:
+      - 'host-adapter/prototype/**'
+      - '.github/workflows/host-lifecycle-browser-storage.yml'
+jobs:
+  chromium-indexeddb-restart:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Install isolated browser test dependency
+        run: npm install --no-save playwright
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Verify real IndexedDB persistence across browser process restart
+        run: node host-adapter/prototype/tests/browser-storage-restart.mjs
