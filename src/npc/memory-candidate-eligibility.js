@@ -46,8 +46,9 @@ function matchesRequest(candidate, request) {
 }
 
 function isSnapshotComponent(value) {
-  return (typeof value === "string" && value.trim().length > 0)
-    || (typeof value === "number" && Number.isFinite(value));
+  // Core world_revision and commit_sequence cursors are non-negative safe
+  // integers. Matching two malformed values is not valid snapshot evidence.
+  return Number.isSafeInteger(value) && value >= 0;
 }
 
 function validSnapshot(snapshot) {
