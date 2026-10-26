@@ -326,7 +326,7 @@ test('reconciliation rejects if ledger changes while the verifier is awaiting', 
   assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE message_id='message-a'").get().n, 0);
 });
 
-test('verifier exception leaves an existing READY conversation NON_READY', async (t) => {
+test('verifier failure rejects the request without letting untrusted input mutate prior readiness', async (t) => {
   let reject = false;
   const ledger = setup(t, async () => {
     if (reject) throw new Error('verifier unavailable');
@@ -334,11 +334,17 @@ test('verifier exception leaves an existing READY conversation NON_READY', async
   });
   const snapshot = { world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()] };
   assert.equal((await ledger.reconcileConversation(snapshot)).status, 'ready');
+  const before = ledger.getInventoryState(tuple.world_id, tuple.conversation_id);
   reject = true;
   assert.deepEqual(await ledger.reconcileConversation(snapshot), {
     status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED'
   });
-  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  const after = ledger.getInventoryState(tuple.world_id, tuple.conversation_id);
+  assert.equal(after.status, 'READY');
+  assert.equal(after.updated_at, before.updated_at);
+  assert.equal(after.snapshot_digest, before.snapshot_digest);
+  // The failed call itself is non-ready. Consumers must use that result and
+  // must not infer authorization from a previously published state alone.
 });
 
 test('ledger identity and tombstone survive process-style close and reopen', (t) => {
@@ -362,17 +368,20 @@ test('ledger identity and tombstone survive process-style close and reopen', (t)
   }
 });
 
-test('rejected inventory cannot leave a previously READY state published', async (t) => {
+test('rejected caller snapshot cannot mutate a previously verified readiness record', async (t) => {
   const ledger = setup(t, async () => true);
-  assert.equal((await ledger.reconcileConversation({
-    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
-  })).status, 'ready');
+  const snapshot = { world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()] };
+  assert.equal((await ledger.reconcileConversation(snapshot)).status, 'ready');
+  const before = ledger.getInventoryState(tuple.world_id, tuple.conversation_id);
   const result = await ledger.reconcileConversation({
-    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true,
+    ...snapshot,
     versions: [entry(), entry({ version_id: 'version-b', content_sha256: digest('second'), active: true })]
   });
   assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS' });
-  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  const after = ledger.getInventoryState(tuple.world_id, tuple.conversation_id);
+  assert.equal(after.status, 'READY');
+  assert.equal(after.updated_at, before.updated_at);
+  assert.equal(after.snapshot_digest, before.snapshot_digest);
 });
 
 test('unknown tombstone invalidates previously READY inventory', async (t) => {
