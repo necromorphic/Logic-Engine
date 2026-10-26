@@ -663,7 +663,7 @@ export class SQLiteMemoryProvider {
         world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
         record_ref: row.record_ref, record_version: row.record_version,
         source_kind: row.source_kind, source_entity_id: row.source_entity_id,
-        source_version: row.source_version, lineage: Object.freeze(lineage),
+        source_version: row.source_version, lineage: Object.freeze(lineage.map((entry) => Object.freeze({ ...entry }))),
       })) === true;
     } catch {
       // Host/Core validator outage is unavailable, not an ordinary denial.
@@ -855,7 +855,7 @@ export class SQLiteMemoryProvider {
           world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
           record_ref: row.record_ref, record_version: row.record_version,
           source_kind: row.source_kind, source_entity_id: row.source_entity_id,
-          source_version: row.source_version, lineage: Object.freeze(lineage),
+          source_version: row.source_version, lineage: Object.freeze(lineage.map((entry) => Object.freeze({ ...entry }))),
         })) === true;
       } catch { valid = false; }
       if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
