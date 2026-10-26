@@ -114,8 +114,10 @@ test('Core source-version validator rejects destroyed entities and unavailable C
     effects: [{ kind: 'entity.destroy', entity_id: 'source-a' }],
   });
   assert.equal(destroyed.accepted, true);
-  assert.equal(validate(candidate({ source_version: version, lineage: [
-    { source_kind: 'canonical_entity', entity_id: 'source-a', source_version: version },
+  const destroyedSnapshot = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'] });
+  const destroyedVersion = String(destroyedSnapshot.entities[0].updated_revision);
+  assert.equal(validate(candidate({ source_version: destroyedVersion, lineage: [
+    { source_kind: 'canonical_entity', entity_id: 'source-a', source_version: destroyedVersion },
   ] })), false);
 
   const unavailable = createCanonicalEntitySourceVersionValidator({
