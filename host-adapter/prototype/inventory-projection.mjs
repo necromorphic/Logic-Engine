@@ -26,9 +26,9 @@ const versionsOf = message => Array.isArray(message?.swipes) && message.swipes.l
 const activeIndexOf = (message, versionCount) => Number.isInteger(message?.swipe_id) ? message.swipe_id : versionCount === 1 ? 0 : null;
 
 /**
- * Produces a comparison-only normalized inventory and digest. The digest uses
- * Provider's current canonical row ordering/serialization, but its payload
- * digests retain the Host's existing JSON-string hashing semantics.
+ * Produces a comparison-only normalized inventory and stable Host-side digest.
+ * This is not Provider's canonical inventory digest: it has no world_id and
+ * retains Host payload_sha256 field names and JSON-string hashing semantics.
  */
 export function projectHostInventoryForComparison(chat) {
   if (!Array.isArray(chat)) return { status: 'NON_READY', reason: 'CHAT_NOT_ENUMERABLE' };
