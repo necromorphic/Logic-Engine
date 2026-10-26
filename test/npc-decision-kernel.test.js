@@ -77,3 +77,18 @@ test("is deterministic under candidate reordering", () => {
     evaluateNpcDecisionPrototype([...candidates].reverse()),
   );
 });
+
+
+test("rejects unsupported feasibility states rather than treating them as allowed", () => {
+  assert.throws(() => evaluateNpcDecisionPrototype([
+    { id: "maybe", feasibility: "probably", preference: 100 },
+  ]), /feasibility/);
+});
+
+test("rejects non-finite preference values", () => {
+  for (const preference of [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]) {
+    assert.throws(() => evaluateNpcDecisionPrototype([
+      { id: "candidate", feasibility: "feasible", preference },
+    ]), /finite number/);
+  }
+});
