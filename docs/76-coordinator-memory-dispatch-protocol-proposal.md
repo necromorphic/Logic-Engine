@@ -259,3 +259,25 @@ The remaining global gates are unchanged:
 - Complete active + historical/deleted Host inventory and old-backup anti-rollback remain **NON_READY/UNSUPPORTED**.
 - Final subject-relative disclosure gate and revoke-to-dispatch serialization remain **NOT APPROVED / NOT PROVEN**.
 - Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+## 13. Provider operation map received — no Provider-owned dispatch seam (26 Oct 2026)
+
+This checkpoint supersedes section 12's statement that the compact Provider operation map was still outstanding.
+
+Provider supplied the current-operation → typed outcome/evidence map in [#181 comment #6413425015](https://github.com/necromorphic/Logic-Engine/issues/181#issuecomment-6413425015). The map distinguishes Provider-local record identity, index rebuild, reconciliation, persisted grants, candidate authorization and retrieval from Host identity/inventory and Core source authority. It also explicitly states **NO PROVIDER-OWNED SERIALIZED DISPATCH SEAM**.
+
+The Provider map plus exact-head CI #40304970964 establish the following bounded result:
+- Provider-local file-backed record/grant persistence, index rebuild/reconciliation and fail-closed stale-source behavior: **PASS on head `1d8440593fd7103b17cde706a0f74e1846685d3c`**.
+- Source-version test dependency implements the approved direct-canonical-entity mapping and tests active status, non-negative safe-integer revision, unknown status and negative revision: **PASS in test scope only**.
+- Raw Host capture/read/select/derived-copy entry points remain fail-closed while retention policy is unapproved.
+- `validateInventory` remains test-only; Provider does not prove Host inventory completeness.
+- No operation provides atomic revocation-to-dispatch serialization; Provider explicitly disclaims such a seam.
+
+The outstanding work is now narrowed to owner-boundary evidence, not another Provider operation audit:
+1. **Core:** resolve the rollback projection discrepancy recorded in #6413298453, and answer the final disclosure/dispatch serialization question in #6413237264.
+2. **Host:** provide the executed pinned-ST recording-fake-provider harness artifact/result requested in #6412541665; complete active/history/deleted inventory remains NON_READY.
+3. **Product/Security:** review the proposed in-flight revocation boundary before any production disclosure.
+4. **Coordinator:** reconcile the above exact artifacts and keep unsupported routes and real browser/Android/Termux testing distinct.
+
+Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
