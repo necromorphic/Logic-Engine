@@ -546,7 +546,6 @@ export class SQLiteStore {
       try {
         const result = fn();
         this.db.exec('COMMIT');
-        committed = true;
         return result;
       } catch (error) {
         try { this.db.exec('ROLLBACK'); } catch {}
