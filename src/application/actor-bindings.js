@@ -13,7 +13,7 @@ export class ActorBindingService {
     if (!engine?.store?.db) throw new TypeError('ActorBindingService requires an engine with a persistent store');
     this.engine = engine;
     this.db = engine.store.db;
-    this.db.exec(`
+    this.engine.store.tx(() => this.db.exec(`
       CREATE TABLE IF NOT EXISTS actor_bindings (
         world_id TEXT NOT NULL REFERENCES worlds(world_id),
         adapter_id TEXT NOT NULL,
@@ -23,7 +23,7 @@ export class ActorBindingService {
         updated_at TEXT NOT NULL,
         PRIMARY KEY(world_id, adapter_id, entity_id)
       );
-    `);
+    `));
   }
 
   bind(worldId, adapterId, entityId) {

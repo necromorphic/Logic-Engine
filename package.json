@@ -10,7 +10,7 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "node --watch src/index.js",
-    "test": "node --test",
+    "test": "node --import ./tests/configure-test-env.js --test",
     "benchmark:replay": "node benchmarks/replay-rollback-growth.mjs"
   }
 }
