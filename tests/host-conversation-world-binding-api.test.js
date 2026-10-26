@@ -151,6 +151,12 @@ test('Host digest capture requires Core binding and accepts no raw text or calle
   assert.equal(callerWorld.status, 400);
   assert.equal((await callerWorld.json()).error.code, 'INVALID_HOST_VERSION_CAPTURE');
 
+  const badDigest = await fetch(path, {
+    method: 'POST', headers: adapterHeaders, body: json({ ...capture, content_sha256: 'not-a-sha256' }),
+  });
+  assert.equal(badDigest.status, 400);
+  assert.equal((await badDigest.json()).error.code, 'INVALID_HOST_VERSION_CAPTURE');
+
   const saved = await fetch(path, { method: 'POST', headers: adapterHeaders, body: json(capture) });
   assert.equal(saved.status, 201);
   assert.deepEqual((await saved.json()).capture, { status: 'captured' });
