@@ -677,15 +677,24 @@ export class SQLiteMemoryProvider {
       this.#setState(worldId, 'stale', 'stale');
       return { status: 'stale' };
     }
-    // getSnapshot above is awaited too; recheck local inventory after that final
-    // await so an ingest cannot be hidden between validation and ready/current.
-    const finalRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
-    if (!isDeepStrictEqual(recordSet(records), recordSet(finalRecords))) {
-      this.#setState(worldId, 'stale', 'stale');
-      return { status: 'stale' };
+    // Serialize the final local-record comparison with publication of the
+    // ready/current marker. BEGIN IMMEDIATE prevents a second SQLite connection
+    // from committing a Provider write between the final comparison and marker.
+    try {
+      return this.#withImmediateTransaction(() => {
+        const finalRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
+        if (!isDeepStrictEqual(recordSet(records), recordSet(finalRecords))) {
+          this.#setState(worldId, 'stale', 'stale');
+          return { status: 'stale' };
+        }
+        this.#setState(worldId, 'ready', 'current', after);
+        return { status: 'current', snapshot: after, records_checked: records.length };
+      });
+    } catch {
+      // A lock/transaction failure is not evidence that reconciliation succeeded.
+      try { this.#setState(worldId, 'unavailable', 'stale', null, 'FINAL_RECONCILIATION_COMMIT_FAILED'); } catch {}
+      return { status: 'unavailable', reason: 'FINAL_RECONCILIATION_COMMIT_FAILED' };
     }
-    this.#setState(worldId, 'ready', 'current', after);
-    return { status: 'current', snapshot: after, records_checked: records.length };
   }
 
   async retrieveCandidates(scope) {
