@@ -200,3 +200,62 @@ No implementation diff is authorized yet. After the product/Core acquisition dec
 Required acceptance includes valid/invalid scope; authoritative source edit/delete/restore/revocation/rollback/restart/replay; incomplete inventory never becoming authorized-empty; and a real release-boundary race that proves zero unauthorized/stale provider requests. Every route without that proof remains disabled.
 
 **Current release decision:** production-supported acquisition mechanisms = NONE; production disclosure routes = NONE approved. Core policy remains **DENY / NON_READY** for `model / npc_decision`; Memory→NPC remains **DISABLED / FAIL-CLOSED**. This section is documentation only and does not approve API/schema/store/hook changes, raw text retention, or production enablement.
+
+## 10. Core decisions and competing-work reconciliation (2026-10-26)
+
+This is the decision delta requested by #140. It distinguishes decisions Core can make under current authority from product choices and implementation facts that remain unresolved. It does not create a runtime contract or authorize integration.
+
+### 10.1 Decisions Core makes now
+
+| Topic | Core decision now | Decision owner / unresolved choice | Fail-closed consequence |
+|---|---|---|---|
+| First subject-relative acquisition mechanism | **No mechanism is approved for production today.** Current code does not establish an executable acquisition authority. | **Product owner + Core** must choose the first supported mechanism (for example, a specific observed event, delivered communication, or authorized document access) and define authoritative evidence for that mechanism. This is a product-semantic choice, not inferable from code. | No Memory-derived proposition is represented as acquired by an NPC; no production Memory→NPC route. |
+| Source identity/version/currentness | Source-specific identity/version must be authoritative at the source boundary. Provider record identity and opaque source_version do not substitute for Core source revision. updated_revision and (world_revision, commit_sequence) also remain distinct. No implicit equivalence mapping is accepted. | **Core** must name an existing authoritative source/version/retraction operation for the chosen source class. **Host** supplies authenticated source identity for Host-originated sources. **Provider** maps only after the authority and mapping evidence are approved. If no authoritative operation exists, that source class remains unsupported pending a separately approved change. | Missing, ambiguous, stale, revoked, unmapped or unverifiable source/version means non-ready and no disclosure. |
+| Deletion, restoration, rollback and reconciliation | Source deletion/retraction, access-grant revocation, rollback/rebuild and restoration are distinct. Restoration does not automatically reinstate authorization. Uncertain source closure or incomplete/interrupted reconciliation invalidates readiness. commit_sequence alone is not a source-change journal. | **Core + Provider**, with **Host** for Host-originated changes, must identify the existing authoritative operation and completion evidence for each supported source class. Exact reconciliation trigger/completion mechanism remains undecided until an existing operation is identified; this decision approves no journal, cursor, outbox or store. | Fail closed until source currentness and reconciliation are re-established; never convert unknown/incomplete inventory into ready-empty. |
+| Trusted world/session/subject/purpose | Reuse ActorBindingService / AuthorizedReadService only for their existing narrow guarantees. Actor binding does not prove NPC acquisition. Caller labels, chat names, candidate metadata and manifest membership are not authority. | **Core** owns authorization semantics. **Host** must prove authenticated world/session binding across chat switch, copy/import/restore and restart. **NPC/Provider** must consume the same approved binding. End-to-end binding remains unproven. | Missing, caller-only, ambiguous or mismatched binding means deny and no protected content. |
+| Final pre-disclosure check | The check must occur at the last controllable boundary before the actual model request is released—not at retrieval, manifest creation, browser preparation, or Core HTTP response serialization. **No production route is approved.** | **Core + Host** must identify the exact callable final boundary and approve the consistency guarantee. Host must enumerate outbound branches and prove zero provider egress on deny/unknown/stale. Provider checks currentness only against approved authority; NPC admission cannot substitute for release authorization. | Every uncovered route stays disabled; failure must not release protected bytes, snippets, counts, source identifiers or diagnostics. |
+| Revocation race / linearization | Sequential rechecks are not an atomic cross-process revocation guarantee. Core does not claim atomic revocation at model send without a demonstrated shared consistency boundary. | **Core + Host**, with Provider input, must choose and prove the permitted race guarantee at the real release boundary. If it cannot be enforced, the route stays disabled rather than silently weakening the semantics. | A revoke/edit/delete after candidate assembly but before release must be covered by the agreed guarantee; absent proof, deny/unsupported. |
+| Raw Host text retention | **Not approved** under this contract. | Product/security owner must separately approve purpose, retention, access, deletion and audit semantics before any raw-text persistence/transfer. | No raw Host text capture/transfer under this contract. |
+
+### 10.2 Acceptance tests and exact dependencies
+
+These are required future tests, not claims that the path currently exists.
+
+| Case | Existing anchor / future test location | Required result | Dependency |
+|---|---|---|---|
+| Wrong world/subject/purpose, caller-supplied identity, chat switch/copy/import/restore | src/application/actor-bindings.js; src/application/authorized-read-service.js; src/application/memory-npc-consumer.js; then real Host→Core→NPC integration tests | Deny; zero protected content and no side-channel | Host authenticated binding + Core-approved recipient semantics |
+| Stale, edited, deleted, restored, revoked or lineage-conflicting source | src/application/sqlite-memory-provider.js provider-local tests; src/application/memory-npc-consumer.js candidate checks | Reject source and dependent summaries; no stale disclosure | Core names source authority/version/retraction semantics; Provider maps and tests them |
+| Incomplete inventory, missed mutation, interrupted reconciliation, restart/replay, rollback | Provider reconciliation tests and tests/authorized-read-service.test.js; later real multi-component tests | Non-ready, not ready-empty; no disclosure until version-bound reconciliation is proven | Host complete/current inventory evidence + Provider reconciliation evidence + Core rollback semantics |
+| Revocation/edit/delete after candidate assembly but before provider send | No production send gate currently exists; future test at Host's identified final outbound dispatch using actual Provider/Core/NPC composition | Zero provider egress for deny/unknown/stale under the agreed race guarantee | Core + Host select and implement a provable final release boundary; Provider supplies authoritative recheck |
+| Unsupported route, validation timeout/error, ambiguous identity | Host route-specific dispatch tests + real integration harness | Route disabled or request blocked before protected bytes leave | Host route inventory + Core policy + Provider fail-closed validation |
+| Admission vs disclosure/delivery/receipt/acquisition/belief | tests/memory-npc-consumer.test.js; tests/npc-memory-candidate-eligibility.test.js | Admission alone never sets later lifecycle states | Product/Core selects mechanism-specific acquisition evidence; NPC implements approved semantics |
+| Canonical field read racing rollback with unchanged commit_sequence | tests/authorized-read-service.test.js; PR #330 head 460587bc3538c8704055f1f2e781d8722874909e | Existing regression rejects with STALE_AUTHORIZED_READ_SNAPSHOT; preserve this test | Existing bounded Core read contract; does not prove Host final-send atomicity |
+
+### 10.3 Reconciliation of related Core work
+
+The canonical cross-block knowledge-boundary proposal is this PR (#347) plus Core gate #140. Do not maintain a second competing Memory→Core→NPC contract.
+
+| Work | Unique material / disposition |
+|---|---|
+| #256 docs/memory-core-npc-unified-contract.md | Broadly duplicates the source-authority/version/lineage/inventory/reconciliation/revocation contract now consolidated here. Keep useful source/test references as history/cross-links; close the competing document PR after this incorporation is reviewed. Do not merge a second contract document. |
+| #261 contextual interpretation | **Not a duplicate.** Preserve docs/56-context-aware-interpretation-of-communicative-intent.md, README/architecture index changes, and the 20-case fixture/test corpus. These are semantic fixture guardrails, not runtime/LLM/acquisition proof. Keep its separate scope. |
+| #263 evaluation/recalculation boundary | **Not a duplicate.** Preserve docs/57-core-evaluation-recalculation-boundary.md and its source-backed distinction between current proposal/commit/scheduler/read primitives and absent universal dependency/recalculation/publication machinery. Keep its separate scope. |
+| #330 rollback-during-authorized-read regression | **Unique test; preserve.** Keep tests/authorized-read-service.test.js and exact-head evidence. It proves rollback during the bounded Core authorized read is rejected; it does not prove cross-store revocation or zero egress at Host model send. |
+| #345 integration matrix refresh | Operational matrix/index refresh, not a second semantic contract. Keep the cross-block integration matrix as the status/index surface and point it to #140/#347 as the single knowledge-boundary decision record. Preserve dated evidence and route blockers; do not duplicate the full contract table there. |
+| #346 release-boundary proposal | Its source-inspected MemoryNpcConsumer / AuthorizedReadService / src/api/server.js distinction and proposed owner split are incorporated in §§10.1–10.2. Close the competing proposal after this incorporation is reviewed; no separate release-boundary document should compete with #347. |
+| #348 subject-relative acquisition proposal | Already closed as duplicate of #347. Keep closed; do not revive or merge its duplicate document. |
+
+This reconciliation does not itself close PRs or alter their branch contents. The coordinator/PR owners should apply the disposition after verifying the unique material named above is retained in the canonical branch or distinct scoped artifact.
+
+### 10.4 Exact-head owner confirmation
+
+Provider accepted the previous section-9 delta on commit 8dc8f89d3a991295a213e6a3e0df63788d03528e (comment #6410460989). That acceptance does not approve this new section 10. The updated exact head must be reviewed separately by:
+- **Provider:** source/version/currentness and deletion/reconciliation wording;
+- **NPC:** acquisition-vs-admission and lifecycle-state semantics;
+- **Host/Adapter:** authenticated binding, inventory limits, route coverage and final release boundary;
+- **Product owner + Core:** first supported acquisition mechanism and authoritative evidence;
+- **Core + Host:** last pre-disclosure boundary and permitted revocation-race guarantee.
+
+Required response on the exact updated head: ACCEPT, REJECT with a concrete contradiction, or UNSUPPORTED with exact missing evidence. Until responses and product/Core decisions exist, this remains a decision record only.
+
+**Current release decision:** production-supported acquisition mechanisms = NONE; production disclosure routes = NONE approved; Core policy = **DENY / NON_READY** for model / npc_decision; Memory→NPC = **DISABLED / FAIL-CLOSED**. No API/schema/store/hook, raw-text retention or production enablement is approved by this document.
