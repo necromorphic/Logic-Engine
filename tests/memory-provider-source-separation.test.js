@@ -53,7 +53,8 @@ test('source archive rows stay separate from fact records and rebuildable search
   assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_records').get().n, 1);
   assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_index_entries').get().n, 1);
   assert.deepEqual(
-    provider.db.prepare('SELECT record_ref,record_version FROM memory_index_entries').all(),
+    provider.db.prepare('SELECT record_ref,record_version FROM memory_index_entries')
+      .all().map((row) => ({ ...row })),
     [{ record_ref: 'memory:fact-1', record_version: 'v1' }],
   );
 
