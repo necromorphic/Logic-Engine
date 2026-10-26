@@ -259,6 +259,32 @@ test('raw tombstone and purge update provider-local lifecycle rows atomically', 
   }), { status: 'missing', purged_copies: 0 });
 });
 
+test('malformed Core snapshots cannot publish a ready Provider state', async (t) => {
+  const invalidSnapshots = [
+    { world_revision: Number.NaN, commit_sequence: 2 },
+    { world_revision: 4, commit_sequence: Number.POSITIVE_INFINITY },
+    { world_revision: '   ', commit_sequence: 2 },
+    { world_revision: 4, commit_sequence: '\t' },
+  ];
+
+  for (const snapshot of invalidSnapshots) {
+    const s = setup(t, { getSnapshot: async () => snapshot });
+    s.provider.putRecord(s.record);
+    await s.provider.rebuildIndex(s.scope.world_id);
+    assert.deepEqual(await s.provider.reconcile(s.scope.world_id), {
+      status: 'unavailable',
+      reason: 'CORE_SNAPSHOT_UNAVAILABLE',
+    });
+    assert.deepEqual(s.provider.getIndexStatusForDiagnostics(s.scope.world_id), {
+      index_health: 'unavailable',
+      source_reconciliation: 'stale',
+      snapshot: null,
+      failure_code: 'CORE_SNAPSHOT_UNAVAILABLE',
+    });
+    await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  }
+});
+
 test('Provider constructor rejects non-string paths before coercing caller objects', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-path-types-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
