@@ -130,5 +130,8 @@ test('locator enrollment lookup is conservative for single and bulk operations',
   storage.removeItem(prefix + conversationId);
   storage.removeItem(locatorKey('enrolled-chat.jsonl'));
   assert.equal(hasAnyHostEnrollment(storage), false);
+  storage.setItem(locatorKey('orphaned-chat.jsonl'), '');
+  assert.equal(hostLocatorHasEnrollment('orphaned-chat.jsonl', storage), true);
+  assert.equal(hasAnyHostEnrollment(storage), true);
 });
 
