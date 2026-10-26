@@ -91,6 +91,8 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
         else if (operation === 'grantRecord') provider.grantRecord(scope, record.record_ref, record.record_version, true);
         else if (operation === 'revokeRecord') provider.revokeRecord(scope, record.record_ref, record.record_version);
         else if (operation === 'putRecord') provider.putRecord(record);
+        // Test-only fixture mutation: simulate a previously durable record whose derived index write failed.
+        else if (operation === 'removeIndexEntryForTest') provider.db.prepare('DELETE FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?').run(record.world_id, record.record_ref, record.record_version);
         else if (operation === 'tombstone') provider.markRawSourceDeleted({ world_id:'world-coordinator', conversation_id:'conversation', message_id:'message', version_id:'v1' });
         else if (operation === 'purge') provider.purgeRawSource({ world_id:'world-coordinator', conversation_id:'conversation', message_id:'message', version_id:'v1' });
         else if (operation === 'rebuildIndex') await provider.rebuildIndex(scope.world_id);
@@ -165,6 +167,13 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
     for (const operation of ['grantQuery', 'revokeQuery', 'grantRecord', 'revokeRecord', 'putRecord', 'tombstone', 'purge', 'rebuildIndex', 'reconcile']) {
       await assertBlockedByCoreLock(operation);
     }
+
+    // Exercise the duplicate-ingest repair branch separately from the new-record insert.
+    const repairId = ++nextId;
+    providerProc.child.stdin.write(JSON.stringify({ id: repairId, operation: 'removeIndexEntryForTest' }) + '\n');
+    await waitFor(() => providerProc.messages.some((message) => message.id === repairId));
+    assert.equal(providerProc.messages.find((message) => message.id === repairId).ok, true);
+    await assertBlockedByCoreLock('putRecord');
 
     // A fresh Provider DB must also take the shared lock around schema creation/migration.
     const migrationPath = join(dir, 'provider-migration.sqlite');
