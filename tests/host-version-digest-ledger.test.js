@@ -349,3 +349,36 @@ test('event-only capture cannot introduce a previously unknown tombstone', async
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code, 'HOST_VERSION_UNKNOWN');
 });
 
+test('inventory mutation while trust verification awaits cannot add unverified rows', async (t) => {
+  let entered;
+  let release;
+  const enteredPromise = new Promise((resolve) => { entered = resolve; });
+  const releasePromise = new Promise((resolve) => { release = resolve; });
+  const ledger = setup(t, async (verifiedSnapshot) => {
+    entered();
+    await releasePromise;
+    return verifiedSnapshot.versions.length === 1;
+  });
+  const snapshot = {
+    world_id: tuple.world_id,
+    conversation_id: tuple.conversation_id,
+    complete: true,
+    versions: [entry()],
+  };
+
+  const pending = ledger.reconcileConversation(snapshot);
+  await enteredPromise;
+  snapshot.versions.push(entry({
+    message_id: 'injected-message',
+    version_id: 'injected-version',
+    content_sha256: digest('not covered by verifier'),
+    active: false,
+  }));
+  release();
+
+  assert.equal((await pending).status, 'ready');
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 1);
+  assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE message_id='injected-message'").get().n, 0);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'READY');
+});
+
