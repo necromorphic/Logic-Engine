@@ -70,5 +70,8 @@ test('query grant revoke/re-grant through a second Provider connection invalidat
   second.grantQuery(scope, true);
   releaseSnapshot();
 
-  await assert.rejects(retrieval, (error) => error.message === 'MEMORY_AUTHORIZATION_CHANGED');
+  await assert.rejects(retrieval, (error) =>
+    // Retrieval may detect the shared SQLite epoch first and mark the world
+    // non-ready before candidate authorization can emit its narrower reason.
+    ['MEMORY_AUTHORIZATION_CHANGED', 'MEMORY_INDEX_NOT_READY'].includes(error.message));
 });
