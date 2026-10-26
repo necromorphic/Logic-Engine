@@ -609,8 +609,6 @@ test('failed index rebuild rolls back index deletion instead of leaving a partia
 test('retrieval fails closed when another Provider connection revokes and re-grants query access', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'memory-provider-cross-connection-'));
   const path = join(dir, 'provider.sqlite');
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-
   let releaseSnapshot;
   let signalSnapshot;
   const snapshotStarted = new Promise((resolve) => { signalSnapshot = resolve; });
@@ -635,6 +633,7 @@ test('retrieval fails closed when another Provider connection revokes and re-gra
   });
   t.after(() => provider.close());
   t.after(() => otherProvider.close());
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
 
   const scope = { world_id: 'cross-connection-query-world', subject_id: 'cross-connection-query-npc', purpose: 'npc_decision' };
   const record = {
@@ -675,8 +674,6 @@ test('retrieval fails closed when another Provider connection revokes and re-gra
 test('candidate authorization detects record grant ABA from another Provider connection', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'memory-provider-cross-record-grant-'));
   const path = join(dir, 'provider.sqlite');
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-
   let releaseValidation;
   let signalValidation;
   const validationStarted = new Promise((resolve) => { signalValidation = resolve; });
@@ -698,6 +695,7 @@ test('candidate authorization detects record grant ABA from another Provider con
   const otherProvider = new SQLiteMemoryProvider(options);
   t.after(() => provider.close());
   t.after(() => otherProvider.close());
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
 
   const scope = { world_id: 'cross-connection-record-world', subject_id: 'cross-connection-record-npc', purpose: 'npc_decision' };
   const record = {
@@ -744,8 +742,6 @@ test('candidate authorization detects record grant ABA from another Provider con
 test('candidate authorization detects query grant ABA from another Provider connection', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'memory-provider-cross-query-grant-'));
   const path = join(dir, 'provider.sqlite');
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-
   let releaseValidation;
   let signalValidation;
   const validationStarted = new Promise((resolve) => { signalValidation = resolve; });
@@ -767,6 +763,7 @@ test('candidate authorization detects query grant ABA from another Provider conn
   const otherProvider = new SQLiteMemoryProvider(options);
   t.after(() => provider.close());
   t.after(() => otherProvider.close());
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
 
   const scope = { world_id: 'cross-connection-query-world', subject_id: 'cross-connection-query-npc', purpose: 'npc_decision' };
   const record = {
