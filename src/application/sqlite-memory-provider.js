@@ -91,9 +91,11 @@ const snapshotProviderRecord = (value) => {
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
+const validSnapshotPart = (value) => (typeof value === 'number' && Number.isFinite(value))
+  || (typeof value === 'string' && value.trim().length > 0);
 const snapshotOf = (value) => object(value)
-  && (typeof value.world_revision === 'number' || (typeof value.world_revision === 'string' && value.world_revision.length > 0))
-  && (typeof value.commit_sequence === 'number' || (typeof value.commit_sequence === 'string' && value.commit_sequence.length > 0))
+  && validSnapshotPart(value.world_revision)
+  && validSnapshotPart(value.commit_sequence)
   ? { world_revision: value.world_revision, commit_sequence: value.commit_sequence } : null;
 const sameSnapshot = (a, b) => !!snapshotOf(a) && !!snapshotOf(b)
   && a.world_revision === b.world_revision && a.commit_sequence === b.commit_sequence;
