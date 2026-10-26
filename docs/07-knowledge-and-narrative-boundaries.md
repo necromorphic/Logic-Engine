@@ -259,3 +259,42 @@ Provider accepted the previous section-9 delta on commit 8dc8f89d3a991295a213e6a
 Required response on the exact updated head: ACCEPT, REJECT with a concrete contradiction, or UNSUPPORTED with exact missing evidence. Until responses and product/Core decisions exist, this remains a decision record only.
 
 **Current release decision:** production-supported acquisition mechanisms = NONE; production disclosure routes = NONE approved; Core policy = **DENY / NON_READY** for model / npc_decision; Memory→NPC = **DISABLED / FAIL-CLOSED**. No API/schema/store/hook, raw-text retention or production enablement is approved by this document.
+
+
+## 11. Product requirement: durable, scene-complete episodic memory (2026-10-26)
+
+**Product requirement, not an implementation decision:** The engine must be able to remember a scene as a coherent event, including concrete details and relationships between details, and retrieve that scene even after a long time. A memory that keeps only a few disconnected extracted facts and loses the event context does not satisfy this requirement. The requirement applies to old scenes as well as recent ones; age alone must not make a scene unrecoverable.
+
+For example, after a staged death, a character may later need to recall who stood where, the sequence of actions, what they could see or hear, and visible details such as blood. The engine must not fill missing links with invented details. It must preserve the distinction between:
+- what the character personally perceived, including the conditions and limits of perception;
+- what the character was told or read, and the source/version of that information;
+- what the character inferred or reconstructed later;
+- what the character did not perceive, cannot reliably recall, or never had access to.
+
+### Desired behavior
+
+- Preserve a scene/event as a coherent, temporally ordered episode with enough source-grounded detail to support later recollection, rather than retaining only isolated propositions.
+- Support long-term retrieval of old scenes and relevant details; retrieval should not depend solely on recency or on a few extracted keywords.
+- Keep provenance, viewpoint, uncertainty, contradictions, and access/visibility boundaries attached to scene details.
+- Allow a character's recall to be incomplete, uncertain, mistaken, or affected by forgetting when the product's memory rules say so. Scene preservation is not a requirement that every character remembers everything perfectly.
+- Distinguish the world event from each character's actual perception, acquisition, later recollection, and belief. A complete world-side scene record must not automatically become every NPC's memory.
+- When a source changes, is deleted, retracted, restored, or access is revoked, preserve enough lineage to reconcile dependent scene memories safely; do not silently leave unsupported details looking authoritative.
+
+### Implementation exploration — deliberately open
+
+The product owner has **not** selected a storage model. A future 3D-thinking/world-state capability might help represent spatial relations, positions, poses, movement, and changes across a scene. Scene snapshots, temporal/spatial state records, source-event archives, linked episodic records, or a hybrid are hypotheses to evaluate—not approved architecture or existing capabilities. A snapshot alone may omit dialogue, sound, causal order, or subjective viewpoint; a transcript alone may omit spatial layout and movement. The design should compare what each representation can preserve, retrieve, update, and authorize.
+
+Core, Memory Provider, NPC, Host/Adapter, and the future 3D/world-state owner must propose the smallest coherent design that meets this product requirement using existing approved mechanisms where possible. Identify:
+1. what constitutes a scene/episode and its stable source/version/lineage;
+2. how original source detail is preserved separately from derived summaries, facts, spatial snapshots, and character-specific perceptions;
+3. how long-term retention, retrieval, tiering/compression, and detail-loss checks work without making a compressed summary pretend to be the original scene;
+4. how edits, deletion, revocation, rollback, restoration, restart/replay, and incomplete source inventory affect the scene and every derived representation;
+5. how the system prevents one character's private observation or inaccessible scene detail from leaking to another character;
+6. how to test old-scene recall for factual coverage, spatial/temporal coherence, provenance, uncertainty, and non-invention.
+
+Do not assume unlimited storage or promise perfect verbatim recall until measured. If compression or forgetting is necessary, define it explicitly and preserve the distinction between an original/source-backed record and a lossy reconstruction.
+
+### Current gate
+
+This requirement does **not** approve raw SillyTavern text retention, a new schema/API/store, a snapshot mechanism, or production Memory→NPC wiring. The existing Host raw-archive operations remain disabled and the current cross-block authority/inventory/send-boundary blockers still apply. Core and Provider must propose a reviewable retention and lineage policy; Host must establish which source details and lifecycle changes can actually be captured; NPC must define how scene memory differs from acquisition, recall, and belief. Production Memory→NPC remains **DISABLED / FAIL-CLOSED** until its existing gates pass.
+
