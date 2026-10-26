@@ -214,12 +214,12 @@ export function normalizeTimeTrigger(input, worldId) {
     trigger_id: nonEmptyString(input.trigger_id, 'trigger_id'),
     world_id: nonEmptyString(input.world_id, 'world_id'),
     due_coordinate: safeInteger(input.due_coordinate, 'due_coordinate'),
-    status: input.status ?? 'pending',
+    status: input.status === undefined ? 'pending' : input.status,
     dependencies: stringSet(input.dependencies, 'dependencies'),
     read_set: validateReferenceKinds(stringSet(input.read_set, 'read_set'), 'read_set', false),
     write_set: validateReferenceKinds(stringSet(input.write_set, 'write_set'), 'write_set', true),
-    processing_mode: input.processing_mode ?? 'exact',
-    interrupt_after_coordinate: input.interrupt_after_coordinate ?? false,
+    processing_mode: input.processing_mode === undefined ? 'exact' : input.processing_mode,
+    interrupt_after_coordinate: input.interrupt_after_coordinate === undefined ? false : input.interrupt_after_coordinate,
     payload: cloneJson(input.payload ?? null, 'payload'),
   };
   if (trigger.world_id !== worldId) fail('CROSS_WORLD_TRIGGER', 'A due-work plan cannot mix triggers from different worlds.', { trigger_id: trigger.trigger_id });
