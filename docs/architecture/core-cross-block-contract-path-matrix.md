@@ -59,3 +59,24 @@
 The coordinator-lock approach is **not rejected as inherently unworkable**. It is conditionally accepted as the candidate to implement and falsify against production paths, because it can establish a single order across separate Core/Provider databases and the gateway if every participant acquires the same cross-process lock *before* mutation and retains it through its local commit, and the gateway retains it through final synchronous authorization, durable dispatch-start, and the single upstream invocation attempt. The dispatch ledger must be durably committed separately while the coordinator lock remains held; a lock transaction must not be released before the invocation attempt begins.
 
 The existing test-only prototype is rejected only as sufficient evidence for production readiness. The missing proof is enforcement/coverage: every writer must be unable to bypass the authority, and the actual Host route must be gateway-only. If those constraints cannot be enforced, the candidate must be rejected and the route stay disabled. This clarification does not authorize runtime wiring or production enablement.
+
+
+## Concrete serialization primitive candidate — 26 Oct 2026
+
+The candidate is narrowed to a **dedicated coordinator SQLite database used as a cross-process write lock, plus a separate durable dispatch ledger**. This is a proposed primitive to falsify, not an approved runtime API/schema and not production readiness.
+
+1. Every Core, Provider, startup/migration, maintenance, recovery, restore, grant/revoke, source-currentness, readiness/reconciliation and binding writer acquires the coordinator DB write transaction (candidate: `BEGIN IMMEDIATE`) **before** mutating its owned store, retains it through local commit/rollback, and releases it only after that outcome. Any writer that cannot be forced through the authority or technically disabled is a bypass and fails the candidate.
+2. The PC gateway acquires the same coordinator write transaction and performs final **synchronous authoritative** reads against current Core and Provider state. Async validators are not final in-lock authority. Unknown source kind/version/lineage, incomplete inventory, unavailable/rebuilding Provider, or any uncertain state denies.
+3. While still holding the coordinator lock, the gateway commits a durable dispatch-start to a **separate dispatch ledger**, then initiates the one upstream transport invocation before releasing the coordinator lock. It does not hold the lock for the model response. A durable start with no conclusive transport result is ambiguous/in-flight and is never automatically retried.
+4. The ledger must not be rolled back with an older Core/Provider backup. Restore/recovery must reconcile against it or keep protected dispatch disabled. If this cannot be guaranteed, reject the candidate.
+5. This establishes ordering only; it does not provide cross-store atomic commit or exactly-once provider processing. Core remains owner of canonical state/audit, Provider of Memory grants/records/readiness, and the gateway of the actual outbound call.
+
+### Required falsification tests
+
+- Inventory every Core and Provider mutation plus migrations, maintenance, backup/restore and recovery; label each `participates`, `technically blocked`, or `unresolved bypass`, with exact method and test.
+- Prove an uncooperative direct writer cannot mutate protected state (or cannot run in the production deployment).
+- Against real Core/Provider stores and the actual gateway/Host route: writer-first means zero upstream invocations; dispatch-start-first means durable start before at most one invocation; crash/restart after start means no retry; stale-backup restore cannot resurrect a grant/source or roll back the dispatch ledger.
+- Test lock-owner crash, process contention, busy/timeout, coordinator DB unavailable/corrupt, ledger unavailable, and failure between ledger commit and transport call. All uncertain cases fail closed.
+- Product/Security sign-off remains separate for ledger retention, credentials, LAN/bridge authentication and in-flight semantics.
+
+This refinement narrows the implementation choice but authorizes no runtime files, API/schema, production wiring, or activation. Memory→NPC remains **DISABLED / FAIL-CLOSED** until actual writer and egress paths pass these tests.
