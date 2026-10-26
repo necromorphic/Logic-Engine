@@ -210,6 +210,30 @@ test('Memory record denial is indistinguishable from an authorized empty candida
   assert.deepEqual(staleButDenied, result);
 });
 
+test('duplicate canonical entity identities in an authorized read fail closed', async (t) => {
+  const { consumer } = setup(t);
+  const originalRead = consumer.authorizedReadService.readEntityFields.bind(consumer.authorizedReadService);
+  consumer.authorizedReadService.readEntityFields = (args) => {
+    const result = originalRead(args);
+    if (Array.isArray(result?.entities) && args.fields.includes('attributes.public_note')) {
+      const source = result.entities.find((entity) => entity.entity_id === 'source-a');
+      if (source) {
+        return {
+          ...result,
+          entities: [...result.entities, { ...source, 'attributes.public_note': 'conflicting duplicate content' }],
+        };
+      }
+    }
+    return result;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'authorized_source_read_invalid');
+  assert.deepEqual(result.candidates, []);
+});
+
 test('authorized Memory record with missing canonical source is non-ready, not empty', async (t) => {
   const { consumer } = setup(t);
   const originalRead = consumer.authorizedReadService.readEntityFields.bind(consumer.authorizedReadService);
