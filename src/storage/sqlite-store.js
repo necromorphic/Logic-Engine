@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
@@ -15,6 +15,16 @@ function canonicalFilePath(path) {
   const parent = realpathSync(dirname(absolute));
   const candidate = join(parent, basename(absolute));
   return existsSync(candidate) ? realpathSync(candidate) : candidate;
+}
+
+function aliasesSameFile(left, right) {
+  const leftPath = canonicalFilePath(left);
+  const rightPath = canonicalFilePath(right);
+  if (leftPath === rightPath) return true;
+  if (!existsSync(leftPath) || !existsSync(rightPath)) return false;
+  const leftStat = statSync(leftPath);
+  const rightStat = statSync(rightPath);
+  return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
 }
 
 function requireSynchronousCallback(callback, label) {
@@ -197,7 +207,7 @@ export class SQLiteStore {
     if (corePath !== ':memory:') mkdirSync(dirname(corePath), { recursive: true });
     if (absoluteCoordinatorPath) mkdirSync(dirname(absoluteCoordinatorPath), { recursive: true });
     if (corePath !== ':memory:' && absoluteCoordinatorPath
-      && canonicalFilePath(corePath) === canonicalFilePath(absoluteCoordinatorPath)) {
+      && aliasesSameFile(corePath, absoluteCoordinatorPath)) {
       throw new Error('Coordinator DB must be separate from the Core DB, including filesystem aliases.');
     }
     // Open the lock handle first. If Core DB opening fails, close the already
