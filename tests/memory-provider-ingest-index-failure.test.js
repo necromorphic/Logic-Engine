@@ -58,6 +58,18 @@ test('record persistence survives index-write failure and retrieval stays closed
   await assert.rejects(() => provider.retrieveCandidates(scope), /MEMORY_INDEX_NOT_READY/);
 
   provider.db.exec('DROP TRIGGER fail_ingest_index');
+  const replay = provider.putRecord(record);
+  assert.deepEqual(replay, {
+    status: 'duplicate',
+    record_ref: record.record_ref,
+    record_version: record.record_version,
+    index_repaired: true,
+    reconciliation_required: true,
+  });
+  assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?')
+    .get(scope.world_id, record.record_ref, record.record_version).n, 1);
+  assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).index_health, 'rebuilding',
+    'repairing one missing derived entry must not restore readiness by itself');
   assert.deepEqual(await provider.rebuildIndex(scope.world_id), { status: 'rebuilt', count: 1 });
   assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
   const recovered = await provider.retrieveCandidates(scope);
