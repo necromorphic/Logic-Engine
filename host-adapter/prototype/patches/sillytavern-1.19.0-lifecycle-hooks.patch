@@ -456,7 +456,7 @@ diff --git a/src/server-startup.js b/src/server-startup.js
  import { router as imageMetadataRouter } from './endpoints/image-metadata.js';
  import { router as volcengineRouter } from './endpoints/volcengine.js';
 +import { router as logicEngineLifecycleRouter } from './endpoints/logic-engine-lifecycle.js';
-@@ -184,3 +184,4 @@ export function setupPrivateEndpoints(app) {
+@@ -184,4 +184,5 @@ export function setupPrivateEndpoints(app) {
      app.use('/api/data-maid', dataMaidRouter);
      app.use('/api/backups', backupsRouter);
      app.use('/api/image-metadata', imageMetadataRouter);
