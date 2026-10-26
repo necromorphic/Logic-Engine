@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
@@ -40,6 +40,20 @@ function setup(t, options = {}) {
     setSourceVersion(value) { sourceVersion = value; },
   };
 }
+
+test('file-backed Provider rejects coordinator DB path alias before opening the database', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-alias-'));
+  const path = join(directory, 'provider.sqlite');
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  assert.throws(() => new SQLiteMemoryProvider({
+    path,
+    coordinatorPath: path,
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  }), /Coordinator DB must be separate from the Memory Provider DB/);
+  assert.equal(existsSync(path), false);
+});
 
 test('persists raw record identity/version and rebuilds its derived index after restart', async (t) => {
   const s = setup(t);
