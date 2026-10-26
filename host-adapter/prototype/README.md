@@ -108,3 +108,15 @@ Exact-head CI for this commit:
 - [Host lifecycle patch validation #40275379405](https://github.com/necromorphic/Logic-Engine/actions/runs/40275379405) — SUCCESS.
 
 These results prove repository CI only. The storage assertions use a fake IndexedDB implementation and do not prove browser persistence, Android/Termux durability, full lifecycle coverage, or production readiness. PR #323 remains Draft/review-only; unsupported import/restore/branch/group deletion/migration paths and the absent approved Host↔Core pre-release contract keep readiness `NON_READY` and Memory→NPC `DISABLED / FAIL-CLOSED`.
+
+
+## Exact-head follow-up — unsupported-operation fail-closed checks (26 Oct 2026)
+
+Latest reviewed Host-only code HEAD: `f97a4f4b2a76d0d76b82c37d61ee187b89ee7ceb` ([commit](https://github.com/necromorphic/Logic-Engine/commit/f97a4f4b2a76d0d76b82c37d61ee187b89ee7ceb)). The test suite checks that each unsupported lifecycle operation rejects before mutation; it does not require unsupported-operation labels to match readiness `missingPaths` strings verbatim.
+
+Exact-head CI for this code HEAD:
+- [Host lifecycle patch check #40276126045](https://github.com/necromorphic/Logic-Engine/actions/runs/40276126045) — SUCCESS.
+- [Runtime tests #40276125997](https://github.com/necromorphic/Logic-Engine/actions/runs/40276125997) — SUCCESS.
+- [Host lifecycle patch validation #40276125986](https://github.com/necromorphic/Logic-Engine/actions/runs/40276125986) — SUCCESS.
+
+This refresh records repository CI only. It does not establish live browser/Android/Termux behavior, real IndexedDB durability, persisted chat-file before/after evidence, or full lifecycle coverage. PR #323 remains Draft/review-only. Core approval of the Host↔Core/Provider handoff and real persisted-state acceptance evidence are still required; production Memory→NPC remains DISABLED / FAIL-CLOSED.
