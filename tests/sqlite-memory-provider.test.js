@@ -379,3 +379,28 @@ test('validator outage during reconciliation persists non-ready state across res
     (error) => error.message === 'MEMORY_INDEX_NOT_READY',
   );
 });
+
+
+test('record revocation survives Provider restart and index rebuild cannot restore access', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  assert.equal((await s.provider.retrieveCandidates(s.scope)).candidates.length, 1);
+
+  s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
+  s.reopen();
+
+  assert.equal(await s.provider.authorizeCandidate({
+    ...s.scope,
+    record_ref: s.record.record_ref,
+    record_version: s.record.record_version,
+    source_kind: 'canonical_entity',
+    source_entity_id: s.record.source_entity_id,
+  }), false, 'revoked record grant must remain revoked after restart');
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
+});
