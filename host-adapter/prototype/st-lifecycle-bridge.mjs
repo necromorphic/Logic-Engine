@@ -63,7 +63,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
     const previous = publishQueues.get(conversationId) ?? Promise.resolve();
     const current = previous.catch(() => {}).then(async () => {
-      for (const entry of entries) await publishDigest(entry);
+      for (const entry of entries) {
+        try { await publishDigest(entry); } catch {
+          throw Error('NON_READY: Core digest capture failed; Host inventory remains review-only');
+        }
+      }
       return { status: 'REVIEW_ONLY', published: true, versionCount: entries.length };
     });
     publishQueues.set(conversationId, current);
@@ -103,12 +107,12 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         };
       }
       await saveChat();
-      await publishCurrentDigestInventory(conversationId, chat);
     } catch (error) {
       // The durable baseline now exists but native metadata may not. Subsequent
       // fingerprint/identity validation must fail closed; enrollment cannot be retried.
       throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
     }
+    await publishCurrentDigestInventory(conversationId, chat);
     return {
       conversationId,
       baselineSequence: result.baselineSequence,
