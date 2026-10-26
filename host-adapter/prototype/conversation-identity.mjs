@@ -1,7 +1,8 @@
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const MARKER_PREFIX = 'logic-engine-host-lifecycle:';
+const LOCATOR_PREFIX = 'logic-engine-host-lifecycle-locator:';
 const INSTALLATION_KEY = 'logic-engine-host-installation-id';
-const locatorKey = locator => 'logic-engine-host-lifecycle-locator:' + locator;
+const locatorKey = locator => LOCATOR_PREFIX + locator;
 const validUuid = value => typeof value === 'string' && UUID.test(value);
 
 /**
@@ -135,7 +136,7 @@ export function hasAnyHostEnrollment(storage) {
   if (!storage || typeof storage.getItem !== 'function') return true;
   for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
-    if (typeof key === 'string' && key.startsWith(MARKER_PREFIX)) return true;
+    if (typeof key === 'string' && (key.startsWith(MARKER_PREFIX) || key.startsWith(LOCATOR_PREFIX))) return true;
   }
   return false;
 }
