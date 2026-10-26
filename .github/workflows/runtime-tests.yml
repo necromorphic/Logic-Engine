@@ -27,3 +27,4 @@ jobs:
           node-version: '22.13.0'
       - run: npm test
       - run: node --test experiments/recalculation-oracle/harness.test.mjs
+      - run: node --test tests/host-adapter-source-audit.test.mjs
