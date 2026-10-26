@@ -4,7 +4,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/host-adapter-pinned-source-audit.yml"
-      - "tests/host-adapter-source-audit.test.mjs"
+      - "experiments/host-adapter-source-audit/harness.test.mjs"
   workflow_dispatch:
 
 permissions:
