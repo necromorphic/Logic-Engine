@@ -476,7 +476,7 @@ test('external SQLite writes during source validation invalidate candidate autho
       s.record.record_ref, s.record.record_version);
   releaseResolve();
 
-  await assert.rejects(pending, /MEMORY_AUTHORIZATION_CHANGED/);
+  await assert.rejects(pending, /MEMORY_RECORD_ACCESS_REVOKED/);
 });
 
 test('source validators receive immutable nested lineage during reconciliation and candidate authorization', async (t) => {

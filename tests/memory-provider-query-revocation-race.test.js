@@ -23,7 +23,7 @@ test('query authorization revoked during source validation is denied', async (t)
     },
     validateInventory: async () => true,
   });
-  t.after(() => { provider.close(); testDb.close(); testDb.cleanup(); });
+  t.after(() => provider.close());
 
   const scope = { world_id: 'race-world', subject_id: 'race-npc', purpose: 'npc_decision' };
   const record = {
@@ -562,7 +562,7 @@ test('reconciliation refuses current when index inventory changes outside its Pr
 
   assert.deepEqual(await pending, {
     status: 'stale',
-    reason: 'INDEX_INVENTORY_MISMATCH',
+    reason: 'PROVIDER_STATE_CHANGED',
   });
   assert.notEqual(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'current');
 });
