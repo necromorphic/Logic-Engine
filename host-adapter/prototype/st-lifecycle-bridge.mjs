@@ -403,7 +403,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     const tombstoneMap = new Map();
     for (const record of exported.records) {
       for (const tombstone of record.payload?.tombstones ?? []) {
-        tombstoneMap.set(tombstone.messageId + '\\u0000' + tombstone.versionId, tombstone);
+        tombstoneMap.set(JSON.stringify([tombstone.messageId, tombstone.versionId]), tombstone);
       }
     }
     return publishCurrentDigestInventory(conversationId, chat, [...tombstoneMap.values()]);
