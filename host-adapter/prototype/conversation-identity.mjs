@@ -83,6 +83,14 @@ export async function resolveStableHostConversationIdentity({
 
   if (mappedId) throw Error('NON_READY: Host locator is bound but its stable metadata identity is missing');
   if (storage.getItem(legacyMarker)) throw Error('NON_READY: legacy identity migration required');
+  for (let i = 0; i < storage.length; i++) {
+    const key = storage.key(i);
+    const value = typeof key === 'string' ? storage.getItem(key) : null;
+    if (typeof key === 'string' && key.startsWith(MARKER_PREFIX)
+      && typeof value === 'string' && value.endsWith(':' + locator)) {
+      throw Error('NON_READY: enrolled Host locator has no stable metadata identity');
+    }
+  }
 
   const originalMetadata = metadata;
   const conversationUuid = cryptoProvider.randomUUID();
