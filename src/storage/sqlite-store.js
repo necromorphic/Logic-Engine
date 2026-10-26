@@ -158,6 +158,13 @@ const world = (r) => r && ({
   created_at: r.created_at,
 });
 
+function requireSynchronousCallback(fn, label) {
+  if (typeof fn !== 'function') throw new TypeError(label + ' must be a function.');
+  if (fn.constructor?.name === 'AsyncFunction') {
+    throw new TypeError(label + ' must be synchronous; do not await while a coordinator lease is held.');
+  }
+}
+
 function aliasesSameFile(left, right) {
   const canonical = (value) => {
     const absolute = resolve(value);
@@ -185,8 +192,8 @@ export class SQLiteStore {
     this.coordinatorDb = coordinatorPath ? openCoordinatorDatabase(coordinatorPath) : null;
     this.coordinatorRelease = null;
     this.coordinatorLeaseDepth = 0;
-    this.db = new DatabaseSync(corePath);
     try {
+      this.db = new DatabaseSync(corePath);
       if (this.coordinatorDb) {
         this.coordinatorRelease = beginCoordinatorLock(this.coordinatorDb);
         this.coordinatorLeaseDepth = 1;
@@ -520,6 +527,7 @@ export class SQLiteStore {
   }
 
   tx(fn) {
+    requireSynchronousCallback(fn, 'SQLiteStore.tx callback');
     if (this.txDepth > 0) {
       const savepoint = 'logic_engine_nested_' + this.txDepth;
       this.db.exec('SAVEPOINT ' + savepoint);
@@ -553,6 +561,10 @@ export class SQLiteStore {
       this.db.exec('BEGIN IMMEDIATE');
       this.txDepth = 1;
       const result = fn();
+      if (result !== null && (typeof result === 'object' || typeof result === 'function')
+        && typeof result.then === 'function') {
+        throw new TypeError('SQLiteStore.tx callback must be synchronous; do not await while a coordinator lease is held.');
+      }
       this.db.exec('COMMIT');
       return result;
     } catch (error) {
