@@ -119,7 +119,8 @@ export async function resolveStableHostConversationIdentity({
 }
 
 export function hostLocatorHasEnrollment(locator, storage) {
-  if (typeof locator !== 'string' || !locator.trim() || !storage) return false;
+  if (typeof locator !== 'string' || !locator.trim() || !storage
+    || typeof storage.getItem !== 'function' || typeof storage.key !== 'function') return true;
   if (storage.getItem(locatorKey(locator)) || storage.getItem(MARKER_PREFIX + locator)) return true;
   for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
