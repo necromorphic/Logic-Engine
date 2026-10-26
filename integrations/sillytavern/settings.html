@@ -1,0 +1,13 @@
+<div class="logic-engine-bridge-settings">
+  <h3>Logic-Engine Bridge</h3>
+  <div class="flex-container flexFlowColumn">
+    <label for="logic_engine_bridge_url">Logic-Engine API base URL</label>
+    <input id="logic_engine_bridge_url" class="text_pole" type="url" placeholder="http://192.168.0.84:8789">
+    <div class="flex-container">
+      <button id="logic_engine_bridge_save" class="menu_button">Save URL</button>
+      <button id="logic_engine_bridge_check" class="menu_button">Check connection</button>
+    </div>
+    <div id="logic_engine_bridge_status" role="status" aria-live="polite">Not checked</div>
+    <small>Diagnostics only. This initial build checks the public /health endpoint; it does not yet submit game actions or mutate world state.</small>
+  </div>
+</div>
