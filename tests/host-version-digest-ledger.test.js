@@ -382,3 +382,20 @@ test('inventory mutation while trust verification awaits cannot add unverified r
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'READY');
 });
 
+test('event-only capture rejects a deleted version that is also marked active', async (t) => {
+  const ledger = setup(t, async () => true);
+  const active = entry();
+  const snapshot = {
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [active]
+  };
+  assert.equal((await ledger.reconcileConversation(snapshot)).status, 'ready');
+
+  assert.deepEqual(ledger.captureVersion({ ...active, deleted: true, active: true }), {
+    status: 'non_ready', code: 'HOST_VERSION_DELETED_ACTIVE'
+  });
+  assert.equal(ledger.db.prepare('SELECT lifecycle FROM host_version_digest_ledger WHERE version_id=?').get(tuple.version_id).lifecycle, 'present');
+  assert.equal(ledger.db.prepare('SELECT version_id FROM host_version_active_pointer WHERE message_id=?').get(tuple.message_id).version_id, tuple.version_id);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code, 'HOST_VERSION_DELETED_ACTIVE');
+});
+
