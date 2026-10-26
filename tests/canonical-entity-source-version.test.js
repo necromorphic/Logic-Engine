@@ -87,7 +87,8 @@ test('Core source-version validator rejects stale revisions after update and rol
   assert.equal(rollback.accepted, true);
   const restored = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'] });
   const restoredVersion = String(restored.entities[0].updated_revision);
-  assert.notEqual(restored.commit_sequence, changed.commit_sequence);
+  assert.equal(restored.commit_sequence, changed.commit_sequence);
+  assert.notEqual(restored.world_revision, changed.world_revision);
   assert.equal(validate(candidate({ source_version: changedVersion, lineage: [
     { source_kind: 'canonical_entity', entity_id: 'source-a', source_version: changedVersion },
   ] })), false);
