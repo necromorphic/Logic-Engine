@@ -140,8 +140,10 @@ export class HostVersionDigestLedger {
       .run(worldId, conversationId, snapshotDigest, code, this.#nextStateTimestamp(worldId, conversationId));
   }
 
-  #rejectSnapshot(snapshot, code) {
-    if (validId(snapshot?.world_id) && validId(snapshot?.conversation_id)) {
+  #rejectSnapshot(snapshot, code, authorized = false) {
+    // A caller-provided scope is not an authority. Only mutate readiness after
+    // the trusted Host/Core verifier has accepted this exact scope and snapshot.
+    if (authorized && validId(snapshot?.world_id) && validId(snapshot?.conversation_id)) {
       this.#write(() => this.#markNonReady(snapshot.world_id, snapshot.conversation_id, code, new Date().toISOString()));
     }
     return { status: 'non_ready', code };
@@ -289,36 +291,12 @@ export class HostVersionDigestLedger {
         versions
       });
     }
-    if (!snapshot || !validId(snapshot.world_id) || !validId(snapshot.conversation_id)
-      || snapshot.complete !== true || !Array.isArray(snapshot.versions)) {
+    if (!snapshot || !validId(snapshot.world_id) || !validId(snapshot.conversation_id)) {
       return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INCOMPLETE');
     }
-    const seen = new Set();
-    for (const v of snapshot.versions) {
-      if (!validTuple(v) || v.world_id !== snapshot.world_id || v.conversation_id !== snapshot.conversation_id
-        || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
-        return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INVALID');
-      }
-      // A deleted version cannot be the active version in a complete inventory.
-      // Accepting that contradictory pair would silently discard the active flag
-      // while rebuilding pointers and could publish READY for an inconsistent Host snapshot.
-      if (v.deleted && v.active) {
-        return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_DELETED_VERSION_ACTIVE');
-      }
-      const key = JSON.stringify(tuple(v));
-      if (seen.has(key)) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_DUPLICATE_IDENTITY');
-      seen.add(key);
-    }
-    const activeByMessage = new Set();
-    for (const v of snapshot.versions) {
-      if (!v.active || v.deleted) continue;
-      const key = JSON.stringify([v.world_id, v.conversation_id, v.message_id]);
-      if (activeByMessage.has(key)) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS');
-      activeByMessage.add(key);
-    }
-    // Capture the local state before the asynchronous trust check. If another
-    // writer changes versions, pointers, or readiness while verification awaits,
-    // this snapshot must not publish READY against a different local state.
+    // Snapshot scope must be authenticated before any rejection can mutate the
+    // readiness row. This verifier is the trusted Host/Core integration seam;
+    // false, missing, or throwing verification never changes ledger state.
     const preVerification = this.#write(() => ({
       fingerprint: this.#fingerprint(snapshot.world_id, snapshot.conversation_id),
       state: this.db.prepare('SELECT status,failure_code,updated_at FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
@@ -328,11 +306,40 @@ export class HostVersionDigestLedger {
     let trusted = false;
     try {
       trusted = await this.verifyInventorySnapshot(Object.freeze({
-        world_id: snapshot.world_id, conversation_id: snapshot.conversation_id, complete: true,
-        versions: snapshot.versions.map((v) => Object.freeze({ ...v }))
+        world_id: snapshot.world_id, conversation_id: snapshot.conversation_id,
+        complete: snapshot.complete,
+        versions: Array.isArray(snapshot.versions)
+          ? snapshot.versions.map((v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.freeze({ ...v }) : v)
+          : snapshot.versions
       })) === true;
     } catch { trusted = false; }
     if (!trusted) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_NOT_AUTHORIZED');
+    if (snapshot.complete !== true || !Array.isArray(snapshot.versions)) {
+      return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INCOMPLETE', true);
+    }
+    const seen = new Set();
+    for (const v of snapshot.versions) {
+      if (!validTuple(v) || v.world_id !== snapshot.world_id || v.conversation_id !== snapshot.conversation_id
+        || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
+        return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INVALID', true);
+      }
+      // A deleted version cannot be the active version in a complete inventory.
+      // Accepting that contradictory pair would silently discard the active flag
+      // while rebuilding pointers and could publish READY for an inconsistent Host snapshot.
+      if (v.deleted && v.active) {
+        return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_DELETED_VERSION_ACTIVE', true);
+      }
+      const key = JSON.stringify(tuple(v));
+      if (seen.has(key)) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_DUPLICATE_IDENTITY', true);
+      seen.add(key);
+    }
+    const activeByMessage = new Set();
+    for (const v of snapshot.versions) {
+      if (!v.active || v.deleted) continue;
+      const key = JSON.stringify([v.world_id, v.conversation_id, v.message_id]);
+      if (activeByMessage.has(key)) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS', true);
+      activeByMessage.add(key);
+    }
     const canonical = snapshot.versions.map((v) => [...tuple(v), v.content_sha256, v.active, v.deleted])
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const snapshotDigest = digest(JSON.stringify(canonical));
