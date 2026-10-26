@@ -313,6 +313,31 @@ test('due-work requests reject unknown fields instead of silently dropping missp
   );
 });
 
+test('due-work requests reject explicitly undefined optional fields', () => {
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers: [],
+      completed_trigger_ids: undefined,
+    }),
+    (error) => error.code === 'INVALID_DUE_WORK_REQUEST',
+  );
+});
+
+test('known registry metadata also rejects explicitly undefined values', () => {
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers: [trigger('metadata-undefined', 5, { content_hash: undefined })],
+    }),
+    (error) => error.code === 'INVALID_TRIGGER',
+  );
+});
+
 test('due-work requests reject accessors without invoking them', () => {
   let getterCalled = false;
   const request = {
