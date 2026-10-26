@@ -22,9 +22,13 @@ function initialize(directory) {
   coordinator.exec('CREATE TABLE lock_marker (id INTEGER PRIMARY KEY, value INTEGER NOT NULL); INSERT INTO lock_marker VALUES (1, 0);');
   coordinator.close();
 
-  const state = openDb(join(directory, 'validity.sqlite'));
-  state.exec('CREATE TABLE validity (id INTEGER PRIMARY KEY, denied INTEGER NOT NULL); INSERT INTO validity VALUES (1, 0);');
-  state.close();
+  const core = openDb(join(directory, 'core.sqlite'));
+  core.exec('CREATE TABLE source_validity (id INTEGER PRIMARY KEY, valid INTEGER NOT NULL); INSERT INTO source_validity VALUES (1, 1);');
+  core.close();
+
+  const provider = openDb(join(directory, 'provider.sqlite'));
+  provider.exec('CREATE TABLE provider_readiness (id INTEGER PRIMARY KEY, grant_valid INTEGER NOT NULL, ready INTEGER NOT NULL); INSERT INTO provider_readiness VALUES (1, 1, 1);');
+  provider.close();
 
   const ledger = openDb(join(directory, 'dispatch-ledger.sqlite'));
   ledger.exec('CREATE TABLE dispatch (id INTEGER PRIMARY KEY, outcome TEXT NOT NULL); CREATE TABLE transport_calls (id INTEGER PRIMARY KEY);');
@@ -51,41 +55,49 @@ function waitForCommand() {
 
 async function runWorker(role, directory) {
   const coordinator = openDb(join(directory, 'coordinator.sqlite'));
-  const state = openDb(join(directory, 'validity.sqlite'));
+  const core = openDb(join(directory, 'core.sqlite'));
+  const provider = openDb(join(directory, 'provider.sqlite'));
   const ledger = openDb(join(directory, 'dispatch-ledger.sqlite'));
 
-  // This transaction is the shared cross-process serialization primitive under test.
+  // All participants must acquire this same cross-process serialization primitive
+  // before changing validity or recording dispatch-start.
   coordinator.exec('BEGIN IMMEDIATE;');
   emit('LOCKED', { role });
 
-  if (role === 'writer') {
+  if (role === 'core-writer' || role === 'provider-revoke' || role === 'provider-not-ready') {
     await waitForCommand();
-    state.exec('BEGIN IMMEDIATE; UPDATE validity SET denied = 1 WHERE id = 1; COMMIT;');
-    emit('INVALIDATION_COMMITTED');
+    if (role === 'core-writer') {
+      core.exec('BEGIN IMMEDIATE; UPDATE source_validity SET valid = 0 WHERE id = 1; COMMIT;');
+    } else if (role === 'provider-revoke') {
+      provider.exec('BEGIN IMMEDIATE; UPDATE provider_readiness SET grant_valid = 0 WHERE id = 1; COMMIT;');
+    } else {
+      provider.exec('BEGIN IMMEDIATE; UPDATE provider_readiness SET ready = 0 WHERE id = 1; COMMIT;');
+    }
+    emit('INVALIDATION_COMMITTED', { role });
     coordinator.exec('COMMIT;');
     emit('RELEASED', { role });
   } else if (role === 'gateway') {
     await waitForCommand();
-    const current = state.prepare('SELECT denied FROM validity WHERE id = 1').get();
-
-    if (current.denied !== 0) {
+    const source = core.prepare('SELECT valid FROM source_validity WHERE id = 1').get();
+    const access = provider.prepare('SELECT grant_valid, ready FROM provider_readiness WHERE id = 1').get();
+    if (source.valid !== 1 || access.grant_valid !== 1 || access.ready !== 1) {
       ledger.prepare('INSERT INTO dispatch(outcome) VALUES (?)').run('denied');
       emit('DISPATCH_DENIED', { transportCalls: 0 });
     } else {
-      // Persist the dispatch-start marker before invoking the transport spy.
+      // Dispatch-start is durable before the simulated actual transport invocation.
       ledger.exec("BEGIN IMMEDIATE; INSERT INTO dispatch(outcome) VALUES ('dispatch-start'); COMMIT;");
       ledger.prepare('INSERT INTO transport_calls DEFAULT VALUES').run();
       emit('TRANSPORT_INVOKED', { transportCalls: 1 });
     }
-
     coordinator.exec('COMMIT;');
     emit('RELEASED', { role });
   } else {
-    throw new Error('Unknown proof worker role');
+    throw new Error('Unknown proof worker role: ' + role);
   }
 
   coordinator.close();
-  state.close();
+  core.close();
+  provider.close();
   ledger.close();
 }
 
@@ -142,15 +154,15 @@ if (workerRole && workerDirectory) {
     assert.equal(worker.child.exitCode, 0, worker.stderr());
   }
 
-  async function exercise(writerFirst) {
+  async function exercise(writerRole, writerFirst) {
     const directory = mkdtempSync(join(tmpdir(), 'logic-engine-dispatch-order-'));
     initialize(directory);
     try {
       if (writerFirst) {
-        const writer = startWorker('writer', directory);
+        const writer = startWorker(writerRole, directory);
         await waitFor(writer, 'LOCKED');
         const gateway = startWorker('gateway', directory);
-        // Gateway cannot acquire the coordinator lock while the writer holds it.
+        // Gateway cannot acquire the shared lock while the validity writer holds it.
         await new Promise((resolve) => setTimeout(resolve, 150));
         writer.send('commit');
         await waitFor(writer, 'RELEASED');
@@ -162,8 +174,8 @@ if (workerRole && workerDirectory) {
       } else {
         const gateway = startWorker('gateway', directory);
         await waitFor(gateway, 'LOCKED');
-        const writer = startWorker('writer', directory);
-        // Writer cannot invalidate while gateway owns the coordinator lock.
+        const writer = startWorker(writerRole, directory);
+        // Core/Provider writer cannot change validity while gateway owns the lock.
         await new Promise((resolve) => setTimeout(resolve, 150));
         gateway.send('dispatch');
         await waitFor(gateway, 'TRANSPORT_INVOKED');
@@ -175,30 +187,39 @@ if (workerRole && workerDirectory) {
         await stop(writer);
       }
 
-      const state = openDb(join(directory, 'validity.sqlite'));
+      const core = openDb(join(directory, 'core.sqlite'));
+      const provider = openDb(join(directory, 'provider.sqlite'));
       const ledger = openDb(join(directory, 'dispatch-ledger.sqlite'));
-      const denied = state.prepare('SELECT denied FROM validity WHERE id = 1').get().denied;
+      const sourceValid = core.prepare('SELECT valid FROM source_validity WHERE id = 1').get().valid;
+      const access = provider.prepare('SELECT grant_valid, ready FROM provider_readiness WHERE id = 1').get();
       const outcomes = ledger.prepare('SELECT outcome FROM dispatch ORDER BY id').all().map((row) => row.outcome);
       const transportCalls = ledger.prepare('SELECT COUNT(*) AS count FROM transport_calls').get().count;
-      state.close();
+      core.close();
+      provider.close();
       ledger.close();
-      return { denied, outcomes, transportCalls };
+      return { sourceValid, grantValid: access.grant_valid, ready: access.ready, outcomes, transportCalls };
     } finally {
       rmSync(directory, { recursive: true, force: true });
     }
   }
 
-  test('writer-first ordering: committed invalidation yields zero transport invocations', async () => {
-    const result = await exercise(true);
-    assert.equal(result.denied, 1);
-    assert.deepEqual(result.outcomes, ['denied']);
-    assert.equal(result.transportCalls, 0);
-  });
+  for (const writerRole of ['core-writer', 'provider-revoke', 'provider-not-ready']) {
+    test(`writer-first: ${writerRole} wins and actual transport count is zero`, async () => {
+      const result = await exercise(writerRole, true);
+      assert.equal(result.outcomes[0], 'denied');
+      assert.equal(result.transportCalls, 0);
+      if (writerRole === 'core-writer') assert.equal(result.sourceValid, 0);
+      if (writerRole === 'provider-revoke') assert.equal(result.grantValid, 0);
+      if (writerRole === 'provider-not-ready') assert.equal(result.ready, 0);
+    });
 
-  test('dispatch-first ordering: transport invocation precedes later invalidation', async () => {
-    const result = await exercise(false);
-    assert.equal(result.denied, 1);
-    assert.deepEqual(result.outcomes, ['dispatch-start']);
-    assert.equal(result.transportCalls, 1);
-  });
+    test(`dispatch-first: gateway invokes transport before ${writerRole}`, async () => {
+      const result = await exercise(writerRole, false);
+      assert.deepEqual(result.outcomes, ['dispatch-start']);
+      assert.equal(result.transportCalls, 1);
+      if (writerRole === 'core-writer') assert.equal(result.sourceValid, 0);
+      if (writerRole === 'provider-revoke') assert.equal(result.grantValid, 0);
+      if (writerRole === 'provider-not-ready') assert.equal(result.ready, 0);
+    });
+  }
 }
