@@ -902,3 +902,19 @@ test("fails closed when Array.prototype iteration is polluted", () => {
   assert.equal(decision.status, "non_ready");
   assert.deepEqual(decision.admitted, []);
 });
+
+
+test("accepts null-prototype metadata dictionaries without inherited-field dependence", () => {
+  const nullPrototypeRequest = Object.assign(Object.create(null), structuredClone(request));
+  const nullPrototypeSnapshot = Object.assign(Object.create(null), structuredClone(request.snapshot));
+  nullPrototypeRequest.snapshot = nullPrototypeSnapshot;
+
+  const decision = evaluateMemoryCandidateAdmission(
+    nullPrototypeRequest,
+    completeResult([candidate()]),
+  );
+
+  assert.equal(decision.status, "ready");
+  assert.equal(decision.admitted.length, 1);
+  assert.equal(decision.admitted[0].record_ref, "memory:claim-1");
+});
