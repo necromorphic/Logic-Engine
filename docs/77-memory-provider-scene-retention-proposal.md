@@ -81,3 +81,21 @@ These are required closure tests, not claims that raw retention is currently ena
 - **Production Memory→NPC:** **DISABLED / FAIL-CLOSED**.
 
 No new API/schema/store, source-change journal, cursor, outbox, production caller, or vectorization change is proposed here. The next step is owner decisions and evidence for the listed gates, while Provider-local work continues independently.
+
+## 8. Host tuple → existing Provider operation mapping
+
+Host's candidate tuple is `(world_id, conversation_id, message_id, version_id)`. It is **not** the same identity as the current direct-record primary key `(world_id, record_ref, record_version)`. No approved conversion between these identities exists, so do not fabricate one or treat a caller-provided mapping as Host authority.
+
+| Host fact/event | Existing Provider operation | Current result / preconditions | What remains unproven |
+|---|---|---|---|
+| Completed immutable source version captured | `captureRawMessage(tuple + role/content/metadata)` | Immediately throws `MEMORY_RAW_CAPTURE_NOT_APPROVED`; writes nothing. | No production capture is occurring; Host identity and retention approval are absent. |
+| Select current swipe/generation | `selectActiveRawVersion(tuple)` | Immediately throws `MEMORY_RAW_SOURCE_NOT_APPROVED`; active pointer is not changed. | Host's selected version must be a stable immutable ID, not a mutable swipe array position. |
+| Read one version / active conversation | `readRawMessageVersion(tuple)` / `readActiveRawMessages(world_id, conversation_id)` | Immediately throws `MEMORY_RAW_DISCLOSURE_NOT_APPROVED`. | No raw Host text can reach the consumer through these methods; no approved disclosure boundary exists. |
+| Edit or regenerate | No dedicated Host edit-ancestry operation; a new version would require a distinct `version_id` and preserved parent/source evidence. | Provider cannot infer the old version after Host overwrites it. | Pre-mutation capture, parent ancestry and durable IDs are not proven on Host. |
+| Delete one exact known version | `markRawSourceDeleted(tuple)` | Provider-local reversible tombstone; removes that exact active pointer and invalidates known local derived copies. Missing tuple returns `missing`. | It only acts on the tuple supplied; it cannot prove all deleted versions were enumerated. |
+| Permanently purge one exact known version | `purgeRawSource(tuple)` | Provider-local deletion and cascade of registered dependent copies. | Does not purge external/vector stores or prove complete global erasure. |
+| Register a derived episode/copy | `registerRawDerivedCopy(tuple + copy identity/content)` | Immediately throws `MEMORY_RAW_DERIVED_COPY_NOT_APPROVED`. | No raw-source-derived scene is currently stored by this path; future lineage authorization and retention must be approved first. |
+| Rebuild/restart/replay | `rebuildIndex()`, `reconcile()`, `putRecord()` apply only to Provider records, not Host raw tuples. | Provider-record persistence/rebuild/reconciliation is tested. | Does not reconstruct Host historical/deleted inventory or map raw tuple IDs to Provider record IDs. |
+
+This mapping consumes the current Host/Provider evidence without certifying Host completeness. Host's owner report remains **NO AUTHORITATIVE COMPLETE ACTIVE + HISTORY/DELETED INVENTORY / NON_READY**. Until Host supplies exact, durable, replayable lifecycle evidence and Core approves the source/retention/disclosure contract, the safe executable result for raw capture/read/derived-copy is refusal, not partial success.
+
