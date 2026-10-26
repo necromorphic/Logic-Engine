@@ -29,7 +29,7 @@ export function evaluateNpcDecisionPrototype(candidates) {
   if (!Array.isArray(candidates)) invalid("candidates must be an array");
 
   const seen = new Set();
-  const normalized = candidates.map((candidate) => {
+  const normalized = Array.from(candidates, (candidate) => {
     if (candidate === null || typeof candidate !== "object" || Array.isArray(candidate)) {
       invalid("each candidate must be an object");
     }
