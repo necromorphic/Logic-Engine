@@ -168,15 +168,16 @@ export class HostLifecycleJournal {
     };
   }
 
-  async status(cid,{instrumentedPaths=[],sourceFingerprintMatches=false}={}) {
+  async status(cid,{instrumentedPaths=[],currentMessages=null,sourceLocator=null}={}) {
     if(this.#bad.has(cid)) return {status:'NON_READY',reason:this.#bad.get(cid)};
     let rows; try { rows=await this.#records(cid); } catch(e) { return this.#fail(cid,'journal unreadable: '+(e?.message||e)); }
     const check=await this.#verifyStored(cid,rows); if(!check.ok) return this.#fail(cid,check.reason);
     if(!rows.length||rows[0].operation!=='baseline') return {status:'NON_READY',reason:'missing baseline'};
     const missing=REQUIRED_COVERAGE.filter(p=>!instrumentedPaths.includes(p));
     if(missing.length) return {status:'NON_READY',reason:'incomplete mutation instrumentation',missingPaths:missing,baselineBoundary:'enrollment-forward-only'};
-    if(!sourceFingerprintMatches) return {status:'NON_READY',reason:'source fingerprint mismatch or unverified'};
-    return {status:'NON_READY',reason:'native hook coverage has no trusted pinned-source attestation',sequence:rows.at(-1).sequence,baselineBoundary:'enrollment-forward-only'};
+    const sourceCheck=await this.verifyCurrentSource(cid,{messages:currentMessages,sourceLocator});
+    if(sourceCheck.status==='NON_READY') return sourceCheck;
+    return {status:'NON_READY',reason:'native hook coverage has no trusted pinned-source attestation',sequence:rows.at(-1).sequence,baselineBoundary:'enrollment-forward-only',localSourceCheck:sourceCheck.status};
   }
   async #verify(rows) {
     let previous=null;
