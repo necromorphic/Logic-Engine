@@ -17,9 +17,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
   if (publishDigest !== null && typeof publishDigest !== 'function') throw TypeError('publishDigest must be a trusted callback');
   const publishQueues = new Map();
+  const coreCaptureStates = new Map();
 
   async function publishCurrentDigestInventory(conversationId, chat, tombstones = []) {
-    if (!publishDigest) return { status: 'REVIEW_ONLY', published: false };
+    if (!publishDigest) {
+      const state = { status: 'NOT_CONFIGURED', published: false, versionCount: 0 };
+      coreCaptureStates.set(conversationId, state);
+      return state;
+    }
     const entries = [];
     for (const message of chat) {
       const identity = message?._logicEngineLifecycle;
@@ -65,10 +70,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     const current = previous.catch(() => {}).then(async () => {
       for (const entry of entries) {
         try { await publishDigest(entry); } catch {
-          throw Error('NON_READY: Core digest capture failed; Host inventory remains review-only');
+          const state = { status: 'NON_READY', published: false, versionCount: entries.length };
+          coreCaptureStates.set(conversationId, state);
+          return state;
         }
       }
-      return { status: 'REVIEW_ONLY', published: true, versionCount: entries.length };
+      const state = { status: 'CAPTURED_REVIEW_ONLY', published: true, versionCount: entries.length };
+      coreCaptureStates.set(conversationId, state);
+      return state;
     });
     publishQueues.set(conversationId, current);
     try { return await current; }
@@ -112,13 +121,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       // fingerprint/identity validation must fail closed; enrollment cannot be retried.
       throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
     }
-    await publishCurrentDigestInventory(conversationId, chat);
+    const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
     return {
       conversationId,
       baselineSequence: result.baselineSequence,
       preEnrollmentHistory: result.preEnrollmentHistory,
       messageCount: chat.length,
       status: 'REVIEW_ONLY',
+      coreCaptureStatus: coreCapture.status,
     };
   }
 
@@ -371,8 +381,27 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       payload: { changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones },
     });
     if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
-    await publishCurrentDigestInventory(conversationId, chat, tombstones);
-    return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY' };
+    const coreCapture = await publishCurrentDigestInventory(conversationId, chat, tombstones);
+    return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY', coreCaptureStatus: coreCapture.status };
+  }
+
+  async function syncCurrentDigestInventory() {
+    const conversationId = await getConversationId();
+    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    const integrity = await journal.verifyIntegrity(conversationId);
+    if (integrity.status !== 'INTEGRITY_OK') return { status: 'NON_READY', reason: integrity.reason };
+    const chat = getChat();
+    const fingerprint = await currentFingerprint(chat);
+    if (integrity.sourceFingerprint !== fingerprint) {
+      return { status: 'NON_READY', reason: 'current Host source differs from the durable journal checkpoint' };
+    }
+    await assertIdentitySnapshotMatches(conversationId, chat);
+    return publishCurrentDigestInventory(conversationId, chat);
+  }
+
+  function getCoreCaptureStatus() {
+    const conversationId = getConversationId();
+    return Promise.resolve(conversationId).then(id => id ? (coreCaptureStates.get(id) ?? { status: 'NOT_SYNCED' }) : { status: 'NO_CONVERSATION' });
   }
 
   async function reconcileCurrentConversation() {
@@ -466,6 +495,8 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     enrollCurrentConversation,
     beforeMutation,
     afterMutation,
+    syncCurrentDigestInventory,
+    getCoreCaptureStatus,
     currentFingerprint,
     reconcileCurrentConversation,
   });
