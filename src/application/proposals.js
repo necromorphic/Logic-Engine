@@ -16,7 +16,8 @@ export class ProposalService {
     this.validateMechanicPolicy = validateMechanicPolicy ?? null;
     this.engine = engine;
     this.db = engine.store.db;
-    this.db.exec(`
+    this.engine.store.tx(() => {
+      this.db.exec(`
       CREATE TABLE IF NOT EXISTS event_proposals (
         proposal_id TEXT PRIMARY KEY,
         world_id TEXT NOT NULL REFERENCES worlds(world_id),
@@ -42,6 +43,7 @@ export class ProposalService {
     if (!columns.some((column) => column.name === 'validation_result_json')) this.db.exec("ALTER TABLE event_proposals ADD COLUMN validation_result_json TEXT NOT NULL DEFAULT '{}'");
     if (!columns.some((column) => column.name === 'created_by_adapter_id')) this.db.exec('ALTER TABLE event_proposals ADD COLUMN created_by_adapter_id TEXT');
     if (!columns.some((column) => column.name === 'mechanic_execution_json')) this.db.exec('ALTER TABLE event_proposals ADD COLUMN mechanic_execution_json TEXT');
+    });
   }
 
   create(worldId, body, adapterId, mechanicExecution = null) {
