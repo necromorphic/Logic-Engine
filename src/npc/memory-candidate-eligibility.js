@@ -111,14 +111,18 @@ function lineageIsSafe(candidate, request) {
 
   // Array.prototype.every skips holes. Check every own index explicitly so a
   // sparse lineage cannot be mistaken for a complete list of authorized sources.
+  // Repeated source ref/version pairs are ambiguous without an approved immutable
+  // payload digest; reject the summary instead of assuming duplicate rows agree.
+  const sourceIdentities = new Set();
   for (let index = 0; index < candidate.lineage.sources.length; index += 1) {
     if (!Object.hasOwn(candidate.lineage.sources, index)) return false;
     const source = candidate.lineage.sources[index];
+    if (source == null || !isNonEmptyString(source.ref) || !isNonEmptyString(source.version)) return false;
+    const identity = JSON.stringify([source.ref, source.version]);
+    if (sourceIdentities.has(identity)) return false;
+    sourceIdentities.add(identity);
     if (
-      source == null
-      || !isNonEmptyString(source.ref)
-      || !isNonEmptyString(source.version)
-      || source.world_id !== request.world_id
+      source.world_id !== request.world_id
       || source.access?.outcome !== ALLOW
       || source.access?.subject_id !== request.subject_id
       || source.access?.purpose !== request.purpose
