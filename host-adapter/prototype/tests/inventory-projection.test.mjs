@@ -104,7 +104,6 @@ test('invalid active swipe indices fail closed for multi-version messages', () =
 test('single-version message may omit swipe_id because there is no alternate selection', () => {
   const single = message({ id: 'msg-single-no-swipe-id', versions: ['only-version'] });
   delete single.swipe_id;
-  delete single._logicEngineLifecycle.activeVersionIndex;
   const result = projectHostInventoryForComparison([single]);
   assert.equal(result.status, 'REVIEW_ONLY');
   assert.equal(result.rows.length, 1);
