@@ -108,12 +108,15 @@ diff --git a/public/script.js b/public/script.js
 +        completeOperation: async (operation, details = {}) =>
 +            (await getLogicEngineLifecycleBridge()).afterMutation(operation, details),
 +        enrollCurrentConversation: async () => {
++            const sourceLocator = getCurrentChatId();
 +            const conversationId = await getLogicEngineConversationId();
-+            if (!conversationId) throw Error('NON_READY: no active Host conversation');
++            if (!conversationId || !sourceLocator) throw Error('NON_READY: no active Host conversation');
++            localStorage.setItem('logic-engine-host-lifecycle-locator:' + sourceLocator, conversationId);
 +            const marker = 'logic-engine-host-lifecycle:' + conversationId;
 +            localStorage.setItem(marker, 'enrolling');
 +            try {
 +                const result = await (await getLogicEngineLifecycleBridge()).enrollCurrentConversation();
++                if (getCurrentChatId() !== sourceLocator) throw Error('NON_READY: Host conversation changed during enrollment');
 +                localStorage.setItem(marker, 'enrolled');
 +                return result;
 +            } catch (error) {
