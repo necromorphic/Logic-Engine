@@ -103,3 +103,21 @@ This is a Core-side source inventory, not a claim that the coordinator primitive
 ### Core conclusion from the inventory
 
 The minimum safe next change is **not** to wrap only `LogicEngine.commitEvent`: that would miss rollback, actor binding, direct API commits, process/config mutations, raw DB access and startup/recovery. Before implementation, the chosen coordinator must be enforced at a lower shared boundary for all Core writes (or those paths must be blocked), while Provider independently proves its writers and Host proves gateway-only transport. A helper that callers may omit is not enforcement. Until that proof exists, the implementation remains **UNSUPPORTED / DISABLED / FAIL-CLOSED**.
+
+
+## Production proof result — source and CI evidence (26 Oct 2026)
+
+**Result: FAIL / NOT ESTABLISHED.** This is a failed production proof, not an inferred success.
+
+- `src/index.js` (blob `db933d74403b28344a32950f2851158e96f7bc85`) constructs `SQLiteStore`, `LogicEngine`, and `createApiServer`; no PC egress gateway is instantiated or wired.
+- `src/storage/sqlite-store.js` (blob `bf713de7bb6caedecf9d5e8026055d9147f94185`), `SQLiteStore.tx()` at lines 477–508, opens `BEGIN IMMEDIATE` only on the Core connection, commits/rolls back that connection, and handles nested savepoints. It does not acquire a cross-process coordinator or Provider lock.
+- `src/api/server.js` (blob `f97e4ed28a540b89073653dc0a8ec0fc9c0a50bb`) calls `engine.store.commit(worldId, prepared)` directly at lines 331 and 371 for mechanic create and lifecycle routes, bypassing the `LogicEngine.commitEvent` wrapper.
+- `src/application/authorized-read-service.js` (blob `4da9477569c0610a611811432b29d3b68592a2a5`) describes its revalidation as narrowing in-process TOCTOU windows, not as a cross-process atomic lease. It does not own transport invocation.
+- PR #377's `tests/experimental-dispatch-order-protocol.test.js` creates synthetic `coordinator.sqlite`, `core.sqlite`, `provider.sqlite`, and `dispatch-ledger.sqlite` fixtures. Its worker code manually acquires the lock in every role; it does not instantiate `SQLiteStore`, the production Provider, API routes, or Host transport. The test proves ordering behavior **under the all-participants-cooperate assumption only**.
+- Runtime CI for this matrix's current head `8bcf6464645d858c9b2a98bc1a1e997c9939f071` completed successfully at [run #40348312542](https://github.com/necromorphic/Logic-Engine/actions/runs/40348312542). This is repository test/CI evidence for a docs-only commit, not evidence that production serialization is implemented.
+
+### Required next executable proof
+
+The next Core test must exercise the actual `SQLiteStore` and service paths under separate OS processes, including canonical commit, rollback, actor binding, proposal lifecycle, process/config writes, migrations and direct `engine.store.commit` API routes. It must show that every write acquires the shared authority before the local write transaction and that a deliberately uncoordinated writer is rejected or impossible. Provider must demonstrate the same against its real persistence implementation. Host must demonstrate that the actual configured ST route has no direct upstream transport and reaches only the PC gateway. Synthetic fixtures cannot substitute for these checks.
+
+Until those tests exist and pass, no claim of production ordering, revocation safety, or gateway-only egress is permitted; Memory→NPC remains **DISABLED / FAIL-CLOSED**.
