@@ -86,3 +86,49 @@ test('duplicate identities in a snapshot are rejected', async (t) => {
     world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry(), entry()]
   }), { status: 'non_ready', code: 'HOST_INVENTORY_DUPLICATE_IDENTITY' });
 });
+
+test('snapshot conflict is preflighted before any earlier version from that snapshot is applied', async (t) => {
+  const ledger = setup(t);
+  ledger.captureVersion(entry());
+  const newEntry = entry({ message_id: 'message-b', version_id: 'version-b', content_sha256: digest('new'), active: true });
+  const conflict = entry({ content_sha256: digest('mutated bytes') });
+  const result = await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true,
+    versions: [newEntry, conflict]
+  });
+  assert.deepEqual(result, { status: 'non_ready', code: 'HOST_VERSION_DIGEST_CONFLICT' });
+  assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE message_id='message-b'").get().n, 0);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+});
+
+test('snapshot with two active versions for one message is rejected', async (t) => {
+  const ledger = setup(t);
+  const result = await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true,
+    versions: [entry(), entry({ version_id: 'version-b', content_sha256: digest('second'), active: true })]
+  });
+  assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS' });
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+});
+
+test('trusted snapshot rebuild clears a stale active pointer when no version is active', async (t) => {
+  const ledger = setup(t);
+  ledger.captureVersion(entry());
+  const result = await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true,
+    versions: [entry({ active: false })]
+  });
+  assert.equal(result.status, 'ready');
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_active_pointer').get().n, 0);
+});
+
+test('tombstoned version reappearance marks conversation NON_READY', async (t) => {
+  const ledger = setup(t);
+  ledger.captureVersion(entry());
+  ledger.tombstoneVersion(tuple);
+  const result = await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  });
+  assert.deepEqual(result, { status: 'non_ready', code: 'HOST_TOMBSTONE_REAPPEARED' });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+});
