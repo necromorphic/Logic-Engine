@@ -69,6 +69,10 @@ test('binding mutations survive Core store restart and revoked state is not resu
   const directory = mkdtempSync(join(tmpdir(), 'host-conversation-binding-'));
   const path = join(directory, 'core.sqlite');
   let store = new SQLiteStore(path);
+  t.after(() => {
+    try { store.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
   let engine = new LogicEngine(store);
   for (const worldId of ['binding-world-a', 'binding-world-b']) {
     engine.createWorld({
@@ -92,8 +96,4 @@ test('binding mutations survive Core store restart and revoked state is not resu
   service = new HostConversationWorldBindingService(engine);
   assert.throws(() => service.resolve({ adapterId: 'adapter-a', conversationId: 'chat-1' }),
     (error) => error.code === 'HOST_CONVERSATION_NOT_AUTHORIZED');
-  t.after(() => {
-    store.close();
-    rmSync(directory, { recursive: true, force: true });
-  });
 });
