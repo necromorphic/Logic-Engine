@@ -10,8 +10,10 @@ const validId = (value) => typeof value === 'string'
     const code = character.charCodeAt(0);
     return code < 32 || code === 127;
   });
-const validCursorPart = (value) => (typeof value === 'string' && value.trim().length > 0)
-  || (typeof value === 'number' && Number.isFinite(value));
+// Core snapshot cursors are non-negative safe integers. Accepting arbitrary
+// finite numbers or strings would let malformed provider metadata pass the
+// structural gate even though it cannot represent a canonical Core cursor.
+const validCursorPart = (value) => Number.isSafeInteger(value) && value >= 0;
 const validSnapshot = (value) => object(value)
   && validCursorPart(value.world_revision)
   && validCursorPart(value.commit_sequence);
