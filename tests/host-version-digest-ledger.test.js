@@ -135,6 +135,33 @@ test('tombstoned version reappearance marks conversation NON_READY', async (t) =
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 });
 
+test('ledger mutations after READY invalidate the published inventory state', async (t) => {
+  const ledger = setup(t, async () => true);
+  const snapshot = (versions) => ({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions
+  });
+  assert.equal((await ledger.reconcileConversation(snapshot([entry()]))).status, 'ready');
+
+  ledger.captureVersion(entry({
+    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('second'), active: false
+  }));
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code,
+    'HOST_LEDGER_MUTATED_AFTER_RECONCILIATION');
+
+  assert.equal((await ledger.reconcileConversation(snapshot([entry(), entry({
+    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('second'), active: false
+  })]))).status, 'ready');
+  ledger.selectActiveVersion({ ...tuple, version_id: 'version-a' });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+
+  assert.equal((await ledger.reconcileConversation(snapshot([entry(), entry({
+    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('second'), active: false
+  })]))).status, 'ready');
+  ledger.tombstoneVersion(tuple);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+});
+
 test('rejected inventory cannot leave a previously READY state published', async (t) => {
   const ledger = setup(t, async () => true);
   assert.equal((await ledger.reconcileConversation({
