@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
+import { isProxy } from 'node:util/types';
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
@@ -29,6 +30,38 @@ const aliasesSameFile = (left, right) => {
   return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
 };
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const isPlainDataRecord = (value) => {
+  if (!object(value) || isProxy(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string') return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
+  }
+  return true;
+};
+const isPlainDataArray = (value) => {
+  if (!Array.isArray(value) || isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1 || !keys.includes('length')) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
+  }
+  return true;
+};
+const copyDataRecord = (value) => Object.fromEntries(
+  Reflect.ownKeys(value).map((key) => [key, Object.getOwnPropertyDescriptor(value, key).value]),
+);
+const snapshotProviderRecord = (value) => {
+  if (!isPlainDataRecord(value)) return null;
+  const snapshot = copyDataRecord(value);
+  if (!isPlainDataArray(snapshot.lineage) || snapshot.lineage.length !== 1
+    || !isPlainDataRecord(snapshot.lineage[0])) return null;
+  snapshot.lineage = [copyDataRecord(snapshot.lineage[0])];
+  return snapshot;
+};
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
@@ -64,7 +97,16 @@ const validDirectLineage = (row, lineage) => row.source_kind === 'canonical_enti
  * refuses retrieval until rebuild + reconciliation complete.
  */
 export class SQLiteMemoryProvider {
-  constructor({ path = ':memory:', coordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH ?? null, getSnapshot, validateSourceVersion, validateInventory, authorizeRawRead = null }) {
+  constructor(options = {}) {
+    if (!isPlainDataRecord(options)) throw new TypeError('SQLiteMemoryProvider requires plain data options');
+    const {
+      path = ':memory:',
+      coordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH ?? null,
+      getSnapshot,
+      validateSourceVersion,
+      validateInventory,
+      authorizeRawRead = null,
+    } = options;
     if (typeof getSnapshot !== 'function') throw new TypeError('SQLiteMemoryProvider requires trusted getSnapshot');
     if (typeof validateSourceVersion !== 'function') {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateSourceVersion');
@@ -407,7 +449,7 @@ export class SQLiteMemoryProvider {
    * copies. Permanent purge is a separate explicit operation.
    */
   markRawSourceDeleted(input) {
-    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+    if (!isPlainDataRecord(input) || !validId(input.world_id) || !validId(input.conversation_id)
       || !validId(input.message_id) || !validId(input.version_id)) {
       throw new TypeError('Invalid raw Memory deletion target');
     }
@@ -435,7 +477,7 @@ export class SQLiteMemoryProvider {
    * managed by this provider-local operation and must not be claimed purged.
    */
   purgeRawSource(input) {
-    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+    if (!isPlainDataRecord(input) || !validId(input.world_id) || !validId(input.conversation_id)
       || !validId(input.message_id) || !validId(input.version_id)) {
       throw new TypeError('Invalid raw Memory purge target');
     }
@@ -462,7 +504,7 @@ export class SQLiteMemoryProvider {
   }
 
   #scope(scope) {
-    if (!object(scope) || !validId(scope.world_id) || !validId(scope.subject_id)
+    if (!isPlainDataRecord(scope) || !validId(scope.world_id) || !validId(scope.subject_id)
       || !validId(scope.purpose)) throw new TypeError('Invalid Memory scope');
     return scope;
   }
@@ -540,6 +582,14 @@ export class SQLiteMemoryProvider {
   }
 
   async authorizeCandidate(input) {
+    // Snapshot request identity before the first await. Caller mutation during
+    // source validation must not rebind the final grant/readiness checks.
+    if (!isPlainDataRecord(input)) return false;
+    input = {
+      world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose,
+      record_ref: input.record_ref, record_version: input.record_version,
+      source_kind: input.source_kind, source_entity_id: input.source_entity_id,
+    };
     // Take the cross-connection epoch before reading any authorization state.
     // Otherwise a revoke/re-grant committed between the initial grant read and
     // the later epoch capture would be invisible to this request.
@@ -635,21 +685,26 @@ export class SQLiteMemoryProvider {
   }
 
   putRecord(record) {
+    // Reject executable caller objects and snapshot nested lineage before any
+    // identity validation or persistence. The method is synchronous, so this
+    // immutable local copy remains stable through the complete write sequence.
+    const snapshot = snapshotProviderRecord(record);
+    if (!snapshot) throw new TypeError('Invalid direct-source Memory record; complete single-source lineage is required');
     // Serialize identity lookup and both durable record/index phases as one
     // coordinator window. The local record transaction still commits before
     // the separate index transaction so index failure remains recoverable.
-    return this.#withCoordinatorLock(() => this.#putRecordUnderLock(record));
+    return this.#withCoordinatorLock(() => this.#putRecordUnderLock(snapshot));
   }
 
   #putRecordUnderLock(record) {
-    if (!object(record) || !validId(record.world_id) || !validId(record.subject_id)
+    if (!isPlainDataRecord(record) || !validId(record.world_id) || !validId(record.subject_id)
       || !validId(record.purpose) || !validId(record.record_ref) || !validId(record.record_version)
       || record.source_kind !== 'canonical_entity' || !validId(record.source_entity_id)
       || !validId(record.source_version) || !validId(record.content_kind) || record.content_kind === 'summary'
       || !validId(record.epistemic_kind) || !validId(record.producer_kind)
       || !validId(record.content_disposition) || !validId(record.evidence_assessment)
-      || !Array.isArray(record.lineage) || record.lineage.length !== 1
-      || !object(record.lineage[0]) || record.lineage[0].source_kind !== 'canonical_entity'
+      || !isPlainDataArray(record.lineage) || record.lineage.length !== 1
+      || !isPlainDataRecord(record.lineage[0]) || record.lineage[0].source_kind !== 'canonical_entity'
       || record.lineage[0].entity_id !== record.source_entity_id
       || record.lineage[0].source_version !== record.source_version) {
       throw new TypeError('Invalid direct-source Memory record; complete single-source lineage is required');
@@ -868,6 +923,10 @@ export class SQLiteMemoryProvider {
   }
 
   async retrieveCandidates(scope) {
+    // Snapshot the scope before the first await. Reusing a mutable caller object
+    // after getSnapshot() would let the eventual SQL query switch subjects.
+    if (!isPlainDataRecord(scope)) throw new TypeError('Invalid Memory scope');
+    scope = { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose };
     // Capture before checking the query grant or readiness. Capturing after
     // those reads can miss a cross-connection revoke/re-grant ABA that finishes
     // just before the first await.
