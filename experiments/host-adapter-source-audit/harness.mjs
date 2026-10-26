@@ -76,7 +76,7 @@ test('Google AI Studio chat generation allows direct egress when reverse_proxy i
   assert.ok(chatCompletions.includes("const API_MAKERSUITE = 'https://generativelanguage.googleapis.com';"));
   assert.ok(chatCompletions.includes('apiUrl = new URL(request.body.reverse_proxy || API_MAKERSUITE);'));
   assert.ok(chatCompletions.includes('/${apiVersion}/models/${model}:${responseType}?key=${apiKey}'));
-  assert.ok(chatCompletions.includes("const apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MAKERSUITE"));
+  assert.ok(chatCompletions.includes('apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MAKERSUITE'));
 });
 
 test('Google caption and native TTS use optional proxy override, not a mandatory gateway', () => {
