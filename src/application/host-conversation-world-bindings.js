@@ -98,7 +98,13 @@ export class HostConversationWorldBindingService {
     });
   }
 
-  resolve({ adapterId, conversationId }) {
+  resolve(input) {
+    if (!input || typeof input !== 'object' || Array.isArray(input)
+      || Object.keys(input).some((key) => key !== 'adapterId' && key !== 'conversationId')) {
+      throw new EngineError('INVALID_HOST_CONVERSATION_RESOLUTION',
+        'Resolution accepts only authenticated adapter identity and stable Host conversation identity.', 400);
+    }
+    const { adapterId, conversationId } = input;
     if (!validId(adapterId) || !validId(conversationId)) {
       throw new EngineError('INVALID_HOST_CONVERSATION_RESOLUTION',
         'Authenticated adapter identity and stable Host conversation identity are required.', 400);
