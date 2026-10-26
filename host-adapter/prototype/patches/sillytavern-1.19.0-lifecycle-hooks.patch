@@ -5,6 +5,7 @@ diff --git a/public/script.js b/public/script.js
  } from './lib.js';
 +import { HostLifecycleJournal } from './scripts/logic-engine-lifecycle/lifecycle-journal.mjs';
 +import { createStLifecycleBridge, createUnavailableStLifecycleBridge } from './scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs';
++import { resolveStableHostConversationIdentity } from './scripts/logic-engine-lifecycle/conversation-identity.mjs';
  
  import { humanizedDateTime, favsToHotswap, getMessageTimeStamp, dragElement, isMobile, initRossMods } from './scripts/RossAscends-mods.js';
 @@ -1583,23 +1585,149 @@
