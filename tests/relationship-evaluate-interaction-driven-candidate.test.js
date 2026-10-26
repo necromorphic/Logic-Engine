@@ -133,3 +133,25 @@ test("rejects accessor-backed candidate records without invoking getters", () =>
   assert.equal(result.reason, "interaction_candidate_shape_invalid");
   assert.equal(getterCalls, 0);
 });
+
+test("unsupported and explicit-conflict assessments stop before transition evaluation", () => {
+  const cases = [
+    { status: "unsupported", expected: "unsupported" },
+    { status: "conflict", expected: "conflict_review_required" },
+  ];
+
+  for (const item of cases) {
+    const result = evaluateInteractionDrivenRelationshipCandidate({
+      ...base,
+      assessments: [{ interpretation: "teasing", status: item.status, refs: [] }],
+      // If the transition evaluator were reached, this patch would be rejected
+      // as an invalid candidate instead of returning the interaction gate status.
+      candidate: { ...candidate, patch: { trust: "not-in-domain" } },
+    });
+
+    assert.equal(result.status, "interaction_evidence_rejected");
+    assert.equal(result.assessmentStatus, item.expected);
+    assert.equal(Object.hasOwn(result, "patch"), false);
+    assert.equal(Object.hasOwn(result, "transitionStatus"), false);
+  }
+});
