@@ -85,6 +85,12 @@ This section is a source inspection of the pinned upstream revision, not a runti
 - Text Completions server dispatcher: [`src/endpoints/backends/text-completions.js` at pinned SHA](https://github.com/SillyTavern/SillyTavern/blob/06bde939fb1e9c4c8d8641d810f0a916b5bce127/src/endpoints/backends/text-completions.js#L9316-L9430). It builds `args.body = JSON.stringify(request.body)`, applies provider-specific filtering/rewrites, and then performs multiple `fetch(url, args)` paths. This is a separate API family.
 - The server also has other independent outbound request paths (for example multimodal captioning in `src/endpoints/openai.js`); this audit does not claim an exhaustive inventory of every model-capable endpoint.
 
+### Raw prompt-body logging finding — 27 Oct 2026
+
+Source inspection of pinned `src/endpoints/backends/chat-completions.js:670` found `console.debug(`${apiName} request:`, body)` inside `sendMakerSuiteRequest()`. The `body` object contains the serialized provider prompt, so this line can disclose system instructions and conversation content to server logs. The current candidate patch replaces it with metadata-only logging (`model`, `stream`, and message count). The patch-check workflow asserts the raw-body form is absent and the metadata form is present; the validation workflow also lints and syntax-checks the patched endpoint.
+
+Evidence boundary: source-inspected in the uploaded pinned checkout and guarded by repository CI once the candidate workflow runs. This mitigation is only in the patch artifact until installed; it does not route the provider request through a final authorization gateway and does not close the disclosure/revocation race.
+
 ### Boundary conclusion
 
 1. **Browser-side candidate gate (source-inspected):** the awaited `CHAT_COMPLETION_SETTINGS_READY` event occurs before `JSON.stringify(generate_data)` and the browser's ST `fetch`. It is a pre-serialization hook for that browser Chat Completions path only. It does not by itself cover Text Completions, native/server calls, alternate endpoints, or callers that bypass that UI function.
