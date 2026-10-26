@@ -134,6 +134,9 @@ export class SQLiteMemoryProvider {
    * idempotent only when the complete captured payload is identical.
    */
   captureRawMessage(input) {
+    // Core has not approved retention of raw Host/SillyTavern text. Keep this
+    // path closed until an explicit retention contract is approved.
+    throw new Error('MEMORY_RAW_CAPTURE_NOT_APPROVED');
     if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
       || !validId(input.message_id) || !validId(input.version_id) || !validId(input.role)
       || typeof input.content !== 'string'
@@ -177,6 +180,8 @@ export class SQLiteMemoryProvider {
    * authorization callback approves this exact request. No default policy exists.
    */
   async readRawMessageVersion(input) {
+    // Read grants cannot substitute for an approved source-retention/disclosure policy.
+    throw new Error('MEMORY_RAW_DISCLOSURE_NOT_APPROVED');
     if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
       || !validId(input.message_id) || !validId(input.version_id)) {
       throw new TypeError('Invalid raw Memory read target');
@@ -210,6 +215,8 @@ export class SQLiteMemoryProvider {
    * conversation. Authorization is delegated to a trusted host callback.
    */
   async readActiveRawMessages(input) {
+    // Fail closed for any legacy rows too; raw Host text is not an approved source.
+    throw new Error('MEMORY_RAW_DISCLOSURE_NOT_APPROVED');
     if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)) {
       throw new TypeError('Invalid raw Memory conversation read');
     }
@@ -243,6 +250,8 @@ export class SQLiteMemoryProvider {
    * remain retained and are not interpreted as deletion requests.
    */
   selectActiveRawVersion(input) {
+    // Do not create active selections from an unapproved raw-source archive.
+    throw new Error('MEMORY_RAW_SOURCE_NOT_APPROVED');
     if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
       || !validId(input.message_id) || !validId(input.version_id)) {
       throw new TypeError('Invalid raw Memory active-version selection');
@@ -267,6 +276,8 @@ export class SQLiteMemoryProvider {
    * NPC disclosure or create a searchable summary index.
    */
   registerRawDerivedCopy(input) {
+    // Derived copies of unapproved raw Host text are also not approved for retention.
+    throw new Error('MEMORY_RAW_DERIVED_COPY_NOT_APPROVED');
     if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
       || !validId(input.message_id) || !validId(input.source_version_id)
       || !validId(input.copy_ref) || !validId(input.copy_version) || !validId(input.copy_kind)
