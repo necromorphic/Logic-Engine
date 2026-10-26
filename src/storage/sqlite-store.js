@@ -1,5 +1,5 @@
-import { mkdirSync } from 'node:fs';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
@@ -9,6 +9,13 @@ import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidat
 import { beginCoordinatorLock, openCoordinatorDatabase } from './coordinator-lock.js';
 
 const now = () => new Date().toISOString();
+
+function canonicalFilePath(path) {
+  const absolute = resolve(path);
+  const parent = realpathSync(dirname(absolute));
+  const candidate = join(parent, basename(absolute));
+  return existsSync(candidate) ? realpathSync(candidate) : candidate;
+}
 
 function requireSynchronousCallback(callback, label) {
   if (typeof callback !== 'function') throw new TypeError(label + ' must be a function.');
@@ -187,11 +194,12 @@ export class SQLiteStore {
       throw new TypeError('LOGIC_ENGINE_COORDINATOR_DB_PATH must be an absolute path shared by all participants.');
     }
     const absoluteCoordinatorPath = coordinatorPath ? resolve(coordinatorPath) : null;
-    if (absoluteCoordinatorPath && absoluteCoordinatorPath === corePath) {
-      throw new Error('Coordinator DB must be separate from the Core DB.');
-    }
     if (corePath !== ':memory:') mkdirSync(dirname(corePath), { recursive: true });
     if (absoluteCoordinatorPath) mkdirSync(dirname(absoluteCoordinatorPath), { recursive: true });
+    if (corePath !== ':memory:' && absoluteCoordinatorPath
+      && canonicalFilePath(corePath) === canonicalFilePath(absoluteCoordinatorPath)) {
+      throw new Error('Coordinator DB must be separate from the Core DB, including filesystem aliases.');
+    }
     // Open the lock handle first. If Core DB opening fails, close the already
     // opened coordinator handle so failed construction does not leak resources.
     this.coordinatorDb = absoluteCoordinatorPath ? openCoordinatorDatabase(absoluteCoordinatorPath) : null;
