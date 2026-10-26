@@ -63,10 +63,12 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   const journal = new HostLifecycleJournal(db);
   let saveCount = 0;
   let sourceLocator = 'chat-file-1';
+  let sourceLineage = { mainChat: null, integrity: null, sessionName: 'chat-file-1', groupId: null };
   const bridge = createStLifecycleBridge({
     journal,
     getConversationId: () => 'chat-1',
     getSourceLocator: () => sourceLocator,
+    getSourceLineage: () => sourceLineage,
     getChat: () => chat,
     publishDigest,
     saveChat: async () => {
@@ -74,7 +76,7 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
       if (failSave) throw Error('simulated native chat save failure');
     },
   });
-  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
+  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setSourceLineage(value) { sourceLineage = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
 
 test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
@@ -151,6 +153,28 @@ test('Core publisher failure stays NON_READY and can be retried without re-enrol
   assert.equal(retry.status, 'CAPTURED_REVIEW_ONLY');
   assert.equal(retry.published, true);
   assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'CAPTURED_REVIEW_ONLY');
+});
+
+
+test('live source verification binds message/version inventory to observed ST branch metadata and branch references', async () => {
+  const f = makeFixture([{ is_user: false, mes: 'branch answer', extra: { branches: ['chat-file-1 - Branch #1'] } }]);
+  f.setSourceLineage({ mainChat: 'parent-chat', integrity: 'branch-integrity-a', sessionName: 'chat-file-1 - Branch #1', groupId: null });
+  await f.bridge.enrollCurrentConversation();
+
+  const matching = await f.bridge.verifyCurrentSource();
+  assert.equal(matching.status, 'LOCAL_MATCH_NON_AUTHORITATIVE');
+  assert.equal(matching.trustDecision, 'NON_READY');
+
+  f.setSourceLineage({ mainChat: 'different-parent', integrity: 'branch-integrity-b', sessionName: 'chat-file-1 - Branch #1', groupId: null });
+  const changedBranch = await f.bridge.verifyCurrentSource();
+  assert.equal(changedBranch.status, 'NON_READY');
+  assert.match(changedBranch.reason, /fingerprint mismatch/);
+
+  f.setSourceLineage({ mainChat: 'parent-chat', integrity: 'branch-integrity-a', sessionName: 'chat-file-1 - Branch #1', groupId: null });
+  f.chat[0].extra.branches.push('forged-branch-name');
+  const changedBranchReferences = await f.bridge.verifyCurrentSource();
+  assert.equal(changedBranchReferences.status, 'NON_READY');
+  assert.match(changedBranchReferences.reason, /fingerprint mismatch/);
 });
 
 test('Host-owned live source verification reports local match as non-authoritative and detects drift', async () => {
