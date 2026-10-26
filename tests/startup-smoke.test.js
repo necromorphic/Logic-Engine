@@ -77,3 +77,26 @@ test('runtime process starts with isolated credentials/database and serves healt
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+test('runtime rejects a relative coordinator path instead of silently splitting participants', { timeout: 10000 }, async () => {
+  const child = spawn(process.execPath, ['src/index.js'], {
+    cwd: resolve('.'),
+    env: {
+      ...process.env,
+      ENGINE_API_TOKEN: 'startup-smoke-api-token-123456',
+      ENGINE_DB_PATH: ':memory:',
+      LOGIC_ENGINE_COORDINATOR_DB_PATH: './data/runtime.coordinator.sqlite',
+      ENGINE_INTERNAL_TOKEN: '',
+      ENGINE_APPROVAL_TOKEN: '',
+      ENGINE_ADMIN_TOKEN: '',
+      ENGINE_ADAPTER_TOKENS: '{}',
+    },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
+  let stderr = '';
+  child.stderr.setEncoding('utf8');
+  child.stderr.on('data', (chunk) => { stderr += chunk; });
+  const [code] = await once(child, 'exit');
+  assert.equal(code, 1);
+  assert.match(stderr, /LOGIC_ENGINE_COORDINATOR_DB_PATH must be an absolute path/);
+});
