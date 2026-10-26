@@ -604,6 +604,10 @@ export class SQLiteMemoryProvider {
   }
 
   grantRecord(scope, recordRef, recordVersion, allowed) {
+    return this.#grantRecord(scope, recordRef, recordVersion, allowed);
+  }
+
+  #grantRecord(scope, recordRef, recordVersion, allowed) {
     this.#scope(scope);
     if (!validId(recordRef) || !validId(recordVersion) || typeof allowed !== 'boolean') {
       throw new TypeError('Invalid record grant');
@@ -619,10 +623,14 @@ export class SQLiteMemoryProvider {
   }
 
   revokeRecord(scope, recordRef, recordVersion) {
-    this.grantRecord(scope, recordRef, recordVersion, false);
+    this.#grantRecord(scope, recordRef, recordVersion, false);
   }
 
   authorizeQuery(scope) {
+    return this.#authorizeQuery(scope);
+  }
+
+  #authorizeQuery(scope) {
     this.#scope(scope);
     const row = this.#db.prepare(`SELECT allowed FROM memory_query_grants
       WHERE world_id=? AND subject_id=? AND purpose=?`)
@@ -646,7 +654,7 @@ export class SQLiteMemoryProvider {
     if (!object(input) || !validId(input.world_id) || !validId(input.subject_id)
       || !validId(input.purpose) || !validId(input.record_ref) || !validId(input.record_version)) return false;
     const scope = { world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose };
-    if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+    if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const grant = this.#db.prepare(`SELECT allowed FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
@@ -705,7 +713,7 @@ export class SQLiteMemoryProvider {
     // SQLite writer reservation. This narrows the race but cannot make a later
     // model dispatch atomic with revocation.
     return this.#withImmediateTransaction(() => {
-    if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+    if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const currentGrant = this.#db.prepare(`SELECT allowed FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
@@ -985,7 +993,7 @@ export class SQLiteMemoryProvider {
     // just before the first await.
     const requestDataVersion = this.#dataVersion();
     this.#scope(scope);
-    if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+    if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const queryGrantKey = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose]);
     const queryAuthorizationGeneration = this.#queryAuthorizationGeneration.get(queryGrantKey) ?? 0;
     const state = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
@@ -1021,7 +1029,7 @@ export class SQLiteMemoryProvider {
     }
     // Snapshot lookup is awaited. A query grant revoked while it was in flight
     // must not authorize this retrieval using the pre-await allow.
-    if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+    if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     if ((this.#queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration) {
       throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     }
@@ -1053,7 +1061,7 @@ export class SQLiteMemoryProvider {
     let lockedResult;
     try {
       lockedResult = this.#withImmediateTransaction(() => {
-        if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+        if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
         if ((this.#queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration
           || this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
         const lockedState = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
