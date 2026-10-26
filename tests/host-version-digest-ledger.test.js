@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -41,6 +42,40 @@ test('ledger rejects missing, relative, and aliased coordinator paths before cre
   } finally {
     rmSync(directory, { recursive: true, force: true });
   }
+});
+
+test('bound capture resolves canonical scope while holding the shared coordinator lease', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-bound-capture-lock-'));
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const ledger = new HostVersionDigestLedger({
+    path: join(directory, 'provider.sqlite'), coordinatorPath, verifyInventorySnapshot: async () => false,
+  });
+  const competing = new DatabaseSync(coordinatorPath);
+  competing.exec('PRAGMA busy_timeout=0;');
+  t.after(() => {
+    try { competing.close(); } catch {}
+    try { ledger.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const result = ledger.captureBoundVersion({
+    adapterId: 'adapter-a', conversationId: 'chat-a',
+    message_id: 'message-a', version_id: 'version-a',
+    content_sha256: digest('bound capture'), active: true, deleted: false,
+    resolveBinding: ({ adapterId, conversationId }) => {
+      assert.equal(adapterId, 'adapter-a');
+      assert.equal(conversationId, 'chat-a');
+      assert.throws(() => competing.exec('BEGIN IMMEDIATE'), /locked|busy/i);
+      return { world_id: 'canonical-world', conversation_id: conversationId };
+    },
+  });
+  assert.deepEqual(result, { status: 'captured' });
+  assert.equal(ledger.db.prepare('SELECT world_id FROM host_version_digest_ledger').get().world_id, 'canonical-world');
+  assert.throws(() => ledger.captureBoundVersion({
+    adapterId: 'adapter-a', conversationId: 'chat-a', world_id: 'caller-world',
+    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('untrusted scope'),
+    active: false, deleted: false, resolveBinding: () => ({ world_id: 'caller-world', conversation_id: 'chat-a' }),
+  }), /Invalid bound Host version entry/);
 });
 
 test('digest-only capture is idempotent and stores no raw text', (t) => {

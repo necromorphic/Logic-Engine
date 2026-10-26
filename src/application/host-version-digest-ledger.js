@@ -193,7 +193,10 @@ export class HostVersionDigestLedger {
    * (including revocation) can interleave. The callback must be synchronous.
    */
   captureBoundVersion(v) {
-    if (!v || typeof v !== 'object' || !validId(v.adapterId) || !validId(v.conversationId)
+    const allowedKeys = new Set(['adapterId', 'conversationId', 'message_id', 'version_id', 'content_sha256', 'active', 'deleted', 'resolveBinding']);
+    if (!v || typeof v !== 'object' || Array.isArray(v)
+      || Object.keys(v).some((key) => !allowedKeys.has(key))
+      || !validId(v.adapterId) || !validId(v.conversationId)
       || typeof v.resolveBinding !== 'function'
       || typeof v.message_id !== 'string' || !validId(v.message_id)
       || typeof v.version_id !== 'string' || !validId(v.version_id)
