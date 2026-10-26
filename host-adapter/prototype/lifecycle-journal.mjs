@@ -188,19 +188,34 @@ export class HostLifecycleJournal {
 function txDone(tx) { return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||Error('IndexedDB transaction failed'));tx.onabort=()=>reject(tx.error||Error('IndexedDB transaction aborted'));}); }
 export async function contentDigest(text) { return digest(String(text)); }
 export async function fingerprintSource(messages, sourceLocator = null) {
-  const projection = messages.map(message => ({
-    role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
-    isUser: message.is_user === true,
-    isSystem: message.is_system === true,
-    systemType: message.extra?.type ?? null,
-    // ST stores child branch names on the source message's extra.branches.
-    // Fingerprint these observed references; this does not authenticate parent-child lineage.
-    branchReferences: Array.isArray(message.extra?.branches) ? message.extra.branches : [],
-    name: message.name ?? null,
-    currentMessage: message.mes ?? '',
-    versions: Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''],
-    activeVersionIndex: Number.isInteger(message.swipe_id) ? message.swipe_id : 0,
-  }));
+  if (!Array.isArray(messages)) throw TypeError('Malformed native message inventory');
+  const projection = messages.map(message => {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) {
+      throw TypeError('Malformed native message entry');
+    }
+    // Do not normalize malformed source metadata to "absent": that would make
+    // invalid swipe/branch state fingerprint-identical to a valid empty state.
+    if (message.swipes !== undefined && !Array.isArray(message.swipes)) {
+      throw TypeError('Malformed native swipe inventory');
+    }
+    const branchReferences = message.extra?.branches;
+    if (branchReferences !== undefined && !Array.isArray(branchReferences)) {
+      throw TypeError('Malformed native branch-reference inventory');
+    }
+    return {
+      role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
+      isUser: message.is_user === true,
+      isSystem: message.is_system === true,
+      systemType: message.extra?.type ?? null,
+      // ST stores child branch names on the source message's extra.branches.
+      // Fingerprint these observed references; this does not authenticate parent-child lineage.
+      branchReferences: branchReferences ?? [],
+      name: message.name ?? null,
+      currentMessage: message.mes ?? '',
+      versions: Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''],
+      activeVersionIndex: Number.isInteger(message.swipe_id) ? message.swipe_id : 0,
+    };
+  });
   return digest({ sourceLocator: sourceLocator ?? null, projection });
 }
 export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredCoveragePaths:REQUIRED_COVERAGE});
