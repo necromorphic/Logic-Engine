@@ -479,3 +479,20 @@ new file mode 100644
 +
 +export const router = express.Router();
 +router.post('/host-version-ledger/capture', createHostDigestProxyHandler());
+
+diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends/chat-completions.js
+--- a/src/endpoints/backends/chat-completions.js
++++ b/src/endpoints/backends/chat-completions.js
+@@ -666,7 +666,11 @@ async function sendMakerSuiteRequest(request, response) {
+         return body;
+     }
+
+     const body = getGeminiBody();
+-    console.debug(`${apiName} request:`, body);
++    console.debug(`${apiName} request metadata:`, {
++        model,
++        stream,
++        messageCount: Array.isArray(request.body.messages) ? request.body.messages.length : null,
++    });
+
+     try {
