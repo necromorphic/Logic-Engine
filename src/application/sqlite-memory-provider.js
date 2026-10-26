@@ -742,6 +742,7 @@ export class SQLiteMemoryProvider {
           || a.record_version.localeCompare(b.record_version);
         const finalIndex = this.db.prepare('SELECT record_ref, record_version FROM memory_index_entries WHERE world_id=?')
           .all(worldId)
+          .map((row) => ({ record_ref: row.record_ref, record_version: row.record_version }))
           .sort(compareIdentity);
         const expectedIndex = finalRecords
           .map((row) => ({ record_ref: row.record_ref, record_version: row.record_version }))
