@@ -78,3 +78,14 @@ Immediate next action: inspect the exact tests around `commitSegment`, `readSnap
 ## 7. Limits of this report
 
 This is a first source audit using GitHub file reads. It did not run the repository, test suite, or CI; it did not inspect every test, all time-advance orchestration, PR merge state, or Notion. Therefore claims above are explicitly classified and this report is not the final acceptance report required by issues #350/#351.
+
+
+## 8. Follow-up trace: durable time-advance operation
+
+Further source inspection confirms the store has a concrete durable operation path, beyond the pure scheduler:
+
+- `createTimeAdvanceOperation` (in `src/storage/sqlite-store.js`, approximately lines 1483–1533) verifies the world exists and that current `game_time_coordinate` and `world_revision` match the operation's starting checkpoint. It records the operation and claims existing world-scoped triggers in the same transaction.
+- `resumeTimeAdvanceOperation` (approximately lines 1547–1675) reads persisted segments, checks the current world coordinate/revision against the last confirmed checkpoint, marks stale checkpoints `needs_review`, and commits each segment through `commitSegment`. It updates the confirmed coordinate and revision only as part of the segment transaction. Trigger completion is also recorded with operation metadata.
+- Relevant existing test files are present at the audited tree: `tests/time-advance-operation.test.js`, `tests/time-segment.test.js`, `tests/time-scheduler.test.js`, `tests/time-trigger-registry.test.js`, `tests/snapshot-read.test.js`, and `tests/core.test.js`. Their presence is code-tree evidence only; **none was executed in this audit**.
+
+This makes the temporal operation checkpoint concrete for future analysis, but it still does not supply an approved spatial event vocabulary or spatial projection consumer. For a spatial reconstruction, the team must define whether it reconstructs state at a confirmed segment boundary only or supports intermediate coordinates within a segment. The inspected code alone does not authorize the latter. No change to TimeEngine is proposed here.
