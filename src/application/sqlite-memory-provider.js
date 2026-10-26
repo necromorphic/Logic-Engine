@@ -727,11 +727,14 @@ export class SQLiteMemoryProvider {
         // A second Provider instance can rebuild/delete index rows without sharing
         // this instance's in-memory state generation. Verify exact index coverage
         // under the same write lock before publishing ready/current.
-        const finalIndex = this.db.prepare('SELECT record_ref, record_version FROM memory_index_entries WHERE world_id=? ORDER BY record_ref, record_version').all(worldId);
+        const compareIdentity = (a, b) => a.record_ref.localeCompare(b.record_ref)
+          || a.record_version.localeCompare(b.record_version);
+        const finalIndex = this.db.prepare('SELECT record_ref, record_version FROM memory_index_entries WHERE world_id=?')
+          .all(worldId)
+          .sort(compareIdentity);
         const expectedIndex = finalRecords
           .map((row) => ({ record_ref: row.record_ref, record_version: row.record_version }))
-          .sort((a, b) => a.record_ref.localeCompare(b.record_ref)
-            || a.record_version.localeCompare(b.record_version));
+          .sort(compareIdentity);
         if (!isDeepStrictEqual(expectedIndex, finalIndex)) {
           this.#setState(worldId, 'stale', 'stale', null, 'INDEX_INVENTORY_MISMATCH');
           return { status: 'stale', reason: 'INDEX_INVENTORY_MISMATCH' };
