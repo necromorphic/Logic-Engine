@@ -419,3 +419,23 @@ Acceptance for that slice:
 9. Tests are labeled as isolated logic tests, not end-to-end Memory→NPC or production evidence.
 
 **Next implementation gate:** before adding an executor or new data shape, map this pipeline to existing Core/World Pack/Personality/Time contracts and identify which steps have approved callable seams today. Implement only a bounded NPC-owned pure component if that mapping shows a real, testable gap that can be closed without new cross-block authority; otherwise retain this as a reviewable proposal and request the specific owner decision.
+
+
+## 14. Code-mapped seam review for the decision pipeline (main snapshot inspected 26 Oct 2026)
+
+This is a source inspection, not a test run. The references below are on current `main` at the time of inspection; the documentation branch itself is not runtime evidence.
+
+| Pipeline responsibility | Existing code evidence | What the code supports | What is still missing / must not be inferred |
+|---|---|---|---|
+| Rule/module version identity | `src/core/mechanics.js`, blob `124d43159a4087cbb4b2582646cc7398ae6edfcc`; `validateMechanicTemplate`, `validateRuleModuleManifest` | Validates existing mechanic template and rule-module manifest structures | Does not provide NPC role/personality profiles or select which institutional rules apply to an individual |
+| Action applicability and preconditions | `evaluateMechanicActionConditions(value, actionId, context, options)` in the same file | Returns tri-state `true` / `false` / `unknown` over template applicability, action preconditions, and constraints; reports unknown paths; missing action is rejected | It evaluates one declared mechanic action at a time. It does not generate NPC candidates, compare their utility, infer actor knowledge, or choose a winner between actors |
+| Canonical world/event boundary | `src/application/engine.js`, blob `dcb8b84e54b29e8697f14eb7e709cc6e0cd65a13`; `LogicEngine.validateEvent`, `prepareEvent`, `commitEvent`, `commitSegment` | Existing Core-owned event preparation/validation and commit operations | Their existence alone does not establish an NPC-specific action proposal contract, an NPC action executor, or a policy for competing NPC actions |
+| Time and due work | `src/time/scheduler.js`, blob `d935c2c5e2815486f720fb42a8cbb2259a4a371c`; `planDueWork` | Pure due-work planning over canonical coordinates | Explicitly does not execute effects, advance time, access storage, or grant NPC knowledge; it is not the NPC decision loop |
+| Memory eligibility | `src/npc/memory-candidate-eligibility.js`, blob `ad3c09b34bbde89b977a43c07e91824e28234395` | Pure candidate eligibility oracle over supplied evidence | Not a decision-context builder, Memory adapter, authorization service, or production receiver |
+| Full NPC decision cycle | Inspected `src/` snapshot and exported methods above | Reusable primitives exist for condition evaluation, event validation/commit, process/time operations, and Memory candidate eligibility | No dedicated end-to-end actor-relative NPC decision executor or competing-action resolver was identified in this inspection |
+
+### Consequence for implementation planning
+
+The smallest defensible next code step is **not** to add another scheduler or to call `commitEvent` directly from a model. First, an owner-reviewed mapping must establish how an NPC action candidate maps to an existing mechanic template/action, how the actor-specific context is assembled and authorized, and how Core expects the validated action to become a canonical event. The existing tri-state condition evaluator is a useful validation primitive: `false` can reject a candidate; `unknown` must not be treated as true. But choosing among candidates, personality/role scoring, conflict arbitration, and outcome-based reassessment remain separate responsibilities.
+
+Until those mappings are approved, do not create a new action schema, decision API, NPC executor, conflict queue, or persistence model in this NPC documentation task. A pure NPC-owned function may be considered only after its input contract can be expressed using already-approved structures and its output cannot bypass Core validation/commit. Memory-dependent facts remain unavailable unless supplied by the real approved path; test fixtures must be labeled as test-only.
