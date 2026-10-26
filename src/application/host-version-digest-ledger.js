@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
-import { resolve } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { openCoordinatorDatabase, beginCoordinatorLock } from '../storage/coordinator-lock.js';
 
 const validId = (v) => typeof v === 'string' && v === v.trim() && v.length > 0 && v.length <= 200;
@@ -9,6 +10,26 @@ const tuple = (v) => [v.world_id, v.conversation_id, v.message_id, v.version_id]
 const validTuple = (v) => v && validId(v.world_id) && validId(v.conversation_id)
   && validId(v.message_id) && validId(v.version_id);
 const digest = (v) => createHash('sha256').update(v).digest('hex');
+const canonicalFilePath = (path) => {
+  let candidate = resolve(path);
+  const suffix = [];
+  while (!existsSync(candidate)) {
+    const parent = dirname(candidate);
+    if (parent === candidate) break;
+    suffix.unshift(basename(candidate));
+    candidate = parent;
+  }
+  return resolve(realpathSync(candidate), ...suffix);
+};
+const aliasesSameFile = (left, right) => {
+  const canonicalLeft = canonicalFilePath(left);
+  const canonicalRight = canonicalFilePath(right);
+  if (canonicalLeft === canonicalRight) return true;
+  if (!existsSync(canonicalLeft) || !existsSync(canonicalRight)) return false;
+  const leftStat = statSync(canonicalLeft);
+  const rightStat = statSync(canonicalRight);
+  return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
+};
 
 /**
  * Draft-only digest ledger. Stores Host identity, digests and lifecycle state,
@@ -21,23 +42,41 @@ export class HostVersionDigestLedger {
     if (typeof path !== 'string' || !path.trim() || path === ':memory:') {
       throw new TypeError('A file-backed ledger path is required');
     }
-    if (typeof coordinatorPath !== 'string' || !coordinatorPath.trim() || coordinatorPath === ':memory:') {
-      throw new TypeError('The shared coordinator path is required');
+    if (typeof coordinatorPath !== 'string' || !coordinatorPath.trim() || !isAbsolute(coordinatorPath)) {
+      throw new TypeError('The shared coordinator path must be absolute');
+    }
+    if (aliasesSameFile(path, coordinatorPath)) {
+      throw new Error('Coordinator DB must be separate from the Host version ledger DB, including filesystem aliases.');
     }
     if (typeof verifyInventorySnapshot !== 'function') {
       throw new TypeError('A trusted inventory verifier is required');
     }
     this.verifyInventorySnapshot = verifyInventorySnapshot;
-    this.db = new DatabaseSync(resolve(path));
     this.coordinator = openCoordinatorDatabase(coordinatorPath);
-    this.db.exec([
-      'PRAGMA foreign_keys=ON;',
-      'PRAGMA busy_timeout=5000;',
-      "CREATE TABLE IF NOT EXISTS host_version_digest_ledger (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, content_sha256 TEXT NOT NULL, lifecycle TEXT NOT NULL CHECK(lifecycle IN ('present','tombstoned')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tombstoned_at TEXT, PRIMARY KEY(world_id,conversation_id,message_id,version_id));",
-      'CREATE TABLE IF NOT EXISTS host_version_active_pointer (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(world_id,conversation_id,message_id), FOREIGN KEY(world_id,conversation_id,message_id,version_id) REFERENCES host_version_digest_ledger(world_id,conversation_id,message_id,version_id));',
-      'CREATE TABLE IF NOT EXISTS host_version_ledger_conflicts (id INTEGER PRIMARY KEY AUTOINCREMENT, world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, persisted_digest TEXT NOT NULL, observed_digest TEXT NOT NULL, observed_at TEXT NOT NULL);',
-      "CREATE TABLE IF NOT EXISTS host_version_inventory_state (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('NON_READY','READY')), snapshot_digest TEXT, failure_code TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(world_id,conversation_id));"
-    ].join('\n'));
+    this.db = null;
+    let startupError = null;
+    let release = null;
+    try {
+      release = beginCoordinatorLock(this.coordinator);
+      this.db = new DatabaseSync(resolve(path));
+      this.db.exec([
+        'PRAGMA foreign_keys=ON;',
+        'PRAGMA busy_timeout=5000;',
+        "CREATE TABLE IF NOT EXISTS host_version_digest_ledger (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, content_sha256 TEXT NOT NULL, lifecycle TEXT NOT NULL CHECK(lifecycle IN ('present','tombstoned')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tombstoned_at TEXT, PRIMARY KEY(world_id,conversation_id,message_id,version_id));",
+        'CREATE TABLE IF NOT EXISTS host_version_active_pointer (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(world_id,conversation_id,message_id), FOREIGN KEY(world_id,conversation_id,message_id,version_id) REFERENCES host_version_digest_ledger(world_id,conversation_id,message_id,version_id));',
+        'CREATE TABLE IF NOT EXISTS host_version_ledger_conflicts (id INTEGER PRIMARY KEY AUTOINCREMENT, world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, persisted_digest TEXT NOT NULL, observed_digest TEXT NOT NULL, observed_at TEXT NOT NULL);',
+        "CREATE TABLE IF NOT EXISTS host_version_inventory_state (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('NON_READY','READY')), snapshot_digest TEXT, failure_code TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(world_id,conversation_id));"
+      ].join('\n'));
+    } catch (error) {
+      startupError = error;
+    } finally {
+      try { release?.(); } catch (error) { startupError ??= error; }
+    }
+    if (startupError) {
+      try { this.db?.close(); } catch {}
+      try { this.coordinator?.close(); } catch {}
+      throw startupError;
+    }
   }
 
   #write(work) {
