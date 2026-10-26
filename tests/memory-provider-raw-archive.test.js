@@ -1,5 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -87,4 +89,60 @@ test('unapproved raw versions cannot be selected as active', (t) => {
     (error) => error.message === 'MEMORY_RAW_SOURCE_NOT_APPROVED',
   );
   assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions').get().count, 0);
+});
+
+
+function insertLegacyRawVersion(provider, { world_id, conversation_id, message_id, version_id, content }) {
+  const digest = createHash('sha256').update(content, 'utf8').digest('hex');
+  provider.db.prepare(`INSERT INTO memory_raw_captures
+    (world_id, conversation_id, message_id, version_id, role, content_text, content_sha256,
+     metadata_json, captured_at, deleted_at)
+    VALUES(?,?,?,?,?,?,?,?,?,NULL)`)
+    .run(world_id, conversation_id, message_id, version_id, 'assistant', content, digest, '{}', '2026-01-01T00:00:00.000Z');
+}
+
+test('legacy raw purge removes only registered Provider copies and preserves external copies and alternate versions', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-purge-boundary-'));
+  const providerPath = join(directory, 'provider.sqlite');
+  const externalPath = join(directory, 'external.sqlite');
+  const provider = new SQLiteMemoryProvider({
+    path: providerPath,
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  });
+  const external = new DatabaseSync(externalPath);
+  t.after(() => {
+    try { provider.close(); } catch {}
+    try { external.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const selected = { world_id: 'legacy-w', conversation_id: 'legacy-c', message_id: 'legacy-m', version_id: 'legacy-v1' };
+  const alternate = { ...selected, version_id: 'legacy-v2' };
+  insertLegacyRawVersion(provider, { ...selected, content: 'legacy selected version' });
+  insertLegacyRawVersion(provider, { ...alternate, content: 'legacy alternate version' });
+  provider.db.prepare(`INSERT INTO memory_raw_active_versions
+    (world_id, conversation_id, message_id, version_id, selected_at) VALUES(?,?,?,?,?)`)
+    .run(selected.world_id, selected.conversation_id, selected.message_id, selected.version_id, '2026-01-01T00:00:00.000Z');
+  provider.db.prepare(`INSERT INTO memory_raw_derived_copies
+    (world_id, conversation_id, message_id, source_version_id, copy_ref, copy_version, copy_kind,
+     content_text, content_sha256, status, created_at, invalidated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,'current',?,NULL)`)
+    .run(selected.world_id, selected.conversation_id, selected.message_id, selected.version_id,
+      'legacy-registered-copy', 'v1', 'summary', 'provider-local copy',
+      createHash('sha256').update('provider-local copy', 'utf8').digest('hex'), '2026-01-01T00:00:00.000Z');
+
+  external.exec('CREATE TABLE copies (copy_ref TEXT PRIMARY KEY, content TEXT NOT NULL)');
+  external.prepare('INSERT INTO copies VALUES (?, ?)').run('unregistered-external', 'external copy remains outside Provider');
+
+  assert.deepEqual(provider.purgeRawSource(selected), { status: 'purged', purged_copies: 1 });
+  assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_raw_captures WHERE version_id=?').get(selected.version_id).n, 0);
+  assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_raw_derived_copies WHERE copy_ref=?').get('legacy-registered-copy').n, 0);
+  assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
+    .get(selected.world_id, selected.conversation_id, selected.message_id).n, 0);
+  assert.equal(provider.db.prepare('SELECT content_text FROM memory_raw_captures WHERE version_id=?').get(alternate.version_id).content_text,
+    'legacy alternate version');
+  assert.equal(external.prepare('SELECT content FROM copies WHERE copy_ref=?').get('unregistered-external').content,
+    'external copy remains outside Provider');
 });
