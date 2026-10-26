@@ -11,7 +11,7 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 - Idempotent same-event replay; reuse of an event ID with a different payload fails closed.
 - Strict-durability IndexedDB write transaction. A failed pre-mutation append throws so the caller must abort the mutation.
 - Startup/status verification detects sequence gaps, chain/digest mismatch, schema mismatch, and head-checkpoint mismatch.
-- `verifyCurrentSource()` computes a fingerprint from the live native message inventory inside Host and compares it with the latest journaled source fingerprint. Drift returns `NON_READY`; a match is labelled `LOCAL_MATCH_NON_AUTHORITATIVE` and still returns `trustDecision: NON_READY`.
+- `createStLifecycleBridge().verifyCurrentSource()` reads the current chat through the Host-owned `getChat()` dependency and compares its fingerprint with the latest journal checkpoint. Drift returns `NON_READY`; a match is labelled `LOCAL_MATCH_NON_AUTHORITATIVE` and still returns `trustDecision: NON_READY`. The journal-only `status()` method does not accept caller-supplied messages or booleans as evidence; it remains `NON_READY` unless Host source verification and the independent trust requirements are satisfied.
 - Reconciliation compares native chat fingerprint **and** the current message/version IDs, active swipe, digests, and lineage against the last journaled identity snapshot. This catches copied/restored sidecar IDs even when message text is unchanged.
 - The prototype never asserts capture readiness from caller-supplied coverage. Without trusted pinned-source hook attestation it remains NON_READY.
 
