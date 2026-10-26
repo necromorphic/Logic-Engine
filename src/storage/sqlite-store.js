@@ -10,6 +10,16 @@ import { beginCoordinatorLock, openCoordinatorDatabase } from './coordinator-loc
 
 const now = () => new Date().toISOString();
 
+function requireSynchronousCallback(callback, label) {
+  if (typeof callback !== 'function') throw new TypeError(label + ' must be a function.');
+  // Reject declared async callbacks before they execute, preventing even their
+  // pre-await side effects from running inside a transaction/lease that must
+  // be synchronous. The returned-value check below still catches thenables.
+  if (callback.constructor?.name === 'AsyncFunction') {
+    throw new TypeError(label + ' must be synchronous; do not await while a SQLite transaction or coordinator lock is held.');
+  }
+}
+
 function requireSynchronousTransactionResult(result) {
   if (result !== null && (typeof result === 'object' || typeof result === 'function')
     && typeof result.then === 'function') {
@@ -524,6 +534,7 @@ export class SQLiteStore {
   }
 
   tx(fn) {
+    requireSynchronousCallback(fn, 'SQLiteStore.tx callback');
     if (this.txDepth > 0) {
       const savepoint = 'logic_engine_nested_' + this.txDepth;
       this.db.exec('SAVEPOINT ' + savepoint);
