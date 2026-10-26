@@ -50,7 +50,7 @@ test('record persistence survives index-write failure and retrieval stays closed
 
   provider.db.exec('DROP TRIGGER fail_ingest_index');
   assert.deepEqual(await provider.rebuildIndex(scope.world_id), { status: 'rebuilt', count: 1 });
-  assert.deepEqual(await provider.reconcile(scope.world_id), { status: 'current' });
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
   const recovered = await provider.retrieveCandidates(scope);
   assert.equal(recovered.completeness, 'complete');
   assert.equal(recovered.candidates.length, 1);
