@@ -1642,3 +1642,59 @@ test('sequential rollbacks invalidate a READS_CLAIM reader when its last remaini
   assert.equal(state.facts.some((item) => item.fact_id === 'sequential-door-state'), false);
   assert.equal(state.facts.some((item) => item.fact_id === 'sequential-door-report'), false);
 });
+
+
+test('rollback of an entity update restores the seed entity projection and keeps the seed event valid', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const seed = engine.commitEvent('causality-world', command({
+    event_id: 'source-a-seed',
+    idempotency_key: 'source-a-seed',
+    turn_id: 'source-a-seed',
+    effects: [{
+      kind: 'entity.create',
+      entity_id: 'source-a',
+      entity_type: 'document',
+      attributes: { public_note: 'R1' },
+    }],
+  }));
+  assert.equal(seed.accepted, true);
+  const r1Snapshot = engine.getSnapshot('causality-world', { entityIds: ['source-a'] });
+  const r1Entity = r1Snapshot.entities.find((entity) => entity.entity_id === 'source-a');
+  assert.ok(r1Entity, 'seed event must create source-a at R1');
+  assert.equal(r1Entity.attributes.public_note, 'R1');
+
+  const update = engine.commitEvent('causality-world', command({
+    event_id: 'source-a-update-r2',
+    idempotency_key: 'source-a-update-r2',
+    turn_id: 'source-a-update-r2',
+    expected_revision: r1Snapshot.world_revision,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'source-a' } }],
+    effects: [{ kind: 'entity.update', entity_id: 'source-a', attributes: { public_note: 'R2' } }],
+  }));
+  assert.equal(update.accepted, true);
+  const r2Snapshot = engine.getSnapshot('causality-world', { entityIds: ['source-a'] });
+  const r2Entity = r2Snapshot.entities.find((entity) => entity.entity_id === 'source-a');
+  assert.ok(r2Entity, 'updated entity must exist at R2');
+  assert.equal(r2Entity.attributes.public_note, 'R2');
+  assert.notEqual(r2Entity.updated_revision, r1Entity.updated_revision);
+
+  const rollback = engine.rollbackEvent('causality-world', {
+    root_event_id: 'source-a-update-r2',
+    idempotency_key: 'rollback-source-a-update-r2',
+  });
+  assert.deepEqual(rollback.invalidated_event_ids, ['source-a-update-r2']);
+
+  const events = new Map(engine.getEvents('causality-world', true).map((event) => [event.event_id, event]));
+  assert.equal(events.get('source-a-seed').validity, 'valid');
+  assert.equal(events.get('source-a-update-r2').validity, 'retracted');
+
+  const afterRollback = engine.getSnapshot('causality-world', { entityIds: ['source-a'] });
+  const restored = afterRollback.entities.find((entity) => entity.entity_id === 'source-a');
+  assert.ok(restored, 'rollback must rebuild the projection from the still-valid seed event');
+  assert.equal(restored.attributes.public_note, 'R1');
+  assert.equal(restored.updated_revision, r1Entity.updated_revision);
+  assert.equal(afterRollback.commit_sequence, r2Snapshot.commit_sequence);
+  assert.ok(afterRollback.world_revision > r2Snapshot.world_revision);
+});
