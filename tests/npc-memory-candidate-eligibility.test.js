@@ -284,7 +284,17 @@ test("stale, retracted, unavailable, and unknown freshness are not current knowl
 });
 
 test("malformed trusted or candidate snapshots fail closed", () => {
-  for (const snapshot of [undefined, null, {}, { world_revision: 12 }, { world_revision: "", commit_sequence: 40 }]) {
+  for (const snapshot of [
+    undefined,
+    null,
+    {},
+    { world_revision: 12 },
+    { world_revision: "", commit_sequence: 40 },
+    { world_revision: -1, commit_sequence: 40 },
+    { world_revision: 12.5, commit_sequence: 40 },
+    { world_revision: Number.MAX_SAFE_INTEGER + 1, commit_sequence: 40 },
+    { world_revision: "12", commit_sequence: 40 },
+  ]) {
     const result = evaluateMemoryCandidateAdmission(
       { ...request, snapshot },
       completeResult([candidate()]),
@@ -294,7 +304,16 @@ test("malformed trusted or candidate snapshots fail closed", () => {
     assert.deepEqual(result.admitted, []);
   }
 
-  for (const snapshot of [undefined, {}, { world_revision: 12 }, { world_revision: 12, commit_sequence: "" }]) {
+  for (const snapshot of [
+    undefined,
+    {},
+    { world_revision: 12 },
+    { world_revision: 12, commit_sequence: "" },
+    { world_revision: -1, commit_sequence: 40 },
+    { world_revision: 12.5, commit_sequence: 40 },
+    { world_revision: Number.MAX_SAFE_INTEGER + 1, commit_sequence: 40 },
+    { world_revision: 12, commit_sequence: "40" },
+  ]) {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([
       candidate({ snapshot }),
     ]));
@@ -359,6 +378,28 @@ test("summary lineage fails closed when source world scope is missing or unprove
     assert.equal(result.status, "ready");
     assert.deepEqual(result.admitted, []);
   }
+});
+
+test("summary lineage rejects duplicate source ref/version identities", () => {
+  const source = {
+    ref: "source:reused",
+    version: "v2",
+    world_id: request.world_id,
+    access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
+    freshness: { status: "current" },
+  };
+  const summary = candidate({
+    content_kind: "summary",
+    lineage: {
+      status: "complete",
+      sources: [source, { ...source }],
+    },
+  });
+
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes("source:reused"), false);
 });
 
 test("summary lineage sources must match the requested world, subject, and purpose", () => {
