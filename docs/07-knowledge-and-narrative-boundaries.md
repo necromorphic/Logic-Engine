@@ -373,6 +373,39 @@ First deliverable should be a short architecture spike, not a new runtime store:
 5. Define a small measurable prototype/test set: apply a sequence of supported movement/pose events; reconstruct state at a chosen time; replay and rollback; represent unknown/conflicting positions without guessing; verify that derived state never becomes canonical without Core commit.
 6. Report implementation owner, minimal seam, files/modules likely affected, dependency on Core event semantics, resource/cost estimate, and an explicit go/no-go recommendation before runtime integration.
 
+### 12.4 Bounded feasibility spike — current Core evidence and go/no-go
+
+**Scope of this inspection:** current `main` base commit `bf35fb8dd13628718dacc11c27654c0929fba0e2`; source inspection only. This is not runtime execution or a claim that the broader target documents are implemented.
+
+#### Existing usable primitives
+
+- `src/storage/sqlite-store.js` defines canonical `worlds`, `world_events` and `entities` tables (current base file blob `bf713de7bb6caedecf9d5e8026055d9147f94185`, around lines 161–181). Events already have world/event identity, `game_time`, `committed_revision`, `commit_sequence`, validity, causal/read-set metadata, `effects_json`, and optional `source_message_id`. Entities store `attributes_json` and `updated_revision`. This is a usable event/state substrate, but it is not a scene archive: the event row does not contain a guaranteed complete source transcript, sensory record, viewpoint, or typed spatial history.
+- The same file exposes bounded state/event reads and projections (`readSnapshot`, `state`, `events`, `currentEntityProjection`, `entityProjectionAtCursor`, `factProjectionAtCursor` around lines 641, 884–930, 1057–1087), canonical commit (`validateCommit` / `commit`, around lines 1162–1400), and rollback/rebuild paths (`rollback` / `rebuild`, around lines 1876 and 2109). These are the candidate existing seams to study; this section does not approve a new consumer hook or assert that they expose a public projection API.
+- `docs/13-event-type-contract.md` explicitly says `event_type` is descriptive metadata, not a trust boundary. A spatial event cannot be treated as authoritative merely because of its event-type string.
+- `src/time/model.js` provides pure integer time-coordinate/calendar primitives. `src/time/scheduler.js` is a pure due-work planner and explicitly does not read/write storage, execute effects, or grant knowledge. Neither is a spatial engine or a canonical movement executor.
+- `docs/01-core-domain-model.md` describes WorldEvent, Entity and StateFact as a proposed domain model; `docs/18-rollback-and-causality.md` is a target architecture. `docs/21-stage1-causality-contract.md` is the narrower current-runtime boundary and explicitly limits claims about causal completeness. Do not treat the target docs as proof that every listed semantic is implemented.
+
+#### Findings and limits
+
+1. **No typed spatial-temporal model was found in the inspected Core store/module paths.** The current entity attribute JSON could technically hold a location-like value, but that alone gives no validated coordinate frame, units, pose semantics, temporal validity, movement continuity, uncertainty, or conflict resolution. Treating arbitrary attributes as a supported spatial contract would overstate the implementation.
+2. **The existing event substrate is the most plausible source for a derived projection, not an independent canonical store.** A future projection would need to consume only successfully committed canonical events/state and be rebuildable after rollback/replay. It must never mutate canonical state or authorize effects itself.
+3. **The current Core event record is not enough to promise scene-complete recall.** `source_message_id` is only a reference; the inspected event row does not guarantee original message text or all observed sensory details are retained. Host must prove what source material can actually be captured/versioned, and Provider must separately propose an approved retention/lineage path. Until then, exact dialogue/sensory fidelity is unsupported where the original source is unavailable.
+4. **Cross-world isolation must be preserved.** Any future derived projection must be partitioned by the existing world boundary and tied to the relevant committed state/replay point. Do not infer current spatial state from a stale snapshot or merge worlds on matching entity names.
+5. **No-go for production spatial integration at this stage.** There is enough substrate to run a bounded prototype against existing committed events, but not enough evidence to approve a durable spatial schema/store, event vocabulary, API, or canonical movement effects.
+
+#### Minimum spike and measurable checks
+
+Use a disposable test fixture and existing store/event paths only; no production schema or public API change:
+
+- **Projection from committed effects:** apply an existing supported entity create/update sequence whose attributes encode a deliberately simple test position/pose; verify the derived view follows committed revisions only and ignores rejected/uncommitted proposals.
+- **Deterministic reconstruction:** from the same valid event sequence and pinned inputs, rebuild the same projection at a chosen commit cursor.
+- **Rollback:** retract a source event through the existing rollback path; verify the derived view no longer exposes effects supported only by that event, while an independent surviving source remains.
+- **Unknown/conflict:** omit a position or provide incompatible source-supported positions; the projection must preserve unknown/conflict rather than choosing a plausible value.
+- **World isolation:** same entity identifier in two worlds must never share spatial state.
+- **No authority escalation:** projection output must not become a canonical fact or NPC-acquisition evidence without a separate approved Core commit/knowledge contract.
+
+**Go/no-go:** GO only for this bounded, disposable feasibility spike and source-backed design report. NO-GO for production persistence, public contract/API/schema, automatic movement commits, or use as Memory→NPC authority until Core and the relevant spatial-temporal owner approve the exact seam and tests. The spatial spike remains parallel work and is not a blocker for independent Provider, Host or NPC tasks.
+
 ### 12.3 Priority and non-goals
 
 This track is **parallel exploratory architecture work**, not a blocker for Provider-local implementation, Host lifecycle evidence, NPC-only work, or the current Memory→NPC gate. It must not alter the existing Ollama vectorization/remote-store patch.
