@@ -524,7 +524,7 @@ test('reconciliation refuses current when index inventory changes outside its Pr
     },
     validateInventory: async () => true,
   });
-  t.after(() => provider.close());
+  t.after(() => { provider.close(); testDb.close(); testDb.cleanup(); });
 
   const scope = { world_id: 'reconcile-index-inventory-race-world', subject_id: 'reconcile-index-inventory-race-npc', purpose: 'npc_decision' };
   const record = {
@@ -577,7 +577,7 @@ test('failed index rebuild rolls back index deletion instead of leaving a partia
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
   });
-  t.after(() => provider.close());
+  t.after(() => { provider.close(); testDb.close(); testDb.cleanup(); });
 
   const scope = { world_id: 'atomic-index-rebuild-world', subject_id: 'atomic-index-rebuild-npc', purpose: 'npc_decision' };
   const record = {
