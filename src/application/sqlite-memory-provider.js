@@ -597,14 +597,17 @@ export class SQLiteMemoryProvider {
     if (!validId(worldId)) throw new TypeError('Invalid world_id');
     this.#setState(worldId, 'rebuilding', 'stale');
     try {
-      this.db.prepare('DELETE FROM memory_index_entries WHERE world_id=?').run(worldId);
-      const records = this.db.prepare('SELECT record_ref,record_version FROM memory_records WHERE world_id=?')
-        .all(worldId);
-      const insert = this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)');
-      for (const record of records) {
-        insert.run(worldId, record.record_ref, record.record_version, new Date().toISOString());
-      }
-      return { status: 'rebuilt', count: records.length };
+      const count = this.#withImmediateTransaction(() => {
+        this.db.prepare('DELETE FROM memory_index_entries WHERE world_id=?').run(worldId);
+        const records = this.db.prepare('SELECT record_ref,record_version FROM memory_records WHERE world_id=?')
+          .all(worldId);
+        const insert = this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)');
+        for (const record of records) {
+          insert.run(worldId, record.record_ref, record.record_version, new Date().toISOString());
+        }
+        return records.length;
+      });
+      return { status: 'rebuilt', count };
     } catch (error) {
       this.#setState(worldId, 'unavailable', 'stale', null, 'INDEX_REBUILD_FAILED');
       throw error;
@@ -718,7 +721,20 @@ export class SQLiteMemoryProvider {
         const finalRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
         if (!isDeepStrictEqual(recordSet(records), recordSet(finalRecords))) {
           this.#setState(worldId, 'stale', 'stale');
-          return { status: 'stale' };
+          return { status: 'stale', reason: 'PROVIDER_RECORD_SET_CHANGED' };
+        }
+        // Record equality alone does not prove that the derived index is complete.
+        // A second Provider instance can rebuild/delete index rows without sharing
+        // this instance's in-memory state generation. Verify exact index coverage
+        // under the same write lock before publishing ready/current.
+        const finalIndex = this.db.prepare('SELECT record_ref, record_version FROM memory_index_entries WHERE world_id=? ORDER BY record_ref, record_version').all(worldId);
+        const expectedIndex = finalRecords
+          .map((row) => ({ record_ref: row.record_ref, record_version: row.record_version }))
+          .sort((a, b) => a.record_ref.localeCompare(b.record_ref)
+            || a.record_version.localeCompare(b.record_version));
+        if (!isDeepStrictEqual(expectedIndex, finalIndex)) {
+          this.#setState(worldId, 'stale', 'stale', null, 'INDEX_INVENTORY_MISMATCH');
+          return { status: 'stale', reason: 'INDEX_INVENTORY_MISMATCH' };
         }
         this.#setState(worldId, 'ready', 'current', after);
         return { status: 'current', snapshot: after, records_checked: records.length };
