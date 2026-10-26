@@ -160,7 +160,7 @@ test('Core rollback with unchanged commit_sequence invalidates provider currentn
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_SNAPSHOT_STALE/);
 });
 
-test('real Core entity existence does not substitute for an approved source-version proof', async (t) => {
+test('Core source-version mismatch is non-ready even when the canonical entity exists', async (t) => {
   const s = setup(t);
   const existing = s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'] });
   assert.equal(existing.entities.length, 1, 'the canonical entity exists in the real Core store');
