@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
@@ -105,4 +105,45 @@ test('binding mutations survive Core store restart and revoked state is not resu
   service = new HostConversationWorldBindingService(engine);
   assert.throws(() => service.resolve({ adapterId: 'adapter-a', conversationId: 'chat-1' }),
     (error) => error.code === 'HOST_CONVERSATION_NOT_AUTHORIZED');
+});
+
+
+test('restoring a pre-revocation Core database resurrects the binding; binding persistence is not anti-rollback authority', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'host-binding-rollback-'));
+  const path = join(directory, 'core.sqlite');
+  const backupPath = join(directory, 'core-before-revocation.sqlite');
+  let store = new SQLiteStore(path);
+  let engine = new LogicEngine(store);
+  let service = new HostConversationWorldBindingService(engine);
+  engine.createWorld({
+    world_id: 'binding-world-a', world_pack_id: 'test.binding', world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  service.bind({ adapterId: 'adapter-a', conversationId: 'chat-rollback', worldId: 'binding-world-a' });
+  store.close();
+  copyFileSync(path, backupPath);
+
+  store = new SQLiteStore(path);
+  engine = new LogicEngine(store);
+  service = new HostConversationWorldBindingService(engine);
+  service.revoke({
+    adapterId: 'adapter-a', conversationId: 'chat-rollback',
+    reason: 'Host conversation was deleted',
+  });
+  assert.throws(() => service.resolve({ adapterId: 'adapter-a', conversationId: 'chat-rollback' }),
+    (error) => error.code === 'HOST_CONVERSATION_NOT_AUTHORIZED');
+  store.close();
+
+  // Characterize the known trust-boundary gap: restoring the older Core DB
+  // also restores the old active binding. This is not an anti-rollback fix.
+  copyFileSync(backupPath, path);
+  store = new SQLiteStore(path);
+  engine = new LogicEngine(store);
+  service = new HostConversationWorldBindingService(engine);
+  assert.equal(
+    service.resolve({ adapterId: 'adapter-a', conversationId: 'chat-rollback' }).world_id,
+    'binding-world-a',
+  );
+  store.close();
+  rmSync(directory, { recursive: true, force: true });
 });
