@@ -125,5 +125,5 @@ test('Core source-version validator rejects destroyed entities and unavailable C
   const unavailable = createCanonicalEntitySourceVersionValidator({
     getSnapshot() { throw new Error('store unavailable'); },
   });
-  assert.equal(unavailable(candidate({ source_version: version })), false);
+  assert.throws(() => unavailable(candidate({ source_version: version })), /CORE_SOURCE_SNAPSHOT_UNAVAILABLE/);
 });
