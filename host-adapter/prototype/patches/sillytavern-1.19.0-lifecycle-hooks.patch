@@ -359,12 +359,18 @@ diff --git a/public/script.js b/public/script.js
 +    let result;
 +    try {
 +        result = await renameGroupOrCharacterChat({
-         characterId: this_chid,
-         groupId: selected_group,
-         oldFileName: oldFileName,
-         newFileName: newName,
-         loader: true,
-     });
+-        characterId: this_chid,
+-        groupId: selected_group,
+-        oldFileName: oldFileName,
+-        newFileName: newName,
+-        loader: true,
+-    });
++            characterId: this_chid,
++            groupId: selected_group,
++            oldFileName: oldFileName,
++            newFileName: newName,
++            loader: true,
++        });
 +        await lifecycleBridge.afterMutation('rename-chat');
 +        const newLocator = getCurrentChatId();
 +        if (newLocator && newLocator !== oldLocator) {
