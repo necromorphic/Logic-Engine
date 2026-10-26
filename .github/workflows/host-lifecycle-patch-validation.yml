@@ -26,6 +26,14 @@ jobs:
           git clone --no-checkout https://github.com/SillyTavern/SillyTavern.git "$RUNNER_TEMP/st"
           git -C "$RUNNER_TEMP/st" checkout --detach 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           test "$(git -C "$RUNNER_TEMP/st" rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+      - name: Audit pinned Host outbound call sites (static inventory only)
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash "$GITHUB_WORKSPACE/host-adapter/prototype/tools/audit-pinned-st-outbound.sh" "$RUNNER_TEMP/st" > "$RUNNER_TEMP/st-outbound-audit.txt"
+          printf 'outbound_audit_lines='
+          wc -l < "$RUNNER_TEMP/st-outbound-audit.txt"
+          grep '^=== ' "$RUNNER_TEMP/st-outbound-audit.txt" || true
       - name: Stage prototype modules into disposable checkout
         shell: bash
         run: |
@@ -59,3 +67,11 @@ jobs:
           node --check public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           node --check public/scripts/logic-engine-lifecycle/conversation-identity.mjs
         working-directory: ${{ runner.temp }}/st
+      - name: Upload pinned outbound audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: pinned-st-outbound-audit
+          path: ${{ runner.temp }}/st-outbound-audit.txt
+          if-no-files-found: ignore
+          retention-days: 14
