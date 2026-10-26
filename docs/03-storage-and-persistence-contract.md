@@ -1,6 +1,6 @@
 # 03. Persistence and storage contract
 
-Status: proposed. SQLite is a candidate, not yet a frozen implementation choice.
+Status: **prototype implementation uses SQLite; production storage and physical-isolation strategy remain open.** The current codebase contains an executable `SQLiteStore` and world-scoped SQLite tables. This does not freeze the production deployment, backup/restore topology, or guarantee complete isolation across every cache, index, log, API route, and recovery path.
 
 ## 1. Canonical data vs derived data
 
@@ -21,16 +21,18 @@ Status: proposed. SQLite is a candidate, not yet a frozen implementation choice.
 
 The vector archive is not canonical truth. Its records must carry provenance/access metadata sufficient for filtering; results are revalidated against current structured state. The existing SillyTavern vectorization patch must not be modified during architecture work.
 
-## 2. World isolation options
+## 2. World isolation: implemented baseline vs open deployment decision
 
-No decision yet between:
+The current prototype uses SQLite with world-scoped tables/records and world-aware access paths. This is the implemented baseline, not proof that every production path is isolated or that physical separation has been decided.
+
+The remaining deployment choice is whether production should use:
 A. one database with strict `world_id` scoping;
-B. separate schema/namespace per world, if supported by selected database;
+B. separate schema/namespace per world, if supported by the selected database;
 C. separate SQLite file per world.
 
 Separate files can simplify backup/restore and reduce accidental query leakage, but do not by themselves guarantee complete isolation: connection routing, filesystem permissions, cache keys, logs, embeddings and API authorization still matter.
 
-Before selecting, compare:
+Before selecting a production strategy, compare:
 - number and size of worlds;
 - atomic cross-world import requirements;
 - backup/restore granularity;
@@ -39,7 +41,7 @@ Before selecting, compare:
 - memory and file-locking behavior on the target PC;
 - how the adapter identifies the active world.
 
-Regardless of physical storage, all canonical records and cache/retrieval keys must be world-scoped and checked.
+Regardless of physical storage, all canonical records and cache/retrieval keys must be world-scoped and checked. Cross-world operations must not be inferred from the existence of world-scoped storage; they require their own explicit contract and atomicity review.
 
 ## 3. Transaction requirements
 
@@ -52,7 +54,7 @@ A successful mutation must atomically persist:
 - new world revision;
 - outbox/delivery intent if created by the same operation.
 
-If the chosen storage cannot provide the required atomicity, the design must define a transactional outbox or recovery protocol before implementation.
+If the chosen storage cannot provide the required atomicity, the design must define a transactional outbox or recovery protocol before implementation. This is a requirement, not a claim that a general outbox or cross-store transaction already exists.
 
 ## 4. Audit and revisions
 
@@ -70,4 +72,4 @@ If the chosen storage cannot provide the required atomicity, the design must def
 - A World Pack upgrade pins an explicit source and target version, validates compatibility, produces a migration plan and records results.
 - If an active process or fact cannot be migrated safely, halt the affected migration and request author review; do not auto-repair canonical truth.
 
-Retention default from current open-decisions register: seven daily and four weekly backups, subject to implementation feasibility and user confirmation.
+Retention default from current open-decisions register: seven daily and four weekly backups, subject to implementation feasibility and user confirmation. This is a proposed retention target, not evidence that automated backup/restore and anti-rollback controls are implemented.
