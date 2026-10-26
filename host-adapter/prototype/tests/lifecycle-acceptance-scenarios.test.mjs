@@ -167,12 +167,26 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
     "await window.logicEngineHostLifecycle?.guardChatLocatorMutation?.(oldChatId);",
     "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatId);",
     "await window.logicEngineHostLifecycle.guardBulkMutation();",
-    "await window.logicEngineHostLifecycle.guardBulkMutation();",
   ];
   for (const guard of guards) {
     assert.ok(patch.includes(guard), `missing fail-closed Host guard: ${guard}`);
   }
-  const restoreStart = patch.indexOf('async restoreBackup(name)');
-  assert.ok(restoreStart >= 0);
-  assert.ok(patch.slice(restoreStart, restoreStart + 350).includes('guardBulkMutation'));
+  const assertBefore = (entry, guard, mutation) => {
+    const start = patch.indexOf(entry);
+    assert.ok(start >= 0, `missing Host entry point: ${entry}`);
+    const chunk = patch.slice(start, start + 900);
+    const guardAt = chunk.indexOf(guard);
+    const mutationAt = chunk.indexOf(mutation);
+    assert.ok(guardAt >= 0 && mutationAt >= 0 && guardAt < mutationAt,
+      `guard must precede mutation in ${entry}`);
+  };
+  assertBefore('async function delChat(chatfile)', 'guardChatLocatorDeletion', "fetch('/api/chats/delete'");
+  assertBefore('export async function deleteCharacterChatByName(characterId, fileName)', 'guardChatLocatorDeletion', 'unshallowCharacter(characterId)');
+  assertBefore('async function deleteGroup(id)', 'guardBulkMutation', 'const group = groups.find');
+  assertBefore('export async function renameGroupChat(groupId, oldChatId, newChatId)', 'guardChatLocatorMutation', 'const group = groups.find');
+  assertBefore('export async function deleteGroupChatByName(groupId, chatName)', 'guardChatLocatorDeletion', 'const group = groups.find');
+  assertBefore('export async function deleteGroupChat(groupId, chatId,', 'guardChatLocatorDeletion', 'const group = groups.find');
+  assertBefore('export async function importCharacterChat(formData,', 'guardBulkMutation', "fetch('/api/chats/import'");
+  assertBefore('export async function importGroupChat(formData,', 'guardBulkMutation', "fetch('/api/chats/group/import'");
+  assertBefore('async restoreBackup(name)', 'guardBulkMutation', "fetch('/api/backups/chat/download'");
 });
