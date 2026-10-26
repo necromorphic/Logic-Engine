@@ -100,3 +100,28 @@ This section is a source inspection of the pinned upstream revision, not a runti
 - **Real browser / real IndexedDB:** not run in this environment.
 - **Android / Termux:** not run in this environment.
 - **Provider-send revocation race:** not proven; requires a Core-approved contract plus a test that revokes/edits/deletes after candidate assembly and asserts no provider request is emitted.
+
+
+## Exact interception matrix — what the current patch does and does not intercept
+
+This matrix describes the current candidate patch at commit `f47e376f2a3fe7832900d298f77698a689b2e090`; it does not infer coverage from the existence of source events.
+
+| Path / boundary | Current candidate actually intercepts it? | Classification |
+|---|---:|---|
+| User message insertion in `public/script.js` send/update path | Yes, the patch invokes `beforeMutation('message-send')` before the insertion and `afterMutation` after the save call in the shown branches | Partial lifecycle instrumentation only; not provider-send authorization |
+| Assistant create/swipe/append/update path | The patch invokes a lifecycle checkpoint in the message-update routine; the exact pre-mutation coverage varies by operation and is not a universal send guard | Partial lifecycle instrumentation; not proof of complete persistence |
+| Edit / delete message / delete swipe / select swipe | The patch adds hooks at the named UI mutation points | Partial lifecycle instrumentation; not a universal record of all callers or external file operations |
+| Browser Chat Completions pre-serialization event `CHAT_COMPLETION_SETTINGS_READY` | **No**; current patch does not register an authorization gate on this event | Unsupported for disclosure control |
+| Browser `POST /api/backends/chat-completions/generate` | **No**; current patch does not wrap/intercept this fetch as a final authorization check | Unsupported for disclosure control |
+| Server `POST /api/backends/chat-completions/generate` dispatcher | **No**; current patch does not add a server-side gate before provider dispatch | Unsupported for disclosure control |
+| Chat Completions provider-specific senders (including Claude, AI21, MakerSuite/Vertex, Mistral, Cohere, DeepSeek, AIMLAPI, xAI, Chutes, MiniMax, ElectronHub, Azure OpenAI, plus other source-specific branches) | **No**; no provider sender is instrumented by this Host patch | Unsupported |
+| Generic Chat Completions outbound sender after provider-specific branching | **No**; not established as a universal boundary because earlier branches return through their own senders | Unsupported as universal gate |
+| Text Completions `POST /api/backends/text-completions/generate` and its provider-specific `fetch(url, args)` paths | **No** | Unsupported |
+| Native/server callers, other generation families, direct provider calls, extension/custom routes, alternate endpoints | **No**; no exhaustive inventory or shared final-send interceptor has been established | Unsupported / bypassable |
+| Import, restore, recursive deletion, group deletion and branch operations | Some patch locations call the bridge, but their operation names are deliberately not in the currently supported operation allowlist, so enrolled mutations reject before proceeding rather than being admitted as captured | Fail-closed blocker, not supported lifecycle coverage |
+
+### Consequence for the requested revocation/edit/delete race
+
+The current patch does **not** intercept the actual provider send boundary. Therefore there is no valid Host test result yet for “candidate assembled → source edited/deleted/revoked → provider serialization/send attempted → request prevented.” A test around `CHAT_COMPLETION_SETTINGS_READY` alone would test a browser hook, not the server-side final provider send across all paths. A fixture callback or fake provider sender would not repair this evidence gap.
+
+A correct end-to-end test requires: (a) Core-approved authorization semantics and the authoritative revocation/version source, (b) a reviewed inventory of every allowed generation route and its last controllable serialization/send point, (c) a test that pauses after candidate assembly, performs edit/delete/revocation, resumes the request, and proves **no outbound provider request** occurred, and (d) separate real-browser and Android/Termux evidence. Until those exist, Host disclosure readiness is `NON_READY`; this patch must not be described as a final-send gate.
