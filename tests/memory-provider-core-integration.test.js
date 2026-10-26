@@ -58,6 +58,7 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
   };
   provider = new SQLiteMemoryProvider({
     path: providerPath,
+    coordinatorPath: providerPath === ':memory:' ? null : `${providerPath}.coordinator.sqlite`,
     getSnapshot: snapshotReader,
     validateSourceVersion: sourceVersionValidator,
     validateInventory: async () => true,
