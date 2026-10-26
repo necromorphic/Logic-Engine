@@ -738,4 +738,4 @@ Do **not** map the evaluator's `status: "true"` directly to the prototype's `fea
 
 The next safe experiment is a test-only characterization of the existing evaluator's tri-state outputs using valid mechanic fixtures, kept separate from the NPC ranking prototype. It must not add a production adapter or alter Core. Only after the owning Core/Mechanics contracts define what additional checks make an action candidate feasible may an integration adapter be proposed. The NPC kernel continues to accept caller-classified fixture candidates only; Memory→NPC remains disabled/fail-closed.
 
-**Evidence level:** source-inspected. This section records the current helper's implementation semantics; it does not claim a new integration test or production path.
+**Evidence level:** source-inspected plus a new test file `tests/mechanic-action-conditions.test.js` covering all-true aggregation, false-over-unknown precedence while retaining unknown paths, missing-context unknowns, explicit known absence, and unknown-action rejection. The tests characterize Core behavior only; they do not connect the evaluator to the NPC kernel or claim production feasibility.
