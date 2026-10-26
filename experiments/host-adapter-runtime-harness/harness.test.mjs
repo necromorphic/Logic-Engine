@@ -1,0 +1,93 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { createRequire } from 'node:module';
+import { resolve } from 'node:path';
+import { once } from 'node:events';
+
+const stRoot = resolve(process.env.SILLYTAVERN_DIR ?? 'SillyTavern');
+const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
+
+// Prevent the upstream route's debug log from serializing request bodies.
+// The fake provider below only drains bytes; it never parses or stores them.
+const originalDebug = console.debug;
+console.debug = () => {};
+
+const requireFromST = createRequire(resolve(stRoot, 'package.json'));
+const express = requireFromST('express');
+const { router } = await import(new URL(
+  './src/endpoints/backends/chat-completions.js',
+  `file://${stRoot.replaceAll('\\\\', '/')}/`,
+).href);
+
+test('real pinned server Chat Completions handler reaches a recording fake provider exactly once', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const actualSha = execFileSync('git', ['-C', stRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.equal(actualSha, expectedSha, 'test must run against the exact pinned SillyTavern checkout');
+
+  let requestCount = 0;
+  const arrivals = [];
+  const fakeProvider = requireFromST('node:http').createServer((req, res) => {
+    requestCount += 1;
+    arrivals.push({ method: req.method, path: req.url });
+    req.resume(); // discard request body; never parse, log, or persist prompt content
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'fake-response',
+        object: 'chat.completion',
+        created: 1,
+        model: 'fake-model',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'harness-ok' }, finish_reason: 'stop' }],
+      }));
+    });
+  });
+
+  await new Promise((resolveListen, reject) => {
+    fakeProvider.once('error', reject);
+    fakeProvider.listen(0, '127.0.0.1', resolveListen);
+  });
+  const providerAddress = fakeProvider.address();
+  assert.ok(providerAddress && typeof providerAddress === 'object');
+
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  app.use((req, _res, next) => {
+    req.user = { directories: {} };
+    next();
+  });
+  app.use('/api/backends/chat-completions', router);
+  const stHarnessServer = app.listen(0, '127.0.0.1');
+  await once(stHarnessServer, 'listening');
+  const stAddress = stHarnessServer.address();
+  assert.ok(stAddress && typeof stAddress === 'object');
+
+  t.after(async () => {
+    await Promise.all([
+      new Promise(resolveClose => stHarnessServer.close(resolveClose)),
+      new Promise(resolveClose => fakeProvider.close(resolveClose)),
+    ]);
+    console.debug = originalDebug;
+  });
+
+  const response = await fetch(`http://127.0.0.1:${stAddress.port}/api/backends/chat-completions/generate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      chat_completion_source: 'openai',
+      reverse_proxy: `http://127.0.0.1:${providerAddress.port}/v1`,
+      proxy_password: 'test-only-not-a-real-secret',
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'HARNESS_SENTINEL_DO_NOT_LOG' }],
+      stream: false,
+      temperature: 0,
+      max_tokens: 8,
+    }),
+  });
+
+  assert.equal(response.status, 200, 'the actual pinned handler should return the fake provider response');
+  const responseJson = await response.json();
+  assert.equal(responseJson.choices?.[0]?.message?.content, 'harness-ok');
+  assert.equal(requestCount, 1, 'exactly one outbound request should arrive at the fake provider');
+  assert.deepEqual(arrivals, [{ method: 'POST', path: '/v1/chat/completions' }]);
+  assert.equal(JSON.stringify(arrivals).includes('HARNESS_SENTINEL_DO_NOT_LOG'), false);
+});
