@@ -333,6 +333,8 @@ These are observable criteria for a future implementation, not claims that tests
 
 Acceptance requires evidence from the actual owner components and real retrieval/disclosure path. Fixture-only tests, document agreement, a green isolated Provider suite, or a proposed 3D model do not establish end-to-end scene fidelity or authorization.
 
+**NPC-owned acceptance artifact:** [Issue #149, comment #6411045877](https://github.com/necromorphic/Logic-Engine/issues/149#issuecomment-6411045877) provides 20 old-scene scenarios and 10 cross-cutting invariants for temporal/spatial relations, viewpoint, provenance, uncertainty/conflicts, source currentness, incomplete data, lifecycle-stage separation, non-invention and repeatability. Treat this as the NPC test oracle/acceptance input, not as evidence that the real Provider→Core→NPC path exists or passes. Core/Provider/Host must map each applicable case to callable evidence and actual-path tests; NPC should not duplicate the matrix or build a fake receiver.
+
 ### 11.6 Decisions: what needs product-owner choice, and what does not
 
 **Already decided by product intent:** coherent scene recall must preserve concrete event details and relationships over the long term; isolated extracted facts alone are insufficient. Observation is the conceptual first way NPCs learn about the world, but the first integration test may use a simpler end-to-end mechanism. Scene storage does not imply universal NPC knowledge. A future 3D/snapshot capability is optional, not a prerequisite.
