@@ -1,9 +1,13 @@
 import test from 'node:test';
+import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
 test('corrupt stored lineage cannot publish a ready reconciliation state', async (t) => {
+  const testDb = createProviderTestDb(t, { prefix: 'logic-memory-corrupt-lineage-' });
   const provider = new SQLiteMemoryProvider({
+    path: testDb.path,
+    coordinatorPath: `${testDb.path}.coordinator.sqlite`,
     getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
@@ -28,7 +32,7 @@ test('corrupt stored lineage cannot publish a ready reconciliation state', async
   };
   provider.putRecord(record);
   await provider.rebuildIndex('lineage-world');
-  provider.db.prepare('UPDATE memory_records SET lineage_json=? WHERE world_id=?')
+  testDb.db.prepare('UPDATE memory_records SET lineage_json=? WHERE world_id=?')
     .run('{broken-json', 'lineage-world');
 
   assert.equal((await provider.reconcile('lineage-world')).status, 'stale');

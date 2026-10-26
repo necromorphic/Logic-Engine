@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
@@ -8,7 +9,12 @@ import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { createCanonicalEntitySourceVersionValidator } from '../src/application/canonical-entity-source-version.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
-function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
+function setup(t, { twoRecords = false, providerPath = null } = {}) {
+  const testDb = createProviderTestDb(t, {
+    path: providerPath && providerPath !== ':memory:' ? providerPath : null,
+    prefix: 'logic-memory-core-integration-',
+  });
+  const effectiveProviderPath = testDb.path;
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const bindings = new ActorBindingService(engine);
@@ -52,8 +58,8 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
     return canonicalSourceValidator(record);
   };
   provider = new SQLiteMemoryProvider({
-    path: providerPath,
-    coordinatorPath: providerPath === ':memory:' ? null : `${providerPath}.coordinator.sqlite`,
+    path: effectiveProviderPath,
+    coordinatorPath: `${effectiveProviderPath}.coordinator.sqlite`,
     getSnapshot: snapshotReader,
     validateSourceVersion: sourceVersionValidator,
     validateInventory: async () => true,
@@ -88,6 +94,7 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
   t.after(() => { provider.close(); store.close(); });
   return {
     engine, provider, consumer, scope, records,
+    db: testDb.db,
     async prepare() {
       await provider.rebuildIndex(worldId);
       return provider.reconcile(worldId);
@@ -96,7 +103,7 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
     triggerQueryRevocation() { triggerQueryRevocation = true; },
     reopenProvider() {
       provider.close();
-      provider = new SQLiteMemoryProvider({ path: providerPath, getSnapshot: snapshotReader,
+      provider = new SQLiteMemoryProvider({ path: effectiveProviderPath, coordinatorPath: `${effectiveProviderPath}.coordinator.sqlite`, getSnapshot: snapshotReader,
         validateSourceVersion: sourceVersionValidator,
         validateInventory: async () => true, // test-only; not Host completeness evidence
       });
@@ -273,7 +280,7 @@ test('retrieval and context inclusion do not persist delivery, receipt, acquisit
   const counts = () => Object.fromEntries([
     'memory_records', 'memory_index_entries', 'memory_query_grants',
     'memory_record_grants', 'memory_index_state',
-  ].map((table) => [table, s.provider.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count]));
+  ].map((table) => [table, s.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count]));
   const before = counts();
   const first = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
@@ -284,7 +291,7 @@ test('retrieval and context inclusion do not persist delivery, receipt, acquisit
   assert.equal(first.status, 'ready');
   assert.equal(second.status, 'ready');
   assert.deepEqual(counts(), before);
-  const tables = s.provider.db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all()
+  const tables = s.db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all()
     .map((row) => row.name);
   assert.equal(tables.some((name) => /delivery|receipt|acquisition|belief/i.test(name)), false);
 });

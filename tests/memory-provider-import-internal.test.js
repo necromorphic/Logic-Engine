@@ -1,11 +1,15 @@
 import test from 'node:test';
+import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 import { createInternalMemoryImportFacadeForTest } from '../src/application/memory-provider-import-internal.js';
 
 function setup(t) {
   const scope = { world_id: 'world-import-test', subject_id: 'npc-import-test', purpose: 'npc_decision' };
+  const testDb = createProviderTestDb(t, { prefix: 'logic-memory-import-internal-' });
   const provider = new SQLiteMemoryProvider({
+    path: testDb.path,
+    coordinatorPath: `${testDb.path}.coordinator.sqlite`,
     getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
     validateSourceVersion: async (record) => record.source_version === 'source-v1',
     validateInventory: async () => true,
@@ -29,7 +33,7 @@ function setup(t) {
       source_version: 'source-v1',
     }],
   };
-  return { provider, record, scope };
+  return { provider, record, scope, db: testDb.db };
 }
 
 test('internal import facade exposes only one-record import and preserves provider idempotency', (t) => {
@@ -67,12 +71,12 @@ test('internal import facade refuses an object without the provider import opera
 });
 
 test('internal import facade does not grant query or record access', (t) => {
-  const { provider, record, scope } = setup(t);
+  const { provider, record, scope, db } = setup(t);
   const importer = createInternalMemoryImportFacadeForTest(provider);
 
   assert.equal(importer.importRecord(record).status, 'stored');
   assert.equal(provider.authorizeQuery(scope), false);
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_record_grants WHERE world_id=?')
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_record_grants WHERE world_id=?')
     .get(scope.world_id).count, 0);
 });
 
@@ -87,6 +91,6 @@ test('rejected import leaves no record behind', (t) => {
     }),
     /Invalid direct-source Memory record/,
   );
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
     .get(scope.world_id).count, 0);
 });

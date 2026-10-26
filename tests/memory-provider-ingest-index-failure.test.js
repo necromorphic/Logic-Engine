@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -34,17 +35,18 @@ test('record persistence survives index-write failure and retrieval stays closed
     try { provider.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
   });
+  const testDb = createProviderTestDb(t, { path });
 
   provider.grantQuery(scope, true);
   provider.grantRecord(scope, record.record_ref, record.record_version, true);
-  provider.db.exec(`CREATE TRIGGER fail_ingest_index BEFORE INSERT ON memory_index_entries
+  testDb.db.exec(`CREATE TRIGGER fail_ingest_index BEFORE INSERT ON memory_index_entries
     BEGIN SELECT RAISE(ABORT, 'injected ingest index failure'); END;`);
 
   assert.throws(() => provider.putRecord(record), /injected ingest index failure/);
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?')
+  assert.equal(testDb.db.prepare('SELECT COUNT(*) AS n FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?')
     .get(scope.world_id, record.record_ref, record.record_version).n, 1,
   'the durable Provider record is retained even though its derived index write failed');
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?')
+  assert.equal(testDb.db.prepare('SELECT COUNT(*) AS n FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?')
     .get(scope.world_id, record.record_ref, record.record_version).n, 0);
   assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).index_health, 'unavailable');
   await assert.rejects(() => provider.retrieveCandidates(scope), /MEMORY_INDEX_NOT_READY/);
@@ -52,12 +54,12 @@ test('record persistence survives index-write failure and retrieval stays closed
   // Restart must preserve the durable record and the fail-closed readiness marker.
   provider.close();
   provider = new SQLiteMemoryProvider(options);
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?')
+  assert.equal(testDb.db.prepare('SELECT COUNT(*) AS n FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?')
     .get(scope.world_id, record.record_ref, record.record_version).n, 1);
   assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).index_health, 'unavailable');
   await assert.rejects(() => provider.retrieveCandidates(scope), /MEMORY_INDEX_NOT_READY/);
 
-  provider.db.exec('DROP TRIGGER fail_ingest_index');
+  testDb.db.exec('DROP TRIGGER fail_ingest_index');
   const replay = provider.putRecord(record);
   assert.deepEqual(replay, {
     status: 'duplicate',
@@ -66,7 +68,7 @@ test('record persistence survives index-write failure and retrieval stays closed
     index_repaired: true,
     reconciliation_required: true,
   });
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?')
+  assert.equal(testDb.db.prepare('SELECT COUNT(*) AS n FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?')
     .get(scope.world_id, record.record_ref, record.record_version).n, 1);
   assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).index_health, 'rebuilding',
     'repairing one missing derived entry must not restore readiness by itself');
