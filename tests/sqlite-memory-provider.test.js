@@ -216,10 +216,11 @@ test('raw tombstone and purge update provider-local lifecycle rows atomically', 
     WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key).deleted_at !== null, true);
   assert.equal(s.provider.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_active_versions
     WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key).count, 0);
-  assert.deepEqual(s.provider.db.prepare(`SELECT status, invalidated_at FROM memory_raw_derived_copies
-    WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`).get(...key),
-  { status: 'invalidated', invalidated_at: s.provider.db.prepare(`SELECT invalidated_at FROM memory_raw_derived_copies
-    WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`).get(...key).invalidated_at });
+  const invalidatedCopy = s.provider.db.prepare(`SELECT status, invalidated_at FROM memory_raw_derived_copies
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`).get(...key);
+  assert.equal(invalidatedCopy.status, 'invalidated');
+  assert.equal(typeof invalidatedCopy.invalidated_at, 'string');
+  assert.notEqual(invalidatedCopy.invalidated_at.length, 0);
   assert.deepEqual(s.provider.markRawSourceDeleted({
     world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
   }), { status: 'deleted', invalidated_copies: 0 });
