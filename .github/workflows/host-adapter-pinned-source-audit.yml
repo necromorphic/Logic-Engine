@@ -40,4 +40,4 @@ jobs:
       - name: Run source-level lifecycle assertions
         env:
           SILLYTAVERN_DIR: SillyTavern
-        run: node --test tests/host-adapter-source-audit.test.mjs
+        run: node --test experiments/host-adapter-source-audit/harness.test.mjs
