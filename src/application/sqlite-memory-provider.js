@@ -719,6 +719,8 @@ export class SQLiteMemoryProvider {
   async retrieveCandidates(scope) {
     this.#scope(scope);
     if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+    const queryGrantKey = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose]);
+    const queryAuthorizationGeneration = this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0;
     const state = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
     if (!state || state.index_health !== 'ready' || state.source_reconciliation !== 'current') {
       throw new Error('MEMORY_INDEX_NOT_READY');
