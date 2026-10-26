@@ -1,5 +1,6 @@
-import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { existsSync, mkdirSync, realpathSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { beginCoordinatorLock, openCoordinatorDatabase } from './coordinator-lock.js';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
@@ -157,11 +158,39 @@ const world = (r) => r && ({
   created_at: r.created_at,
 });
 
+function aliasesSameFile(left, right) {
+  const canonical = (value) => {
+    const absolute = resolve(value);
+    try { return realpathSync(absolute); } catch {}
+    try { return join(realpathSync(dirname(absolute)), basename(absolute)); } catch {}
+    return absolute;
+  };
+  return canonical(left) === canonical(right);
+}
+
 export class SQLiteStore {
   constructor(path = ':memory:') {
-    if (path !== ':memory:') mkdirSync(dirname(resolve(path)), { recursive: true });
-    this.db = new DatabaseSync(path);
+    const corePath = path === ':memory:' ? ':memory:' : resolve(path);
+    const configuredCoordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+    const coordinatorPath = corePath === ':memory:' ? null
+      : (configuredCoordinatorPath === undefined ? corePath + '.coordinator.sqlite' : configuredCoordinatorPath);
+    if (coordinatorPath && (!isAbsolute(coordinatorPath) || !coordinatorPath.trim())) {
+      throw new TypeError('LOGIC_ENGINE_COORDINATOR_DB_PATH must be an absolute path shared by all participants.');
+    }
+    if (corePath !== ':memory:' && coordinatorPath && aliasesSameFile(corePath, coordinatorPath)) {
+      throw new Error('Coordinator DB must be separate from the Core DB, including filesystem aliases.');
+    }
+    if (corePath !== ':memory:') mkdirSync(dirname(corePath), { recursive: true });
+    if (coordinatorPath) mkdirSync(dirname(resolve(coordinatorPath)), { recursive: true });
+    this.coordinatorDb = coordinatorPath ? openCoordinatorDatabase(coordinatorPath) : null;
+    this.coordinatorRelease = null;
+    this.coordinatorLeaseDepth = 0;
+    this.db = new DatabaseSync(corePath);
     try {
+      if (this.coordinatorDb) {
+        this.coordinatorRelease = beginCoordinatorLock(this.coordinatorDb);
+        this.coordinatorLeaseDepth = 1;
+      }
       this.db.exec(`
       PRAGMA foreign_keys=ON;
       PRAGMA busy_timeout=5000;
@@ -247,8 +276,17 @@ export class SQLiteStore {
       );
       `);
       this.migrate();
+      if (this.coordinatorRelease) {
+        this.coordinatorRelease();
+        this.coordinatorRelease = null;
+        this.coordinatorLeaseDepth = 0;
+      }
     } catch (error) {
+      try { this.coordinatorRelease?.(); } catch {}
+      this.coordinatorRelease = null;
+      this.coordinatorLeaseDepth = 0;
       try { this.db.close(); } catch {}
+      try { this.coordinatorDb?.close(); } catch {}
       throw error;
     }
   }
@@ -477,7 +515,9 @@ export class SQLiteStore {
     }
   }
 
-  close() { this.db.close(); }
+  close() {
+    try { this.db.close(); } finally { this.coordinatorDb?.close(); }
+  }
 
   tx(fn) {
     if (this.txDepth > 0) {
@@ -498,9 +538,20 @@ export class SQLiteStore {
         this.txDepth -= 1;
       }
     }
-    this.db.exec('BEGIN IMMEDIATE');
-    this.txDepth = 1;
+    let releaseCoordinator = null;
+    if (this.coordinatorDb && this.coordinatorLeaseDepth === 0) {
+      this.coordinatorRelease = beginCoordinatorLock(this.coordinatorDb);
+      this.coordinatorLeaseDepth = 1;
+      releaseCoordinator = () => {
+        const release = this.coordinatorRelease;
+        this.coordinatorRelease = null;
+        this.coordinatorLeaseDepth = 0;
+        release?.();
+      };
+    }
     try {
+      this.db.exec('BEGIN IMMEDIATE');
+      this.txDepth = 1;
       const result = fn();
       this.db.exec('COMMIT');
       return result;
@@ -509,6 +560,7 @@ export class SQLiteStore {
       throw error;
     } finally {
       this.txDepth = 0;
+      releaseCoordinator?.();
     }
   }
 
