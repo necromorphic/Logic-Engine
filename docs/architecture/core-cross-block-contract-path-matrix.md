@@ -80,3 +80,26 @@ The candidate is narrowed to a **dedicated coordinator SQLite database used as a
 - Product/Security sign-off remains separate for ledger retention, credentials, LAN/bridge authentication and in-flight semantics.
 
 This refinement narrows the implementation choice but authorizes no runtime files, API/schema, production wiring, or activation. Memory→NPC remains **DISABLED / FAIL-CLOSED** until actual writer and egress paths pass these tests.
+
+
+## Core writer participation inventory — current source mapping (26 Oct 2026)
+
+This is a Core-side source inventory, not a claim that the coordinator primitive exists. In the current `main` baseline, **none of these paths is proven to participate in the proposed coordinator lock**.
+
+| Writer family | Exact current entry/path | Current transaction boundary | Coordinator status |
+|---|---|---|---|
+| Canonical event commit | `src/application/engine.js`: `LogicEngine.commitEvent` → `store.commit`; `commitSegment` → `store.commitSegment` | Core `SQLiteStore` transaction | **Unresolved** — must join the shared authority before any protected-state mutation |
+| Rollback/retraction | `LogicEngine.rollbackEvent` → `store.rollback` in `src/application/engine.js`; rollback projection and dependent process invalidation in `src/storage/sqlite-store.js` / `src/storage/process-store.js` | Core-local transactions and projection restoration | **Unresolved** — source currentness can change on rollback even when `commit_sequence` does not advance |
+| Direct mechanic API commits | `src/api/server.js`, `mechanic-instances` create and enable/disable routes call `engine.store.commit(worldId, prepared)` directly | Store commit transaction, bypassing the Engine wrapper | **Unresolved bypass** — move behind the eventual mandatory Core entrypoint or technically prevent this route from writing |
+| Actor binding grant/revoke | `src/application/actor-bindings.js`: `ActorBindingService.bind` / `revoke` | `engine.store.tx`; binding table uses the Core DB handle | **Unresolved** — same DB transaction does not itself join a cross-process coordinator |
+| Proposal lifecycle | `src/application/proposals.js`: `create`, approval, `commit`, `cancel`; `commit` calls `engine.commitEvent` inside Core transaction | Core DB transaction/savepoint nesting | **Unresolved** — each mutation affecting authorization or canonical commit must acquire coordinator authority before its local transaction |
+| Process/reconciliation state | `src/storage/process-store.js`: process create/update/transition/invalidation/review paths | `store.tx` on Core DB | **Unresolved** — must be included if any state changes source validity or snapshot admissibility |
+| Time, trigger, mechanic/rule/config state | `src/application/engine.js` time-advance, trigger, mechanic and rule operations; routes in `src/api/server.js` | Multiple Core Store transaction paths; some route-level direct Store calls | **Unresolved** — classify each mutation individually; no blanket assumption from the main event path |
+| DB access and schema lifecycle | `SQLiteStore.db` is exposed to application services; constructor and service constructors create/upgrade tables | Direct SQLite handle / startup DDL | **Unresolved bypass** — raw writes, migrations and schema maintenance are not technically forced through a coordinator today |
+| Backup, restore, maintenance, recovery | No complete enforced coordinator participation mechanism established by this source audit | Not proven | **Unresolved / release blocker** — prove participation or disable protected dispatch for the affected deployment |
+| Provider-owned grants, record versions, readiness and reconciliation | Separate Provider persistence and async validation paths; not owned by Core | Provider-local transaction | **Joint unresolved** — Core cannot certify Provider participation; Provider must map its exact writers |
+| Actual upstream model transport | `src/index.js` wires `SQLiteStore`, `LogicEngine`, and `createApiServer`; no production PC egress gateway is wired | No protected dispatch boundary in Core runtime | **Missing** — Host must prove the sole gateway route and eliminate direct-provider bypass |
+
+### Core conclusion from the inventory
+
+The minimum safe next change is **not** to wrap only `LogicEngine.commitEvent`: that would miss rollback, actor binding, direct API commits, process/config mutations, raw DB access and startup/recovery. Before implementation, the chosen coordinator must be enforced at a lower shared boundary for all Core writes (or those paths must be blocked), while Provider independently proves its writers and Host proves gateway-only transport. A helper that callers may omit is not enforcement. Until that proof exists, the implementation remains **UNSUPPORTED / DISABLED / FAIL-CLOSED**.
