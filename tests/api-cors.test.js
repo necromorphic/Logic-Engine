@@ -68,7 +68,7 @@ test('CORS origin configuration rejects wildcards and non-origin URLs', () => {
   const store = new SQLiteStore(':memory:');
   try {
     const engine = new LogicEngine(store);
-    assert.throws(() => createApiServer({ engine, token: TOKEN, allowedOrigins: ['*'] }), /exact HTTP\(S\) origins/);
+    assert.throws(() => createApiServer({ engine, token: TOKEN, allowedOrigins: ['*'] }), /valid HTTP\(S\) origin/);
     assert.throws(() => createApiServer({ engine, token: TOKEN, allowedOrigins: ['http://127.0.0.1:8000/path'] }), /exact origin/);
   } finally {
     store.close();
