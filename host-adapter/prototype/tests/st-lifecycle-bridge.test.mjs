@@ -177,6 +177,24 @@ test('live source verification binds message/version inventory to observed ST br
   assert.match(changedBranchReferences.reason, /fingerprint mismatch/);
 });
 
+test('malformed swipe and branch metadata cannot normalize to a valid empty inventory', async () => {
+  const malformedBranches = makeFixture([{ is_user: false, mes: 'hello' }]);
+  await malformedBranches.bridge.enrollCurrentConversation();
+  malformedBranches.chat[0].extra = { branches: 'not-an-array' };
+  const branchResult = await malformedBranches.bridge.verifyCurrentSource();
+  assert.equal(branchResult.status, 'NON_READY');
+  assert.match(branchResult.reason, /malformed native branch-reference inventory/);
+  assert.equal(branchResult.trustEvidence.liveSourceFingerprint, 'NOT_VERIFIED');
+
+  const malformedSwipes = makeFixture([{ is_user: false, mes: 'hello' }]);
+  await malformedSwipes.bridge.enrollCurrentConversation();
+  malformedSwipes.chat[0].swipes = 'not-an-array';
+  const swipeResult = await malformedSwipes.bridge.verifyCurrentSource();
+  assert.equal(swipeResult.status, 'NON_READY');
+  assert.match(swipeResult.reason, /malformed native swipe inventory/);
+  assert.equal(swipeResult.trustEvidence.identityVersionMapping, 'MISMATCH');
+});
+
 test('Host-owned live source verification reports local match as non-authoritative and detects drift', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
