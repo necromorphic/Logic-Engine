@@ -20,9 +20,24 @@ Keep `manifest.json`, `index.js`, `settings.html`, and `style.css` together. Res
 
 Set the API URL to the PC address, e.g. `http://192.168.0.84:8789`, save it, then run **Check connection**.
 
-## Important current limitation
+## Configure browser access (strict CORS)
 
-The extension runs in the browser origin of SillyTavern on the phone. A browser request to the PC is cross-origin. The current engine API response does not yet implement a configurable CORS allowlist, so the health probe may be blocked by the browser even when the PC API is reachable from PowerShell. Do not disable browser security as a workaround. The next integration change must add a strict, explicit origin allowlist (including OPTIONS preflight handling) or introduce a dedicated authenticated PC-side bridge with an allowlist.
+The API now supports an explicit `ENGINE_ALLOWED_ORIGINS` allowlist and handles CORS preflight requests. Leave the setting empty unless browser access is required. Never use `*`.
+
+Set `ENGINE_ALLOWED_ORIGINS` to the exact origin shown in the browser address bar when SillyTavern is open on the phone. An origin is scheme + host + port only, with no path or trailing slash. For example, if ST is opened as `http://127.0.0.1:8000`, configure exactly that value. The browser sends this origin even though the API host is the PC.
+
+Example PowerShell session environment for the Engine API (adapt the ST origin to the actual address used on the phone):
+
+```powershell
+$env:ENGINE_PORT='8789'
+$env:ENGINE_HOST='192.168.0.84'
+$env:ENGINE_ALLOW_REMOTE='true'
+$env:ENGINE_ALLOWED_ORIGINS='http://127.0.0.1:8000'
+npm start
+```
+
+Use a PC firewall rule restricted to the intended private network. Do not bind publicly, disable browser security, or put `ENGINE_API_TOKEN`, adapter secrets, admin/internal/approval tokens in the extension settings. The CORS allowlist is not authentication; API credentials and route-level authorization remain required for protected endpoints.
+
 
 ## Next implementation gate
 
