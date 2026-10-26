@@ -7,7 +7,17 @@ const rawVersions = message => {
   return Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
 };
 const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
-const activeIndex = message => Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+const activeIndex = message => {
+  if (message?.swipe_id !== undefined && !Number.isInteger(message.swipe_id)) {
+    throw Error('NON_READY: malformed native active-swipe index');
+  }
+  const index = message.swipe_id ?? 0;
+  const versions = rawVersions(message);
+  if (index < 0 || index >= versions.length) {
+    throw Error('NON_READY: native active-swipe index is out of range');
+  }
+  return index;
+};
 const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
