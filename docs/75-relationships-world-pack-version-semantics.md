@@ -104,3 +104,125 @@ Cross-reviewed against Personality PR #141, `docs/personality/09-per-case-accept
 There is no semantic contradiction between PR #141 and this contract provided that `PERS-SEM-024` remains limited to deterministic evaluation/replay under identical pinned inputs and `PERS-SEM-029` remains the separate meaning-change/migration gate. The remaining gap is narrower: historical semantic re-evaluation with missing rules and executable migration refusal are **not** established by current runtime tests. Projection-only rebuild and preservation of the historical pin are now covered by Core PR #148 (Runtime CI #903). Keep semantic re-evaluation and migration rows blocked rather than presenting evaluator-only or documentation evidence as Core runtime proof.
 
 Ownership boundary remains unchanged: this PR changes only Relationships documentation. Core storage/replay/runtime and Personality traceability are untouched.
+
+## 9. Relationships compatibility decision boundary
+
+For domain interpretation, a version string is an identifier, not evidence of semantic compatibility. Semantic-version ordering (including patch/minor/major labels) alone must never authorize interpreting a historical Relationship transition under another World Pack version.
+
+Until a separately reviewed compatibility declaration and executable Core path exist, use this default:
+
+- **New typed transition:** accept only through the existing Core path with the exact registered `rule_module_id + rule_module_version` and the exact `world_pack_id + world_pack_version` match already required at commit. A different World Pack identity/version is incompatible; reject before mutation.
+- **Already-committed event, projection-only rebuild:** replay the committed effect and preserve its stored result and exact rule-module pin. Do not re-run current rules. This narrow operation may succeed even when the old manifest is unavailable, as covered by Core PR #148.
+- **Historical semantic re-evaluation:** exact historical executable rules and World Pack provenance are prerequisites. If either cannot be resolved unambiguously, the domain decision is **unsupported / fail closed**; never infer compatibility from the current world, a newer manifest, or semver distance. There is no shipped evaluator contract in current main.
+- **Meaning-changing migration:** unsupported in the current release. No implicit migration, in-place reinterpretation, or “best effort” conversion is permitted. A future migration requires an explicit Relationships-owned source→target semantic policy and a separately approved Core execution/audit contract; no such API/schema/path is implied here.
+
+### Acceptance boundary for tests
+
+Relationships can define these semantic outcomes, but cannot honestly add an executable end-to-end test for historical re-evaluation or migration refusal while Core exposes no approved runtime entry point for either operation. Such a test would be a fixture/pure-helper assertion, not proof of production behavior. Keep those rows **BLOCKED — Core runtime path + joint domain approval** until the actual entry point and contract exist. When they do, require no-write assertions for missing/unknown/incompatible provenance and refusal without an approved migration path; preserve the original event and verify deterministic projection rebuild independently.
+
+This section is a domain compatibility default, not a storage/API/schema change and not authorization to edit Core or Personality-owned files.
+
+## 10. Refreshed domain invariant and operation acceptance contract (26 Oct 2026)
+
+### World Pack provenance invariant
+
+For every committed Relationship transition, the historical semantics needed to explain or re-evaluate that transition must remain unambiguous for its full retained lifetime, including process restart, projection rebuild, manifest unregister/removal, replacement by a newer manifest, backup/restore, and recovery. A version label alone is not provenance.
+
+**Preferred representation:** persist the exact `world_pack_id + world_pack_version` on the committed event/effect alongside the existing `rule_module_id + rule_module_version`, if and when Core approves the event-contract change. Relationships does not authorize or implement that schema change.
+
+**Permitted alternative:** an indirect event-to-World-Pack mapping is acceptable only when Core demonstrates that it is immutable, append-only, durable for every referencing event, integrity-checked, exact-version-addressable, retained through restart/restore, and cannot be deleted, rebound, or silently resolved to a replacement. A lookup through the currently registered manifest is not by itself sufficient proof of historical provenance.
+
+**Fail-closed consequence:** if provenance cannot be resolved exactly for an operation that requires semantic interpretation, reject that operation before canonical mutation. Never substitute the latest/nearest module or World Pack. Projection-only rebuild of an already committed effect remains a distinct operation and must preserve the original effect and module pin without semantic re-evaluation.
+
+### Per-operation acceptance matrix
+
+| Operation | Status in current release | Required inputs | Owner | Failure behavior | Acceptance test / evidence required |
+|---|---|---|---|---|---|
+| New typed Relationship transition | Supported through existing Core commit path, subject to exact current registration | Exact rule-module ID/version; manifest World Pack ID/version matching target world; existing typed transition inputs/evidence | Core runtime; Relationships defines domain compatibility | Reject before mutation on unknown module or World Pack mismatch; no latest fallback | Existing Core test `rejects unavailable rule versions, cross-world participants, and invalid evidence before mutation`; assert canonical state/event count unchanged |
+| Deterministic projection replay of a committed effect | Supported within existing replay contract | Original committed event/effect and its stored rule-module pin; no current-rule re-evaluation | Core runtime; Relationships defines preservation invariant | Do not rewrite event/pin or reinterpret under current rules; invalid event handling follows existing Core replay contract | Core PR #148 test `projection rebuild preserves the exact historical rule-version pin when its module is unavailable`; restart/rebuild with old module removed and newer module registered |
+| Historical semantic re-evaluation | Unsupported until joint contract approval and executable Core path exist | Original event/effect; exact historical rule-module ID/version; exact World Pack identity/version and executable semantics; approved evaluator contract | Core owns execution/version resolution; Relationships + Personality approve domain contract | Explicit unsupported/unavailable/incompatible failure before mutation; no fallback; canonical events, revision, projection, and audit remain unchanged | BLOCKED: after entry point is approved, test exact historical selection; missing/unknown/incompatible provenance and newer-only module each fail with no writes |
+| Meaning-changing migration | Unsupported; no approved executable path | Explicit approved source→target semantic policy; exact source/target versions; preserved original event; auditable migration result; approved Core execution contract | Relationships owns semantic policy; Core owns transaction/API/audit path; Personality owns its traceability | Refuse while no approved path/policy exists; never mutate the original event in place or silently auto-upgrade | BLOCKED: no migration entry point exists; after approval, test explicit version-to-version result, original-event preservation, audit record, and deterministic replay before/after |
+
+These are domain acceptance criteria, not claims that blocked runtime behavior is implemented. Do not add fixture-only or pure-helper tests and label them as production-path evidence. Close the blocked rows only against the approved real Core entry point and exact-head CI evidence.
+
+## 11. Relationships domain scope and ownership boundaries (27 Oct 2026)
+
+This section defines the intended domain boundary of Relationships. It clarifies responsibility; it does not claim that every capability below is already implemented in the runtime.
+
+### 11.1 Relationships owns
+
+Relationships owns the domain semantics for relationship state and change, including:
+
+- **Relationship dimensions and their meaning:** the supported dimensions, their allowed values, and the distinction between absent, explicitly neutral, cleared, withheld, conflicting/insufficiently supported, and unsupported/incomplete information where those states are defined by the existing domain contract.
+- **Evidence-based change justification:** deciding whether available, admissible evidence supports a proposed relationship change, which dimensions it supports, and what uncertainty or conflict must remain explicit. A signal or interpretation is not automatically a canonical fact.
+- **Social-interaction consequences:** domain rules for how interpreted interactions may affect relationships, including flirtation, sarcasm, teasing, irony, affection, care, hostility, provocation, rejection, apology, boundary-setting, and ambiguous or mixed signals. These categories are examples of semantic cases, not a claim that a complete classifier currently exists.
+- **Context-sensitive relationship interpretation:** rules for considering prior interactions, current relationship state, situational context, and relevant World Pack semantics when determining whether evidence supports a relationship consequence.
+- **Transition policy and explainability:** allowed relationship transitions, rejected transitions, the evidence and rule basis for a decision, unresolved ambiguity, and why a proposed change is insufficiently supported.
+- **Relationship-specific World Pack semantics and compatibility policy:** domain meaning of relationship dimensions/rules, exact-version compatibility requirements, and any future explicit source-to-target semantic migration policy, subject to joint approval where another block owns execution or traceability.
+
+Relationships must not turn a single interaction label (for example, “sarcasm” or “flirtation”) into a fixed relationship delta unless an approved, versioned domain rule explicitly justifies that result. It must not infer reciprocity, consent, commitment, attraction, intent, or durable personality traits merely from ambiguous behavior or one-sided evidence.
+
+### 11.2 Boundary with NPC
+
+NPC owns character-relative perception and interpretation of observed behavior: what a particular character notices, how that character may read an utterance or action, and how that interpretation is constrained by the character's knowledge, perspective, and context.
+
+Relationships owns the relationship-domain decision that follows from admissible evidence or an explicitly supplied interpretation: whether it supports a relationship consequence, which dimensions may change, and how uncertainty is represented.
+
+Therefore:
+- NPC's interpretation that an action *might be flirtation* is evidence/context for Relationships, not an automatic relationship fact.
+- Relationships must not invent what a character observed, knew, intended, felt, or believed.
+- Relationships must not replace NPC's character-specific perception model with a universal social-signal classifier.
+- When the input does not distinguish flirtation from sarcasm, teasing, hostility, or another plausible reading, preserve ambiguity or return an insufficient-support outcome under the existing domain contract; do not force a single reading.
+
+The exact transport shape between NPC and Relationships remains governed by existing approved contracts. This document does not create a new API, event, field, schema, or runtime receiver.
+
+### 11.3 Boundary with Personality
+
+Personality owns stable personality traits and their semantic evaluation/traceability under its own contract. Relationship state may provide context to Personality where an approved integration permits it, but a transient interaction or relationship transition must not silently become a stable personality trait.
+
+Relationships must not:
+- infer a stable trait from a single interaction or relationship dimension;
+- use relationship state as proof of a character's knowledge, motive, consent, obligation, or reciprocity;
+- overwrite or reinterpret Personality-owned results;
+- implement Personality's acceptance cases or version-traceability contract on Personality's behalf.
+
+Cross-block semantic rules and tests must be explicitly coordinated. Existing Personality acceptance identifiers and the separation between deterministic repeat under pinned inputs and meaning-changing migration remain unchanged.
+
+### 11.4 Boundary with Core
+
+Core owns canonical authority and execution: validating the approved operation and its provenance, enforcing the canonical commit path, persistence, event/revision behavior, and any approved replay, audit, or migration execution contract.
+
+Relationships may define domain acceptance/rejection criteria and provide domain-owned rules or decisions through existing approved seams. It must not independently write canonical state, bypass Core's transaction/commit path, invent storage/API/schema/lifecycle guarantees, or claim production integration from pure evaluator tests.
+
+If a required provenance, authorization, version, or runtime contract is missing, the operation must follow the existing fail-closed boundary. Documentation of a rule does not mean the runtime enforces it.
+
+### 11.5 Boundary with World Pack and versioned rules
+
+World Pack supplies versioned world/domain configuration through the approved registration and resolution contract. Relationships owns the semantics of relationship rules within that pack and the compatibility decision for relationship interpretation.
+
+A World Pack version label alone does not prove semantic compatibility. Exact historical provenance and the operation-specific rules in Sections 9–10 remain in force. Relationships cannot register, mutate, or replace Core-owned version storage or resolve missing history to the latest version.
+
+### 11.6 Explicit exclusions
+
+Unless a future reviewed contract assigns the work to Relationships, the block does **not** own:
+
+- raw language/perception classification as a universal NLP subsystem;
+- character-specific beliefs, observations, knowledge boundaries, or mental-state generation (NPC responsibility);
+- stable personality traits and Personality-owned semantic traceability;
+- canonical storage, event transactions, authorization, global scheduling/recalculation, cross-block orchestration, or publication of committed results (Core responsibility);
+- a generic memory store, source authority, or Memory→NPC admission/reconciliation path;
+- automatic relationship changes from every dialogue turn, automatic reciprocity, or automatic migration to a newer World Pack;
+- unsupported historical semantic re-evaluation or meaning-changing migration runtime paths.
+
+### 11.7 Acceptance boundary for social-interaction reasoning
+
+A future implementation of social-interaction reasoning is not complete merely because a pure evaluator can map a label to a result. Acceptance must separately establish, using approved contracts:
+
+1. ambiguous interaction cases (including flirtation vs sarcasm/teasing/hostility) preserve uncertainty when evidence is insufficient;
+2. character-relative interpretation is supplied by the authorized NPC path rather than invented by Relationships;
+3. relationship consequences are justified by explicit domain rules and do not imply consent, reciprocity, intent, or stable personality;
+4. unsupported or conflicting evidence does not cause partial or unintended canonical changes;
+5. exact rule/World Pack provenance is preserved for committed transitions;
+6. the actual Core commit path and relevant integration tests enforce the behavior.
+
+Until the real approved integration path exists, these are domain acceptance criteria, not claims of implemented production behavior. Do not add guessed APIs/schemas or pure-helper tests as substitutes for production-path evidence.
