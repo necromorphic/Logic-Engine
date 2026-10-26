@@ -324,6 +324,11 @@ export class MemoryNpcConsumer {
     // Deduplicate identical repeats; fail closed on conflicting identities.
     const uniqueCandidates = [];
     const identitySignatures = new Map();
+    const identityCounts = new Map();
+    for (const candidate of authorizedCandidates) {
+      const identity = recordIdentityKey(candidate.record.ref, candidate.record.version);
+      identityCounts.set(identity, (identityCounts.get(identity) ?? 0) + 1);
+    }
     for (const candidate of authorizedCandidates) {
       const identity = recordIdentityKey(candidate.record.ref, candidate.record.version);
       const signature = {
@@ -342,10 +347,17 @@ export class MemoryNpcConsumer {
         continue;
       }
       identitySignatures.set(identity, signature);
+      // No approved immutable digest proves repeated ref/version rows identical.
+      // Exclude every occurrence instead of silently retaining the first one.
+      if (identityCounts.get(identity) !== 1) continue;
       uniqueCandidates.push(candidate);
     }
 
-    const entityIds = [...new Set(uniqueCandidates.map((candidate) => candidate.source.entity_id))];
+    // Even if every candidate was excluded as an ambiguous duplicate, require
+    // a current canonical snapshot read before returning ready-empty.
+    const entityIds = uniqueCandidates.length === 0
+      ? [actorEntityId]
+      : [...new Set(uniqueCandidates.map((candidate) => candidate.source.entity_id))];
     if (entityIds.length > 50) return nonReady('source_read_limit_exceeded');
 
     let sourceRead;
