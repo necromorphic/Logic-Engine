@@ -53,8 +53,8 @@ if (typeof coordinatorPath !== 'string' || !coordinatorPath.trim() || !isAbsolut
   process.stderr.write('LOGIC_ENGINE_COORDINATOR_DB_PATH must be set to an absolute path for runtime.\\n');
   process.exit(1);
 }
-if (dbPath !== ':memory:' && coordinatorPath && resolve(coordinatorPath) === resolve(dbPath)) {
-  throw new Error('LOGIC_ENGINE_COORDINATOR_DB_PATH must be separate from ENGINE_DB_PATH.');
+if (dbPath !== ':memory:' && aliasesSameFile(dbPath, coordinatorPath)) {
+  throw new Error('LOGIC_ENGINE_COORDINATOR_DB_PATH must be separate from ENGINE_DB_PATH, including filesystem aliases.');
 }
 if (dbPath !== ':memory:') mkdirSync(dirname(resolve(dbPath)), { recursive: true });
 const port = Number(process.env.ENGINE_PORT || 8787), host = process.env.ENGINE_HOST || '127.0.0.1';
