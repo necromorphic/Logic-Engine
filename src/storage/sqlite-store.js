@@ -534,6 +534,10 @@ export class SQLiteStore {
       this.txDepth += 1;
       try {
         const result = fn();
+        if (result !== null && (typeof result === 'object' || typeof result === 'function')
+          && typeof result.then === 'function') {
+          throw new TypeError('SQLiteStore.tx callback must be synchronous; do not await while a coordinator lease is held.');
+        }
         this.db.exec('RELEASE SAVEPOINT ' + savepoint);
         return result;
       } catch (error) {
