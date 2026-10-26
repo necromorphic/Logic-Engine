@@ -23,6 +23,7 @@ jobs:
           mkdir -p sillytavern-host-checkout/public/scripts/logic-engine-lifecycle
           cp host-adapter/prototype/lifecycle-journal.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
           cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+          cp host-adapter/prototype/conversation-identity.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
       - name: Apply-check and apply the pinned-source patch
         run: |
           cd sillytavern-host-checkout
@@ -34,5 +35,6 @@ jobs:
           node --check sillytavern-host-checkout/public/scripts/slash-commands.js
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+          node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
       - name: Run all Host prototype tests
         run: node --test host-adapter/prototype/tests/*.test.mjs
