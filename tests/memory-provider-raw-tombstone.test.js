@@ -66,6 +66,13 @@ test('exact-version tombstone invalidates only known dependent copies and preser
   selectLegacyVersion(s.provider, 'version-b');
 
   assert.deepEqual(s.provider.markRawSourceDeleted({
+    world_id: 'world-a', conversation_id: 'chat-a', message_id: 'message-a', version_id: 'unknown-version',
+  }), { status: 'missing', invalidated_copies: 0 },
+  'an unknown exact version is not guessed from message identity');
+  assert.equal(s.provider.db.prepare('SELECT version_id FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
+    .get('world-a', 'chat-a', 'message-a').version_id, 'version-b');
+
+  assert.deepEqual(s.provider.markRawSourceDeleted({
     world_id: 'world-a', conversation_id: 'chat-a', message_id: 'message-a', version_id: 'version-a',
   }), { status: 'deleted', invalidated_copies: 1 });
 
