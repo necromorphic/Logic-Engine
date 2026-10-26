@@ -116,3 +116,23 @@ This proposal is ready to leave the design stage only when all of the following 
 7. Coordinator review confirming that the evidence covers the actual route and not merely a helper.
 
 Until then, **Memory → NPC remains DISABLED / FAIL-CLOSED**. Passing Provider tests, merging a semantic document, or approving the bounded experiment does not independently authorize production disclosure.
+
+## 8. Evidence checkpoint — 26 Oct 2026
+
+This checkpoint records observed evidence, not an authorization change.
+
+| Owner / artifact | Exact evidence observed | Current disposition |
+|---|---|---|
+| Provider PR #344 | Current PR head `27129f70d7f33f3c6cf8e1c378e8203038605f62`; Runtime CI [#40298048164](https://github.com/necromorphic/Logic-Engine/actions/runs/40298048164) succeeded. The run log shows `npm test` **602/602** and recalculation oracle **8/8**. | **PASS — Provider-local tests only.** Does not prove Host identity/inventory or dispatch authorization. Provider operation/evidence map remains outstanding. |
+| Core issue #140 | Coordinator's narrowed request is recorded at [comment #6412542516](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6412542516). The current issue timeline has no subsequent Core decision answering the requested authority/inventory/serialization points. | **BLOCKED — decision/evidence pending.** Do not infer an approved source authority or serialized dispatch seam. |
+| Host issue #258 | The latest route-by-route evidence remains explicitly source-inspection-only. The bounded harness follow-up is recorded at [comment #6412541665](https://github.com/necromorphic/Logic-Engine/issues/258#issuecomment-6412541665); no executed harness result is currently evidenced in the issue timeline. | **BLOCKED / NOT YET EVIDENCED.** Do not report zero-egress, race, browser, or Android/Termux runtime tests as passed. |
+| Coordinator PR #354 | Documentation-only head `9815530c052eb64c1ee495df25bdcf4b34ce69b3`; Runtime CI [#40298693971](https://github.com/necromorphic/Logic-Engine/actions/runs/40298693971) succeeded. | **PASS — documentation CI only.** PR remains draft/unmerged and does not authorize runtime changes. |
+
+### Cross-block interpretation
+
+- Provider CI closes only the tested Provider-local recovery regression on the exact head.
+- Host's source inventory and outbound-route audit do not substitute for an executed recording fake-provider harness.
+- Core semantic review does not substitute for an approved callable disclosure decision or a mechanism serializing it with dispatch-start.
+- These results are independent gates; one owner's PASS cannot be inherited by another owner.
+
+Production Memory → NPC remains **DISABLED / FAIL-CLOSED**. The existing Ollama vectorization/remote-store patch remains outside this work and unchanged.
