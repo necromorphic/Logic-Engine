@@ -343,6 +343,9 @@ export class HostVersionDigestLedger {
     // Only inspect ordinary data records before copying. Accessors and Proxy
     // traps are executable caller code and must not run inside trust checks.
     if (!isPlainDataRecord(input)) return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
+    if (input.complete === undefined || !Array.isArray(input.versions)) {
+      return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
+    }
     if (typeof input.complete !== 'boolean' || !isPlainDataArray(input.versions)
       || input.versions.some((v) => !isPlainDataRecord(v))) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
