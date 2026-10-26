@@ -1,0 +1,73 @@
+name: Coordinator event bridge
+
+on:
+  issues:
+    types: [opened, edited, reopened, labeled, assigned]
+  issue_comment:
+    types: [created, edited]
+  pull_request:
+    types: [opened, synchronize, reopened, ready_for_review, review_requested, closed]
+  pull_request_review:
+    types: [submitted, dismissed]
+  push:
+    branches: [main]
+  schedule:
+    - cron: "17 * * * *"
+  workflow_dispatch:
+
+# This workflow only forwards GitHub events to the configured coordinator endpoint.
+# It does not grant the coordinator repository write access.
+permissions:
+  contents: read
+  issues: read
+  pull-requests: read
+
+concurrency:
+  group: coordinator-${{ github.event_name }}-${{ github.event.issue.number || github.event.pull_request.number || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  forward-event:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Require coordinator endpoint
+        env:
+          COORDINATOR_WEBHOOK_URL: ${{ secrets.COORDINATOR_WEBHOOK_URL }}
+        run: |
+          if [ -z "$COORDINATOR_WEBHOOK_URL" ]; then
+            echo "::error::Missing repository secret COORDINATOR_WEBHOOK_URL. Configure the coordinator webhook endpoint before enabling event forwarding."
+            exit 1
+          fi
+
+      - name: Forward event payload
+        env:
+          COORDINATOR_WEBHOOK_URL: ${{ secrets.COORDINATOR_WEBHOOK_URL }}
+          COORDINATOR_WEBHOOK_TOKEN: ${{ secrets.COORDINATOR_WEBHOOK_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action }}
+          REPOSITORY: ${{ github.repository }}
+          REF: ${{ github.ref }}
+          SHA: ${{ github.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          EVENT_PATH: ${{ github.event_path }}
+        run: |
+          set -euo pipefail
+          payload="$(jq -n \
+            --arg event_name "$EVENT_NAME" \
+            --arg action "${EVENT_ACTION:-}" \
+            --arg repository "$REPOSITORY" \
+            --arg ref "$REF" \
+            --arg sha "$SHA" \
+            --arg run_url "$RUN_URL" \
+            --slurpfile event "$EVENT_PATH" \
+            '{source:"github-actions", event_name:$event_name, action:$action, repository:$repository, ref:$ref, sha:$sha, run_url:$run_url, event:$event[0]}')"
+
+          args=(-sS --fail-with-body --max-time 60
+            -H "Content-Type: application/json"
+            -H "X-Logic-Engine-Event: $EVENT_NAME"
+            --data-binary "$payload")
+          if [ -n "${COORDINATOR_WEBHOOK_TOKEN:-}" ]; then
+            args+=(-H "Authorization: Bearer $COORDINATOR_WEBHOOK_TOKEN")
+          fi
+          curl "${args[@]}" "$COORDINATOR_WEBHOOK_URL"
