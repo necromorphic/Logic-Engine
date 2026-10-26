@@ -152,3 +152,48 @@ test('capture-ledger projection preserves edit lineage and remains review-only',
   assert.ok(result.blockers.includes('CORE_WORLD_BINDING_MISSING'));
 });
 
+test('capture-ledger projection applies tombstones and deletes historical lineage with its message', () => {
+  const v0 = ledgerVersion('version-0', 'alternative A', 0);
+  const v1 = ledgerVersion('version-1', 'alternative B', 1);
+  const result = projectHostCaptureLedgerForComparison(captureLedger([
+    { operation: 'baseline', payload: { messages: [ledgerMessage('message-1', [v0, v1], 1)] } },
+    { operation: 'before:delete-message', payload: { affectedVersions: [
+      { messageId: 'message-1', versionId: 'version-0', payloadDigest: v0.payloadDigest },
+      { messageId: 'message-1', versionId: 'version-1', payloadDigest: v1.payloadDigest },
+    ] } },
+    { operation: 'after:delete-message', payload: {
+      versionPayloads: [],
+      tombstones: [v0, v1].map(version => ({
+        messageId: 'message-1', versionId: version.versionId, payloadDigest: version.payloadDigest,
+        deleted: true, active: false, reason: 'message-deleted',
+      })),
+      changes: [],
+    } },
+  ]));
+  assert.equal(result.status, 'REVIEW_ONLY');
+  assert.ok(result.rows.every(row => row.deleted && !row.active && !row.current));
+});
+
+test('capture-ledger projection rejects missing deletion evidence and tombstone reappearance', () => {
+  const v0 = ledgerVersion('version-0', 'source');
+  const disappeared = projectHostCaptureLedgerForComparison(captureLedger([
+    { operation: 'baseline', payload: { messages: [ledgerMessage('message-1', [v0])] } },
+    { operation: 'after:unknown-mutation', payload: { versionPayloads: [], tombstones: [], changes: [] } },
+  ]));
+  assert.equal(disappeared.status, 'NON_READY');
+  assert.equal(disappeared.reason, 'MESSAGE_DISAPPEARED_WITHOUT_TOMBSTONE');
+
+  const reappeared = projectHostCaptureLedgerForComparison(captureLedger([
+    { operation: 'baseline', payload: { messages: [ledgerMessage('message-1', [v0])] } },
+    { operation: 'after:delete-swipe', payload: {
+      versionPayloads: [],
+      tombstones: [{
+        messageId: 'message-1', versionId: 'version-0', payloadDigest: v0.payloadDigest,
+        deleted: true, active: false, reason: 'swipe-deleted',
+      }],
+      changes: [ledgerMessage('message-1', [v0])],
+    } },
+  ]));
+  assert.equal(reappeared.status, 'NON_READY');
+});
+
