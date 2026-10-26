@@ -23,6 +23,10 @@ const isPlainDataRecord = (value) => {
   return true;
 };
 const asyncFunctionPrototype = Object.getPrototypeOf(async function asyncFunctionPrototypeMarker() {});
+const snapshotInputKeys = new Set(['world_id', 'conversation_id', 'complete', 'versions']);
+const versionInputKeys = new Set([
+  'world_id', 'conversation_id', 'message_id', 'version_id', 'content_sha256', 'active', 'deleted'
+]);
 const isPlainDataArray = (value) => {
   if (!Array.isArray(value) || isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
   const keys = Reflect.ownKeys(value);
@@ -349,8 +353,10 @@ export class HostVersionDigestLedger {
     if (input.complete === undefined || !Array.isArray(input.versions)) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
     }
-    if (typeof input.complete !== 'boolean' || !isPlainDataArray(input.versions)
-      || input.versions.some((v) => !isPlainDataRecord(v))) {
+    if (Object.keys(input).some((key) => !snapshotInputKeys.has(key))
+      || typeof input.complete !== 'boolean' || !isPlainDataArray(input.versions)
+      || input.versions.some((v) => !isPlainDataRecord(v)
+        || Object.keys(v).some((key) => !versionInputKeys.has(key)))) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
     }
     // Snapshot caller input synchronously before the first await. Validation,
