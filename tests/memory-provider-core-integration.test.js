@@ -5,6 +5,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
+import { createCanonicalEntitySourceVersionValidator } from '../src/application/canonical-entity-source-version.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
 function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
@@ -36,9 +37,10 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
     const snapshot = engine.getSnapshot(id);
     return { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence };
   };
-  // Bounded test mapping for direct canonical_entity only; this does not prove production Core authority/wiring. Inventory callback below is test-only.
+  // Use the real Core-owned source-version validator against the actual SQLiteStore-backed engine.
+  // Inventory attestation below remains a test-only fixture and is not Host completeness evidence.
+  const canonicalSourceValidator = createCanonicalEntitySourceVersionValidator(engine);
   const sourceVersionValidator = async (record) => {
-    if (record.source_kind !== 'canonical_entity' || !record.source_entity_id) return false;
     if (triggerRace && record.record_ref === 'memory:record-b') {
       triggerRace = false;
       provider.revokeRecord(scope, 'memory:record-a', 'record-v1');
@@ -47,14 +49,7 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
       triggerQueryRevocation = false;
       provider.grantQuery(scope, false);
     }
-    try {
-      const snapshot = engine.getSnapshot(record.world_id, { entityIds: [record.source_entity_id] });
-      if (snapshot.entities.length !== 1) return false;
-      const entity = snapshot.entities[0];
-      return entity.entity_id === record.source_entity_id && entity.status === 'active'
-        && Number.isSafeInteger(entity.updated_revision) && entity.updated_revision >= 0
-        && record.source_version === String(entity.updated_revision);
-    } catch { return false; }
+    return canonicalSourceValidator(record);
   };
   provider = new SQLiteMemoryProvider({
     path: providerPath,
