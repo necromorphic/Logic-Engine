@@ -702,6 +702,19 @@ This is **not** a production API, not a production decision frame, and not an en
 
 ### 18.3 Test and evidence status
 
-The new tests cover unique feasible preference, unknown-feasibility deferral, tie deferral independent of input order, all-blocked and empty inputs, malformed/duplicate identity, and deterministic behavior under reordering. GitHub Actions `Runtime tests` run `40352380822` for commit `2219ba2b873c8e7bfb691cfe014163443bdf1c14` later showed both `npm test` and the additional recalculation-oracle harness step as **success**; the overall workflow run was subsequently marked **cancelled**, so do not report the overall workflow as green. This is remote CI evidence, not a local test run.
+The nine test cases cover unique feasible preference, unknown-feasibility deferral, tie deferral independent of input order, all-blocked and empty inputs, malformed/duplicate identity, deterministic behavior under reordering, unsupported feasibility states, and non-finite preferences. GitHub Actions `Runtime tests` run `40352380822` for commit `2219ba2b873c8e7bfb691cfe014163443bdf1c14` later showed both `npm test` and the additional recalculation-oracle harness step as **success**; the overall workflow run was subsequently marked **cancelled**, so do not report the overall workflow as green. This is remote CI evidence, not a local test run.
 
 This slice demonstrates only the pure ranking/deferral rule. It does not establish that the multi-kernel architecture is integrated, production-safe, or capable of autonomous world changes. The next gate is to observe CI, then review the prototype against the existing NPC test conventions and ask Core to identify the approved path for actor-bound context, pinned rules, proposal creation, and autonomous authorization. Keep Memory→NPC disabled/fail-closed.
+
+
+## 19. Process Manager mapping — reuse lifecycle, do not mistake it for NPC intent (26 Oct 2026)
+
+A source review of `src/process/contract.js` and `src/storage/process-store.js` confirms an existing durable, world-scoped process mechanism. The process definition is versioned and contains milestones; each milestone has a trigger, due canonical coordinate, prerequisite milestone IDs, read/write sets, an event proposal, and an interrupt policy. The store tracks process and milestone lifecycle/progress, completed event IDs, checkpoint versions, idempotency and errors.
+
+**Reuse boundary:** this is a credible owner-owned mechanism for durable multi-stage work and scheduled continuation. NPC should express a future action that is actually a process through the existing Process/Time/Core path, rather than creating its own scheduler or generic task database.
+
+**Unproven fit:** the inspected contract does not by itself establish a durable representation for a character's private intention, actor-relative beliefs/assumptions, alternative plans, deception motive, or deliberation checkpoint. The presence of `metadata` is not sufficient evidence that those concepts have approved semantics, validation, privacy, replay, or migration behavior.
+
+**Decision:** do not add NPC persistence now. Before mapping any NPC goal/plan into Process Manager, the owning blocks must agree which concepts are goals, processes, tasks, canonical events, or NPC-only private state. Preserve the distinctions between intent, process execution, committed outcome, acquired knowledge, and narration. If an intent is only derivable from canonical events and existing process state, do not store a duplicate; if it is genuinely private NPC-owned state, document its lifecycle and privacy requirements before proposing storage.
+
+This mapping is source-inspected only; it does not claim end-to-end process execution tests or an approved cross-block contract.
