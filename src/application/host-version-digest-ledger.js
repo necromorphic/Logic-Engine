@@ -166,7 +166,14 @@ export class HostVersionDigestLedger {
     if (!validTuple(v)) throw new TypeError('Invalid Host version tuple');
     return this.#write(() => {
       const row = this.#get(v);
-      if (!row) return { status: 'non_ready', code: 'HOST_VERSION_UNKNOWN' };
+      if (!row) {
+        const now = new Date().toISOString();
+        // A deletion for an identity absent from the ledger means capture and
+        // lifecycle history are incomplete. Do not leave a prior READY snapshot
+        // published merely because the tombstone target was unknown locally.
+        this.#markNonReady(v.world_id, v.conversation_id, 'HOST_VERSION_UNKNOWN', now);
+        return { status: 'non_ready', code: 'HOST_VERSION_UNKNOWN' };
+      }
       if (row.lifecycle === 'tombstoned') return { status: 'tombstoned' };
       const now = new Date().toISOString();
       this.#invalidateReadiness(v.world_id, v.conversation_id, now);
