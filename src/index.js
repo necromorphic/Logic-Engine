@@ -30,6 +30,10 @@ for (const [id, secret] of Object.entries(adapterTokens)) {
   if (!id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) throw new Error('Each ENGINE_ADAPTER_TOKENS entry must have a non-empty ID and a distinct secret of at least 16 characters.');
 }
 
+const port = Number(process.env.ENGINE_PORT || 8787), host = process.env.ENGINE_HOST || '127.0.0.1';
+if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('ENGINE_PORT must be between 1 and 65535.');
+if (!['127.0.0.1', '::1', 'localhost'].includes(host) && process.env.ENGINE_ALLOW_REMOTE !== 'true') throw new Error('Remote binding is disabled unless ENGINE_ALLOW_REMOTE=true.');
+
 const configuredDbPath = process.env.ENGINE_DB_PATH || './data/logic-engine.sqlite';
 // Canonicalize paths at the runtime boundary so cooperating processes do not
 // open different relative paths merely because their working directories differ.
@@ -53,9 +57,6 @@ if (dbPath !== ':memory:' && coordinatorPath === dbPath) {
 if (dbPath !== ':memory:') mkdirSync(dirname(dbPath), { recursive: true });
 mkdirSync(dirname(coordinatorPath), { recursive: true });
 process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = coordinatorPath;
-const port = Number(process.env.ENGINE_PORT || 8787), host = process.env.ENGINE_HOST || '127.0.0.1';
-if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('ENGINE_PORT must be between 1 and 65535.');
-if (!['127.0.0.1', '::1', 'localhost'].includes(host) && process.env.ENGINE_ALLOW_REMOTE !== 'true') throw new Error('Remote binding is disabled unless ENGINE_ALLOW_REMOTE=true.');
 
 const store = new SQLiteStore(dbPath);
 const server = createApiServer({ engine: new LogicEngine(store), token, internalToken, approvalToken, adminToken, adapterTokens });
