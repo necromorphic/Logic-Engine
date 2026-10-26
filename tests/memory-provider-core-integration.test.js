@@ -415,7 +415,7 @@ test('a real Core source mutation after reconciliation blocks NPC retrieval with
     turn_id: 'provider-e2e-source-change',
     event_type: 'action.completed',
     expected_revision: before.world_revision,
-    preconditions: [{ kind: 'REQUIRES', requirement: 'entity_exists', entity_id: 'source-a' }],
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'source-a' } }],
     effects: [{
       kind: 'entity.update',
       entity_id: 'source-a',
