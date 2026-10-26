@@ -135,9 +135,17 @@ export class SQLiteSourceVersionLedger {
     try { verified = this.validateSnapshot(Object.freeze({ ...snapshot })) === true; } catch { verified = false; }
     if (!verified) return { status: 'NON_READY', reason: 'SNAPSHOT_NOT_AUTHORIZED' };
     const seen = new Set();
+    const activeMessages = new Set();
     for (const version of snapshot.versions) {
       try { this.#validateIdentity({ ...version, world_id: snapshot.world_id, conversation_id: snapshot.conversation_id }); }
       catch { return { status: 'NON_READY', reason: 'INVALID_VERSION_INVENTORY' }; }
+      if (version.active !== undefined && typeof version.active !== 'boolean') {
+        return { status: 'NON_READY', reason: 'INVALID_ACTIVE_VERSION_FLAG' };
+      }
+      if (version.active === true && activeMessages.has(version.message_id)) {
+        return { status: 'NON_READY', reason: 'MULTIPLE_ACTIVE_VERSIONS' };
+      }
+      if (version.active === true) activeMessages.add(version.message_id);
       const key = keyOf({ ...version, world_id: snapshot.world_id, conversation_id: snapshot.conversation_id });
       if (seen.has(key)) return { status: 'NON_READY', reason: 'DUPLICATE_INVENTORY_IDENTITY' };
       seen.add(key);
@@ -159,6 +167,10 @@ export class SQLiteSourceVersionLedger {
           this.#setSnapshotNonReady(snapshot, 'SOURCE_VERSION_ID_CONFLICT');
           return { status: 'NON_READY', reason: 'SOURCE_VERSION_ID_CONFLICT' };
         }
+        if (old?.lifecycle === 'tombstoned') {
+          this.#setSnapshotNonReady(snapshot, 'TOMBSTONE_REAPPEARED');
+          return { status: 'NON_READY', reason: 'TOMBSTONE_REAPPEARED' };
+        }
       }
       const incoming = new Set(snapshot.versions.map(v => keyOf({ ...v, world_id:snapshot.world_id, conversation_id:snapshot.conversation_id })));
       const known = this.db.prepare('SELECT * FROM source_versions WHERE world_id=? AND conversation_id=?')
@@ -171,17 +183,19 @@ export class SQLiteSourceVersionLedger {
             .run(new Date().toISOString(), ...tuple(old));
         }
       }
+      this.db.prepare('UPDATE source_versions SET active=0 WHERE world_id=? AND conversation_id=?')
+        .run(snapshot.world_id, snapshot.conversation_id);
       for (const version of snapshot.versions) {
         const item = { ...version, world_id:snapshot.world_id, conversation_id:snapshot.conversation_id,
           snapshot_sequence:snapshot.snapshot_sequence };
         const old = this.db.prepare(`SELECT lifecycle FROM source_versions WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...tuple(item));
         if (!old) this.db.prepare(`INSERT INTO source_versions
           (world_id,conversation_id,message_id,version_id,payload_sha256,parent_version_id,lifecycle,active,accepted_snapshot_sequence,updated_at)
-          VALUES(?,?,?,?,?,?, 'present',0,?,?)`).run(...tuple(item), item.payload_sha256, item.parent_version_id ?? null, snapshot.snapshot_sequence, new Date().toISOString());
-        else if (old.lifecycle === 'tombstoned') {
-          this.#setSnapshotNonReady(snapshot, 'TOMBSTONE_REAPPEARED');
-          return { status: 'NON_READY', reason: 'TOMBSTONE_REAPPEARED' };
-        }
+          VALUES(?,?,?,?,?,?, 'present',?,?,?)`).run(...tuple(item), item.payload_sha256, item.parent_version_id ?? null,
+            version.active === true ? 1 : 0, snapshot.snapshot_sequence, new Date().toISOString());
+        else this.db.prepare(`UPDATE source_versions SET active=?,accepted_snapshot_sequence=?,updated_at=?
+          WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+          .run(version.active === true ? 1 : 0, snapshot.snapshot_sequence, new Date().toISOString(), ...tuple(item));
       }
       this.db.prepare(`INSERT INTO source_ledger_heads
         (world_id,conversation_id,host_installation_id,branch_id,snapshot_sequence,snapshot_id,inventory_sha256,readiness,failure_code)
