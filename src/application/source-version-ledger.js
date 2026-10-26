@@ -6,6 +6,8 @@ const valid = value => typeof value === 'string' && value.length > 0 && value ==
   && value.length <= 240 && ![...value].some(c => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
 const tuple = x => [x.world_id, x.conversation_id, x.message_id, x.version_id];
 const keyOf = x => JSON.stringify(tuple(x));
+const canonical = value => Array.isArray(value) ? '[' + value.map(canonical).join(',') + ']' : value && typeof value === 'object' ? '{' + Object.keys(value).sort().map(k => JSON.stringify(k) + ':' + canonical(value[k])).join(',') + '}' : JSON.stringify(value);
+const inventoryDigest = versions => createHash('sha256').update(canonical([...versions].map(v => ({ message_id:v.message_id, version_id:v.version_id, payload_sha256:v.payload_sha256, parent_version_id:v.parent_version_id ?? null, active:v.active === true })).sort((a,b) => a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id))),'utf8').digest('hex');
 
 /**
  * Provider-owned digest-only ledger for Host source-version identities.
@@ -135,6 +137,9 @@ export class SQLiteSourceVersionLedger {
       || !Array.isArray(snapshot.versions) || snapshot.complete !== true
       || !/^[a-f0-9]{64}$/.test(snapshot.inventory_sha256)) {
       return { status: 'NON_READY', reason: 'INCOMPLETE_OR_INVALID_SNAPSHOT' };
+    }
+    if (inventoryDigest(snapshot.versions) !== snapshot.inventory_sha256) {
+      return { status: 'NON_READY', reason: 'INVENTORY_DIGEST_MISMATCH' };
     }
     let verified = false;
     try { verified = this.validateSnapshot(Object.freeze({ ...snapshot })) === true; } catch { verified = false; }
