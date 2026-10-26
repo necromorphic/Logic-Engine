@@ -12,7 +12,19 @@ diff --git a/public/script.js b/public/script.js
 +} from './scripts/logic-engine-lifecycle/conversation-identity.mjs';
  
  import { humanizedDateTime, favsToHotswap, getMessageTimeStamp, dragElement, isMobile, initRossMods } from './scripts/RossAscends-mods.js';
-@@ -1583,23 +1590,99 @@
+@@ -1336,4 +1343,5 @@
+ }
+ 
+ async function delChat(chatfile) {
++    await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatfile.replace('.jsonl', ''));
+     const response = await fetch('/api/chats/delete', {
+@@ -1364,3 +1372,5 @@
+ export async function deleteCharacterChatByName(characterId, fileName) {
++    await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(fileName);
++
+     // Make sure all the data is loaded.
+     await unshallowCharacter(characterId);
+@@ -1583,23 +1593,99 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -112,7 +124,7 @@ diff --git a/public/script.js b/public/script.js
  
      if (clearData) chat.length = 0;
  }
-@@ -1607,6 +1690,12 @@
+@@ -1607,6 +1693,12 @@
  export async function deleteLastMessage() {
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    const lifecycleBefore = chat.length
@@ -125,7 +137,7 @@ diff --git a/public/script.js b/public/script.js
      chatElement.children('.mes').last().remove();
      await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
  }
-@@ -1677,19 +1766,23 @@
+@@ -1677,19 +1769,23 @@
      const firstMessageId = getMessageDeletionStartId(id, deleteToolCalls);
      const messageIds = Array.from({ length: id - firstMessageId + 1 }, (_, index) => id - index);
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -149,7 +161,7 @@ diff --git a/public/script.js b/public/script.js
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
      }
-@@ -5905,16 +5998,21 @@
+@@ -5905,16 +6001,21 @@
      chat_metadata.tainted = true;
  
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -171,7 +183,7 @@ diff --git a/public/script.js b/public/script.js
          addOneMessage(message);
          await eventSource.emit(event_types.USER_MESSAGE_RENDERED, chat_id);
      }
-@@ -6653,3 +6751,12 @@
+@@ -6653,3 +6754,12 @@
          type = 'normal';
      }
 +
@@ -184,14 +196,14 @@ diff --git a/public/script.js b/public/script.js
 +        await lifecycleBridge.beforeMutation(lifecycleOperation, [chat.length - 1]);
 +    }
  
-@@ -6827,3 +6934,6 @@
+@@ -6827,3 +6937,6 @@
  
 +    await lifecycleBridge.afterMutation(lifecycleOperation, {
 +        createdMessageIndex: lifecycleOperation === 'create-message' ? lifecycleOriginalChatLength : null,
 +    });
      statMesProcess(item, type, characters, this_chid, oldMessage);
      return { type, getMessage };
-@@ -8400,35 +8510,38 @@
+@@ -8400,35 +8513,38 @@
          return;
      }
  
@@ -230,7 +242,7 @@ diff --git a/public/script.js b/public/script.js
      await saveChatConditional();
 +    await lifecycleBridge.afterMutation('edit-message');
      showSwipeButtons();
-@@ -9363,7 +9476,9 @@
+@@ -9363,7 +9479,9 @@
          toastr.warning(t`Invalid swipe ID: ${swipeId + 1}`);
          return;
      }
@@ -240,7 +252,7 @@ diff --git a/public/script.js b/public/script.js
      message.swipes.splice(swipeId, 1);
  
      if (Array.isArray(message.swipe_info) && message.swipe_info.length) {
-@@ -9395,11 +9510,12 @@
+@@ -9395,11 +9513,12 @@
          await updateSwipeCounter(messageId);
          if (messageId !== chat.length - 1) {
              await updateSwipeCounter(chat.length - 1);
@@ -253,7 +265,12 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });
  
      return newSwipeId;
-@@ -10090,11 +10206,16 @@
+@@ -9448,2 +9567,4 @@
+ export async function importCharacterChat(formData, { refresh = true } = {}) {
++    await window.logicEngineHostLifecycle?.guardBulkMutation();
++
+     const fetchResult = await fetch('/api/chats/import', {
+@@ -10090,11 +10211,16 @@
                  await reloadCurrentChat();
              }
              //Out of bounds swipes should not be saved.
@@ -270,7 +287,7 @@ diff --git a/public/script.js b/public/script.js
          //Allow for another swipe.
          swipeState = SWIPE_STATE.NONE;
          delete document.body.dataset.swiping;
-@@ -10104,5 +10225,13 @@
+@@ -10104,5 +10230,13 @@
      async function standardSwipe(newSwipeId) {
          //If swipe_id has changed, or the source is being deleted.
          if (newSwipeId !== originalSwipeId || source == SWIPE_SOURCE.DELETE || source == SWIPE_SOURCE.BACK) {
@@ -285,39 +302,7 @@ diff --git a/public/script.js b/public/script.js
              //Update the chat.
              await loadFromSwipeId(mesId, newSwipeId);
 
-diff --git a/public/scripts/bookmarks.js b/public/scripts/bookmarks.js
---- a/public/scripts/bookmarks.js
-+++ b/public/scripts/bookmarks.js
-@@ -127,3 +127,7 @@
- // Export is used by Timelines extension. Do not remove.
- export async function createBranch(mesId, { swipeId = null } = {}) {
-+    if (typeof window !== 'undefined' && window.logicEngineHostLifecycle?.guardOperation) {
-+        await window.logicEngineHostLifecycle.guardOperation('create-branch', [mesId]);
-+    }
-+
-     if (!chat.length) {
-
-diff --git a/public/script.js b/public/script.js
---- a/public/script.js
-+++ b/public/script.js
-@@ -1343,4 +1343,5 @@
- }
- 
- async function delChat(chatfile) {
-+    await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatfile.replace('.jsonl', ''));
-     const response = await fetch('/api/chats/delete', {
-@@ -1371,3 +1372,5 @@
- export async function deleteCharacterChatByName(characterId, fileName) {
-+    await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(fileName);
-+
-     // Make sure all the data is loaded.
-     await unshallowCharacter(characterId);
-@@ -9564,2 +9567,4 @@
- export async function importCharacterChat(formData, { refresh = true } = {}) {
-+    await window.logicEngineHostLifecycle?.guardBulkMutation();
-+
-     const fetchResult = await fetch('/api/chats/import', {
-@@ -10860,9 +10865,27 @@
+@@ -10731,9 +10865,27 @@
  export async function renameChat(oldFileName, newName) {
 -    return await renameGroupOrCharacterChat({
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -352,24 +337,30 @@ diff --git a/public/script.js b/public/script.js
 +        logicEngineLifecyclePendingRenameId = null;
 +    }
  }
-@@ -10957,2 +10980,4 @@
+@@ -10828,2 +10980,4 @@
  export async function deleteCharacter(characterKey, { deleteChats = true } = {}) {
 +    if (deleteChats) await window.logicEngineHostLifecycle?.guardBulkMutation();
 +
      if (!Array.isArray(characterKey)) {
+diff --git a/public/scripts/bookmarks.js b/public/scripts/bookmarks.js
+--- a/public/scripts/bookmarks.js
++++ b/public/scripts/bookmarks.js
+@@ -127,3 +127,7 @@
+ // Export is used by Timelines extension. Do not remove.
+ export async function createBranch(mesId, { swipeId = null } = {}) {
++    if (typeof window !== 'undefined' && window.logicEngineHostLifecycle?.guardOperation) {
++        await window.logicEngineHostLifecycle.guardOperation('create-branch', [mesId]);
++    }
++
+     if (!chat.length) {
+
 diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
 --- a/public/scripts/group-chats.js
 +++ b/public/scripts/group-chats.js
-@@ -1321,4 +1321,5 @@
-  * @returns {Promise<void>} Promise that resolves when the group is deleted
-  */
- async function deleteGroup(id) {
-+    await window.logicEngineHostLifecycle?.guardBulkMutation?.();
-     const group = groups.find((x) => x.id === id);
-@@ -2219,1 +2220,2 @@
+@@ -2219,1 +2219,2 @@
  export async function renameGroupChat(groupId, oldChatId, newChatId) {
 +    await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(oldChatId);
-@@ -2242,5 +2244,9 @@
+@@ -2242,5 +2243,9 @@
  export async function deleteGroupChatByName(groupId, chatName) {
 +    if (typeof window !== 'undefined' && window.logicEngineHostLifecycle?.guardChatLocatorDeletion) {
 +        await window.logicEngineHostLifecycle.guardChatLocatorDeletion(chatName);
@@ -379,10 +370,10 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
      if (!group || !group.chats.includes(chatName)) {
          return;
      }
-@@ -2279,1 +2285,2 @@
+@@ -2279,1 +2284,2 @@
  export async function deleteGroupChat(groupId, chatId, { jumpToNewChat = true } = {}) {
 +    await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatId);
-@@ -2319,2 +2326,6 @@
+@@ -2319,2 +2325,6 @@
  export async function importGroupChat(formData, { refresh = true } = {}) {
 +    if (typeof window !== 'undefined' && window.logicEngineHostLifecycle?.guardBulkMutation) {
 +        await window.logicEngineHostLifecycle.guardBulkMutation();
