@@ -357,6 +357,9 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
 --- a/public/scripts/group-chats.js
 +++ b/public/scripts/group-chats.js
+@@ -1323,1 +1323,2 @@
+ async function deleteGroup(id) {
++    await window.logicEngineHostLifecycle?.guardBulkMutation?.();
 @@ -2242,5 +2242,9 @@
  export async function deleteGroupChatByName(groupId, chatName) {
 +    if (typeof window !== 'undefined' && window.logicEngineHostLifecycle?.guardChatLocatorDeletion) {
@@ -367,6 +370,9 @@ diff --git a/public/scripts/group-chats.js b/public/scripts/group-chats.js
      if (!group || !group.chats.includes(chatName)) {
          return;
      }
+@@ -2279,1 +2283,2 @@
+ export async function deleteGroupChat(groupId, chatId, { jumpToNewChat = true } = {}) {
++    await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatId);
 @@ -2319,2 +2323,6 @@
  export async function importGroupChat(formData, { refresh = true } = {}) {
 +    if (typeof window !== 'undefined' && window.logicEngineHostLifecycle?.guardBulkMutation) {
