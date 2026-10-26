@@ -122,6 +122,32 @@ test('message deletion emits digest-only tombstones for every removed version', 
   assert.ok(latest.payload.tombstones.every(v => !Object.keys(v).some(key => /text|content|raw/i.test(key))));
 });
 
+test('message deletion tombstones survive journal re-open and remain digest-only', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const removed = structuredClone(f.chat[0]._logicEngineLifecycle);
+  await f.bridge.beforeMutation('delete-message', [0]);
+  f.chat.splice(0, 1);
+  await f.bridge.afterMutation('delete-message');
+
+  // Simulate a process restart: instantiate a new journal over the same
+  // persisted backing store rather than reusing the in-memory journal object.
+  const restartedJournal = new HostLifecycleJournal(f.db);
+  const exported = await restartedJournal.exportCaptureLedger('chat-1');
+  assert.equal(exported.status, 'REVIEW_ONLY');
+  const deletion = exported.records.find(row => row.operation === 'after:delete-message');
+  assert.ok(deletion);
+  assert.deepEqual(deletion.payload.tombstones.map(v => ({
+    messageId: v.messageId, versionId: v.versionId, payloadDigest: v.payloadDigest,
+    deleted: v.deleted, active: v.active,
+  })), removed.versions.map(v => ({
+    messageId: removed.messageId, versionId: v.versionId, payloadDigest: v.payloadDigest,
+    deleted: true, active: false,
+  })));
+  assert.ok(exported.records.every(row =>
+    !JSON.stringify(row).includes('hello') && !JSON.stringify(row).includes('answer')));
+});
+
 test('swipe deletion emits an explicit tombstone for the removed version identity', async () => {
   const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }]);
   await f.bridge.enrollCurrentConversation();
