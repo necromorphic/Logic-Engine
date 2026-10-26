@@ -139,21 +139,22 @@ export class HostLifecycleJournal {
    * trust or production readiness.
    */
   async verifyCurrentSource(cid,{messages,sourceLocator=null}={}) {
-    if(this.#bad.has(cid)) return {status:'NON_READY',reason:this.#bad.get(cid)};
+    if(this.#bad.has(cid)) return {status:'NON_READY',journalIntegrity:'FAILED',reason:this.#bad.get(cid)};
     let rows;
-    try { rows=await this.#records(cid); } catch(e) { return this.#fail(cid,'journal unreadable: '+(e?.message||e)); }
+    try { rows=await this.#records(cid); } catch(e) { return {status:'NON_READY',journalIntegrity:'FAILED',reason:'journal unreadable: '+(e?.message||e)}; }
     const check=await this.#verifyStored(cid,rows);
-    if(!check.ok) return this.#fail(cid,check.reason);
-    if(!rows.length||rows[0].operation!=='baseline') return {status:'NON_READY',reason:'missing baseline'};
-    if(!Array.isArray(messages)) return {status:'NON_READY',reason:'live source inventory unavailable'};
+    if(!check.ok) return {status:'NON_READY',journalIntegrity:'FAILED',reason:check.reason};
+    if(!rows.length||rows[0].operation!=='baseline') return {status:'NON_READY',journalIntegrity:'VERIFIED',reason:'missing baseline'};
+    if(!Array.isArray(messages)) return {status:'NON_READY',journalIntegrity:'VERIFIED',reason:'live source inventory unavailable'};
     const expected=rows.at(-1).sourceFingerprint;
-    if(typeof expected!=='string'||!expected) return {status:'NON_READY',reason:'latest journal record has no source fingerprint'};
+    if(typeof expected!=='string'||!expected) return {status:'NON_READY',journalIntegrity:'VERIFIED',reason:'latest journal record has no source fingerprint'};
     let actual;
     try { actual=await fingerprintSource(messages,sourceLocator); }
-    catch(e) { return {status:'NON_READY',reason:'live source inventory cannot be fingerprinted: '+(e?.message||e)}; }
-    if(actual!==expected) return {status:'NON_READY',reason:'live source inventory fingerprint mismatch',sequence:rows.at(-1).sequence};
+    catch(e) { return {status:'NON_READY',journalIntegrity:'VERIFIED',reason:'live source inventory cannot be fingerprinted: '+(e?.message||e)}; }
+    if(actual!==expected) return {status:'NON_READY',journalIntegrity:'VERIFIED',reason:'live source inventory fingerprint mismatch',sequence:rows.at(-1).sequence};
     return {
       status:'LOCAL_MATCH_NON_AUTHORITATIVE',
+      journalIntegrity:'VERIFIED',
       authority:'NON_AUTHORITATIVE',
       trustDecision:'NON_READY',
       sequence:rows.at(-1).sequence,
