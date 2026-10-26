@@ -39,7 +39,8 @@ export class ProcessStore {
   constructor(store) {
     this.store = store;
     this.db = store.db;
-    this.db.exec(`
+    // Process tables are Core state too: serialize initial DDL with all other Core writes.
+    this.store.tx(() => this.db.exec(`
       CREATE TABLE IF NOT EXISTS world_processes(
         world_id TEXT NOT NULL REFERENCES worlds(world_id),
         process_id TEXT NOT NULL,
@@ -87,7 +88,7 @@ export class ProcessStore {
         created_at TEXT NOT NULL,
         PRIMARY KEY(world_id,idempotency_key)
       );
-    `);
+    `));
   }
 
   get(worldId, processId) {
