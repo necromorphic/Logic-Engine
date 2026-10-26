@@ -64,6 +64,22 @@ export class HostVersionDigestLedger {
     return digest(JSON.stringify({ versions, pointers }));
   }
 
+  #matchesSnapshot(snapshot) {
+    const stored = this.db.prepare('SELECT world_id,conversation_id,message_id,version_id,content_sha256,lifecycle FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? ORDER BY message_id,version_id')
+      .all(snapshot.world_id, snapshot.conversation_id);
+    const expected = snapshot.versions.map((v) => ({
+      world_id: v.world_id, conversation_id: v.conversation_id, message_id: v.message_id,
+      version_id: v.version_id, content_sha256: v.content_sha256, lifecycle: v.deleted ? 'tombstoned' : 'present'
+    })).sort((a, b) => (a.message_id + '\\u0000' + a.version_id).localeCompare(b.message_id + '\\u0000' + b.version_id));
+    if (JSON.stringify(stored) !== JSON.stringify(expected)) return false;
+    const pointers = this.db.prepare('SELECT message_id,version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? ORDER BY message_id')
+      .all(snapshot.world_id, snapshot.conversation_id);
+    const expectedPointers = snapshot.versions.filter((v) => v.active && !v.deleted)
+      .map((v) => ({ message_id: v.message_id, version_id: v.version_id }))
+      .sort((a, b) => a.message_id.localeCompare(b.message_id));
+    return JSON.stringify(pointers) === JSON.stringify(expectedPointers);
+  }
+
   #invalidateReadiness(worldId, conversationId, now) {
     this.db.prepare("UPDATE host_version_inventory_state SET status='NON_READY',failure_code='HOST_LEDGER_MUTATED_AFTER_RECONCILIATION',updated_at=? WHERE world_id=? AND conversation_id=?")
       .run(now, worldId, conversationId);
@@ -200,7 +216,8 @@ export class HostVersionDigestLedger {
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const snapshotDigest = digest(JSON.stringify(canonical));
     return this.#write(() => {
-      if (this.#fingerprint(snapshot.world_id, snapshot.conversation_id) !== preVerificationFingerprint) {
+      if (this.#fingerprint(snapshot.world_id, snapshot.conversation_id) !== preVerificationFingerprint
+        && !this.#matchesSnapshot(snapshot)) {
         this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_LEDGER_CHANGED_DURING_VERIFICATION', new Date().toISOString(), snapshotDigest);
         return { status: 'non_ready', code: 'HOST_LEDGER_CHANGED_DURING_VERIFICATION' };
       }
