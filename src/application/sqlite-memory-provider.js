@@ -638,15 +638,12 @@ export class SQLiteMemoryProvider {
     // Provider-local writes can occur while source validation/inventory callbacks
     // are awaited. Do not publish a current marker for a record set that was not
     // the one reconciled; the Core snapshot alone cannot detect provider writes.
-    const recordSet = (rows) => rows.map((row) => ({
-      record_ref: row.record_ref,
-      record_version: row.record_version,
-      source_kind: row.source_kind,
-      source_entity_id: row.source_entity_id,
-      source_version: row.source_version,
-      lineage_json: row.lineage_json,
-    })).sort((a, b) => a.record_ref.localeCompare(b.record_ref)
-      || a.record_version.localeCompare(b.record_version));
+    // Compare the full persisted record payload, not only source identity.
+    // Any metadata/scope/lineage mutation during awaited validators must prevent
+    // reconciliation from publishing a current marker for a different record.
+    const recordSet = (rows) => rows.map(({ created_at, ...record }) => record)
+      .sort((a, b) => a.record_ref.localeCompare(b.record_ref)
+        || a.record_version.localeCompare(b.record_version));
     const latestRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
     if (!isDeepStrictEqual(recordSet(records), recordSet(latestRecords))) {
       this.#setState(worldId, 'stale', 'stale');
