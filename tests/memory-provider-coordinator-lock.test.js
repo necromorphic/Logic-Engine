@@ -107,7 +107,15 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
       }
     });
     child.stderr.on('data', (chunk) => { stderr += chunk; });
-    return { child, messages, get stderr() { return stderr; } };
+    // Register exit listeners immediately; short-lived Core workers can exit
+    // before the parent reaches the synchronization point below.
+    const exited = new Promise((resolve, reject) => {
+      child.once('error', reject);
+      child.once('exit', (code, signal) => code === 0
+        ? resolve({ code, signal })
+        : reject(new Error('child exited with code=' + code + ', signal=' + signal + ': ' + stderr)));
+    });
+    return { child, messages, exited, get stderr() { return stderr; } };
   };
   let providerChild;
   let coreChild;
@@ -132,10 +140,7 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
       const response = providerProc.messages.find((message) => message.id === id);
       assert.equal(response.ok, true, response.error);
       coreChild = null;
-      await new Promise((resolve, reject) => {
-        coreProc.child.once('error', reject);
-        coreProc.child.once('exit', (code) => code === 0 ? resolve() : reject(new Error('Core child failed: ' + code + ' ' + coreProc.stderr)));
-      });
+      await coreProc.exited;
     };
 
     for (const operation of ['grantQuery', 'revokeQuery', 'grantRecord', 'revokeRecord', 'putRecord', 'tombstone', 'purge', 'rebuildIndex', 'reconcile']) {
@@ -153,15 +158,9 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
     const migrationReady = await delay(100).then(() => existsSync(migrationReadyPath));
     assert.equal(migrationReady, false, 'Provider startup DDL/migration must wait for Core coordinator lock');
     await waitFor(() => existsSync(migrationReadyPath));
-    await new Promise((resolve, reject) => {
-      coreProc.child.once('error', reject);
-      coreProc.child.once('exit', (code) => code === 0 ? resolve() : reject(new Error('Core migration-lock child failed: ' + code)));
-    });
+    await coreProc.exited;
     migrationProc.child.stdin.end(JSON.stringify({ id: 999, operation: 'close' }) + '\n');
-    await new Promise((resolve, reject) => {
-      migrationProc.child.once('error', reject);
-      migrationProc.child.once('exit', (code) => code === 0 ? resolve() : reject(new Error('Provider migration child failed: ' + code + ' ' + migrationProc.stderr)));
-    });
+    await migrationProc.exited;
   } finally {
     providerChild?.kill();
     coreChild?.kill();
