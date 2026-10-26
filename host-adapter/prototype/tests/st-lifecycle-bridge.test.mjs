@@ -165,6 +165,15 @@ test('Host-owned live source verification reports local match as non-authoritati
   assert.equal(drift.reason, 'live source inventory fingerprint mismatch');
 });
 
+test('Host source verification rejects identity metadata tampering even when message text fingerprint is unchanged', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  f.chat[0]._logicEngineLifecycle.messageId = 'forged-message-id';
+  const result = await f.bridge.verifyCurrentSource();
+  assert.equal(result.status, 'NON_READY');
+  assert.match(result.reason, /identity\/version inventory mismatch/);
+});
+
 test('enrolled bridge writes event IDs and advances the fingerprint after an edit', async () => {
   const f = makeFixture();
   const enrollment = await f.bridge.enrollCurrentConversation();
