@@ -1652,12 +1652,10 @@ test('rollback of an entity update restores the seed entity projection and keeps
     event_id: 'source-a-seed',
     idempotency_key: 'source-a-seed',
     turn_id: 'source-a-seed',
-    effects: [{
-      kind: 'entity.create',
-      entity_id: 'source-a',
-      entity_type: 'document',
-      attributes: { public_note: 'R1' },
-    }],
+    effects: [
+      { kind: 'entity.create', entity_id: 'npc-file-test', entity_type: 'character', attributes: { name: 'NPC' } },
+      { kind: 'entity.create', entity_id: 'source-a', entity_type: 'character', attributes: { public_note: 'R1' } },
+    ],
   }));
   assert.equal(seed.accepted, true);
   const r1Snapshot = engine.getSnapshot('causality-world', { entityIds: ['source-a'] });
