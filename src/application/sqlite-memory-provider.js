@@ -2,18 +2,31 @@ import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync, statSync } from 'node:fs';
-import { isAbsolute, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 
+const canonicalFilePath = (path) => {
+  let candidate = resolve(path);
+  const suffix = [];
+  // Resolve symlinked ancestors even when the final database file does not
+  // exist yet. DatabaseSync may create the file, so checking only realpath(file)
+  // misses aliases through a symlinked parent directory.
+  while (!existsSync(candidate)) {
+    const parent = dirname(candidate);
+    if (parent === candidate) break;
+    suffix.unshift(basename(candidate));
+    candidate = parent;
+  }
+  return resolve(realpathSync(candidate), ...suffix);
+};
 const aliasesSameFile = (left, right) => {
-  const absoluteLeft = resolve(left);
-  const absoluteRight = resolve(right);
-  if (absoluteLeft === absoluteRight) return true;
-  if (!existsSync(absoluteLeft) || !existsSync(absoluteRight)) return false;
-  const leftStat = statSync(absoluteLeft);
-  const rightStat = statSync(absoluteRight);
-  return (leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino)
-    || realpathSync(absoluteLeft) === realpathSync(absoluteRight);
+  const canonicalLeft = canonicalFilePath(left);
+  const canonicalRight = canonicalFilePath(right);
+  if (canonicalLeft === canonicalRight) return true;
+  if (!existsSync(canonicalLeft) || !existsSync(canonicalRight)) return false;
+  const leftStat = statSync(canonicalLeft);
+  const rightStat = statSync(canonicalRight);
+  return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
 };
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = (value) => typeof value === 'string' && value === value.trim()
