@@ -15,7 +15,7 @@ function setup(t, options = {}) {
     validateInventory: async () => true,
     ...options,
   });
-  t.after(() => provider.close());
+  t.after(() => { provider.close(); testDb.close(); testDb.cleanup(); });
   const scope = { world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' };
   const record = {
     ...scope,

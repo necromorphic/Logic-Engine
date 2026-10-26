@@ -14,7 +14,7 @@ function setup(t) {
     validateSourceVersion: async (record) => record.source_version === 'source-v1',
     validateInventory: async () => true,
   });
-  t.after(() => provider.close());
+  t.after(() => { provider.close(); testDb.close(); testDb.cleanup(); });
   const record = {
     ...scope,
     record_ref: 'memory:import-test',

@@ -31,11 +31,12 @@ test('record persistence survives index-write failure and retrieval stays closed
     validateInventory: async () => true,
   };
   let provider = new SQLiteMemoryProvider(options);
+  const testDb = createProviderTestDb(t, { path });
   t.after(() => {
     try { provider.close(); } catch {}
+    testDb.close();
     rmSync(directory, { recursive: true, force: true });
   });
-  const testDb = createProviderTestDb(t, { path });
 
   provider.grantQuery(scope, true);
   provider.grantRecord(scope, record.record_ref, record.record_version, true);

@@ -12,7 +12,7 @@ test('corrupt stored lineage cannot publish a ready reconciliation state', async
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
   });
-  t.after(() => provider.close());
+  t.after(() => { provider.close(); testDb.close(); testDb.cleanup(); });
 
   const record = {
     world_id: 'lineage-world',

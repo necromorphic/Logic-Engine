@@ -91,7 +91,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     authorizedReadService, actorBindingService: bindings, memoryProvider: provider,
     contentFields: ['attributes.public_note'],
   });
-  t.after(() => { provider.close(); store.close(); });
+  t.after(() => { provider.close(); store.close(); testDb.close(); testDb.cleanup(); });
   return {
     engine, provider, consumer, scope, records,
     db: testDb.db,
