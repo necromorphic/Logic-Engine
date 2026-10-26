@@ -107,7 +107,13 @@ test('enrolled bridge writes event IDs and advances the fingerprint after an edi
 test('uncovered server-side lifecycle operations fail closed before a caller mutates source', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
-  const unsupported = ['delete-chat', 'delete-group-chat', 'delete-character-chat-recursive', 'import-character-chat', 'import-group-chat', 'backup-restore', 'create-branch', 'group-metadata-migration'];
+  const unsupported = [
+    'delete-chat', 'delete-group-chat', 'delete-character-chat-recursive',
+    'import-character-chat', 'import-group-chat', 'backup-restore', 'create-branch', 'group-metadata-migration',
+    'generation-start', 'generation-end', 'generation-stop', 'generation-cancel',
+    'partial-generation-finalization', 'regenerate', 'clear-chat', 'chat-switch',
+    'export-chat', 'external-edit', 'rollback', 'restart', 'replay', 'persistence-ordering',
+  ];
   for (const operation of unsupported) {
     await assert.rejects(
       f.bridge.beforeMutation(operation, []),
