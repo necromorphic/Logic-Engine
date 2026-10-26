@@ -371,3 +371,34 @@ test('partial Provider retrieval is non-ready through the real Core/NPC consumer
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
 
+
+
+test('single record revoked during NPC candidate validation returns non-ready, not ready-empty', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  let release;
+  let started;
+  const validationStarted = new Promise((resolve) => { started = resolve; });
+  const validationGate = new Promise((resolve) => { release = resolve; });
+  s.provider.validateSourceVersion = async () => {
+    started();
+    await validationGate;
+    return true;
+  };
+
+  const pending = s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    adapterId: 'provider-e2e-adapter',
+    actorEntityId: s.scope.subject_id,
+  });
+  await validationStarted;
+  s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+  release();
+
+  const result = await pending;
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.notEqual(result.status, 'ready');
+});
