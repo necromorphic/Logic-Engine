@@ -35,6 +35,8 @@ test('projection maps Host metadata to Provider canonical row shape but stays re
     ['msg-b', 'msg-b-v1', true],
   ]);
   assert.ok(result.blockers.includes('CORE_WORLD_BINDING_MISSING'));
+  assert.ok(result.blockers.includes('HOST_INSTALLATION_ID_TRUST_UNPROVEN'));
+  assert.ok(result.blockers.includes('SOURCE_LOCATOR_BINDING_NOT_CORE_AUTHORIZED'));
   assert.ok(result.blockers.includes('PAYLOAD_DIGEST_SEMANTICS_UNAPPROVED'));
 });
 
