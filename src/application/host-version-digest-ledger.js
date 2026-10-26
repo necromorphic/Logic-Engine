@@ -53,6 +53,11 @@ export class HostVersionDigestLedger {
     return this.db.prepare('SELECT * FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?').get(...tuple(v));
   }
 
+  #invalidateReadiness(worldId, conversationId, now) {
+    this.db.prepare("UPDATE host_version_inventory_state SET status='NON_READY',failure_code='HOST_LEDGER_MUTATED_AFTER_RECONCILIATION',updated_at=? WHERE world_id=? AND conversation_id=?")
+      .run(now, worldId, conversationId);
+  }
+
   #markNonReady(worldId, conversationId, code, now, snapshotDigest = null) {
     this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,snapshot_digest,failure_code,updated_at) VALUES(?,?,'NON_READY',?,?,?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='NON_READY',snapshot_digest=COALESCE(excluded.snapshot_digest,host_version_inventory_state.snapshot_digest),failure_code=excluded.failure_code,updated_at=excluded.updated_at")
       .run(worldId, conversationId, snapshotDigest, code, now);
@@ -102,7 +107,16 @@ export class HostVersionDigestLedger {
     if (!validTuple(v) || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
       throw new TypeError('Invalid digest-only Host version entry');
     }
-    return this.#write(() => this.#put(v, new Date().toISOString()));
+    return this.#write(() => {
+      const now = new Date().toISOString();
+      const prior = this.#get(v);
+      // A newly captured identity or a newly observed deletion changes the
+      // ledger beyond the last verified inventory; never leave stale READY.
+      if (!prior || (prior.lifecycle === 'present' && v.deleted)) {
+        this.#invalidateReadiness(v.world_id, v.conversation_id, now);
+      }
+      return this.#put(v, now);
+    });
   }
 
   selectActiveVersion(v) {
@@ -110,8 +124,13 @@ export class HostVersionDigestLedger {
     return this.#write(() => {
       const row = this.#get(v);
       if (!row || row.lifecycle !== 'present') return { status: 'non_ready', code: 'HOST_VERSION_UNAVAILABLE' };
-      const now = new Date().toISOString();
-      this.#setActive(v, now);
+      const current = this.db.prepare('SELECT version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=?')
+        .get(v.world_id, v.conversation_id, v.message_id);
+      if (current?.version_id !== v.version_id) {
+        const now = new Date().toISOString();
+        this.#invalidateReadiness(v.world_id, v.conversation_id, now);
+        this.#setActive(v, now);
+      }
       return { status: 'selected' };
     });
   }
@@ -121,7 +140,9 @@ export class HostVersionDigestLedger {
     return this.#write(() => {
       const row = this.#get(v);
       if (!row) return { status: 'non_ready', code: 'HOST_VERSION_UNKNOWN' };
+      if (row.lifecycle === 'tombstoned') return { status: 'tombstoned' };
       const now = new Date().toISOString();
+      this.#invalidateReadiness(v.world_id, v.conversation_id, now);
       this.db.prepare("UPDATE host_version_digest_ledger SET lifecycle='tombstoned',updated_at=?,tombstoned_at=? WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?")
         .run(now, now, ...tuple(v));
       this.db.prepare('DELETE FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?').run(...tuple(v));
