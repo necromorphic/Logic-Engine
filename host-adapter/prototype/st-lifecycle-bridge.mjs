@@ -62,6 +62,45 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
     };
   }
 
+  async function assertIdentitySnapshotMatches(conversationId, chat) {
+    const recorded = await journal.latestIdentitySnapshot(conversationId);
+    if (!Array.isArray(recorded) || recorded.length !== chat.length) {
+      throw Error('NON_READY: identity snapshot is missing or has a different message count; abort mutation');
+    }
+    const messageIds = new Set();
+    const versionIds = new Set();
+    for (let index = 0; index < chat.length; index++) {
+      const message = chat[index];
+      const identity = message?._logicEngineLifecycle;
+      const prior = recorded[index];
+      const versions = rawVersions(message);
+      if (!identity || !prior || identity.messageId !== prior.messageId
+        || (prior.messageIndex ?? index) !== index
+        || identity.activeVersionIndex !== activeIndex(message)
+        || identity.activeVersionIndex !== prior.activeVersionIndex
+        || !Array.isArray(identity.versions) || !Array.isArray(prior.versions)
+        || identity.versions.length !== versions.length
+        || identity.versions.length !== prior.versions.length
+        || messageIds.has(identity.messageId)) {
+        throw Error('NON_READY: identity metadata differs from journal; abort mutation');
+      }
+      messageIds.add(identity.messageId);
+      for (let versionIndex = 0; versionIndex < versions.length; versionIndex++) {
+        const current = identity.versions[versionIndex];
+        const expected = prior.versions[versionIndex];
+        if (!current || !expected || !current.versionId || versionIds.has(current.versionId)
+          || current.versionId !== expected.versionId
+          || current.versionIndex !== versionIndex || expected.versionIndex !== versionIndex
+          || current.payloadDigest !== expected.payloadDigest
+          || current.payloadDigest !== await contentDigest(versions[versionIndex])
+          || (current.parentVersionId ?? null) !== (expected.parentVersionId ?? null)) {
+          throw Error('NON_READY: version identity or digest differs from journal; abort mutation');
+        }
+        versionIds.add(current.versionId);
+      }
+    }
+  }
+
   async function beforeMutation(operation, messageIndexes, details = {}) {
     const conversationId = getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
@@ -73,6 +112,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
     if (latestFingerprint !== fingerprint) {
       throw Error('NON_READY: source fingerprint differs from journal; abort mutation');
     }
+    await assertIdentitySnapshotMatches(conversationId, chat);
     if (!Array.isArray(messageIndexes)) throw TypeError('messageIndexes must be an array');
     if (messageIndexes.some(index => !Number.isInteger(index) || index < 0 || index >= chat.length)) {
       throw Error('NON_READY: mutation contains an invalid source message index; abort mutation');
