@@ -950,3 +950,73 @@ test('retrieval fails closed when another Provider connection starts a record in
 
   await assert.rejects(pending, /MEMORY_INDEX_NOT_READY|MEMORY_AUTHORIZATION_CHANGED/);
 });
+
+
+test('reconciliation refuses current after another Provider connection rebuilds the index during source validation', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'memory-provider-cross-reconcile-rebuild-'));
+  const path = join(dir, 'provider.sqlite');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  let holdValidation = false;
+  let releaseValidation;
+  let signalValidation;
+  const validationStarted = new Promise((resolve) => { signalValidation = resolve; });
+  const validationGate = new Promise((resolve) => { releaseValidation = resolve; });
+  const options = {
+    path,
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => {
+      if (holdValidation) {
+        signalValidation();
+        await validationGate;
+      }
+      return true;
+    },
+    validateInventory: async () => true,
+  };
+  const provider = new SQLiteMemoryProvider(options);
+  const otherProvider = new SQLiteMemoryProvider(options);
+  t.after(() => provider.close());
+  t.after(() => otherProvider.close());
+
+  const scope = { world_id: 'cross-reconcile-rebuild-world', subject_id: 'cross-reconcile-rebuild-npc', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'cross-reconcile-rebuild-record',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'cross-reconcile-rebuild-entity',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'canonical_entity',
+      entity_id: 'cross-reconcile-rebuild-entity',
+      source_version: 'source-v1',
+    }],
+  };
+  provider.grantQuery(scope, true);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  provider.putRecord(record);
+  await provider.rebuildIndex(scope.world_id);
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+
+  holdValidation = true;
+  const pending = provider.reconcile(scope.world_id);
+  await validationStarted;
+
+  // A distinct Provider instance shares the durable database but not the first
+  // instance's in-memory stateGeneration. Its rebuild must still invalidate the
+  // in-flight reconciliation through durable cross-connection change detection.
+  await otherProvider.rebuildIndex(scope.world_id);
+  releaseValidation();
+
+  assert.deepEqual(await pending, {
+    status: 'stale',
+    reason: 'PROVIDER_STATE_CHANGED',
+  });
+  assert.notEqual(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'current');
+});
