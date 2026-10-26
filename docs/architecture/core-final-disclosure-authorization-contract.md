@@ -134,3 +134,22 @@ A concrete candidate to evaluate is a PC-owned serialization authority with a du
 - **Product/Security:** decide the operational policy for provider credentials on the PC, phone-to-PC authentication, timeout/cancel, audit metadata, retention, and ambiguous in-flight requests. These choices do not replace the technical ordering proof.
 - **Joint:** before runtime code, review a call-site matrix with exact writer/transport method names and demonstrate that none can bypass the shared order. If any path cannot participate, retain fail-closed behavior and mark that path unsupported.
 
+
+
+### 9.3 Core write-entry-point inventory (current `src/storage/sqlite-store.js`)
+
+The following public/store methods enter the Core `tx()` write boundary and therefore must be reviewed for participation if their effects can alter disclosure-relevant state or invalidate a source. This list is a source-level inventory of the current store file, not proof that all API/maintenance/restore paths have been covered.
+
+| Method | Relevant write scope | Contract handling |
+|---|---|---|
+| `createWorld()` | World creation / canonical world state | Must participate if a protected request can target the world during create/reset/recovery. |
+| `registerMechanicTemplate()`, `registerRuleModuleManifest()` | Mechanic/rule authority used by runtime behavior | Include if these versions affect source interpretation or disclosure policy; pin/validate exact rule authority rather than assume unrelated. |
+| `registerContextManifest()` | Context manifest anchored to world revision/commit sequence | A manifest is not itself final-send authorization; source/payload binding must still be checked at dispatch. |
+| `commit()`, `commitSegment()` | Canonical event commit and projection-changing effects | Must order source mutations/status changes and policy-relevant changes against dispatch-start. |
+| `createTimeAdvanceOperation()`, `resumeTimeAdvanceOperation()` | Durable time operation and segment commits | Every segment that changes canonical state must use the same ordering; operation metadata alone is not a source-validity authority. |
+| `registerTimeTrigger()`, `cancelTimeTrigger()`, `registerTimeConfiguration()` | Scheduled world behavior / time configuration | Include whenever changes can alter a protected source or its future validity/purpose policy. |
+| `rollback()` | Event retraction/invalidation, projection rebuild, world revision advance | Must be serialized against dispatch-start; checking `commit_sequence` alone is insufficient. |
+| `rebuild()` and projection-writing helpers | Reconstruct entity/fact/mechanic/relationship projections | Confirm whether each helper is reachable only under an already-coordinated writer transaction or can be invoked independently. |
+| `processStore.invalidateEvents()` called by rollback | Cross-store process/event invalidation | This is a separate persistence boundary that needs its own ordering review; Core SQLite transaction alone does not prove atomicity with it. |
+
+**Core-side finding:** `SQLiteStore.tx()` is a synchronous, same-connection SQLite transaction using `BEGIN IMMEDIATE`; nested calls use savepoints. This is a sound Core-local write boundary, but not a cross-owner lock. The contract implementation must decide whether all these writers can acquire a coordinator before entering `tx()`, whether any callback/maintenance/restore path bypasses these methods, and how lock ordering avoids deadlocks. Do not wrap only `commit()` and `rollback()` while leaving other relevant source/policy writers uncoordinated.
