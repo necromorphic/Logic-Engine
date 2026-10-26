@@ -80,14 +80,25 @@ export class HostVersionDigestLedger {
     return JSON.stringify(pointers) === JSON.stringify(expectedPointers);
   }
 
+  #nextStateTimestamp(worldId, conversationId) {
+    const prior = this.db.prepare('SELECT updated_at FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
+      .get(worldId, conversationId);
+    const now = Date.now();
+    const priorTime = prior ? Date.parse(prior.updated_at) : NaN;
+    // This durable state stamp must change even when two invalidations occur
+    // within one clock millisecond; it is used to detect invalidation during
+    // the asynchronous trusted-inventory verification window.
+    return new Date(Number.isFinite(priorTime) && priorTime >= now ? priorTime + 1 : now).toISOString();
+  }
+
   #invalidateReadiness(worldId, conversationId, now) {
     this.db.prepare("UPDATE host_version_inventory_state SET status='NON_READY',failure_code='HOST_LEDGER_MUTATED_AFTER_RECONCILIATION',updated_at=? WHERE world_id=? AND conversation_id=?")
-      .run(now, worldId, conversationId);
+      .run(this.#nextStateTimestamp(worldId, conversationId), worldId, conversationId);
   }
 
   #markNonReady(worldId, conversationId, code, now, snapshotDigest = null) {
     this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,snapshot_digest,failure_code,updated_at) VALUES(?,?,'NON_READY',?,?,?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='NON_READY',snapshot_digest=COALESCE(excluded.snapshot_digest,host_version_inventory_state.snapshot_digest),failure_code=excluded.failure_code,updated_at=excluded.updated_at")
-      .run(worldId, conversationId, snapshotDigest, code, now);
+      .run(worldId, conversationId, snapshotDigest, code, this.#nextStateTimestamp(worldId, conversationId));
   }
 
   #rejectSnapshot(snapshot, code) {
@@ -103,7 +114,7 @@ export class HostVersionDigestLedger {
       this.db.prepare('INSERT INTO host_version_ledger_conflicts (world_id,conversation_id,message_id,version_id,persisted_digest,observed_digest,observed_at) VALUES(?,?,?,?,?,?,?)')
         .run(...tuple(v), prior.content_sha256, v.content_sha256, now);
       this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,failure_code,updated_at) VALUES(?,?,'NON_READY','HOST_VERSION_DIGEST_CONFLICT',?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='NON_READY',failure_code='HOST_VERSION_DIGEST_CONFLICT',updated_at=excluded.updated_at")
-        .run(v.world_id, v.conversation_id, now);
+        .run(v.world_id, v.conversation_id, this.#nextStateTimestamp(v.world_id, v.conversation_id));
       return { status: 'conflict', code: 'HOST_VERSION_DIGEST_CONFLICT' };
     }
     if (prior) {
@@ -269,8 +280,12 @@ export class HostVersionDigestLedger {
     // Capture the local state before the asynchronous trust check. If another
     // writer changes versions, pointers, or readiness while verification awaits,
     // this snapshot must not publish READY against a different local state.
-    const preVerificationFingerprint = this.#write(() =>
-      this.#fingerprint(snapshot.world_id, snapshot.conversation_id));
+    const preVerification = this.#write(() => ({
+      fingerprint: this.#fingerprint(snapshot.world_id, snapshot.conversation_id),
+      state: this.db.prepare('SELECT status,failure_code,updated_at FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
+        .get(snapshot.world_id, snapshot.conversation_id) ?? null
+    }));
+    const preVerificationFingerprint = preVerification.fingerprint;
     let trusted = false;
     try {
       trusted = await this.verifyInventorySnapshot(Object.freeze({
@@ -283,8 +298,13 @@ export class HostVersionDigestLedger {
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const snapshotDigest = digest(JSON.stringify(canonical));
     return this.#write(() => {
-      if (this.#fingerprint(snapshot.world_id, snapshot.conversation_id) !== preVerificationFingerprint
-        && !this.#matchesSnapshot(snapshot)) {
+      const currentState = this.db.prepare('SELECT status,failure_code,updated_at FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
+        .get(snapshot.world_id, snapshot.conversation_id) ?? null;
+      const invalidatedDuringVerification = currentState?.status === 'NON_READY'
+        && currentState.updated_at !== (preVerification.state?.updated_at ?? null);
+      if (invalidatedDuringVerification
+        || (this.#fingerprint(snapshot.world_id, snapshot.conversation_id) !== preVerificationFingerprint
+          && !this.#matchesSnapshot(snapshot))) {
         this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_LEDGER_CHANGED_DURING_VERIFICATION', new Date().toISOString(), snapshotDigest);
         return { status: 'non_ready', code: 'HOST_LEDGER_CHANGED_DURING_VERIFICATION' };
       }
@@ -323,7 +343,7 @@ export class HostVersionDigestLedger {
         if (v.active && !v.deleted) this.#setActive(v, now);
       }
       this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,snapshot_digest,failure_code,updated_at) VALUES(?,?,'READY',?,NULL,?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='READY',snapshot_digest=excluded.snapshot_digest,failure_code=NULL,updated_at=excluded.updated_at")
-        .run(snapshot.world_id, snapshot.conversation_id, snapshotDigest, now);
+        .run(snapshot.world_id, snapshot.conversation_id, snapshotDigest, this.#nextStateTimestamp(snapshot.world_id, snapshot.conversation_id));
       return { status: 'ready', snapshot_sha256: snapshotDigest, version_count: snapshot.versions.length };
     });
   }
