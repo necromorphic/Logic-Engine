@@ -147,7 +147,7 @@ test('untrusted inventory snapshot cannot make ledger ready', async (t) => {
     world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
   }), { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' });
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
-  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
 });
 
 test('trusted complete snapshot recovers missed capture and publishes readiness', async (t) => {
@@ -379,7 +379,7 @@ test('reconciliation rejects if ledger changes while the verifier is awaiting', 
   assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE message_id='message-a'").get().n, 0);
 });
 
-test('verifier exception leaves an existing READY conversation NON_READY', async (t) => {
+test('verifier exception cannot mutate readiness without trusted scope authorization', async (t) => {
   let reject = false;
   const ledger = setup(t, async () => {
     if (reject) throw new Error('verifier unavailable');
@@ -391,7 +391,7 @@ test('verifier exception leaves an existing READY conversation NON_READY', async
   assert.deepEqual(await ledger.reconcileConversation(snapshot), {
     status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED'
   });
-  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'READY');
 });
 
 test('ledger identity and tombstone survive process-style close and reopen', (t) => {
@@ -589,3 +589,25 @@ test('review-only Host projection cannot be accepted as a trusted Provider inven
   });
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
 });
+
+test('untrusted incomplete snapshot cannot poison a caller-selected conversation', async (t) => {
+  const ledger = setup(t, async (snapshot) => snapshot.complete === true);
+  const victim = { world_id: 'world-victim', conversation_id: 'chat-victim' };
+  const victimEntry = entry({ ...victim, message_id: 'victim-message', version_id: 'victim-version' });
+
+  const admitted = await ledger.reconcileConversation({
+    ...victim, complete: true, versions: [victimEntry]
+  });
+  assert.equal(admitted.status, 'ready');
+  assert.equal(admitted.version_count, 1);
+  assert.equal(ledger.getInventoryState(victim.world_id, victim.conversation_id).status, 'READY');
+
+  assert.deepEqual(await ledger.reconcileConversation({
+    ...victim, complete: false, versions: []
+  }), { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' });
+
+  assert.equal(ledger.getInventoryState(victim.world_id, victim.conversation_id).status, 'READY');
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=?')
+    .get(victim.world_id, victim.conversation_id).n, 1);
+});
+
