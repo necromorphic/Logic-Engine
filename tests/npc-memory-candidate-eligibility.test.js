@@ -284,7 +284,17 @@ test("stale, retracted, unavailable, and unknown freshness are not current knowl
 });
 
 test("malformed trusted or candidate snapshots fail closed", () => {
-  for (const snapshot of [undefined, null, {}, { world_revision: 12 }, { world_revision: "", commit_sequence: 40 }]) {
+  for (const snapshot of [
+    undefined,
+    null,
+    {},
+    { world_revision: 12 },
+    { world_revision: "", commit_sequence: 40 },
+    { world_revision: -1, commit_sequence: 40 },
+    { world_revision: 12.5, commit_sequence: 40 },
+    { world_revision: Number.MAX_SAFE_INTEGER + 1, commit_sequence: 40 },
+    { world_revision: "12", commit_sequence: 40 },
+  ]) {
     const result = evaluateMemoryCandidateAdmission(
       { ...request, snapshot },
       completeResult([candidate()]),
@@ -294,7 +304,16 @@ test("malformed trusted or candidate snapshots fail closed", () => {
     assert.deepEqual(result.admitted, []);
   }
 
-  for (const snapshot of [undefined, {}, { world_revision: 12 }, { world_revision: 12, commit_sequence: "" }]) {
+  for (const snapshot of [
+    undefined,
+    {},
+    { world_revision: 12 },
+    { world_revision: 12, commit_sequence: "" },
+    { world_revision: -1, commit_sequence: 40 },
+    { world_revision: 12.5, commit_sequence: 40 },
+    { world_revision: Number.MAX_SAFE_INTEGER + 1, commit_sequence: 40 },
+    { world_revision: 12, commit_sequence: "40" },
+  ]) {
     const result = evaluateMemoryCandidateAdmission(request, completeResult([
       candidate({ snapshot }),
     ]));
