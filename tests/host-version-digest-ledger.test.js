@@ -325,3 +325,27 @@ test('capture updates active pointer when an existing swipe active flag changes'
   assert.equal(ledger.db.prepare('SELECT version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=?')
     .get(tuple.world_id, tuple.conversation_id, tuple.message_id).version_id, tuple.version_id);
 });
+
+test('event-only capture cannot introduce a previously unknown tombstone', async (t) => {
+  const ledger = setup(t, async () => true);
+  const baseline = {
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  };
+  assert.equal((await ledger.reconcileConversation(baseline)).status, 'ready');
+
+  const unknownTombstone = entry({
+    message_id: 'message-never-captured',
+    version_id: 'version-never-captured',
+    content_sha256: digest('unknown deleted source'),
+    active: false,
+    deleted: true,
+  });
+  assert.deepEqual(ledger.captureVersion(unknownTombstone), {
+    status: 'non_ready', code: 'HOST_VERSION_UNKNOWN'
+  });
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 1);
+  assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE message_id='message-never-captured'").get().n, 0);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code, 'HOST_VERSION_UNKNOWN');
+});
+
