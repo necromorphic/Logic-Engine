@@ -410,6 +410,18 @@ test('reconciliation rejects copied/restored sidecar IDs even when native messag
 });
 
 
+test('pre-mutation rejects sidecar identity changes even when native content fingerprint is unchanged', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const fingerprint = await f.bridge.currentFingerprint();
+  f.chat[0]._logicEngineLifecycle.messageId = 'substituted-message-id';
+  assert.equal(await f.bridge.currentFingerprint(), fingerprint);
+  await assert.rejects(
+    f.bridge.beforeMutation('edit-message', [0]),
+    /identity metadata differs from journal/,
+  );
+});
+
 test('swipe selection records a pre-mutation checkpoint and preserves immutable version IDs', async () => {
   const f = makeFixture([
     {
