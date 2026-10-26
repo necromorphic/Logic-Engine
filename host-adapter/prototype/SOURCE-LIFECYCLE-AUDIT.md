@@ -125,3 +125,30 @@ This matrix describes the current candidate patch at commit `f47e376f2a3fe783290
 The current patch does **not** intercept the actual provider send boundary. Therefore there is no valid Host test result yet for “candidate assembled → source edited/deleted/revoked → provider serialization/send attempted → request prevented.” A test around `CHAT_COMPLETION_SETTINGS_READY` alone would test a browser hook, not the server-side final provider send across all paths. A fixture callback or fake provider sender would not repair this evidence gap.
 
 A correct end-to-end test requires: (a) Core-approved authorization semantics and the authoritative revocation/version source, (b) a reviewed inventory of every allowed generation route and its last controllable serialization/send point, (c) a test that pauses after candidate assembly, performs edit/delete/revocation, resumes the request, and proves **no outbound provider request** occurred, and (d) separate real-browser and Android/Termux evidence. Until those exist, Host disclosure readiness is `NON_READY`; this patch must not be described as a final-send gate.
+
+
+## Implementation-shaped send-boundary proposal — review only (26 Oct 2026)
+
+This is a proposed change map, **not an installed hook and not an authorization implementation**. It deliberately defines no callback name, API, payload schema, or authorization semantics. The current candidate patch still does not intercept outbound provider requests.
+
+### Exact candidate interception points on pinned ST SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`
+
+1. **Browser Chat Completions route:** `public/scripts/openai.js`, inside `sendOpenAIRequest()`, immediately before `JSON.stringify(generate_data)` and `fetch('/api/backends/chat-completions/generate', ...)`, after `CHAT_COMPLETION_SETTINGS_READY`. This can stop the browser request for this UI route only. It is not the final provider boundary and cannot cover server callers or alternate routes.
+2. **Server Chat Completions route:** `src/endpoints/backends/chat-completions.js`, `POST /generate` dispatcher. The request branches to provider-specific senders; a gate at one generic sender is insufficient. A future patch must enumerate each enabled branch and place the final revalidation immediately before that branch serializes/sends its provider request, or keep that branch unsupported. Exact sender inventory must be refreshed against the pinned checkout before editing.
+3. **Server Text Completions route:** `src/endpoints/backends/text-completions.js`, `POST /generate`. This is a separate route with provider-specific body rewrites and multiple `fetch(url, args)` calls. It needs its own pre-serialization/send enforcement per outbound branch, or remains unsupported.
+4. **Other model-capable routes and non-UI callers:** this audit has not established an exhaustive list. Do not infer coverage from the three locations above. Any extension, native/server caller, alternate generation family, or independent outbound endpoint not enumerated and tested remains unsupported and must not receive protected Memory→NPC content.
+
+### Required contract at each proposed boundary (decision required; not implemented)
+
+The Core-approved contract must identify the trusted world/session scope, source/currentness and subject-relative knowledge authority, the exact disclosure decision/result, and how revocation/edit/delete/scope changes are revalidated at the last controllable boundary. The final decision must be evaluated against the assembled candidate immediately before protected content can enter the serialized outbound request. Host may enforce a returned decision only after the owner-defined callable contract and its failure behavior are approved; Host must not invent its signature or treat journal metadata as authority. Unknown, stale, revoked, conflicting, unavailable, or unvalidated results must prevent protected content from being sent.
+
+### Minimal proposed tests and evidence classes
+
+- **Patch mechanics / repository test:** verify each enumerated supported branch invokes the approved boundary check before serialization/send; assert no provider request is emitted when the check denies, errors, or returns an unknown state. These tests must use the actual route functions, not a fake universal sender.
+- **Race test:** pause after candidate assembly; edit/delete/revoke the source or change scope; resume at the final boundary; assert zero protected content, snippets, counts, candidate IDs, or diagnostic leakage in every outbound request.
+- **Bypass test:** exercise every enabled provider branch and alternate generation route; unenumerated paths must be explicitly disabled/unsupported.
+- **Evidence labels:** source-inspected; patch/apply/lint CI; focused route test; real browser; real IndexedDB; Android/Termux; provider-network race. Passing one class does not imply another.
+
+### Current Host decision
+
+No runtime send hook is added by this proposal. The exact Core authorization contract and required second Core review of the implementation diff are still absent; the exhaustive outbound-route inventory and revoke/edit/delete-after-assembly-before-send test are also absent. Therefore this proposal is **REVIEW-ONLY / NON_READY**. Keep Memory→NPC **DISABLED / FAIL-CLOSED** and do not persist raw message text or touch the separate Ollama/vectorization remote-store patch.
