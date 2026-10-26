@@ -220,8 +220,16 @@ function buildDependencyOrder(due, allById, completedIds) {
   for (const trigger of due) {
     const required = [];
     for (const dependencyId of trigger.dependencies) {
-      if (completedIds.has(dependencyId)) continue;
       const dependency = allById.get(dependencyId);
+      // A recorded completion is only a valid prerequisite if its scheduled
+      // coordinate does not lie after the dependent trigger's coordinate.
+      // Check this before the historical completed-ID shortcut as well.
+      if (dependency?.status === 'completed' && dependency.due_coordinate > trigger.due_coordinate) {
+        fail('CAUSAL_TIME_ORDER_CONFLICT', 'A completed prerequisite cannot be scheduled later in game time than its dependent trigger.', {
+          trigger_id: trigger.trigger_id, dependency_id: dependencyId,
+        });
+      }
+      if (completedIds.has(dependencyId)) continue;
       if (!dependency) {
         blocked.push({ trigger_id: trigger.trigger_id, dependency_id: dependencyId, reason: 'missing_dependency' });
         continue;
