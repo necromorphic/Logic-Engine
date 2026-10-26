@@ -338,3 +338,36 @@ test('source becoming stale after reconciliation is non-ready, not a filtered re
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
+
+test('partial Provider retrieval is non-ready through the real Core/NPC consumer', async (t) => {
+  const s = setup(t);
+  const template = s.records[0];
+
+  // The Provider caps retrieval at 50 candidates. A 51-record scope must stay
+  // explicitly partial; the consumer must not treat the truncated set as complete.
+  for (let index = 1; index < 51; index += 1) {
+    const record = {
+      ...template,
+      record_ref: `memory:partial-${String(index).padStart(2, '0')}`,
+      record_version: 'record-v1',
+    };
+    s.provider.putRecord(record);
+    s.provider.grantRecord(s.scope, record.record_ref, record.record_version, true);
+  }
+
+  assert.equal((await s.prepare()).status, 'current');
+  const providerResult = await s.provider.retrieveCandidates(s.scope);
+  assert.equal(providerResult.candidates.length, 50);
+  assert.equal(providerResult.completeness, 'partial');
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    adapterId: 'provider-e2e-adapter',
+    actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
