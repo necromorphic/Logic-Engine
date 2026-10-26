@@ -739,3 +739,72 @@ test('candidate authorization detects record grant ABA from another Provider con
 
   await assert.rejects(pending, /MEMORY_AUTHORIZATION_CHANGED/);
 });
+
+
+test('candidate authorization detects query grant ABA from another Provider connection', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'memory-provider-cross-query-grant-'));
+  const path = join(dir, 'provider.sqlite');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  let releaseValidation;
+  let signalValidation;
+  const validationStarted = new Promise((resolve) => { signalValidation = resolve; });
+  const validationGate = new Promise((resolve) => { releaseValidation = resolve; });
+  let holdValidation = false;
+  const options = {
+    path,
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => {
+      if (holdValidation) {
+        signalValidation();
+        await validationGate;
+      }
+      return true;
+    },
+    validateInventory: async () => true,
+  };
+  const provider = new SQLiteMemoryProvider(options);
+  const otherProvider = new SQLiteMemoryProvider(options);
+  t.after(() => provider.close());
+  t.after(() => otherProvider.close());
+
+  const scope = { world_id: 'cross-connection-query-world', subject_id: 'cross-connection-query-npc', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'cross-connection-query-grant-record',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'cross-connection-query-grant-entity',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'canonical_entity',
+      entity_id: 'cross-connection-query-grant-entity',
+      source_version: 'source-v1',
+    }],
+  };
+  provider.grantQuery(scope, true);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  provider.putRecord(record);
+  await provider.rebuildIndex(scope.world_id);
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+
+  holdValidation = true;
+  const pending = provider.authorizeCandidate({
+    ...scope,
+    record_ref: record.record_ref,
+    record_version: record.record_version,
+    source_kind: record.source_kind,
+    source_entity_id: record.source_entity_id,
+  });
+  await validationStarted;
+  otherProvider.grantQuery(scope, false);
+  otherProvider.grantQuery(scope, true);
+  releaseValidation();
+
+  await assert.rejects(pending, /MEMORY_AUTHORIZATION_CHANGED|MEMORY_QUERY_DENIED/);
+});
