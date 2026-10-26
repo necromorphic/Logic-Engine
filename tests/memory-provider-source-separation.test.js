@@ -58,8 +58,8 @@ test('source archive rows stay separate from fact records and rebuildable search
   );
 
   const result = await provider.retrieveCandidates(scope);
-  assert.equal(result.length, 1);
-  assert.equal(result[0].record.ref, 'memory:fact-1');
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].record.ref, 'memory:fact-1');
   assert.equal(JSON.stringify(result).includes(sceneText), false);
 });
 
