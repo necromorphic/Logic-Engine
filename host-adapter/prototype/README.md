@@ -97,3 +97,14 @@ Because the journal stores digests rather than source bytes, it cannot itself re
 ### Chat unload is not deletion
 
 Source review found that pinned ST `clearChat({ clearData: true })` is used for chat switching/reload and other UI transitions. Treating that array clear as source deletion would incorrectly record the old chat as empty and could poison identity/reconciliation. The candidate patch therefore does **not** hook `clearChat` as deletion. The actual complete chat-file deletion path is still uncovered, especially when the target chat is not the currently loaded chat. `clear-chat` remains a required-but-missing coverage path, so readiness stays NON_READY.
+
+## Exact-head follow-up — raw-content sentinel regression (26 Oct 2026)
+
+Latest review-only candidate HEAD: `d7686b89a051cd28566a0f19bead42b0a9bd5bd5`. The regression test injects unique user/assistant/edited text sentinels and verifies that neither fake-IndexedDB journal rows/head records nor `exportCaptureLedger()` contain those raw strings after edit and deletion.
+
+Exact-head CI for this commit:
+- [Host lifecycle patch check #40275379272](https://github.com/necromorphic/Logic-Engine/actions/runs/40275379272) — SUCCESS.
+- [Runtime tests #40275379287](https://github.com/necromorphic/Logic-Engine/actions/runs/40275379287) — SUCCESS.
+- [Host lifecycle patch validation #40275379405](https://github.com/necromorphic/Logic-Engine/actions/runs/40275379405) — SUCCESS.
+
+These results prove repository CI only. The storage assertions use a fake IndexedDB implementation and do not prove browser persistence, Android/Termux durability, full lifecycle coverage, or production readiness. PR #323 remains Draft/review-only; unsupported import/restore/branch/group deletion/migration paths and the absent approved Host↔Core pre-release contract keep readiness `NON_READY` and Memory→NPC `DISABLED / FAIL-CLOSED`.
