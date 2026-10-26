@@ -40,7 +40,7 @@ function denseArrayValues(value, name, max, errorCode) {
     }
     values.push(descriptor.value);
   }
-  const allowedKeys = new Set(['length', ...values.map((_, index) => String(index)]);
+  const allowedKeys = new Set(['length', ...values.map((_, index) => String(index))]);
   if (Reflect.ownKeys(value).some((key) => typeof key !== 'string' || !allowedKeys.has(key))) {
     fail(errorCode, name + ' cannot contain extra array properties.');
   }
