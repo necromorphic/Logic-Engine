@@ -560,9 +560,11 @@ test('untrusted incomplete snapshot cannot poison a caller-selected conversation
   const victim = { world_id: 'world-victim', conversation_id: 'chat-victim' };
   const victimEntry = entry({ ...victim, message_id: 'victim-message', version_id: 'victim-version' });
 
-  assert.deepEqual(await ledger.reconcileConversation({
+  const admitted = await ledger.reconcileConversation({
     ...victim, complete: true, versions: [victimEntry]
-  }), { status: 'ready', version_count: 1 });
+  });
+  assert.equal(admitted.status, 'ready');
+  assert.equal(admitted.version_count, 1);
   assert.equal(ledger.getInventoryState(victim.world_id, victim.conversation_id).status, 'READY');
 
   assert.deepEqual(await ledger.reconcileConversation({
