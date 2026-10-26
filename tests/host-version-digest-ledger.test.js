@@ -289,3 +289,26 @@ test('unavailable swipe selection invalidates previously READY inventory', async
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code, 'HOST_VERSION_UNAVAILABLE');
 });
+
+test('capture updates active pointer when an existing swipe active flag changes', async (t) => {
+  const ledger = setup(t, async () => true);
+  const active = entry({ active: true });
+  const snapshot = {
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [active]
+  };
+  assert.equal((await ledger.reconcileConversation(snapshot)).status, 'ready');
+  assert.equal(ledger.db.prepare('SELECT version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=?')
+    .get(tuple.world_id, tuple.conversation_id, tuple.message_id).version_id, tuple.version_id);
+
+  assert.equal(ledger.captureVersion({ ...active, active: false }).status, 'duplicate');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.db.prepare('SELECT version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=?')
+    .get(tuple.world_id, tuple.conversation_id, tuple.message_id), undefined);
+
+  const inactive = { ...active, active: false };
+  assert.equal((await ledger.reconcileConversation({ ...snapshot, versions: [inactive] })).status, 'ready');
+  assert.equal(ledger.captureVersion(active).status, 'duplicate');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.db.prepare('SELECT version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=?')
+    .get(tuple.world_id, tuple.conversation_id, tuple.message_id).version_id, tuple.version_id);
+});
