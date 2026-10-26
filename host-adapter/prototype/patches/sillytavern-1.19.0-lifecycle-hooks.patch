@@ -14,80 +14,17 @@ diff --git a/public/script.js b/public/script.js
   */
 +let logicEngineLifecyclePendingRenameId = null;
 +async function getLogicEngineConversationId() {
-+    const locator = getCurrentChatId();
-+    if (!locator) return null;
-+    if (!chat_metadata || typeof chat_metadata !== 'object' || Array.isArray(chat_metadata)) {
-+        throw Error('NON_READY: current Host chat metadata is unavailable');
-+    }
-+    let installId = localStorage.getItem('logic-engine-host-installation-id');
-+    if (!installId) {
-+        installId = globalThis.crypto.randomUUID();
-+        localStorage.setItem('logic-engine-host-installation-id', installId);
-+        if (localStorage.getItem('logic-engine-host-installation-id') !== installId) {
-+            throw Error('NON_READY: Host installation identity save failed');
-+        }
-+    }
-+    const existing = chat_metadata.logic_engine_conversation_id;
-+    const legacyMarker = 'logic-engine-host-lifecycle:' + locator;
-+    const locatorKey = 'logic-engine-host-lifecycle-locator:' + locator;
-+    const locatorBinding = localStorage.getItem(locatorKey);
-+    if (locatorBinding && (typeof existing !== 'string' || locatorBinding !== installId + ':' + existing)) {
-+        throw Error('NON_READY: Host locator metadata is missing or inconsistent');
-+    }
-+    const activeMarker = 'logic-engine-host-lifecycle:' + installId + ':' + existing;
-+    if (typeof existing === 'string' && existing.length > 0
-+        && localStorage.getItem(legacyMarker) && legacyMarker !== activeMarker) {
-+        throw Error('NON_READY: legacy Host enrollment marker conflicts with installation identity');
-+    }
-+    for (let i = 0; i < localStorage.length; i++) {
-+        const key = localStorage.key(i);
-+        if (typeof key === 'string' && key.startsWith('logic-engine-host-lifecycle:')
-+            && key.endsWith(':' + existing) && key !== activeMarker) {
-+            throw Error('NON_READY: Host conversation identity is already enrolled elsewhere');
-+        }
-+        const markerValue = typeof key === 'string' ? localStorage.getItem(key) : null;
-+        if (typeof key === 'string' && key.startsWith('logic-engine-host-lifecycle:')
-+            && typeof markerValue === 'string' && markerValue.endsWith(':' + locator)
-+            && key !== activeMarker) {
-+            throw Error('NON_READY: Host locator is associated with another conversation identity');
-+        }
-+    }
-+    if (typeof existing === 'string' && existing.length > 0
-+        && existing === existing.trim() && existing.length <= 200) {
-+        if (localStorage.getItem(legacyMarker) && existing !== locator) {
-+            throw Error('NON_READY: conflicting Host identity marker');
-+        }
-+        const resolvedId = installId + ':' + existing;
-+        const mappedId = locatorBinding;
-+        if (mappedId && mappedId !== resolvedId) throw Error('NON_READY: Host locator identity mismatch');
-+        if (!mappedId && localStorage.getItem('logic-engine-host-lifecycle:' + resolvedId)
-+            && logicEngineLifecyclePendingRenameId !== resolvedId) {
-+            throw Error('NON_READY: Host locator binding missing');
-+        }
-+        return resolvedId;
-+    }
-+    if (localStorage.getItem(legacyMarker)) throw Error('NON_READY: identity migration required');
-+    if (!globalThis.crypto?.randomUUID) throw Error('NON_READY: crypto.randomUUID unavailable');
-+    const metadata = chat_metadata;
-+    const conversationId = globalThis.crypto.randomUUID();
-+    metadata.logic_engine_conversation_id = conversationId;
-+    if (chat_metadata !== metadata || getCurrentChatId() !== locator) {
-+        delete metadata.logic_engine_conversation_id;
-+        throw Error('NON_READY: Host conversation changed during identity enrollment');
-+    }
-+    try {
-+        await saveChatConditional();
-+    } catch (error) {
-+        delete metadata.logic_engine_conversation_id;
-+        throw Error('NON_READY: durable Host conversation identity could not be saved: ' + error.message);
-+    }
-+    if (chat_metadata !== metadata || getCurrentChatId() !== locator
-+        || chat_metadata.logic_engine_conversation_id !== conversationId) {
-+        throw Error('NON_READY: Host conversation identity changed during persistence');
-+    }
-+    return installId + ':' + conversationId;
-+}
-+
++    const result = await resolveStableHostConversationIdentity({
++        locator: getCurrentChatId(),
++        metadata: chat_metadata,
++        storage: localStorage,
++        saveMetadata: () => saveChatConditional(),
++        getCurrentLocator: getCurrentChatId,
++        getCurrentMetadata: () => chat_metadata,
++        pendingRenameId: logicEngineLifecyclePendingRenameId,
++    });
++    return result.status === 'NON_READY' ? null : result.conversationId;
++}+
 +let logicEngineLifecycleBridgePromise;
 +async function getLogicEngineLifecycleBridge() {
 +    if (!logicEngineLifecycleBridgePromise) {
