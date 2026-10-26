@@ -1,5 +1,6 @@
 import { mkdirSync } from 'node:fs';
-import { dirname, isAbsolute, resolve } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { SQLiteStore } from './storage/sqlite-store.js';
 import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
@@ -31,6 +32,22 @@ for (const [id, secret] of Object.entries(adapterTokens)) {
   if (!id.trim() || typeof secret !== 'string' || secret.length < 16 || [token, internalToken, approvalToken, adminToken].includes(secret)) throw new Error('Each ENGINE_ADAPTER_TOKENS entry must have a non-empty ID and a distinct secret of at least 16 characters.');
 }
 
+function aliasesSameFile(left, right) {
+  const identity = (value) => {
+    const absolute = resolve(value);
+    if (existsSync(absolute)) {
+      try {
+        const stat = statSync(absolute);
+        return 'inode:' + stat.dev + ':' + stat.ino;
+      } catch {}
+    }
+    try { return 'path:' + realpathSync(absolute); } catch {}
+    try { return 'path:' + join(realpathSync(dirname(absolute)), basename(absolute)); } catch {}
+    return 'path:' + absolute;
+  };
+  return identity(left) === identity(right);
+}
+
 const dbPath = process.env.ENGINE_DB_PATH || './data/logic-engine.sqlite';
 const coordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
 if (typeof coordinatorPath !== 'string' || !coordinatorPath.trim() || !isAbsolute(coordinatorPath)) {
@@ -49,11 +66,11 @@ const store = new SQLiteStore(dbPath);
 const hostVersionLedgerPath = process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH
   ? resolve(process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH)
   : resolve('./data/logic-engine-host-versions.sqlite');
-if (dbPath !== ':memory:' && resolve(hostVersionLedgerPath) === resolve(dbPath)) {
-  throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from ENGINE_DB_PATH.');
+if (dbPath !== ':memory:' && aliasesSameFile(hostVersionLedgerPath, dbPath)) {
+  throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from ENGINE_DB_PATH, including filesystem aliases.');
 }
-if (coordinatorPath && resolve(hostVersionLedgerPath) === resolve(coordinatorPath)) {
-  throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from LOGIC_ENGINE_COORDINATOR_DB_PATH.');
+if (aliasesSameFile(hostVersionLedgerPath, coordinatorPath)) {
+  throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from LOGIC_ENGINE_COORDINATOR_DB_PATH, including filesystem aliases.');
 }
 // This deny-only verifier is deliberately not source authority. Until the trusted
 // Host/Core complete-inventory adapter is wired, reconciliation can never set READY.
