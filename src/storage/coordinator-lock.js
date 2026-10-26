@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { mkdirSync } from 'node:fs';
 
 /**
@@ -10,6 +10,9 @@ import { mkdirSync } from 'node:fs';
 export function openCoordinatorDatabase(path) {
   if (typeof path !== 'string' || !path.trim() || path === ':memory:') {
     throw new TypeError('A file-backed coordinator database path is required.');
+  }
+  if (!isAbsolute(path)) {
+    throw new TypeError('The coordinator database path must be absolute and shared by all participants.');
   }
   const absolutePath = resolve(path);
   mkdirSync(dirname(absolutePath), { recursive: true });
