@@ -155,15 +155,18 @@ test('branch creation from an enrolled conversation is rejected before branch pe
 });
 
 
-test('uncovered import, restore, and chat-delete UI entry points invoke the fail-closed Host guard at function entry', async () => {
+test('destructive and import UI entry points invoke target-aware fail-closed Host guards', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
   const guards = [
-    "await lifecycleBridge.beforeMutation('delete-chat', [], { characterId, fileName });",
-    "await lifecycleBridge.beforeMutation('delete-character-chat-recursive', [], { characterKey });",
-    "await lifecycleBridge.beforeMutation('import-character-chat');",
-    "await window.logicEngineHostLifecycle.guardOperation('delete-group-chat', [], { groupId, chatName });",
-    "await window.logicEngineHostLifecycle.guardOperation('import-group-chat');",
+    "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatfile.replace('.jsonl', ''));",
+    "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(fileName);",
+    "if (deleteChats) await window.logicEngineHostLifecycle?.guardBulkMutation();",
+    "await window.logicEngineHostLifecycle?.guardBulkMutation();",
+    "await window.logicEngineHostLifecycle.guardChatLocatorDeletion(chatName);",
+    "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(oldChatId);",
+    "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatId);",
+    "await window.logicEngineHostLifecycle.guardBulkMutation();",
     "await window.logicEngineHostLifecycle.guardOperation('backup-restore', [], { backupName: name });",
   ];
   for (const guard of guards) {
