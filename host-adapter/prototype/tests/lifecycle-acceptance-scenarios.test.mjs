@@ -167,9 +167,12 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
     "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(oldChatId);",
     "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatId);",
     "await window.logicEngineHostLifecycle.guardBulkMutation();",
-    "await window.logicEngineHostLifecycle.guardOperation('backup-restore', [], { backupName: name });",
+    "await window.logicEngineHostLifecycle.guardBulkMutation();",
   ];
   for (const guard of guards) {
     assert.ok(patch.includes(guard), `missing fail-closed Host guard: ${guard}`);
   }
+  const restoreStart = patch.indexOf('async restoreBackup(name)');
+  assert.ok(restoreStart >= 0);
+  assert.ok(patch.slice(restoreStart, restoreStart + 350).includes('guardBulkMutation'));
 });
