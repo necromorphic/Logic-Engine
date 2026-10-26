@@ -211,7 +211,7 @@ function heapPop(heap) {
   return root;
 }
 
-export function optionalTriggerValue(input, field, defaultValue) {
+function optionalTriggerValue(input, field, defaultValue) {
   if (!Object.hasOwn(input, field)) return defaultValue;
   const value = input[field];
   if (value === undefined) {
@@ -220,7 +220,7 @@ export function optionalTriggerValue(input, field, defaultValue) {
   return value;
 }
 
-function normalizeTimeTrigger(input, worldId) {
+export function normalizeTimeTrigger(input, worldId) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('INVALID_TRIGGER', 'Every trigger must be an object.');
   assertTriggerRecord(input);
   const trigger = {
