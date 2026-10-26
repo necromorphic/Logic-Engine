@@ -51,7 +51,7 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
     try {
       snapshot = engine.getSnapshot(worldId, { entityIds: [sourceEntityId] });
     } catch (error) {
-      if (error?.code === 'WORLD_NOT_FOUND') return false;
+      if (error?.code === 'WORLD_NOT_FOUND' || error?.code === 'ENTITY_NOT_FOUND') return false;
       // Preserve Provider's distinction between a stale/denied source and an
       // unavailable Core authority. Do not convert outages into ordinary false.
       throw new Error('CORE_SOURCE_SNAPSHOT_UNAVAILABLE');
