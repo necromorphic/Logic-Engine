@@ -155,3 +155,58 @@ test("unsupported and explicit-conflict assessments stop before transition evalu
     assert.equal(Object.hasOwn(result, "transitionStatus"), false);
   }
 });
+
+
+test("interpretation mismatch gates before evaluating a malformed transition patch", () => {
+  const result = evaluateInteractionDrivenRelationshipCandidate({
+    ...base,
+    expectedInterpretation: "sarcasm",
+    candidate: { ...candidate, patch: { trust: "not-in-domain" } },
+  });
+  assert.equal(result.status, "conflict_review_required");
+  assert.equal(result.reason, "candidate_interpretation_mismatch");
+  assert.equal(Object.hasOwn(result, "patch"), false);
+  assert.equal(Object.hasOwn(result, "transitionStatus"), false);
+});
+
+test("withheld evidence is fail-closed and exposes neither interpretation nor transition details", () => {
+  const result = evaluateInteractionDrivenRelationshipCandidate({
+    ...base,
+    assessments: [
+      { interpretation: "teasing", status: "supported", refs: ["event:E1"] },
+      { interpretation: "sarcasm", status: "withheld", refs: [] },
+    ],
+    candidate: { ...candidate, patch: { trust: "not-in-domain" } },
+  });
+  assert.deepEqual(result, {
+    status: "interaction_evidence_rejected",
+    assessmentStatus: "withheld",
+    reason: "interaction_assessment_withheld",
+  });
+});
+
+test("does not amplify repeated evidence references across otherwise matching assessments", () => {
+  const result = evaluateInteractionDrivenRelationshipCandidate({
+    ...base,
+    assessments: [
+      { interpretation: "teasing", status: "supported", refs: ["event:E1", "event:E2"] },
+      { interpretation: "teasing", status: "supported", refs: ["event:E1"] },
+    ],
+  });
+  assert.equal(result.status, "candidate");
+  assert.deepEqual(result.evidenceRefs, ["event:E1", "event:E2"]);
+});
+
+test("rejects sparse assessment arrays without reaching transition evaluation", () => {
+  const assessments = [];
+  assessments.length = 1;
+  const result = evaluateInteractionDrivenRelationshipCandidate({
+    ...base,
+    assessments,
+    candidate: { ...candidate, patch: { trust: "not-in-domain" } },
+  });
+  assert.equal(result.status, "interaction_evidence_rejected");
+  assert.equal(result.assessmentStatus, "invalid_input");
+  assert.equal(Object.hasOwn(result, "patch"), false);
+  assert.equal(Object.hasOwn(result, "transitionStatus"), false);
+});
