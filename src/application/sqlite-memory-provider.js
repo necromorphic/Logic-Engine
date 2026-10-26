@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { createHash } from 'node:crypto';
+import { isAbsolute } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -53,6 +54,9 @@ export class SQLiteMemoryProvider {
     this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
     if (path !== ':memory:' && (typeof coordinatorPath !== 'string' || !coordinatorPath.trim())) {
       throw new TypeError('File-backed Memory Provider requires the shared LOGIC_ENGINE_COORDINATOR_DB_PATH');
+    }
+    if (coordinatorPath && !isAbsolute(coordinatorPath)) {
+      throw new TypeError('Memory Provider coordinator path must be absolute and shared with Core');
     }
     this.reconcileGeneration = new Map();
     this.transactionDepth = 0;
