@@ -258,6 +258,30 @@ test('trigger payload normalization copies plain JSON data and canonicalizes neg
 });
 
 
+test('explicit undefined trigger fields are rejected instead of treated as omitted defaults', () => {
+  const fields = [
+    'status',
+    'dependencies',
+    'read_set',
+    'write_set',
+    'processing_mode',
+    'interrupt_after_coordinate',
+    'payload',
+  ];
+  for (const field of fields) {
+    assert.throws(
+      () => planDueWork({
+        world_id: 'world-a',
+        from_coordinate: 0,
+        to_coordinate: 5,
+        triggers: [trigger('undefined-' + field, 5, { [field]: undefined })],
+      }),
+      (error) => error.code === 'INVALID_TRIGGER_FIELD_VALUE',
+      field,
+    );
+  }
+});
+
 test('explicit null trigger policy fields are rejected rather than defaulted', () => {
   const cases = [
     { field: 'status', value: null, code: 'INVALID_TRIGGER_STATUS' },
