@@ -806,3 +806,35 @@ test("sparse candidate result arrays are malformed, not authorized complete-empt
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes("memory:claim-2"), false);
 });
+
+test("sparse summary lineage is not treated as complete authorized provenance", () => {
+  const sources = new Array(1);
+  const summary = candidate({
+    content_kind: "summary",
+    lineage: { status: "complete", sources },
+  });
+
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, []);
+});
+
+test("admitted metadata is detached from caller input and deeply frozen", () => {
+  const item = candidate();
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([item]));
+
+  item.record.ref = "memory:changed-after-admission";
+  item.record.version = "v999";
+  item.epistemic_kind = "rumor";
+  item.lifecycle.evidence_assessment = "disputed";
+
+  assert.deepEqual(result.admitted, [{
+    record_ref: "memory:claim-1",
+    record_version: "v3",
+    epistemic_kind: "acquired_report",
+    evidence_assessment: "unassessed",
+  }]);
+  assert.equal(Object.isFrozen(result), true);
+  assert.equal(Object.isFrozen(result.admitted), true);
+  assert.equal(Object.isFrozen(result.admitted[0]), true);
+});
