@@ -17,7 +17,7 @@ function setup(t, overrides = {}) {
     validateInventory: async () => true,
     ...overrides,
   });
-  t.after(() => provider.close());
+  t.after(() => { provider.close(); testDb.close(); testDb.cleanup(); });
   providerTestDbs.set(provider, testDb);
   return provider;
 }

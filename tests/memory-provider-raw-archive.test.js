@@ -21,11 +21,13 @@ function setup(t) {
     validateInventory: async () => true,
     authorizeRawRead: async () => true,
   });
+  const testDb = createProviderTestDb(t, { path });
+  providerTestDbs.set(provider, testDb);
   t.after(() => {
     try { provider.close(); } catch {}
+    testDb.close();
     rmSync(directory, { recursive: true, force: true });
   });
-  providerTestDbs.set(provider, createProviderTestDb(t, { path }));
   return provider;
 }
 
@@ -117,12 +119,14 @@ test('legacy raw purge removes only registered Provider copies and preserves ext
     validateInventory: async () => true,
   });
   const external = new DatabaseSync(externalPath);
+  const testDb = createProviderTestDb(t, { path: providerPath });
+  providerTestDbs.set(provider, testDb);
   t.after(() => {
     try { provider.close(); } catch {}
+    testDb.close();
     try { external.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
   });
-  providerTestDbs.set(provider, createProviderTestDb(t, { path: providerPath }));
 
   const selected = { world_id: 'legacy-w', conversation_id: 'legacy-c', message_id: 'legacy-m', version_id: 'legacy-v1' };
   const alternate = { ...selected, version_id: 'legacy-v2' };

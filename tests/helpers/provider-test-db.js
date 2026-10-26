@@ -14,12 +14,15 @@ export function createProviderTestDb(t, { path = null, prefix = 'logic-memory-pr
     throw new TypeError('Provider test DB requires a file-backed path');
   }
   let db = null;
-  t.after(() => {
-    try { db?.close(); } catch {}
-    if (ownedDirectory) rmSync(ownedDirectory, { recursive: true, force: true });
-  });
   return {
     path,
+    close() {
+      try { db?.close(); } catch {}
+      db = null;
+    },
+    cleanup() {
+      if (ownedDirectory) rmSync(ownedDirectory, { recursive: true, force: true });
+    },
     get db() {
       if (!db) {
         db = new DatabaseSync(path);

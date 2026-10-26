@@ -18,11 +18,12 @@ function setup(t, overrides = {}) {
     ...overrides,
   };
   let provider = new SQLiteMemoryProvider(options);
+  const testDb = createProviderTestDb(t, { path });
   t.after(() => {
     try { provider?.close(); } catch {}
+    testDb.close();
     rmSync(directory, { recursive: true, force: true });
   });
-  const testDb = createProviderTestDb(t, { path });
   return {
     db: testDb.db,
     get provider() { return provider; },

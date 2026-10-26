@@ -23,7 +23,7 @@ test('query authorization revoked during source validation is denied', async (t)
     },
     validateInventory: async () => true,
   });
-  t.after(() => provider.close());
+  t.after(() => { provider.close(); testDb.close(); testDb.cleanup(); });
 
   const scope = { world_id: 'race-world', subject_id: 'race-npc', purpose: 'npc_decision' };
   const record = {
