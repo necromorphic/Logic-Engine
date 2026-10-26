@@ -103,3 +103,60 @@ test("does not assign relationship deltas, reciprocity, intent, or consent", () 
     assert.equal(Object.hasOwn(result, key), false);
   }
 });
+
+
+test("withheld evidence dominates regardless of assessment order and never leaks a supported reading", () => {
+  const visible = supported("flirtation", ["event:E1"]);
+  const withheld = { interpretation: "sarcasm", status: "withheld", refs: [] };
+  for (const assessments of [[visible, withheld], [withheld, visible]]) {
+    const result = assessInteractionInterpretations({ assessments });
+    assert.deepEqual(result, {
+      status: "withheld",
+      reason: "interaction_assessment_withheld",
+    });
+    assert.equal(Object.hasOwn(result, "interpretation"), false);
+    assert.equal(Object.hasOwn(result, "evidenceRefs"), false);
+  }
+});
+
+test("rejects sparse assessment arrays and arrays with extra properties", () => {
+  const sparse = [];
+  sparse.length = 1;
+  const extended = [supported("flirtation")];
+  extended.note = "unexpected";
+  for (const assessments of [sparse, extended]) {
+    const result = assessInteractionInterpretations({ assessments });
+    assert.equal(result.status, "invalid_input");
+    assert.equal(result.reason, "assessments_required");
+  }
+});
+
+test("rejects accessor-backed assessments without invoking getters", () => {
+  let getterCalls = 0;
+  const unsafe = { status: "supported", refs: ["event:E1"] };
+  Object.defineProperty(unsafe, "interpretation", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "flirtation";
+    },
+  });
+  const result = assessInteractionInterpretations({ assessments: [unsafe] });
+  assert.equal(result.status, "invalid_input");
+  assert.equal(result.reason, "assessment_shape_invalid");
+  assert.equal(getterCalls, 0);
+});
+
+test("trims interpretation labels but does not count repeated source references twice", () => {
+  const result = assessInteractionInterpretations({
+    assessments: [
+      supported(" teasing ", ["event:E1", "event:E2"]),
+      supported("teasing", ["event:E1"]),
+    ],
+  });
+  assert.deepEqual(result, {
+    status: "supported",
+    interpretation: "teasing",
+    evidenceRefs: ["event:E1", "event:E2"],
+  });
+});
