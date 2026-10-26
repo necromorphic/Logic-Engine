@@ -345,3 +345,38 @@ Acceptance requires evidence from the actual owner components and real retrieval
 2. **Retention horizon and resource ceiling:** if the implementation cannot preserve all source material indefinitely, set the acceptable retention horizon/resource budget and what must happen when it is reached (for example, purge, archive/tier, or mark recall as degraded). The technical team should present measured cost/fidelity options before asking for this decision.
 
 No other product choice is required to complete the first technical comparison. Memory→NPC remains **DISABLED / FAIL-CLOSED** until the acquisition, source authority/currentness, lifecycle reconciliation, subject binding and final-send gates in §§7–10 are independently satisfied.
+
+
+## 12. 3D thinking / spatial-temporal world model — architectural status and next step (2026-10-26)
+
+**Status: previously recorded product direction; not yet a formally specified subsystem or an approved Core runtime component.** The intended capability is an internal, time-aware representation of where entities and objects are, their spatial relations, positions/poses, and changes/movement after events. Future visualization is optional and must not be confused with the reasoning/state model itself.
+
+### 12.1 Boundary: Core vs spatial-temporal subsystem
+
+Do not implement all spatial reasoning as ad hoc logic inside Core, and do not create a second canonical world-state store.
+
+- **Core remains authoritative** for canonical world state, event/transaction commit, world/session identity, revision and rollback semantics, and the approved interface through which world changes become canonical.
+- A future **Spatial/Temporal World Model** may be a separately testable engine subsystem that derives/maintains spatial relations and time-indexed scene state from canonical events/state through an approved Core-owned seam. It must not independently commit canonical facts or silently disagree with Core.
+- **Scene/episodic memory** consumes source-grounded events and, when available, spatial-temporal state as a complementary representation. It must retain provenance and must not infer that every NPC perceived every world-state change.
+- **Visualization/rendering** is a later optional consumer of the spatial-temporal model; no renderer or 3D graphics stack is required to prove the logical model.
+- The exact module owner, persistence model, update/replay contract and interfaces are **not yet approved**. This section establishes a boundary to investigate, not a new runtime API/schema or a commitment that a spatial subsystem already exists.
+
+### 12.2 Should development start now?
+
+**Yes: start a bounded design-and-feasibility track now, in parallel with the Memory→NPC critical path. Do not start a full production implementation or make it a prerequisite for current Memory→NPC work.**
+
+First deliverable should be a short architecture spike, not a new runtime store:
+1. Define the minimal spatial-temporal concepts required for a scene: entity/object identity, location/coordinate frame or relative spatial relations, orientation/pose where relevant, time/order, movement/change, uncertainty, and source provenance. This is a concept checklist, not field names.
+2. Identify which canonical events/state the current Core actually exposes and whether they are sufficient to derive the model. Map exact existing code paths and missing guarantees.
+3. Compare a derived in-memory projection, a persisted/rebuildable projection, event-linked scene records, and optional snapshots. Do not assume snapshots capture between-snapshot actions, dialogue, sounds, or viewpoint.
+4. Specify deterministic update, replay, rollback/rebuild, unknown/conflicting positions, object creation/removal, teleport/scene transition, and multiple-world isolation behavior.
+5. Define a small measurable prototype/test set: apply a sequence of supported movement/pose events; reconstruct state at a chosen time; replay and rollback; represent unknown/conflicting positions without guessing; verify that derived state never becomes canonical without Core commit.
+6. Report implementation owner, minimal seam, files/modules likely affected, dependency on Core event semantics, resource/cost estimate, and an explicit go/no-go recommendation before runtime integration.
+
+### 12.3 Priority and non-goals
+
+This track is **parallel exploratory architecture work**, not a blocker for Provider-local implementation, Host lifecycle evidence, NPC-only work, or the current Memory→NPC gate. It must not alter the existing Ollama vectorization/remote-store patch.
+
+Do not build a graphics engine, animation system, image/screenshot pipeline, or general-purpose physics simulator merely because the capability is called “3D thinking.” First prove the minimum logical spatial-temporal state model. A “snapshot” may be one derived representation, not the source of truth and not a substitute for a coherent episode.
+
+No new API/schema/store, Core event contract, or production dependency is approved by this section. After the spike, Core and the relevant subsystem owner must review the exact proposed boundary and tests before implementation crosses block boundaries.
