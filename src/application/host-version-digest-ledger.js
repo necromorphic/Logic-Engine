@@ -22,6 +22,7 @@ const isPlainDataRecord = (value) => {
   }
   return true;
 };
+const asyncFunctionPrototype = Object.getPrototypeOf(async function asyncFunctionPrototypeMarker() {});
 const isPlainDataArray = (value) => {
   if (!Array.isArray(value) || isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
   const keys = Reflect.ownKeys(value);
@@ -60,7 +61,9 @@ const aliasesSameFile = (left, right) => {
  * The inventory verifier must be a trusted Host/Core integration.
  */
 export class HostVersionDigestLedger {
-  constructor({ path, coordinatorPath, verifyInventorySnapshot }) {
+  constructor(options) {
+    if (!isPlainDataRecord(options)) throw new TypeError('A plain data options object is required');
+    const { path, coordinatorPath, verifyInventorySnapshot } = options;
     if (typeof path !== 'string' || !path.trim() || path === ':memory:') {
       throw new TypeError('A file-backed ledger path is required');
     }
@@ -205,7 +208,7 @@ export class HostVersionDigestLedger {
   }
 
   captureVersion(v) {
-    if (!validTuple(v) || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
+    if (!isPlainDataRecord(v) || !validTuple(v) || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
       throw new TypeError('Invalid digest-only Host version entry');
     }
     return this.#write(() => this.#captureVersionInWrite(v));
@@ -218,7 +221,7 @@ export class HostVersionDigestLedger {
    */
   captureBoundVersion(v) {
     const allowedKeys = new Set(['adapterId', 'conversationId', 'message_id', 'version_id', 'content_sha256', 'active', 'deleted', 'resolveBinding']);
-    if (!v || typeof v !== 'object' || Array.isArray(v)
+    if (!isPlainDataRecord(v)
       || Object.keys(v).some((key) => !allowedKeys.has(key))
       || !validId(v.adapterId) || !validId(v.conversationId)
       || typeof v.resolveBinding !== 'function'
@@ -229,7 +232,7 @@ export class HostVersionDigestLedger {
       || (v.deleted && v.active)) {
       throw new TypeError('Invalid bound Host version entry');
     }
-    if (v.resolveBinding.constructor?.name === 'AsyncFunction') {
+    if (isProxy(v.resolveBinding) || Object.getPrototypeOf(v.resolveBinding) === asyncFunctionPrototype) {
       throw new TypeError('Host binding resolution must be synchronous under the coordinator lease');
     }
     return this.#write(() => {
@@ -296,7 +299,7 @@ export class HostVersionDigestLedger {
   }
 
   selectActiveVersion(v) {
-    if (!validTuple(v)) throw new TypeError('Invalid Host version tuple');
+    if (!isPlainDataRecord(v) || !validTuple(v)) throw new TypeError('Invalid Host version tuple');
     return this.#write(() => {
       const row = this.#get(v);
       if (!row || row.lifecycle !== 'present') {
@@ -318,7 +321,7 @@ export class HostVersionDigestLedger {
   }
 
   tombstoneVersion(v) {
-    if (!validTuple(v)) throw new TypeError('Invalid Host version tuple');
+    if (!isPlainDataRecord(v) || !validTuple(v)) throw new TypeError('Invalid Host version tuple');
     return this.#write(() => {
       const row = this.#get(v);
       if (!row) {
