@@ -57,6 +57,38 @@ test('persists raw record identity/version and rebuilds its derived index after 
   assert.equal(result.candidates[0].source.entity_id, 'entity-source-a');
 });
 
+test('durable record survives ingest index-write failure and recovers after restart/rebuild', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  s.provider.db.exec(`CREATE TRIGGER fail_ingest_index_insert BEFORE INSERT ON memory_index_entries
+    BEGIN SELECT RAISE(ABORT, 'injected ingest index failure'); END;`);
+
+  assert.throws(() => s.provider.putRecord(s.record), /injected ingest index failure/);
+  assert.equal(s.provider.db.prepare(
+    'SELECT COUNT(*) AS count FROM memory_records WHERE world_id=? AND record_ref=?',
+  ).get(s.scope.world_id, s.record.record_ref).count, 1,
+  'durable source record must survive the separate derived-index failure');
+  assert.equal(s.provider.db.prepare(
+    'SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=? AND record_ref=?',
+  ).get(s.scope.world_id, s.record.record_ref).count, 0);
+  assert.deepEqual(s.provider.getIndexStatusForDiagnostics(s.scope.world_id), {
+    index_health: 'unavailable',
+    source_reconciliation: 'stale',
+    snapshot: null,
+    failure_code: 'INDEX_WRITE_FAILED',
+  });
+
+  s.provider.db.exec('DROP TRIGGER fail_ingest_index_insert');
+  s.reopen();
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  assert.deepEqual(await s.provider.rebuildIndex(s.scope.world_id), { status: 'rebuilt', count: 1 });
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  const result = await s.provider.retrieveCandidates(s.scope);
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].record.ref, s.record.record_ref);
+});
+
 test('denies by default and immediately honors record revocation', async (t) => {
   const s = setup(t);
   assert.equal(s.provider.authorizeQuery(s.scope), false);
