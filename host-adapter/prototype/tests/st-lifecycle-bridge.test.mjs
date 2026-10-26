@@ -183,7 +183,7 @@ test('malformed swipe and branch metadata cannot normalize to a valid empty inve
   malformedBranches.chat[0].extra = { branches: 'not-an-array' };
   const branchResult = await malformedBranches.bridge.verifyCurrentSource();
   assert.equal(branchResult.status, 'NON_READY');
-  assert.match(branchResult.reason, /malformed native branch-reference inventory/);
+  assert.match(branchResult.reason, /malformed native branch-reference inventory/i);
   assert.equal(branchResult.trustEvidence.liveSourceFingerprint, 'NOT_VERIFIED');
 
   const malformedSwipes = makeFixture([{ is_user: false, mes: 'hello' }]);
