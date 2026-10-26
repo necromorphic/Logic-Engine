@@ -36,7 +36,7 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
     const snapshot = engine.getSnapshot(id);
     return { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence };
   };
-  // Approved Core mapping for direct canonical_entity only. Inventory callback below remains test-only.
+  // Bounded test mapping for direct canonical_entity only; this does not prove production Core authority/wiring. Inventory callback below is test-only.
   const sourceVersionValidator = async (record) => {
     if (record.source_kind !== 'canonical_entity' || !record.source_entity_id) return false;
     if (triggerRace && record.record_ref === 'memory:record-b') {
