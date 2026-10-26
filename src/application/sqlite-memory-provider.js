@@ -742,6 +742,9 @@ export class SQLiteMemoryProvider {
     // Snapshot lookup is awaited. A query grant revoked while it was in flight
     // must not authorize this retrieval using the pre-await allow.
     if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+    if ((this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration) {
+      throw new Error('MEMORY_AUTHORIZATION_CHANGED');
+    }
 
     // A Provider write can invalidate readiness while getSnapshot() is awaited.
     // Re-read the readiness marker after the await; the earlier state object is
