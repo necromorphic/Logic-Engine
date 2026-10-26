@@ -29,13 +29,13 @@ echo
 
 echo '=== Outbound/client transport call-site hits (tracked source; generated/dependency dirs excluded) ==='
 rg -n --hidden --glob '!node_modules/**' --glob '!public/lib/**' --glob '!dist/**' --glob '!coverage/**' \
-  '(^|[^[:alnum:]_])(fetch|axios|got|undici|request)\\s*\\(|https?\\.request\\s*\\(|new WebSocket\\s*\\(|WebSocket\\(' \
+  '(^|[^[:alnum:]_])(fetch|axios|got|undici|request)\s*\(|https?\.request\s*\(|new WebSocket\s*\(|WebSocket\(' \
   public src server.js plugins.js 2>/dev/null || true
 
 echo
 echo '=== Server route declarations (review candidates, not all are inference routes) ==='
 rg -n --hidden --glob '!node_modules/**' --glob '!public/lib/**' --glob '!dist/**' --glob '!coverage/**' \
-  '(router|[[:alnum:]_]+Router|[[:alnum:]_]+)\\.(post|get|put|delete|patch)\\s*\\(' src/endpoints 2>/dev/null || true
+  '(router|[[:alnum:]_]+Router|[[:alnum:]_]+)\.(post|get|put|delete|patch)\s*\(' src/endpoints 2>/dev/null || true
 
 echo
 echo '=== Provider/media/local-inference route markers ==='
