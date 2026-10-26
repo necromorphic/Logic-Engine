@@ -1127,7 +1127,13 @@ test('untrusted Core snapshot objects with accessors or proxies fail closed with
   const proxied = setup(t, {
     getSnapshot: async () => new Proxy(
       { world_revision: 4, commit_sequence: 2 },
-      { get() { getterCalls += 1; throw new Error('snapshot proxy trap must not execute'); } },
+      { get(target, key, receiver) {
+        // Async callback resolution probes "then"; allow that protocol lookup
+        // without counting it as snapshot field access.
+        if (key === 'then') return undefined;
+        getterCalls += 1;
+        throw new Error('snapshot proxy trap must not execute');
+      } },
     ),
   });
   assert.deepEqual(await proxied.provider.reconcile(proxied.scope.world_id), {
