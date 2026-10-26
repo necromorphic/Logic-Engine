@@ -41,5 +41,6 @@ jobs:
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
+          node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js
       - name: Run all Host prototype tests
         run: node --test host-adapter/prototype/tests/*.test.mjs
