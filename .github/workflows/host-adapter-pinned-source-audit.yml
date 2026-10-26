@@ -20,7 +20,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Verify installed Node.js
-        shell: pwsh
+        shell: powershell
         run: |
           node --version
           $version = [version](node -p "process.versions.node")
@@ -39,7 +39,7 @@ jobs:
         run: npm ci --prefix SillyTavern
 
       - name: Verify pinned checkout
-        shell: pwsh
+        shell: powershell
         run: |
           $actual = (git -C SillyTavern rev-parse HEAD).Trim()
           if ($actual -ne "06bde939fb1e9c4c8d8641d810f0a916b5bce127") {
