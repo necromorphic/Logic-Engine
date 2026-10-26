@@ -210,6 +210,30 @@ test('Memory record denial is indistinguishable from an authorized empty candida
   assert.deepEqual(staleButDenied, result);
 });
 
+test('duplicate canonical entity identities in an authorized read fail closed', async (t) => {
+  const { consumer } = setup(t);
+  const originalRead = consumer.authorizedReadService.readEntityFields.bind(consumer.authorizedReadService);
+  consumer.authorizedReadService.readEntityFields = (args) => {
+    const result = originalRead(args);
+    if (Array.isArray(result?.entities) && args.fields.includes('attributes.public_note')) {
+      const source = result.entities.find((entity) => entity.entity_id === 'source-a');
+      if (source) {
+        return {
+          ...result,
+          entities: [...result.entities, { ...source, 'attributes.public_note': 'conflicting duplicate content' }],
+        };
+      }
+    }
+    return result;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'authorized_source_read_invalid');
+  assert.deepEqual(result.candidates, []);
+});
+
 test('authorized Memory record with missing canonical source is non-ready, not empty', async (t) => {
   const { consumer } = setup(t);
   const originalRead = consumer.authorizedReadService.readEntityFields.bind(consumer.authorizedReadService);
@@ -837,4 +861,31 @@ test('request accessors that throw fail closed without invoking Memory', async (
   assert.equal(result.reason, 'trusted_scope_incomplete');
   assert.equal(queryCalled, false);
   assert.equal(JSON.stringify(result).includes('private request getter'), false);
+});
+
+
+test('malformed Memory snapshot cursor values are non-ready, including matching invalid cursors', async (t) => {
+  const { consumer, provider, setCandidates, snapshot } = setup(t);
+  setCandidates([]);
+  const originalRetrieve = provider.retrieveCandidates;
+
+  for (const malformedSnapshot of [
+    { world_revision: -1, commit_sequence: snapshot.commit_sequence },
+    { world_revision: snapshot.world_revision + 0.5, commit_sequence: snapshot.commit_sequence },
+    { world_revision: Number.MAX_SAFE_INTEGER + 1, commit_sequence: snapshot.commit_sequence },
+    { world_revision: String(snapshot.world_revision), commit_sequence: snapshot.commit_sequence },
+    { world_revision: snapshot.world_revision, commit_sequence: String(snapshot.commit_sequence) },
+  ]) {
+    provider.retrieveCandidates = async () => ({
+      ...(await originalRetrieve()),
+      snapshot: malformedSnapshot,
+    });
+
+    const result = await consumer.retrieveForNpc(request());
+    assert.equal(result.status, 'non_ready');
+    assert.equal(result.reason, 'memory_result_incomplete_or_scope_mismatch');
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.candidates, []);
+    assert.equal(JSON.stringify(result).includes(JSON.stringify(malformedSnapshot)), false);
+  }
 });
