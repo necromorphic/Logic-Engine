@@ -159,6 +159,12 @@ test('Host-owned live source verification reports local match as non-authoritati
   const matching = await f.bridge.verifyCurrentSource();
   assert.equal(matching.status, 'LOCAL_MATCH_NON_AUTHORITATIVE');
   assert.equal(matching.trustDecision, 'NON_READY');
+  assert.equal(matching.trustEvidence.localJournalIntegrity, 'VERIFIED');
+  assert.equal(matching.trustEvidence.liveSourceFingerprint, 'MATCH');
+  assert.equal(matching.trustEvidence.identityVersionMapping, 'MATCH');
+  assert.equal(matching.trustEvidence.sourceAuthenticity, 'UNPROVEN');
+  assert.equal(matching.trustEvidence.rollbackResistance, 'UNPROVEN');
+  assert.equal(matching.trustEvidence.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
   f.chat[0].mes = 'untracked external edit';
   const drift = await f.bridge.verifyCurrentSource();
   assert.equal(drift.status, 'NON_READY');
@@ -172,6 +178,8 @@ test('Host source verification rejects identity metadata tampering even when mes
   const result = await f.bridge.verifyCurrentSource();
   assert.equal(result.status, 'NON_READY');
   assert.match(result.reason, /identity\/version inventory mismatch/);
+  assert.equal(result.trustEvidence.identityVersionMapping, 'MISMATCH');
+  assert.equal(result.trustEvidence.sourceAuthenticity, 'UNPROVEN');
 });
 
 test('enrolled bridge writes event IDs and advances the fingerprint after an edit', async () => {
