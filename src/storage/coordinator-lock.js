@@ -46,6 +46,9 @@ export function beginCoordinatorLock(db) {
  */
 export function withCoordinatorLock(db, callback) {
   if (typeof callback !== 'function') throw new TypeError('A synchronous coordinator callback is required.');
+  if (callback.constructor?.name === 'AsyncFunction') {
+    throw new TypeError('Coordinator callback must be synchronous; do not await while a coordinator lease is held.');
+  }
   const release = beginCoordinatorLock(db);
   try {
     const result = callback();
