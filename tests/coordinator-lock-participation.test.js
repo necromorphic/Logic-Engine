@@ -40,16 +40,29 @@ test('separate Core stores serialize their write transactions through the shared
     store.close();
   `;
   const env = { ...process.env, LOGIC_ENGINE_COORDINATOR_DB_PATH: coordinatorPath };
-  const start = (dbPath, markerPath, holdMs) => spawn(process.execPath,
-    ['--input-type=module', '-e', childScript, dbPath, markerPath, String(holdMs)],
-    { env, stdio: 'ignore' });
+  const start = (dbPath, markerPath, holdMs) => {
+    const child = spawn(process.execPath,
+      ['--input-type=module', '-e', childScript, dbPath, markerPath, String(holdMs)],
+      { env, stdio: 'ignore' });
+    // Attach immediately: a short-lived child may exit before the test reaches
+    // the later synchronization point, and Node does not replay the exit event.
+    const exited = new Promise((resolveExit, reject) => {
+      child.once('error', reject);
+      child.once('exit', (code, signal) => code === 0
+        ? resolveExit({ code, signal })
+        : reject(new Error('child exited with code=' + code + ', signal=' + signal)));
+    });
+    return { child, exited };
+  };
 
   let p1;
   let p2;
   try {
-    p1 = start(coreA, firstEntered, 500);
+    const firstProc = start(coreA, firstEntered, 500);
+    p1 = firstProc.child;
     await waitForFile(firstEntered);
-    p2 = start(coreB, secondEntered, 0);
+    const secondProc = start(coreB, secondEntered, 0);
+    p2 = secondProc.child;
     await delay(120);
     assert.equal(existsSync(secondEntered), false,
       'the second Core DB must not enter its write transaction while the first holds the shared coordinator');
