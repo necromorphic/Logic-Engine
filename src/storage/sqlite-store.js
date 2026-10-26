@@ -173,6 +173,14 @@ export class SQLiteStore {
     if (coordinatorPath) mkdirSync(dirname(resolve(coordinatorPath)), { recursive: true });
     this.coordinatorDb = coordinatorPath ? new DatabaseSync(coordinatorPath) : null;
     this.coordinatorDb?.exec('PRAGMA busy_timeout=5000;');
+    this.coordinatorDepth = 0;
+    // Schema creation and migrations are writes too; acquire the shared lock
+    // before the first DDL and retain it across all migrations.
+    if (this.coordinatorDb) {
+      this.coordinatorDb.exec('BEGIN IMMEDIATE');
+      this.coordinatorDepth = 1;
+    }
+    try {
     this.db.exec(`
       PRAGMA foreign_keys=ON;
       PRAGMA busy_timeout=5000;
@@ -258,6 +266,17 @@ export class SQLiteStore {
       );
     `);
     this.migrate();
+    if (this.coordinatorDepth > 0) {
+      this.coordinatorDb.exec('ROLLBACK'); // lock-only transaction: no coordinator data is changed
+      this.coordinatorDepth = 0;
+    }
+    } catch (error) {
+      try { if (this.coordinatorDepth > 0) this.coordinatorDb.exec('ROLLBACK'); } catch {}
+      this.coordinatorDepth = 0;
+      try { this.db.close(); } catch {}
+      try { this.coordinatorDb?.close(); } catch {}
+      throw error;
+    }
   }
 
   migrate() {
@@ -515,7 +534,7 @@ export class SQLiteStore {
     let coordinatorHeld = false;
     let committed = false;
     try {
-      if (this.coordinatorDb) {
+      if (this.coordinatorDb && this.coordinatorDepth === 0) {
         this.coordinatorDb.exec('BEGIN IMMEDIATE');
         coordinatorHeld = true;
       }
@@ -534,7 +553,9 @@ export class SQLiteStore {
       }
     } finally {
       if (coordinatorHeld) {
-        this.coordinatorDb.exec(committed ? 'COMMIT' : 'ROLLBACK');
+        // The coordinator DB is a lock primitive, not a data store. Rollback
+        // releases its write lock without introducing a second commit point.
+        this.coordinatorDb.exec('ROLLBACK');
       }
     }
   }
