@@ -108,6 +108,7 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
         else if (operation === 'putRecord') provider.putRecord(record);
         // Test-only fixture mutation: simulate a previously durable record whose derived index write failed.
         else if (operation === 'removeIndexEntryForTest') provider.db.prepare('DELETE FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?').run(record.world_id, record.record_ref, record.record_version);
+        else if (operation === 'clearRecordForRaceTest') { provider.db.prepare('DELETE FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?').run(record.world_id, record.record_ref, record.record_version); provider.db.prepare('DELETE FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?').run(record.world_id, record.record_ref, record.record_version); }
         else if (operation === 'tombstone') provider.markRawSourceDeleted({ world_id:'world-coordinator', conversation_id:'conversation', message_id:'message', version_id:'v1' });
         else if (operation === 'purge') provider.purgeRawSource({ world_id:'world-coordinator', conversation_id:'conversation', message_id:'message', version_id:'v1' });
         else if (operation === 'rebuildIndex') await provider.rebuildIndex(scope.world_id);
@@ -189,6 +190,30 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
     await waitFor(() => providerProc.messages.some((message) => message.id === repairId));
     assert.equal(providerProc.messages.find((message) => message.id === repairId).ok, true);
     await assertBlockedByCoreLock('putRecord');
+
+    // Two Provider processes concurrently ingesting the same identity must serialize
+    // the identity lookup as well as the durable record/index phases.
+    const secondReadyPath = join(dir, 'provider-second-ready');
+    const secondProviderProc = startChild(providerScript, [providerPath, secondReadyPath]);
+    try {
+      await waitFor(() => existsSync(secondReadyPath));
+      const clearId = ++nextId;
+      providerProc.child.stdin.write(JSON.stringify({ id: clearId, operation: 'clearRecordForRaceTest' }) + '\n');
+      await waitFor(() => providerProc.messages.some((message) => message.id === clearId));
+      assert.equal(providerProc.messages.find((message) => message.id === clearId).ok, true);
+      const firstRaceId = ++nextId;
+      const secondRaceId = firstRaceId + 1000;
+      providerProc.child.stdin.write(JSON.stringify({ id: firstRaceId, operation: 'putRecord' }) + '\n');
+      secondProviderProc.child.stdin.write(JSON.stringify({ id: secondRaceId, operation: 'putRecord' }) + '\n');
+      await waitFor(() => providerProc.messages.some((message) => message.id === firstRaceId));
+      await waitFor(() => secondProviderProc.messages.some((message) => message.id === secondRaceId));
+      assert.equal(providerProc.messages.find((message) => message.id === firstRaceId).ok, true,
+        'first concurrent ingest should succeed');
+      assert.equal(secondProviderProc.messages.find((message) => message.id === secondRaceId).ok, true,
+        'second identical ingest should resolve as duplicate, not fail with a primary-key race');
+    } finally {
+      secondProviderProc.child.kill();
+    }
 
     // A fresh Provider DB must also take the shared lock around schema creation/migration.
     const migrationPath = join(dir, 'provider-migration.sqlite');
