@@ -601,6 +601,16 @@ export class LogicEngine {
     }
   }
 
+  // Canonical commit boundary for routes that must prepare a specialized event
+  // before persistence (for example mechanic-instance lifecycle operations).
+  // Callers must not reach through Engine to SQLiteStore directly: the store's
+  // coordinator lease is acquired by this single persistence boundary.
+  commitPreparedEvent(id, prepared) {
+    assert(typeof id === 'string' && id.trim(), 'WORLD_ID_REQUIRED', 'A world id is required.');
+    assert(obj(prepared), 'INVALID_PREPARED_EVENT', 'A prepared event is required.');
+    return this.store.commit(id, prepared);
+  }
+
   commitEvent(id, x, options = {}) {
     const prepared = this.prepareEventForWorld(id, x, options);
     if (options.mechanicExecution !== undefined && options.mechanicExecution !== null) {
