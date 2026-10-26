@@ -403,3 +403,35 @@ test('single record revoked during NPC candidate validation returns non-ready, n
   assert.deepEqual(result.admitted, []);
   assert.notEqual(result.status, 'ready');
 });
+
+test('a real Core source mutation after reconciliation blocks NPC retrieval without leaking stale content', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  const before = s.engine.getSnapshot(s.scope.world_id);
+  const changed = s.engine.commitEvent(s.scope.world_id, {
+    event_id: 'provider-e2e-source-change',
+    idempotency_key: 'provider-e2e-source-change',
+    turn_id: 'provider-e2e-source-change',
+    event_type: 'action.completed',
+    expected_revision: before.world_revision,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'source-a' } }],
+    effects: [{
+      kind: 'entity.update',
+      entity_id: 'source-a',
+      attributes: { public_note: 'changed after Provider reconciliation' },
+    }],
+  });
+  assert.equal(changed.accepted, true);
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    adapterId: 'provider-e2e-adapter',
+    actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+  assert.equal(JSON.stringify(result).includes('changed after Provider reconciliation'), false);
+});
