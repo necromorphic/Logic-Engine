@@ -58,9 +58,10 @@ export class HostVersionDigestLedger {
       .all(worldId, conversationId);
     const pointers = this.db.prepare('SELECT message_id,version_id,updated_at FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? ORDER BY message_id')
       .all(worldId, conversationId);
-    const state = this.db.prepare('SELECT status,snapshot_digest,failure_code,updated_at FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
-      .get(worldId, conversationId) ?? null;
-    return digest(JSON.stringify({ versions, pointers, state }));
+    // Inventory-state writes are publication outcomes, not Host ledger
+    // mutations. Excluding them lets identical concurrent reconciliations
+    // converge instead of one invalidating the other's READY result.
+    return digest(JSON.stringify({ versions, pointers }));
   }
 
   #invalidateReadiness(worldId, conversationId, now) {
