@@ -51,7 +51,7 @@ export function evaluateNpcDecisionPrototype(candidates) {
       feasibility: candidate.feasibility,
       preference: candidate.preference,
     };
-  }).sort((a, b) => a.id.localeCompare(b.id));
+  }).sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
 
   const unknown = normalized.filter((candidate) => candidate.feasibility === "unknown");
   const feasible = normalized.filter((candidate) => candidate.feasibility === "feasible");
