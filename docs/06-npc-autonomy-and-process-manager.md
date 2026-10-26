@@ -702,7 +702,7 @@ This is **not** a production API, not a production decision frame, and not an en
 
 ### 18.3 Test and evidence status
 
-The nine test cases cover unique feasible preference, unknown-feasibility deferral, tie deferral independent of input order, all-blocked and empty inputs, malformed/duplicate identity, deterministic behavior under reordering, unsupported feasibility states, and non-finite preferences. GitHub Actions `Runtime tests` run `40352380822` for commit `2219ba2b873c8e7bfb691cfe014163443bdf1c14` later showed both `npm test` and the additional recalculation-oracle harness step as **success**; the overall workflow run was subsequently marked **cancelled**, so do not report the overall workflow as green. This is remote CI evidence, not a local test run.
+The ten test cases cover unique feasible preference, unknown-feasibility deferral, tie deferral independent of input order, all-blocked and empty inputs, malformed/duplicate identity, deterministic behavior under reordering, unsupported feasibility states, non-finite preferences, and locale-independent candidate-ID ordering. On commit `d7bd3f4ea160a8f83ad9b64d0034eed9944ef12b`, GitHub Actions `Runtime tests` run `40356912387` completed with overall **success**; both `npm test` and `node --test experiments/recalculation-oracle/harness.test.mjs` passed. This is remote CI evidence, not a local test run.
 
 This slice demonstrates only the pure ranking/deferral rule. It does not establish that the multi-kernel architecture is integrated, production-safe, or capable of autonomous world changes. The next gate is to observe CI, then review the prototype against the existing NPC test conventions and ask Core to identify the approved path for actor-bound context, pinned rules, proposal creation, and autonomous authorization. Keep Memory→NPC disabled/fail-closed.
 
@@ -783,3 +783,12 @@ This yields a concrete boundary for further work:
 - A real integration requires an owner-approved rule for how an NPC-selected intent becomes a proposal, who/what supplies the approval credential for autonomous actions, how multi-NPC conflicts are represented, and what to do when the executor returns `unknown` or `rejected`. These are cross-owner policy decisions, not gaps that can safely be filled inside the NPC block alone.
 
 **Current blocker from this workstream:** we can characterize and test existing components, but cannot legitimately wire the prototype to the application path without an approved NPC candidate/decision contract and an explicit Core-owned autonomous approval policy. No such policy or production caller was found in the inspected paths. This is a contract boundary, not a failing test.
+
+
+## 23. Locale-independent candidate ordering (26 Oct 2026)
+
+The NPC decision prototype now sorts candidate IDs using explicit JavaScript string relational comparison rather than `localeCompare`. This removes locale-sensitive collation from the prototype's deterministic output ordering. The ordering is technical canonicalization only; it is not a priority, fairness rule, tie-break between equally preferred actions, or authorization decision.
+
+A regression test was added first and observed failing on commit `415ab1f0dff772b990efa6647812417c1eab6991`: for IDs `"a"` and `"Z"`, the prior comparator returned locale order `["a", "Z"]`, while the required code-unit order is `["Z", "a"]`. The implementation change is in commit `d7bd3f4ea160a8f83ad9b64d0034eed9944ef12b`. GitHub Actions Runtime tests run `40356912387` completed with overall **success**, including `npm test` and the recalculation-oracle harness.
+
+This is a determinism hardening of the isolated pure prototype only. It does not add a production caller, connect mechanic evaluator outcomes to NPC feasibility, or authorize/propose/commit actions. Memory→NPC remains disabled/fail-closed.
