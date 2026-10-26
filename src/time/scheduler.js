@@ -55,6 +55,24 @@ function stringSet(value, name, max = 1000) {
   return normalized.sort();
 }
 
+function assertDueWorkRequest(input) {
+  const allowed = new Set([
+    'world_id', 'from_coordinate', 'to_coordinate', 'triggers', 'completed_trigger_ids',
+  ]);
+  const invalid = () => fail('INVALID_DUE_WORK_REQUEST', 'Due-work request fields must be own enumerable data properties on a plain object.');
+  const prototype = Object.getPrototypeOf(input);
+  if (prototype !== Object.prototype && prototype !== null) invalid();
+  for (const key of Reflect.ownKeys(input)) {
+    if (typeof key !== 'string' || !allowed.has(key)) {
+      fail('INVALID_DUE_WORK_FIELD', 'Due-work request contains an unsupported field.', {
+        field: typeof key === 'string' ? key : String(key),
+      });
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) invalid();
+  }
+}
+
 function assertTriggerRecord(input) {
   // The durable registry returns lifecycle metadata alongside the immutable
   // trigger definition. These fields are accepted only as known registry
@@ -359,6 +377,7 @@ function segmentAtCoordinate(triggers, dependencies) {
  */
 export function planDueWork(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('INVALID_DUE_WORK_REQUEST', 'Due-work request must be an object.');
+  assertDueWorkRequest(input);
   const worldId = nonEmptyString(input.world_id, 'world_id');
   const from = safeInteger(input.from_coordinate, 'from_coordinate');
   const to = safeInteger(input.to_coordinate, 'to_coordinate');
