@@ -160,3 +160,62 @@ test("trims interpretation labels but does not count repeated source references 
     evidenceRefs: ["event:E1", "event:E2"],
   });
 });
+
+
+test("status precedence is deterministic for every ordering of valid assessments", () => {
+  const cases = [
+    {
+      items: [
+        { interpretation: "teasing", status: "insufficient", refs: [] },
+        { interpretation: "teasing", status: "conflict", refs: [] },
+        { interpretation: "teasing", status: "unsupported", refs: [] },
+        { interpretation: "teasing", status: "withheld", refs: [] },
+      ],
+      expected: "withheld",
+    },
+    {
+      items: [
+        { interpretation: "teasing", status: "insufficient", refs: [] },
+        { interpretation: "teasing", status: "conflict", refs: [] },
+        { interpretation: "teasing", status: "unsupported", refs: [] },
+      ],
+      expected: "unsupported",
+    },
+    {
+      items: [
+        { interpretation: "teasing", status: "insufficient", refs: [] },
+        { interpretation: "teasing", status: "conflict", refs: [] },
+      ],
+      expected: "conflict_review_required",
+    },
+  ];
+
+  const permutations = (items) => {
+    if (items.length < 2) return [items];
+    return items.flatMap((item, index) =>
+      permutations([...items.slice(0, index), ...items.slice(index + 1)])
+        .map((tail) => [item, ...tail]));
+  };
+
+  for (const { items, expected } of cases) {
+    for (const order of permutations(items)) {
+      assert.equal(
+        assessInteractionInterpretations({ assessments: order }).status,
+        expected,
+      );
+    }
+  }
+});
+
+test("invalid assessment shape is rejected even when another assessment is withheld", () => {
+  const result = assessInteractionInterpretations({
+    assessments: [
+      { interpretation: "teasing", status: "withheld", refs: [] },
+      { interpretation: "sarcasm", status: "supported", refs: ["event:E1"], extra: true },
+    ],
+  });
+  assert.equal(result.status, "invalid_input");
+  assert.equal(result.reason, "assessment_shape_invalid");
+  assert.equal(Object.hasOwn(result, "interpretation"), false);
+  assert.equal(Object.hasOwn(result, "evidenceRefs"), false);
+});
