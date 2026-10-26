@@ -7,7 +7,7 @@ diff --git a/public/script.js b/public/script.js
 +import { createStLifecycleBridge, createUnavailableStLifecycleBridge } from './scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs';
  
  import { humanizedDateTime, favsToHotswap, getMessageTimeStamp, dragElement, isMobile, initRossMods } from './scripts/RossAscends-mods.js';
-@@ -1583,23 +1585,102 @@
+@@ -1583,23 +1585,107 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -316,7 +316,7 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.beforeMutation('import-character-chat');
 +
      const fetchResult = await fetch('/api/chats/import', {
-@@ -10731,9 +10834,13 @@
+@@ -10731,9 +10737,13 @@
  export async function renameChat(oldFileName, newName) {
 -    return await renameGroupOrCharacterChat({
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
@@ -331,7 +331,7 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.afterMutation('rename-chat');
 +    return result;
  }
-@@ -10828,2 +10834,7 @@
+@@ -10828,2 +10838,7 @@
  export async function deleteCharacter(characterKey, { deleteChats = true } = {}) {
 +    if (deleteChats) {
 +        const lifecycleBridge = await getLogicEngineLifecycleBridge();
