@@ -158,3 +158,57 @@ test('reconciliation rechecks Provider record inventory after the final awaited 
   assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
   assert.equal((await provider.retrieveCandidates(scope)).candidates.length, 2);
 });
+
+
+test('older concurrent reconciliation cannot overwrite a newer stale result', async (t) => {
+  let validationCalls = 0;
+  let signalFirstValidation;
+  let releaseFirstValidation;
+  const firstValidationStarted = new Promise((resolve) => { signalFirstValidation = resolve; });
+  const firstValidationGate = new Promise((resolve) => { releaseFirstValidation = resolve; });
+  const provider = new SQLiteMemoryProvider({
+    getSnapshot: async () => ({ world_revision: 10, commit_sequence: 5 }),
+    validateSourceVersion: async () => {
+      validationCalls += 1;
+      if (validationCalls === 1) {
+        signalFirstValidation();
+        await firstValidationGate;
+        return true;
+      }
+      return false;
+    },
+    validateInventory: async () => true,
+  });
+  t.after(() => provider.close());
+
+  const scope = { world_id: 'world-concurrent-reconcile', subject_id: 'npc-concurrent-reconcile', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'memory:concurrent-reconcile',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'entity-concurrent-reconcile',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'memory-index',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-concurrent-reconcile', source_version: 'source-v1' }],
+  };
+  provider.grantQuery(scope, true);
+  provider.putRecord(record);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  await provider.rebuildIndex(scope.world_id);
+
+  const olderRun = provider.reconcile(scope.world_id);
+  await firstValidationStarted;
+  const newerRun = await provider.reconcile(scope.world_id);
+  assert.deepEqual(newerRun, { status: 'stale', reason: 'SOURCE_VALIDATION_FAILED' });
+  assert.notEqual(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'current');
+
+  releaseFirstValidation();
+  assert.deepEqual(await olderRun, { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' });
+  assert.notEqual(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'current');
+  await assert.rejects(() => provider.retrieveCandidates(scope), /MEMORY_INDEX_NOT_READY/);
+});
