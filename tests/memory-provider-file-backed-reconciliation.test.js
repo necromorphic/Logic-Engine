@@ -121,6 +121,25 @@ test('file-backed Provider restart/rebuild preserves current direct source and d
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
 });
 
+test('file-backed Provider keeps query revocation across restart and index rebuild', async (t) => {
+  const s = setup(t);
+  const source = s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'] }).entities[0];
+  const record = recordFor(s.scope, 'source-a', source.updated_revision, 'memory:query-revoke-restart');
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, record.record_ref, record.record_version, true);
+  assert.equal(s.provider.putRecord(record).status, 'stored');
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  assert.equal((await s.provider.retrieveCandidates(s.scope)).candidates.length, 1);
+
+  s.provider.grantQuery(s.scope, false);
+  s.replaceProvider();
+  assert.deepEqual(await s.provider.rebuildIndex(s.scope.world_id), { status: 'rebuilt', count: 1 });
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  assert.equal(s.provider.authorizeQuery(s.scope), false);
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_QUERY_DENIED/);
+});
+
 test('file-backed Provider rejects a pinned R2 source after Core rolls the entity back to R1', async (t) => {
   const s = setup(t);
   const beforeUpdate = s.engine.getSnapshot(s.scope.world_id);
