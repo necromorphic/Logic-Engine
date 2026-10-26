@@ -213,6 +213,74 @@ test('identical concurrent reconciliations converge to READY', async (t) => {
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'READY');
 });
 
+test('reconciliation cannot republish READY after a concurrent digest conflict', async (t) => {
+  let blockVerification = false;
+  let entered;
+  let release;
+  const enteredPromise = new Promise((resolve) => { entered = resolve; });
+  const releasePromise = new Promise((resolve) => { release = resolve; });
+  const ledger = setup(t, async () => {
+    if (blockVerification) {
+      entered();
+      await releasePromise;
+    }
+    return true;
+  });
+  const snapshot = {
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  };
+  assert.equal((await ledger.reconcileConversation(snapshot)).status, 'ready');
+
+  blockVerification = true;
+  const pending = ledger.reconcileConversation(snapshot);
+  await enteredPromise;
+  assert.deepEqual(ledger.captureVersion(entry({
+    content_sha256: digest('concurrent conflicting digest')
+  })), { status: 'conflict', code: 'HOST_VERSION_DIGEST_CONFLICT' });
+  release();
+
+  assert.deepEqual(await pending, {
+    status: 'non_ready', code: 'HOST_LEDGER_CHANGED_DURING_VERIFICATION'
+  });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code,
+    'HOST_LEDGER_CHANGED_DURING_VERIFICATION');
+});
+
+test('reconciliation cannot republish READY after a concurrent unknown tombstone', async (t) => {
+  let blockVerification = false;
+  let entered;
+  let release;
+  const enteredPromise = new Promise((resolve) => { entered = resolve; });
+  const releasePromise = new Promise((resolve) => { release = resolve; });
+  const ledger = setup(t, async () => {
+    if (blockVerification) {
+      entered();
+      await releasePromise;
+    }
+    return true;
+  });
+  const snapshot = {
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  };
+  assert.equal((await ledger.reconcileConversation(snapshot)).status, 'ready');
+
+  blockVerification = true;
+  const pending = ledger.reconcileConversation(snapshot);
+  await enteredPromise;
+  assert.deepEqual(ledger.tombstoneVersion({
+    ...tuple, message_id: 'missing-message', version_id: 'missing-version'
+  }), { status: 'non_ready', code: 'HOST_VERSION_UNKNOWN' });
+  release();
+
+  assert.deepEqual(await pending, {
+    status: 'non_ready', code: 'HOST_LEDGER_CHANGED_DURING_VERIFICATION'
+  });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code,
+    'HOST_LEDGER_CHANGED_DURING_VERIFICATION');
+});
+
 test('reconciliation rejects if ledger changes while the verifier is awaiting', async (t) => {
   let entered;
   let release;
