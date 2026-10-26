@@ -24,7 +24,7 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,105 @@
+@@ -1583,23 +1593,122 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -51,6 +51,19 @@ diff --git a/public/script.js b/public/script.js
 +            getSourceLocator: getCurrentChatId,
 +            getChat: () => chat,
 +            saveChat: () => saveChatConditional(),
++            publishDigest: async entry => {
++                const response = await fetch('/api/logic-engine/host-version-ledger/capture', {
++                    method: 'POST',
++                    headers: { 'Content-Type': 'application/json' },
++                    body: JSON.stringify(entry),
++                });
++                const payload = await response.json().catch(() => null);
++                if (!response.ok) {
++                    const code = typeof payload?.error?.code === 'string' ? ' (' + payload.error.code + ')' : '';
++                    throw Error('Core digest capture rejected with HTTP ' + response.status + code);
++                }
++                return payload;
++            },
 +        })).catch(async error => {
 +            const conversationId = await getLogicEngineConversationId().catch(() => getCurrentChatId());
 +            const marker = 'logic-engine-host-lifecycle:' + conversationId;
@@ -107,6 +120,10 @@ diff --git a/public/script.js b/public/script.js
 +                throw error;
 +            }
 +        },
++        syncCurrentDigestInventory: async () =>
++            (await getLogicEngineLifecycleBridge()).syncCurrentDigestInventory(),
++        getCoreCaptureStatus: async () =>
++            (await getLogicEngineLifecycleBridge()).getCoreCaptureStatus(),
 +    };
 +}
 +
@@ -433,3 +450,32 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 +    await window.logicEngineHostLifecycle.completeOperation('edit-message');
  
      return newName;
+
+diff --git a/src/server-startup.js b/src/server-startup.js
+--- a/src/server-startup.js
++++ b/src/server-startup.js
+@@ -51,6 +51,7 @@ import { router as dataMaidRouter } from './endpoints/data-maid.js';
+ import { router as backupsRouter } from './endpoints/backups.js';
+ import { router as imageMetadataRouter } from './endpoints/image-metadata.js';
+ import { router as volcengineRouter } from './endpoints/volcengine.js';
++import { router as logicEngineLifecycleRouter } from './endpoints/logic-engine-lifecycle.js';
+ 
+ /**
+  * @typedef {object} ServerStartupResult
+@@ -185,5 +186,6 @@ export function setupPrivateEndpoints(app) {
+     app.use('/api/data-maid', dataMaidRouter);
+     app.use('/api/backups', backupsRouter);
+     app.use('/api/image-metadata', imageMetadataRouter);
++    app.use('/api/logic-engine', logicEngineLifecycleRouter);
+ }
+ 
+diff --git a/src/endpoints/logic-engine-lifecycle.js b/src/endpoints/logic-engine-lifecycle.js
+new file mode 100644
+--- /dev/null
++++ b/src/endpoints/logic-engine-lifecycle.js
+@@ -0,0 +1,5 @@
++import express from 'express';
++import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
++
++export const router = express.Router();
++router.post('/host-version-ledger/capture', createHostDigestProxyHandler());

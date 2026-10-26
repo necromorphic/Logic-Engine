@@ -13,8 +13,76 @@ const newId = () => {
  * Opt-in adapter boundary for explicit native ST hooks.
  * This is not a complete inventory until every mutation path is wired and tested.
  */
-export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat }) {
+export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null }) {
   if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
+  if (publishDigest !== null && typeof publishDigest !== 'function') throw TypeError('publishDigest must be a trusted callback');
+  const publishQueues = new Map();
+  const coreCaptureStates = new Map();
+
+  async function publishCurrentDigestInventory(conversationId, chat, tombstones = []) {
+    if (!publishDigest) {
+      const state = { status: 'NOT_CONFIGURED', published: false, versionCount: 0 };
+      coreCaptureStates.set(conversationId, state);
+      return state;
+    }
+    const entries = [];
+    for (const message of chat) {
+      const identity = message?._logicEngineLifecycle;
+      if (!identity || !Array.isArray(identity.versions) || !identity.versions.length
+        || !Number.isInteger(identity.activeVersionIndex)
+        || identity.activeVersionIndex < 0 || identity.activeVersionIndex >= identity.versions.length) {
+        throw Error('NON_READY: cannot publish Host version inventory with missing identity metadata');
+      }
+      for (let index = 0; index < identity.versions.length; index++) {
+        const version = identity.versions[index];
+        if (!version?.versionId || !/^[a-f0-9]{64}$/.test(version.payloadDigest)) {
+          throw Error('NON_READY: cannot publish Host version inventory with invalid digest identity');
+        }
+        entries.push({
+          conversation_id: conversationId,
+          message_id: identity.messageId,
+          version_id: version.versionId,
+          content_sha256: version.payloadDigest,
+          active: index === identity.activeVersionIndex,
+          deleted: false,
+        });
+      }
+    }
+    // Inactive versions go first; the selected version is the final pointer
+    // update for each message. This is transport ordering, not inventory proof.
+    entries.sort((a, b) => Number(a.active) - Number(b.active)
+      || a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id));
+    for (const tombstone of tombstones) {
+      if (!tombstone || typeof tombstone.messageId !== 'string' || typeof tombstone.versionId !== 'string'
+        || !/^[a-f0-9]{64}$/.test(tombstone.payloadDigest)) {
+        throw Error('NON_READY: cannot publish malformed Host tombstone');
+      }
+      entries.push({
+        conversation_id: conversationId,
+        message_id: tombstone.messageId,
+        version_id: tombstone.versionId,
+        content_sha256: tombstone.payloadDigest,
+        active: false,
+        deleted: true,
+      });
+    }
+    const previous = publishQueues.get(conversationId) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(async () => {
+      for (const entry of entries) {
+        try { await publishDigest(entry); } catch {
+          const state = { status: 'NON_READY', published: false, versionCount: entries.length };
+          coreCaptureStates.set(conversationId, state);
+          return state;
+        }
+      }
+      const state = { status: 'CAPTURED_REVIEW_ONLY', published: true, versionCount: entries.length };
+      coreCaptureStates.set(conversationId, state);
+      return state;
+    });
+    publishQueues.set(conversationId, current);
+    try { return await current; }
+    finally { if (publishQueues.get(conversationId) === current) publishQueues.delete(conversationId); }
+  }
 
   async function currentFingerprint(chat = getChat()) {
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
@@ -53,12 +121,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       // fingerprint/identity validation must fail closed; enrollment cannot be retried.
       throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
     }
+    const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
     return {
       conversationId,
       baselineSequence: result.baselineSequence,
       preEnrollmentHistory: result.preEnrollmentHistory,
       messageCount: chat.length,
       status: 'REVIEW_ONLY',
+      coreCaptureStatus: coreCapture.status,
     };
   }
 
@@ -230,6 +300,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         });
         identity.versions.splice(removedSwipeIndex, 1);
       }
+      const priorVersionInventory = identity.versions.slice();
       const nextVersions = [];
       for (let j = 0; j < versions.length; j++) {
         const textDigest = await contentDigest(versions[j]);
@@ -238,6 +309,18 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           // Slot indexes can shift when a swipe is deleted; version identity must not.
           nextVersions.push({ ...prior, versionIndex: j });
         } else {
+          if (prior) {
+            tombstones.push({
+              messageId: identity.messageId,
+              versionId: prior.versionId,
+              versionIndex: prior.versionIndex ?? j,
+              payloadDigest: prior.payloadDigest,
+              parentVersionId: prior.parentVersionId ?? null,
+              deleted: true,
+              active: false,
+              reason: 'version-replaced',
+            });
+          }
           const versionId = newId();
           const parentVersionId = prior?.versionId
             ?? identity.versions[identity.activeVersionIndex]?.versionId
@@ -258,6 +341,22 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
             payloadDigest: textDigest,
           });
         }
+      }
+      const retainedVersionIds = new Set(nextVersions.map(version => version.versionId));
+      for (const priorVersion of priorVersionInventory) {
+        if (retainedVersionIds.has(priorVersion.versionId)
+          || tombstones.some(tombstone => tombstone.messageId === identity.messageId
+            && tombstone.versionId === priorVersion.versionId)) continue;
+        tombstones.push({
+          messageId: identity.messageId,
+          versionId: priorVersion.versionId,
+          versionIndex: priorVersion.versionIndex,
+          payloadDigest: priorVersion.payloadDigest,
+          parentVersionId: priorVersion.parentVersionId ?? null,
+          deleted: true,
+          active: false,
+          reason: 'version-removed',
+        });
       }
       identity.versions = nextVersions;
       identity.activeVersionIndex = activeIndex(message);
@@ -282,7 +381,37 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       payload: { changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones },
     });
     if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
-    return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY' };
+    const coreCapture = await publishCurrentDigestInventory(conversationId, chat, tombstones);
+    return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY', coreCaptureStatus: coreCapture.status };
+  }
+
+  async function syncCurrentDigestInventory() {
+    const conversationId = await getConversationId();
+    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    const integrity = await journal.verifyIntegrity(conversationId);
+    if (integrity.status !== 'INTEGRITY_OK') return { status: 'NON_READY', reason: integrity.reason };
+    const chat = getChat();
+    const fingerprint = await currentFingerprint(chat);
+    if (integrity.sourceFingerprint !== fingerprint) {
+      return { status: 'NON_READY', reason: 'current Host source differs from the durable journal checkpoint' };
+    }
+    await assertIdentitySnapshotMatches(conversationId, chat);
+    const exported = await journal.exportCaptureLedger(conversationId);
+    if (exported.status !== 'REVIEW_ONLY' || !Array.isArray(exported.records)) {
+      return { status: 'NON_READY', reason: 'durable Host journal cannot provide a replayable digest ledger' };
+    }
+    const tombstoneMap = new Map();
+    for (const record of exported.records) {
+      for (const tombstone of record.payload?.tombstones ?? []) {
+        tombstoneMap.set(JSON.stringify([tombstone.messageId, tombstone.versionId]), tombstone);
+      }
+    }
+    return publishCurrentDigestInventory(conversationId, chat, [...tombstoneMap.values()]);
+  }
+
+  function getCoreCaptureStatus() {
+    const conversationId = getConversationId();
+    return Promise.resolve(conversationId).then(id => id ? (coreCaptureStates.get(id) ?? { status: 'NOT_SYNCED' }) : { status: 'NO_CONVERSATION' });
   }
 
   async function reconcileCurrentConversation() {
@@ -376,6 +505,8 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     enrollCurrentConversation,
     beforeMutation,
     afterMutation,
+    syncCurrentDigestInventory,
+    getCoreCaptureStatus,
     currentFingerprint,
     reconcileCurrentConversation,
   });

@@ -57,7 +57,7 @@ class FakeDB {
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 
-function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, mes: 'answer' }]) {
+function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, mes: 'answer' }], { publishDigest = null } = {}) {
   let failSave = false;
   const db = new FakeDB();
   const journal = new HostLifecycleJournal(db);
@@ -68,6 +68,7 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
     getConversationId: () => 'chat-1',
     getSourceLocator: () => sourceLocator,
     getChat: () => chat,
+    publishDigest,
     saveChat: async () => {
       saveCount++;
       if (failSave) throw Error('simulated native chat save failure');
@@ -75,6 +76,82 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   });
   return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
+
+test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
+  const published = [];
+  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }], {
+    publishDigest: async entry => { published.push(structuredClone(entry)); },
+  });
+  await f.bridge.enrollCurrentConversation();
+  assert.equal(published.length, 2);
+  assert.deepEqual(published.map(entry => entry.active), [false, true]);
+  assert.ok(published.every(entry => entry.conversation_id === 'chat-1'
+    && /^[a-f0-9]{64}$/.test(entry.content_sha256)
+    && !Object.keys(entry).some(key => /raw|text_body|content_text|message_body/i.test(key))));
+  published.length = 0;
+
+  const oldVersionIds = f.chat[0]._logicEngineLifecycle.versions.map(version => version.versionId);
+  await f.bridge.beforeMutation('edit-message', [0]);
+  f.chat[0].mes = 'edited answer';
+  f.chat[0].swipes = ['edited answer'];
+  f.chat[0].swipe_id = 0;
+  await f.bridge.afterMutation('edit-message');
+
+  assert.equal(published.length, 3);
+  assert.equal(published[0].active, true);
+  assert.equal(published[0].deleted, false);
+  assert.deepEqual(new Set(published.slice(1).map(entry => entry.version_id)), new Set(oldVersionIds));
+  assert.ok(published.slice(1).every(entry => entry.deleted === true && entry.active === false));
+  assert.ok(published.every(entry => !JSON.stringify(entry).includes('edited answer')));
+});
+
+test('digest sync retry replays durable tombstones after a partial failed publication', async () => {
+  let fail = false;
+  const published = [];
+  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }], {
+    publishDigest: async entry => {
+      if (fail) throw Error('upstream unavailable');
+      published.push(structuredClone(entry));
+    },
+  });
+  await f.bridge.enrollCurrentConversation();
+  published.length = 0;
+  const removedVersionId = f.chat[0]._logicEngineLifecycle.versions[0].versionId;
+
+  await f.bridge.beforeMutation('delete-swipe', [0], { swipeIndex: 0 });
+  f.chat[0].swipes.splice(0, 1);
+  f.chat[0].mes = 'swipe B';
+  f.chat[0].swipe_id = 0;
+  fail = true;
+  const after = await f.bridge.afterMutation('delete-swipe', { removedSwipeIndex: 0, selectedMessageIndex: 0 });
+  assert.equal(after.coreCaptureStatus, 'NON_READY');
+
+  fail = false;
+  published.length = 0;
+  const retry = await f.bridge.syncCurrentDigestInventory();
+  assert.equal(retry.status, 'CAPTURED_REVIEW_ONLY');
+  assert.ok(published.some(entry => entry.version_id === removedVersionId
+    && entry.deleted === true && entry.active === false));
+});
+
+test('Core publisher failure stays NON_READY and can be retried without re-enrolling', async () => {
+  let fail = true;
+  const f = makeFixture([{ is_user: false, mes: 'hello' }], {
+    publishDigest: async () => {
+      if (fail) throw Error('upstream contains sensitive details');
+    },
+  });
+  const enrollment = await f.bridge.enrollCurrentConversation();
+  assert.equal(enrollment.coreCaptureStatus, 'NON_READY');
+  assert.equal(f.saveCount, 1);
+  assert.ok(f.chat[0]._logicEngineLifecycle?.messageId);
+
+  fail = false;
+  const retry = await f.bridge.syncCurrentDigestInventory();
+  assert.equal(retry.status, 'CAPTURED_REVIEW_ONLY');
+  assert.equal(retry.published, true);
+  assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'CAPTURED_REVIEW_ONLY');
+});
 
 test('enrolled bridge writes event IDs and advances the fingerprint after an edit', async () => {
   const f = makeFixture();
