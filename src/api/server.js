@@ -5,6 +5,7 @@ import { hashRequest } from '../core/request-hash.js';
 import { ProposalService } from '../application/proposals.js';
 import { ActorBindingService } from '../application/actor-bindings.js';
 import { AuthorizedReadService } from '../application/authorized-read-service.js';
+import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
 
 const MAX = 1048576;
 
@@ -77,6 +78,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     validateMechanicPolicy: createActiveMechanicPolicyValidator(getActiveMechanicContextProvider),
   });
   const actorBindings = new ActorBindingService(engine);
+  const hostConversationBindings = new HostConversationWorldBindingService(engine);
   // Until a canonical visibility schema exists, disclose only the bound actor's
   // own non-attribute identity fields. This intentionally denies all attributes.
   const defaultAuthorizedReadFieldPolicy = (context, entity, field) => entity.entity_id === context.actor.entity_id
@@ -135,6 +137,58 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       if (req.method === 'GET' && registryParts[0] === 'v1' && registryParts[1] === 'rule-modules' && registryParts.length === 4) {
         return send(res, 200, engine.getRuleModuleManifest(decodeURIComponent(registryParts[2]), decodeURIComponent(registryParts[3])));
       }
+      if (url.pathname === '/v1/host-conversation-bindings') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host conversation binding operation.' } });
+        if (!secretMatches(req.headers['x-admin-token'], adminToken)) {
+          return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'Host conversation binding requires a separate administrative credential.' } });
+        }
+        const body = await readBody(req);
+        const allowed = ['adapter_id', 'conversation_id', 'world_id', 'rebind', 'reason'];
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => !allowed.includes(key))
+          || !['adapter_id', 'conversation_id', 'world_id'].every((key) => typeof body[key] === 'string')) {
+          throw new EngineError('INVALID_HOST_CONVERSATION_BINDING',
+            'Binding accepts adapter_id, conversation_id, world_id, and optional explicit rebind/reason.', 400);
+        }
+        const binding = hostConversationBindings.bind({
+          adapterId: body.adapter_id, conversationId: body.conversation_id, worldId: body.world_id,
+          rebind: body.rebind ?? false, reason: body.reason ?? null,
+        });
+        return send(res, binding.already_bound ? 200 : 201, { binding });
+      }
+      if (url.pathname === '/v1/host-conversation-bindings/resolve') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host conversation resolution operation.' } });
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => key !== 'conversation_id')
+          || typeof body.conversation_id !== 'string') {
+          throw new EngineError('INVALID_HOST_CONVERSATION_RESOLUTION',
+            'Resolution accepts only conversation_id; world_id and adapter_id are derived by Core.', 400);
+        }
+        return send(res, 200, { binding: hostConversationBindings.resolve({
+          adapterId, conversationId: body.conversation_id,
+        }) });
+      }
+      const hostBindingParts = url.pathname.split('/').filter(Boolean);
+      if (hostBindingParts[0] === 'v1' && hostBindingParts[1] === 'host-conversation-bindings'
+        && hostBindingParts.length === 4 && req.method === 'DELETE') {
+        if (!secretMatches(req.headers['x-admin-token'], adminToken)) {
+          return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'Host conversation revocation requires a separate administrative credential.' } });
+        }
+        const body = await readBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => key !== 'reason') || typeof body.reason !== 'string') {
+          throw new EngineError('INVALID_HOST_CONVERSATION_BINDING',
+            'Revocation accepts an audit reason.', 400);
+        }
+        return send(res, 200, { binding: hostConversationBindings.revoke({
+          adapterId: decodeURIComponent(hostBindingParts[2]),
+          conversationId: decodeURIComponent(hostBindingParts[3]), reason: body.reason,
+        }) });
+      }
+
       if (req.method === 'POST' && url.pathname === '/v1/worlds') {
         if (!secretMatches(req.headers['x-admin-token'], adminToken)) {
           return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'World creation requires a separate administrative credential.' } });
