@@ -399,3 +399,20 @@ test('event-only capture rejects a deleted version that is also marked active', 
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code, 'HOST_VERSION_DELETED_ACTIVE');
 });
 
+test('complete inventory cannot silently omit a previously tombstoned version', async (t) => {
+  const ledger = setup(t, async () => true);
+  assert.equal(ledger.captureVersion(entry()).status, 'captured');
+  assert.deepEqual(ledger.tombstoneVersion(tuple), { status: 'tombstoned' });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+
+  const result = await ledger.reconcileConversation({
+    world_id: tuple.world_id,
+    conversation_id: tuple.conversation_id,
+    complete: true,
+    versions: [],
+  });
+  assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_DISAPPEARANCE' });
+  assert.equal(ledger.db.prepare('SELECT lifecycle FROM host_version_digest_ledger WHERE version_id=?').get(tuple.version_id).lifecycle, 'tombstoned');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code, 'HOST_INVENTORY_DISAPPEARANCE');
+});
