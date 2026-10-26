@@ -18,6 +18,9 @@
 | Retry, crash, ambiguous acknowledgement and restore cannot duplicate/resurrect disclosure | No single cross-owner durable dispatch-start contract exists yet | Acceptance scenarios are listed in `memory-disclosure-dispatch-implementation-plan.md`; no real end-to-end route test | Product/Security + Host/Adapter + Provider + Core | Decision and mechanism still required before runtime implementation. |
 | Existing vectorization remains untouched | Separate ST vector patch is outside Core source paths | PR #357 scope statement and this audit | Host/Adapter / project owner | No changes authorized or made here. |
 
+
+| Host-requested callable final-disclosure authorization contract | Existing `AuthorizedReadService.readEntityFields` / `readEntityAttributeForMechanic` in `src/application/authorized-read-service.js` | New Core proposal: `docs/architecture/core-final-disclosure-authorization-contract-proposal.md` | Core + Provider + Host/Adapter + Product/Security | No approved callable final-send contract exists today. Existing reads are internal field-read seams, not a final-send authorization; a preflight followed by phone-side direct fetch is insufficient. Proposal only; no runtime endpoint/wiring. |
+
 ## Decision summary
 
 - **Core source-version predicate:** keep the only approved `canonical_entity` rule narrow and fail closed.
