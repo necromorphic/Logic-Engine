@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Host IndexedDB persistence test</title></head>
+<body>
+  <output id="result">running</output>
+  <script type="module">
+    import { HostLifecycleJournal } from '/lifecycle-journal.mjs';
+
+    const conversationId = 'browser-storage-restart-conversation';
+    const secret = 'RAW_HOST_TEXT_SENTINEL_NOT_EXPECTED_IN_LEDGER';
+    const mode = new URL(location.href).searchParams.get('mode');
+
+    try {
+      const journal = await HostLifecycleJournal.open('logic-engine-host-lifecycle-browser-test');
+      if (mode === 'write') {
+        await journal.enroll({
+          conversationId,
+          sourceFingerprint: 'fingerprint-before',
+          messages: [{ role: 'user', text: secret }],
+        });
+        await journal.append({
+          conversationId,
+          eventId: 'browser-storage-restart-event',
+          operation: 'after:test',
+          sourceFingerprint: 'fingerprint-after',
+          payload: { changes: [], versionPayloads: [], tombstones: [] },
+        });
+      }
+      const integrity = await journal.verifyIntegrity(conversationId);
+      const ledger = await journal.exportCaptureLedger(conversationId);
+      document.body.dataset.result = JSON.stringify({
+        mode,
+        integrity: integrity.status,
+        sequence: ledger.sequence,
+        recordCount: ledger.records.length,
+        rawTextPresent: JSON.stringify(ledger).includes(secret),
+        sourceFingerprint: integrity.sourceFingerprint,
+      });
+    } catch (error) {
+      document.body.dataset.error = String(error?.stack || error);
+      document.body.dataset.result = JSON.stringify({ mode, error: String(error?.message || error) });
+    }
+  </script>
+</body>
+</html>
