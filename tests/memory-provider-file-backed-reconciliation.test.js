@@ -14,11 +14,11 @@ function makeProviderOptions(engine, path) {
       const snapshot = engine.getSnapshot(worldId);
       return { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence };
     },
-    // Approved mapping for direct canonical_entity only: source_version must
+    // Bounded integration-test mapping for direct canonical_entity only: source_version must
     // equal the canonical decimal encoding of Core's current updated_revision.
     // Missing, destroyed, unknown, wrong-world, mismatched, and unavailable
     // entities fail closed. This callback reads Core; it does not infer authority
-    // from Provider metadata or from the composite world snapshot cursor.
+    // from Provider metadata or from the composite world snapshot cursor. This injected test callback is not production authority.
     validateSourceVersion: async (record) => {
       if (record.source_kind !== 'canonical_entity'
         || typeof record.source_entity_id !== 'string'
