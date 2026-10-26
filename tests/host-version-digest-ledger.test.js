@@ -60,6 +60,7 @@ test('untrusted inventory snapshot cannot make ledger ready', async (t) => {
     world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
   }), { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' });
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 });
 
 test('trusted complete snapshot recovers missed capture and publishes readiness', async (t) => {
@@ -109,6 +110,7 @@ test('snapshot with two active versions for one message is rejected', async (t) 
   });
   assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS' });
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 });
 
 test('trusted snapshot rebuild clears a stale active pointer when no version is active', async (t) => {
@@ -130,5 +132,18 @@ test('tombstoned version reappearance marks conversation NON_READY', async (t) =
     world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
   });
   assert.deepEqual(result, { status: 'non_ready', code: 'HOST_TOMBSTONE_REAPPEARED' });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+});
+
+test('rejected inventory cannot leave a previously READY state published', async (t) => {
+  const ledger = setup(t, async () => true);
+  assert.equal((await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  })).status, 'ready');
+  const result = await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true,
+    versions: [entry(), entry({ version_id: 'version-b', content_sha256: digest('second'), active: true })]
+  });
+  assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS' });
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 });
