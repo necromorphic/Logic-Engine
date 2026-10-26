@@ -109,3 +109,46 @@ test('single-version message may omit swipe_id because there is no alternate sel
   assert.equal(result.rows.length, 1);
   assert.equal(result.rows[0].active, true);
 });
+
+const ledgerVersion = (versionId, text, versionIndex = 0, parentVersionId = null) => ({
+  versionId, versionIndex, payloadDigest: hostDigest(text), parentVersionId,
+});
+const ledgerMessage = (messageId, versions, activeVersionIndex = 0) => ({
+  messageId, messageIndex: 0, activeVersionIndex, versions,
+});
+const captureLedger = records => ({
+  status: 'REVIEW_ONLY',
+  conversationId: 'conversation-1',
+  captureBoundary: 'enrollment-forward-only',
+  records: records.map((record, index) => ({
+    sequence: index + 1,
+    conversationId: 'conversation-1',
+    ...record,
+  })),
+});
+
+test('capture-ledger projection preserves edit lineage and remains review-only', () => {
+  const v0 = ledgerVersion('version-0', 'old text');
+  const v1 = ledgerVersion('version-1', 'edited text', 0, 'version-0');
+  const result = projectHostCaptureLedgerForComparison(captureLedger([
+    { operation: 'baseline', payload: { messages: [ledgerMessage('message-1', [v0])] } },
+    { operation: 'before:edit-message', payload: { affectedVersions: [{
+      messageId: 'message-1', versionId: 'version-0', payloadDigest: v0.payloadDigest,
+    }] } },
+    { operation: 'after:edit-message', payload: {
+      versionPayloads: [{ messageId: 'message-1', ...v1 }],
+      tombstones: [],
+      changes: [ledgerMessage('message-1', [v1])],
+    } },
+  ]));
+  assert.equal(result.status, 'REVIEW_ONLY');
+  assert.equal(result.authority, 'NON_AUTHORITATIVE');
+  assert.equal(result.completeness, 'UNPROVEN');
+  assert.equal(result.world_id, undefined);
+  assert.deepEqual(result.rows.map(row => [row.version_id, row.active, row.deleted, row.current]), [
+    ['version-0', false, false, false],
+    ['version-1', true, false, true],
+  ]);
+  assert.ok(result.blockers.includes('CORE_WORLD_BINDING_MISSING'));
+});
+
