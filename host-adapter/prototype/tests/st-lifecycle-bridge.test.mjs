@@ -193,6 +193,21 @@ test('malformed swipe and branch metadata cannot normalize to a valid empty inve
   assert.equal(swipeResult.status, 'NON_READY');
   assert.match(swipeResult.reason, /malformed native swipe inventory/);
   assert.equal(swipeResult.trustEvidence.identityVersionMapping, 'MISMATCH');
+
+  const malformedActiveSwipe = makeFixture([{ is_user: false, mes: 'hello' }]);
+  await malformedActiveSwipe.bridge.enrollCurrentConversation();
+  malformedActiveSwipe.chat[0].swipe_id = '0';
+  const activeSwipeResult = await malformedActiveSwipe.bridge.verifyCurrentSource();
+  assert.equal(activeSwipeResult.status, 'NON_READY');
+  assert.match(activeSwipeResult.reason, /malformed native active-swipe index/i);
+  assert.equal(activeSwipeResult.trustEvidence.identityVersionMapping, 'MISMATCH');
+
+  const outOfRangeSwipe = makeFixture([{ is_user: false, mes: 'hello', swipes: ['hello', 'other'], swipe_id: 0 }]);
+  await outOfRangeSwipe.bridge.enrollCurrentConversation();
+  outOfRangeSwipe.chat[0].swipe_id = 2;
+  const outOfRangeResult = await outOfRangeSwipe.bridge.verifyCurrentSource();
+  assert.equal(outOfRangeResult.status, 'NON_READY');
+  assert.match(outOfRangeResult.reason, /active-swipe index is out of range/i);
 });
 
 test('Host-owned live source verification reports local match as non-authoritative and detects drift', async () => {
