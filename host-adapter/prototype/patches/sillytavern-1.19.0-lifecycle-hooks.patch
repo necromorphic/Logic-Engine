@@ -7,6 +7,21 @@ diff --git a/public/script.js b/public/script.js
 +import { createStLifecycleBridge, createUnavailableStLifecycleBridge } from './scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs';
  
  import { humanizedDateTime, favsToHotswap, getMessageTimeStamp, dragElement, isMobile, initRossMods } from './scripts/RossAscends-mods.js';
+@@ -1586,6 +1586,10 @@
+ export async function clearChat({ clearData = false } = {}) {
+@@ -1607,6 +1607,13 @@
+ export async function deleteLastMessage() {
++    const lifecycleBridge = await getLogicEngineLifecycleBridge();
++    const lifecycleBefore = chat.length
++        ? await lifecycleBridge.beforeMutation('delete-message', [chat.length - 1])
++        : { status: 'NOT_ENROLLED' };
+     deleteItemizedPromptForMessage(chat.length - 1);
+     chat.length = chat.length - 1;
++    if (lifecycleBefore.status !== 'NOT_ENROLLED') await saveChatConditional();
++    await lifecycleBridge.afterMutation('delete-message');
+     chatElement.children('.mes').last().remove();
+     await eventSource.emit(event_types.MESSAGE_DELETED, chat.length);
+ }
 @@ -1583,23 +1585,65 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
