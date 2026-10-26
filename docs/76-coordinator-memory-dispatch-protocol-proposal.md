@@ -239,3 +239,23 @@ The Provider test now proves that an R2-pinned record is rejected after rollback
 - Final subject-relative disclosure gate and revoke-to-dispatch serialization: **NO APPROVED CALLABLE SEAM / NOT PROVEN**.
 - Raw Host/ST text retention remains unapproved.
 - Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+## 12. Superseding Provider predicate checkpoint — precision gap closed on exact head (26 Oct 2026)
+
+This section supersedes the open Provider source-status/revision precision item in section 11.
+
+- Provider PR #344 exact head: `1d8440593fd7103b17cde706a0f74e1846685d3c`.
+- Exact-head Runtime CI: [#40304970964](https://github.com/necromorphic/Logic-Engine/actions/runs/40304970964) — **PASS**.
+- `npm test`: **606/606 passed**; recalculation oracle: **8/8 passed**.
+- Both the real-component integration test dependency and file-backed test dependency now require the source to exist in the same world, have `status === 'active'`, have a non-negative safe-integer `updated_revision`, and match the Provider's canonical decimal `source_version`.
+- The integration tests explicitly exercise unknown status and negative revision as stale/non-retrievable, and the stale comment denying the approved bounded mapping has been corrected.
+
+This closes the **Provider test acceptance precision** item only. The validator is still injected into tests; it is not a production-wired Core-authorized adapter. The positive `validateInventory` callback remains test-only and does not prove Host inventory completeness. The file-backed rollback test proves the R2-pinned Provider record becomes stale if the source is restored to R1 or is absent/destroyed; it does not close the separately requested Core invariant that rollback restores the prior R1 entity projection.
+
+The remaining global gates are unchanged:
+- Provider's compact existing-operation → typed outcome/evidence map is still requested; Provider has explicitly reported **NO PROVIDER-OWNED SERIALIZED DISPATCH SEAM**.
+- Host pinned-ST recording-fake-provider harness still lacks an evidenced execution artifact/result.
+- Complete active + historical/deleted Host inventory and old-backup anti-rollback remain **NON_READY/UNSUPPORTED**.
+- Final subject-relative disclosure gate and revoke-to-dispatch serialization remain **NOT APPROVED / NOT PROVEN**.
+- Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
