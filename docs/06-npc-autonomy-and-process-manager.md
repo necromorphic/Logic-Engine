@@ -130,3 +130,35 @@ The engine must not secretly rewrite NPC motives, beliefs, or prior actions sole
 
 A mandatory CT is therefore a constraint on story progression, not a command that every NPC must obey or a license to falsify causal history. The engine must keep the distinction between an NPC's intention, the action they actually take, the action's resolved outcome, and the resulting CT status.
 
+### 8.6 Example: staged death, public grief, and a concealed identity
+
+This is a required capability scenario for design and future acceptance tests, not a claim that the current runtime already implements it.
+
+**Initial state:** The player character stages their own death. Their husband knows privately that they are alive, but publicly performs grief to protect the cover and manage other people's beliefs. Other NPCs do not automatically share his private knowledge. On the following day, the player character appears in his organization as a secretary under a different identity.
+
+The engine should preserve several distinct layers at once:
+
+- **World facts:** the death was staged; the husband privately knows the player character survived; the secretary has appeared under a cover identity.
+- **Publicly established events:** the apparent death and the husband's visible grief occurred and remain part of social history even though the grief was performative.
+- **Per-NPC epistemic state:** what each NPC witnessed, was told, believes, doubts, suspects, or does not know. The husband's private knowledge must not leak to others without an in-world information path.
+- **Social memory and open questions:** the sudden arrival of a secretary, hiring/provenance, timing after the apparent death, the husband's public behavior, and any inconsistencies noticed by observers remain available to influence later decisions.
+
+NPCs should react autonomously according to personality, relationship, role, goals, access to evidence, and risk tolerance. Some may ask the husband who the secretary is, how she was hired so quickly, or how he is coping after his wife's apparent death. Others may notice that his behavior seems inconsistent with his public grief, quietly compare timelines, investigate, discuss suspicions with trusted people, spread rumors, exploit the situation, or dismiss it as ordinary. No single reaction is mandatory for every NPC.
+
+The engine must distinguish **observation → suspicion/hypothesis → corroboration → belief/knowledge**. A resemblance, unusual timing, gesture, voice, or other clue can raise suspicion but must not automatically reveal the cover. NPCs may reach different conclusions from the same evidence; they can be mistaken, deceive others, or revise their beliefs when new evidence arrives. Investigation and rumors must have causal sources and information paths, not omniscient access.
+
+The husband should respond according to his own goals and the public cover, potentially deflecting, lying, providing a plausible explanation, or privately coordinating with the secretary. The engine must not choose or narrate the player character's actions, words, thoughts, or consent on the player's behalf. It may create NPC initiatives and consequences around the player, but must leave the player's response to the player.
+
+Crucially, the prior public grief is not erased by the secretary's arrival, and the new identity is not automatically exposed. The situation should continue to generate social consequences over time: questions can remain unanswered, suspicions can grow or fade, rumors can spread, and NPCs can act on incorrect theories. These outcomes should arise from durable world state, per-character knowledge/beliefs, social memory, autonomous action selection, and persisted consequences—not from relying on the language model to remember the whole sequence from chat history alone.
+
+**Acceptance criteria for a future vertical slice:**
+
+1. Persist the staged-death event, the public grief performance, and the secretary's arrival as distinct events with provenance and chronology.
+2. Demonstrate that the husband knows the truth while selected other NPCs do not, unless a valid information path changes their knowledge.
+3. Given different NPC profiles and evidence, produce differentiated reactions (for example, a direct question, quiet suspicion, an investigation, or no concern) without forcing all NPCs into the same response.
+4. Preserve the difference between fact, observation, suspicion, belief, and confirmed knowledge across a restart/replay.
+5. Make investigations, conversations, and rumors create traceable information flow and potentially change later NPC beliefs/actions.
+6. Do not identify the player character solely because the story requires drama; do not erase public grief or make NPCs forget it without a causal reason.
+7. Keep player-character agency intact: NPCs can initiate and react, but the system does not author the player's side of the interaction.
+
+These criteria are aspirational until implemented and demonstrated in the real runtime. Prompt-only examples or fixture-only callbacks are not proof of production capability.
