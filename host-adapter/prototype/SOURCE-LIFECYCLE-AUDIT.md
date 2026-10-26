@@ -23,7 +23,7 @@ Source links below are pinned to that SHA. The patch in this PR is a separate re
 | Clear chat | `clearChat({ clearData = false })` clears UI, and only when `clearData` is true sets `chat.length = 0`. | This function is also used by reload. Treating every call as a user deletion would be wrong; capture must distinguish clear-data lifecycle and subsequent reload. | Source-confirmed |
 | Persistence | `saveChatConditional()`, `saveChatDebounced()`, and `saveChat()` are distinct call paths. Some mutation paths await save, others schedule debounced save. | A hook after an awaited save cannot retroactively provide write-ahead protection; a hook before a debounced save cannot prove durable persistence. | Source-confirmed |
 | Restart / replay | Source history is reconstructed by loading the chat; this pinned-source review did not run a browser/device restart. | Native history can be re-read, but no built-in durable logical message/version IDs are established by the cited fields. Reconciliation must compare a full inventory/fingerprint and fail closed on mismatch. | Experiment not run |
-| Import/export/copy/restore/migration | Server routes include `/api/chats/export`, `/api/chats/import`, and group import routes in `src/server-startup.js`; separate source paths handle historical chats. | These paths can replace or duplicate histories outside the currently hooked in-memory mutation points. No authoritative all-time inventory is available from the current Host prototype. | Source-confirmed routes; Host instrumentation missing |
+| Import/export/copy/restore/migration | Server routes include `/api/chats/export`, `/api/chats/import`, and group import routes in `src/server-startup.js`; separate source paths handle historical chats. | These paths can replace or duplicate histories outside the currently hooked in-memory mutation points. The current candidate now fails closed on UI chat imports and backup restore when any enrolled Host history exists, guards target-aware single-chat deletion/rename, and blocks bulk character/group deletion when enrollment markers exist. Direct server API calls, external edits, export/copy lineage, and a complete authoritative all-time inventory remain unproven. | Source-confirmed routes; Host instrumentation missing |
 | External edits / rollback | No universal mutation event in the reviewed Host paths establishes that external file edits, backup restore, or rollback have been observed. | A current-history fingerprint mismatch can detect some divergence only when the conversation is revisited; it cannot reconstruct missing deleted versions. | Not guaranteed |
 
 ## Identity conclusion
@@ -32,7 +32,7 @@ The pinned Host data shown in these paths primarily uses chat indexes and mutabl
 
 ## Prototype implementation status
 
-The current candidate PR #323 implements an opt-in IndexedDB journal and patch hooks for a subset of mutation paths. It remains **NON_READY** because required paths are not instrumented, IndexedDB tests use a test double, and there is no real Android/Termux restart/replay run or Host→Provider→Core→NPC test. No claim of successful real-device experiment is made.
+The current candidate PR #323 implements an opt-in IndexedDB journal and patch hooks for a subset of mutation paths. It remains **NON_READY** because required paths are not fully instrumented, tests use both a test double and a real desktop Chromium IndexedDB process-restart harness, and there is no Android/Termux restart/replay run or Host→Provider→Core→NPC test. No claim of successful real-device experiment is made.
 
 ## Exact next implementation gates
 
@@ -171,4 +171,13 @@ git -C /path/to/SillyTavern checkout 06bde939fb1e9c4c8d8641d810f0a916b5bce127
 git -C /path/to/SillyTavern apply --check /path/to/Logic-Engine/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
 ```
 
-The second command has **not** been run in this environment. No exact-head workflow was returned for documentation commit `715f129a28eee1ff08ea0dfc8af37ba35a222db8`; no new test pass is claimed. A future runtime diff must be reviewed separately by Core before application, and then must add route-level denial/error/bypass tests plus the real post-assembly revocation race test described above.
+The equivalent pinned-source apply-check, syntax/lint checks, Host prototype tests, and Chromium IndexedDB process-restart test have run in CI on the current PR head. This does **not** test a future send gate or establish Android/Termux runtime behavior. A future runtime diff must be reviewed separately by Core before application, and then must add route-level denial/error/bypass tests plus the real post-assembly revocation race test described above.
+
+## Target-aware destructive/import guard follow-up (26 Oct 2026)
+
+The pinned candidate now checks the affected chat locator before direct single-chat delete paths and direct group-chat rename. Bulk group/character deletion, chat import, and chat-backup restore fail closed whenever any Host enrollment marker exists, because the current prototype cannot prove a complete inventory for every affected non-current chat. These guards prevent known UI entry points from silently mutating an enrolled history; they do not make those operations supported or provide tombstone-complete deletion.
+
+A desktop Chromium harness now writes the Host journal to real IndexedDB, closes the browser process, reopens Chromium with the same profile, and verifies the hash-chain integrity, sequence, and absence of raw message text. This is stronger than the previous fake-IndexedDB-only test, but Android/Termux persistence, profile restore/rollback, and device-specific storage behavior remain untested.
+
+Exact current candidate head at this audit update: `5bdbfe2dc75811a6f8857c23d3917e560885ce1d`. The corresponding exact-head workflow results are pending re-check after the latest target-aware guard changes. Production Memory→NPC remains DISABLED / FAIL-CLOSED.
+
