@@ -390,7 +390,7 @@ export function createUnavailableStLifecycleBridge({ getConversationId, storage 
   if (typeof getConversationId !== 'function') throw TypeError('getConversationId is required');
   if (!error) throw TypeError('original journal-open error is required');
 
-  const assertUnavailableSafe = () => {
+  const assertUnavailableSafe = async () => {
     const conversationId = await getConversationId();
     const marker = conversationId
       ? storage?.getItem('logic-engine-host-lifecycle:' + conversationId)
