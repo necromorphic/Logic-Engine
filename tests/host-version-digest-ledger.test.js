@@ -536,3 +536,28 @@ test('review-only Host projection cannot be accepted as a trusted Provider inven
   });
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
 });
+
+test('malformed inventory cannot poison readiness for a caller-selected conversation', async (t) => {
+  const ledger = setup(t, async () => true);
+  const victim = { world_id: 'world-victim', conversation_id: 'chat-victim' };
+  const victimEntry = entry({ ...victim, message_id: 'victim-message', version_id: 'victim-version' });
+
+  assert.deepEqual(await ledger.reconcileConversation({
+    ...victim,
+    complete: true,
+    versions: [victimEntry],
+  }), { status: 'ready', version_count: 1 });
+  assert.equal(ledger.getInventoryState(victim.world_id, victim.conversation_id).status, 'READY');
+
+  const malformed = await ledger.reconcileConversation({
+    ...victim,
+    complete: false,
+    versions: [],
+  });
+
+  assert.deepEqual(malformed, { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' });
+  assert.equal(ledger.getInventoryState(victim.world_id, victim.conversation_id).status, 'READY');
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=?')
+    .get(victim.world_id, victim.conversation_id).n, 1);
+});
+
