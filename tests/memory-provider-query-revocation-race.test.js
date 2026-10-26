@@ -809,7 +809,13 @@ test('candidate authorization detects query grant ABA from another Provider conn
 test('retrieval fails closed when another Provider connection revokes and re-grants record access', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'memory-provider-cross-record-retrieval-'));
   const path = join(dir, 'provider.sqlite');
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  let provider;
+  let otherProvider;
+  t.after(() => {
+    try { provider?.close(); } catch {}
+    try { otherProvider?.close(); } catch {}
+    rmSync(dir, { recursive: true, force: true });
+  });
 
   let releaseSnapshot;
   let signalSnapshot;
@@ -828,10 +834,8 @@ test('retrieval fails closed when another Provider connection revokes and re-gra
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
   };
-  const provider = new SQLiteMemoryProvider(options);
-  const otherProvider = new SQLiteMemoryProvider(options);
-  t.after(() => provider.close());
-  t.after(() => otherProvider.close());
+  provider = new SQLiteMemoryProvider(options);
+  otherProvider = new SQLiteMemoryProvider(options);
 
   const scope = { world_id: 'cross-connection-record-retrieval-world', subject_id: 'cross-connection-record-retrieval-npc', purpose: 'npc_decision' };
   const record = {
@@ -871,7 +875,13 @@ test('retrieval fails closed when another Provider connection revokes and re-gra
 test('retrieval fails closed when another Provider connection starts a record ingest during snapshot lookup', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'memory-provider-cross-ingest-retrieval-'));
   const path = join(dir, 'provider.sqlite');
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  let provider;
+  let otherProvider;
+  t.after(() => {
+    try { provider?.close(); } catch {}
+    try { otherProvider?.close(); } catch {}
+    rmSync(dir, { recursive: true, force: true });
+  });
 
   let releaseSnapshot;
   let signalSnapshot;
@@ -890,10 +900,8 @@ test('retrieval fails closed when another Provider connection starts a record in
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
   };
-  const provider = new SQLiteMemoryProvider(options);
-  const otherProvider = new SQLiteMemoryProvider(options);
-  t.after(() => provider.close());
-  t.after(() => otherProvider.close());
+  provider = new SQLiteMemoryProvider(options);
+  otherProvider = new SQLiteMemoryProvider(options);
 
   const scope = { world_id: 'cross-connection-ingest-world', subject_id: 'cross-connection-ingest-npc', purpose: 'npc_decision' };
   const record = {
