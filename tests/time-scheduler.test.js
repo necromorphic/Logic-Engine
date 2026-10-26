@@ -341,3 +341,39 @@ test('scheduler arrays reject accessor entries without invoking them', () => {
   );
   assert.equal(getterCalled, false);
 });
+
+
+test('completed prerequisites cannot be scheduled after their dependent trigger', () => {
+  for (const completedIds of [[], ['future-prerequisite']]) {
+    assert.throws(
+      () => planDueWork({
+        world_id: 'world-a',
+        from_coordinate: 0,
+        to_coordinate: 10,
+        completed_trigger_ids: completedIds,
+        triggers: [
+          trigger('future-prerequisite', 8, { status: 'completed' }),
+          trigger('dependent', 5, { dependencies: ['future-prerequisite'] }),
+        ],
+      }),
+      (error) => error.code === 'CAUSAL_TIME_ORDER_CONFLICT'
+        && error.details.trigger_id === 'dependent'
+        && error.details.dependency_id === 'future-prerequisite',
+    );
+  }
+});
+
+test('historically completed prerequisites at earlier coordinates remain satisfied', () => {
+  const plan = planDueWork({
+    world_id: 'world-a',
+    from_coordinate: 0,
+    to_coordinate: 10,
+    completed_trigger_ids: ['past-prerequisite'],
+    triggers: [
+      trigger('past-prerequisite', 3, { status: 'completed' }),
+      trigger('dependent', 5, { dependencies: ['past-prerequisite'] }),
+    ],
+  });
+  assert.equal(plan.status, 'planned');
+  assert.deepEqual(plan.segments.map((segment) => segment.trigger_ids), [['dependent']]);
+});
