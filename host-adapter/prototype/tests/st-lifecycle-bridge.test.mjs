@@ -90,7 +90,7 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
     && !Object.keys(entry).some(key => /text|content|raw/i.test(key))));
   published.length = 0;
 
-  const oldVersionId = f.chat[0]._logicEngineLifecycle.versions[0].versionId;
+  const oldVersionIds = f.chat[0]._logicEngineLifecycle.versions.map(version => version.versionId);
   await f.bridge.beforeMutation('edit-message', [0]);
   f.chat[0].mes = 'edited answer';
   f.chat[0].swipes = ['edited answer'];
@@ -98,11 +98,10 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
   await f.bridge.afterMutation('edit-message');
 
   assert.equal(published.length, 3);
-  assert.equal(published[0].active, false);
-  assert.equal(published[1].active, true);
-  assert.equal(published[2].version_id, oldVersionId);
-  assert.equal(published[2].deleted, true);
-  assert.equal(published[2].active, false);
+  assert.equal(published[0].active, true);
+  assert.equal(published[0].deleted, false);
+  assert.deepEqual(new Set(published.slice(1).map(entry => entry.version_id)), new Set(oldVersionIds));
+  assert.ok(published.slice(1).every(entry => entry.deleted === true && entry.active === false));
   assert.ok(published.every(entry => !JSON.stringify(entry).includes('edited answer')));
 });
 
