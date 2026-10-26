@@ -78,6 +78,49 @@ test('bound capture resolves canonical scope while holding the shared coordinato
   }), /Invalid bound Host version entry/);
 });
 
+test('Provider mutation entry points reject Proxy and accessor-backed records before field reads', (t) => {
+  const ledger = setup(t);
+  const proxyEntry = new Proxy(entry(), { get() { throw new Error('Entry Proxy getter must not execute'); } });
+  assert.throws(() => ledger.captureVersion(proxyEntry), /Invalid digest-only Host version entry/);
+
+  const accessorEntry = entry();
+  Object.defineProperty(accessorEntry, 'content_sha256', {
+    enumerable: true, get() { throw new Error('Entry getter must not execute'); }
+  });
+  assert.throws(() => ledger.captureVersion(accessorEntry), /Invalid digest-only Host version entry/);
+
+  const proxyTuple = new Proxy({ ...tuple }, { get() { throw new Error('Tuple Proxy getter must not execute'); } });
+  assert.throws(() => ledger.selectActiveVersion(proxyTuple), /Invalid Host version tuple/);
+  assert.throws(() => ledger.tombstoneVersion(proxyTuple), /Invalid Host version tuple/);
+
+  let resolverCalls = 0;
+  const boundEntry = {
+    adapterId: 'adapter-a', conversationId: 'chat-a', message_id: 'message-a', version_id: 'version-a',
+    content_sha256: digest('bound'), active: true, deleted: false,
+    resolveBinding: () => { resolverCalls += 1; return { world_id: 'world-a', conversation_id: 'chat-a' }; }
+  };
+  assert.throws(() => ledger.captureBoundVersion(new Proxy(boundEntry, {
+    get() { throw new Error('Bound-entry Proxy getter must not execute'); }
+  })), /Invalid bound Host version entry/);
+  assert.equal(resolverCalls, 0);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
+});
+
+test('constructor rejects Proxy-backed options before destructuring them', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-digest-ledger-proxy-options-'));
+  try {
+    const options = new Proxy({
+      path: join(directory, 'provider.sqlite'),
+      coordinatorPath: join(directory, 'coordinator.sqlite'),
+      verifyInventorySnapshot: async () => true,
+    }, { get() { throw new Error('Options Proxy getter must not execute'); } });
+    assert.throws(() => new HostVersionDigestLedger(options), /plain data options object/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('reconciliation rejects Proxy and accessor-backed inputs before invoking the trust verifier', async (t) => {
   let verifierCalls = 0;
   const ledger = setup(t, async () => { verifierCalls += 1; return true; });
