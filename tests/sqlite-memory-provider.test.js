@@ -191,6 +191,50 @@ test('raw lifecycle targets reject Proxy/accessor-backed input before field read
   assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_derived_copies').get().count, 0);
 });
 
+test('raw tombstone and purge update provider-local lifecycle rows atomically', (t) => {
+  const s = setup(t);
+  const key = ['world-a', 'chat-a', 'message-a', 'version-a'];
+  s.provider.db.prepare(`INSERT INTO memory_raw_captures
+    (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,
+     metadata_json,captured_at,deleted_at)
+    VALUES(?,?,?,?,?,?,?,?,?,NULL)`)
+    .run(...key, 'assistant', 'raw text', 'raw-digest', '{}', '2026-01-01T00:00:00.000Z');
+  s.provider.db.prepare(`INSERT INTO memory_raw_active_versions
+    (world_id,conversation_id,message_id,version_id,selected_at) VALUES(?,?,?,?,?)`)
+    .run(...key, '2026-01-01T00:00:00.000Z');
+  s.provider.db.prepare(`INSERT INTO memory_raw_derived_copies
+    (world_id,conversation_id,message_id,source_version_id,copy_ref,copy_version,copy_kind,
+     content_text,content_sha256,status,created_at,invalidated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,'current',?,NULL)`)
+    .run(...key.slice(0, 3), key[3], 'copy:summary-a', 'copy-v1', 'summary',
+      'derived text', 'copy-digest', '2026-01-01T00:00:00.000Z');
+
+  assert.deepEqual(s.provider.markRawSourceDeleted({
+    world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
+  }), { status: 'deleted', invalidated_copies: 1 });
+  assert.equal(s.provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key).deleted_at !== null, true);
+  assert.equal(s.provider.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_active_versions
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key).count, 0);
+  assert.deepEqual(s.provider.db.prepare(`SELECT status, invalidated_at FROM memory_raw_derived_copies
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`).get(...key),
+  { status: 'invalidated', invalidated_at: s.provider.db.prepare(`SELECT invalidated_at FROM memory_raw_derived_copies
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`).get(...key).invalidated_at });
+  assert.deepEqual(s.provider.markRawSourceDeleted({
+    world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
+  }), { status: 'deleted', invalidated_copies: 0 });
+
+  assert.deepEqual(s.provider.purgeRawSource({
+    world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
+  }), { status: 'purged', purged_copies: 1 });
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_captures').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_derived_copies').get().count, 0);
+  assert.deepEqual(s.provider.purgeRawSource({
+    world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
+  }), { status: 'missing', purged_copies: 0 });
+});
+
 test('Provider constructor rejects non-string paths before coercing caller objects', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-path-types-'));
   t.after(() => rmSync(directory, { recursive: true, force: true }));
