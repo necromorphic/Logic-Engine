@@ -39,7 +39,7 @@ const validDirectLineage = (row, lineage) => row.source_kind === 'canonical_enti
  * refuses retrieval until rebuild + reconciliation complete.
  */
 export class SQLiteMemoryProvider {
-  constructor({ path = ':memory:', coordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH ?? (path === ':memory:' ? null : `${path}.coordinator.sqlite`), getSnapshot, validateSourceVersion, validateInventory, authorizeRawRead = null }) {
+  constructor({ path = ':memory:', coordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH ?? null, getSnapshot, validateSourceVersion, validateInventory, authorizeRawRead = null }) {
     if (typeof getSnapshot !== 'function') throw new TypeError('SQLiteMemoryProvider requires trusted getSnapshot');
     if (typeof validateSourceVersion !== 'function') {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateSourceVersion');
@@ -51,6 +51,9 @@ export class SQLiteMemoryProvider {
     }
     this.validateInventory = validateInventory;
     this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
+    if (path !== ':memory:' && (typeof coordinatorPath !== 'string' || !coordinatorPath.trim())) {
+      throw new TypeError('File-backed Memory Provider requires the shared LOGIC_ENGINE_COORDINATOR_DB_PATH');
+    }
     this.reconcileGeneration = new Map();
     this.transactionDepth = 0;
     this.coordinatorDepth = 0;
@@ -58,9 +61,8 @@ export class SQLiteMemoryProvider {
     this.queryAuthorizationGeneration = new Map();
     this.recordAuthorizationGeneration = new Map();
     this.db = new DatabaseSync(path);
-    // Production Core/Provider participation requires the same explicitly configured
-    // LOGIC_ENGINE_COORDINATOR_DB_PATH in every process. The per-provider fallback
-    // preserves isolated test/dev stores only; it is not a cross-component lock.
+    // Core and Provider must receive the same explicitly configured coordinator path.
+    // File-backed Provider instances refuse to start without it; in-memory tests remain isolated.
     this.coordinatorDb = coordinatorPath ? openCoordinatorDatabase(coordinatorPath) : null;
     const releaseStartupLock = this.#acquireCoordinatorLock();
     try {
