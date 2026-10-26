@@ -33,6 +33,7 @@ jobs:
           mkdir -p "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle"
           cp host-adapter/prototype/lifecycle-journal.mjs "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle/"
           cp host-adapter/prototype/st-lifecycle-bridge.mjs "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle/"
+          cp host-adapter/prototype/conversation-identity.mjs "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle/"
       - name: Apply-check and apply candidate patch
         shell: bash
         run: |
@@ -56,4 +57,5 @@ jobs:
         run: |
           node --check public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
           node --check public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+          node --check public/scripts/logic-engine-lifecycle/conversation-identity.mjs
         working-directory: ${{ runner.temp }}/st
