@@ -89,7 +89,7 @@ This section is a source inspection of the pinned upstream revision, not a runti
 
 Source inspection of pinned `src/endpoints/backends/chat-completions.js:670` found `console.debug(`${apiName} request:`, body)` inside `sendMakerSuiteRequest()`. The `body` object contains the serialized provider prompt, so this line can disclose system instructions and conversation content to server logs. The current candidate patch replaces it with metadata-only logging (`model`, `stream`, and message count). The patch-check workflow asserts the raw-body form is absent and the metadata form is present; the validation workflow also lints and syntax-checks the patched endpoint.
 
-Evidence boundary: source-inspected in the uploaded pinned checkout and guarded by repository CI once the candidate workflow runs. This mitigation is only in the patch artifact until installed; it does not route the provider request through a final authorization gateway and does not close the disclosure/revocation race.
+Evidence boundary: source-inspected in the uploaded pinned checkout; the isolated hunk passed local `git apply --check` and `node --check`. The combined patch and endpoint lint passed exact-head workflows [#40407917716](https://github.com/necromorphic/Logic-Engine/actions/runs/40407917716) and [#40407917665](https://github.com/necromorphic/Logic-Engine/actions/runs/40407917665). This mitigation is only in the patch artifact until installed; it does not route the provider request through a final authorization gateway and does not close the disclosure/revocation race.
 
 ### Boundary conclusion
 
