@@ -62,16 +62,18 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   const db = new FakeDB();
   const journal = new HostLifecycleJournal(db);
   let saveCount = 0;
+  let sourceLocator = 'chat-file-1';
   const bridge = createStLifecycleBridge({
     journal,
     getConversationId: () => 'chat-1',
+    getSourceLocator: () => sourceLocator,
     getChat: () => chat,
     saveChat: async () => {
       saveCount++;
       if (failSave) throw Error('simulated native chat save failure');
     },
   });
-  return { db, journal, chat, bridge, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
+  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
 
 test('enrolled bridge writes event IDs and advances the fingerprint after an edit', async () => {
@@ -212,6 +214,23 @@ test('speaker-label changes are fingerprinted and require an instrumented edit c
   g.chat[0].name = 'speaker label changed by supported edit';
   await g.bridge.afterMutation('edit-message');
   await g.bridge.beforeMutation('delete-message', [0]);
+});
+
+test('source locator substitution fails closed, while an instrumented rename advances the checkpoint', async () => {
+  const copied = makeFixture();
+  await copied.bridge.enrollCurrentConversation();
+  copied.setLocator('copied-chat-file');
+  const changed = await copied.bridge.reconcileCurrentConversation();
+  assert.equal(changed.status, 'NON_READY');
+  assert.match(changed.reason, /fingerprint differs/);
+  await assert.rejects(copied.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
+
+  const renamed = makeFixture();
+  await renamed.bridge.enrollCurrentConversation();
+  await renamed.bridge.beforeMutation('rename-chat', []);
+  renamed.setLocator('renamed-chat-file');
+  await renamed.bridge.afterMutation('rename-chat');
+  await renamed.bridge.beforeMutation('delete-message', [0]);
 });
 
 test('native save failure leaves the journal behind so the next mutation fails closed', async () => {
