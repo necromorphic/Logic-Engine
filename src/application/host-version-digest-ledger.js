@@ -137,6 +137,10 @@ export class HostVersionDigestLedger {
     return this.#write(() => {
       const now = new Date().toISOString();
       const prior = this.#get(v);
+      if (v.deleted && v.active) {
+        this.#markNonReady(v.world_id, v.conversation_id, 'HOST_VERSION_DELETED_ACTIVE', now);
+        return { status: 'non_ready', code: 'HOST_VERSION_DELETED_ACTIVE' };
+      }
       // A lifecycle event cannot establish the original identity/digest of a
       // version first observed as deleted. Only a trusted complete inventory
       // may introduce historical tombstones; an event-only capture must fail
