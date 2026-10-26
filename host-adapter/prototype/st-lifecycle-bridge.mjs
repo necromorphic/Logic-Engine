@@ -396,7 +396,17 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       return { status: 'NON_READY', reason: 'current Host source differs from the durable journal checkpoint' };
     }
     await assertIdentitySnapshotMatches(conversationId, chat);
-    return publishCurrentDigestInventory(conversationId, chat);
+    const exported = await journal.exportCaptureLedger(conversationId);
+    if (exported.status !== 'REVIEW_ONLY' || !Array.isArray(exported.records)) {
+      return { status: 'NON_READY', reason: 'durable Host journal cannot provide a replayable digest ledger' };
+    }
+    const tombstoneMap = new Map();
+    for (const record of exported.records) {
+      for (const tombstone of record.payload?.tombstones ?? []) {
+        tombstoneMap.set(tombstone.messageId + '\\u0000' + tombstone.versionId, tombstone);
+      }
+    }
+    return publishCurrentDigestInventory(conversationId, chat, [...tombstoneMap.values()]);
   }
 
   function getCoreCaptureStatus() {
