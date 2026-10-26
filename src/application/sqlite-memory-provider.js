@@ -51,6 +51,7 @@ export class SQLiteMemoryProvider {
     this.validateInventory = validateInventory;
     this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
     this.reconcileGeneration = new Map();
+    this.transactionDepth = 0;
     this.stateGeneration = new Map();
     this.queryAuthorizationGeneration = new Map();
     this.recordAuthorizationGeneration = new Map();
@@ -126,6 +127,7 @@ export class SQLiteMemoryProvider {
 
   #withImmediateTransaction(work) {
     this.db.exec('BEGIN IMMEDIATE');
+    this.transactionDepth += 1;
     try {
       const result = work();
       this.db.exec('COMMIT');
@@ -133,7 +135,16 @@ export class SQLiteMemoryProvider {
     } catch (error) {
       try { this.db.exec('ROLLBACK'); } catch {}
       throw error;
+    } finally {
+      this.transactionDepth -= 1;
     }
+  }
+
+  // Access grants, readiness transitions, and Provider-owned record/index writes
+  // share SQLite's writer serialization order. Existing compound transactions
+  // reuse their transaction instead of attempting a nested BEGIN IMMEDIATE.
+  #withSerializedWrite(work) {
+    return this.transactionDepth > 0 ? work() : this.#withImmediateTransaction(work);
   }
 
   /**
@@ -379,16 +390,18 @@ export class SQLiteMemoryProvider {
   }
 
   #setState(worldId, indexHealth, reconciliation, snapshot = null, failureCode = null) {
+    this.#withSerializedWrite(() => {
+      this.db.prepare(`INSERT INTO memory_index_state
+        (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
+        VALUES(?,?,?,?,?,?,?)
+        ON CONFLICT(world_id) DO UPDATE SET index_health=excluded.index_health,
+        source_reconciliation=excluded.source_reconciliation,
+        snapshot_revision=excluded.snapshot_revision,snapshot_sequence=excluded.snapshot_sequence,
+        failure_code=excluded.failure_code,updated_at=excluded.updated_at`).run(worldId, indexHealth, reconciliation,
+        snapshot ? String(snapshot.world_revision) : null,
+        snapshot ? String(snapshot.commit_sequence) : null, failureCode, new Date().toISOString());
+    });
     this.stateGeneration.set(worldId, (this.stateGeneration.get(worldId) ?? 0) + 1);
-    this.db.prepare(`INSERT INTO memory_index_state
-      (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
-      VALUES(?,?,?,?,?,?,?)
-      ON CONFLICT(world_id) DO UPDATE SET index_health=excluded.index_health,
-      source_reconciliation=excluded.source_reconciliation,
-      snapshot_revision=excluded.snapshot_revision,snapshot_sequence=excluded.snapshot_sequence,
-      failure_code=excluded.failure_code,updated_at=excluded.updated_at`).run(worldId, indexHealth, reconciliation,
-      snapshot ? String(snapshot.world_revision) : null,
-      snapshot ? String(snapshot.commit_sequence) : null, failureCode, new Date().toISOString());
   }
 
   /** Provider-internal diagnostics; never project this state into NPC-facing results. */
@@ -412,9 +425,11 @@ export class SQLiteMemoryProvider {
   grantQuery(scope, allowed) {
     this.#scope(scope);
     if (typeof allowed !== 'boolean') throw new TypeError('allowed must be boolean');
-    this.db.prepare(`INSERT INTO memory_query_grants VALUES(?,?,?,?)
-      ON CONFLICT(world_id,subject_id,purpose) DO UPDATE SET allowed=excluded.allowed`)
-      .run(scope.world_id, scope.subject_id, scope.purpose, allowed ? 1 : 0);
+    this.#withSerializedWrite(() => {
+      this.db.prepare(`INSERT INTO memory_query_grants VALUES(?,?,?,?)
+        ON CONFLICT(world_id,subject_id,purpose) DO UPDATE SET allowed=excluded.allowed`)
+        .run(scope.world_id, scope.subject_id, scope.purpose, allowed ? 1 : 0);
+    });
     const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose]);
     this.queryAuthorizationGeneration.set(key, (this.queryAuthorizationGeneration.get(key) ?? 0) + 1);
   }
@@ -424,10 +439,12 @@ export class SQLiteMemoryProvider {
     if (!validId(recordRef) || !validId(recordVersion) || typeof allowed !== 'boolean') {
       throw new TypeError('Invalid record grant');
     }
-    this.db.prepare(`INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)
-      ON CONFLICT(world_id,subject_id,purpose,record_ref,record_version)
-      DO UPDATE SET allowed=excluded.allowed`)
-      .run(scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion, allowed ? 1 : 0);
+    this.#withSerializedWrite(() => {
+      this.db.prepare(`INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)
+        ON CONFLICT(world_id,subject_id,purpose,record_ref,record_version)
+        DO UPDATE SET allowed=excluded.allowed`)
+        .run(scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion, allowed ? 1 : 0);
+    });
     const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion]);
     this.recordAuthorizationGeneration.set(key, (this.recordAuthorizationGeneration.get(key) ?? 0) + 1);
   }
@@ -540,6 +557,10 @@ export class SQLiteMemoryProvider {
   }
 
   putRecord(record) {
+    return this.#withSerializedWrite(() => this.#putRecord(record));
+  }
+
+  #putRecord(record) {
     if (!object(record) || !validId(record.world_id) || !validId(record.subject_id)
       || !validId(record.purpose) || !validId(record.record_ref) || !validId(record.record_version)
       || record.source_kind !== 'canonical_entity' || !validId(record.source_entity_id)
