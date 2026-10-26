@@ -281,6 +281,7 @@ test('malformed Core snapshots cannot publish a ready Provider state', async (t)
       snapshot: null,
       failure_code: 'CORE_SNAPSHOT_UNAVAILABLE',
     });
+    s.provider.grantQuery(s.scope, true);
     await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   }
 });
