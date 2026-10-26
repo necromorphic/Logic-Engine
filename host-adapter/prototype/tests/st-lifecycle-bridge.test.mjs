@@ -560,6 +560,7 @@ test('fresh journal/bridge instances replay the persisted journal rows after res
   const restartedBridge = createStLifecycleBridge({
     journal: restartedJournal,
     getConversationId: () => 'chat-1',
+    getSourceLocator: () => 'chat-file-1',
     getChat: () => f.chat,
     saveChat: async () => {},
   });
