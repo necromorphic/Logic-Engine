@@ -563,3 +563,34 @@ Issue #181 comparison/evidence report: https://github.com/necromorphic/Logic-Eng
 Core #140 owns the subject-relative knowledge/acquisition contract, trusted scope, canonical source validity/currentness, disclosure policy, and Core validation boundary. NPC owns the meaning and safe projection of admission, without delivery/acquisition/belief side effects. Host #258 owns evidence from the pinned SillyTavern target and the real final pre-send interception; unsupported paths remain NON_READY. Provider can connect to these authorities only after the owners approve the exact contract and a real callable composition exists.
 
 Production remains **DISABLED / FAIL-CLOSED** until the agreed contract is implemented and tested through actual owner components, including stale/revoked/deleted sources and invalidation between candidate assembly and final send, with no protected content or metadata side-channel leakage.
+
+## 13. Coordinator execution permissions and Host interception correction (2026-10-26)
+
+This update consolidates the latest owner reports. It is a documentation decision only: it does not approve new APIs/schemas, cross-block wiring, or production disclosure.
+
+### Host: distinguish UI lifecycle instrumentation from outbound interception
+
+Pinned target: SillyTavern `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
+
+The Host report at [#258 comment 6409724737](https://github.com/necromorphic/Logic-Engine/issues/258#issuecomment-6409724737) corrects the earlier implementation interpretation:
+
+- `CHAT_COMPLETION_SETTINGS_READY` in `public/scripts/openai.js` is a browser pre-serialization point for one Chat Completions route, not a universal provider-send boundary.
+- The candidate patch does **not** currently intercept that point, the browser POST to `/api/backends/chat-completions/generate`, the server dispatch/provider-send path, or Text Completions provider fetches.
+- Provider-specific branches, native/server callers, extensions/custom routes and other generation families remain unsupported/bypassable for disclosure authorization.
+- The candidate lifecycle patch instruments only a subset of UI mutations. Rejecting an unsupported mutation is fail-closed behavior; it is not evidence of complete interception or inventory.
+- Exact-commit CI on `d668e263dfab899d361196461b4b1953056e1250` passed patch check [#40279989072](https://github.com/necromorphic/Logic-Engine/actions/runs/40279989072), runtime tests [#40279989073](https://github.com/necromorphic/Logic-Engine/actions/runs/40279989073), and patch validation [#40279989075](https://github.com/necromorphic/Logic-Engine/actions/runs/40279989075). These are repository CI results, not live browser/IndexedDB, Android/Termux, provider-network, or revocation-race proof.
+
+**Current Host verdict:** authoritative complete/current inventory = `NO SUCH MECHANISM FOUND / NON_READY`; actual final disclosure path = `NO PRODUCTION PATH FOUND / BLOCKED`; revoke/edit/delete after candidate assembly and before outbound send = `NOT PROVEN`.
+
+### Permissions now in force
+
+- **Provider:** may harden Provider-local immutable record identity/version, direct-source lineage validation, idempotency/conflict behavior, exact-version tombstones, local-copy invalidation, reconciliation, restart/replay and fail-closed handling. Keep evidence tied to exact HEAD and tests. No raw ST text retention; no fixture authority; no mapping of `source_version` to Core `updated_revision`.
+- **Host:** may continue pinned-source inspection and Host-owned patch/tests that document and enforce only proven lifecycle behavior. Must classify route coverage explicitly. Do not add a fabricated authorization callback or claim final-send enforcement; do not modify the separate Ollama/vectorization/remote-store patch.
+- **Core:** owns the proposed subject-relative knowledge/acquisition semantics, trusted scope, canonical-source validity and disclosure policy. No field allowlist is approved for `model / npc_decision`.
+- **NPC:** owns the admission projection and NPC-only review path. Admission must not imply delivery, receipt, acquisition or belief; no fake receiver or fixture-backed positive authority.
+
+### Next implementation review gate
+
+Before any cross-block runtime diff, all four owners must comment on the same Core proposal with one of: `ACCEPT`, `REJECT` with a concrete conflict, or `UNSUPPORTED` with exact missing runtime evidence. The coordinator then authorizes only the smallest explicitly listed diff. If the proposal requires a new authority or data shape, stop for a separate decision rather than silently implementing it.
+
+A production release gate additionally requires an actual callable Provider/Core/NPC composition and a real test that pauses after candidate assembly, mutates/revokes the source, resumes, and proves no protected data leaves through each enabled outbound route. Untested routes stay disabled. Sequential validation is not atomicity. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
