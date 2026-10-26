@@ -23,7 +23,7 @@ const hostCurrentDigest = value => createHash('sha256').update(JSON.stringify(St
 const versionsOf = message => Array.isArray(message?.swipes) && message.swipes.length
   ? message.swipes
   : [message?.mes ?? ''];
-const activeIndexOf = message => Number.isInteger(message?.swipe_id) ? message.swipe_id : 0;
+const activeIndexOf = (message, versionCount) => Number.isInteger(message?.swipe_id) ? message.swipe_id : versionCount === 1 ? 0 : null;
 
 /**
  * Produces a comparison-only normalized inventory and digest. The digest uses
@@ -48,7 +48,7 @@ export function projectHostInventoryForComparison(chat) {
       return { status: 'NON_READY', reason: 'DUPLICATE_MESSAGE_ID', messageIndex };
     }
     messageIds.add(identity.messageId);
-    const active = activeIndexOf(message);
+    const active = activeIndexOf(message, sourceVersions.length);
     if (!Number.isInteger(active) || active < 0 || active >= sourceVersions.length
       || identity.activeVersionIndex !== active) {
       return { status: 'NON_READY', reason: 'ACTIVE_SELECTION_MISMATCH', messageIndex };
