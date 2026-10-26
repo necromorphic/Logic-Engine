@@ -17,8 +17,13 @@ export function openCoordinatorDatabase(path) {
   const absolutePath = resolve(path);
   mkdirSync(dirname(absolutePath), { recursive: true });
   const db = new DatabaseSync(absolutePath);
-  db.exec('PRAGMA busy_timeout=5000;');
-  return db;
+  try {
+    db.exec('PRAGMA busy_timeout=5000;');
+    return db;
+  } catch (error) {
+    try { db.close(); } catch {}
+    throw error;
+  }
 }
 
 /**
