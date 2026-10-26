@@ -33,6 +33,25 @@ function stringSet(value, name, max = 1000) {
   return normalized.sort();
 }
 
+function assertTriggerRecord(input) {
+  const allowed = new Set([
+    'trigger_id', 'world_id', 'due_coordinate', 'status', 'dependencies',
+    'read_set', 'write_set', 'processing_mode', 'interrupt_after_coordinate', 'payload',
+  ]);
+  const invalid = () => fail('INVALID_TRIGGER', 'Trigger fields must be own enumerable data properties on a plain object.');
+  const prototype = Object.getPrototypeOf(input);
+  if (prototype !== Object.prototype && prototype !== null) invalid();
+  for (const key of Reflect.ownKeys(input)) {
+    if (typeof key !== 'string' || !allowed.has(key)) {
+      fail('INVALID_TRIGGER_FIELD', 'Trigger contains an unsupported field.', {
+        field: typeof key === 'string' ? key : String(key),
+      });
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) invalid();
+  }
+}
+
 function cloneJson(value, name) {
   const ancestors = new Set();
   const invalid = () => fail('INVALID_TRIGGER_PAYLOAD', name + ' must contain only finite JSON values without accessors, cycles, or custom prototypes.');
@@ -145,6 +164,7 @@ function heapPop(heap) {
 
 export function normalizeTimeTrigger(input, worldId) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('INVALID_TRIGGER', 'Every trigger must be an object.');
+  assertTriggerRecord(input);
   const trigger = {
     trigger_id: nonEmptyString(input.trigger_id, 'trigger_id'),
     world_id: nonEmptyString(input.world_id, 'world_id'),
