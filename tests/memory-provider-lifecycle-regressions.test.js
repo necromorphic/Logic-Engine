@@ -212,3 +212,34 @@ test('older concurrent reconciliation cannot overwrite a newer stale result', as
   assert.notEqual(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'current');
   await assert.rejects(() => provider.retrieveCandidates(scope), /MEMORY_INDEX_NOT_READY/);
 });
+
+
+test('reconciliation refuses current when persisted scope or semantic metadata changes during validation', async (t) => {
+  let releaseValidation;
+  let startedValidation;
+  const started = new Promise((resolve) => { startedValidation = resolve; });
+  const blocked = new Promise((resolve) => { releaseValidation = resolve; });
+  const s = setup(t, {
+    validateSourceVersion: async (record) => {
+      startedValidation();
+      await blocked;
+      return record.source_version === 'source-v1';
+    },
+  });
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex(s.scope.world_id);
+
+  const reconciliation = s.provider.reconcile(s.scope.world_id);
+  await started;
+  // Simulate an out-of-band/corrupt mutation while the trusted validator is awaited.
+  s.provider.db.prepare(`UPDATE memory_records SET content_disposition='withheld'
+    WHERE world_id=? AND record_ref=? AND record_version=?`)
+    .run(s.scope.world_id, s.record.record_ref, s.record.record_version);
+  releaseValidation();
+
+  const result = await reconciliation;
+  assert.equal(result.status, 'stale');
+  assert.notEqual(s.provider.getIndexStatusForDiagnostics(s.scope.world_id).source_reconciliation, 'current');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+});
