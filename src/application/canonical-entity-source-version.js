@@ -22,6 +22,9 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
   }
 
   return (input) => {
+    let worldId;
+    let sourceEntityId;
+    let sourceVersion;
     try {
       if (!object(input)
         || input.source_kind !== 'canonical_entity'
@@ -37,9 +40,26 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
         || lineage.entity_id !== input.source_entity_id
         || lineage.source_version !== input.source_version) return false;
 
-      const snapshot = engine.getSnapshot(input.world_id, { entityIds: [input.source_entity_id] });
+      worldId = input.world_id;
+      sourceEntityId = input.source_entity_id;
+      sourceVersion = input.source_version;
+    } catch {
+      return false;
+    }
+
+    let snapshot;
+    try {
+      snapshot = engine.getSnapshot(worldId, { entityIds: [sourceEntityId] });
+    } catch (error) {
+      if (error?.code === 'WORLD_NOT_FOUND') return false;
+      // Preserve Provider's distinction between a stale/denied source and an
+      // unavailable Core authority. Do not convert outages into ordinary false.
+      throw new Error('CORE_SOURCE_SNAPSHOT_UNAVAILABLE');
+    }
+
+    try {
       if (!object(snapshot)
-        || snapshot.world_id !== input.world_id
+        || snapshot.world_id !== worldId
         || !Number.isSafeInteger(snapshot.world_revision)
         || snapshot.world_revision < 0
         || !Number.isSafeInteger(snapshot.commit_sequence)
@@ -49,17 +69,15 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
 
       const [entity] = snapshot.entities;
       if (!object(entity)
-        || entity.entity_id !== input.source_entity_id
+        || entity.entity_id !== sourceEntityId
         || entity.status !== 'active'
         || !Number.isSafeInteger(entity.updated_revision)
         || entity.updated_revision < 0) return false;
 
       // The version is the canonical decimal encoding of this exact entity's
       // current updated_revision, not the Provider record version or world cursor.
-      return input.source_version === String(entity.updated_revision);
+      return sourceVersion === String(entity.updated_revision);
     } catch {
-      // Missing world, unavailable Core store, malformed snapshots and any
-      // unexpected source shape are non-authoritative, not a positive result.
       return false;
     }
   };
