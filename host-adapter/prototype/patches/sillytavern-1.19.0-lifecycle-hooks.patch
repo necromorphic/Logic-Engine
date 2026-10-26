@@ -11,19 +11,53 @@ diff --git a/public/script.js b/public/script.js
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
++async function getLogicEngineConversationId() {
++    const locator = getCurrentChatId();
++    if (!locator) return null;
++    if (!chat_metadata || typeof chat_metadata !== 'object' || Array.isArray(chat_metadata)) {
++        throw Error('NON_READY: current Host chat metadata is unavailable');
++    }
++    const existing = chat_metadata.logic_engine_conversation_id;
++    if (typeof existing === 'string' && existing.length > 0
++        && existing === existing.trim() && existing.length <= 200) {
++        return existing;
++    }
++    if (!globalThis.crypto?.randomUUID) throw Error('NON_READY: crypto.randomUUID unavailable');
++    const metadata = chat_metadata;
++    const conversationId = globalThis.crypto.randomUUID();
++    metadata.logic_engine_conversation_id = conversationId;
++    if (chat_metadata !== metadata || getCurrentChatId() !== locator) {
++        delete metadata.logic_engine_conversation_id;
++        throw Error('NON_READY: Host conversation changed during identity enrollment');
++    }
++    try {
++        await saveChatConditional();
++    } catch (error) {
++        delete metadata.logic_engine_conversation_id;
++        throw Error('NON_READY: durable Host conversation identity could not be saved: ' + error.message);
++    }
++    if (chat_metadata !== metadata || getCurrentChatId() !== locator
++        || chat_metadata.logic_engine_conversation_id !== conversationId) {
++        throw Error('NON_READY: Host conversation identity changed during persistence');
++    }
++    return conversationId;
++}
++
 +let logicEngineLifecycleBridgePromise;
 +async function getLogicEngineLifecycleBridge() {
 +    if (!logicEngineLifecycleBridgePromise) {
 +        logicEngineLifecycleBridgePromise = HostLifecycleJournal.open().then(journal => createStLifecycleBridge({
 +            journal,
-+            getConversationId: getCurrentChatId,
++            getConversationId: getLogicEngineConversationId,
++            getSourceLocator: getCurrentChatId,
 +            getChat: () => chat,
 +            saveChat: () => saveChatConditional(),
-+        })).catch(error => {
-+            const marker = 'logic-engine-host-lifecycle:' + getCurrentChatId();
++        })).catch(async error => {
++            const conversationId = await getLogicEngineConversationId().catch(() => getCurrentChatId());
++            const marker = 'logic-engine-host-lifecycle:' + conversationId;
 +            if (localStorage.getItem(marker)) throw Error('NON_READY: enrolled Host journal unavailable: ' + error.message);
 +            return createUnavailableStLifecycleBridge({
-+                getConversationId: getCurrentChatId,
++                getConversationId: getLogicEngineConversationId,
 +                storage: localStorage,
 +                error,
 +            });
@@ -40,7 +74,8 @@ diff --git a/public/script.js b/public/script.js
 +        completeOperation: async (operation, details = {}) =>
 +            (await getLogicEngineLifecycleBridge()).afterMutation(operation, details),
 +        enrollCurrentConversation: async () => {
-+            const conversationId = getCurrentChatId();
++            const conversationId = await getLogicEngineConversationId();
++            if (!conversationId) throw Error('NON_READY: no active Host conversation');
 +            const marker = 'logic-engine-host-lifecycle:' + conversationId;
 +            localStorage.setItem(marker, 'enrolling');
 +            try {
@@ -276,6 +311,21 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.beforeMutation('import-character-chat');
 +
      const fetchResult = await fetch('/api/chats/import', {
+@@ -10731,7 +10834,11 @@
+ export async function renameChat(oldFileName, newName) {
+-    return await renameGroupOrCharacterChat({
++    const lifecycleBridge = await getLogicEngineLifecycleBridge();
++    await lifecycleBridge.beforeMutation('rename-chat', []);
++    const result = await renameGroupOrCharacterChat({
+         characterId: this_chid,
+         groupId: selected_group,
+         oldFileName: oldFileName,
+         newFileName: newName,
+         loader: true,
+     });
++    await lifecycleBridge.afterMutation('rename-chat');
++    return result;
+ }
 @@ -10828,2 +10834,7 @@
  export async function deleteCharacter(characterKey, { deleteChats = true } = {}) {
 +    if (deleteChats) {
