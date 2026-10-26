@@ -161,7 +161,8 @@ export class SQLiteStore {
   constructor(path = ':memory:') {
     if (path !== ':memory:') mkdirSync(dirname(resolve(path)), { recursive: true });
     this.db = new DatabaseSync(path);
-    this.db.exec(`
+    try {
+      this.db.exec(`
       PRAGMA foreign_keys=ON;
       PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS worlds(
@@ -244,8 +245,12 @@ export class SQLiteStore {
       CREATE TABLE IF NOT EXISTS schema_migrations(
         version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL
       );
-    `);
-    this.migrate();
+      `);
+      this.migrate();
+    } catch (error) {
+      try { this.db.close(); } catch {}
+      throw error;
+    }
   }
 
   migrate() {
