@@ -284,6 +284,17 @@ export class SQLiteStore {
         audit_id INTEGER PRIMARY KEY AUTOINCREMENT, action TEXT NOT NULL, target_id TEXT NOT NULL,
         version TEXT NOT NULL, payload_json TEXT NOT NULL, registered_by TEXT NOT NULL, occurred_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS host_conversation_world_bindings(
+        adapter_id TEXT NOT NULL,
+        conversation_id TEXT NOT NULL,
+        world_id TEXT NOT NULL REFERENCES worlds(world_id),
+        active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(adapter_id,conversation_id)
+      );
+      CREATE INDEX IF NOT EXISTS host_conversation_world_bindings_world
+        ON host_conversation_world_bindings(world_id,active);
       CREATE TABLE IF NOT EXISTS schema_migrations(
         version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL
       );
@@ -515,6 +526,22 @@ export class SQLiteStore {
           if (!columns.some((column) => column.name === 'mechanic_execution_json')) {
             this.db.exec('ALTER TABLE world_events ADD COLUMN mechanic_execution_json TEXT');
           }
+        },
+      },
+      {
+        version: 11,
+        apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS host_conversation_world_bindings(
+            adapter_id TEXT NOT NULL,
+            conversation_id TEXT NOT NULL,
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            active INTEGER NOT NULL DEFAULT 1 CHECK(active IN (0,1)),
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(adapter_id,conversation_id)
+          );
+          CREATE INDEX IF NOT EXISTS host_conversation_world_bindings_world
+            ON host_conversation_world_bindings(world_id,active);`);
         },
       },
     ];
