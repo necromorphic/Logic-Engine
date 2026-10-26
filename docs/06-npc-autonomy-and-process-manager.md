@@ -335,3 +335,87 @@ The code evidence supports several useful foundations—actor binding, canonical
 Next step is a narrow owner-reviewed vertical slice, without inventing a contract: first identify the approved existing seam for actor-relative context and action proposal/validation; then require Core to name the canonical conflict/commit path and the domain owner to name how a delivered in-world message becomes acquired knowledge. If those seams do not exist, record the exact blocker and obtain owner approval before any API/schema/runtime addition. Do not wire Memory→NPC into production as part of this NPC-only audit.
 
 Memory→NPC remains **DISABLED / FAIL-CLOSED**. No test pass is claimed from source inspection alone.
+
+
+## 13. NPC decision logic as a bounded, deterministic pipeline (design work independent of Memory integration)
+
+**Status:** design contract candidate for review, not an implemented runtime, API, schema, or authorization contract. This section advances NPC behavior logic without waiting for the real Memory→NPC path. It does not authorize production Memory reads, event commits, or a new executor.
+
+### 13.1 Keep the inputs semantically separate
+
+A decision pass may reason over these categories only when the corresponding source is actually available and authorized:
+
+- **World rules:** pinned World Pack/rule-module semantics, including action preconditions, consequences, institutional procedures, and conflict policy.
+- **Role and institution:** duties, permissions, procedures, loyalties, incentives, and limits attached to an occupation or organization. A role is not a complete personality and does not prove what this individual knows.
+- **Stable traits:** enduring personality tendencies and values. They influence preferences; they do not rewrite world rules or grant capabilities.
+- **Temporary state:** current emotion, fatigue, injury, urgency, fear, anger, and other time-sensitive conditions, each with its own supported source and duration.
+- **Experience and relationships:** established outcomes that may alter future expectations, trust, obligations, and willingness to cooperate. These must not be inferred from a merely proposed or narrated event.
+- **Actor-relative knowledge:** propositions and evidence available to this actor, with provenance and epistemic status preserved (observed, received, inferred, suspected, believed, contradicted, or confirmed only where the existing approved semantics support the distinction).
+- **Situation:** current world state, time, location, available resources, active commitments, and competing actions, using canonical state rather than free-form narration as authority.
+
+These categories must not be flattened into one prompt-like blob with no provenance. Missing input is unknown, not false; a suspicion is not a confirmed fact; a public event is not automatically known to every NPC.
+
+### 13.2 Decision pass
+
+The conceptual pipeline is:
+
+1. **Establish the actor and decision point.** Resolve the actor through the existing owner-approved identity boundary. If the actor, world/rule version, or decision-time state cannot be established, do not produce a commit-ready action.
+2. **Build the actor-relative situation.** Collect only available, authorized facts. Preserve source, time/version, and epistemic status wherever existing contracts provide them. Do not silently fill missing knowledge from model general knowledge.
+3. **Derive applicable constraints.** Evaluate the pinned World Pack and role/institution rules for this situation. Separate hard preconditions/prohibitions from soft preferences and incentives.
+4. **Generate candidate actions.** Consider only actions supported by the domain's approved action vocabulary and currently available capabilities. Candidate generation is a proposal step; a language model may suggest possibilities but cannot establish their legality, feasibility, or canonical effects.
+5. **Validate each candidate.** Check preconditions against canonical state, actor capabilities, permissions, resources, time, and actor-relative knowledge requirements. Reject impossible actions; mark genuinely unresolved preconditions as unresolved rather than assuming success.
+6. **Evaluate trade-offs.** For feasible candidates, compare rule-defined objectives, costs, risks, commitments, relationship consequences, and personality/temporary-state influences. Personality may change which legal option is preferred; it cannot make an illegal or impossible option valid.
+7. **Choose or defer.** Apply the pinned domain policy. If two candidates remain incomparable and no approved policy resolves the choice, return an explicit unresolved decision for owner/domain handling rather than inventing a universal priority.
+8. **Submit for canonical arbitration and commit.** The selected candidate is still a proposal. Existing Core-owned validation, conflict resolution, authorization, idempotency, and commit boundaries remain authoritative. No NPC helper or model output commits canonical state by itself.
+9. **Reassess from the actual outcome.** Update plans, temporary state, relationship interpretation, and beliefs only from committed outcomes and separately established information-acquisition transitions. A failed, interrupted, cancelled, or merely narrated action is not a successful world effect.
+10. **Schedule follow-up.** If the action takes time or depends on a future condition, use the approved Time/Process mechanisms. Scheduling due work is not execution and does not grant knowledge.
+
+### 13.3 Competing NPC actions
+
+When multiple NPCs act in the same interval, do not resolve conflict by whichever model response arrived first or by arbitrary list order.
+
+- Establish the relevant shared canonical state and the pinned conflict policy before comparing actions.
+- Detect conflicts only where supported action semantics show incompatible effects, contention for the same resource/target, mutually exclusive occupancy, or invalidated preconditions.
+- Apply explicit World Pack policy for precedence, negotiation, interruption, escalation, or coexistence. A police officer, a yakuza member, a civilian, and an organization may have different legal powers and incentives, but no role label alone guarantees the outcome.
+- Revalidate affected preconditions after any earlier action is committed. A candidate that was valid against an old snapshot may become stale.
+- If no domain rule can decide a material conflict, preserve it as unresolved. A stable technical tie-break may make iteration reproducible only after semantic precedence is established; it must not masquerade as a world rule.
+- Commit each resolved effect through the canonical Core path. A batch of proposed actions is not a batch of canonical events unless an approved transaction contract explicitly says so.
+
+### 13.4 Intent, action, outcome, knowledge, and narration are different facts
+
+Keep these transitions distinct:
+
+- **Intent/plan:** what the NPC is considering or attempting.
+- **Validated proposal:** an action candidate whose known preconditions have been checked.
+- **Authorized/committed action:** an action accepted through the existing canonical boundary.
+- **Outcome:** the effect that actually occurred, including partial failure or interruption where supported.
+- **Exposure/delivery/receipt/acquisition/belief:** separate information lifecycle states; none follows merely from an action commit or context construction.
+- **Narration:** the human-readable account of established events and actor-visible information. Narration describes state; it does not create canonical state or grant every listener the narrator's knowledge.
+
+This separation is required for deception and mistakes: an NPC may intend to lie, fail to act, act on a false belief, or misunderstand an outcome. The world outcome and each NPC's belief must not be forced to match the narration.
+
+### 13.5 Determinism, replay, and version boundaries
+
+- For deterministic replay, use the same recorded inputs, canonical pre-state, and pinned rule/module versions; do not silently substitute the latest World Pack.
+- Replaying a committed outcome is different from recomputing what an NPC would decide under changed rules or newly acquired knowledge.
+- Historical semantic re-evaluation and meaning-changing migration require their own approved policies; this section does not authorize either.
+- A retry must not duplicate a committed effect. Use only existing approved idempotency and transaction contracts; do not invent an NPC-specific event ID or store here.
+- If required versions, canonical state, or prior outcomes are missing or incompatible, stop the decision/replay and report the blocker. Do not guess a replacement rule.
+
+### 13.6 First behavior slice and acceptance criteria
+
+The first logic-only behavior slice should be a deterministic **single decision point with two NPCs and one contested situation**, using explicitly supplied, non-production test state and pinned test rules. It is intentionally independent of the real Memory adapter; any knowledge needed by the scenario must be supplied as a clearly marked test fixture and must not be presented as production Memory authority.
+
+Acceptance for that slice:
+
+1. Two actors with different role/institution constraints and personality tendencies can produce different candidate rankings from the same world situation without changing hard world rules.
+2. An actor cannot use a fact absent from its actor-relative test context as if confirmed; unknown, suspected, and confirmed facts lead to distinguishable candidate eligibility where the test rules require it.
+3. Impossible or prohibited actions are rejected before arbitration.
+4. Competing feasible actions are resolved only by the pinned test conflict policy; missing/incomparable policy yields an explicit unresolved result, not an invented winner.
+5. After the first committed effect changes a precondition, stale candidates are revalidated and cannot commit unchanged.
+6. Intent, proposal, commit, outcome, knowledge acquisition, and narration remain distinct; no later state is inferred from an earlier one.
+7. Same inputs, state, and pinned rules yield the same result; replay does not duplicate effects.
+8. Missing rule versions or required state fail closed.
+9. Tests are labeled as isolated logic tests, not end-to-end Memory→NPC or production evidence.
+
+**Next implementation gate:** before adding an executor or new data shape, map this pipeline to existing Core/World Pack/Personality/Time contracts and identify which steps have approved callable seams today. Implement only a bounded NPC-owned pure component if that mapping shows a real, testable gap that can be closed without new cross-block authority; otherwise retain this as a reviewable proposal and request the specific owner decision.
