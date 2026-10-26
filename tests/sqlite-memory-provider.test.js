@@ -1104,3 +1104,35 @@ test('Provider trust callbacks and authorization epochs cannot be shadowed throu
   assert.equal(result.status, 'stale');
   assert.match(result.reason, /SOURCE|LINEAGE|INVENTORY|VALIDATION/);
 });
+
+
+test('untrusted Core snapshot objects with accessors or proxies fail closed without executing getters', async (t) => {
+  let getterCalls = 0;
+  const s = setup(t, {
+    getSnapshot: async () => Object.defineProperty({}, 'world_revision', {
+      enumerable: true,
+      get() {
+        getterCalls += 1;
+        throw new Error('snapshot getter must not execute');
+      },
+    }),
+  });
+
+  assert.deepEqual(await s.provider.reconcile(s.scope.world_id), {
+    status: 'unavailable',
+    reason: 'CORE_SNAPSHOT_UNAVAILABLE',
+  });
+  assert.equal(getterCalls, 0);
+
+  const proxied = setup(t, {
+    getSnapshot: async () => new Proxy(
+      { world_revision: 4, commit_sequence: 2 },
+      { get() { getterCalls += 1; throw new Error('snapshot proxy trap must not execute'); } },
+    ),
+  });
+  assert.deepEqual(await proxied.provider.reconcile(proxied.scope.world_id), {
+    status: 'unavailable',
+    reason: 'CORE_SNAPSHOT_UNAVAILABLE',
+  });
+  assert.equal(getterCalls, 0);
+});

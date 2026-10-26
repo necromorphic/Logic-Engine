@@ -93,7 +93,9 @@ const validId = (value) => typeof value === 'string' && value === value.trim()
   && ![...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
 const validSnapshotPart = (value) => (typeof value === 'number' && Number.isFinite(value))
   || (typeof value === 'string' && value.trim().length > 0);
-const snapshotOf = (value) => object(value)
+const snapshotOf = (value) => isPlainDataRecord(value)
+  && Object.hasOwn(value, 'world_revision')
+  && Object.hasOwn(value, 'commit_sequence')
   && validSnapshotPart(value.world_revision)
   && validSnapshotPart(value.commit_sequence)
   ? { world_revision: value.world_revision, commit_sequence: value.commit_sequence } : null;
