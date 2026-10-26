@@ -610,3 +610,68 @@ For each proposed NPC code change, answer all four questions in the PR descripti
 4. **Evidence level:** is the evidence source-inspected, fixture-tested, runtime-observed, or real end-to-end tested? Do not upgrade the claim beyond the evidence.
 
 **Immediate safe scope:** refine NPC decision semantics and add pure NPC-owned tests over explicit fixtures, if the existing code layout supports them. Do not introduce durable decision storage or connect Memory→NPC while the owner-approved input/commit seams remain unproven.
+
+
+## 17. Proposed solution — NPC decision kernel with owner-owned boundaries (26 Oct 2026)
+
+**Recommendation:** do not implement a new end-to-end NPC executor or durable decision store yet. Build toward a small, pure NPC decision kernel that consumes an explicitly supplied decision frame, returns a decision explanation/proposal reference, and has no authority to read arbitrary stores or mutate world state. Surrounding orchestration stays with the owners of the relevant contracts.
+
+This is an architectural recommendation, not an approved runtime API. The term **decision frame** below is conceptual; it does not define a new serialized schema.
+
+### 17.1 Three responsibilities, not one monolith
+
+1. **Owner-provided evidence and context**
+   - Core supplies the authoritative world/actor binding, canonical state/snapshot and freshness boundary through approved services.
+   - Memory Provider supplies source records and lifecycle evidence only through the future Core-approved read/admission path. NPC does not query Provider internals.
+   - Personality/Relationships and World Pack/Mechanics supply their approved versioned values/rules through their owning contracts.
+   - Time/Process supplies canonical time and due-work/process state through its approved mechanisms.
+   - If any required owner-owned input is absent, the decision remains blocked/unknown; the NPC kernel does not reconstruct it from prompt text or create a replacement store.
+
+2. **NPC decision kernel (NPC-owned)**
+   - Accepts already-authorized, actor-relative inputs and references to the applicable pinned rules.
+   - Produces a bounded decision: candidates considered, why candidates are blocked/feasible/unknown, and either a selected action proposal reference or an unresolved/blocked result.
+   - Can use personality and goals to rank feasible candidates, but cannot grant capabilities, authorize knowledge, certify source freshness, resolve unknown conditions optimistically, or commit effects.
+   - First implementation should be pure and deterministic for identical normalized inputs and pinned versions. It should not persist state or make model/network calls itself.
+
+3. **Owner-owned orchestration and canonical outcome**
+   - A caller/orchestrator obtains the inputs and invokes the pure kernel.
+   - A selected action must be translated into an already-approved proposal representation and go through Core's validation, authorization, stale-state, conflict and commit boundaries.
+   - Core's current `ProposalService` already has pending → approved → committed lifecycle, revision/sequence freshness checks and a Core `commitEvent` handoff. This is a reusable existing boundary, **not evidence that an NPC decision is currently wired to it** and not permission to bypass any approval policy.
+   - Afterward, reassessment consumes the actual commit result or rejection, never the kernel's own prediction of success.
+
+### 17.2 Data ownership: store only what NPC uniquely owns
+
+The NPC block should not copy the canonical world snapshot, full Memory text, source lineage, authorization decisions, rule definitions, relationship records or process schedule into an NPC-owned persistent decision record.
+
+At the decision boundary, prefer references to owner-owned state plus the minimum transient values needed to evaluate candidates. Any future durable NPC intent, plan, goal or task must be mapped first to the existing Goal/Task/Process contract and store. If an existing contract cannot represent an NPC-specific concept, record a focused gap for that owning block; do not create a second generic store pre-emptively.
+
+A future NPC-specific durable record is justified only when it contains genuinely NPC-owned semantics that cannot be reconstructed from canonical events and existing Process/Goal/Task state—for example, a character's private intention or a deliberation checkpoint—**and only after** the project defines its lifecycle, versioning, rollback/replay and privacy boundary. This section does not authorize that persistence now.
+
+### 17.3 Exact existing seams versus unresolved seams
+
+| Need | Existing evidence | Decision |
+|---|---|---|
+| Canonical actor binding | Core-owned `ActorBindingService.resolve` checks an authenticated adapter's binding to a canonical entity | Reuse only through the approved caller path; NPC must not self-assert identity |
+| World snapshot/state | `LogicEngine.getSnapshot` / `getState` exist | Existence alone does not prove actor-filtered context, same-snapshot rule evaluation or authorized access for an NPC; caller must establish the approved boundary |
+| Mechanic conditions | `evaluateMechanicActionConditions` returns tri-state condition results over supplied context | Reuse; do not duplicate. `unknown` stays unknown |
+| Action proposal lifecycle | `ProposalService.create`, `approve`, `commit` exist with Core validation and freshness checks | Potential handoff seam, but no confirmed NPC-specific caller/contract or autonomy approval policy; map/approve before wiring |
+| Goals/tasks/process | Core has Process contract/store and API methods | Do not add NPC-owned parallel persistence; map the exact desired fields/lifecycle to these contracts before deciding what is missing |
+| Actor-relative knowledge | NPC Memory admission helper evaluates supplied evidence but is explicitly not a read API or authorization service | Still blocked on approved Core + Provider + Host path; no Memory-backed production decision frame |
+| Cross-NPC conflict | Mechanic templates have conflict-policy data; Core commit paths exist | No proven generic NPC-vs-NPC resolver in this audit; domain policy/owner seam must be established before competing proposals can be automatically resolved |
+| Post-commit outcome | Core event commit result exists | Define which returned canonical evidence supports reassessment; never infer success from proposal selection |
+
+### 17.4 Recommended implementation sequence
+
+**Step 1 — Contract-free pure kernel prototype (NPC-only).** Use a narrow test fixture and existing condition evaluator. Keep inputs explicit and test-only; return only candidate classifications and a selection/deferral result. No persistence, Memory access, Core writes, invented production schema, or model call. This proves the decision semantics, not end-to-end runtime.
+
+**Step 2 — Test the boundary, not just the happy path.** Cover unknown preconditions, prohibited actions, personality preference versus hard constraints, incomparable candidates, stale state, deterministic repeat, and an action outcome that differs from intent. The test harness must not represent its fixtures as production authority.
+
+**Step 3 — Owner-mapped integration review.** Before wiring, identify the exact caller for actor binding/context, pinned rules, proposal creation and approved autonomous commit policy. Ask Core to approve any missing contract. The current human approval lifecycle in ProposalService must not be silently reinterpreted as autonomous NPC authorization.
+
+**Step 4 — Memory remains a separate gate.** Until #140/#181/#258/#264 and the product/security disclosure decision are satisfied, the kernel accepts no production Memory payload. A non-Memory NPC decision slice may proceed only when its required facts come from already-approved canonical or explicit test inputs.
+
+**Step 5 — Add durable intent/process state only after ownership mapping.** Reuse Process/Goal/Task facilities where they fit. Create a new NPC-owned durable record only for a documented NPC-specific requirement and after the owner approves lifecycle/replay semantics.
+
+### 17.5 Decision
+
+Proceed with Step 1 as the next implementation candidate, after confirming that a pure NPC-owned module can be added without modifying Core/Memory/Host or inventing a production contract. If the current NPC directory has no approved seam beyond the Memory eligibility oracle, keep the prototype isolated and test-only until owner review. Do not wire it into the public API or label it production autonomy.
