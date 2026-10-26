@@ -160,6 +160,25 @@ test('reconciliation rejects Proxy and accessor-backed inputs before invoking th
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
 });
 
+test('reconciliation rejects metadata outside the current Provider snapshot shape before verification', async (t) => {
+  let verifierCalls = 0;
+  const ledger = setup(t, async () => { verifierCalls += 1; return true; });
+  const base = {
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  };
+
+  assert.deepEqual(await ledger.reconcileConversation({ ...base, branch_id: 'unapproved-branch-field' }), {
+    status: 'non_ready', code: 'HOST_INVENTORY_INVALID'
+  });
+  assert.deepEqual(await ledger.reconcileConversation({
+    ...base, versions: [entry({ parent_version_id: 'unapproved-parent-field' })]
+  }), { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' });
+
+  assert.equal(verifierCalls, 0);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
+});
+
 test('digest-only capture is idempotent and stores no raw text', (t) => {
   const ledger = setup(t);
   assert.deepEqual(ledger.captureVersion(entry()), { status: 'captured' });
