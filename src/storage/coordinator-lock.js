@@ -37,3 +37,24 @@ export function beginCoordinatorLock(db) {
     released = true;
   };
 }
+
+
+/**
+ * Run one synchronous local mutation while holding the shared coordinator.
+ * The callback must include its complete local transaction (commit or
+ * rollback); asynchronous work is rejected because the lease cannot span await.
+ */
+export function withCoordinatorLock(db, callback) {
+  if (typeof callback !== 'function') throw new TypeError('A synchronous coordinator callback is required.');
+  const release = beginCoordinatorLock(db);
+  try {
+    const result = callback();
+    if (result !== null && (typeof result === 'object' || typeof result === 'function')
+      && typeof result.then === 'function') {
+      throw new TypeError('Coordinator callback must be synchronous; do not await while a coordinator lease is held.');
+    }
+    return result;
+  } finally {
+    release();
+  }
+}
