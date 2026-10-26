@@ -1,9 +1,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { createApiServer } from '../src/api/server.js';
+import { HostVersionDigestLedger } from '../src/application/host-version-digest-ledger.js';
 
 const TOKEN = 'test-token-long-enough-123456';
 const ADMIN = 'admin-token-long-enough-123456';
@@ -13,6 +17,13 @@ const headers = { authorization: 'Bearer ' + TOKEN, 'content-type': 'application
 const json = (body) => JSON.stringify(body);
 
 async function setup(t) {
+  const directory = mkdtempSync(join(tmpdir(), 'host-binding-api-'));
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const hostVersionLedger = new HostVersionDigestLedger({
+    path: join(directory, 'host-versions.sqlite'),
+    coordinatorPath,
+    verifyInventorySnapshot: async () => false,
+  });
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   engine.createWorld({
@@ -26,10 +37,16 @@ async function setup(t) {
   const server = createApiServer({
     engine, token: TOKEN, adminToken: ADMIN,
     adapterTokens: { 'adapter-a': ADAPTER_A, 'adapter-b': ADAPTER_B },
+    hostVersionLedger,
   });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  t.after(() => { server.close(); store.close(); });
+  t.after(() => {
+    server.close();
+    store.close();
+    hostVersionLedger.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
   return 'http://127.0.0.1:' + server.address().port;
 }
 
@@ -101,4 +118,57 @@ test('Core binding API refuses implicit reassignment and revocation prevents res
   });
   assert.equal(resolveAfterRevoke.status, 403);
   assert.equal((await resolveAfterRevoke.json()).error.code, 'HOST_CONVERSATION_NOT_AUTHORIZED');
+});
+
+
+test('Host digest capture requires Core binding and accepts no raw text or caller world_id', async (t) => {
+  const base = await setup(t);
+  const path = base + '/v1/host-version-ledger/capture';
+  const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER_A };
+  const capture = {
+    conversation_id: 'stable-chat-id', message_id: 'message-1', version_id: 'version-1',
+    content_sha256: 'a'.repeat(64), active: true, deleted: false,
+  };
+
+  const unbound = await fetch(path, { method: 'POST', headers: adapterHeaders, body: json(capture) });
+  assert.equal(unbound.status, 403);
+  assert.equal((await unbound.json()).error.code, 'HOST_CONVERSATION_NOT_AUTHORIZED');
+
+  await fetch(base + '/v1/host-conversation-bindings', {
+    method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({ adapter_id: 'adapter-a', conversation_id: 'stable-chat-id', world_id: 'host-binding-world-a' }),
+  });
+
+  const rawText = await fetch(path, {
+    method: 'POST', headers: adapterHeaders, body: json({ ...capture, content_text: 'must not be accepted' }),
+  });
+  assert.equal(rawText.status, 400);
+  assert.equal((await rawText.json()).error.code, 'INVALID_HOST_VERSION_CAPTURE');
+
+  const callerWorld = await fetch(path, {
+    method: 'POST', headers: adapterHeaders, body: json({ ...capture, world_id: 'host-binding-world-b' }),
+  });
+  assert.equal(callerWorld.status, 400);
+  assert.equal((await callerWorld.json()).error.code, 'INVALID_HOST_VERSION_CAPTURE');
+
+  const badDigest = await fetch(path, {
+    method: 'POST', headers: adapterHeaders, body: json({ ...capture, content_sha256: 'not-a-sha256' }),
+  });
+  assert.equal(badDigest.status, 400);
+  assert.equal((await badDigest.json()).error.code, 'INVALID_HOST_VERSION_CAPTURE');
+
+  const saved = await fetch(path, { method: 'POST', headers: adapterHeaders, body: json(capture) });
+  assert.equal(saved.status, 201);
+  assert.deepEqual((await saved.json()).capture, { status: 'captured' });
+
+  const duplicate = await fetch(path, { method: 'POST', headers: adapterHeaders, body: json(capture) });
+  assert.equal(duplicate.status, 200);
+  assert.deepEqual((await duplicate.json()).capture, { status: 'duplicate' });
+
+  const conflict = await fetch(path, {
+    method: 'POST', headers: adapterHeaders,
+    body: json({ ...capture, content_sha256: 'b'.repeat(64) }),
+  });
+  assert.equal(conflict.status, 409);
+  assert.equal((await conflict.json()).inventory_status, 'NON_READY');
 });

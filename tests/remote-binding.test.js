@@ -23,6 +23,7 @@ function runtimeEnv(directory, port, allowRemote) {
     ...process.env,
     ENGINE_API_TOKEN: API_TOKEN,
     ENGINE_DB_PATH: join(directory, 'remote-mode.sqlite'),
+    ENGINE_HOST_VERSION_LEDGER_DB_PATH: join(directory, 'host-versions.sqlite'),
     ENGINE_PORT: String(port),
     ENGINE_HOST: '0.0.0.0',
     ENGINE_ALLOW_REMOTE: allowRemote ? 'true' : '',

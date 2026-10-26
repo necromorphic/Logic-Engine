@@ -49,7 +49,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -136,6 +136,41 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       }
       if (req.method === 'GET' && registryParts[0] === 'v1' && registryParts[1] === 'rule-modules' && registryParts.length === 4) {
         return send(res, 200, engine.getRuleModuleManifest(decodeURIComponent(registryParts[2]), decodeURIComponent(registryParts[3])));
+      }
+      if (url.pathname === '/v1/host-version-ledger/capture') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host version-ledger operation.' } });
+        if (!hostVersionLedger || typeof hostVersionLedger.captureVersion !== 'function') {
+          return send(res, 503, { error: { code: 'HOST_VERSION_LEDGER_UNAVAILABLE', message: 'Host version ledger is not configured.' } });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req);
+        const allowed = ['conversation_id', 'message_id', 'version_id', 'content_sha256', 'active', 'deleted'];
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => !allowed.includes(key))
+          || !['conversation_id', 'message_id', 'version_id'].every((key) => typeof body[key] === 'string'
+            && body[key] === body[key].trim() && body[key].length > 0 && body[key].length <= 200
+            && ![...body[key]].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127))
+          || typeof body.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(body.content_sha256)
+          || typeof body.active !== 'boolean' || typeof body.deleted !== 'boolean'
+          || (body.deleted && body.active)) {
+          throw new EngineError('INVALID_HOST_VERSION_CAPTURE',
+            'Capture accepts only conversation/message/version IDs, a SHA-256 digest, active and deleted flags; raw content and world_id are forbidden.', 400);
+        }
+        const binding = hostConversationBindings.resolve({ adapterId, conversationId: body.conversation_id });
+        const result = hostVersionLedger.captureVersion({
+          world_id: binding.world_id,
+          conversation_id: binding.conversation_id,
+          message_id: body.message_id,
+          version_id: body.version_id,
+          content_sha256: body.content_sha256,
+          active: body.active,
+          deleted: body.deleted,
+        });
+        if (result.status === 'conflict' || result.status === 'non_ready') {
+          return send(res, 409, { capture: result, inventory_status: 'NON_READY' });
+        }
+        return send(res, result.status === 'captured' ? 201 : 200, { capture: result });
       }
       if (url.pathname === '/v1/host-conversation-bindings') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host conversation binding operation.' } });
