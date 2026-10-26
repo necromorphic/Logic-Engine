@@ -299,3 +299,39 @@ This is a design-level trace for reviewing the decision cycle in §10. It is not
 This scenario is an architectural review oracle, not proof of implementation. Before treating it as executable acceptance, the NPC owner must map each row to the exact current code path, tests, pinned SHA, and owning contract. Where no real seam or test exists, record **UNVERIFIED / BLOCKED**, not pass. The smallest useful runtime slice is one actor-relative context check plus one competing-action case on the existing approved Core path; if either seam is absent, the next action is a precise owner decision, not a mock receiver or a new API.
 
 Production Memory→NPC remains **DISABLED / FAIL-CLOSED** until its independent authorization, lineage, acquisition, reconciliation, revocation, and disclosure gates pass.
+
+
+## 12. Current-code trace: what exists and what remains unproven
+
+Audit basis: default branch `main` at commit `fd904ccadc13129616f9d0855ba26b238eabd709` (2026-10-26). The source files below were inspected at these exact blob SHAs. This is source inspection only; no Runtime CI or local test command was executed as part of this audit.
+
+### 12.1 Evidence matrix
+
+| Decision-cycle seam | Exact source evidence | What the source supports | What it does not prove |
+|---|---|---|---|
+| Actor identity binding | `src/application/actor-bindings.js`, blob `02e34dd2e26c6b6957ad63bc84ec7124b626c031` | Core-owned binding resolves an authenticated adapter to a canonical actor; source comment explicitly says this authorizes identity resolution only | It does not grant knowledge access, choose NPC actions, or authorize commits |
+| Bounded Memory retrieval for an NPC | `src/application/memory-npc-consumer.js`, blob `767adcefa3385e1e7545f7eb921a737ca8f6d7e2` | An internal injectable consumer checks actor binding, Memory query/record authorization, completeness, freshness, source identity, canonical Core reads, snapshot agreement, duplicate identity conflicts and admission metadata; failures return non-ready | The source comment says it is not wired into the public API and has no default provider/policy; this is not a general NPC decision runtime and does not itself establish delivery, receipt, acquisition or belief |
+| Candidate admission | `src/npc/memory-candidate-eligibility.js`, blob `ad3c09b34bbde89b977a43c07e91824e28234395` | Pure, schema-neutral eligibility oracle rejects missing scope, snapshot, lifecycle, access and lineage evidence | The module's own header says it is not an authorization service, adapter or production read API |
+| Candidate-admission regression coverage | `tests/npc-memory-candidate-eligibility.test.js`, blob `fe9143856af250712909f1b937ab74a61c4ce34c`; `tests/memory-npc-consumer.test.js`, blob `72a01b2695a0ef020479e9502e51e726dba24f61` | Source contains tests for fail-closed admission, duplicate/conflicting identities, stale snapshots, authorization revocation races, source read boundaries and the distinction between admission and later lifecycle states | Presence of tests is not a claim that they were executed in this audit or that the full integration gates passed |
+| Process scheduling and persistence | `src/application/engine.js`, blob `dcb8b84e54b29e8697f14eb7e709cc6e0cd65a13`; `src/time/scheduler.js` | Engine has process/time operations and canonical event commit methods; scheduler header explicitly says it plans due work and does not execute effects or grant NPC knowledge | Due-work scheduling is not autonomous NPC deliberation, action conflict adjudication or knowledge acquisition |
+| Knowledge/delivery boundary | `tests/process-knowledge-isolation.test.js`, blob `ecf845a257a12a29afc008345526787f58d4999c` | The test asserts process completion does not create knowledge, delivery or receipt side effects | It does not provide a delivery/receipt mechanism |
+| Public HTTP surface | `src/api/server.js`, blob `f97e4ed28a540b89073653dc0a8ec0fc9c0a50bb` | Current API server imports ProposalService, ActorBindingService and AuthorizedReadService | Source inspection found no reference to `MemoryNpcConsumer`, `retrieveForNpc` or an NPC decision route in this file; do not treat the internal consumer as a public production integration |
+| NPC decision generation / competing-action resolution | Current `src/` tree at `main` includes `src/npc/memory-candidate-eligibility.js`, but no dedicated NPC decision-cycle executor module was found in the inspected tree; `engine.js` exposes time/process and event operations | Existing primitives can support bounded parts of the architecture | The full sequence “actor-relative decision context → candidate actions → NPC action validation → competing-action resolution → durable NPC state reassessment” is not evidenced as an implemented end-to-end NPC runtime by these files |
+
+### 12.2 Concrete trace for the police/yakuza scenario
+
+1. **Can bind each NPC to an authenticated adapter?** A Core actor-binding mechanism exists, but it is an identity boundary, not the full decision context.
+2. **Can the engine retrieve candidate Memory safely for an NPC?** An internal injectable consumer and targeted source tests exist. The consumer is not wired into the public API; its owner-provided Memory callbacks and approved lifecycle contract remain prerequisites.
+3. **Can the engine prove that one NPC knows only what they acquired?** The current tests explicitly preserve the boundary between process completion and knowledge/delivery/receipt. The inspected evidence does not show a complete production acquisition/delivery subsystem for this scenario.
+4. **Can the engine generate and validate the officer's and yakuza member's competing actions?** No dedicated end-to-end NPC decision executor was found in the inspected current source tree. This remains **UNVERIFIED / BLOCKED**, not a passing capability.
+5. **Can Core commit a validated canonical event?** The engine exposes `commitEvent` and `commitSegment`; this alone does not establish an NPC-specific action validator or deterministic conflict policy.
+6. **Can a report or conversation change the recipient's knowledge?** The inspected process-boundary test explicitly prevents treating process completion as knowledge, delivery or receipt. A real owner-approved path for those lifecycle transitions is still needed before this scenario can pass.
+7. **Can restart/replay preserve the same NPC conflict outcome?** Existing process persistence/replay tests cover process milestones, not the full NPC action/conflict cycle. No end-to-end evidence for the latter was found in this audit.
+
+### 12.3 Result and owner-facing next step
+
+The code evidence supports several useful foundations—actor binding, canonical event operations, process scheduling, an internal fail-closed Memory consumer, and extensive targeted Memory admission tests. It does **not** support claiming that autonomous NPC decisions, NPC-vs-NPC conflict resolution, knowledge acquisition, or the full decision cycle are implemented end to end.
+
+Next step is a narrow owner-reviewed vertical slice, without inventing a contract: first identify the approved existing seam for actor-relative context and action proposal/validation; then require Core to name the canonical conflict/commit path and the domain owner to name how a delivered in-world message becomes acquired knowledge. If those seams do not exist, record the exact blocker and obtain owner approval before any API/schema/runtime addition. Do not wire Memory→NPC into production as part of this NPC-only audit.
+
+Memory→NPC remains **DISABLED / FAIL-CLOSED**. No test pass is claimed from source inspection alone.
