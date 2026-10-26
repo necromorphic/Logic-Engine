@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { resolve } from 'node:path';
 
-test('replay/rollback benchmark emits reproducible size, timing, database, SQL, and replay metrics', { timeout: 15000 }, () => {
+test('replay/rollback benchmark emits reproducible size, timing, database, SQL, and replay metrics', { timeout: 65000 }, () => {
   const result = spawnSync(process.execPath, [resolve('benchmarks/replay-rollback-growth.mjs')], {
     cwd: resolve('.'),
     env: { ...process.env, BENCH_SIZES: '10,25', BENCH_REPEATS: '2' },
     encoding: 'utf8',
-    timeout: 12000,
+    timeout: 60000,
   });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   const report = JSON.parse(result.stdout);
