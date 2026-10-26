@@ -12,6 +12,7 @@ function setup(t, options = {}) {
   let sourceVersion = 'source-v1';
   const providerOptions = {
     path,
+    coordinatorPath: join(directory, 'coordinator.sqlite'),
     getSnapshot: async () => ({ ...snapshot }),
     validateSourceVersion: async (record) => record.source_version === sourceVersion
       && record.source_entity_id === 'entity-source-a',
