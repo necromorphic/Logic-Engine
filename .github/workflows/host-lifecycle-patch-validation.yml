@@ -26,6 +26,12 @@ jobs:
           git clone --no-checkout https://github.com/SillyTavern/SillyTavern.git "$RUNNER_TEMP/st"
           git -C "$RUNNER_TEMP/st" checkout --detach 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           test "$(git -C "$RUNNER_TEMP/st" rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+      - name: Install ripgrep for the source audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y ripgrep
       - name: Audit pinned Host outbound call sites (static inventory only)
         shell: bash
         run: |
