@@ -55,6 +55,22 @@ test('file-backed Provider rejects coordinator DB path alias before opening the 
   assert.equal(existsSync(path), false);
 });
 
+test('in-memory Provider does not open the process coordinator database', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-memory-'));
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const provider = new SQLiteMemoryProvider({
+    path: ':memory:',
+    coordinatorPath,
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  });
+  t.after(() => provider.close());
+  assert.equal(provider.coordinatorDb, null);
+  assert.equal(existsSync(coordinatorPath), false);
+});
+
 test('persists raw record identity/version and rebuilds its derived index after restart', async (t) => {
   const s = setup(t);
   s.provider.grantQuery(s.scope, true);
