@@ -78,6 +78,45 @@ test('bound capture resolves canonical scope while holding the shared coordinato
   }), /Invalid bound Host version entry/);
 });
 
+test('reconciliation rejects Proxy and accessor-backed inputs before invoking the trust verifier', async (t) => {
+  let verifierCalls = 0;
+  const ledger = setup(t, async () => { verifierCalls += 1; return true; });
+
+  const proxyInput = new Proxy({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  }, { get() { throw new Error('Proxy getter must not execute'); } });
+  assert.deepEqual(await ledger.reconcileConversation(proxyInput), {
+    status: 'non_ready', code: 'HOST_INVENTORY_INVALID'
+  });
+
+  const accessorInput = {
+    conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  };
+  Object.defineProperty(accessorInput, 'world_id', {
+    enumerable: true, get() { throw new Error('Input getter must not execute'); }
+  });
+  assert.deepEqual(await ledger.reconcileConversation(accessorInput), {
+    status: 'non_ready', code: 'HOST_INVENTORY_INVALID'
+  });
+
+  const accessorEntry = entry();
+  Object.defineProperty(accessorEntry, 'content_sha256', {
+    enumerable: true, get() { throw new Error('Entry getter must not execute'); }
+  });
+  assert.deepEqual(await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [accessorEntry]
+  }), { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' });
+
+  const proxyVersions = new Proxy([entry()], { get() { throw new Error('Array Proxy getter must not execute'); } });
+  assert.deepEqual(await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: proxyVersions
+  }), { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' });
+
+  assert.equal(verifierCalls, 0);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
+});
+
 test('digest-only capture is idempotent and stores no raw text', (t) => {
   const ledger = setup(t);
   assert.deepEqual(ledger.captureVersion(entry()), { status: 'captured' });
