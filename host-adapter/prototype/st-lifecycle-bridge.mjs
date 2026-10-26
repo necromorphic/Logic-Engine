@@ -13,7 +13,7 @@ const newId = () => {
  * Opt-in adapter boundary for explicit native ST hooks.
  * This is not a complete inventory until every mutation path is wired and tested.
  */
-export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null }) {
+export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getSourceLineage = () => null, getChat, saveChat, publishDigest = null }) {
   if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
   if (publishDigest !== null && typeof publishDigest !== 'function') throw TypeError('publishDigest must be a trusted callback');
   const publishQueues = new Map();
@@ -118,13 +118,13 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     } catch (error) {
       return sourceTrustReport({ status: 'NON_READY', reason: 'live Host identity/version inventory mismatch: ' + (error?.message || error) }, 'MISMATCH');
     }
-    const result = await journal.verifyCurrentSource(conversationId, { messages: chat, sourceLocator: getSourceLocator() });
+    const result = await journal.verifyCurrentSource(conversationId, { messages: chat, sourceLocator: { locator: getSourceLocator(), lineage: getSourceLineage() } });
     return sourceTrustReport(result, 'MATCH');
   }
 
   async function currentFingerprint(chat = getChat()) {
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
-    return fingerprintSource(chat, getSourceLocator());
+    return fingerprintSource(chat, { locator: getSourceLocator(), lineage: getSourceLineage() });
   }
 
   async function enrolledOrFailClosed(conversationId) {
