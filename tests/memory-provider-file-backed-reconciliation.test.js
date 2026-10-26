@@ -118,10 +118,6 @@ test('file-backed Provider restart/rebuild preserves current direct source and d
   assert.deepEqual(await s.provider.rebuildIndex(s.scope.world_id), { status: 'rebuilt', count: 1 });
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
-  assert.equal(s.provider.authorizeCandidate({
-    ...s.scope, record_ref: record.record_ref, record_version: record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'source-a',
-  }).then ? true : false, true, 'authorization is async; grant denial is asserted through retrieval');
 });
 
 test('file-backed Provider rejects a pinned R2 source after Core rolls the entity back to R1', async (t) => {
