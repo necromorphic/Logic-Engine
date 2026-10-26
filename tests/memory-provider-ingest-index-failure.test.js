@@ -23,12 +23,13 @@ test('record persistence survives index-write failure and retrieval stays closed
     evidence_assessment: 'unassessed',
     lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-ingest-failure', source_version: 'source-v1' }],
   };
-  const provider = new SQLiteMemoryProvider({
+  const options = {
     path,
     getSnapshot: async () => ({ world_revision: 3, commit_sequence: 2 }),
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
-  });
+  };
+  let provider = new SQLiteMemoryProvider(options);
   t.after(() => {
     try { provider.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
@@ -45,6 +46,14 @@ test('record persistence survives index-write failure and retrieval stays closed
   'the durable Provider record is retained even though its derived index write failed');
   assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?')
     .get(scope.world_id, record.record_ref, record.record_version).n, 0);
+  assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).index_health, 'unavailable');
+  await assert.rejects(() => provider.retrieveCandidates(scope), /MEMORY_INDEX_NOT_READY/);
+
+  // Restart must preserve the durable record and the fail-closed readiness marker.
+  provider.close();
+  provider = new SQLiteMemoryProvider(options);
+  assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?')
+    .get(scope.world_id, record.record_ref, record.record_version).n, 1);
   assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).index_health, 'unavailable');
   await assert.rejects(() => provider.retrieveCandidates(scope), /MEMORY_INDEX_NOT_READY/);
 
