@@ -871,3 +871,82 @@ test('retrieval fails closed when another Provider connection revokes and re-gra
 
   await assert.rejects(pending, /MEMORY_INDEX_NOT_READY|MEMORY_AUTHORIZATION_CHANGED/);
 });
+
+
+test('retrieval fails closed when another Provider connection starts a record ingest during snapshot lookup', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'memory-provider-cross-ingest-retrieval-'));
+  const path = join(dir, 'provider.sqlite');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  let releaseSnapshot;
+  let signalSnapshot;
+  const snapshotStarted = new Promise((resolve) => { signalSnapshot = resolve; });
+  const snapshotGate = new Promise((resolve) => { releaseSnapshot = resolve; });
+  let holdSnapshot = false;
+  const options = {
+    path,
+    getSnapshot: async () => {
+      if (holdSnapshot) {
+        signalSnapshot();
+        await snapshotGate;
+      }
+      return { world_revision: 1, commit_sequence: 1 };
+    },
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  };
+  const provider = new SQLiteMemoryProvider(options);
+  const otherProvider = new SQLiteMemoryProvider(options);
+  t.after(() => provider.close());
+  t.after(() => otherProvider.close());
+
+  const scope = { world_id: 'cross-connection-ingest-world', subject_id: 'cross-connection-ingest-npc', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'cross-connection-ingest-initial-record',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'cross-connection-ingest-initial-entity',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'canonical_entity',
+      entity_id: 'cross-connection-ingest-initial-entity',
+      source_version: 'source-v1',
+    }],
+  };
+  provider.grantQuery(scope, true);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  provider.putRecord(record);
+  await provider.rebuildIndex(scope.world_id);
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+
+  holdSnapshot = true;
+  const pending = provider.retrieveCandidates(scope);
+  await snapshotStarted;
+  otherProvider.putRecord({
+    ...scope,
+    record_ref: 'cross-connection-ingest-new-record',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'cross-connection-ingest-new-entity',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'canonical_entity',
+      entity_id: 'cross-connection-ingest-new-entity',
+      source_version: 'source-v1',
+    }],
+  });
+  releaseSnapshot();
+
+  await assert.rejects(pending, /MEMORY_INDEX_NOT_READY|MEMORY_AUTHORIZATION_CHANGED/);
+});
