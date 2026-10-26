@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
+import { openCoordinatorDatabase } from '../src/storage/coordinator-lock.js';
 
 const waitForFile = async (path, timeoutMs = 3000) => {
   const deadline = Date.now() + timeoutMs;
@@ -93,4 +94,12 @@ test('Core transaction callbacks reject async functions before commit', () => {
   } finally {
     store.close();
   }
+});
+
+
+test('coordinator helper rejects relative paths instead of silently resolving per-process working directories', () => {
+  assert.throws(
+    () => openCoordinatorDatabase('coordinator.sqlite'),
+    /coordinator database path must be absolute/,
+  );
 });
