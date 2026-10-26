@@ -215,6 +215,12 @@ export class HostVersionDigestLedger {
         || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
         return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INVALID');
       }
+      // A deleted version cannot be the active version in a complete inventory.
+      // Accepting that contradictory pair would silently discard the active flag
+      // while rebuilding pointers and could publish READY for an inconsistent Host snapshot.
+      if (v.deleted && v.active) {
+        return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_DELETED_VERSION_ACTIVE');
+      }
       const key = JSON.stringify(tuple(v));
       if (seen.has(key)) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_DUPLICATE_IDENTITY');
       seen.add(key);
