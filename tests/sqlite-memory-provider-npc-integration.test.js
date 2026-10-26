@@ -213,7 +213,7 @@ test('real Provider fails closed when its Core snapshot changes after reconcilia
     turn_id: 'change-core-snapshot',
     event_type: 'action.completed',
     expected_revision: s.engine.getState(worldId).world_revision,
-    effects: [{ kind: 'entity.set', entity_id: 'source-a', attribute: 'public_note', value: 'changed source A' }],
+    effects: [{ kind: 'entity.create', entity_id: 'unrelated-after-index', entity_type: 'object' }],
   });
 
   const result = await s.consumer.retrieveForNpc(request());
