@@ -126,3 +126,18 @@ It refuses to emit the inventory unless `git rev-parse HEAD` exactly matches the
 ### Remaining route-inventory gap
 
 This environment can inspect pinned source snippets and maintain the audit script, but it has not executed the script against a complete local ST checkout. Therefore there is no honest whole-repository hit count or complete route-by-route call graph to report yet. The exact command above is the next reproducible source-level step on a disposable checkout. Until its output is reviewed and all enabled call branches are traced, the route inventory remains **BOUNDED / NON_READY**. No runtime gate or interception patch is authorized before Core approves the final-disclosure contract.
+
+
+## Exact GitHub diff comparison against current main — 26 Oct 2026
+
+Compared each named PR head against repository `main` using GitHub's commit comparison API. This records repository commit ancestry and changed-file summaries; it is not a claim that the proposed SillyTavern patch is safe to apply.
+
+| PR | Exact head | Comparison to current `main` | Files/change summary | Disposition |
+|---|---|---|---|---|
+| [#275](https://github.com/necromorphic/Logic-Engine/pull/275) | `0210a71e633cc04c740daf53f8c7e035f4218592` | `diverged`, 11 ahead / 30 behind | `.github/workflows/runtime-tests.yml` (+26); standalone ST patch (+536) | Stale base; review-only ideas, do not apply as-is. Its patch proposes pre-delete intent/snapshots and import/copy identity changes but does not prove a complete authoritative inventory. |
+| [#322](https://github.com/necromorphic/Logic-Engine/pull/322) | `4863d057fa65be1f1eb53e1570c1fa7557e330fc` | `diverged`, 32 ahead / 1 behind | 11 added files, including 246-line ST patch, journal, bridge and 20-test suite | Earlier implementation candidate; not the canonical head. Unique handoff proposal is retained as review-only documentation. |
+| [#323](https://github.com/necromorphic/Logic-Engine/pull/323) | `301a0c755f03095ecd9bb0f9aa18b38c8321d341` | `ahead`, 92 ahead / 0 behind | 13 added files, including 314-line ST patch, expanded bridge/tests, source evidence and audit script | Canonical review-only Host candidate. The diff adds prototype files but does not install them in the user's ST/Termux runtime; production readiness remains blocked. |
+| [#332](https://github.com/necromorphic/Logic-Engine/pull/332) | `e9576afb29f1205345a542f094385797ef310156` | `ahead`, 9 ahead / 0 behind | One modified lifecycle evidence doc (+146/-45) | Canonical expanded evidence-doc candidate; paired persisted-state snapshots still absent. |
+| [#307](https://github.com/necromorphic/Logic-Engine/pull/307) | `f02a1a7fc76e0b9b4fb6df82d357ae01668d804b` | `diverged`, 1 ahead / 5 behind | One added 64-line lifecycle evidence doc | Superseded by #332; do not maintain as parallel source. |
+
+Patch-level observation from exact PR diffs: #275's patch adds pre-delete snapshots and a persistence-intent sequence in the ST source; #322's patch wires a journal/bridge and enrollment entry point; #323 expands that bridge and pre-mutation swipe checkpointing. Those are different implementation proposals, not interchangeable guarantees. Because raw-source retention and journal authority/failure semantics are not approved, the #275 content remains a list of requirements to resolve rather than a change to transplant. No PR was merged/closed and no patch was installed into the active host.
