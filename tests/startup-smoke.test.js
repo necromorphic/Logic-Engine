@@ -106,7 +106,7 @@ test('runtime rejects coordinator database hard-link aliases', { timeout: 10000 
   child.stderr.setEncoding('utf8');
   child.stderr.on('data', (chunk) => { stderr += chunk; });
   try {
-    const [code] = await once(child, 'exit', { signal: AbortSignal.timeout(5000) });
+    const [code] = await once(child, 'close', { signal: AbortSignal.timeout(5000) });
     assert.notEqual(code, 0, 'Runtime must reject aliased Core and coordinator databases.');
     assert.match(stderr, /LOGIC_ENGINE_COORDINATOR_DB_PATH must be separate from ENGINE_DB_PATH, including filesystem aliases/);
   } finally {
