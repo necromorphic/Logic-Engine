@@ -34,10 +34,53 @@ function stringSet(value, name, max = 1000) {
 }
 
 function cloneJson(value, name) {
-  let encoded;
-  try { encoded = JSON.stringify(value); } catch {}
-  if (encoded === undefined) fail('INVALID_TRIGGER_PAYLOAD', name + ' must be JSON-serializable.');
-  try { return JSON.parse(encoded); } catch { fail('INVALID_TRIGGER_PAYLOAD', name + ' must be JSON-serializable.'); }
+  const ancestors = new Set();
+  const invalid = () => fail('INVALID_TRIGGER_PAYLOAD', name + ' must contain only finite JSON values without accessors, cycles, or custom prototypes.');
+
+  const clone = (item) => {
+    if (item === null || typeof item === 'string' || typeof item === 'boolean') return item;
+    if (typeof item === 'number') {
+      if (!Number.isFinite(item)) invalid();
+      return Object.is(item, -0) ? 0 : item;
+    }
+    if (typeof item !== 'object') invalid();
+    if (ancestors.has(item)) invalid();
+
+    const prototype = Object.getPrototypeOf(item);
+    if (Array.isArray(item)) {
+      if (prototype !== Array.prototype) invalid();
+      ancestors.add(item);
+      const keys = Reflect.ownKeys(item);
+      if (keys.some((key) => key !== 'length' && (typeof key !== 'string' || !/^(0|[1-9]\\d*)$/.test(key)))) invalid();
+      const result = [];
+      for (let index = 0; index < item.length; index += 1) {
+        if (!Object.hasOwn(item, index)) invalid();
+        const descriptor = Object.getOwnPropertyDescriptor(item, String(index));
+        if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) invalid();
+        result.push(clone(descriptor.value));
+      }
+      if (keys.length !== item.length + 1) invalid();
+      ancestors.delete(item);
+      return result;
+    }
+
+    if (prototype !== Object.prototype && prototype !== null) invalid();
+    ancestors.add(item);
+    const keys = Reflect.ownKeys(item);
+    const result = {};
+    for (const key of keys) {
+      if (typeof key !== 'string') invalid();
+      const descriptor = Object.getOwnPropertyDescriptor(item, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) invalid();
+      Object.defineProperty(result, key, {
+        value: clone(descriptor.value), enumerable: true, configurable: true, writable: true,
+      });
+    }
+    ancestors.delete(item);
+    return result;
+  };
+
+  return clone(value);
 }
 
 function validateReferenceKinds(values, name, allowMechanic) {
