@@ -49,3 +49,52 @@ test('query authorization revoked during source validation is denied', async (t)
   release();
   await assert.rejects(pending, /MEMORY_QUERY_DENIED/);
 });
+
+
+test('query authorization revoked during retrieval snapshot lookup is denied', async (t) => {
+  let holdSnapshot = false;
+  let release;
+  let started;
+  const snapshotStarted = new Promise((resolve) => { started = resolve; });
+  const snapshotGate = new Promise((resolve) => { release = resolve; });
+  const provider = new SQLiteMemoryProvider({
+    getSnapshot: async () => {
+      if (holdSnapshot) {
+        started();
+        await snapshotGate;
+      }
+      return { world_revision: 1, commit_sequence: 1 };
+    },
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  });
+  t.after(() => provider.close());
+
+  const scope = { world_id: 'retrieve-race-world', subject_id: 'retrieve-race-npc', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'retrieve-race-record',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'retrieve-race-entity',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'retrieve-race-entity', source_version: 'source-v1' }],
+  };
+  provider.grantQuery(scope, true);
+  provider.putRecord(record);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  await provider.rebuildIndex(scope.world_id);
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+
+  holdSnapshot = true;
+  const pending = provider.retrieveCandidates(scope);
+  await snapshotStarted;
+  provider.grantQuery(scope, false);
+  release();
+  await assert.rejects(pending, /MEMORY_QUERY_DENIED/);
+});
