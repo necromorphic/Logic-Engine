@@ -34,7 +34,7 @@ for (const [id, secret] of Object.entries(adapterTokens)) {
 const dbPath = process.env.ENGINE_DB_PATH || './data/logic-engine.sqlite';
 const coordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
 if (typeof coordinatorPath !== 'string' || !coordinatorPath.trim() || !isAbsolute(coordinatorPath)) {
-  process.stderr.write('LOGIC_ENGINE_COORDINATOR_DB_PATH must be set to an absolute path for file-backed runtime.\\n');
+  process.stderr.write('LOGIC_ENGINE_COORDINATOR_DB_PATH must be set to an absolute path for runtime.\\n');
   process.exit(1);
 }
 if (dbPath !== ':memory:' && coordinatorPath && resolve(coordinatorPath) === resolve(dbPath)) {
