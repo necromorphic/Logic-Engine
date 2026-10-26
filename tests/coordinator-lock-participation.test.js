@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, existsSync, symlinkSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, symlinkSync, linkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -182,16 +182,20 @@ test('SQLiteStore rejects coordinator and Core DB paths that alias the same file
   }
   const dir = mkdtempSync(join(tmpdir(), 'logic-engine-coordinator-alias-'));
   const corePath = join(dir, 'core.sqlite');
-  const aliasPath = join(dir, 'coordinator-alias.sqlite');
+  const symlinkAliasPath = join(dir, 'coordinator-symlink.sqlite');
+  const hardlinkAliasPath = join(dir, 'coordinator-hardlink.sqlite');
   const previous = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
   try {
     writeFileSync(corePath, '');
-    symlinkSync(corePath, aliasPath);
-    process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = aliasPath;
-    assert.throws(
-      () => new SQLiteStore(corePath),
-      /Coordinator DB must be separate from the Core DB, including filesystem aliases/,
-    );
+    symlinkSync(corePath, symlinkAliasPath);
+    linkSync(corePath, hardlinkAliasPath);
+    for (const aliasPath of [symlinkAliasPath, hardlinkAliasPath]) {
+      process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = aliasPath;
+      assert.throws(
+        () => new SQLiteStore(corePath),
+        /Coordinator DB must be separate from the Core DB, including filesystem aliases/,
+      );
+    }
   } finally {
     if (previous === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
     else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previous;
