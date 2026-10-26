@@ -70,7 +70,7 @@ export class HostVersionDigestLedger {
     const expected = snapshot.versions.map((v) => ({
       world_id: v.world_id, conversation_id: v.conversation_id, message_id: v.message_id,
       version_id: v.version_id, content_sha256: v.content_sha256, lifecycle: v.deleted ? 'tombstoned' : 'present'
-    })).sort((a, b) => (a.message_id + '\\u0000' + a.version_id).localeCompare(b.message_id + '\\u0000' + b.version_id));
+    })).sort((a, b) => a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id));
     if (JSON.stringify(stored) !== JSON.stringify(expected)) return false;
     const pointers = this.db.prepare('SELECT message_id,version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? ORDER BY message_id')
       .all(snapshot.world_id, snapshot.conversation_id);
