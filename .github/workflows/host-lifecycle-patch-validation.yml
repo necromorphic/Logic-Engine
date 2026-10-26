@@ -48,6 +48,7 @@ jobs:
           cp host-adapter/prototype/lifecycle-journal.mjs "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle/"
           cp host-adapter/prototype/st-lifecycle-bridge.mjs "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle/"
           cp host-adapter/prototype/conversation-identity.mjs "$RUNNER_TEMP/st/public/scripts/logic-engine-lifecycle/"
+          cp host-adapter/prototype/st-server-digest-proxy.mjs "$RUNNER_TEMP/st/src/endpoints/logic-engine-lifecycle-proxy.mjs"
       - name: Apply-check and apply candidate patch
         shell: bash
         run: |
@@ -72,6 +73,7 @@ jobs:
           node --check public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
           node --check public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           node --check public/scripts/logic-engine-lifecycle/conversation-identity.mjs
+          node --check src/endpoints/logic-engine-lifecycle-proxy.mjs
         working-directory: ${{ runner.temp }}/st
       - name: Upload pinned outbound audit report
         if: always()
