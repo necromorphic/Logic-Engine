@@ -200,7 +200,8 @@ function createGuardedDatabaseFacade(store, database) {
   };
   return Object.freeze({
     exec(sql) {
-      assertWriteLease();
+      const control = /^\\s*(?:BEGIN(?:\\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE))?|COMMIT|END|ROLLBACK(?:\\s+TO(?:\\s+SAVEPOINT)?\\s+[A-Za-z_][A-Za-z0-9_]*)?|SAVEPOINT\\s+[A-Za-z_][A-Za-z0-9_]*|RELEASE(?:\\s+SAVEPOINT)?\\s+[A-Za-z_][A-Za-z0-9_]*)\\s*;?\\s*$/i;
+      if (!control.test(sql)) assertWriteLease();
       return database.exec(sql);
     },
     prepare(sql) {
