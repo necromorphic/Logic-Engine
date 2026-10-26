@@ -6,14 +6,17 @@ on:
       - "host-adapter/prototype/**"
       - ".github/workflows/host-lifecycle-patch-check.yml"
 
+permissions:
+  contents: read
+
 jobs:
   pinned-st-host-patch:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Logic-Engine branch
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Checkout exact approved SillyTavern revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           repository: SillyTavern/SillyTavern
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
