@@ -259,3 +259,18 @@ test('rejected inventory cannot leave a previously READY state published', async
   assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS' });
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 });
+
+test('unknown tombstone invalidates previously READY inventory', async (t) => {
+  const ledger = setup(t, async () => true);
+  const snapshot = {
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  };
+  assert.equal((await ledger.reconcileConversation(snapshot)).status, 'ready');
+
+  const result = ledger.tombstoneVersion({
+    ...tuple, message_id: 'message-not-captured', version_id: 'version-not-captured'
+  });
+  assert.deepEqual(result, { status: 'non_ready', code: 'HOST_VERSION_UNKNOWN' });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code, 'HOST_VERSION_UNKNOWN');
+});
