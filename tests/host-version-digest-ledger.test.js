@@ -162,6 +162,42 @@ test('ledger mutations after READY invalidate the published inventory state', as
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 });
 
+test('verifier exception leaves an existing READY conversation NON_READY', async (t) => {
+  let reject = false;
+  const ledger = setup(t, async () => {
+    if (reject) throw new Error('verifier unavailable');
+    return true;
+  });
+  const snapshot = { world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()] };
+  assert.equal((await ledger.reconcileConversation(snapshot)).status, 'ready');
+  reject = true;
+  assert.deepEqual(await ledger.reconcileConversation(snapshot), {
+    status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED'
+  });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+});
+
+test('ledger identity and tombstone survive process-style close and reopen', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-digest-restart-'));
+  const path = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  let ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  ledger.captureVersion(entry());
+  ledger.tombstoneVersion(tuple);
+  ledger.close();
+  ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  try {
+    const row = ledger.db.prepare('SELECT lifecycle,content_sha256 FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?')
+      .get(...[tuple.world_id, tuple.conversation_id, tuple.message_id, tuple.version_id]);
+    assert.equal(row.lifecycle, 'tombstoned');
+    assert.equal(row.content_sha256, digest('sample raw message not stored'));
+    assert.equal(ledger.selectActiveVersion(tuple).code, 'HOST_VERSION_UNAVAILABLE');
+  } finally {
+    ledger.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('rejected inventory cannot leave a previously READY state published', async (t) => {
   const ledger = setup(t, async () => true);
   assert.equal((await ledger.reconcileConversation({
