@@ -28,8 +28,9 @@ function makeProviderOptions(engine, path) {
         if (snapshot.entities.length !== 1) return false;
         const entity = snapshot.entities[0];
         return entity.entity_id === record.source_entity_id
-          && entity.status !== 'destroyed'
+          && entity.status === 'active'
           && Number.isSafeInteger(entity.updated_revision)
+          && entity.updated_revision >= 0
           && record.source_version === String(entity.updated_revision);
       } catch {
         return false;
