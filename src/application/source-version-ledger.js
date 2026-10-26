@@ -196,11 +196,8 @@ export class SQLiteSourceVersionLedger {
   }
 
   #setNonReady(input, code) {
-    this.db.prepare(`INSERT INTO source_ledger_heads
-      (world_id,conversation_id,host_installation_id,branch_id,snapshot_sequence,snapshot_id,inventory_sha256,readiness,failure_code)
-      VALUES(?,?,?,'unknown',0,'conflict','', 'NON_READY',?)
-      ON CONFLICT(world_id,conversation_id,host_installation_id) DO UPDATE SET readiness='NON_READY',failure_code=excluded.failure_code`)
-      .run(input.world_id,input.conversation_id,'unknown-installation',code);
+    this.db.prepare(`UPDATE source_ledger_heads SET readiness='NON_READY',failure_code=?
+      WHERE world_id=? AND conversation_id=?`).run(code,input.world_id,input.conversation_id);
   }
   #setSnapshotNonReady(snapshot, code) {
     this.db.prepare(`INSERT INTO source_ledger_heads
