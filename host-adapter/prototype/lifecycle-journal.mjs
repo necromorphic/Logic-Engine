@@ -150,7 +150,7 @@ export class HostLifecycleJournal {
 }
 function txDone(tx) { return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||Error('IndexedDB transaction failed'));tx.onabort=()=>reject(tx.error||Error('IndexedDB transaction aborted'));}); }
 export async function contentDigest(text) { return digest(String(text)); }
-export async function fingerprintSource(messages) {
+export async function fingerprintSource(messages, sourceLocator = null) {
   const projection = messages.map(message => ({
     role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
     isUser: message.is_user === true,
@@ -161,6 +161,6 @@ export async function fingerprintSource(messages) {
     versions: Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''],
     activeVersionIndex: Number.isInteger(message.swipe_id) ? message.swipe_id : 0,
   }));
-  return digest(projection);
+  return digest({ sourceLocator: sourceLocator ?? null, projection });
 }
 export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredCoveragePaths:REQUIRED_COVERAGE});
