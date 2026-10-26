@@ -212,7 +212,25 @@ export class HostVersionDigestLedger {
     });
   }
 
-  async reconcileConversation(snapshot) {
+  async reconcileConversation(input) {
+    // Snapshot caller input synchronously before the first await. Validation,
+    // trust verification, hashing and reconciliation must use the same immutable
+    // version inventory; otherwise the caller could mutate rows while the
+    // verifier is awaiting and introduce unverified versions.
+    let snapshot = input;
+    if (input && typeof input === 'object' && !Array.isArray(input)) {
+      const rawVersions = input.versions;
+      const versions = Array.isArray(rawVersions)
+        ? Object.freeze(rawVersions.map((v) => v && typeof v === 'object' && !Array.isArray(v)
+          ? Object.freeze({ ...v }) : v))
+        : rawVersions;
+      snapshot = Object.freeze({
+        world_id: input.world_id,
+        conversation_id: input.conversation_id,
+        complete: input.complete,
+        versions
+      });
+    }
     if (!snapshot || !validId(snapshot.world_id) || !validId(snapshot.conversation_id)
       || snapshot.complete !== true || !Array.isArray(snapshot.versions)) {
       return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INCOMPLETE');
