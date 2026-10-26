@@ -48,6 +48,21 @@ test('file-backed Provider still fails closed when no coordinator path is explic
   }
 });
 
+test('file-backed Provider rejects a relative coordinator path', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'logic-provider-relative-coordinator-'));
+  try {
+    assert.throws(() => new SQLiteMemoryProvider({
+      path: join(dir, 'provider.sqlite'),
+      coordinatorPath: 'relative-coordinator.sqlite',
+      getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+      validateSourceVersion: async () => true,
+      validateInventory: async () => true,
+    }), /coordinator path must be absolute and shared with Core/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('Provider startup, grants, source-version records, tombstones, indexing and reconciliation join Core shared coordinator across processes', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'logic-provider-coordinator-'));
   const coordinatorPath = join(dir, 'shared-coordinator.sqlite');
