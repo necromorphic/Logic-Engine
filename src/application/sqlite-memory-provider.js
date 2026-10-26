@@ -725,6 +725,16 @@ export class SQLiteMemoryProvider {
     if (!state || state.index_health !== 'ready' || state.source_reconciliation !== 'current') {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
+    const stateGeneration = this.stateGeneration.get(scope.world_id) ?? 0;
+    const scopedRecords = this.db.prepare(`SELECT record_ref, record_version FROM memory_records
+      WHERE world_id=? AND subject_id=? AND purpose=?`)
+      .all(scope.world_id, scope.subject_id, scope.purpose);
+    const recordAuthorizationGenerations = new Map(scopedRecords.map((row) => {
+      const key = JSON.stringify([
+        scope.world_id, scope.subject_id, scope.purpose, row.record_ref, row.record_version,
+      ]);
+      return [key, this.recordAuthorizationGeneration.get(key) ?? 0];
+    }));
     let current;
     try {
       current = snapshotOf(await this.getSnapshot(scope.world_id));
@@ -761,6 +771,12 @@ export class SQLiteMemoryProvider {
       this.#setState(scope.world_id, 'stale', 'stale', null, 'SNAPSHOT_STALE');
       throw new Error('MEMORY_SNAPSHOT_STALE');
     }
+    // A readiness transition away and back to ready/current during the await is
+    // an ABA change. Fail closed rather than treating the final Boolean state as
+    // proof that the same Provider snapshot remained valid throughout retrieval.
+    if ((this.stateGeneration.get(scope.world_id) ?? 0) !== stateGeneration) {
+      throw new Error('MEMORY_INDEX_NOT_READY');
+    }
 
     const rows = this.db.prepare(`SELECT r.* FROM memory_records r
       JOIN memory_index_entries i USING(world_id,record_ref,record_version)
@@ -769,6 +785,14 @@ export class SQLiteMemoryProvider {
       WHERE r.world_id=? AND r.subject_id=? AND r.purpose=?
       ORDER BY r.record_ref,r.record_version LIMIT 51`)
       .all(scope.subject_id, scope.purpose, scope.world_id, scope.subject_id, scope.purpose);
+    // Grant state is durable, but grant generations are process-local. Compare
+    // the generations captured before the await so revoke/re-grant cannot make
+    // an in-flight retrieval appear continuously authorized.
+    for (const [key, generation] of recordAuthorizationGenerations) {
+      if ((this.recordAuthorizationGeneration.get(key) ?? 0) !== generation) {
+        throw new Error('MEMORY_AUTHORIZATION_CHANGED');
+      }
+    }
     // A query-authorized empty result is meaningful only when no indexed
     // records exist in this scope. If scoped records exist but none are
     // authorized for this subject/purpose, report a typed withheld failure
