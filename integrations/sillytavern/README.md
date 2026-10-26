@@ -41,6 +41,6 @@ Use a PC firewall rule restricted to the intended private network. Do not bind p
 
 ## Next implementation gate
 
-Before wiring chat lifecycle or world mutations, verify the exact pinned SillyTavern build `1.19.0-1-g06bde939f` (commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`) and record evidence for the actual lifecycle hooks and stable message/generation identity. Follow `docs/13-sillytavern-adapter-contract.md`.
+A preliminary payload audit from the supplied 1.19.0 release archive is in `integrations/sillytavern/CAPABILITY-AUDIT.md`; the archive does not prove the exact pinned commit. Before wiring chat lifecycle or world mutations, repeat the audit against `1.19.0-1-g06bde939f` (commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`) and establish stable message/generation identity. Follow `docs/13-sillytavern-adapter-contract.md`.
 
 Do not invent event names or payloads, do not store admin/internal/approval secrets in browser settings, do not commit canonical state directly, and keep Memory → NPC production disabled/fail-closed until the existing inventory, lineage, authorization and revocation gates are proven.
