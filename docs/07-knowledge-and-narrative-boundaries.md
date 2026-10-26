@@ -413,3 +413,47 @@ Use a disposable test fixture and existing store/event paths only; no production
 - **No authority escalation:** projection output must not become a canonical fact or NPC-acquisition evidence without a separate approved Core commit/knowledge contract.
 
 **Go/no-go:** GO only for this bounded, disposable feasibility spike and source-backed design report. NO-GO for production persistence, public contract/API/schema, automatic movement commits, or use as Memory→NPC authority until Core and the relevant spatial-temporal owner approve the exact seam and tests. The spatial spike remains parallel work and is not a blocker for independent Provider, Host or NPC tasks.
+
+
+## 13. New chat handoff — Spatial/Temporal World Model feasibility owner (2026-10-26)
+
+**Canonical task:** [Issue #350 — Spatial/Temporal World Model bounded architecture and feasibility spike](https://github.com/necromorphic/Logic-Engine/issues/350).
+
+### Mission for the new chat
+
+Own only the bounded architecture/feasibility spike described in issue #350. The goal is to determine what can be proven from the current Core implementation and what would be needed for a future time-aware spatial representation of entity/object locations, spatial relations, orientation/pose and movement/change. Do not treat “3D thinking” as a request to build a renderer, animation engine, physics simulator, or screenshot pipeline.
+
+### Starting evidence and baseline
+
+- Read sections 11, 12, and 12.4 of this document before proposing architecture.
+- Current documented Core inspection baseline: `main` commit `bf35fb8dd13628718dacc11c27654c0929fba0e2`; the evidence summary in §12.4 names the inspected files and approximate line ranges. Re-check the current branch/head and file lines before relying on that snapshot.
+- Relevant candidate substrate: `src/storage/sqlite-store.js` canonical `worlds`, `world_events`, `entities` tables; snapshot/state/event reads; current entity/fact projections; canonical commit; rollback/rebuild. These are candidate existing primitives, not approval of a spatial API.
+- Current negative finding: no typed spatial-temporal model was found in the inspected Core paths. Arbitrary `attributes_json` is not a spatial contract. Existing event rows do not guarantee a complete original transcript, sensory record, or subject viewpoint. A source-message reference is not the source itself.
+- Current disposition: GO for a disposable, bounded feasibility spike against existing paths; NO-GO for production persistence, new public API/schema/store/event vocabulary, automatic movement commits, or Memory→NPC authority.
+
+### Hard boundaries
+
+1. Core remains the canonical authority for world state, committed events/effects, world/session identity, revision and rollback/rebuild semantics.
+2. Any spatial model is a derived projection/read model. It must not independently commit canonical facts, execute world effects, become a second canonical store, or silently diverge from Core.
+3. Do not invent APIs, schema fields, stores, journals, event types, hooks or lifecycle contracts. If existing code cannot support a required guarantee, mark it missing and name the owner/decision needed.
+4. This work is isolated and parallel. Do not modify Core runtime, Memory Provider, NPC, Host/Adapter, their active PRs, or their contracts. Do not block their current tasks.
+5. Do not touch the existing SillyTavern Ollama vectorization/remote-store patch.
+6. Memory→NPC remains DISABLED / FAIL-CLOSED until its own acquisition, authority, lineage, inventory/reconciliation, revocation and real disclosure-boundary gates pass. The spatial model cannot bypass or satisfy those gates by itself.
+7. Scene-complete episodic memory remains a separate requirement: source evidence, world-side scene reconstruction, summaries/facts/indexes/snapshots, and each NPC’s viewpoint-specific memory are distinct. Never infer that every NPC perceived all world changes. Never fill gaps with plausible invention.
+8. Visualization is optional and out of scope for this spike.
+
+### Required work and deliverables
+
+- Pin exact branch + commit SHA and cite exact files/line ranges/tests for every repository claim. Re-check the current head rather than relying on a prior audit.
+- Trace the actual current Core event/state paths and classify each claim as verified by code, verified by test, documentation-only, partial, or absent.
+- Define the minimum concepts (identity, world isolation, spatial relation/coordinate assumptions, pose/orientation, time/order, movement/change, uncertainty/conflict, provenance) without prematurely naming fields.
+- Compare: (a) in-memory derived projection, (b) persisted but rebuildable projection, (c) event-linked scene/episode records, and (d) snapshots as checkpoints/accelerators. Explain replay determinism, rollback, staleness, recovery, provenance, scene completeness, cost and limitations.
+- Define failure behavior for uncommitted/rejected changes, duplicate/out-of-order inputs, missing or conflicting positions, create/remove, movement/teleport, rollback/rebuild, restart/replay, and multiple-world isolation. Mark anything the current contract cannot guarantee.
+- Run only a small disposable feasibility spike using existing store/event paths. At minimum test: committed effects only; deterministic rebuild at a chosen cursor; rollback removes unsupported derived effects; unknown/conflicting position remains unknown/conflicting; same entity identifier in separate worlds never shares state; projection cannot become canonical truth or NPC acquisition evidence.
+- Report reproducible commands, exact outputs and SHA. Do not say tests passed unless actually run. Use Context7 for current library/API references where relevant and Superpowers-style verification/test-first discipline; distinguish those workflow aids from repository evidence.
+- Deliver a short decision brief: recommendation, rejected options, smallest next step, owner/seam/dependencies, measurable acceptance criteria, estimated cost, and explicit Core/product decisions. End with GO/NO-GO and why.
+
+### Stop condition
+
+This chat’s task is complete when the evidence-backed design report and test matrix are available on a dedicated documentation branch or a proposed documentation PR, and another reviewer can reproduce the claims. It is **not** complete merely because a conceptual schema or mock implementation exists. Do not implement production runtime changes without a separately reviewed, explicit Core approval of the exact seam and diff.
+
