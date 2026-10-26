@@ -42,28 +42,30 @@ function isDataOnlyTree(value, active = new Set()) {
   if (value === null || (typeof value !== "object" && typeof value !== "function")) return true;
   if (typeof value === "function" || active.has(value)) return false;
 
-  const prototype = Object.getPrototypeOf(value);
-  if (Array.isArray(value)) {
-    if (prototype !== Array.prototype) return false;
-  } else if (prototype !== Object.prototype && prototype !== null) {
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (Array.isArray(value)) {
+      if (prototype !== Array.prototype) return false;
+    } else if (prototype !== Object.prototype && prototype !== null) {
+      return false;
+    }
+
+    active.add(value);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    for (const key of Reflect.ownKeys(descriptors)) {
+      const descriptor = descriptors[key];
+      if (!Object.hasOwn(descriptor, "value") || !isDataOnlyTree(descriptor.value, active)) {
+        active.delete(value);
+        return false;
+      }
+    }
+    active.delete(value);
+    return true;
+  } catch {
+    // Proxy traps and malformed host objects are not trusted evidence.
+    active.delete(value);
     return false;
   }
-
-  active.add(value);
-  const descriptors = Object.getOwnPropertyDescriptors(value);
-  for (const key of Reflect.ownKeys(descriptors)) {
-    const descriptor = descriptors[key];
-    if (!Object.hasOwn(descriptor, "value")) {
-      active.delete(value);
-      return false;
-    }
-    if (!isDataOnlyTree(descriptor.value, active)) {
-      active.delete(value);
-      return false;
-    }
-  }
-  active.delete(value);
-  return true;
 }
 
 function isNonEmptyString(value) {
