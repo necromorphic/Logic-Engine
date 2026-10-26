@@ -373,6 +373,14 @@ First deliverable should be a short architecture spike, not a new runtime store:
 5. Define a small measurable prototype/test set: apply a sequence of supported movement/pose events; reconstruct state at a chosen time; replay and rollback; represent unknown/conflicting positions without guessing; verify that derived state never becomes canonical without Core commit.
 6. Report implementation owner, minimal seam, files/modules likely affected, dependency on Core event semantics, resource/cost estimate, and an explicit go/no-go recommendation before runtime integration.
 
+### 12.3 Priority and non-goals
+
+This track is **parallel exploratory architecture work**, not a blocker for Provider-local implementation, Host lifecycle evidence, NPC-only work, or the current Memory→NPC gate. It must not alter the existing Ollama vectorization/remote-store patch.
+
+Do not build a graphics engine, animation system, image/screenshot pipeline, or general-purpose physics simulator merely because the capability is called “3D thinking.” First prove the minimum logical spatial-temporal state model. A “snapshot” may be one derived representation, not the source of truth and not a substitute for a coherent episode.
+
+No new API/schema/store, Core event contract, or production dependency is approved by this section. After the spike, Core and the relevant subsystem owner must review the exact proposed boundary and tests before implementation crosses block boundaries.
+
 ### 12.4 Bounded feasibility spike — current Core evidence and go/no-go
 
 **Scope of this inspection:** current `main` base commit `bf35fb8dd13628718dacc11c27654c0929fba0e2`; source inspection only. This is not runtime execution or a claim that the broader target documents are implemented.
@@ -405,11 +413,3 @@ Use a disposable test fixture and existing store/event paths only; no production
 - **No authority escalation:** projection output must not become a canonical fact or NPC-acquisition evidence without a separate approved Core commit/knowledge contract.
 
 **Go/no-go:** GO only for this bounded, disposable feasibility spike and source-backed design report. NO-GO for production persistence, public contract/API/schema, automatic movement commits, or use as Memory→NPC authority until Core and the relevant spatial-temporal owner approve the exact seam and tests. The spatial spike remains parallel work and is not a blocker for independent Provider, Host or NPC tasks.
-
-### 12.3 Priority and non-goals
-
-This track is **parallel exploratory architecture work**, not a blocker for Provider-local implementation, Host lifecycle evidence, NPC-only work, or the current Memory→NPC gate. It must not alter the existing Ollama vectorization/remote-store patch.
-
-Do not build a graphics engine, animation system, image/screenshot pipeline, or general-purpose physics simulator merely because the capability is called “3D thinking.” First prove the minimum logical spatial-temporal state model. A “snapshot” may be one derived representation, not the source of truth and not a substitute for a coherent episode.
-
-No new API/schema/store, Core event contract, or production dependency is approved by this section. After the spike, Core and the relevant subsystem owner must review the exact proposed boundary and tests before implementation crosses block boundaries.
