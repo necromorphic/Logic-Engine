@@ -15,6 +15,8 @@ console.debug = () => {};
 
 const requireFromST = createRequire(resolve(stRoot, 'package.json'));
 const express = requireFromST('express');
+const stUtil = await import(pathToFileURL(resolve(stRoot, 'src/util.js')).href);
+stUtil.setConfigFilePath(resolve(stRoot, 'default/config.yaml'));
 const { router } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backends/chat-completions.js')).href);
 
 test('real pinned server Chat Completions handler reaches a recording fake provider exactly once', async (t) => {
