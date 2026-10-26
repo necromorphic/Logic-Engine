@@ -290,6 +290,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         });
         identity.versions.splice(removedSwipeIndex, 1);
       }
+      const priorVersionInventory = identity.versions.slice();
       const nextVersions = [];
       for (let j = 0; j < versions.length; j++) {
         const textDigest = await contentDigest(versions[j]);
@@ -330,6 +331,22 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
             payloadDigest: textDigest,
           });
         }
+      }
+      const retainedVersionIds = new Set(nextVersions.map(version => version.versionId));
+      for (const priorVersion of priorVersionInventory) {
+        if (retainedVersionIds.has(priorVersion.versionId)
+          || tombstones.some(tombstone => tombstone.messageId === identity.messageId
+            && tombstone.versionId === priorVersion.versionId)) continue;
+        tombstones.push({
+          messageId: identity.messageId,
+          versionId: priorVersion.versionId,
+          versionIndex: priorVersion.versionIndex,
+          payloadDigest: priorVersion.payloadDigest,
+          parentVersionId: priorVersion.parentVersionId ?? null,
+          deleted: true,
+          active: false,
+          reason: 'version-removed',
+        });
       }
       identity.versions = nextVersions;
       identity.activeVersionIndex = activeIndex(message);
