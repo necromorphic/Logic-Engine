@@ -164,7 +164,7 @@ test('destructive and import UI entry points invoke target-aware fail-closed Hos
     "if (deleteChats) await window.logicEngineHostLifecycle?.guardBulkMutation();",
     "await window.logicEngineHostLifecycle?.guardBulkMutation();",
     "await window.logicEngineHostLifecycle.guardChatLocatorDeletion(chatName);",
-    "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(oldChatId);",
+    "await window.logicEngineHostLifecycle?.guardChatLocatorMutation?.(oldChatId);",
     "await window.logicEngineHostLifecycle?.guardChatLocatorDeletion?.(chatId);",
     "await window.logicEngineHostLifecycle.guardBulkMutation();",
     "await window.logicEngineHostLifecycle.guardBulkMutation();",
