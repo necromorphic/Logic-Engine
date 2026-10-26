@@ -294,6 +294,7 @@ Therefore the NPC oracle can validate only the proposal-shaped fields already us
 - Summary lineage now checks every numeric array slot explicitly; sparse arrays fail closed rather than bypassing `Array.prototype.every()`.
 - Candidate identity tuples are encoded as a JSON pair, avoiding delimiter-based pair collisions.
 - If a result repeats the same `record.ref + record.version` pair, all occurrences are excluded. The approved contract does not currently supply a canonical immutable payload digest that lets NPC prove repeated answers are identical; first-wins deduplication would be unsafe.
+- Summary lineage also rejects repeated `source.ref + source.version` pairs. Without an approved immutable payload digest, the NPC helper cannot establish that repeated source identities describe the same immutable content. This is a pure metadata guard, not source-authority proof.
 - Re-evaluation of the same supplied result is tested for deterministic output and no mutation / lifecycle side effects.
 - Exclusion output remains content-free and does not reveal denied IDs, snippets, rejection reasons, or rejection counts.
 
