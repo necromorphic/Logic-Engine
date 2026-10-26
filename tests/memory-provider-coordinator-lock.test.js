@@ -48,6 +48,22 @@ test('file-backed Provider still fails closed when no coordinator path is explic
   }
 });
 
+test('file-backed Provider rejects coordinator and Provider DB path aliases', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'logic-provider-coordinator-alias-'));
+  const providerPath = join(dir, 'provider.sqlite');
+  try {
+    assert.throws(() => new SQLiteMemoryProvider({
+      path: providerPath,
+      coordinatorPath: providerPath,
+      getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+      validateSourceVersion: async () => true,
+      validateInventory: async () => true,
+    }), /Coordinator DB must be separate from the Memory Provider DB/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('file-backed Provider rejects a relative coordinator path', () => {
   const dir = mkdtempSync(join(tmpdir(), 'logic-provider-relative-coordinator-'));
   try {
