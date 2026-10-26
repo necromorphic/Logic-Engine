@@ -30,7 +30,7 @@ export function beginCoordinatorLock(db) {
   let released = false;
   return () => {
     if (released) return;
-    released = true;
     db.exec('ROLLBACK');
+    released = true;
   };
 }
