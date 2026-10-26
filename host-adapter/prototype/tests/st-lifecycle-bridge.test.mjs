@@ -467,3 +467,39 @@ test('fresh journal/bridge instances replay the persisted journal rows after res
     /incomplete mutation instrumentation|native hook coverage|no trusted pinned-source attestation/,
   );
 });
+
+test('unique raw-content sentinels never enter persisted journal rows or exported ledger', async () => {
+  const sentinels = [
+    'HOST_RAW_CONTENT_SENTINEL_USER_7c9e21',
+    'HOST_RAW_CONTENT_SENTINEL_ASSISTANT_4b8a63',
+    'HOST_RAW_CONTENT_SENTINEL_EDITED_1d5f90',
+  ];
+  const f = makeFixture([
+    { is_user: true, mes: sentinels[0] },
+    { is_user: false, mes: sentinels[1] },
+  ]);
+  await f.bridge.enrollCurrentConversation();
+
+  await f.bridge.beforeMutation('edit-message', [1]);
+  f.chat[1].mes = sentinels[2];
+  await f.bridge.afterMutation('edit-message');
+
+  const assertNoRawSentinels = async stage => {
+    const persisted = JSON.stringify({
+      rows: [...f.db.rows.values()],
+      heads: [...f.db.heads.values()],
+    });
+    const exported = JSON.stringify(await f.journal.exportCaptureLedger('chat-1'));
+    for (const sentinel of sentinels) {
+      assert.equal(persisted.includes(sentinel), false, `persisted journal contains raw source text at ${stage}: ${sentinel}`);
+      assert.equal(exported.includes(sentinel), false, `capture-ledger export contains raw source text at ${stage}: ${sentinel}`);
+    }
+  };
+
+  await assertNoRawSentinels('after edit');
+
+  await f.bridge.beforeMutation('delete-message', [1]);
+  f.chat.splice(1, 1);
+  await f.bridge.afterMutation('delete-message');
+  await assertNoRawSentinels('after delete');
+});
