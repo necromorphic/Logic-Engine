@@ -739,3 +739,28 @@ Do **not** map the evaluator's `status: "true"` directly to the prototype's `fea
 The next safe experiment is a test-only characterization of the existing evaluator's tri-state outputs using valid mechanic fixtures, kept separate from the NPC ranking prototype. It must not add a production adapter or alter Core. Only after the owning Core/Mechanics contracts define what additional checks make an action candidate feasible may an integration adapter be proposed. The NPC kernel continues to accept caller-classified fixture candidates only; Memory→NPC remains disabled/fail-closed.
 
 **Evidence level:** source-inspected plus a new test file `tests/mechanic-action-conditions.test.js` covering all-true aggregation, false-over-unknown precedence while retaining unknown paths, missing-context unknowns, explicit known absence, and unknown-action rejection. The tests characterize Core behavior only; they do not connect the evaluator to the NPC kernel or claim production feasibility.
+
+
+## 21. Existing application executor is a stronger seam than the bare condition helper (26 Oct 2026)
+
+A second source pass found the existing `src/application/mechanic-executor.js` implementation (blob `e56638e165f7a4f3176638e2f368b25ff076ce25`) and its tests in `tests/mechanic-executor.test.js`. This is important: the repository already has a bounded, opt-in application-layer preparation path; it would be inaccurate to describe the condition helper as the only existing mechanics path.
+
+### 21.1 What the existing executor does
+
+The executor pins an enabled mechanic instance to the exact template version in a world snapshot, checks world revision/commit-sequence consistency, requires a trusted authorized-context provider, validates the provider's policy/version/scope and canonical dependency evidence, compares projected values against canonical entity attributes, preserves explicit same-snapshot known-absence assertions, evaluates the conditions, translates supported effect intents, and checks supported effect targets/write conflicts. It returns a frozen, attested `status: "ready"` evaluation with snapshot identity, context fingerprint, dependency manifest, read set, causal links and effect provenance.
+
+The supported slice deliberately fails closed for non-empty required capabilities, registered rule modules, automatic conflict resolution, participant selection/interactions, unsupported ambiguity policy, non-empty action input schemas, missing trusted context provider, and invalid/incomplete dependency evidence. The code explicitly marks global mechanic dependencies incomplete.
+
+### 21.2 The decisive boundary still remains
+
+A `ready` evaluation is **not** a committed action and is not itself an NPC decision. The executor's returned guarantees explicitly say `commit_authority: "none"`, `proposal_created: false`, and `canonical_state_mutated: false`. Existing tests then hand an attested evaluation to `ProposalService.createFromMechanicEvaluation`; proposal creation/approval/commit are separate Core-owned stages with their own policy and stale-state checks. The proposal lifecycle must not be bypassed or relabeled as NPC authorization.
+
+Therefore the safest future integration candidate is not to duplicate condition evaluation or invent a second effect executor. It is to establish, with Core/Mechanics owners, whether the NPC kernel may rank only already-prepared, attested `ready` evaluations (and how it should handle `no_match`, `unknown`, `rejected`, and unresolved/tied preferences), while leaving proposal policy, approval semantics, transactional freshness, and commit to the existing Core path. No such cross-owner contract is assumed here, and no wiring is added by this document.
+
+### 21.3 Existing evidence and remaining gap
+
+- Source-inspected: `MechanicExecutor.evaluate`, `attestMechanicEvaluation`, and `ProposalService.createFromMechanicEvaluation` exist in the branch.
+- Test coverage exists in `tests/mechanic-executor.test.js` for authorized context and policy revocation, snapshot pinning, and related fail-closed behavior. The new `tests/mechanic-action-conditions.test.js` characterizes the underlying condition aggregation independently.
+- Not established: an autonomous NPC caller, a contract mapping executor outcomes to candidate ranking, conflict arbitration across competing NPCs, or an approved policy for automatic proposal creation/approval. The existing tests do not prove those absent integrations.
+
+**Decision:** reuse is the direction to investigate; no new NPC executor, storage, scheduler, API, schema, authorization shortcut, or Memory→NPC receiver is introduced. Memory→NPC remains disabled/fail-closed.
