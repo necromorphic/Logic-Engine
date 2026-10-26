@@ -27,6 +27,18 @@ diff --git a/public/script.js b/public/script.js
 +    }
 +    const existing = chat_metadata.logic_engine_conversation_id;
 +    const legacyMarker = 'logic-engine-host-lifecycle:' + locator;
++    const activeMarker = 'logic-engine-host-lifecycle:' + installId + ':' + existing;
++    if (typeof existing === 'string' && existing.length > 0
++        && localStorage.getItem(legacyMarker) && legacyMarker !== activeMarker) {
++        throw Error('NON_READY: legacy Host enrollment marker conflicts with installation identity');
++    }
++    for (let i = 0; i < localStorage.length; i++) {
++        const key = localStorage.key(i);
++        if (typeof key === 'string' && key.startsWith('logic-engine-host-lifecycle:')
++            && key.endsWith(':' + existing) && key !== activeMarker) {
++            throw Error('NON_READY: Host conversation identity is already enrolled elsewhere');
++        }
++    }
 +    if (typeof existing === 'string' && existing.length > 0
 +        && existing === existing.trim() && existing.length <= 200) {
 +        if (localStorage.getItem(legacyMarker) && existing !== locator) {
