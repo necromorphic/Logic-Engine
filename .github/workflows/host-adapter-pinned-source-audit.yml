@@ -44,9 +44,9 @@ jobs:
       - name: Run source-level lifecycle assertions
         env:
           SILLYTAVERN_DIR: SillyTavern
-        run: node --test experiments/host-adapter-source-audit/harness.test.mjs
+        run: node --test experiments/host-adapter-source-audit/harness.mjs
 
       - name: Run bounded fake-provider integration harness
         env:
           SILLYTAVERN_DIR: SillyTavern
-        run: node --test experiments/host-adapter-runtime-harness/harness.test.mjs
+        run: node --test experiments/host-adapter-runtime-harness/harness.mjs
