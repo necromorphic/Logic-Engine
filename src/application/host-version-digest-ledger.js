@@ -53,6 +53,11 @@ export class HostVersionDigestLedger {
     return this.db.prepare('SELECT * FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?').get(...tuple(v));
   }
 
+  #markNonReady(worldId, conversationId, code, now, snapshotDigest = null) {
+    this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,snapshot_digest,failure_code,updated_at) VALUES(?,?,'NON_READY',?,?,?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='NON_READY',snapshot_digest=COALESCE(excluded.snapshot_digest,host_version_inventory_state.snapshot_digest),failure_code=excluded.failure_code,updated_at=excluded.updated_at")
+      .run(worldId, conversationId, snapshotDigest, code, now);
+  }
+
   #put(v, now) {
     const prior = this.#get(v);
     if (prior && prior.content_sha256 !== v.content_sha256) {
@@ -63,7 +68,10 @@ export class HostVersionDigestLedger {
       return { status: 'conflict', code: 'HOST_VERSION_DIGEST_CONFLICT' };
     }
     if (prior) {
-      if (prior.lifecycle === 'tombstoned' && !v.deleted) return { status: 'non_ready', code: 'HOST_TOMBSTONE_REAPPEARED' };
+      if (prior.lifecycle === 'tombstoned' && !v.deleted) {
+        this.#markNonReady(v.world_id, v.conversation_id, 'HOST_TOMBSTONE_REAPPEARED', now);
+        return { status: 'non_ready', code: 'HOST_TOMBSTONE_REAPPEARED' };
+      }
       if (v.deleted && prior.lifecycle !== 'tombstoned') {
         this.db.prepare("UPDATE host_version_digest_ledger SET lifecycle='tombstoned',updated_at=?,tombstoned_at=? WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?")
           .run(now, now, ...tuple(v));
@@ -129,6 +137,13 @@ export class HostVersionDigestLedger {
       if (seen.has(key)) return { status: 'non_ready', code: 'HOST_INVENTORY_DUPLICATE_IDENTITY' };
       seen.add(key);
     }
+    const activeByMessage = new Set();
+    for (const v of snapshot.versions) {
+      if (!v.active || v.deleted) continue;
+      const key = JSON.stringify([v.world_id, v.conversation_id, v.message_id]);
+      if (activeByMessage.has(key)) return { status: 'non_ready', code: 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS' };
+      activeByMessage.add(key);
+    }
     let trusted = false;
     try {
       trusted = await this.verifyInventorySnapshot(Object.freeze({
@@ -143,16 +158,33 @@ export class HostVersionDigestLedger {
     return this.#write(() => {
       const known = this.db.prepare('SELECT * FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=?')
         .all(snapshot.world_id, snapshot.conversation_id);
+      const now = new Date().toISOString();
       for (const row of known) {
         const key = JSON.stringify([row.world_id, row.conversation_id, row.message_id, row.version_id]);
         if (!seen.has(key)) {
-          const now = new Date().toISOString();
-          this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,snapshot_digest,failure_code,updated_at) VALUES(?,?,'NON_READY',?,'HOST_INVENTORY_DISAPPEARANCE',?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='NON_READY',snapshot_digest=excluded.snapshot_digest,failure_code='HOST_INVENTORY_DISAPPEARANCE',updated_at=excluded.updated_at")
-            .run(snapshot.world_id, snapshot.conversation_id, snapshotDigest, now);
+          this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_INVENTORY_DISAPPEARANCE', now, snapshotDigest);
           return { status: 'non_ready', code: 'HOST_INVENTORY_DISAPPEARANCE' };
         }
       }
-      const now = new Date().toISOString();
+      // Preflight the whole snapshot before applying any version mutations. A conflict
+      // must not leave earlier entries from the same snapshot partially applied.
+      for (const v of snapshot.versions) {
+        const prior = this.#get(v);
+        if (prior && prior.content_sha256 !== v.content_sha256) {
+          this.db.prepare('INSERT INTO host_version_ledger_conflicts (world_id,conversation_id,message_id,version_id,persisted_digest,observed_digest,observed_at) VALUES(?,?,?,?,?,?,?)')
+            .run(...tuple(v), prior.content_sha256, v.content_sha256, now);
+          this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_VERSION_DIGEST_CONFLICT', now, snapshotDigest);
+          return { status: 'non_ready', code: 'HOST_VERSION_DIGEST_CONFLICT' };
+        }
+        if (prior?.lifecycle === 'tombstoned' && !v.deleted) {
+          this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_TOMBSTONE_REAPPEARED', now, snapshotDigest);
+          return { status: 'non_ready', code: 'HOST_TOMBSTONE_REAPPEARED' };
+        }
+      }
+      // The verified snapshot is authoritative for active pointers: remove stale
+      // pointers for this conversation, then rebuild them from the validated inventory.
+      this.db.prepare('DELETE FROM host_version_active_pointer WHERE world_id=? AND conversation_id=?')
+        .run(snapshot.world_id, snapshot.conversation_id);
       for (const v of snapshot.versions) {
         const result = this.#put(v, now);
         if (result.status === 'conflict' || result.status === 'non_ready') return { status: 'non_ready', code: result.code };
