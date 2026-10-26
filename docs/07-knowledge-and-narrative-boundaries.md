@@ -148,3 +148,55 @@ First, Core, Provider, NPC and Host must review the same semantic proposal and e
 Only then may the coordinator authorize a **specific, minimal implementation diff** with named files, owners, and acceptance tests. That authorization is not permission to enable production. Release remains blocked until an actual callable owner-component path and the real pre-dispatch revalidation/revocation test pass across every enabled generation route. If a route cannot be covered, it must remain disabled/unsupported.
 
 A source-inspected hook, fixture test, patch-apply CI, or sequential recheck is not proof of atomic revocation or complete end-to-end enforcement.
+
+## 9. Reconciled owner evidence and current implementation gate (Core 1.9, 2026-10-26)
+
+This section incorporates the concrete Provider, NPC and Host inputs to central task #264. It records current capability, not desired architecture, and does not approve runtime integration.
+
+### 9.1 Provider raw Host archive is not an executable lifecycle
+
+On Provider PR #344 head `55a8d13efc359dd5d002360eb380feffb7b1b495`, the tuple-shaped raw Host archive operations are explicitly fail-closed:
+- `captureRawMessage()` denies capture;
+- `readRawMessageVersion()` and `readActiveRawMessages()` deny disclosure;
+- `selectActiveRawVersion()` denies source selection;
+- `registerRawDerivedCopy()` is disabled.
+
+The corresponding tests establish denial/non-persistence, not successful Host capture or disclosure. The executable Provider record path (`putRecord` / `retrieveCandidates`) is not a mapping for Host tuple `(world_id, conversation_id, message_id, version_id)`. Provider-local duplicate/conflict, direct canonical-entity lineage, grants, index health and reconciliation checks are useful local guarantees, but injected snapshot/source/inventory callbacks are not themselves trusted authority. A green Provider CI run does not prove complete Host inventory or final-send safety.
+
+### 9.2 NPC acquisition and later lifecycle states
+
+NPC owner input confirms that the current consumer supports bounded retrieval/admission and canonical-field projection only within its existing in-process composition. It has no executable evidence for subject-specific observation, delivered communication, document access, inference, author knowledge or imported-state acquisition. A candidate label such as `epistemic_kind: acquired_report` is not acquisition authority.
+
+Keep these stages distinct and independently evidenced: candidate discovery, admission, disclosure authorization, context inclusion, serialization/provider send, delivery, recipient receipt, acquisition and belief. Missing evidence leaves the later stage unknown; no earlier stage implies a later one.
+
+### 9.3 Host boundary and inventory
+
+The pinned Host map identifies browser Chat Completions and Text Completions preparation events, but neither is an installed authorization gate. Server Chat Completions has provider-specific dispatch branches; Text Completions is a separate family; other model-capable routes and callers remain unexhaustively inventoried. No current universal final-send check or real edit/delete/revoke-after-assembly race test is established.
+
+The inspected ST state and lifecycle events do not prove a complete retained-plus-deleted historical inventory or a completeness-guaranteed change feed, nor detection of missed mutations/rollback. Current result: **NO SUCH MECHANISM FOUND / NON_READY**. Do not infer completeness from the Provider's local inventory callback or from retained chat objects.
+
+### 9.4 Current owner status and decisions
+
+| Contract element | Current result | Owner / next gate |
+|---|---|---|
+| Trusted world + subject/purpose end-to-end | PARTIAL in Core/NPC local composition; UNSUPPORTED across production Host binding | Core defines authority semantics; Host proves authenticated binding across chat switch/copy/import/restore; Provider/NPC consume the same authority |
+| Subject-relative acquisition | UNSUPPORTED; no production-supported mechanism | Product/Core owner must select the first acquisition mechanism and authoritative evidence before mechanism-specific acceptance criteria can be approved |
+| Provider source/version/currentness | Provider-local record identity/version supported; cross-system source authority/version mapping UNSUPPORTED | Core names canonical source/version/retraction authority; Provider maps only to that approved authority |
+| Complete Host inventory and missed-change/rollback detection | NO SUCH MECHANISM FOUND / NON_READY | Host must identify an existing authoritative mechanism with tests, or keep the route NON_READY; no speculative journal/cursor/store is approved |
+| Final model disclosure | No production route approved; no universal installed gate or real race proof | Core + Host must identify the actual last pre-dispatch boundary and consistency guarantee; Host proves zero provider egress on deny/unknown/stale for every enabled branch |
+| Provider raw archive integration | Explicitly denied on the reviewed Provider head | No capture/read/select/derived-copy wiring until contract and owner review explicitly approve a specific diff |
+| NPC consumer integration | No production receiver; admission does not imply acquisition | NPC adapts only after an approved callable contract exists; real-composition positive/negative tests required |
+
+No implicit version equivalence is permitted: Provider `record_version`, opaque Provider `source_version`, Core `updated_revision`, and `(world_revision, commit_sequence)` remain distinct.
+
+### 9.5 Minimum implementation diff after decisions
+
+No implementation diff is authorized yet. After the product/Core acquisition decision and the Core+Host final-boundary/consistency decision, the smallest reviewable implementation proposal must be split by owner and list exact files and tests:
+1. Host: stable identity across applicable source roles; authenticated world/session binding; explicit per-route final gate; real deny/unknown/stale and edit/delete/revoke race tests. User messages without `swipe_info[]`, edit ancestry, cancellation/partial output, import/restore and historical deletion require explicit semantics rather than assumed coverage.
+2. Provider: only after source authority/inventory are named, map existing operations to the approved source identity/version and currentness/retraction evidence; preserve fail-closed behavior when inventory is incomplete or callbacks are untrusted.
+3. Core: expose/approve only the callable authorization semantics and consistency boundary actually agreed by owners; no guessed fields or equivalence mapping.
+4. NPC: consume the approved result without inventing a receiver; test that admission alone never sets delivery, receipt, acquisition or belief.
+
+Required acceptance includes valid/invalid scope; authoritative source edit/delete/restore/revocation/rollback/restart/replay; incomplete inventory never becoming authorized-empty; and a real release-boundary race that proves zero unauthorized/stale provider requests. Every route without that proof remains disabled.
+
+**Current release decision:** production-supported acquisition mechanisms = NONE; production disclosure routes = NONE approved. Core policy remains **DENY / NON_READY** for `model / npc_decision`; Memory→NPC remains **DISABLED / FAIL-CLOSED**. This section is documentation only and does not approve API/schema/store/hook changes, raw text retention, or production enablement.
