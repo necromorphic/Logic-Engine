@@ -402,6 +402,9 @@ test('event-only capture rejects a deleted version that is also marked active', 
 test('complete inventory cannot silently omit a previously tombstoned version', async (t) => {
   const ledger = setup(t, async () => true);
   assert.equal(ledger.captureVersion(entry()).status, 'captured');
+  assert.equal((await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  })).status, 'ready');
   assert.deepEqual(ledger.tombstoneVersion(tuple), { status: 'tombstoned' });
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 
