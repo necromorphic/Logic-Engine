@@ -77,6 +77,38 @@ A future approved contract must establish, using trusted owner-controlled eviden
 4. Invalidation/reconciliation semantics for edit, delete, revoke, rollback, rebuild, restart/replay, and missing, unknown, partial, or inconsistent state. Unknown or incomplete evidence fails closed.
 5. A final disclosure-time revalidation boundary and a defined consistency guarantee; sequential checks must not be described as atomic.
 
+### Mechanism-specific evidence required (not yet implemented as a callable contract)
+
+The following are candidate semantic requirements for owner review, not a new schema or a claim that these evidence sources exist today:
+
+- **Observation:** authenticated subject, source/event identity, location/time and visibility/access conditions sufficient to establish that the subject could perceive the proposition. World truth or co-location alone is insufficient.
+- **Delivered communication:** sender, intended recipient, exact source/version and channel plus a real supported delivery/receipt signal. Candidate assembly, attempted injection, or an unconfirmed send is insufficient.
+- **Document/recording:** exact artifact identity/version, source lineage and evidence that the subject accessed or perceived the relevant content; mere archive presence or retrieval is insufficient.
+- **Inference:** identified premises already admissible for this subject, a declared inference rule/version, and deterministic replayable derivation evidence. The model's unsupported assertion is not evidence.
+- **Authorized author knowledge / imported initial state:** explicit product/World Pack authorization and provenance identifying the initial scope and source. A caller-supplied label is not authority.
+- **Unknown or unimplemented mechanism:** UNSUPPORTED / NON_READY; do not infer acquisition from canonical truth, retrieval metadata, Provider row metadata, or a fixture callback.
+
+### Lifecycle and stage invariants
+
+- Source edit/version change requires revalidation against authoritative source identity, lineage and currentness; an unknown version comparison is NON_READY.
+- Source deletion/retraction and access-grant revocation are distinct invalidation causes and must be tested separately.
+- Rollback/rebuild may restore an earlier projection revision without a monotonically increasing per-source token. Re-evaluate from authoritative restored state; do not use updated_revision, world_revision, or commit_sequence as a substitute for a source journal.
+- Restart/replay may reconstruct a claim only from durable, validated evidence and deterministic implemented rules. Missing/corrupt lineage, partial inventory, validator errors, or changing inventory during reconciliation fail closed.
+- Multiple independent valid acquisition paths may support one proposition. Invalidating one path triggers reconciliation; it must not erase a still-valid independent path or preserve a claim with no valid path.
+- Keep these stages distinct: candidate retrieval → NPC admission → final model disclosure → outbound delivery → recipient receipt → subject acquisition → belief update. Each later stage requires its own supported evidence and cannot be inferred from the previous stage.
+
+### Owner decisions still required before implementation
+
+- **Core / product owner:** confirm the first permitted subject-relative acquisition mechanism and its authoritative source/currentness/retraction authority; decide whether any recipient model, purpose npc_decision field visibility is ever allowed. Current policy remains DENY / NON_READY; no field is approved.
+- **Memory Provider:** confirm which immutable record/version/lineage and lifecycle guarantees its existing operations actually provide, and identify where trusted Core/Host authority is absent. Provider metadata cannot mint acquisition evidence.
+- **NPC:** confirm the existing consumer's representable input/evidence and narrow projection; do not equate ready/admission with knowledge, delivery, receipt, acquisition or belief.
+- **Host/Adapter:** identify the actual outbound send boundary and all enabled/bypassable routes; prove edit/delete/revoke after candidate assembly and before actual release, or mark the route unsupported. Raw ST text retention is not approved.
+- **Coordinator:** consolidate one owner-reviewed decision in #264 before any cross-block API/schema design. Each owner must respond ACCEPT, REJECT (with concrete incompatibility), or UNSUPPORTED (with exact missing callable runtime evidence) against this same proposal.
+
+### Acceptance criteria before any production enablement
+
+Using real owner components—not fixture-only validators—prove: source v1→v2 invalidation; delete/retraction distinct from grant revocation; rollback/rebuild even without an increased commit sequence; restart/replay; missing/corrupt lineage and incomplete inventory fail closed; a valid independent second source survives invalidation of the first; authorization/source invalidation after candidate assembly but before actual outbound release results in zero protected content or metadata leakage; and unsupported generation routes remain disabled. Separately evidence admission, disclosure, delivery, receipt, acquisition and belief. These criteria do not themselves authorize production enablement.
+
 ### Explicit non-equivalences
 
 - Provider `record_version` versions a Provider record; it is not a canonical source revision.
