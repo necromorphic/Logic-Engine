@@ -84,6 +84,18 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     finally { if (publishQueues.get(conversationId) === current) publishQueues.delete(conversationId); }
   }
 
+  async function verifyCurrentSource() {
+    const conversationId = await getConversationId();
+    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) {
+      return { status: 'NON_READY', reason: 'conversation is not enrolled' };
+    }
+    const chat = getChat();
+    if (!Array.isArray(chat)) return { status: 'NON_READY', reason: 'live Host chat is unavailable' };
+    // Read the current native source only through the injected Host getter;
+    // callers cannot pass an arbitrary message array to this bridge method.
+    return journal.verifyCurrentSource(conversationId, { messages: chat, sourceLocator: getSourceLocator() });
+  }
+
   async function currentFingerprint(chat = getChat()) {
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
     return fingerprintSource(chat, getSourceLocator());
@@ -503,6 +515,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
 
   return Object.freeze({
     enrollCurrentConversation,
+    verifyCurrentSource,
     beforeMutation,
     afterMutation,
     syncCurrentDigestInventory,
