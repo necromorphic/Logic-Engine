@@ -274,3 +274,18 @@ test('unknown tombstone invalidates previously READY inventory', async (t) => {
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code, 'HOST_VERSION_UNKNOWN');
 });
+
+test('unavailable swipe selection invalidates previously READY inventory', async (t) => {
+  const ledger = setup(t, async () => true);
+  const snapshot = {
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  };
+  assert.equal((await ledger.reconcileConversation(snapshot)).status, 'ready');
+
+  const result = ledger.selectActiveVersion({
+    ...tuple, message_id: 'message-not-captured', version_id: 'version-not-captured'
+  });
+  assert.deepEqual(result, { status: 'non_ready', code: 'HOST_VERSION_UNAVAILABLE' });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code, 'HOST_VERSION_UNAVAILABLE');
+});
