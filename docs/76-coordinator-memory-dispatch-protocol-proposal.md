@@ -281,3 +281,18 @@ The outstanding work is now narrowed to owner-boundary evidence, not another Pro
 4. **Coordinator:** reconcile the above exact artifacts and keep unsupported routes and real browser/Android/Termux testing distinct.
 
 Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+## 14. Product/Security decision request split out — 26 Oct 2026
+
+Created [issue #356](https://github.com/necromorphic/Logic-Engine/issues/356) to obtain the explicit Product/Security decision required by sections 3, 6 and 7. No dedicated decision issue was found in the current open-issue search.
+
+The request asks a named Product/Security owner to **APPROVE or REJECT** the proposed in-flight boundary:
+- denial, effective revocation, source invalidation/staleness, scope change, or loss of readiness winning before dispatch-start means zero outbound requests;
+- dispatch-start winning first means the request is in-flight and cannot be recalled after bytes are handed to transport;
+- this is acceptable only if a deterministic test proves the authoritative decision is serialized against effective revocation/source validity;
+- a stricter policy that forbids physical network send after any revocation commit requires different semantics and must be stated explicitly.
+
+**Disposition: DECISION REQUEST OPEN; no policy approval received.** Issue #356 does not authorize runtime/API/schema/store changes or production disclosure. The implementation gate remains blocked on the decision, Core's exact R2→R1 projection regression, Host's pinned-ST recording-fake-provider harness and inventory evidence, and a proven zero-egress/revocation-to-dispatch boundary.
+
+Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
