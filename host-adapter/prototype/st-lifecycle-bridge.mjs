@@ -93,6 +93,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     if (!Array.isArray(chat)) return { status: 'NON_READY', reason: 'live Host chat is unavailable' };
     // Read the current native source only through the injected Host getter;
     // callers cannot pass an arbitrary message array to this bridge method.
+    try {
+      await assertIdentitySnapshotMatches(conversationId, chat);
+    } catch (error) {
+      return { status: 'NON_READY', reason: 'live Host identity/version inventory mismatch: ' + (error?.message || error) };
+    }
     return journal.verifyCurrentSource(conversationId, { messages: chat, sourceLocator: getSourceLocator() });
   }
 
