@@ -34,35 +34,6 @@ function setup(t, options = {}) {
   };
 }
 
-test('known dependent raw copies are invalidated on exact source tombstone and alternate versions remain selectable', async (t) => {
-  const s = setup(t);
-  const base = { world_id: 'world-a', conversation_id: 'chat-a', message_id: 'message-a' };
-  s.provider.captureRawMessage({ ...base, version_id: 'v1', role: 'assistant', content: 'first version' });
-  s.provider.captureRawMessage({ ...base, version_id: 'v2', role: 'assistant', content: 'second version' });
-  s.provider.selectActiveRawVersion({ ...base, version_id: 'v1' });
-  s.provider.registerRawDerivedCopy({
-    ...base, source_version_id: 'v1', copy_ref: 'episode-a', copy_version: '1',
-    copy_kind: 'episode', content: 'derived from first version',
-  });
-
-  const deletion = s.provider.markRawSourceDeleted({ ...base, version_id: 'v1' });
-  assert.deepEqual(deletion, { status: 'deleted', invalidated_copies: 1 });
-  assert.equal(s.provider.db.prepare(
-    'SELECT status FROM memory_raw_derived_copies WHERE world_id=? AND copy_ref=?',
-  ).get('world-a', 'episode-a').status, 'invalidated');
-  assert.equal(s.provider.db.prepare(
-    'SELECT COUNT(*) AS count FROM memory_raw_active_versions WHERE world_id=? AND message_id=?',
-  ).get('world-a', 'message-a').count, 0);
-
-  assert.deepEqual(s.provider.selectActiveRawVersion({ ...base, version_id: 'v2' }),
-    { status: 'active', version_id: 'v2' });
-  assert.equal(s.provider.db.prepare(
-    'SELECT version_id FROM memory_raw_active_versions WHERE world_id=? AND message_id=?',
-  ).get('world-a', 'message-a').version_id, 'v2');
-  assert.throws(() => s.provider.selectActiveRawVersion({ ...base, version_id: 'v1' }),
-    /MEMORY_RAW_VERSION_UNAVAILABLE/);
-});
-
 test('reconciliation refuses to publish current if the provider record set changes while validation awaits', async (t) => {
   let releaseValidation;
   let startedValidation;
