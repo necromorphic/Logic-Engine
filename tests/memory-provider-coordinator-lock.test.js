@@ -64,9 +64,7 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
     const scope = ${JSON.stringify(scope)};
     const record = ${JSON.stringify(record)};
     // Seed a raw capture solely to exercise the existing tombstone mutation path.
-    provider.db.prepare(`INSERT INTO memory_raw_captures
-      (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,metadata_json,captured_at,deleted_at)
-      VALUES(?,?,?,?,?,?,?,?,?,NULL)`).run('world-coordinator','conversation','message','v1','user','text','digest','{}',new Date().toISOString());
+    provider.db.prepare('INSERT INTO memory_raw_captures (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,metadata_json,captured_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,NULL)').run('world-coordinator','conversation','message','v1','user','text','digest','{}',new Date().toISOString());
     writeFileSync(readyPath, 'ready');
     const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
     for await (const line of rl) {
