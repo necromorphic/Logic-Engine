@@ -718,3 +718,24 @@ A source review of `src/process/contract.js` and `src/storage/process-store.js` 
 **Decision:** do not add NPC persistence now. Before mapping any NPC goal/plan into Process Manager, the owning blocks must agree which concepts are goals, processes, tasks, canonical events, or NPC-only private state. Preserve the distinctions between intent, process execution, committed outcome, acquired knowledge, and narration. If an intent is only derivable from canonical events and existing process state, do not store a duplicate; if it is genuinely private NPC-owned state, document its lifecycle and privacy requirements before proposing storage.
 
 This mapping is source-inspected only; it does not claim end-to-end process execution tests or an approved cross-block contract.
+
+
+## 20. Mechanics evaluator seam audit — condition truth is not action feasibility (26 Oct 2026)
+
+The current source implementation of `evaluateMechanicActionConditions(value, actionId, context, options = {})` was re-read at `src/core/mechanics.js` blob `124d43159a4087cbb4b2582646cc7398ae6edfcc`. Its exact output is a condition-evaluation result, not an NPC candidate-feasibility contract.
+
+### 20.1 Observed return behavior
+
+- If the requested action ID is not present in the validated template, the helper returns `status: "rejected"`, `reason_code: "MECHANIC_ACTION_NOT_FOUND"`, template/action identifiers, and empty condition/unknown-path arrays.
+- For a found action, it evaluates the template's `applicability`, action `preconditions`, and action `constraints` against the caller-supplied context. Each condition result contains its scope, index, tri-state status and unknown paths.
+- The aggregate `status` is `"false"` if any evaluated condition is false; otherwise `"unknown"` if any is unknown; otherwise `"true"`. The result includes a reason code, pinned template identifier/version, action ID, condition results and sorted unique unknown paths.
+- Missing context paths remain unknown unless the caller explicitly supplies them in `options.knownAbsentPaths`. The source comment requires the context to be authorized and from the same immutable evaluation snapshot.
+- The helper is read-only preflight. It does not authorize reads, resolve participants/conflicts, bind action inputs, interpret effect intents, call modules, create proposals, or execute effects.
+
+### 20.2 Integration decision
+
+Do **not** map the evaluator's `status: "true"` directly to the prototype's `feasibility: "feasible"`. A true condition result only means the condition-bearing part of that mechanic action passed for the supplied context. It does not prove capability, resource availability, actor authority, input binding, conflict resolution, snapshot freshness at commit, or proposal/commit success. Likewise, `false`, `unknown`, and `rejected` need an owner-approved mapping before any shared adapter is introduced.
+
+The next safe experiment is a test-only characterization of the existing evaluator's tri-state outputs using valid mechanic fixtures, kept separate from the NPC ranking prototype. It must not add a production adapter or alter Core. Only after the owning Core/Mechanics contracts define what additional checks make an action candidate feasible may an integration adapter be proposed. The NPC kernel continues to accept caller-classified fixture candidates only; Memory→NPC remains disabled/fail-closed.
+
+**Evidence level:** source-inspected. This section records the current helper's implementation semantics; it does not claim a new integration test or production path.
