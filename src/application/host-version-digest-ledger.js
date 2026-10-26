@@ -150,7 +150,13 @@ export class HostVersionDigestLedger {
     if (!validTuple(v)) throw new TypeError('Invalid Host version tuple');
     return this.#write(() => {
       const row = this.#get(v);
-      if (!row || row.lifecycle !== 'present') return { status: 'non_ready', code: 'HOST_VERSION_UNAVAILABLE' };
+      if (!row || row.lifecycle !== 'present') {
+        const now = new Date().toISOString();
+        // An attempted selection of an uncaptured or deleted version is
+        // inconsistent with the current inventory; do not keep prior READY.
+        this.#markNonReady(v.world_id, v.conversation_id, 'HOST_VERSION_UNAVAILABLE', now);
+        return { status: 'non_ready', code: 'HOST_VERSION_UNAVAILABLE' };
+      }
       const current = this.db.prepare('SELECT version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=?')
         .get(v.world_id, v.conversation_id, v.message_id);
       if (current?.version_id !== v.version_id) {
