@@ -68,3 +68,24 @@ test('missing identity, duplicate IDs, and source digest mismatch fail closed', 
 test('non-array inventory fails closed', () => {
   assert.deepEqual(projectHostInventoryForComparison(null), { status: 'NON_READY', reason: 'CHAT_NOT_ENUMERABLE' });
 });
+
+
+test('multiple swipes without an explicit active index fail closed', () => {
+  const ambiguous = message({ id: 'msg-ambiguous', versions: ['A0', 'A1'], active: 0 });
+  delete ambiguous.swipe_id;
+  delete ambiguous._logicEngineLifecycle.activeVersionIndex;
+  const result = projectHostInventoryForComparison([ambiguous]);
+  assert.equal(result.status, 'NON_READY');
+  assert.equal(result.reason, 'ACTIVE_SELECTION_MISMATCH');
+});
+
+test('swipe array reorder cannot silently reassign immutable version identities by slot', () => {
+  const reordered = message({ id: 'msg-reordered', versions: ['A0', 'A1'], active: 0 });
+  reordered.swipes = ['A1', 'A0'];
+  reordered.mes = 'A1';
+  reordered.swipe_id = 0;
+  reordered._logicEngineLifecycle.activeVersionIndex = 0;
+  const result = projectHostInventoryForComparison([reordered]);
+  assert.equal(result.status, 'NON_READY');
+  assert.equal(result.reason, 'HOST_DIGEST_MISMATCH');
+});
