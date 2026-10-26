@@ -123,14 +123,14 @@ diff --git a/public/script.js b/public/script.js
 +            if (!conversationId || !sourceLocator) throw Error('NON_READY: no active Host conversation');
 +            localStorage.setItem('logic-engine-host-lifecycle-locator:' + sourceLocator, conversationId);
 +            const marker = 'logic-engine-host-lifecycle:' + conversationId;
-+            localStorage.setItem(marker, 'enrolling');
++            localStorage.setItem(marker, 'enrolling:' + sourceLocator);
 +            try {
 +                const result = await (await getLogicEngineLifecycleBridge()).enrollCurrentConversation();
 +                if (getCurrentChatId() !== sourceLocator) throw Error('NON_READY: Host conversation changed during enrollment');
-+                localStorage.setItem(marker, 'enrolled');
++                localStorage.setItem(marker, 'enrolled:' + sourceLocator);
 +                return result;
 +            } catch (error) {
-+                localStorage.setItem(marker, 'NON_READY');
++                localStorage.setItem(marker, 'NON_READY:' + sourceLocator);
 +                throw error;
 +            }
 +        },
@@ -385,6 +385,7 @@ diff --git a/public/script.js b/public/script.js
 +        const newLocator = getCurrentChatId();
 +        if (newLocator && newLocator !== oldLocator) {
 +            localStorage.setItem('logic-engine-host-lifecycle-locator:' + newLocator, conversationId);
++            localStorage.setItem('logic-engine-host-lifecycle:' + conversationId, 'enrolled:' + newLocator);
 +            localStorage.removeItem('logic-engine-host-lifecycle-locator:' + oldLocator);
 +        }
 +        return result;
