@@ -66,7 +66,7 @@ async function checkConnection() {
     }
 }
 
-async function init() {
+export async function init() {
     const settings = getSettings();
     const html = await renderExtensionTemplateAsync(EXTENSION_NAME, 'settings');
     const container = document.getElementById('extensions_settings');
@@ -88,4 +88,3 @@ async function init() {
     document.getElementById('logic_engine_bridge_check')?.addEventListener('click', checkConnection);
 }
 
-init().catch(error => console.error('[Logic-Engine Bridge] Failed to initialize:', error));
