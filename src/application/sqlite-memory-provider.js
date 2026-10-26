@@ -1,9 +1,20 @@
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { createHash } from 'node:crypto';
-import { isAbsolute } from 'node:path';
+import { existsSync, realpathSync, statSync } from 'node:fs';
+import { isAbsolute, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 
+const aliasesSameFile = (left, right) => {
+  const absoluteLeft = resolve(left);
+  const absoluteRight = resolve(right);
+  if (absoluteLeft === absoluteRight) return true;
+  if (!existsSync(absoluteLeft) || !existsSync(absoluteRight)) return false;
+  const leftStat = statSync(absoluteLeft);
+  const rightStat = statSync(absoluteRight);
+  return (leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino)
+    || realpathSync(absoluteLeft) === realpathSync(absoluteRight);
+};
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
@@ -52,11 +63,17 @@ export class SQLiteMemoryProvider {
     }
     this.validateInventory = validateInventory;
     this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
-    if (path !== ':memory:' && (typeof coordinatorPath !== 'string' || !coordinatorPath.trim())) {
+    // In-memory instances are deliberately isolated test stores and do not
+    // join a process-global coordinator merely because the test runner set one.
+    const sharedCoordinatorPath = path === ':memory:' ? null : coordinatorPath;
+    if (path !== ':memory:' && (typeof sharedCoordinatorPath !== 'string' || !sharedCoordinatorPath.trim())) {
       throw new TypeError('File-backed Memory Provider requires the shared LOGIC_ENGINE_COORDINATOR_DB_PATH');
     }
-    if (coordinatorPath && !isAbsolute(coordinatorPath)) {
+    if (sharedCoordinatorPath && !isAbsolute(sharedCoordinatorPath)) {
       throw new TypeError('Memory Provider coordinator path must be absolute and shared with Core');
+    }
+    if (path !== ':memory:' && sharedCoordinatorPath && aliasesSameFile(path, sharedCoordinatorPath)) {
+      throw new Error('Coordinator DB must be separate from the Memory Provider DB, including filesystem aliases.');
     }
     this.reconcileGeneration = new Map();
     this.transactionDepth = 0;
@@ -67,7 +84,7 @@ export class SQLiteMemoryProvider {
     this.db = new DatabaseSync(path);
     // Core and Provider must receive the same explicitly configured coordinator path.
     // File-backed Provider instances refuse to start without it; in-memory tests remain isolated.
-    this.coordinatorDb = coordinatorPath ? openCoordinatorDatabase(coordinatorPath) : null;
+    this.coordinatorDb = sharedCoordinatorPath ? openCoordinatorDatabase(sharedCoordinatorPath) : null;
     let releaseStartupLock = () => {};
     let startupError = null;
     try {
