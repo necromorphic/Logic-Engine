@@ -104,6 +104,123 @@ test('failed coordinator open does not create or leak a Provider database handle
   assert.equal(existsSync(path), false);
 });
 
+test('Provider record ingestion rejects Proxy/accessor-backed input before reading or persisting it', (t) => {
+  const s = setup(t);
+  const proxyRecord = new Proxy(s.record, { get() { throw new Error('Record Proxy getter must not execute'); } });
+  assert.throws(() => s.provider.putRecord(proxyRecord), /Invalid direct-source Memory record/);
+
+  const accessorRecord = { ...s.record };
+  Object.defineProperty(accessorRecord, 'source_version', {
+    enumerable: true, get() { throw new Error('Record getter must not execute'); }
+  });
+  assert.throws(() => s.provider.putRecord(accessorRecord), /Invalid direct-source Memory record/);
+
+  const accessorLineage = [{ ...s.record.lineage[0] }];
+  Object.defineProperty(accessorLineage[0], 'source_version', {
+    enumerable: true, get() { throw new Error('Lineage getter must not execute'); }
+  });
+  assert.throws(() => s.provider.putRecord({ ...s.record, lineage: accessorLineage }),
+    /Invalid direct-source Memory record/);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_records').get().count, 0);
+});
+
+test('Provider constructor rejects Proxy-backed options before destructuring them', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-proxy-options-'));
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  const options = new Proxy({
+    path: join(directory, 'provider.sqlite'),
+    coordinatorPath: join(directory, 'coordinator.sqlite'),
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  }, { get() { throw new Error('Options Proxy getter must not execute'); } });
+  assert.throws(() => new SQLiteMemoryProvider(options), /requires plain data options/);
+  assert.equal(existsSync(join(directory, 'provider.sqlite')), false);
+});
+
+test('retrieval snapshots the requested scope before awaiting the Core snapshot', async (t) => {
+  let pauseSnapshot = false;
+  let enteredResolve;
+  let releaseResolve;
+  const enteredPromise = new Promise((resolve) => { enteredResolve = resolve; });
+  const releasePromise = new Promise((resolve) => { releaseResolve = resolve; });
+  const s = setup(t, {
+    getSnapshot: async () => {
+      if (pauseSnapshot) {
+        enteredResolve();
+        await releasePromise;
+      }
+      return { world_revision: 4, commit_sequence: 2 };
+    },
+  });
+
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  s.provider.putRecord(s.record);
+  const otherScope = { ...s.scope, subject_id: 'npc-b' };
+  const otherRecord = { ...s.record, subject_id: 'npc-b', record_ref: 'memory:record-b' };
+  s.provider.grantQuery(otherScope, true);
+  s.provider.grantRecord(otherScope, otherRecord.record_ref, otherRecord.record_version, true);
+  s.provider.putRecord(otherRecord);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  pauseSnapshot = true;
+  const mutableScope = { ...s.scope };
+  const pending = s.provider.retrieveCandidates(mutableScope);
+  await enteredPromise;
+  mutableScope.subject_id = 'npc-b';
+  releaseResolve();
+  const result = await pending;
+
+  assert.equal(result.scope.subject_id, s.scope.subject_id);
+  assert.deepEqual(result.candidates.map((candidate) => candidate.record.ref), ['memory:record-a']);
+});
+
+test('candidate authorization snapshots identity before an awaited source check', async (t) => {
+  let pauseValidation = false;
+  let enteredResolve;
+  let releaseResolve;
+  const enteredPromise = new Promise((resolve) => { enteredResolve = resolve; });
+  const releasePromise = new Promise((resolve) => { releaseResolve = resolve; });
+  const s = setup(t, {
+    validateSourceVersion: async (record) => {
+      if (pauseValidation && record.record_ref === 'memory:record-a') {
+        enteredResolve();
+        await releasePromise;
+      }
+      return record.source_version === 'source-v1' && record.source_entity_id === 'entity-source-a';
+    },
+  });
+
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  s.provider.putRecord(s.record);
+  const otherScope = { ...s.scope, subject_id: 'npc-b' };
+  const otherRecord = { ...s.record, subject_id: 'npc-b', record_ref: 'memory:record-b' };
+  s.provider.grantQuery(otherScope, true);
+  s.provider.grantRecord(otherScope, otherRecord.record_ref, otherRecord.record_version, true);
+  s.provider.putRecord(otherRecord);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  pauseValidation = true;
+  const mutableInput = {
+    ...s.scope,
+    record_ref: s.record.record_ref,
+    record_version: s.record.record_version,
+    source_kind: s.record.source_kind,
+    source_entity_id: s.record.source_entity_id,
+  };
+  const pending = s.provider.authorizeCandidate(mutableInput);
+  await enteredPromise;
+  mutableInput.record_ref = otherRecord.record_ref;
+  s.provider.revokeRecord(otherScope, otherRecord.record_ref, otherRecord.record_version);
+  releaseResolve();
+
+  assert.equal(await pending, true, 'the in-flight decision remains bound to the originally validated record A');
+});
+
 test('persists raw record identity/version and rebuilds its derived index after restart', async (t) => {
   const s = setup(t);
   s.provider.grantQuery(s.scope, true);
