@@ -557,10 +557,6 @@ export class SQLiteMemoryProvider {
   }
 
   putRecord(record) {
-    return this.#withSerializedWrite(() => this.#putRecord(record));
-  }
-
-  #putRecord(record) {
     if (!object(record) || !validId(record.world_id) || !validId(record.subject_id)
       || !validId(record.purpose) || !validId(record.record_ref) || !validId(record.record_version)
       || record.source_kind !== 'canonical_entity' || !validId(record.source_entity_id)
