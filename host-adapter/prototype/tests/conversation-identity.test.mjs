@@ -96,6 +96,16 @@ test('legacy filename-based enrollment marker cannot be silently upgraded', asyn
   await assert.rejects(resolver({ metadata: {}, storage }), /legacy identity migration required/);
 });
 
+test('missing identity metadata with an existing enrollment marker is non-ready', async () => {
+  const storage = new Storage();
+  storage.setItem('logic-engine-host-installation-id', INSTALL_A);
+  storage.setItem(prefix + INSTALL_A + ':' + CHAT_A, 'enrolled:chat-file.jsonl');
+  await assert.rejects(
+    resolver({ locator: 'chat-file.jsonl', metadata: {}, storage }),
+    /enrolled Host locator has no stable metadata identity/,
+  );
+});
+
 test('failed metadata persistence does not leave an in-memory identity assigned', async () => {
   const storage = new Storage();
   storage.setItem('logic-engine-host-installation-id', INSTALL_A);
