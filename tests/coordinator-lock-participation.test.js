@@ -132,13 +132,17 @@ test('SQLiteStore validates coordinator configuration before opening its Core da
   const dir = mkdtempSync(join(tmpdir(), 'logic-engine-coordinator-config-'));
   const corePath = join(dir, 'core.sqlite');
   const previous = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
-  process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = './relative-coordinator.sqlite';
   try {
-    assert.throws(
-      () => new SQLiteStore(corePath),
-      /LOGIC_ENGINE_COORDINATOR_DB_PATH must be an absolute path/,
-    );
-    assert.equal(existsSync(corePath), false, 'invalid coordinator configuration must not create/open the Core database');
+    for (const configuredPath of ['./relative-coordinator.sqlite', '']) {
+      process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = configuredPath;
+      assert.throws(
+        () => new SQLiteStore(corePath),
+        configuredPath
+          ? /LOGIC_ENGINE_COORDINATOR_DB_PATH must be an absolute path/
+          : /LOGIC_ENGINE_COORDINATOR_DB_PATH must be a non-empty absolute path/,
+      );
+      assert.equal(existsSync(corePath), false, 'invalid coordinator configuration must not create/open the Core database');
+    }
   } finally {
     if (previous === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
     else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previous;
