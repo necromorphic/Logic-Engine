@@ -51,6 +51,7 @@ export class SQLiteMemoryProvider {
     this.validateInventory = validateInventory;
     this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
     this.reconcileGeneration = new Map();
+    this.stateGeneration = new Map();
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA foreign_keys = ON;
@@ -372,6 +373,7 @@ export class SQLiteMemoryProvider {
   }
 
   #setState(worldId, indexHealth, reconciliation, snapshot = null, failureCode = null) {
+    this.stateGeneration.set(worldId, (this.stateGeneration.get(worldId) ?? 0) + 1);
     this.db.prepare(`INSERT INTO memory_index_state
       (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
       VALUES(?,?,?,?,?,?,?)
@@ -452,6 +454,17 @@ export class SQLiteMemoryProvider {
     }
     if (!validDirectLineage(row, lineage)) throw new Error('MEMORY_LINEAGE_INVALID');
 
+    // Candidate authorization is only valid against a ready Provider index.
+    // Capture a Provider-local generation so a write/rebuild/reconciliation
+    // transition during the awaited source check cannot reuse a prior ready row.
+    const initialState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
+      .get(input.world_id);
+    if (!initialState || initialState.index_health !== 'ready'
+      || initialState.source_reconciliation !== 'current') {
+      throw new Error('MEMORY_INDEX_NOT_READY');
+    }
+    const stateGeneration = this.stateGeneration.get(input.world_id) ?? 0;
+
     let sourceValid = false;
     try {
       sourceValid = await this.validateSourceVersion(Object.freeze({
@@ -471,9 +484,16 @@ export class SQLiteMemoryProvider {
       throw new Error('MEMORY_SOURCE_VERSION_UNVERIFIABLE');
     }
 
-    // Source validation may await a host/Core read. Recheck provider-owned grants
-    // after that await so a revocation during validation cannot reuse the earlier
-    // allow. This narrows the race; it is not a cross-store atomicity guarantee.
+    // Source validation may await a host/Core read. Recheck that Provider
+    // readiness did not change while suspended, as well as the grants below.
+    // This is Provider-local consistency, not cross-store dispatch atomicity.
+    const latestState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
+      .get(input.world_id);
+    if ((this.stateGeneration.get(input.world_id) ?? 0) !== stateGeneration
+      || !latestState || latestState.index_health !== 'ready'
+      || latestState.source_reconciliation !== 'current') {
+      throw new Error('MEMORY_INDEX_NOT_READY');
+    }
     if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const currentGrant = this.db.prepare(`SELECT allowed FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
