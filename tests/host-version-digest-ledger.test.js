@@ -25,6 +25,24 @@ const entry = (overrides = {}) => ({
   ...tuple, content_sha256: digest('sample raw message not stored'), active: true, deleted: false, ...overrides
 });
 
+test('ledger rejects missing, relative, and aliased coordinator paths before creating its database', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-digest-ledger-config-'));
+  const path = join(directory, 'provider.sqlite');
+  try {
+    assert.throws(() => new HostVersionDigestLedger({
+      path, coordinatorPath: null, verifyInventorySnapshot: async () => true,
+    }), /shared coordinator path must be absolute/);
+    assert.throws(() => new HostVersionDigestLedger({
+      path, coordinatorPath: 'relative-coordinator.sqlite', verifyInventorySnapshot: async () => true,
+    }), /shared coordinator path must be absolute/);
+    assert.throws(() => new HostVersionDigestLedger({
+      path, coordinatorPath: path, verifyInventorySnapshot: async () => true,
+    }), /Coordinator DB must be separate from the Host version ledger DB/);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
 test('digest-only capture is idempotent and stores no raw text', (t) => {
   const ledger = setup(t);
   assert.deepEqual(ledger.captureVersion(entry()), { status: 'captured' });
