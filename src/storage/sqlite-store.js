@@ -6,6 +6,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidate.js';
+import { beginCoordinatorLock, openCoordinatorDatabase } from './coordinator-lock.js';
 
 const now = () => new Date().toISOString();
 const enc = (x) => JSON.stringify(x);
@@ -171,13 +172,13 @@ export class SQLiteStore {
       throw new Error('Coordinator DB must be separate from the Core DB.');
     }
     if (coordinatorPath) mkdirSync(dirname(resolve(coordinatorPath)), { recursive: true });
-    this.coordinatorDb = coordinatorPath ? new DatabaseSync(coordinatorPath) : null;
-    this.coordinatorDb?.exec('PRAGMA busy_timeout=5000;');
+    this.coordinatorDb = coordinatorPath ? openCoordinatorDatabase(coordinatorPath) : null;
+    this.coordinatorStartupRelease = null;
     this.coordinatorDepth = 0;
     // Schema creation and migrations are writes too; acquire the shared lock
     // before the first DDL and retain it across all migrations.
     if (this.coordinatorDb) {
-      this.coordinatorDb.exec('BEGIN IMMEDIATE');
+      this.coordinatorStartupRelease = beginCoordinatorLock(this.coordinatorDb);
       this.coordinatorDepth = 1;
     }
     try {
@@ -266,12 +267,14 @@ export class SQLiteStore {
       );
     `);
     this.migrate();
-    if (this.coordinatorDepth > 0) {
-      this.coordinatorDb.exec('ROLLBACK'); // lock-only transaction: no coordinator data is changed
+    if (this.coordinatorStartupRelease) {
+      this.coordinatorStartupRelease();
+      this.coordinatorStartupRelease = null;
       this.coordinatorDepth = 0;
     }
     } catch (error) {
-      try { if (this.coordinatorDepth > 0) this.coordinatorDb.exec('ROLLBACK'); } catch {}
+      try { this.coordinatorStartupRelease?.(); } catch {}
+      this.coordinatorStartupRelease = null;
       this.coordinatorDepth = 0;
       try { this.db.close(); } catch {}
       try { this.coordinatorDb?.close(); } catch {}
@@ -532,10 +535,10 @@ export class SQLiteStore {
     // reuse the outer coordinator lease. This is intentionally synchronous:
     // never await while either SQLite write transaction is held.
     let coordinatorHeld = false;
-    let committed = false;
+    let releaseCoordinator = null;
     try {
       if (this.coordinatorDb && this.coordinatorDepth === 0) {
-        this.coordinatorDb.exec('BEGIN IMMEDIATE');
+        releaseCoordinator = beginCoordinatorLock(this.coordinatorDb);
         coordinatorHeld = true;
       }
       this.db.exec('BEGIN IMMEDIATE');
@@ -555,7 +558,7 @@ export class SQLiteStore {
       if (coordinatorHeld) {
         // The coordinator DB is a lock primitive, not a data store. Rollback
         // releases its write lock without introducing a second commit point.
-        this.coordinatorDb.exec('ROLLBACK');
+        releaseCoordinator();
       }
     }
   }
