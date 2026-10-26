@@ -674,7 +674,7 @@ export class LogicEngine {
       });
     }
     this.assertNoScheduledTriggerCrossing(id, [prepared], prepared.expected_revision);
-    return this.store.commit(id, prepared);
+    return this.commitPreparedEvent(id, prepared);
   }
 
   commitSegment(id, x, options = {}) {
@@ -1213,7 +1213,7 @@ export class LogicEngine {
       patch: x.patch,
       evidence_refs: x.evidence_refs,
     });
-    return this.store.commit(id, prepared);
+    return this.commitPreparedEvent(id, prepared);
   }
 
   validateEvent(id, x) {
