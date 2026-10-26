@@ -51,8 +51,8 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
       const snapshot = engine.getSnapshot(record.world_id, { entityIds: [record.source_entity_id] });
       if (snapshot.entities.length !== 1) return false;
       const entity = snapshot.entities[0];
-      return entity.entity_id === record.source_entity_id && entity.status !== 'destroyed'
-        && Number.isSafeInteger(entity.updated_revision)
+      return entity.entity_id === record.source_entity_id && entity.status === 'active'
+        && Number.isSafeInteger(entity.updated_revision) && entity.updated_revision >= 0
         && record.source_version === String(entity.updated_revision);
     } catch { return false; }
   };
@@ -165,9 +165,8 @@ test('Core source-version mismatch is non-ready even when the canonical entity e
   const existing = s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'] });
   assert.equal(existing.entities.length, 1, 'the canonical entity exists in the real Core store');
 
-  // The current Core contract has no authoritative durable per-entity source
-  // version. Model that missing proof explicitly instead of treating the
-  // fixture token token or composite snapshot as source authority.
+  // Exercise the validator's fail-closed mismatch path without treating entity
+  // existence or a composite world snapshot cursor as source-version authority.
   s.provider.validateSourceVersion = async () => false;
   assert.equal((await s.prepare()).status, 'stale');
 
@@ -176,6 +175,25 @@ test('Core source-version mismatch is non-ready even when the canonical entity e
   });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
+});
+
+
+test('direct Core source validator rejects unknown status and negative revisions', async (t) => {
+  for (const [label, mutate] of [
+    ['unknown status', (entity) => ({ ...entity, status: 'pending_unknown' })],
+    ['negative revision', (entity) => ({ ...entity, updated_revision: -1 })],
+  ]) {
+    const s = setup(t);
+    assert.equal((await s.prepare()).status, 'current');
+    const originalGetSnapshot = s.engine.getSnapshot.bind(s.engine);
+    s.engine.getSnapshot = (worldId, options) => {
+      const snapshot = originalGetSnapshot(worldId, options);
+      if (worldId !== s.scope.world_id || !options?.entityIds?.includes('source-a')) return snapshot;
+      return { ...snapshot, entities: snapshot.entities.map(mutate) };
+    };
+    assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale', label);
+    await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  }
 });
 
 test('real SQLite provider stays non-current when the source inventory boundary cannot attest completeness', async (t) => {
