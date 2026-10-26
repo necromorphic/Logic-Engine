@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
@@ -53,6 +53,25 @@ test('file-backed Provider rejects coordinator DB path alias before opening the 
     validateInventory: async () => true,
   }), /Coordinator DB must be separate from the Memory Provider DB/);
   assert.equal(existsSync(path), false);
+});
+
+test('file-backed Provider detects coordinator alias through a symlinked parent before opening either DB', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-parent-alias-'));
+  const realDirectory = join(directory, 'real');
+  const aliasDirectory = join(directory, 'alias');
+  mkdirSync(realDirectory);
+  symlinkSync(realDirectory, aliasDirectory, 'dir');
+  const providerPath = join(aliasDirectory, 'provider.sqlite');
+  const coordinatorPath = join(realDirectory, 'provider.sqlite');
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  assert.throws(() => new SQLiteMemoryProvider({
+    path: providerPath,
+    coordinatorPath,
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  }), /Coordinator DB must be separate from the Memory Provider DB/);
+  assert.equal(existsSync(coordinatorPath), false);
 });
 
 test('in-memory Provider does not open the process coordinator database', (t) => {
