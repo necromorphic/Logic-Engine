@@ -64,7 +64,7 @@ The strings above illustrate the existing helper's output categories, not an app
 
 No durable idempotency contract is currently approved. If an existing owner-approved boundary exposes the relevant identities, these are candidate composite keys for review, not new fields or API requirements:
 
-- **Candidate projection:** stable record reference + record version, scoped to one trusted request/snapshot. This is already the helper's in-memory deduplication rule only.
+- **Candidate projection:** repeated stable record reference + record version pairs in one result are all excluded as ambiguous. This is request-local ambiguity rejection, not durable idempotency.
 - **Delivery attempt:** existing canonical message/event reference + intended target + channel + the host's existing attempt/idempotency identity, if supplied. Do not synthesize an attempt ID or assume an external side effect is safe to repeat.
 - **Acquisition:** existing subject/entity reference + existing source event/record reference + proposition/fact reference + acquisition path/type, only where each component is already authoritative. If the source or proposition identity is unavailable, the case is unsupported rather than assigned a fabricated key.
 - **Derived summary:** existing summary reference/version plus the authoritative versioned lineage manifest, if Memory already exposes both. A producer ID alone is not a content-lineage key.
@@ -87,7 +87,7 @@ Core owns durable delivery/acquisition idempotency and transaction boundaries; M
 
 | Case | Content / prompt expectation | Persistence expectation | Owner and retry/reconciliation | Test status and expected assertion |
 |---|---|---|---|---|
-| Duplicate candidate / repeated delivery | Deduplicate the same stable record reference + version for one admission; do not infer a second communication from a repeated result. Content still requires authorization. | Oracle writes nothing. A delivery retry must not duplicate a delivery/acquisition fact. | NPC helper for projection dedupe; Core/host owns durable delivery idempotency. Retry with an existing owner-approved idempotency identity only. | **Executable now:** duplicate ref/version admitted once. **Contract acceptance:** repeated host attempt does not create duplicate durable records. |
+| Duplicate candidate / repeated delivery | Exclude every occurrence of a repeated stable record reference + version pair from that candidate set; do not infer a second communication from a repeated result. Content still requires authorization. | Oracle writes nothing. A delivery retry must not duplicate a delivery/acquisition fact. | NPC helper rejects ambiguous candidate identity pairs; Core/host owns durable delivery idempotency. Retry with an existing owner-approved idempotency identity only. | **Executable now:** every duplicate ref/version occurrence is excluded. **Contract acceptance:** repeated host attempt does not create duplicate durable records. |
 | Source from another world | Exclude from candidate projection; never place it in prompt. | No state change. | NPC oracle checks metadata; Core/Memory must establish authentic world binding. Retry only after correct scope is available. | **Executable now:** foreign candidate and foreign summary lineage source yield no admission. |
 | Missing/denied/withheld/ambiguous access | No protected content, snippets, counts, identifiers, or per-item rejection diagnostics. Do not convert denial into a complete-empty result. | No receipt/acquisition/belief changes. | Core/Memory owns real authorization; fail closed. Retry only after an authoritative new decision, not by trusting caller/model labels. | **Executable now:** request-level failures return non-ready; candidate failures are excluded without per-item leakage. **Contract acceptance:** test non-disclosure at actual content boundary. |
 | Retracted/deleted/unavailable source | Do not return or prompt the source or a derived summary that still depends on it unless approved lineage policy proves safe independent support/declassification. | Do not silently erase historical acquisition or rewrite belief; Core reconciles validity. | Core owns source validity and dependent records. Retry after authoritative reconciliation. | **Executable now:** stale/retracted/unavailable lifecycle/freshness labels exclude candidate. **Contract acceptance:** real retraction propagates to dependent summaries/knowledge. |
@@ -106,7 +106,7 @@ Core owns durable delivery/acquisition idempotency and transaction boundaries; M
 
 | Transition | Trigger and authority | Durable change | Idempotency / prompt consequence | Testability |
 |---|---|---|---|---|
-| Candidate → eligible reference projection | Pure oracle evaluates caller-supplied metadata; NPC helper owns only the projection | None | Stable ref/version dedupe; no content in result | Executable now |
+| Candidate → eligible reference projection | Pure oracle evaluates caller-supplied metadata; NPC helper owns only the projection | None | Repeated ref/version pairs are excluded as ambiguous; no content in result | Executable now |
 | Reference → authorized content projection | Approved Core/Memory access boundary; Memory/Core owns authorization | None implied by reading | Re-authorize before serialization; fail closed; no snippet/count side channels | Owner gate: approved interface and race/consistency guarantee absent |
 | Context included → delivery attempt | Actual existing host/Core integration only | Attempt record only if existing approved persistence path supports it | Inclusion alone is not delivery; retry follows host idempotency contract | Owner gate: production path not established |
 | Delivery attempt → failed / unknown / confirmed shown | Authoritative host signal, interpreted by Core/host owner | Delivery status only through approved owner path | Unknown stays unknown; “shown” requires a verified rendering signal | Owner gate |
@@ -129,13 +129,13 @@ The current `tests/npc-memory-candidate-eligibility.test.js` suite exercises the
 - required lifecycle dimensions, admissible lifecycle states, evidence-assessment vocabulary and preservation;
 - stale/retracted/unavailable freshness, snapshot validation/mismatch;
 - summary lineage completeness, source identity/version, scope, access and freshness;
-- duplicate record/version projection;
+- duplicate record/version ambiguity rejection;
 - partial/unavailable versus complete-empty result;
 - non-disclosure of rejected identifiers/reasons/counts;
 - preservation of conflicting eligible evidence;
 - no mutation of acquisition, delivery, belief, or canonical state.
 
-The native repository test command is `npm test` (`node --test`). A successful run proves only the exact tested source/test revision. It does not prove production integration. For PR #138, exact-head Actions evidence is tracked in that PR; this document adds no claim that future contract-acceptance cases have run.
+The native repository test command is `npm test` (`node --test`). A successful run proves only the exact tested source/test revision. It does not prove production integration. The clean replacement for the NPC lineage tests is PR #157 (merged); the old mixed-scope PR #138 was superseded and is not the review/evidence path. This document makes no claim that future contract-acceptance cases have run.
 
 ## 6. Owner decisions still required before production integration
 
