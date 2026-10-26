@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
@@ -67,12 +67,9 @@ test('separate Core stores serialize their write transactions through the shared
     assert.equal(existsSync(secondEntered), false,
       'the second Core DB must not enter its write transaction while the first holds the shared coordinator');
     await waitForFile(secondEntered);
-    const [c1, c2] = await Promise.all([
-      new Promise((resolveExit, reject) => p1.once('exit', (code) => code === 0 ? resolveExit(code) : reject(new Error('first child exited ' + code)))),
-      new Promise((resolveExit, reject) => p2.once('exit', (code) => code === 0 ? resolveExit(code) : reject(new Error('second child exited ' + code)))),
-    ]);
-    assert.equal(c1, 0);
-    assert.equal(c2, 0);
+    const [c1, c2] = await Promise.all([firstProc.exited, secondProc.exited]);
+    assert.equal(c1.code, 0);
+    assert.equal(c2.code, 0);
   } finally {
     p1?.kill();
     p2?.kill();
