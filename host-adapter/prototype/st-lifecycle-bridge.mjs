@@ -84,21 +84,42 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     finally { if (publishQueues.get(conversationId) === current) publishQueues.delete(conversationId); }
   }
 
+  function sourceTrustReport(result, identityVersionMapping = 'NOT_CHECKED') {
+    const matched = result.status === 'LOCAL_MATCH_NON_AUTHORITATIVE';
+    const fingerprint = matched ? 'MATCH'
+      : result.reason === 'live source inventory fingerprint mismatch' ? 'MISMATCH' : 'NOT_VERIFIED';
+    return {
+      ...result,
+      trustDecision: 'NON_READY',
+      trustEvidence: {
+        localJournalIntegrity: matched ? 'VERIFIED' : 'NOT_VERIFIED',
+        liveSourceFingerprint: fingerprint,
+        identityVersionMapping,
+        sourceAuthenticity: 'UNPROVEN',
+        rollbackResistance: 'UNPROVEN',
+        lifecycleCompleteness: 'UNPROVEN',
+        preEnrollmentHistory: 'UNKNOWN_UNRECOVERABLE',
+        installConversationWorldBranchRestoreBinding: 'UNPROVEN',
+      },
+    };
+  }
+
   async function verifyCurrentSource() {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) {
-      return { status: 'NON_READY', reason: 'conversation is not enrolled' };
+      return sourceTrustReport({ status: 'NON_READY', reason: 'conversation is not enrolled' });
     }
     const chat = getChat();
-    if (!Array.isArray(chat)) return { status: 'NON_READY', reason: 'live Host chat is unavailable' };
+    if (!Array.isArray(chat)) return sourceTrustReport({ status: 'NON_READY', reason: 'live Host chat is unavailable' });
     // Read the current native source only through the injected Host getter;
     // callers cannot pass an arbitrary message array to this bridge method.
     try {
       await assertIdentitySnapshotMatches(conversationId, chat);
     } catch (error) {
-      return { status: 'NON_READY', reason: 'live Host identity/version inventory mismatch: ' + (error?.message || error) };
+      return sourceTrustReport({ status: 'NON_READY', reason: 'live Host identity/version inventory mismatch: ' + (error?.message || error) }, 'MISMATCH');
     }
-    return journal.verifyCurrentSource(conversationId, { messages: chat, sourceLocator: getSourceLocator() });
+    const result = await journal.verifyCurrentSource(conversationId, { messages: chat, sourceLocator: getSourceLocator() });
+    return sourceTrustReport(result, 'MATCH');
   }
 
   async function currentFingerprint(chat = getChat()) {
