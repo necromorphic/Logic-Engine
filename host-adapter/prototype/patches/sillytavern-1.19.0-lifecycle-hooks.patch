@@ -311,7 +311,7 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.beforeMutation('import-character-chat');
 +
      const fetchResult = await fetch('/api/chats/import', {
-@@ -10731,9 +10834,12 @@
+@@ -10731,9 +10834,13 @@
  export async function renameChat(oldFileName, newName) {
 -    return await renameGroupOrCharacterChat({
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
