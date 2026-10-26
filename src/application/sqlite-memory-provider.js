@@ -531,6 +531,7 @@ export class SQLiteMemoryProvider {
       || latestState.source_reconciliation !== 'current') {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
+    if (this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     return true;
   }
 
@@ -863,6 +864,10 @@ export class SQLiteMemoryProvider {
       freshness: { status: 'current' },
       snapshot: current,
     }));
+    // Detect commits from another Provider connection that happened while this
+    // result was being assembled. This remains Provider-local protection; it
+    // cannot make a later model dispatch atomic with revocation.
+    if (this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_INDEX_NOT_READY');
     return {
       completeness: rows.length > 50 ? 'partial' : 'complete',
       index_health: latestState.index_health,
