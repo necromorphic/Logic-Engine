@@ -13,8 +13,63 @@ const newId = () => {
  * Opt-in adapter boundary for explicit native ST hooks.
  * This is not a complete inventory until every mutation path is wired and tested.
  */
-export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat }) {
+export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null }) {
   if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
+  if (publishDigest !== null && typeof publishDigest !== 'function') throw TypeError('publishDigest must be a trusted callback');
+  const publishQueues = new Map();
+
+  async function publishCurrentDigestInventory(conversationId, chat, tombstones = []) {
+    if (!publishDigest) return { status: 'REVIEW_ONLY', published: false };
+    const entries = [];
+    for (const message of chat) {
+      const identity = message?._logicEngineLifecycle;
+      if (!identity || !Array.isArray(identity.versions) || !identity.versions.length
+        || !Number.isInteger(identity.activeVersionIndex)
+        || identity.activeVersionIndex < 0 || identity.activeVersionIndex >= identity.versions.length) {
+        throw Error('NON_READY: cannot publish Host version inventory with missing identity metadata');
+      }
+      for (let index = 0; index < identity.versions.length; index++) {
+        const version = identity.versions[index];
+        if (!version?.versionId || !/^[a-f0-9]{64}$/.test(version.payloadDigest)) {
+          throw Error('NON_READY: cannot publish Host version inventory with invalid digest identity');
+        }
+        entries.push({
+          conversation_id: conversationId,
+          message_id: identity.messageId,
+          version_id: version.versionId,
+          content_sha256: version.payloadDigest,
+          active: index === identity.activeVersionIndex,
+          deleted: false,
+        });
+      }
+    }
+    // Inactive versions go first; the selected version is the final pointer
+    // update for each message. This is transport ordering, not inventory proof.
+    entries.sort((a, b) => Number(a.active) - Number(b.active)
+      || a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id));
+    for (const tombstone of tombstones) {
+      if (!tombstone || typeof tombstone.messageId !== 'string' || typeof tombstone.versionId !== 'string'
+        || !/^[a-f0-9]{64}$/.test(tombstone.payloadDigest)) {
+        throw Error('NON_READY: cannot publish malformed Host tombstone');
+      }
+      entries.push({
+        conversation_id: conversationId,
+        message_id: tombstone.messageId,
+        version_id: tombstone.versionId,
+        content_sha256: tombstone.payloadDigest,
+        active: false,
+        deleted: true,
+      });
+    }
+    const previous = publishQueues.get(conversationId) ?? Promise.resolve();
+    const current = previous.catch(() => {}).then(async () => {
+      for (const entry of entries) await publishDigest(entry);
+      return { status: 'REVIEW_ONLY', published: true, versionCount: entries.length };
+    });
+    publishQueues.set(conversationId, current);
+    try { return await current; }
+    finally { if (publishQueues.get(conversationId) === current) publishQueues.delete(conversationId); }
+  }
 
   async function currentFingerprint(chat = getChat()) {
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
@@ -48,6 +103,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         };
       }
       await saveChat();
+      await publishCurrentDigestInventory(conversationId, chat);
     } catch (error) {
       // The durable baseline now exists but native metadata may not. Subsequent
       // fingerprint/identity validation must fail closed; enrollment cannot be retried.
@@ -238,6 +294,18 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           // Slot indexes can shift when a swipe is deleted; version identity must not.
           nextVersions.push({ ...prior, versionIndex: j });
         } else {
+          if (prior) {
+            tombstones.push({
+              messageId: identity.messageId,
+              versionId: prior.versionId,
+              versionIndex: prior.versionIndex ?? j,
+              payloadDigest: prior.payloadDigest,
+              parentVersionId: prior.parentVersionId ?? null,
+              deleted: true,
+              active: false,
+              reason: 'version-replaced',
+            });
+          }
           const versionId = newId();
           const parentVersionId = prior?.versionId
             ?? identity.versions[identity.activeVersionIndex]?.versionId
@@ -282,6 +350,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       payload: { changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones },
     });
     if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
+    await publishCurrentDigestInventory(conversationId, chat, tombstones);
     return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY' };
   }
 
