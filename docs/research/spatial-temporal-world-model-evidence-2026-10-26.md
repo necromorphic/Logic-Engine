@@ -121,3 +121,23 @@ The current source supports a **candidate read/rebuild seam only at canonical co
 - **Spatial block:** continue documentation/test-matrix work only; do not add tables, event kinds, entity attributes, APIs, or lifecycle hooks.
 
 Result remains **BLOCKED / NO APPROVED SPATIAL SEAM** for production integration. This is a specific blocker, not a claim that Core has no useful primitives.
+
+
+## 11. Owner decision matrix and spike closure criteria
+
+This matrix was also posted to issues #350 and #351 so the feasibility spike and parent task carry the same explicit gate. These are questions for owners, not decisions made by this research block.
+
+1. **Core — projection boundary:** May a spatial projection consume only valid committed events and participate in the existing rebuild/rollback machinery, or must it be accessed through a separate supported application-level boundary? The owner should identify the authoritative code path.
+2. **Time owner — temporal reconstruction point:** Is reconstruction supported only at a confirmed segment/checkpoint boundary, or must arbitrary intra-segment historical positions be supported? Existing tests establish segmented execution and recovery, not arbitrary spatial history reconstruction.
+3. **Core — rollback and readers:** What must happen to spatial-derived state and readers after rollback/rebuild or a stale snapshot? Point to an existing invalidation/rebuild invariant or mark it as a gap requiring design review.
+4. **Spatial semantics owner/product decision:** What is the minimum model: named spaces only, 2D, or 3D; is orientation/pose in scope; and how are unknown, contradictory, or stale locations represented? Generic entity attributes do not answer this.
+5. **Consumer boundary:** This research does not authorize NPC/context exposure. Any later Memory→NPC use remains independently gated by source authority, lineage, inventory/reconciliation, revocation, and admission checks.
+
+### Closure criteria
+
+- Each decision is answered by the responsible owner or linked to an already approved contract.
+- Every claim of existing behavior cites exact source/test evidence; unsupported behavior is recorded as a gap.
+- The agreed scope identifies what state can be reconstructed, at which temporal boundary, and how rollback/staleness are handled.
+- Until these conditions are met, status remains **BLOCKED / NO APPROVED SPATIAL SEAM**. No production integration, new API/schema, or NPC admission is implied.
+
+**Execution caveat:** test files were inspected as source but not executed during this research pass. The previously located successful CI run was for a different SHA and is not evidence that this branch/current HEAD passed CI.
