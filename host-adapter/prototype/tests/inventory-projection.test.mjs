@@ -73,7 +73,6 @@ test('non-array inventory fails closed', () => {
 test('multiple swipes without an explicit active index fail closed', () => {
   const ambiguous = message({ id: 'msg-ambiguous', versions: ['A0', 'A1'], active: 0 });
   delete ambiguous.swipe_id;
-  delete ambiguous._logicEngineLifecycle.activeVersionIndex;
   const result = projectHostInventoryForComparison([ambiguous]);
   assert.equal(result.status, 'NON_READY');
   assert.equal(result.reason, 'ACTIVE_SELECTION_MISMATCH');
