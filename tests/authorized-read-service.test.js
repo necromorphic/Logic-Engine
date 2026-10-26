@@ -323,3 +323,65 @@ test('authorized read returns the current composite snapshot after rollback chan
   assert.equal(store.currentCommitSequence('read-world'), before.commit_sequence);
 });
 
+test('mechanic authorized read rejects the R2 cursor after rollback restores R1 without commit-sequence growth', (t) => {
+  const { service, engine, store } = setup(t, (_context, entity, field) =>
+    entity.entity_id === 'target-a' && field === 'attributes.name');
+
+  const initial = engine.getSnapshot('read-world', { entityIds: ['target-a'] });
+  const r1 = initial.entities.find((entity) => entity.entity_id === 'target-a');
+  assert.equal(r1.attributes.name, 'Target');
+
+  const update = engine.commitEvent('read-world', {
+    event_id: 'target-a-update-r2',
+    idempotency_key: 'target-a-update-r2',
+    turn_id: 'target-a-update-r2',
+    event_type: 'action.completed',
+    expected_revision: initial.world_revision,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'target-a' } }],
+    effects: [{ kind: 'entity.update', entity_id: 'target-a', attributes: { name: 'Target R2' } }],
+  });
+  assert.equal(update.accepted, true);
+
+  const r2Snapshot = engine.getSnapshot('read-world', { entityIds: ['target-a'] });
+  const r2 = r2Snapshot.entities.find((entity) => entity.entity_id === 'target-a');
+  assert.equal(r2.attributes.name, 'Target R2');
+  const r2Request = {
+    worldId: 'read-world',
+    adapterId: 'adapter-a',
+    actorEntityId: 'actor-a',
+    recipient: 'model',
+    purpose: 'npc_decision',
+    entityId: 'target-a',
+    attribute: 'name',
+    expectedWorldRevision: r2Snapshot.world_revision,
+    expectedCommitSequence: r2Snapshot.commit_sequence,
+  };
+
+  const rollback = engine.rollbackEvent('read-world', {
+    root_event_id: 'target-a-update-r2',
+    idempotency_key: 'rollback-target-a-update-r2',
+  });
+  assert.deepEqual(rollback.invalidated_event_ids, ['target-a-update-r2']);
+
+  const restoredSnapshot = engine.getSnapshot('read-world', { entityIds: ['target-a'] });
+  const restored = restoredSnapshot.entities.find((entity) => entity.entity_id === 'target-a');
+  assert.equal(restored.attributes.name, 'Target');
+  assert.equal(restored.updated_revision, r1.updated_revision);
+  assert.equal(restoredSnapshot.commit_sequence, r2Snapshot.commit_sequence);
+  assert.ok(restoredSnapshot.world_revision > r2Snapshot.world_revision);
+  assert.equal(store.currentCommitSequence('read-world'), r2Snapshot.commit_sequence);
+
+  assert.throws(
+    () => service.readEntityAttributeForMechanic(r2Request),
+    (error) => error.code === 'STALE_AUTHORIZED_READ_SNAPSHOT' && error.status === 409,
+  );
+
+  const current = service.readEntityAttributeForMechanic({
+    ...r2Request,
+    expectedWorldRevision: restoredSnapshot.world_revision,
+    expectedCommitSequence: restoredSnapshot.commit_sequence,
+  });
+  assert.equal(current.value, 'Target');
+  assert.equal(current.world_revision, restoredSnapshot.world_revision);
+  assert.equal(current.commit_sequence, restoredSnapshot.commit_sequence);
+});
