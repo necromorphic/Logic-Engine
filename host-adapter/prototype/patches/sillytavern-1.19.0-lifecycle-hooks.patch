@@ -7,7 +7,7 @@ diff --git a/public/script.js b/public/script.js
 +import { createStLifecycleBridge, createUnavailableStLifecycleBridge } from './scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs';
  
  import { humanizedDateTime, favsToHotswap, getMessageTimeStamp, dragElement, isMobile, initRossMods } from './scripts/RossAscends-mods.js';
-@@ -1583,23 +1585,66 @@
+@@ -1583,23 +1585,67 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -318,7 +318,7 @@ diff --git a/public/scripts/chat-backups.js b/public/scripts/chat-backups.js
 diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 --- a/public/scripts/slash-commands.js
 +++ b/public/scripts/slash-commands.js
-@@ -5838,6 +5838,8 @@ async function messageRoleCallback(args, role) {
+@@ -5838,5 +5838,7 @@ async function messageRoleCallback(args, role) {
              ? 'system'
              : message.is_user ? 'user' : 'assistant';
      }
@@ -332,7 +332,7 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 +    await window.logicEngineHostLifecycle.completeOperation('edit-message');
  
      return role;
-@@ -5886,6 +5889,8 @@ async function messageNameCallback(args, name) {
+@@ -5886,5 +5889,7 @@ async function messageNameCallback(args, name) {
          return message.name;
      }
  
