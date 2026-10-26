@@ -81,14 +81,14 @@ export class SQLiteMemoryProvider {
     this.stateGeneration = new Map();
     this.queryAuthorizationGeneration = new Map();
     this.recordAuthorizationGeneration = new Map();
-    this.db = new DatabaseSync(path);
-    // Core and Provider must receive the same explicitly configured coordinator path.
-    // File-backed Provider instances refuse to start without it; in-memory tests remain isolated.
+    // Open the coordinator first so a failed coordinator open cannot leak a Provider DB handle.
     this.coordinatorDb = sharedCoordinatorPath ? openCoordinatorDatabase(sharedCoordinatorPath) : null;
+    this.db = null;
     let releaseStartupLock = () => {};
     let startupError = null;
     try {
       releaseStartupLock = this.#acquireCoordinatorLock();
+      this.db = new DatabaseSync(path);
       this.db.exec(`
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS memory_records (
