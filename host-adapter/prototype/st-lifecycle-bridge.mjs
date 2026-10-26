@@ -1,6 +1,11 @@
 import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 
-const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
+const rawVersions = message => {
+  if (message?.swipes !== undefined && !Array.isArray(message.swipes)) {
+    throw Error('NON_READY: malformed native swipe inventory');
+  }
+  return Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
+};
 const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
 const activeIndex = message => Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
 const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat']);
