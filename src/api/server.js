@@ -149,7 +149,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         if (!body || typeof body !== 'object' || Array.isArray(body)
           || Object.keys(body).some((key) => !allowed.includes(key))
           || !['conversation_id', 'message_id', 'version_id', 'content_sha256'].every((key) => typeof body[key] === 'string')
-          || typeof body.active !== 'boolean' || typeof body.deleted !== 'boolean
+          || typeof body.active !== 'boolean' || typeof body.deleted !== 'boolean'
           || (body.deleted && body.active)) {
           throw new EngineError('INVALID_HOST_VERSION_CAPTURE',
             'Capture accepts only conversation/message/version IDs, a SHA-256 digest, active and deleted flags; raw content and world_id are forbidden.', 400);
