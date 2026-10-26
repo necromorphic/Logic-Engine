@@ -121,7 +121,7 @@ export async function resolveStableHostConversationIdentity({
 export function hostLocatorHasEnrollment(locator, storage) {
   if (typeof locator !== 'string' || !locator.trim() || !storage
     || typeof storage.getItem !== 'function' || typeof storage.key !== 'function') return true;
-  if (storage.getItem(locatorKey(locator)) || storage.getItem(MARKER_PREFIX + locator)) return true;
+  if (storage.getItem(locatorKey(locator)) !== null || storage.getItem(MARKER_PREFIX + locator) !== null) return true;
   for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
     const value = typeof key === 'string' ? storage.getItem(key) : null;
@@ -135,7 +135,7 @@ export function hasAnyHostEnrollment(storage) {
   if (!storage || typeof storage.getItem !== 'function') return true;
   for (let i = 0; i < storage.length; i++) {
     const key = storage.key(i);
-    if (typeof key === 'string' && key.startsWith(MARKER_PREFIX) && storage.getItem(key)) return true;
+    if (typeof key === 'string' && key.startsWith(MARKER_PREFIX)) return true;
   }
   return false;
 }
