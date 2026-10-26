@@ -764,3 +764,22 @@ Therefore the safest future integration candidate is not to duplicate condition 
 - Not established: an autonomous NPC caller, a contract mapping executor outcomes to candidate ranking, conflict arbitration across competing NPCs, or an approved policy for automatic proposal creation/approval. The existing tests do not prove those absent integrations.
 
 **Decision:** reuse is the direction to investigate; no new NPC executor, storage, scheduler, API, schema, authorization shortcut, or Memory→NPC receiver is introduced. Memory→NPC remains disabled/fail-closed.
+
+
+## 22. Exact NPC-to-Core handoff boundary and the current blocker (26 Oct 2026)
+
+A source pass through `ProposalService.createFromMechanicEvaluation` confirms the existing handoff is stricter than a generic status check:
+
+1. It accepts only `status: "ready"` evaluations that are the original immutable object attested by the trusted `MechanicExecutor` in-process WeakSet. A copied/deserialized lookalike is not accepted as the same attested object.
+2. It revalidates the snapshot/template identity, condition result, context/evaluation fingerprints, policy version, authorization scope, read set, causal links, effect provenance and the bounded dependency-manifest guarantees.
+3. It creates a **pending proposal**; it does not approve or commit it. `ProposalService.approve` requires pending status, a fresh base world revision/commit sequence and current mechanic policy. `commit` requires approved status and repeats freshness/policy checks before Core commit.
+4. The existing proposal path's approval is an explicit separate operation. Nothing in the inspected contract says that an NPC's preference score is an approval credential or that a selected NPC candidate may bypass approval.
+
+This yields a concrete boundary for further work:
+
+- NPC decision logic may eventually compare actor-relative preferences among eligible candidate intents, but only after candidate provenance, decision snapshot and the meaning of each preference are agreed.
+- The existing MechanicExecutor can prepare only its bounded deterministic supported slice. It is not a universal candidate generator, and it returns no candidate for an unsupported or uncertain action.
+- The current NPC kernel's `proposal_selected` label is prototype terminology only. It does not create a Core proposal and must not be treated as an authorization token or an attested evaluation.
+- A real integration requires an owner-approved rule for how an NPC-selected intent becomes a proposal, who/what supplies the approval credential for autonomous actions, how multi-NPC conflicts are represented, and what to do when the executor returns `unknown` or `rejected`. These are cross-owner policy decisions, not gaps that can safely be filled inside the NPC block alone.
+
+**Current blocker from this workstream:** we can characterize and test existing components, but cannot legitimately wire the prototype to the application path without an approved NPC candidate/decision contract and an explicit Core-owned autonomous approval policy. No such policy or production caller was found in the inspected paths. This is a contract boundary, not a failing test.
