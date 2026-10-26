@@ -162,3 +162,42 @@ Crucially, the prior public grief is not erased by the secretary's arrival, and 
 7. Keep player-character agency intact: NPCs can initiate and react, but the system does not author the player's side of the interaction.
 
 These criteria are aspirational until implemented and demonstrated in the real runtime. Prompt-only examples or fixture-only callbacks are not proof of production capability.
+
+
+## 9. Sources of behavioral logic: roles, institutions, and individual NPCs
+
+This is an architectural requirement, not a claim about current runtime capability. The engine must not depend on hard-coded scripts for every profession or social group. It should derive candidate behavior from multiple explicit sources and validate the result against authoritative world state.
+
+### 9.1 Decision inputs
+
+A candidate NPC action should be reasoned about using all relevant layers:
+
+- **World Pack rules:** the world's laws, customs, institutions, permissions, prohibitions, available actions, and consequences.
+- **Social/professional role:** typical duties, authority, competencies, limitations, and expectations. A role constrains plausibility but does not dictate one response.
+- **Organization and subculture:** hierarchy, internal rules, loyalties, debts, territory, discipline, incentives, and sanctions for the specific institution or group.
+- **Individual profile:** stable traits, values, fears, habits, goals, relationships, private motives, and accumulated experience.
+- **Epistemic state:** what this NPC observed, was told, inferred, suspects, believes, or falsely believes. Another character's knowledge must not leak automatically.
+- **Current situation:** present actors, evidence, risks, resources, obligations, goals, feasible options, and already-committed consequences.
+
+### 9.2 Example: a police officer and a yakuza member
+
+The label “police officer” must not imply “always arrest”; the label “yakuza” must not imply “always threaten or fight.” A police officer may lawfully arrest, question, negotiate, warn, withdraw for lack of evidence, abuse authority, or act corruptly only where the world rules, authority, available knowledge, individual profile, and circumstances make the candidate plausible. A yakuza member may obey a superior, defend territory, negotiate, conceal a breach, avoid unnecessary violence, or betray the organization for a credible personal reason. These are constrained possibilities, not arbitrary model choices.
+
+NPCs may hold multiple or conflicting roles—for example, a police officer who is also a criminal organization's informant. The engine must represent competing duties, incentives, risks, and loyalties rather than reducing the character to a single label. Two NPCs with the same role may act differently because their profiles, knowledge, goals, and circumstances differ.
+
+### 9.3 Authority of sources
+
+- Versioned, author-defined **World Pack rules** are authoritative for the specific world's mechanics and institutions. Do not silently substitute a newer rules version or retroactively change the meaning of committed events.
+- **Role and organization profiles** describe the usual permissions, duties, incentives, constraints, and sanctions for roles/groups. Their representation and relationship to World Pack, Personality, and NPC must be agreed architecturally before implementation.
+- **NPC history and experience** explain individual skills, relationships, beliefs, errors, and revisions. New experience can change beliefs or plans without erasing the causal history.
+- The language model's pretrained knowledge is only a weak interpretive prior. It must not invent canonical powers, laws, organization rules, or mandatory consequences absent from the authoritative world sources.
+
+When sources conflict or required information is missing, the engine must apply an agreed authority/version policy or preserve the uncertainty for explicit handling. It must not silently fill gaps with invented facts.
+
+### 9.4 Proposal is not an event
+
+The model may propose candidate actions and explain their plausibility. A proposal is not a committed action or world event. The engine must validate epistemic access, authority and capability, preconditions, resources, timing, and applicable World Pack rules; resolve conflicts through the approved Core path; and persist only the validated result and its consequences. An NPC's intention, a model proposal, an authorized action, and the actual resolved outcome are distinct states.
+
+### 9.5 Scope and future acceptance checks
+
+This proposes an extensible role-and-social-institution profile mechanism; it does not introduce runtime APIs, schemas, storage contracts, or implementation claims. Core approval is required before defining new contracts. A future vertical slice should test: (1) two different personalities sharing one role and responding differently; (2) one NPC holding conflicting roles; (3) separation of world fact, observation, suspicion, belief, and knowledge; (4) pinned/versioned world rules and no silent retroactive semantic change; and (5) validation and persisted consequences through the canonical Core path. Prompt-only examples or unvalidated model output do not prove production capability.
