@@ -211,3 +211,64 @@ test('record grant revoked during source validation is a non-ready authorization
   release();
   await assert.rejects(pending, /MEMORY_RECORD_ACCESS_REVOKED/);
 });
+
+
+test('candidate authorization fails non-ready if Provider index changes during source validation', async (t) => {
+  let release;
+  let started;
+  const validationStarted = new Promise((resolve) => { started = resolve; });
+  const validationGate = new Promise((resolve) => { release = resolve; });
+  let holdValidation = false;
+  const provider = new SQLiteMemoryProvider({
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => {
+      if (holdValidation) {
+        started();
+        await validationGate;
+      }
+      return true;
+    },
+    validateInventory: async () => true,
+  });
+  t.after(() => provider.close());
+
+  const scope = { world_id: 'record-state-race-world', subject_id: 'record-state-race-npc', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'record-state-race-record',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'record-state-race-entity',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'record-state-race-entity', source_version: 'source-v1' }],
+  };
+  provider.grantQuery(scope, true);
+  provider.putRecord(record);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  await provider.rebuildIndex(scope.world_id);
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+  holdValidation = true;
+
+  const pending = provider.authorizeCandidate({
+    ...scope,
+    record_ref: record.record_ref,
+    record_version: record.record_version,
+    source_kind: record.source_kind,
+    source_entity_id: record.source_entity_id,
+  });
+  await validationStarted;
+  provider.putRecord({
+    ...record,
+    record_ref: 'record-state-race-record-2',
+    record_version: 'v1',
+    source_entity_id: 'record-state-race-entity-2',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'record-state-race-entity-2', source_version: 'source-v1' }],
+  });
+  release();
+  await assert.rejects(pending, /MEMORY_INDEX_NOT_READY/);
+});
