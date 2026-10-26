@@ -290,3 +290,54 @@ test('trigger records reject accessors without invoking them', () => {
   );
   assert.equal(getterCalled, false);
 });
+
+
+test('sparse trigger arrays fail closed instead of silently dropping scheduled work', () => {
+  const triggers = [];
+  triggers.length = 1;
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers,
+    }),
+    (error) => error.code === 'INVALID_TRIGGER_LIST',
+  );
+});
+
+test('sparse dependency/reference arrays fail closed instead of skipping entries', () => {
+  const dependencies = [];
+  dependencies.length = 1;
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers: [trigger('dependent', 5, { dependencies })],
+    }),
+    (error) => error.code === 'INVALID_REFERENCE_LIST',
+  );
+});
+
+test('scheduler arrays reject accessor entries without invoking them', () => {
+  let getterCalled = false;
+  const triggers = [];
+  triggers.length = 1;
+  Object.defineProperty(triggers, '0', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return trigger('hidden', 5); },
+  });
+
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers,
+    }),
+    (error) => error.code === 'INVALID_TRIGGER_LIST',
+  );
+  assert.equal(getterCalled, false);
+});
