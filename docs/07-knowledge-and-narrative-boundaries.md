@@ -457,3 +457,27 @@ Own only the bounded architecture/feasibility spike described in issue #350. The
 
 This chat’s task is complete when the evidence-backed design report and test matrix are available on a dedicated documentation branch or a proposed documentation PR, and another reviewer can reproduce the claims. It is **not** complete merely because a conceptual schema or mock implementation exists. Do not implement production runtime changes without a separately reviewed, explicit Core approval of the exact seam and diff.
 
+
+
+### 13.1 Explicit boundary with the existing Time / TimeEngine block (2026-10-26)
+
+The Spatial/Temporal World Model must reuse the existing Time subsystem; it must **not** create a second clock, time-advance mechanism, calendar, due-work scheduler, trigger registry, or process-milestone scheduler.
+
+The current Time/Process Manager contract is tracked in [issue #243](https://github.com/necromorphic/Logic-Engine/issues/243), with related milestone-scheduling contract review in [PR #249](https://github.com/necromorphic/Logic-Engine/pull/249). Issue #243 describes the existing durable time-advance substrate, including canonical millisecond coordinates, versioned calendar/TimePolicy, deterministic `(from, to]` planning, atomic bounded segment commits, world-scoped triggers, interruption and SQLite restart recovery. Process lifecycle work is intended to reuse that pipeline rather than introduce a second scheduler. Re-check current code/heads during the spike; issue/PR descriptions are not by themselves proof that every claim is merged into `main`.
+
+**Responsibility split for the feasibility study:**
+
+- **Time / TimeEngine owns temporal progression:** game-time coordinates and calendar/policy semantics; explicit advancement; due-work ordering and triggers; process/milestone scheduling and interruption/replanning within its approved contract. Game time does not advance merely because real time passes or the application is idle.
+- **Core owns canonical state and commits:** validates/commits world effects and revisions, with rollback/rebuild semantics. Time may propose/coordinate advancement but must not bypass Core's canonical transaction path.
+- **Spatial/Temporal World Model studies spatial state over the existing temporal axis:** location/relative relations, orientation/pose, movement and scene state indexed to the TimeEngine's canonical game-time coordinate and supported committed-event/revision cursor. It consumes existing approved time/event/state outputs; it does not advance time or schedule work itself.
+- **Scene/episodic memory preserves source and viewpoint:** it may use event order and spatial-temporal state as complementary evidence, but does not treat world state as proof that a particular NPC observed or remembers it.
+
+**Required checks in the new-chat spike:**
+
+1. Map the exact existing TimeEngine coordinate, advancement, event/segment and revision/cursor contracts; record exact paths, SHA and tests.
+2. Identify which of those are actually available to a derived spatial projection without a new API. If the seam is not callable or the semantics are insufficient, report the gap instead of inventing an adapter contract.
+3. Test reconstruction against TimeEngine's existing game-time coordinate and committed Core cursor, including equal-time events, interval boundaries where relevant, interruption/replay and rollback. Do not introduce a second ordering rule that conflicts with the existing deterministic `(from, to]` planning semantics.
+4. Keep two questions separate: “what spatial state was canonical at a supported game-time/revision point?” and “what did this NPC perceive/acquire?” The latter remains governed by the existing Memory→NPC authorization gates.
+5. Any proposal to change TimeEngine, its calendar/policy, trigger/process scheduling, Core commit semantics or event schema is **out of scope** for this spike and requires a separate owner-reviewed task/approval.
+
+This clarification narrows §12's phrase “time-aware representation”: “time-aware” means keyed to the existing TimeEngine's approved temporal coordinates and canonical Core history, **not** an independent time subsystem. No new runtime contract is approved here.
