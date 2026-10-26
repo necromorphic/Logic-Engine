@@ -121,6 +121,30 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
     const chat = getChat();
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
 
+    // Preserve explicit deletion evidence before identities disappear from the
+    // current chat projection. The journal is still review-only; this does not
+    // authorize Provider reconciliation or claim complete native inventory.
+    const tombstones = [];
+    const priorIdentitySnapshot = await journal.latestIdentitySnapshot(conversationId);
+    const liveMessageIds = new Set(chat.map(message => message?._logicEngineLifecycle?.messageId).filter(Boolean));
+    if (operation === 'delete-message' && Array.isArray(priorIdentitySnapshot)) {
+      for (const priorMessage of priorIdentitySnapshot) {
+        if (liveMessageIds.has(priorMessage.messageId)) continue;
+        for (const version of priorMessage.versions ?? []) {
+          tombstones.push({
+            messageId: priorMessage.messageId,
+            versionId: version.versionId,
+            versionIndex: version.versionIndex,
+            payloadDigest: version.payloadDigest,
+            parentVersionId: version.parentVersionId ?? null,
+            deleted: true,
+            active: false,
+            reason: 'message-deleted',
+          });
+        }
+      }
+    }
+
     if (['create-message', 'message-send', 'message-receive'].includes(operation)) {
       const validCreatedIndex = Number.isInteger(createdMessageIndex)
         && createdMessageIndex >= 0
@@ -153,6 +177,17 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
         if (removedSwipeIndex < 0 || removedSwipeIndex >= identity.versions.length) {
           throw Error('NON_READY: deleted swipe has no matching version identity');
         }
+        const removed = identity.versions[removedSwipeIndex];
+        tombstones.push({
+          messageId: identity.messageId,
+          versionId: removed.versionId,
+          versionIndex: removed.versionIndex ?? removedSwipeIndex,
+          payloadDigest: removed.payloadDigest,
+          parentVersionId: removed.parentVersionId ?? null,
+          deleted: true,
+          active: false,
+          reason: 'swipe-deleted',
+        });
         identity.versions.splice(removedSwipeIndex, 1);
       }
       const nextVersions = [];
@@ -204,7 +239,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getChat, s
       eventId: newId(),
       operation: 'after:' + operation,
       sourceFingerprint: fingerprint,
-      payload: { changes, removedSwipeIndex, selectedMessageIndex, versionPayloads },
+      payload: { changes, removedSwipeIndex, selectedMessageIndex, versionPayloads, tombstones },
     });
     if (event?.status === 'NON_READY') throw Error('NON_READY: post-mutation journal append rejected: ' + event.reason);
     return { sequence: event.sequence, messageCount: chat.length, status: 'REVIEW_ONLY' };
