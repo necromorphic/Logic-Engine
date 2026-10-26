@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { spawn } from 'node:child_process';
 import { setTimeout as delay } from 'node:timers/promises';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
-import { openCoordinatorDatabase } from '../src/storage/coordinator-lock.js';
+import { openCoordinatorDatabase, withCoordinatorLock } from '../src/storage/coordinator-lock.js';
 
 const waitForFile = async (path, timeoutMs = 3000) => {
   const deadline = Date.now() + timeoutMs;
@@ -102,4 +102,23 @@ test('coordinator helper rejects relative paths instead of silently resolving pe
     () => openCoordinatorDatabase('coordinator.sqlite'),
     /coordinator database path must be absolute/,
   );
+});
+
+
+test('coordinator wrapper releases its lease on success and failure and rejects async callbacks', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'logic-engine-coordinator-wrapper-'));
+  const dbPath = join(dir, 'coordinator.sqlite');
+  const db = openCoordinatorDatabase(dbPath);
+  try {
+    assert.equal(withCoordinatorLock(db, () => 'ok'), 'ok');
+    assert.throws(() => withCoordinatorLock(db, () => { throw new Error('mutation failed'); }), /mutation failed/);
+    assert.throws(
+      () => withCoordinatorLock(db, async () => 'late'),
+      /Coordinator callback must be synchronous/,
+    );
+    assert.equal(withCoordinatorLock(db, () => 9), 9, 'lease must be reusable after all rejected callbacks');
+  } finally {
+    db.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
