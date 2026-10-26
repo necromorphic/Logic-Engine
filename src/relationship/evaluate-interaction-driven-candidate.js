@@ -10,10 +10,19 @@ import { assessInteractionInterpretations } from "./assess-interaction-interpret
 import { evaluateRelationshipCandidate } from "./evaluate-candidate.js";
 
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
-const isRecord = (value) => value !== null
-  && typeof value === "object"
-  && !Array.isArray(value)
-  && (Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null);
+
+const isRecord = (value) => {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  return Reflect.ownKeys(value).every((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    return typeof key === "string"
+      && descriptor !== undefined
+      && descriptor.enumerable
+      && own(descriptor, "value");
+  });
+};
 
 const result = (status, details = {}) => Object.freeze({ status, ...details });
 
@@ -32,8 +41,10 @@ export function evaluateInteractionDrivenRelationshipCandidate(input) {
       || !Object.keys(input).every((key) =>
         ["assessments", "expectedInterpretation", "candidate"].includes(key))
       || !own(input, "assessments")
+      || !own(input, "expectedInterpretation")
       || typeof input.expectedInterpretation !== "string"
       || input.expectedInterpretation.trim().length === 0
+      || !own(input, "candidate")
       || !isRecord(input.candidate)
       || !Object.keys(input.candidate).every((key) => [
         "subjectId", "targetId", "currentValues", "patch", "dimensionRules", "ruleVersion",
@@ -57,6 +68,8 @@ export function evaluateInteractionDrivenRelationshipCandidate(input) {
     });
   }
 
+  // The top-level candidate is data-only before spreading; nested shapes are
+  // validated by the existing evaluator without granting them new authority.
   const transition = evaluateRelationshipCandidate({
     ...input.candidate,
     evidence: { status: "supported", refs: assessment.evidenceRefs },
