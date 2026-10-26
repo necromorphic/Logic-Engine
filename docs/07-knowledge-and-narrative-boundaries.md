@@ -261,40 +261,87 @@ Required response on the exact updated head: ACCEPT, REJECT with a concrete cont
 **Current release decision:** production-supported acquisition mechanisms = NONE; production disclosure routes = NONE approved; Core policy = **DENY / NON_READY** for model / npc_decision; Memory→NPC = **DISABLED / FAIL-CLOSED**. No API/schema/store/hook, raw-text retention or production enablement is approved by this document.
 
 
-## 11. Product requirement: durable, scene-complete episodic memory (2026-10-26)
+## 11. Scene integrity and durable episodic memory — minimal contract (Core 1.9, 2026-10-26)
 
-**Product requirement, not an implementation decision:** The engine must be able to remember a scene as a coherent event, including concrete details and relationships between details, and retrieve that scene even after a long time. A memory that keeps only a few disconnected extracted facts and loses the event context does not satisfy this requirement. The requirement applies to old scenes as well as recent ones; age alone must not make a scene unrecoverable.
+**Status:** semantic proposal for owner review. The product requirement is durable recall of coherent scenes with source-grounded detail, not only disconnected extracted facts. This section defines the minimum meaning and acceptance boundary; it does not approve a runtime schema, raw Host-text retention, a new store/API, or production Memory→NPC.
 
-For example, after a staged death, a character may later need to recall who stood where, the sequence of actions, what they could see or hear, and visible details such as blood. The engine must not fill missing links with invented details. It must preserve the distinction between:
-- what the character personally perceived, including the conditions and limits of perception;
-- what the character was told or read, and the source/version of that information;
-- what the character inferred or reconstructed later;
-- what the character did not perceive, cannot reliably recall, or never had access to.
+### 11.1 What counts as a scene
 
-### Desired behavior
+A **scene/episode** is the smallest bounded, source-grounded interval of world activity that can be understood as a coherent occurrence: it has an identifiable beginning/end or explicit open boundary, an ordered set of actions/changes, participating entities and relevant objects, and enough temporal, spatial, causal and sensory relations to distinguish what happened from a bag of facts. A scene may span multiple messages or source records; one message is not automatically one scene, and one scene is not necessarily one message.
 
-- Preserve a scene/event as a coherent, temporally ordered episode with enough source-grounded detail to support later recollection, rather than retaining only isolated propositions.
-- Support long-term retrieval of old scenes and relevant details; retrieval should not depend solely on recency or on a few extracted keywords.
-- Keep provenance, viewpoint, uncertainty, contradictions, and access/visibility boundaries attached to scene details.
-- Allow a character's recall to be incomplete, uncertain, mistaken, or affected by forgetting when the product's memory rules say so. Scene preservation is not a requirement that every character remembers everything perfectly.
-- Distinguish the world event from each character's actual perception, acquisition, later recollection, and belief. A complete world-side scene record must not automatically become every NPC's memory.
-- When a source changes, is deleted, retracted, restored, or access is revoked, preserve enough lineage to reconcile dependent scene memories safely; do not silently leave unsupported details looking authoritative.
+A scene is **complete for a declared purpose** only when its retained evidence is sufficient to answer the declared recall questions without silently inventing missing details. Completeness is purpose-relative and must be reported as supported, partial, conflicting or unavailable—not inferred from a summary's fluency. At minimum, assess:
 
-### Implementation exploration — deliberately open
+- **Identity and boundaries:** stable reference to the occurrence and its source records/versions; known start/end or explicit uncertainty.
+- **Temporal structure:** ordering, simultaneity where supported, and known gaps; do not fabricate exact times.
+- **Participants and objects:** who/what is evidenced as present or involved, with identity ambiguity preserved.
+- **Spatial relations and motion:** only evidenced positions, visibility, orientation, movement and changes; unknown layout remains unknown.
+- **Actions and outcomes:** observed or source-recorded actions, their order, and confirmed versus unresolved consequences.
+- **Sensory/source detail:** relevant dialogue, sounds, visible details and other source content actually preserved; do not claim a channel was captured if it was not.
+- **Viewpoint and provenance:** for each subject-relative detail, what source supports it and whether the subject could perceive/access it.
+- **Uncertainty and contradictions:** missing, ambiguous, disputed or incompatible evidence stays explicit.
+- **Lineage and lifecycle:** source versions, derivation links and the effect of edit/delete/retraction/revocation/rollback/restore are traceable.
 
-The product owner has **not** selected a storage model. A future 3D-thinking/world-state capability might help represent spatial relations, positions, poses, movement, and changes across a scene. Scene snapshots, temporal/spatial state records, source-event archives, linked episodic records, or a hybrid are hypotheses to evaluate—not approved architecture or existing capabilities. A snapshot alone may omit dialogue, sound, causal order, or subjective viewpoint; a transcript alone may omit spatial layout and movement. The design should compare what each representation can preserve, retrieve, update, and authorize.
+This is a semantic checklist, not a proposed field list. Existing contracts and implementations must be inspected before deciding where or how any item is represented.
 
-Core, Memory Provider, NPC, Host/Adapter, and the future 3D/world-state owner must propose the smallest coherent design that meets this product requirement using existing approved mechanisms where possible. Identify:
-1. what constitutes a scene/episode and its stable source/version/lineage;
-2. how original source detail is preserved separately from derived summaries, facts, spatial snapshots, and character-specific perceptions;
-3. how long-term retention, retrieval, tiering/compression, and detail-loss checks work without making a compressed summary pretend to be the original scene;
-4. how edits, deletion, revocation, rollback, restoration, restart/replay, and incomplete source inventory affect the scene and every derived representation;
-5. how the system prevents one character's private observation or inaccessible scene detail from leaking to another character;
-6. how to test old-scene recall for factual coverage, spatial/temporal coherence, provenance, uncertainty, and non-invention.
+### 11.2 Four different things; never collapse them
 
-Do not assume unlimited storage or promise perfect verbatim recall until measured. If compression or forgetting is necessary, define it explicitly and preserve the distinction between an original/source-backed record and a lossy reconstruction.
+1. **Original source/event evidence** — the actual source material available to the engine (for example, a source event record, dialogue/message, observation record, or document). Preserve its identity, version and provenance. A source existing in storage does not mean every NPC can access it.
+2. **World-side scene record/reconstruction** — a structured account of the occurrence assembled from one or more sources. It may combine evidence, but must preserve conflicts and gaps rather than presenting inference as original source. It describes the world-side event; it is not a record of every character's knowledge.
+3. **Derived representation** — extracted facts, a compressed summary, an index/embedding, or a spatial/temporal snapshot. Each is a derivative with a traceable source lineage and an explicit indication of whether detail is lost. A summary or embedding is not the original scene and cannot, by itself, prove exact wording, perception, or source currentness.
+4. **Character-specific episodic memory and later recall** — what a particular NPC actually perceived/acquired, retained, forgot, inferred, and can currently recall. It is subject-relative and may be incomplete, mistaken, uncertain or contradicted. A complete world-side scene or a retrieved archive chunk must not automatically become this NPC's memory.
 
-### Current gate
+Canonical world truth, source availability, scene reconstruction, search retrieval, authorized disclosure, acquisition, recall and belief remain separate states. No transition is implied without evidence from the relevant mechanism.
 
-This requirement does **not** approve raw SillyTavern text retention, a new schema/API/store, a snapshot mechanism, or production Memory→NPC wiring. The existing Host raw-archive operations remain disabled and the current cross-block authority/inventory/send-boundary blockers still apply. Core and Provider must propose a reviewable retention and lineage policy; Host must establish which source details and lifecycle changes can actually be captured; NPC must define how scene memory differs from acquisition, recall, and belief. Production Memory→NPC remains **DISABLED / FAIL-CLOSED** until its existing gates pass.
+### 11.3 Minimum lineage and lifecycle rules
 
+- Every derived scene representation must be traceable to the source identities and versions it depends on, using existing approved contracts where they suffice. Do not invent a universal ID/version field or assume Provider `record_version`, opaque `source_version`, Core `updated_revision`, and `(world_revision, commit_sequence)` are interchangeable.
+- Preserve original source evidence separately from summaries/facts/snapshots when the approved retention policy permits it. If the original is not retained or is no longer available, mark that limitation; never label a reconstruction as the original.
+- A source edit/version change invalidates or revalidates dependent representations. Deletion/retraction, access-grant revocation, rollback, restoration and retention-policy purge are distinct causes and must not be treated as synonyms.
+- Restoration does not automatically restore access rights. Rebuild/replay may re-establish a derived representation only from authoritative current evidence and deterministic supported rules.
+- If source inventory is incomplete, reconciliation is interrupted, lineage is missing/corrupt, or currentness cannot be established, affected representations are NON_READY for source-dependent disclosure. Do not translate unknown/incomplete into “empty and valid.”
+- Invalidate only the unsupported derivation path. If an independent valid source remains, retain that support after reconciliation; if no valid path remains, do not present the dependent detail as supported.
+- Compression, indexing and tiering may change retrieval efficiency, but may not silently upgrade a lossy representation into an authoritative source. Recalling a detail absent from retained evidence must return unknown/uncertain, not a plausible invention.
+
+### 11.4 Representation options — trade-offs, not an architecture selection
+
+| Representation | What it preserves well | What it loses or cannot prove alone | Contract position |
+|---|---|---|---|
+| Original source/event record or transcript | Concrete source wording and recorded details; strongest anchor for source-grounded reconstruction | May omit spatial layout, unrecorded sensory information, or what a particular NPC perceived; can be large and sensitive | Preserve when policy and available source permit; access/version/deletion controls are mandatory |
+| Derived structured episode with ordered actions and relations | Temporal order, entities, event relations and queryable details | May omit exact wording, nuance or details not extracted; extraction can be wrong | Useful derivative; must link to source and expose gaps/conflicts |
+| Summary/facts only | Compact search and quick orientation | Loses detail and relationships; cannot reliably reconstruct omitted scene specifics | Never the sole authoritative record when scene-complete recall is required |
+| Spatial/temporal snapshot or future 3D world-state representation | Positions, poses, layout and changes at represented points in time | A snapshot can miss dialogue, sound, causal sequence, subjective viewpoint and events between snapshots | Optional complementary representation; not selected or assumed implemented |
+| Hybrid source + episode + selective snapshots/summaries/indexes | Can combine source fidelity, structured retrieval and spatial reasoning | More lifecycle/reconciliation complexity; all derived copies need lineage and access control | Best candidate to evaluate against acceptance tests, not yet an approved implementation |
+
+**Current recommendation:** design toward a hybrid semantic model—source-grounded episode plus optional derived representations—because no single summary, transcript or snapshot proves all required dimensions. This is a design direction only; implementation must reuse existing approved mechanisms where possible and name any missing capability before proposing an API/schema/store.
+
+### 11.5 Acceptance criteria for scene integrity
+
+These are observable criteria for a future implementation, not claims that tests or production wiring already exist.
+
+1. **Long-term recall:** retrieve an old scene after intervening activity without relying only on recency; locate relevant detail through more than one query formulation or cue.
+2. **Coverage and source fidelity:** for a fixed review set of source-supported details, report which details are retained/retrievable, which are missing, and which are derived. Do not score fluent reconstruction as correct without comparing it to evidence.
+3. **Temporal coherence:** preserve supported order and distinguish simultaneous, unknown and conflicting order; do not add unsupported events or exact timestamps.
+4. **Spatial coherence:** preserve only supported positions/relations/movement. If no spatial source exists, explicitly report spatial detail as unavailable rather than infer a complete layout.
+5. **Viewpoint separation:** two NPCs with different sightlines/access receive only their own supported perceptions and authorized information. A private observation of NPC A must not appear in NPC B's context unless B later acquires it through a separately valid path.
+6. **Stage separation:** tests independently check source stored, scene reconstructed, derivative indexed, candidate retrieved, disclosure authorized, context included, delivered, received, acquired, recalled and believed. No earlier stage sets a later stage by implication.
+7. **Compression transparency:** after summarization/indexing/tiering, compare against the source-backed detail set; identify loss and ensure missing details are not presented as source-grounded recall.
+8. **Lifecycle propagation:** source v1→v2, delete/retraction, grant revocation, rollback with unchanged `commit_sequence`, restore, restart/replay and interrupted/incomplete reconciliation must invalidate or revalidate every dependent representation according to the approved rule.
+9. **Multiple-source reconciliation:** invalidating one source preserves a genuinely independent valid support path; invalidating the last valid path removes readiness for dependent disclosure.
+10. **No-invention behavior:** deliberately omit a detail from all accessible retained evidence; the recall path must answer unknown/uncertain rather than reconstruct it as fact.
+11. **Access and failure isolation:** unknown subject/world, stale lineage, incomplete inventory, validation error/timeout, or unsupported Host route results in deny/NON_READY and zero protected content leakage.
+12. **Retention policy:** tests establish the approved retention/purge behavior for source material and derivatives, including the effect of a purge on dependent representations. No raw-text retention is enabled by this semantic contract alone.
+
+Acceptance requires evidence from the actual owner components and real retrieval/disclosure path. Fixture-only tests, document agreement, a green isolated Provider suite, or a proposed 3D model do not establish end-to-end scene fidelity or authorization.
+
+### 11.6 Decisions: what needs product-owner choice, and what does not
+
+**Already decided by product intent:** coherent scene recall must preserve concrete event details and relationships over the long term; isolated extracted facts alone are insufficient. Observation is the conceptual first way NPCs learn about the world, but the first integration test may use a simpler end-to-end mechanism. Scene storage does not imply universal NPC knowledge. A future 3D/snapshot capability is optional, not a prerequisite.
+
+**Technical design should not be bounced to the product owner:** Core/Provider/Host/NPC must compare the representation options, map existing source and lifecycle operations, recommend a minimal retention/lineage design, identify actual missing operations, and propose measurable coverage/loss checks. Do not ask the product owner to choose a database, field names, API, index, or reconciliation algorithm before that evidence exists.
+
+**Only unresolved product/security choices requiring explicit owner approval:**
+
+1. **Raw source-text retention permission and policy:** whether original Host/ST message text may be persisted/transferred at all, for what purpose, access scope, retention period, deletion/purge behavior and audit requirements. The preference for scene fidelity is not itself authorization to retain raw Host text. Until approved, existing raw Host archive operations stay disabled.
+2. **Retention horizon and resource ceiling:** if the implementation cannot preserve all source material indefinitely, set the acceptable retention horizon/resource budget and what must happen when it is reached (for example, purge, archive/tier, or mark recall as degraded). The technical team should present measured cost/fidelity options before asking for this decision.
+
+No other product choice is required to complete the first technical comparison. Memory→NPC remains **DISABLED / FAIL-CLOSED** until the acquisition, source authority/currentness, lifecycle reconciliation, subject binding and final-send gates in §§7–10 are independently satisfied.
