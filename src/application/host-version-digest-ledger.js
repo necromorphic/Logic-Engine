@@ -309,7 +309,7 @@ export class HostVersionDigestLedger {
         world_id: snapshot.world_id, conversation_id: snapshot.conversation_id,
         complete: snapshot.complete,
         versions: Array.isArray(snapshot.versions)
-          ? snapshot.versions.map((v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.freeze({ ...v }) : v)
+          ? Object.freeze(snapshot.versions.map((v) => v && typeof v === 'object' && !Array.isArray(v) ? Object.freeze({ ...v }) : v))
           : snapshot.versions
       })) === true;
     } catch { trusted = false; }
