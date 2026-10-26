@@ -361,6 +361,28 @@ test("summary lineage fails closed when source world scope is missing or unprove
   }
 });
 
+test("summary lineage rejects duplicate source ref/version identities", () => {
+  const source = {
+    ref: "source:reused",
+    version: "v2",
+    world_id: request.world_id,
+    access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
+    freshness: { status: "current" },
+  };
+  const summary = candidate({
+    content_kind: "summary",
+    lineage: {
+      status: "complete",
+      sources: [source, { ...source }],
+    },
+  });
+
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes("source:reused"), false);
+});
+
 test("summary lineage sources must match the requested world, subject, and purpose", () => {
   const baseSource = {
     ref: "source:a",
