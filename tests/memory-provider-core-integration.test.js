@@ -7,7 +7,7 @@ import { AuthorizedReadService } from '../src/application/authorized-read-servic
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
-function setup(t, { twoRecords = false } = {}) {
+function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const bindings = new ActorBindingService(engine);
@@ -31,23 +31,33 @@ function setup(t, { twoRecords = false } = {}) {
   bindings.bind(worldId, adapterId, actorId);
   let provider;
   let triggerRace = false;
+  let triggerQueryRevocation = false;
   const snapshotReader = async (id) => {
     const snapshot = engine.getSnapshot(id);
     return { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence };
   };
+  // Bounded test mapping for direct canonical_entity only; this does not prove production Core authority/wiring. Inventory callback below is test-only.
   const sourceVersionValidator = async (record) => {
-    if (record.source_version !== 'fixture-source-v1') return false;
+    if (record.source_kind !== 'canonical_entity' || !record.source_entity_id) return false;
     if (triggerRace && record.record_ref === 'memory:record-b') {
       triggerRace = false;
       provider.revokeRecord(scope, 'memory:record-a', 'record-v1');
     }
+    if (triggerQueryRevocation && record.record_ref === 'memory:record-a') {
+      triggerQueryRevocation = false;
+      provider.grantQuery(scope, false);
+    }
     try {
       const snapshot = engine.getSnapshot(record.world_id, { entityIds: [record.source_entity_id] });
-      return snapshot.entities.length === 1 && snapshot.entities[0].entity_id === record.source_entity_id;
+      if (snapshot.entities.length !== 1) return false;
+      const entity = snapshot.entities[0];
+      return entity.entity_id === record.source_entity_id && entity.status === 'active'
+        && Number.isSafeInteger(entity.updated_revision) && entity.updated_revision >= 0
+        && record.source_version === String(entity.updated_revision);
     } catch { return false; }
   };
   provider = new SQLiteMemoryProvider({
-    path: ':memory:',
+    path: providerPath,
     getSnapshot: snapshotReader,
     validateSourceVersion: sourceVersionValidator,
     validateInventory: async () => true,
@@ -60,13 +70,13 @@ function setup(t, { twoRecords = false } = {}) {
     record_version: 'record-v1',
     source_kind: 'canonical_entity',
     source_entity_id: sourceId,
-    source_version: 'fixture-source-v1',
+    source_version: String(engine.getSnapshot(worldId, { entityIds: [sourceId] }).entities[0]?.updated_revision ?? 'unverifiable'),
     content_kind: 'claim',
     epistemic_kind: 'acquired_report',
     producer_kind: 'memory-index',
     content_disposition: 'usable',
     evidence_assessment: 'unassessed',
-    lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: 'fixture-source-v1' }],
+    lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: String(engine.getSnapshot(worldId, { entityIds: [sourceId] }).entities[0]?.updated_revision ?? 'unverifiable') }],
   }));
   for (const record of records) {
     provider.putRecord(record);
@@ -87,6 +97,14 @@ function setup(t, { twoRecords = false } = {}) {
       return provider.reconcile(worldId);
     },
     triggerRace() { triggerRace = true; },
+    triggerQueryRevocation() { triggerQueryRevocation = true; },
+    reopenProvider() {
+      provider.close();
+      provider = new SQLiteMemoryProvider({ path: providerPath, getSnapshot: snapshotReader,
+        validateSourceVersion: sourceVersionValidator,
+        validateInventory: async () => true, // test-only; not Host completeness evidence
+      });
+    },
   };
 }
 
@@ -114,6 +132,19 @@ test('real provider revocation during candidate B authorization excludes previou
   assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
+test('query access revoked during candidate source validation never becomes ready-empty', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.triggerQueryRevocation();
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.notEqual(result.status, 'ready');
+});
+
 test('Core rollback with unchanged commit_sequence invalidates provider currentness', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
@@ -129,14 +160,13 @@ test('Core rollback with unchanged commit_sequence invalidates provider currentn
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_SNAPSHOT_STALE/);
 });
 
-test('real Core entity existence does not substitute for an approved source-version proof', async (t) => {
+test('Core source-version mismatch is non-ready even when the canonical entity exists', async (t) => {
   const s = setup(t);
   const existing = s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'] });
   assert.equal(existing.entities.length, 1, 'the canonical entity exists in the real Core store');
 
-  // The current Core contract has no authoritative durable per-entity source
-  // version. Model that missing proof explicitly instead of treating the
-  // fixture-source-v1 token or composite snapshot as source authority.
+  // Exercise the validator's fail-closed mismatch path without treating entity
+  // existence or a composite world snapshot cursor as source-version authority.
   s.provider.validateSourceVersion = async () => false;
   assert.equal((await s.prepare()).status, 'stale');
 
@@ -145,6 +175,25 @@ test('real Core entity existence does not substitute for an approved source-vers
   });
   assert.equal(result.status, 'non_ready');
   assert.deepEqual(result.candidates, []);
+});
+
+
+test('direct Core source validator rejects unknown status and negative revisions', async (t) => {
+  for (const [label, mutate] of [
+    ['unknown status', (entity) => ({ ...entity, status: 'pending_unknown' })],
+    ['negative revision', (entity) => ({ ...entity, updated_revision: -1 })],
+  ]) {
+    const s = setup(t);
+    assert.equal((await s.prepare()).status, 'current');
+    const originalGetSnapshot = s.engine.getSnapshot.bind(s.engine);
+    s.engine.getSnapshot = (worldId, options) => {
+      const snapshot = originalGetSnapshot(worldId, options);
+      if (worldId !== s.scope.world_id || !options?.entityIds?.includes('source-a')) return snapshot;
+      return { ...snapshot, entities: snapshot.entities.map(mutate) };
+    };
+    assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale', label);
+    await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  }
 });
 
 test('real SQLite provider stays non-current when the source inventory boundary cannot attest completeness', async (t) => {
@@ -288,4 +337,68 @@ test('source becoming stale after reconciliation is non-ready, not a filtered re
   assert.deepEqual(result.candidates, []);
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
+test('partial Provider retrieval is non-ready through the real Core/NPC consumer', async (t) => {
+  const s = setup(t);
+  const template = s.records[0];
+
+  // The Provider caps retrieval at 50 candidates. A 51-record scope must stay
+  // explicitly partial; the consumer must not treat the truncated set as complete.
+  for (let index = 1; index < 51; index += 1) {
+    const record = {
+      ...template,
+      record_ref: `memory:partial-${String(index).padStart(2, '0')}`,
+      record_version: 'record-v1',
+    };
+    s.provider.putRecord(record);
+    s.provider.grantRecord(s.scope, record.record_ref, record.record_version, true);
+  }
+
+  assert.equal((await s.prepare()).status, 'current');
+  const providerResult = await s.provider.retrieveCandidates(s.scope);
+  assert.equal(providerResult.candidates.length, 50);
+  assert.equal(providerResult.completeness, 'partial');
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    adapterId: 'provider-e2e-adapter',
+    actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes('visible source-a'), false);
+});
+
+
+
+test('single record revoked during NPC candidate validation returns non-ready, not ready-empty', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  let release;
+  let started;
+  const validationStarted = new Promise((resolve) => { started = resolve; });
+  const validationGate = new Promise((resolve) => { release = resolve; });
+  s.provider.validateSourceVersion = async () => {
+    started();
+    await validationGate;
+    return true;
+  };
+
+  const pending = s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    adapterId: 'provider-e2e-adapter',
+    actorEntityId: s.scope.subject_id,
+  });
+  await validationStarted;
+  s.provider.revokeRecord(s.scope, 'memory:record-a', 'record-v1');
+  release();
+
+  const result = await pending;
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.admitted, []);
+  assert.notEqual(result.status, 'ready');
 });
