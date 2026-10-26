@@ -192,10 +192,18 @@ export class SQLiteStore {
     }
     if (corePath !== ':memory:') mkdirSync(dirname(corePath), { recursive: true });
     if (absoluteCoordinatorPath) mkdirSync(dirname(absoluteCoordinatorPath), { recursive: true });
-    this.db = new DatabaseSync(corePath);
+    // Open the lock handle first. If Core DB opening fails, close the already
+    // opened coordinator handle so failed construction does not leak resources.
+    this.coordinatorDb = absoluteCoordinatorPath ? openCoordinatorDatabase(absoluteCoordinatorPath) : null;
+    try {
+      this.db = new DatabaseSync(corePath);
+    } catch (error) {
+      try { this.coordinatorDb?.close(); } catch {}
+      this.coordinatorDb = null;
+      throw error;
+    }
     // Core-side participation prototype. This does not enroll the separate
     // Memory Provider or make network dispatch gateway-only.
-    this.coordinatorDb = absoluteCoordinatorPath ? openCoordinatorDatabase(absoluteCoordinatorPath) : null;
     this.coordinatorStartupRelease = null;
     this.coordinatorDepth = 0;
     // Schema creation and migrations are writes too; acquire the shared lock
