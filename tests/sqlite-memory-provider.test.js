@@ -221,6 +221,33 @@ test('candidate authorization snapshots identity before an awaited source check'
   assert.equal(await pending, true, 'the in-flight decision remains bound to the originally validated record A');
 });
 
+test('source validators receive immutable nested lineage during reconciliation and candidate authorization', async (t) => {
+  let checks = 0;
+  const s = setup(t, {
+    validateSourceVersion: async (record) => {
+      assert.equal(Object.isFrozen(record), true);
+      assert.equal(Object.isFrozen(record.lineage), true);
+      assert.equal(Object.isFrozen(record.lineage[0]), true);
+      checks += 1;
+      return record.source_version === 'source-v1'
+        && record.lineage[0].entity_id === 'entity-source-a';
+    },
+  });
+  s.provider.putRecord(s.record);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  assert.equal(await s.provider.authorizeCandidate({
+    ...s.scope,
+    record_ref: s.record.record_ref,
+    record_version: s.record.record_version,
+    source_kind: s.record.source_kind,
+    source_entity_id: s.record.source_entity_id,
+  }), true);
+  assert.equal(checks, 2, 'both reconciliation and authorization receive the immutable callback snapshot');
+});
+
 test('persists raw record identity/version and rebuilds its derived index after restart', async (t) => {
   const s = setup(t);
   s.provider.grantQuery(s.scope, true);
