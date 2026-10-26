@@ -617,6 +617,12 @@ export class SQLiteMemoryProvider {
     this.reconcileGeneration.set(worldId, generation);
     const superseded = () => this.reconcileGeneration.get(worldId) !== generation;
     this.#setState(worldId, 'rebuilding', 'stale');
+    // Capture the Provider-local mutation epoch after this reconciliation marks
+    // the index non-ready. Any ingest, rebuild, or competing state transition
+    // during an awaited Core validation invalidates this reconciliation attempt.
+    const providerStateGeneration = this.stateGeneration.get(worldId) ?? 0;
+    const providerStateChanged = () =>
+      (this.stateGeneration.get(worldId) ?? 0) !== providerStateGeneration;
     let before;
     try { before = snapshotOf(await this.getSnapshot(worldId)); } catch { before = null; }
     if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
@@ -669,6 +675,10 @@ export class SQLiteMemoryProvider {
       })))) === true;
     } catch { inventoryComplete = false; }
     if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
+    if (providerStateChanged()) {
+      this.#setState(worldId, 'stale', 'stale', null, 'PROVIDER_STATE_CHANGED');
+      return { status: 'stale', reason: 'PROVIDER_STATE_CHANGED' };
+    }
     if (!inventoryComplete) {
       this.#setState(worldId, 'stale', 'stale', null, 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE');
       return { status: 'stale', reason: 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE' };
@@ -701,6 +711,10 @@ export class SQLiteMemoryProvider {
     // from committing a Provider write between the final comparison and marker.
     try {
       return this.#withImmediateTransaction(() => {
+        if (providerStateChanged()) {
+          this.#setState(worldId, 'stale', 'stale', null, 'PROVIDER_STATE_CHANGED');
+          return { status: 'stale', reason: 'PROVIDER_STATE_CHANGED' };
+        }
         const finalRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
         if (!isDeepStrictEqual(recordSet(records), recordSet(finalRecords))) {
           this.#setState(worldId, 'stale', 'stale');
