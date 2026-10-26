@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,7 +22,9 @@ function setup(t, overrides = {}) {
     try { provider?.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
   });
+  const testDb = createProviderTestDb(t, { path });
   return {
+    db: testDb.db,
     get provider() { return provider; },
     reopen() {
       provider.close();
@@ -81,7 +84,7 @@ test('failed index rebuild reason survives restart and remains internal-only', a
   const s = setup(t);
   s.provider.grantQuery({ world_id: record.world_id, subject_id: record.subject_id, purpose: record.purpose }, true);
   s.provider.putRecord(record);
-  s.provider.db.exec(`CREATE TRIGGER fail_rebuild BEFORE INSERT ON memory_index_entries
+  s.db.exec(`CREATE TRIGGER fail_rebuild BEFORE INSERT ON memory_index_entries
     BEGIN SELECT RAISE(ABORT, 'injected failure'); END;`);
   await assert.rejects(() => s.provider.rebuildIndex(record.world_id), /injected failure/);
   assert.equal(s.provider.getIndexStatusForDiagnostics(record.world_id).failure_code, 'INDEX_REBUILD_FAILED');

@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
@@ -6,6 +7,8 @@ function setup(t, options = {}) {
   let snapshot = { world_revision: 10, commit_sequence: 5 };
   let sourceVersion = 'source-v1';
   const provider = new SQLiteMemoryProvider({
+    path: testDb.path,
+    coordinatorPath: `${testDb.path}.coordinator.sqlite`,
     getSnapshot: async () => ({ ...snapshot }),
     validateSourceVersion: async (record) => record.source_version === sourceVersion,
     validateInventory: async () => true,
@@ -89,7 +92,7 @@ test('corrupted or missing persisted direct-source lineage fails closed at autho
   await s.provider.rebuildIndex(s.scope.world_id);
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
 
-  s.provider.db.prepare('UPDATE memory_records SET lineage_json=? WHERE world_id=? AND record_ref=?')
+  s.db.prepare('UPDATE memory_records SET lineage_json=? WHERE world_id=? AND record_ref=?')
     .run('{broken-json', s.scope.world_id, s.record.record_ref);
   await assert.rejects(() => s.provider.authorizeCandidate({
     ...s.scope,
@@ -103,7 +106,7 @@ test('corrupted or missing persisted direct-source lineage fails closed at autho
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
 
   // Restore syntactically valid JSON but remove required ancestry: it is still invalid.
-  s.provider.db.prepare('UPDATE memory_records SET lineage_json=? WHERE world_id=? AND record_ref=?')
+  s.db.prepare('UPDATE memory_records SET lineage_json=? WHERE world_id=? AND record_ref=?')
     .run('[]', s.scope.world_id, s.record.record_ref);
   const missing = await s.provider.reconcile(s.scope.world_id);
   assert.deepEqual(missing, { status: 'stale', reason: 'LINEAGE_INVALID' });
@@ -233,7 +236,7 @@ test('reconciliation refuses current when persisted scope or semantic metadata c
   const reconciliation = s.provider.reconcile(s.scope.world_id);
   await started;
   // Simulate an out-of-band/corrupt mutation while the trusted validator is awaited.
-  s.provider.db.prepare(`UPDATE memory_records SET content_disposition='withheld'
+  s.db.prepare(`UPDATE memory_records SET content_disposition='withheld'
     WHERE world_id=? AND record_ref=? AND record_version=?`)
     .run(s.scope.world_id, s.record.record_ref, s.record.record_version);
   releaseValidation();
