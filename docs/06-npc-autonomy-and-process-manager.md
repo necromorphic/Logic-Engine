@@ -557,3 +557,56 @@ Before coding, map each stage to an existing approved callable contract:
 6. evidence available for post-commit outcome and reassessment.
 
 Only stages with an existing contract may be wired. If stages 2, 4, or 5 have no approved seam, the implementation task is blocked at that exact seam; do not compensate by creating an NPC-local schema or calling Core commit directly. A safe first implementation, if the mapping permits it, is a pure evaluator over explicitly supplied test context that returns screened candidate references and never writes state. Its tests must not be described as end-to-end NPC runtime or Memory integration tests.
+
+
+## 16. NPC block boundary audit — prevent duplicated ownership (26 Oct 2026)
+
+**Purpose:** keep NPC autonomy work inside NPC-owned responsibilities while Core and Memory Provider finish their own contracts. This section is an ownership boundary, not approval for new persistence, APIs, schemas, or cross-block wiring.
+
+### 16.1 Ownership matrix
+
+| Concern / data | NPC block may own | Must remain outside NPC ownership | Boundary / rule |
+|---|---|---|---|
+| NPC decision policy | NPC-specific ordering of goals, candidate comparison, deferral and reassessment semantics, expressed over approved inputs | Canonical validation, authorization, event commit, idempotency and rollback | NPC can propose; Core decides whether a proposal is accepted and committed |
+| Intent, goals, plans, tasks | NPC-domain semantics and requirements for representing an NPC's intent/plan/task, subject to existing approved contracts | Canonical persistence primitives, transaction boundaries, generic task/process lifecycle, durable scheduling infrastructure | Do not add a second store or a competing Process Manager in NPC |
+| Actor identity and world state | Declare what information a decision needs and how NPC logic uses it | Authoritative actor binding, canonical world state/snapshot, revision and stale-state checks | NPC must consume approved Core context; it must not certify its own actor identity or state freshness |
+| Mechanic/action rules | NPC-specific candidate interpretation and policy over approved mechanic/action definitions | Generic mechanic/template schema, rule evaluation engine, effect validation, world-pack version resolution | Reuse existing Mechanics/Core contracts; no NPC-local duplicate rule engine |
+| Personality and relationships | Use approved stable traits, mutable state and relationship inputs to influence preferences; define NPC-specific behavioral interpretation | Ownership/versioning of Personality and Relationships data, their event semantics and migration rules | NPC may not duplicate their records or introduce parallel relationship/personality persistence |
+| Memory source records and lifecycle | State which actor-relative knowledge distinctions are needed; consume only facts passed by an approved path | Raw source archive, message/version identity, lineage, indexing, reconciliation, tombstones, revocation and source-currentness | These belong to Host/Adapter, Memory Provider and Core according to their approved boundary; NPC cannot create a second memory store or authorize disclosure |
+| Actor-relative knowledge and belief | Decision-side distinction between known, reported, suspected, inferred and unknown; use only evidence actually admitted for this actor | Source authority, authorization, durable provenance/lineage, reconciliation and admission gates | NPC's belief is not proof of source truth or authorization; memory retrieval/context inclusion is not proof of acquisition or belief |
+| Time and follow-up | Specify when a decision needs reevaluation and the behavioral meaning of deadlines/waiting | Canonical clock, calendar policy, time advancement, due-work scheduling and process execution | NPC can request/describe follow-up only through approved Time/Process contracts; due-work planning is not execution |
+| Competing actions/events | Define the NPC-level preference or abstention when the approved domain policy gives a comparison | Generic cross-domain arbitration, canonical conflict transaction, concurrency/stale-state protection | NPC must not invent a global conflict winner or bypass Core arbitration |
+| Narration and visible behavior | Map established decisions/outcomes to character-consistent observable behavior; preserve hidden intent/observable behavior distinction | Canonical world mutation or proof of event completion | Text generation is not commit evidence; failed/uncommitted actions must not be narrated as established outcomes |
+| Tests and fixtures | NPC-only pure decision tests and explicitly labeled synthetic actor-relative contexts | Production proof for Host/Provider/Core authority, lifecycle, source inventory or revocation | Fixture tests demonstrate only NPC behavior against supplied fixtures, never production Memory→NPC readiness |
+
+### 16.2 Explicit non-goals for the current NPC decision-loop work
+
+Do **not** create or persist any of the following as part of this NPC task unless the owning block approves a contract and the cross-block dependency is accepted:
+- a new NPC decision-context database, generic world snapshot, source/version/lineage registry, memory archive, vector index, or revocation ledger;
+- a new action/event schema, event executor, generic conflict queue/arbitrator, commit path, scheduler, or process/task persistence model;
+- duplicate mechanic/template/rule evaluation, World Pack version resolution, personality/relationship records, or generic knowledge authorization;
+- an NPC-owned adapter that reads Host or Provider internals directly, treats fixture callbacks as authority, or promotes retrieved text into acquired/believed knowledge;
+- a “complete” decision record containing copies of canonical state or Memory content when a reference to an approved input would suffice.
+
+The decision loop should be a **consumer of approved context and rule contracts**, not a second source of truth. Any future durable NPC-owned intent/goal/plan/task state must first be mapped to the existing Process/Task/Goal contracts and storage ownership; this document alone does not authorize a parallel store.
+
+### 16.3 Current-code boundary evidence and limits
+
+Source inspection used for this audit:
+- `src/core/mechanics.js` at blob `124d43159a4087cbb4b2582646cc7398ae6edfcc`: existing mechanic/template validation and condition evaluation. Reuse is preferable to duplicating these rules; the helper's tri-state `unknown` remains unknown.
+- `src/application/engine.js` at blob `dcb8b84e54b29e8697f14eb7e709cc6e0cd65a13`: Core application boundary exposes event validation/preparation/commit paths. These remain Core-owned and do not prove an NPC executor exists.
+- `src/time/scheduler.js` at blob `d935c2c5e2815486f720fb42a8cbb2259a4a371c`: due-work planning is not process execution or time advancement.
+- `src/npc/memory-candidate-eligibility.js` at blob `ad3c09b34bbde89b977a43c07e91824e28234395`: a pure eligibility oracle over supplied evidence, explicitly not an authorization service, Provider adapter, or production read API.
+- `docs/75-memory-provider-host-identity-lifecycle-mapping.md` at blob `9b89785b0ba8201e947b06d2e9beaa5fe234962b`, especially §§1, 5, 11–13: Provider owns its durable local records/lifecycle checks; Host supplies trustworthy lifecycle evidence; Core owns canonical actor/world authority and must decide source-currentness, invalidation and the final disclosure/revocation boundary. The mapping is still a proposal, not an approved cross-block contract; Memory→NPC remains disabled/fail-closed.
+
+This is source inspection, not an execution/test result. It does not prove that every desired NPC input already has an approved runtime provider.
+
+### 16.4 Scope gate before implementation
+
+For each proposed NPC code change, answer all four questions in the PR description:
+1. **NPC-owned behavior:** what decision semantics change, and why does it belong to NPC rather than Core, Memory, Mechanics, Personality/Relationships, or Time/Process?
+2. **Existing input contract:** which exact approved function/contract supplies every input? If absent, record the owner and blocker; do not invent a replacement.
+3. **No duplicate authority:** does the change write canonical world state, authorize/retrieve Memory, schedule/execute generic work, or store data owned by another block? If yes, stop and route it to that owner.
+4. **Evidence level:** is the evidence source-inspected, fixture-tested, runtime-observed, or real end-to-end tested? Do not upgrade the claim beyond the evidence.
+
+**Immediate safe scope:** refine NPC decision semantics and add pure NPC-owned tests over explicit fixtures, if the existing code layout supports them. Do not introduce durable decision storage or connect Memory→NPC while the owner-approved input/commit seams remain unproven.
