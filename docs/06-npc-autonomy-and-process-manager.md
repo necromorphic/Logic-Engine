@@ -254,3 +254,48 @@ A future vertical slice should demonstrate, against the actual approved integrat
 8. A missing or conflicting authoritative rule remains explicitly unresolved rather than being filled with invented world mechanics.
 
 Until the relevant contracts and real runtime tests exist, these are design requirements, not evidence of current implementation.
+
+
+## 11. Conflict scenario: police officer suspects a yakuza member
+
+This is a design-level trace for reviewing the decision cycle in §10. It is not a runtime test and does not claim that the current engine implements the flow.
+
+### 11.1 Initial conditions and knowledge boundaries
+
+- The police officer observes a meeting and a suspicious exchange, but has no legally sufficient evidence of a specific offense.
+- The yakuza member knows their own purpose and the facts they personally observed; they do not automatically know what the officer inferred.
+- A third NPC may know a relevant fact, but neither principal receives it unless an in-world information path establishes access.
+- The active World Pack version defines applicable law, police powers, evidence requirements, permitted actions, and consequences. If those rules are absent or ambiguous, the engine must not invent jurisdiction-specific law.
+- Each NPC has separate goals, role obligations, relationships, risk tolerance, beliefs, and current plans. These may change candidate ranking, not the authoritative rules.
+
+### 11.2 Expected decision trace
+
+1. **Context:** construct a separate actor-relative context for each NPC. The officer gets the observation and their own inference, not the yakuza member's private intent. The yakuza member gets only what they observed or learned.
+2. **Candidate generation:** the officer may consider observation, lawful questioning, seeking corroboration, reporting, warning, withdrawal, or an improper action if their profile makes it plausible. The yakuza member may consider leaving, answering, deflecting, negotiating, notifying a superior, or another feasible response. These are examples, not a mandatory fixed list.
+3. **Feasibility:** validate every candidate against the pinned World Pack, current authority, available evidence, actor capabilities, timing, resources, and preconditions. Suspicion alone must not be silently upgraded to proof.
+4. **Conflict detection:** if the officer attempts to detain the member while the member attempts to leave, do not select the winner by prompt order, generation order, or which model response arrived first.
+5. **Resolution:** pass competing effects through the existing approved Core conflict/commit path. If the current contract cannot decide the conflict, preserve it as unresolved or request owner-level adjudication; do not fabricate a new conflict API or commit path.
+6. **Outcome:** distinguish proposed intent, validated/authorized action, resolved result, and narration. A rejected or blocked detention is not a committed arrest. An attempted escape is not automatically a successful escape.
+7. **Reassessment:** update either NPC's plans or beliefs only when the resolved outcome or newly acquired evidence justifies it. The officer may remain suspicious without becoming certain; the yakuza member may revise their risk assessment only if they learn about the officer's response.
+8. **Follow-up:** investigation, a report, a rumor, or notification to a superior is a new process only through an approved existing mechanism. A pending report is not proof that its recipient received it.
+9. **Persistence and replay:** committed outcomes and their causal history must survive restart/replay under the guarantees actually supported by Core. Retries or narration regeneration must not duplicate a committed effect.
+
+### 11.3 Negative-case acceptance matrix
+
+| Case | Required result | Boundary / evidence status |
+|---|---|---|
+| Officer has suspicion but no sufficient evidence | Do not silently treat suspicion as proof or authorize an evidence-dependent action | Requires pinned World Pack semantics and Core validation |
+| Yakuza member's private motive is unknown to officer | Keep motive out of officer context unless an information path reveals it | Requires actor-relative context and acquisition boundary |
+| Two NPCs propose incompatible actions | No generation-order winner; use approved conflict path or remain unresolved | Core-owned; do not invent a replacement |
+| Role label conflicts with individual goal | Consider competing pressures; do not hard-code one inevitable response | NPC/Personality/World Pack boundary needs agreed representation |
+| Relevant law or permission is missing/ambiguous | Fail closed or preserve explicit unresolved state | Requires approved ambiguity behavior |
+| Action is rejected or blocked | Do not narrate it as a successful committed event | Requires proposal/commit/outcome separation |
+| A report is queued but not delivered/received | Recipient does not gain knowledge merely from queueing | Requires real delivery/receipt contract |
+| Same committed action is retried after narration failure | Do not duplicate the world effect | Requires actual Core idempotency/replay guarantee |
+| Restart occurs after a resolved conflict | Preserve committed outcome; do not invent a new winner | Requires exact-head restart/replay test |
+
+### 11.4 Review conclusion and next executable step
+
+This scenario is an architectural review oracle, not proof of implementation. Before treating it as executable acceptance, the NPC owner must map each row to the exact current code path, tests, pinned SHA, and owning contract. Where no real seam or test exists, record **UNVERIFIED / BLOCKED**, not pass. The smallest useful runtime slice is one actor-relative context check plus one competing-action case on the existing approved Core path; if either seam is absent, the next action is a precise owner decision, not a mock receiver or a new API.
+
+Production Memory→NPC remains **DISABLED / FAIL-CLOSED** until its independent authorization, lineage, acquisition, reconciliation, revocation, and disclosure gates pass.
