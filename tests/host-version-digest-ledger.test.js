@@ -125,7 +125,7 @@ test('complete snapshot rejects a deleted version marked active', async (t) => {
     status: 'non_ready', code: 'HOST_INVENTORY_DELETED_VERSION_ACTIVE'
   });
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
-  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
 });
 
 test('duplicate identities in a snapshot are rejected', async (t) => {
@@ -157,7 +157,7 @@ test('snapshot with two active versions for one message is rejected', async (t) 
   });
   assert.deepEqual(result, { status: 'non_ready', code: 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS' });
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
-  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
 });
 
 test('trusted snapshot rebuild clears a stale active pointer when no version is active', async (t) => {
