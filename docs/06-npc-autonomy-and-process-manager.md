@@ -72,3 +72,61 @@ The engine should track when a character has a reportable result, whom they can 
 ## 7. Rollback
 
 Every process stage and off-screen event must declare causal inputs and outputs. When an initiating event is rolled back, the Process Manager recalculates affected stage history. It must not automatically delete all later activity, nor preserve progress whose only prerequisite is invalid. See docs/05-causal-rollback-algorithm.md.
+
+## 8. Story constraints and adaptive NPC autonomy
+
+This section defines behavioral intent; it does not introduce runtime APIs, schemas, or implementation claims.
+
+### 8.1 Narrative modes
+
+NPCs use one autonomy system in both authored-story and emergent-story play. The engine adapts the narrative constraints to the active story context; switching modes must not reset an NPC's identity, knowledge, beliefs, relationships, goals, or accumulated experience.
+
+- **Authored plot present:** NPCs retain high autonomy in how they act, plan, communicate, cooperate, deceive, and respond. Mandatory control points constrain the story outcome, not a single prescribed NPC decision or route, unless the author explicitly defines that decision/route as mandatory.
+- **No authored plot to follow:** NPCs use maximum autonomy within world rules and established state. The story emerges from the player's and NPCs' successive actions and their consequences; the engine must not invent a hidden main plot that pulls the world toward predetermined beats.
+- **Author-provided tentative plot:** NPCs may treat it as a possible trajectory, not as an obligation. They may diverge from it when their actions and the world's state support a different development.
+
+The engine, rather than the player, determines when the active narrative constraints should change, based on the presence and status of authored plot constraints and the causal state of the world.
+
+### 8.2 Control-point classes
+
+Distinguish at least these behavioral categories in the authored narrative:
+
+- **Mandatory control point (CT):** must remain an active story obligation by default. NPC activity alone cannot cancel or invalidate it.
+- **Optional control point:** may be changed, skipped, or rendered unnecessary by player or NPC actions when the resulting world state supports that outcome.
+- **Tentative plot beat:** an author-proposed possibility that can guide planning but does not bind the simulation.
+
+A mandatory CT does not require one predetermined path. The engine and NPCs may find another causally plausible route to it. Do not force an implausible action merely to preserve the original route.
+
+### 8.3 Player-triggered divergence and CT review
+
+Only player-initiated intervention can open the exceptional review path for mandatory CTs. An NPC's autonomous activity, by itself, cannot trigger this exception. The player need not explicitly order an NPC to change sides or abandon a plan: the player's actions may create new circumstances (for example, a concealed identity is revealed after a relationship has developed), and the NPC then independently decides how to respond.
+
+Do not review or cancel a mandatory CT merely because an NPC's internal motives, feelings, beliefs, or intentions have changed. Use the following causal sequence:
+
+1. The player's intervention changes the circumstances available to one or more NPCs.
+2. An NPC independently chooses an action in response, based on its character, knowledge, beliefs, obligations, relationships, and goals.
+3. The action's actual consequences are resolved and reflected in the world state.
+4. Only if those consequences materially affect the reachability or meaning of a mandatory CT does the engine initiate an individual review of that CT.
+
+The NPC's choice is not predetermined by the plot constraint. A relationship, revelation, or change of loyalty does not guarantee that the NPC abandons the original plan; the NPC may continue it, conceal a change of intent, partially sabotage it, or choose another response.
+
+### 8.4 Individual review, not blanket cancellation
+
+When player-triggered consequences justify review, assess each affected mandatory CT separately. Do not cancel all CTs because one part of the story diverged.
+
+For each reviewed CT, determine whether:
+- it remains meaningful in the changed world;
+- it is still reachable through a causally plausible alternative route;
+- only the original route has become unavailable;
+- the original event's meaning has changed so substantially that the CT may no longer apply.
+
+A temporary obstacle, an NPC's reluctance, or a currently unknown route is not proof of impossibility. Search for plausible alternatives before concluding that a CT requires revision. Do not silently treat a substitute event as equivalent unless the authored constraints permit that equivalence.
+
+If no plausible route is established and the CT's validity remains unresolved, preserve the unresolved conflict for explicit handling; do not fabricate a guaranteed solution or silently waive the obligation. Preserve already-realized events and their consequences. Reviewing one CT does not automatically alter unrelated CTs.
+
+### 8.5 Autonomy without plot puppeteering
+
+The engine must not secretly rewrite NPC motives, beliefs, or prior actions solely to steer them toward a CT. NPCs choose their responses; the story layer constrains and evaluates outcomes separately. When an NPC's choice conflicts with a mandatory CT, first explore other plausible world-level paths to the CT rather than forcing the NPC to make an out-of-character choice.
+
+A mandatory CT is therefore a constraint on story progression, not a command that every NPC must obey or a license to falsify causal history. The engine must keep the distinction between an NPC's intention, the action they actually take, the action's resolved outcome, and the resulting CT status.
+
