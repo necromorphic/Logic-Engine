@@ -125,6 +125,7 @@ test('locator enrollment lookup is conservative for single and bulk operations',
   storage.setItem(prefix + conversationId, 'enrolled:enrolled-chat.jsonl');
   assert.equal(hostLocatorHasEnrollment('enrolled-chat.jsonl', storage), true);
   assert.equal(hostLocatorHasEnrollment('other-chat.jsonl', storage), false);
+  assert.equal(hostLocatorHasEnrollment('other-chat.jsonl', null), true);
   assert.equal(hasAnyHostEnrollment(storage), true);
   storage.removeItem(prefix + conversationId);
   storage.removeItem(locatorKey('enrolled-chat.jsonl'));
