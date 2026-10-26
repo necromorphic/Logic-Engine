@@ -59,6 +59,7 @@ test('proposal commit, rollback, rebuild, and close/reopen preserve one canonica
   assert.equal(engine.getState(worldId).world_revision, 2);
   assert.equal(engine.getState(worldId).commit_sequence, 1);
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'recovery-object'), false);
+  // Core exposes a root rollback as an explicit retraction, not generic invalidation.
   assert.equal(engine.getEvents(worldId, true).find((event) => event.event_id === eventId).validity, 'retracted');
 
   // Rebuild from canonical history before closing, then reopen the same DB and
