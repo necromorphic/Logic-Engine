@@ -1,3 +1,5 @@
+import { types as utilTypes } from "node:util";
+
 /**
  * NPC-side Memory candidate admission oracle.
  *
@@ -34,6 +36,96 @@ const KNOWN_EVIDENCE_ASSESSMENTS = new Set([
   "disputed",
   "insufficient",
 ]);
+
+// Object.prototype pollution can make absent fields resolve to inherited values
+// or accessors even when every input's own properties are data-only.
+const INTRINSIC_ARRAY_ITERATOR = Array.prototype[Symbol.iterator];
+
+const INTRINSIC_OBJECT_PROTOTYPE_KEYS = new Set([
+  "constructor",
+  "__defineGetter__",
+  "__defineSetter__",
+  "hasOwnProperty",
+  "__lookupGetter__",
+  "__lookupSetter__",
+  "isPrototypeOf",
+  "propertyIsEnumerable",
+  "toString",
+  "valueOf",
+  "__proto__",
+  "toLocaleString",
+]);
+
+function hasSafeObjectPrototype() {
+  try {
+    const keys = Reflect.ownKeys(Object.prototype);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (typeof key !== "string" || !INTRINSIC_OBJECT_PROTOTYPE_KEYS.has(key)) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, key);
+      if (!descriptor) return false;
+      // The standard __proto__ accessor is intrinsic and is not used by this helper.
+      if (key === "__proto__") {
+        if (!Object.hasOwn(descriptor, "get") || !Object.hasOwn(descriptor, "set")) return false;
+      } else if (!Object.hasOwn(descriptor, "value")) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasSafeArrayPrototype() {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+    return descriptor != null
+      && Object.hasOwn(descriptor, "value")
+      && descriptor.value === INTRINSIC_ARRAY_ITERATOR;
+  } catch {
+    return false;
+  }
+}
+
+// Admission inputs are metadata, not executable behavior. Reject accessors,
+// exotic object prototypes, and cycles before reading any supplied property.
+// Descriptor inspection avoids invoking ordinary JavaScript getters.
+function isDataOnlyTree(value, active = new Set()) {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return true;
+  if (!hasSafeObjectPrototype()) return false;
+  // Proxy traps can lie about prototypes/descriptors and still execute through
+  // later ordinary property reads. Reject Proxy values before inspecting them.
+  if (utilTypes.isProxy(value)) return false;
+  if (typeof value === "function" || active.has(value)) return false;
+
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (Array.isArray(value)) {
+      if (prototype !== Array.prototype || !hasSafeArrayPrototype()) return false;
+    } else if (prototype !== Object.prototype && prototype !== null) {
+      return false;
+    }
+
+    active.add(value);
+    const descriptors = Object.getOwnPropertyDescriptors(value);
+    const keys = Reflect.ownKeys(descriptors);
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      const descriptor = descriptors[key];
+      if (!Object.hasOwn(descriptor, "value") || !isDataOnlyTree(descriptor.value, active)) {
+        active.delete(value);
+        return false;
+      }
+    }
+    active.delete(value);
+    return true;
+  } catch {
+    // Proxy traps and malformed host objects are not trusted evidence.
+    active.delete(value);
+    return false;
+  }
+}
 
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
@@ -162,6 +254,15 @@ function candidateRejection(candidate, request) {
  * that those bindings are authentic or that the access decision is genuine.
  */
 export function evaluateMemoryCandidateAdmission(request, result) {
+  // Never execute caller-supplied getters while evaluating admission metadata.
+  if (!isDataOnlyTree(request) || !isDataOnlyTree(result)) {
+    return Object.freeze({
+      status: "non_ready",
+      admitted: Object.freeze([]),
+      reason: "result_incomplete_or_unavailable",
+    });
+  }
+
   if (
     request == null
     || !isNonEmptyString(request.world_id)
@@ -219,7 +320,8 @@ export function evaluateMemoryCandidateAdmission(request, result) {
   // digest with which to prove that duplicate answers are byte-identical. Drop
   // every occurrence rather than silently choosing the first candidate.
   const identityCounts = new Map();
-  for (const candidate of result.candidates) {
+  for (let index = 0; index < result.candidates.length; index += 1) {
+    const candidate = result.candidates[index];
     if (!validReference(candidate?.record)) continue;
     const identity = JSON.stringify([candidate.record.ref, candidate.record.version]);
     identityCounts.set(identity, (identityCounts.get(identity) ?? 0) + 1);
@@ -227,7 +329,8 @@ export function evaluateMemoryCandidateAdmission(request, result) {
 
   const admitted = [];
 
-  for (const candidate of result.candidates) {
+  for (let index = 0; index < result.candidates.length; index += 1) {
+    const candidate = result.candidates[index];
     const reason = candidateRejection(candidate, request);
     if (reason) {
       // Aggregate all candidate exclusions into one generic marker. Per-item
