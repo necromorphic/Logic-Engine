@@ -258,6 +258,25 @@ test('trigger payload normalization copies plain JSON data and canonicalizes neg
 });
 
 
+test('explicit null trigger policy fields are rejected rather than defaulted', () => {
+  const cases = [
+    { field: 'status', value: null, code: 'INVALID_TRIGGER_STATUS' },
+    { field: 'processing_mode', value: null, code: 'INVALID_PROCESSING_MODE' },
+    { field: 'interrupt_after_coordinate', value: null, code: 'INVALID_INTERRUPT_POLICY' },
+  ];
+  for (const { field, value, code } of cases) {
+    assert.throws(
+      () => planDueWork({
+        world_id: 'world-a',
+        from_coordinate: 0,
+        to_coordinate: 5,
+        triggers: [trigger('null-' + field, 5, { [field]: value })],
+      }),
+      (error) => error.code === code,
+    );
+  }
+});
+
 test('due-work requests reject unknown fields instead of silently dropping misspelled coordinates', () => {
   assert.throws(
     () => planDueWork({
