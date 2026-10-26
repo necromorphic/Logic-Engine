@@ -390,8 +390,8 @@ diff --git a/public/scripts/chat-backups.js b/public/scripts/chat-backups.js
 +++ b/public/scripts/chat-backups.js
 @@ -73,2 +73,6 @@
      async restoreBackup(name) {
-+        if (typeof window !== 'undefined' && window.logicEngineHostLifecycle?.guardOperation) {
-+            await window.logicEngineHostLifecycle.guardOperation('backup-restore', [], { backupName: name });
++        if (typeof window !== 'undefined' && window.logicEngineHostLifecycle?.guardBulkMutation) {
++            await window.logicEngineHostLifecycle.guardBulkMutation();
 +        }
 +
          const response = await fetch('/api/backups/chat/download', {
