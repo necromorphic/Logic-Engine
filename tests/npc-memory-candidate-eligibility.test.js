@@ -758,3 +758,53 @@ test("sparse candidate result arrays are malformed, not authorized complete-empt
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes("memory:claim-2"), false);
 });
+
+
+test("rejects accessor-backed admission metadata without invoking getters", () => {
+  let getterCalls = 0;
+  const accessorCandidate = candidate();
+  Object.defineProperty(accessorCandidate, "world_id", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      throw new Error("getter must not execute");
+    },
+  });
+
+  const candidateResult = evaluateMemoryCandidateAdmission(
+    request,
+    completeResult([accessorCandidate]),
+  );
+  assert.equal(candidateResult.status, "non_ready");
+  assert.deepEqual(candidateResult.admitted, []);
+  assert.equal(getterCalls, 0);
+
+  const accessorRequest = { ...request };
+  Object.defineProperty(accessorRequest, "subject_id", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      throw new Error("request getter must not execute");
+    },
+  });
+  const requestResult = evaluateMemoryCandidateAdmission(accessorRequest, completeResult([]));
+  assert.equal(requestResult.status, "non_ready");
+  assert.deepEqual(requestResult.admitted, []);
+  assert.equal(getterCalls, 0);
+});
+
+test("rejects cyclic and exotic admission objects without traversing them as metadata", () => {
+  const cyclicResult = completeResult([]);
+  cyclicResult.extra = cyclicResult;
+  const cycleDecision = evaluateMemoryCandidateAdmission(request, cyclicResult);
+  assert.equal(cycleDecision.status, "non_ready");
+  assert.deepEqual(cycleDecision.admitted, []);
+
+  const exoticCandidate = candidate();
+  Object.setPrototypeOf(exoticCandidate, { world_id: request.world_id });
+  const exoticDecision = evaluateMemoryCandidateAdmission(request, completeResult([exoticCandidate]));
+  assert.equal(exoticDecision.status, "non_ready");
+  assert.deepEqual(exoticDecision.admitted, []);
+});
