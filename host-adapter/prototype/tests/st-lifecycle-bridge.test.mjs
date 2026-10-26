@@ -57,7 +57,7 @@ class FakeDB {
   finish(tx) { setImmediate(() => tx.oncomplete?.()); }
 }
 
-function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, mes: 'answer' }]) {
+function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, mes: 'answer' }], { publishDigest = null } = {}) {
   let failSave = false;
   const db = new FakeDB();
   const journal = new HostLifecycleJournal(db);
@@ -68,6 +68,7 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
     getConversationId: () => 'chat-1',
     getSourceLocator: () => sourceLocator,
     getChat: () => chat,
+    publishDigest,
     saveChat: async () => {
       saveCount++;
       if (failSave) throw Error('simulated native chat save failure');
@@ -75,6 +76,44 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   });
   return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
+
+test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
+  const published = [];
+  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }], {
+    publishDigest: async entry => { published.push(structuredClone(entry)); },
+  });
+  await f.bridge.enrollCurrentConversation();
+  assert.equal(published.length, 2);
+  assert.deepEqual(published.map(entry => entry.active), [false, true]);
+  assert.ok(published.every(entry => entry.conversation_id === 'chat-1'
+    && /^[a-f0-9]{64}$/.test(entry.content_sha256)
+    && !Object.keys(entry).some(key => /text|content|raw/i.test(key))));
+  published.length = 0;
+
+  const oldVersionId = f.chat[0]._logicEngineLifecycle.versions[0].versionId;
+  await f.bridge.beforeMutation('edit-message', [0]);
+  f.chat[0].mes = 'edited answer';
+  f.chat[0].swipes = ['edited answer'];
+  f.chat[0].swipe_id = 0;
+  await f.bridge.afterMutation('edit-message');
+
+  assert.equal(published.length, 3);
+  assert.equal(published[0].active, false);
+  assert.equal(published[1].active, true);
+  assert.equal(published[2].version_id, oldVersionId);
+  assert.equal(published[2].deleted, true);
+  assert.equal(published[2].active, false);
+  assert.ok(published.every(entry => !JSON.stringify(entry).includes('edited answer')));
+});
+
+test('Core publisher failures fail closed after native save without misreporting a local save failure', async () => {
+  const f = makeFixture([{ is_user: false, mes: 'hello' }], {
+    publishDigest: async () => { throw Error('upstream contains sensitive details'); },
+  });
+  await assert.rejects(f.bridge.enrollCurrentConversation(), /NON_READY: Core digest capture failed/);
+  assert.equal(f.saveCount, 1);
+  assert.ok(f.chat[0]._logicEngineLifecycle?.messageId);
+});
 
 test('enrolled bridge writes event IDs and advances the fingerprint after an edit', async () => {
   const f = makeFixture();
