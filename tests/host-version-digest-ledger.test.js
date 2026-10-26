@@ -94,7 +94,7 @@ test('untrusted inventory snapshot cannot make ledger ready', async (t) => {
     world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
   }), { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' });
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
-  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
 });
 
 test('trusted complete snapshot recovers missed capture and publishes readiness', async (t) => {
