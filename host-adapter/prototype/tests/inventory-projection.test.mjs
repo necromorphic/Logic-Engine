@@ -88,3 +88,25 @@ test('swipe array reorder cannot silently reassign immutable version identities 
   assert.equal(result.status, 'NON_READY');
   assert.equal(result.reason, 'HOST_DIGEST_MISMATCH');
 });
+
+
+test('invalid active swipe indices fail closed for multi-version messages', () => {
+  for (const swipeId of [-1, 2, '1', Number.NaN]) {
+    const invalid = message({ id: 'msg-invalid-' + String(swipeId), versions: ['A0', 'A1'], active: 0 });
+    invalid.swipe_id = swipeId;
+    invalid._logicEngineLifecycle.activeVersionIndex = swipeId;
+    const result = projectHostInventoryForComparison([invalid]);
+    assert.equal(result.status, 'NON_READY', 'swipe_id=' + String(swipeId));
+    assert.equal(result.reason, 'ACTIVE_SELECTION_MISMATCH', 'swipe_id=' + String(swipeId));
+  }
+});
+
+test('single-version message may omit swipe_id because there is no alternate selection', () => {
+  const single = message({ id: 'msg-single-no-swipe-id', versions: ['only-version'] });
+  delete single.swipe_id;
+  delete single._logicEngineLifecycle.activeVersionIndex;
+  const result = projectHostInventoryForComparison([single]);
+  assert.equal(result.status, 'REVIEW_ONLY');
+  assert.equal(result.rows.length, 1);
+  assert.equal(result.rows[0].active, true);
+});
