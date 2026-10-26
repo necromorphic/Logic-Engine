@@ -152,7 +152,7 @@ test('ledger mutations after READY invalidate the published inventory state', as
   assert.equal((await ledger.reconcileConversation(snapshot([entry(), entry({
     message_id: 'message-b', version_id: 'version-b', content_sha256: digest('second'), active: false
   })]))).status, 'ready');
-  ledger.selectActiveVersion({ ...tuple, version_id: 'version-a' });
+  ledger.selectActiveVersion({ ...tuple, message_id: 'message-b', version_id: 'version-b' });
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 
   assert.equal((await ledger.reconcileConversation(snapshot([entry(), entry({
