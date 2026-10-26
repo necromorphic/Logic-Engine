@@ -145,3 +145,31 @@ test('SQLiteStore validates coordinator configuration before opening its Core da
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test('direct replay and projection helper calls enter Core transactions instead of bypassing coordination', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'logic-engine-coordinator-helper-writes-'));
+  const previous = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+  process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = join(dir, 'coordinator.sqlite');
+  const store = new SQLiteStore(join(dir, 'core.sqlite'));
+  try {
+    store.createWorld({
+      world_id: 'helper-write-world',
+      world_pack_id: 'test-pack',
+      world_pack_version: '1',
+      game_time: '2000-01-01T00:00:00.000Z',
+    });
+    const result = { accepted: true, no_op: true };
+    store.saveReplay('helper-write-world', 'direct-helper-key', 'request-hash', result);
+    assert.deepEqual(store.replay('helper-write-world', 'direct-helper-key', 'request-hash'), result);
+    assert.equal(store.txDepth, 0, 'direct replay persistence must leave no open transaction');
+
+    store.rebuild('helper-write-world', store.world('helper-write-world').world_revision);
+    assert.equal(store.txDepth, 0, 'direct projection rebuild must leave no open transaction');
+  } finally {
+    store.close();
+    if (previous === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+    else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
