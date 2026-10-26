@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
 function setup(t, options = {}) {
@@ -158,6 +158,52 @@ test('rechecks provider grants after asynchronous source validation', async (t) 
   s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
   releaseValidation();
   await assert.rejects(authorization, /MEMORY_RECORD_ACCESS_REVOKED/);
+});
+
+test('rejects cross-connection revoke/re-grant ABA during source validation', async (t) => {
+  let releaseValidation;
+  let validationStarted;
+  let holdValidation = false;
+  const started = new Promise((resolve) => { validationStarted = resolve; });
+  const pendingValidation = new Promise((resolve) => { releaseValidation = resolve; });
+  const s = setup(t, {
+    validateSourceVersion: async (candidate) => {
+      if (holdValidation) {
+        validationStarted();
+        await pendingValidation;
+      }
+      return candidate.source_version === 'source-v1';
+    },
+  });
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  holdValidation = true;
+
+  const authorization = s.provider.authorizeCandidate({
+    ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+  });
+  await started;
+
+  const other = new SQLiteMemoryProvider({
+    path: s.path,
+    coordinatorPath: join(dirname(s.path), 'coordinator.sqlite'),
+    getSnapshot: async () => ({ world_revision: 4, commit_sequence: 2 }),
+    validateSourceVersion: async (candidate) => candidate.source_version === 'source-v1',
+    validateInventory: async () => true,
+  });
+  try {
+    other.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
+    other.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  } finally {
+    other.close();
+  }
+
+  releaseValidation();
+  await assert.rejects(authorization, /MEMORY_AUTHORIZATION_CHANGED/);
 });
 
 test('does not publish current when source inventory completeness cannot be confirmed', async (t) => {
