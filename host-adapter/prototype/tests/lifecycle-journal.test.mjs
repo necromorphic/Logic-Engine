@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { webcrypto } from 'node:crypto';
+import { createHash, webcrypto } from 'node:crypto';
 import { HostLifecycleJournal, fingerprintSource, lifecycleJournalContract } from '../lifecycle-journal.mjs';
 
 globalThis.crypto ??= webcrypto;
@@ -15,6 +15,8 @@ class FakeStore {
 }
 class FakeTransaction { error=null;oncomplete=null;onerror=null;onabort=null;constructor(db,names){this.db=db;this.names=names;}objectStore(name){return new FakeStore(this.db,this,name);} }
 class FakeDB { rows=new Map();heads=new Map();failNextWrite=false;transaction(names){return new FakeTransaction(this,names);}finish(tx){setImmediate(()=>tx.oncomplete?.());} }
+const canonical=x=>Array.isArray(x)?'['+x.map(canonical).join(',')+']':x&&typeof x==='object'?'{'+Object.keys(x).sort().map(k=>JSON.stringify(k)+':'+canonical(x[k])).join(',')+'}':JSON.stringify(x);
+const sha256=x=>createHash('sha256').update(canonical(x)).digest('hex');
 const seed=()=>({conversationId:'chat-1',sourceFingerprint:'fp-1',messages:[{role:'user',text:'hello'},{role:'assistant',versions:['first','second'],activeVersionIndex:1}]});
 
 test('baseline has durable IDs and digests but no raw text',async()=>{
@@ -55,6 +57,26 @@ test('live source inventory is compared to the journaled checkpoint but a match 
  assert.equal(result.trustDecision,'NON_READY');
  assert.ok(result.blockers.includes('NO_INDEPENDENT_TRUST_ANCHOR'));
 });
+test('coordinated rewrite of local record and head can defeat local hashes and therefore never proves authenticity',async()=>{
+ const db=new FakeDB();
+ const original=[{is_user:true,mes:'hello',swipes:['hello'],swipe_id:0}];
+ const originalFingerprint=await fingerprintSource(original,'chat.jsonl');
+ const journal=new HostLifecycleJournal(db);
+ await journal.enroll({conversationId:'chat-1',sourceFingerprint:originalFingerprint,messages:[{role:'user',text:'hello'}]});
+ const changed=[{is_user:true,mes:'attacker-controlled',swipes:['attacker-controlled'],swipe_id:0}];
+ const row=[...db.rows.values()][0];
+ row.sourceFingerprint=await fingerprintSource(changed,'chat.jsonl');
+ row.eventDigest=sha256({conversationId:row.conversationId,eventId:row.eventId,operation:row.operation,payload:row.payload,sourceFingerprint:row.sourceFingerprint});
+ const {recordDigest:ignored,...base}=row;
+ row.recordDigest=sha256(base);
+ db.rows.set(row.id,structuredClone(row));
+ db.heads.set('chat-1',{conversationId:'chat-1',sequence:row.sequence,recordDigest:row.recordDigest,sourceFingerprint:row.sourceFingerprint});
+ const result=await journal.verifyCurrentSource('chat-1',{messages:changed,sourceLocator:'chat.jsonl'});
+ assert.equal(result.status,'LOCAL_MATCH_NON_AUTHORITATIVE');
+ assert.equal(result.trustDecision,'NON_READY');
+ assert.ok(result.blockers.includes('HOST_STORAGE_REWRITE_AND_ROLLBACK_NOT_EXCLUDED'));
+});
+
 test('live source inventory drift fails closed even when local journal integrity is intact',async()=>{
  const messages=[{is_user:true,mes:'hello',swipes:['hello'],swipe_id:0}];
  const sourceFingerprint=await fingerprintSource(messages,'chat.jsonl');
