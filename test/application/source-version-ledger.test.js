@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { SQLiteSourceVersionLedger } from '../src/application/source-version-ledger.js';
+import { SQLiteSourceVersionLedger } from '../../src/application/source-version-ledger.js';
 
 const sha = s => createHash('sha256').update(s).digest('hex');
 const canonical = value => Array.isArray(value) ? '['+value.map(canonical).join(',')+']' : value && typeof value==='object' ? '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+canonical(value[k])).join(',')+'}' : JSON.stringify(value);
