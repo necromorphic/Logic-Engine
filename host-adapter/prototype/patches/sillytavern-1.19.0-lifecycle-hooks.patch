@@ -301,7 +301,6 @@ diff --git a/public/script.js b/public/script.js
 +            }
              //Update the chat.
              await loadFromSwipeId(mesId, newSwipeId);
-
 @@ -10731,9 +10865,27 @@
  export async function renameChat(oldFileName, newName) {
 -    return await renameGroupOrCharacterChat({
