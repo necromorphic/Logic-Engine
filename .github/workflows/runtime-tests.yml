@@ -23,7 +23,7 @@ jobs:
       # Pin actions to reviewed immutable commit SHAs; comments retain release context.
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Verify installed Node.js
-        shell: pwsh
+        shell: powershell
         run: |
           node --version
           $version = [version](node -p "process.versions.node")
