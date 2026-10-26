@@ -92,3 +92,13 @@ test("rejects non-finite preference values", () => {
     ]), /finite number/);
   }
 });
+
+test("candidate ID ordering uses locale-independent code-unit order", () => {
+  assert.deepEqual(
+    evaluateNpcDecisionPrototype([
+      { id: "a", feasibility: "unknown", preference: 0 },
+      { id: "Z", feasibility: "unknown", preference: 0 },
+    ]).candidateIds,
+    ["Z", "a"],
+  );
+});
