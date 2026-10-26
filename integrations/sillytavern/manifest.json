@@ -8,5 +8,8 @@
   "author": "Logic-Engine",
   "version": "0.1.0",
   "homePage": "https://github.com/necromorphic/Logic-Engine",
-  "auto_update": false
+  "auto_update": false,
+  "hooks": {
+    "activate": "init"
+  }
 }
