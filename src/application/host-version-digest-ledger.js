@@ -137,6 +137,14 @@ export class HostVersionDigestLedger {
     return this.#write(() => {
       const now = new Date().toISOString();
       const prior = this.#get(v);
+      // A lifecycle event cannot establish the original identity/digest of a
+      // version first observed as deleted. Only a trusted complete inventory
+      // may introduce historical tombstones; an event-only capture must fail
+      // closed when the corresponding live version was never recorded.
+      if (!prior && v.deleted) {
+        this.#markNonReady(v.world_id, v.conversation_id, 'HOST_VERSION_UNKNOWN', now);
+        return { status: 'non_ready', code: 'HOST_VERSION_UNKNOWN' };
+      }
       // A newly captured identity or a newly observed deletion changes the
       // ledger beyond the last verified inventory; never leave stale READY.
       if (!prior || (prior.lifecycle === 'present' && v.deleted)) {
