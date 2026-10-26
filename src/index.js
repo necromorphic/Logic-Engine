@@ -37,7 +37,8 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('ENGINE
 if (!['127.0.0.1', '::1', 'localhost'].includes(host) && process.env.ENGINE_ALLOW_REMOTE !== 'true') throw new Error('Remote binding is disabled unless ENGINE_ALLOW_REMOTE=true.');
 
 const store = new SQLiteStore(dbPath);
-const server = createApiServer({ engine: new LogicEngine(store), token, internalToken, approvalToken, adminToken, adapterTokens });
+const allowedOrigins = (process.env.ENGINE_ALLOWED_ORIGINS || '').split(',').map((origin) => origin.trim()).filter(Boolean);
+const server = createApiServer({ engine: new LogicEngine(store), token, internalToken, approvalToken, adminToken, adapterTokens, allowedOrigins });
 server.listen(port, host, () => process.stdout.write(
   'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +
   '\nDirect commit: ' + (internalToken ? 'enabled for internal credential' : 'disabled') +
