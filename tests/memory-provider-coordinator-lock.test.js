@@ -99,7 +99,7 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
     child.stdout.on('data', (chunk) => {
       stdout += chunk;
       for (;;) {
-        const newline = stdout.indexOf('\\n');
+        const newline = stdout.indexOf('\n');
         if (newline < 0) break;
         const line = stdout.slice(0, newline);
         stdout = stdout.slice(newline + 1);
@@ -124,7 +124,7 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
       coreChild = coreProc.child;
       await waitFor(() => existsSync(enteredPath));
       const id = ++nextId;
-      providerProc.child.stdin.write(JSON.stringify({ id, operation }) + '\\n');
+      providerProc.child.stdin.write(JSON.stringify({ id, operation }) + '\n');
       await delay(100);
       assert.equal(providerProc.messages.some((message) => message.id === id), false,
         operation + ' must wait while Core holds the shared coordinator lock');
@@ -157,7 +157,7 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
       coreProc.child.once('error', reject);
       coreProc.child.once('exit', (code) => code === 0 ? resolve() : reject(new Error('Core migration-lock child failed: ' + code)));
     });
-    migrationProc.child.stdin.end(JSON.stringify({ id: 999, operation: 'close' }) + '\\n');
+    migrationProc.child.stdin.end(JSON.stringify({ id: 999, operation: 'close' }) + '\n');
     await new Promise((resolve, reject) => {
       migrationProc.child.once('error', reject);
       migrationProc.child.once('exit', (code) => code === 0 ? resolve() : reject(new Error('Provider migration child failed: ' + code + ' ' + migrationProc.stderr)));
