@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
 test('query authorization revoked during source validation is denied', async (t) => {
@@ -600,4 +603,70 @@ test('failed index rebuild rolls back index deletion instead of leaving a partia
     .get(scope.world_id).count, 1, 'the pre-existing index entry must survive transaction rollback');
   assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).index_health, 'unavailable');
   assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'stale');
+});
+
+
+test('retrieval fails closed when another Provider connection revokes and re-grants query access', async (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'memory-provider-cross-connection-'));
+  const path = join(dir, 'provider.sqlite');
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+
+  let releaseSnapshot;
+  let signalSnapshot;
+  const snapshotStarted = new Promise((resolve) => { signalSnapshot = resolve; });
+  const snapshotGate = new Promise((resolve) => { releaseSnapshot = resolve; });
+  let holdSnapshot = false;
+  const options = {
+    path,
+    getSnapshot: async () => {
+      if (holdSnapshot) {
+        signalSnapshot();
+        await snapshotGate;
+      }
+      return { world_revision: 1, commit_sequence: 1 };
+    },
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  };
+  const provider = new SQLiteMemoryProvider(options);
+  const otherProvider = new SQLiteMemoryProvider({
+    ...options,
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+  });
+  t.after(() => provider.close());
+  t.after(() => otherProvider.close());
+
+  const scope = { world_id: 'cross-connection-query-world', subject_id: 'cross-connection-query-npc', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'cross-connection-query-record',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'cross-connection-query-entity',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'canonical_entity',
+      entity_id: 'cross-connection-query-entity',
+      source_version: 'source-v1',
+    }],
+  };
+  provider.grantQuery(scope, true);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  provider.putRecord(record);
+  await provider.rebuildIndex(scope.world_id);
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+
+  holdSnapshot = true;
+  const pending = provider.retrieveCandidates(scope);
+  await snapshotStarted;
+  otherProvider.grantQuery(scope, false);
+  otherProvider.grantQuery(scope, true);
+  releaseSnapshot();
+
+  await assert.rejects(pending, /MEMORY_AUTHORIZATION_CHANGED|MEMORY_INDEX_NOT_READY/);
 });
