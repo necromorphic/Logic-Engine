@@ -115,6 +115,9 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
         ? resolve({ code, signal })
         : reject(new Error('child exited with code=' + code + ', signal=' + signal + ': ' + stderr)));
     });
+    // Some workers are intentionally terminated during cleanup; mark the rejection handled
+    // while preserving `exited` rejection semantics for callers that await it.
+    void exited.catch(() => {});
     return { child, messages, exited, get stderr() { return stderr; } };
   };
   let providerChild;
