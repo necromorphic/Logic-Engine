@@ -4,6 +4,7 @@ import assert from 'node:assert/strict';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
 function setup(t, options = {}) {
+  const testDb = createProviderTestDb(t, { prefix: 'logic-memory-lifecycle-regressions-' });
   let snapshot = { world_revision: 10, commit_sequence: 5 };
   let sourceVersion = 'source-v1';
   const provider = new SQLiteMemoryProvider({
@@ -31,7 +32,7 @@ function setup(t, options = {}) {
     lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-source-a', source_version: 'source-v1' }],
   };
   return {
-    provider, scope, record,
+    provider, scope, record, db: testDb.db,
     setSnapshot(value) { snapshot = value; },
     setSourceVersion(value) { sourceVersion = value; },
   };

@@ -81,7 +81,7 @@ test('internal import facade does not grant query or record access', (t) => {
 });
 
 test('rejected import leaves no record behind', (t) => {
-  const { provider, record, scope } = setup(t);
+  const { provider, record, scope, db } = setup(t);
   const importer = createInternalMemoryImportFacadeForTest(provider);
 
   assert.throws(
