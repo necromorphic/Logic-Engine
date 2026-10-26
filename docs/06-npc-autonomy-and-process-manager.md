@@ -675,3 +675,33 @@ A future NPC-specific durable record is justified only when it contains genuinel
 ### 17.5 Decision
 
 Proceed with Step 1 as the next implementation candidate, after confirming that a pure NPC-owned module can be added without modifying Core/Memory/Host or inventing a production contract. If the current NPC directory has no approved seam beyond the Memory eligibility oracle, keep the prototype isolated and test-only until owner review. Do not wire it into the public API or label it production autonomy.
+
+
+## 18. Isolated decision-kernel prototype — first executable slice (26 Oct 2026)
+
+A deliberately narrow NPC-only prototype has been added at `src/npc/decision-kernel.js`, with tests at `test/npc-decision-kernel.test.js`.
+
+This is **not** a production API, not a production decision frame, and not an end-to-end autonomous NPC executor. Its small input vocabulary exists only to exercise decision semantics in isolation; it must not be copied into an external contract without owner review.
+
+### 18.1 What the prototype proves
+
+- Candidate feasibility is supplied by the caller; this prototype does not evaluate world/mechanic rules or capabilities.
+- Preference is considered only for candidates already classified feasible.
+- Any candidate with unknown feasibility causes deferral, rather than optimistic selection.
+- A unique highest preference may be selected as a **proposal-selection result only**.
+- Equal top preferences remain unresolved; array order is not a tie-breaker.
+- Empty/all-blocked input produces no-feasible-candidate, not fabricated success.
+- Candidate IDs are checked for duplicates, and output ordering is deterministic.
+
+### 18.2 What it deliberately does not do
+
+- It does not call `evaluateMechanicActionConditions`; no approved input adapter has been established, and the prototype's local vocabulary must not be mistaken for the existing evaluator contract.
+- It does not establish actor identity, build actor-relative knowledge, access Memory, resolve source lineage/revocation, read canonical state, pin World Pack versions, or establish snapshot freshness.
+- It does not arbitrate between actors, create a Core proposal, authorize autonomous execution, commit an event, schedule follow-up work, persist plans, or narrate a successful outcome.
+- It has no model/network call, persistence, side effect, public API wiring, or runtime integration.
+
+### 18.3 Test and evidence status
+
+The new tests cover unique feasible preference, unknown-feasibility deferral, tie deferral independent of input order, all-blocked and empty inputs, malformed/duplicate identity, and deterministic behavior under reordering. They are committed but must not be described as locally executed: the GitHub Actions `Runtime tests` workflow for commit `2219ba2b873c8e7bfb691cfe014163443bdf1c14` was observed as **queued** at the time of this note.
+
+This slice demonstrates only the pure ranking/deferral rule. It does not establish that the multi-kernel architecture is integrated, production-safe, or capable of autonomous world changes. The next gate is to observe CI, then review the prototype against the existing NPC test conventions and ask Core to identify the approved path for actor-bound context, pinned rules, proposal creation, and autonomous authorization. Keep Memory→NPC disabled/fail-closed.
