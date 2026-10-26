@@ -161,6 +161,18 @@ export class SQLiteStore {
   constructor(path = ':memory:') {
     if (path !== ':memory:') mkdirSync(dirname(resolve(path)), { recursive: true });
     this.db = new DatabaseSync(path);
+    // Core-side participation prototype. All cooperating LogicEngine processes
+    // using the same Core DB derive the same lock DB path. This does not enroll
+    // the separate Memory Provider or make network dispatch gateway-only.
+    const coordinatorPath = path === ':memory:' ? null
+      : (process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH || (resolve(path) + '.coordinator.sqlite'));
+    if (coordinatorPath && resolve(coordinatorPath) === resolve(path)) {
+      this.db.close();
+      throw new Error('Coordinator DB must be separate from the Core DB.');
+    }
+    if (coordinatorPath) mkdirSync(dirname(resolve(coordinatorPath)), { recursive: true });
+    this.coordinatorDb = coordinatorPath ? new DatabaseSync(coordinatorPath) : null;
+    this.coordinatorDb?.exec('PRAGMA busy_timeout=5000;');
     this.db.exec(`
       PRAGMA foreign_keys=ON;
       PRAGMA busy_timeout=5000;
@@ -472,7 +484,9 @@ export class SQLiteStore {
     }
   }
 
-  close() { this.db.close(); }
+  close() {
+    try { this.db.close(); } finally { this.coordinatorDb?.close(); }
+  }
 
   tx(fn) {
     if (this.txDepth > 0) {
@@ -493,17 +507,35 @@ export class SQLiteStore {
         this.txDepth -= 1;
       }
     }
-    this.db.exec('BEGIN IMMEDIATE');
-    this.txDepth = 1;
+
+    // Acquire the cross-process coordinator before the Core write lock and keep
+    // it until the Core transaction has committed or rolled back. Nested writes
+    // reuse the outer coordinator lease. This is intentionally synchronous:
+    // never await while either SQLite write transaction is held.
+    let coordinatorHeld = false;
+    let committed = false;
     try {
-      const result = fn();
-      this.db.exec('COMMIT');
-      return result;
-    } catch (error) {
-      try { this.db.exec('ROLLBACK'); } catch {}
-      throw error;
+      if (this.coordinatorDb) {
+        this.coordinatorDb.exec('BEGIN IMMEDIATE');
+        coordinatorHeld = true;
+      }
+      this.db.exec('BEGIN IMMEDIATE');
+      this.txDepth = 1;
+      try {
+        const result = fn();
+        this.db.exec('COMMIT');
+        committed = true;
+        return result;
+      } catch (error) {
+        try { this.db.exec('ROLLBACK'); } catch {}
+        throw error;
+      } finally {
+        this.txDepth = 0;
+      }
     } finally {
-      this.txDepth = 0;
+      if (coordinatorHeld) {
+        this.coordinatorDb.exec(committed ? 'COMMIT' : 'ROLLBACK');
+      }
     }
   }
 
