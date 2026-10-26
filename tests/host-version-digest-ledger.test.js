@@ -419,3 +419,18 @@ test('complete inventory cannot silently omit a previously tombstoned version', 
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code, 'HOST_INVENTORY_DISAPPEARANCE');
 });
+
+test('review-only Host projection cannot be accepted as a trusted Provider inventory', async (t) => {
+  const ledger = setup(t, async () => true);
+  const reviewOnlyProjection = {
+    status: 'REVIEW_ONLY',
+    authority: 'NON_AUTHORITATIVE',
+    rows: [],
+    completeness: 'UNPROVEN',
+    blockers: ['CORE_WORLD_BINDING_MISSING', 'COMPLETE_NATIVE_INVENTORY_UNPROVEN'],
+  };
+  assert.deepEqual(await ledger.reconcileConversation(reviewOnlyProjection), {
+    status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE'
+  });
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+});
