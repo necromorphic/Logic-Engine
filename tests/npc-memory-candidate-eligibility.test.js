@@ -807,4 +807,13 @@ test("rejects cyclic and exotic admission objects without traversing them as met
   const exoticDecision = evaluateMemoryCandidateAdmission(request, completeResult([exoticCandidate]));
   assert.equal(exoticDecision.status, "non_ready");
   assert.deepEqual(exoticDecision.admitted, []);
+
+  const hostileProxy = new Proxy({}, {
+    getPrototypeOf() {
+      throw new Error("proxy trap must not escape");
+    },
+  });
+  const proxyDecision = evaluateMemoryCandidateAdmission(request, hostileProxy);
+  assert.equal(proxyDecision.status, "non_ready");
+  assert.deepEqual(proxyDecision.admitted, []);
 });
