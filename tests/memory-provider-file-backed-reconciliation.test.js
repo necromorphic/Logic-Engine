@@ -172,3 +172,76 @@ test('file-backed Provider rejects a pinned R2 source after Core rolls the entit
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   assert.equal(s.provider.getIndexStatusForDiagnostics(s.scope.world_id).source_reconciliation, 'stale');
 });
+
+
+test('Core source-version mapping fails closed for missing, wrong-world, destroyed and unavailable sources', async (t) => {
+  // Missing entity: Core's entity-specific snapshot throws; Provider reconciliation must become stale.
+  {
+    const s = setup(t);
+    const current = s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'] }).entities[0];
+    const record = recordFor(s.scope, 'missing-source', current.updated_revision, 'memory:00-missing');
+    s.provider.grantQuery(s.scope, true);
+    s.provider.grantRecord(s.scope, record.record_ref, record.record_version, true);
+    s.provider.putRecord(record);
+    await s.provider.rebuildIndex(s.scope.world_id);
+    assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
+    await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  }
+
+  // Wrong-world binding: the source exists in another world only; entity lookup in this world must deny.
+  {
+    const s = setup(t);
+    s.engine.createWorld({
+      world_id: 'provider-other-world', world_pack_id: 'test.provider-other', world_pack_version: '1',
+      game_time: '2026-01-01T00:00:00Z',
+    });
+    const original = s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'] }).entities[0];
+    const scope = { ...s.scope, world_id: 'provider-other-world' };
+    const record = recordFor(scope, 'source-a', original.updated_revision, 'memory:wrong-world');
+    s.provider.grantQuery(scope, true);
+    s.provider.grantRecord(scope, record.record_ref, record.record_version, true);
+    s.provider.putRecord(record);
+    await s.provider.rebuildIndex(scope.world_id);
+    assert.equal((await s.provider.reconcile(scope.world_id)).status, 'stale');
+    await assert.rejects(() => s.provider.retrieveCandidates(scope), /MEMORY_INDEX_NOT_READY/);
+  }
+
+  // Destroyed entity: matching revision is not enough when Core marks the entity destroyed.
+  {
+    const s = setup(t);
+    const before = s.engine.getSnapshot(s.scope.world_id);
+    const destroy = s.engine.commitEvent(s.scope.world_id, {
+      event_id: 'provider-file-source-destroy',
+      idempotency_key: 'provider-file-source-destroy',
+      turn_id: 'provider-file-source-destroy',
+      event_type: 'action.completed',
+      expected_revision: before.world_revision,
+      causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'source-a' } }],
+      effects: [{ kind: 'entity.update', entity_id: 'source-a', status: 'destroyed' }],
+    });
+    assert.equal(destroy.accepted, true);
+    const destroyed = s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'] }).entities[0];
+    assert.equal(destroyed.status, 'destroyed');
+    const record = recordFor(s.scope, 'source-a', destroyed.updated_revision, 'memory:destroyed-source');
+    s.provider.grantQuery(s.scope, true);
+    s.provider.grantRecord(s.scope, record.record_ref, record.record_version, true);
+    s.provider.putRecord(record);
+    await s.provider.rebuildIndex(s.scope.world_id);
+    assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
+    await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  }
+
+  // Core snapshot outage: no callback or persisted Provider state may upgrade the source to current.
+  {
+    const s = setup(t);
+    const source = s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'] }).entities[0];
+    const record = recordFor(s.scope, 'source-a', source.updated_revision, 'memory:snapshot-outage');
+    s.provider.grantQuery(s.scope, true);
+    s.provider.grantRecord(s.scope, record.record_ref, record.record_version, true);
+    s.provider.putRecord(record);
+    await s.provider.rebuildIndex(s.scope.world_id);
+    s.engine.getSnapshot = () => { throw new Error('injected Core snapshot outage'); };
+    assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'unavailable');
+    await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  }
+});
