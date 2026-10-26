@@ -152,3 +152,17 @@ test("rejects sparse candidate arrays instead of silently skipping missing entri
   const sparse = new Array(1);
   assert.throws(() => evaluateNpcDecisionPrototype(sparse), /candidate must be an object/);
 });
+
+test("handles large candidate sets without spreading preferences into function arguments", () => {
+  const candidates = Array.from({ length: 130_000 }, (_, index) => ({
+    id: `candidate-${String(index).padStart(6, "0")}`,
+    feasibility: "feasible",
+    preference: index,
+  }));
+
+  assert.deepEqual(evaluateNpcDecisionPrototype(candidates), {
+    status: "proposal_selected",
+    reason: "unique_highest_feasible_preference",
+    candidateIds: ["candidate-129999"],
+  });
+});
