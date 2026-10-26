@@ -50,6 +50,7 @@ export class SQLiteMemoryProvider {
     }
     this.validateInventory = validateInventory;
     this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
+    this.reconcileGeneration = new Map();
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA foreign_keys = ON;
@@ -546,9 +547,13 @@ export class SQLiteMemoryProvider {
 
   async reconcile(worldId) {
     if (!validId(worldId)) throw new TypeError('Invalid world_id');
+    const generation = (this.reconcileGeneration.get(worldId) ?? 0) + 1;
+    this.reconcileGeneration.set(worldId, generation);
+    const superseded = () => this.reconcileGeneration.get(worldId) !== generation;
     this.#setState(worldId, 'rebuilding', 'stale');
     let before;
     try { before = snapshotOf(await this.getSnapshot(worldId)); } catch { before = null; }
+    if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
     if (!before) {
       this.#setState(worldId, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
       return { status: 'unavailable', reason: 'CORE_SNAPSHOT_UNAVAILABLE' };
@@ -580,6 +585,7 @@ export class SQLiteMemoryProvider {
           source_version: row.source_version, lineage: Object.freeze(lineage),
         })) === true;
       } catch { valid = false; }
+      if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
       if (!valid) {
         this.#setState(worldId, 'stale', 'stale', null, 'SOURCE_VALIDATION_FAILED');
         return { status: 'stale', reason: 'SOURCE_VALIDATION_FAILED' };
@@ -596,6 +602,7 @@ export class SQLiteMemoryProvider {
         source_version: row.source_version,
       })))) === true;
     } catch { inventoryComplete = false; }
+    if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
     if (!inventoryComplete) {
       this.#setState(worldId, 'stale', 'stale', null, 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE');
       return { status: 'stale', reason: 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE' };
@@ -621,6 +628,7 @@ export class SQLiteMemoryProvider {
 
     let after;
     try { after = snapshotOf(await this.getSnapshot(worldId)); } catch { after = null; }
+    if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
     if (!sameSnapshot(before, after)) {
       this.#setState(worldId, 'stale', 'stale');
       return { status: 'stale' };
