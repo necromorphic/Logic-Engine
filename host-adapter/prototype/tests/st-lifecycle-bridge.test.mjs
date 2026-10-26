@@ -691,6 +691,7 @@ test('fresh journal/bridge instances replay the persisted journal rows after res
     journal: restartedJournal,
     getConversationId: () => 'chat-1',
     getSourceLocator: () => 'chat-file-1',
+    getSourceLineage: () => ({ mainChat: null, integrity: null, sessionName: 'chat-file-1', groupId: null }),
     getChat: () => f.chat,
     saveChat: async () => {},
   });
