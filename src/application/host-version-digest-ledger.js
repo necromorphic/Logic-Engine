@@ -102,9 +102,10 @@ export class HostVersionDigestLedger {
   }
 
   #rejectSnapshot(snapshot, code) {
-    if (validId(snapshot?.world_id) && validId(snapshot?.conversation_id)) {
-      this.#write(() => this.#markNonReady(snapshot.world_id, snapshot.conversation_id, code, new Date().toISOString()));
-    }
+    // Snapshot fields are caller-controlled until the trusted Host/Core scope
+    // verifier has authorized the world/conversation binding. Never let a
+    // malformed or unauthorized request mutate readiness for an arbitrary
+    // conversation. The caller must keep disclosure fail-closed on this result.
     return { status: 'non_ready', code };
   }
 
