@@ -23,7 +23,7 @@ The current patch can forward digest-only Host version entries to the PC Logic-E
 - `LOGIC_ENGINE_ADAPTER_ID`: the adapter ID configured on Core.
 - `LOGIC_ENGINE_ADAPTER_TOKEN`: the matching adapter secret configured in Core's `ENGINE_ADAPTER_TOKENS`.
 
-The proxy accepts only conversation/message/version IDs, a SHA-256 digest, and active/deleted flags. It rejects caller-supplied world IDs, arbitrary URLs, raw text fields, and malformed digests. It forwards only to the server-configured Core URL and does not log request bodies. Keep the Core API on a private LAN, restrict access with the PC firewall, and do not expose it to the public internet.
+The proxy accepts only conversation/message/version IDs, a SHA-256 digest, and active/deleted flags. It rejects caller-supplied world IDs, arbitrary URLs, raw text fields, and malformed digests. It forwards only to the server-configured Core URL and does not log request bodies. On the PC, set `ENGINE_HOST=0.0.0.0` and `ENGINE_ALLOW_REMOTE=true` only when phone-to-PC LAN access is needed; restrict the port with the PC firewall to the phone/private subnet and do not expose the Core API to the public internet.
 
 Before capture can succeed, an administrator must bind the authenticated adapter ID and stable Host conversation ID to a canonical Core world using `/v1/host-conversation-bindings`. The bridge publishes current digest entries serially after native save and emits tombstones for versions it observes being removed. This is transport coverage, not a complete source inventory: missed server-side imports/deletions, copy/restore, branch operations, external edits, and crash/restart ordering can still invalidate the ledger.
 
