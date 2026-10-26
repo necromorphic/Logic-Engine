@@ -58,6 +58,13 @@ export class HostVersionDigestLedger {
       .run(worldId, conversationId, snapshotDigest, code, now);
   }
 
+  #rejectSnapshot(snapshot, code) {
+    if (validId(snapshot?.world_id) && validId(snapshot?.conversation_id)) {
+      this.#write(() => this.#markNonReady(snapshot.world_id, snapshot.conversation_id, code, new Date().toISOString()));
+    }
+    return { status: 'non_ready', code };
+  }
+
   #put(v, now) {
     const prior = this.#get(v);
     if (prior && prior.content_sha256 !== v.content_sha256) {
@@ -125,23 +132,23 @@ export class HostVersionDigestLedger {
   async reconcileConversation(snapshot) {
     if (!snapshot || !validId(snapshot.world_id) || !validId(snapshot.conversation_id)
       || snapshot.complete !== true || !Array.isArray(snapshot.versions)) {
-      return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
+      return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INCOMPLETE');
     }
     const seen = new Set();
     for (const v of snapshot.versions) {
       if (!validTuple(v) || v.world_id !== snapshot.world_id || v.conversation_id !== snapshot.conversation_id
         || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
-        return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
+        return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INVALID');
       }
       const key = JSON.stringify(tuple(v));
-      if (seen.has(key)) return { status: 'non_ready', code: 'HOST_INVENTORY_DUPLICATE_IDENTITY' };
+      if (seen.has(key)) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_DUPLICATE_IDENTITY');
       seen.add(key);
     }
     const activeByMessage = new Set();
     for (const v of snapshot.versions) {
       if (!v.active || v.deleted) continue;
       const key = JSON.stringify([v.world_id, v.conversation_id, v.message_id]);
-      if (activeByMessage.has(key)) return { status: 'non_ready', code: 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS' };
+      if (activeByMessage.has(key)) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS');
       activeByMessage.add(key);
     }
     let trusted = false;
@@ -151,7 +158,7 @@ export class HostVersionDigestLedger {
         versions: snapshot.versions.map((v) => Object.freeze({ ...v }))
       })) === true;
     } catch { trusted = false; }
-    if (!trusted) return { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' };
+    if (!trusted) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_NOT_AUTHORIZED');
     const canonical = snapshot.versions.map((v) => [...tuple(v), v.content_sha256, v.active, v.deleted])
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const snapshotDigest = digest(JSON.stringify(canonical));
