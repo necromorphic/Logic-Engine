@@ -101,7 +101,8 @@ test('digest-only Host capture forbids caller world and raw text, then records o
   });
   assert.equal(captured.status, 201);
   assert.equal((await captured.json()).capture.status, 'captured');
-  const stored = ledger.db.prepare('SELECT world_id,conversation_id,message_id,version_id,content_sha256 FROM host_version_digest_ledger').all();
+  const stored = ledger.db.prepare('SELECT world_id,conversation_id,message_id,version_id,content_sha256 FROM host_version_digest_ledger').all()
+    .map((row) => ({ ...row }));
   assert.deepEqual(stored, [{
     world_id: 'host-ledger-api-world', conversation_id: 'stable-host-chat', message_id: 'message-1',
     version_id: 'version-1', content_sha256: 'a'.repeat(64),
