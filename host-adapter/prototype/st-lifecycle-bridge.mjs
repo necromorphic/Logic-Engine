@@ -29,7 +29,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   }
 
   async function enrollCurrentConversation() {
-    const conversationId = getConversationId(), chat = getChat();
+    const conversationId = await getConversationId(), chat = getChat();
     if (!conversationId || !Array.isArray(chat)) throw Error('No active conversation; enrollment refused');
     const fingerprint = await currentFingerprint(chat);
     const descriptors = chat.map(message => ({
@@ -102,7 +102,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   }
 
   async function beforeMutation(operation, messageIndexes, details = {}) {
-    const conversationId = getConversationId();
+    const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     if (!CURRENTLY_HOOKED_PATHS.includes(operation)) {
       throw Error('NON_READY: unsupported/uninstrumented Host lifecycle operation ' + String(operation) + '; abort mutation before source change');
@@ -156,7 +156,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   }
 
   async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
-    const conversationId = getConversationId();
+    const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     const chat = getChat();
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
@@ -286,7 +286,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   }
 
   async function reconcileCurrentConversation() {
-    const conversationId = getConversationId();
+    const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     const integrity = await journal.verifyIntegrity(conversationId);
     if (integrity.status !== 'INTEGRITY_OK') return integrity;
@@ -391,7 +391,7 @@ export function createUnavailableStLifecycleBridge({ getConversationId, storage 
   if (!error) throw TypeError('original journal-open error is required');
 
   const assertUnavailableSafe = () => {
-    const conversationId = getConversationId();
+    const conversationId = await getConversationId();
     const marker = conversationId
       ? storage?.getItem('logic-engine-host-lifecycle:' + conversationId)
       : null;
