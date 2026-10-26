@@ -152,3 +152,23 @@ The Core-approved contract must identify the trusted world/session scope, source
 ### Current Host decision
 
 No runtime send hook is added by this proposal. The exact Core authorization contract and required second Core review of the implementation diff are still absent; the exhaustive outbound-route inventory and revoke/edit/delete-after-assembly-before-send test are also absent. Therefore this proposal is **REVIEW-ONLY / NON_READY**. Keep Memory→NPC **DISABLED / FAIL-CLOSED** and do not persist raw message text or touch the separate Ollama/vectorization remote-store patch.
+
+
+### Changed-file list and reproducible commands
+
+**Files changed by this proposal commit:** only `host-adapter/prototype/SOURCE-LIFECYCLE-AUDIT.md`. No SillyTavern runtime source or runtime patch was changed because the Core decision and second review are not yet available.
+
+From the Logic-Engine repository root, the existing review-only Host bridge tests are run with:
+
+```sh
+node --test host-adapter/prototype/tests/*.test.mjs
+```
+
+To check the existing lifecycle patch against a disposable checkout of the exact pinned SillyTavern source (this checks the existing lifecycle patch only; it does **not** test a future send gate):
+
+```sh
+git -C /path/to/SillyTavern checkout 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+git -C /path/to/SillyTavern apply --check /path/to/Logic-Engine/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
+```
+
+The second command has **not** been run in this environment. No exact-head workflow was returned for documentation commit `715f129a28eee1ff08ea0dfc8af37ba35a222db8`; no new test pass is claimed. A future runtime diff must be reviewed separately by Core before application, and then must add route-level denial/error/bypass tests plus the real post-assembly revocation race test described above.
