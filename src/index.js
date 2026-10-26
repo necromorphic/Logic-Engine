@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { SQLiteStore } from './storage/sqlite-store.js';
 import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
@@ -31,6 +31,14 @@ for (const [id, secret] of Object.entries(adapterTokens)) {
 }
 
 const dbPath = process.env.ENGINE_DB_PATH || './data/logic-engine.sqlite';
+const coordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+if (dbPath !== ':memory:' && (typeof coordinatorPath !== 'string' || !coordinatorPath.trim() || !isAbsolute(coordinatorPath))) {
+  process.stderr.write('LOGIC_ENGINE_COORDINATOR_DB_PATH must be set to an absolute path for file-backed runtime.\\n');
+  process.exit(1);
+}
+if (dbPath !== ':memory:' && coordinatorPath && resolve(coordinatorPath) === resolve(dbPath)) {
+  throw new Error('LOGIC_ENGINE_COORDINATOR_DB_PATH must be separate from ENGINE_DB_PATH.');
+}
 if (dbPath !== ':memory:') mkdirSync(dirname(resolve(dbPath)), { recursive: true });
 const port = Number(process.env.ENGINE_PORT || 8787), host = process.env.ENGINE_HOST || '127.0.0.1';
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('ENGINE_PORT must be between 1 and 65535.');
