@@ -9,7 +9,7 @@ const stRoot = resolve(process.env.SILLYTAVERN_DIR ?? 'SillyTavern');
 const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
 // Prevent the upstream route's debug log from serializing request bodies.
-// The fake provider below only drains bytes; it never parses or stores them.
+// The fake gateway/provider below only drains bytes; it never parses, logs, or persists prompt content.
 const originalDebug = console.debug;
 console.debug = () => {};
 
@@ -19,35 +19,42 @@ const stUtil = await import(pathToFileURL(resolve(stRoot, 'src/util.js')).href);
 stUtil.setConfigFilePath(resolve(stRoot, 'default/config.yaml'));
 const { router } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backends/chat-completions.js')).href);
 
-test('real pinned server Chat Completions handler reaches a recording fake provider exactly once', async (t) => {
+test('real pinned handler sends OpenAI-compatible and Google AI Studio requests to their configured local gateway exactly once', async (t) => {
   const { execFileSync } = await import('node:child_process');
   const actualSha = execFileSync('git', ['-C', stRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
   assert.equal(actualSha, expectedSha, 'test must run against the exact pinned SillyTavern checkout');
 
   let requestCount = 0;
   const arrivals = [];
-  const fakeProvider = requireFromST('node:http').createServer((req, res) => {
+  const fakeGateway = requireFromST('node:http').createServer((req, res) => {
     requestCount += 1;
     arrivals.push({ method: req.method, path: req.url });
     req.resume(); // discard request body; never parse, log, or persist prompt content
     req.on('end', () => {
       res.writeHead(200, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({
-        id: 'fake-response',
-        object: 'chat.completion',
-        created: 1,
-        model: 'fake-model',
-        choices: [{ index: 0, message: { role: 'assistant', content: 'harness-ok' }, finish_reason: 'stop' }],
-      }));
+      if (req.url.includes(':generateContent')) {
+        res.end(JSON.stringify({
+          candidates: [{ content: { parts: [{ text: 'gateway-ok' }] } }],
+        }));
+      } else {
+        res.end(JSON.stringify({
+          id: 'fake-response',
+          object: 'chat.completion',
+          created: 1,
+          model: 'fake-model',
+          choices: [{ index: 0, message: { role: 'assistant', content: 'harness-ok' }, finish_reason: 'stop' }],
+        }));
+      }
     });
   });
 
   await new Promise((resolveListen, reject) => {
-    fakeProvider.once('error', reject);
-    fakeProvider.listen(0, '127.0.0.1', resolveListen);
+    fakeGateway.once('error', reject);
+    fakeGateway.listen(0, '127.0.0.1', resolveListen);
   });
-  const providerAddress = fakeProvider.address();
-  assert.ok(providerAddress && typeof providerAddress === 'object');
+  const gatewayAddress = fakeGateway.address();
+  assert.ok(gatewayAddress && typeof gatewayAddress === 'object');
+  const gatewayUrl = `http://127.0.0.1:${gatewayAddress.port}`;
 
   const app = express();
   app.use(express.json({ limit: '1mb' }));
@@ -64,30 +71,54 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
   t.after(async () => {
     await Promise.all([
       new Promise(resolveClose => stHarnessServer.close(resolveClose)),
-      new Promise(resolveClose => fakeProvider.close(resolveClose)),
+      new Promise(resolveClose => fakeGateway.close(resolveClose)),
     ]);
     console.debug = originalDebug;
   });
 
-  const response = await fetch(`http://127.0.0.1:${stAddress.port}/api/backends/chat-completions/generate`, {
+  const openAiResponse = await fetch(`http://127.0.0.1:${stAddress.port}/api/backends/chat-completions/generate`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
       chat_completion_source: 'openai',
-      reverse_proxy: `http://127.0.0.1:${providerAddress.port}/v1`,
+      reverse_proxy: `${gatewayUrl}/v1`,
       proxy_password: 'test-only-not-a-real-secret',
       model: 'fake-model',
-      messages: [{ role: 'user', content: 'HARNESS_SENTINEL_DO_NOT_LOG' }],
+      messages: [{ role: 'user', content: 'HARNESS_SENTINEL_DO_NOT_LOG_OPENAI' }],
       stream: false,
       temperature: 0,
       max_tokens: 8,
     }),
   });
 
-  assert.equal(response.status, 200, 'the actual pinned handler should return the fake provider response');
-  const responseJson = await response.json();
-  assert.equal(responseJson.choices?.[0]?.message?.content, 'harness-ok');
-  assert.equal(requestCount, 1, 'exactly one outbound request should arrive at the fake provider');
+  assert.equal(openAiResponse.status, 200, 'the pinned handler should return the fake OpenAI-compatible response');
+  const openAiJson = await openAiResponse.json();
+  assert.equal(openAiJson.choices?.[0]?.message?.content, 'harness-ok');
+  assert.equal(requestCount, 1, 'OpenAI-compatible request should reach the gateway exactly once');
   assert.deepEqual(arrivals, [{ method: 'POST', path: '/v1/chat/completions' }]);
+
+  const googleResponse = await fetch(`http://127.0.0.1:${stAddress.port}/api/backends/chat-completions/generate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      chat_completion_source: 'makersuite',
+      reverse_proxy: gatewayUrl,
+      proxy_password: 'test-only-google-proxy-password',
+      model: 'gemini-test-model',
+      messages: [{ role: 'user', content: 'HARNESS_SENTINEL_DO_NOT_LOG_GOOGLE' }],
+      stream: false,
+      temperature: 0,
+      max_tokens: 8,
+    }),
+  });
+
+  assert.equal(googleResponse.status, 200, 'the pinned Google AI Studio branch should return the fake gateway response');
+  const googleJson = await googleResponse.json();
+  assert.equal(googleJson.choices?.[0]?.message?.content, 'gateway-ok');
+  assert.equal(requestCount, 2, 'Google AI Studio request should reach the configured gateway exactly once');
+  assert.deepEqual(arrivals, [
+    { method: 'POST', path: '/v1/chat/completions' },
+    { method: 'POST', path: '/v1beta/models/gemini-test-model:generateContent?key=test-only-google-proxy-password' },
+  ]);
   assert.equal(JSON.stringify(arrivals).includes('HARNESS_SENTINEL_DO_NOT_LOG'), false);
 });
