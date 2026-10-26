@@ -169,11 +169,14 @@ test('record grant revoked during source validation is a non-ready authorization
   let started;
   const validationStarted = new Promise((resolve) => { started = resolve; });
   const validationGate = new Promise((resolve) => { release = resolve; });
+  let holdValidation = false;
   const provider = new SQLiteMemoryProvider({
     getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
     validateSourceVersion: async () => {
-      started();
-      await validationGate;
+      if (holdValidation) {
+        started();
+        await validationGate;
+      }
       return true;
     },
     validateInventory: async () => true,
@@ -198,6 +201,9 @@ test('record grant revoked during source validation is a non-ready authorization
   provider.grantQuery(scope, true);
   provider.putRecord(record);
   provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  await provider.rebuildIndex(scope.world_id);
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+  holdValidation = true;
 
   const pending = provider.authorizeCandidate({
     ...scope,
