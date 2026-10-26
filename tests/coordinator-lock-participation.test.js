@@ -80,12 +80,14 @@ test('separate Core stores serialize their write transactions through the shared
 
 
 test('Core transaction callbacks reject async functions before commit', () => {
+  let asyncSideEffect = false;
   const store = new SQLiteStore(':memory:');
   try {
     assert.throws(
-      () => store.tx(async () => 1),
+      () => store.tx(async () => { asyncSideEffect = true; return 1; }),
       /SQLiteStore\.tx callback must be synchronous/,
     );
+    assert.equal(asyncSideEffect, false, 'async callback must be rejected before its body executes');
     assert.throws(
       () => store.tx(() => store.tx(async () => 1)),
       /SQLiteStore\.tx callback must be synchronous/,
@@ -112,10 +114,12 @@ test('coordinator wrapper releases its lease on success and failure and rejects 
   try {
     assert.equal(withCoordinatorLock(db, () => 'ok'), 'ok');
     assert.throws(() => withCoordinatorLock(db, () => { throw new Error('mutation failed'); }), /mutation failed/);
+    let asyncSideEffect = false;
     assert.throws(
-      () => withCoordinatorLock(db, async () => 'late'),
+      () => withCoordinatorLock(db, async () => { asyncSideEffect = true; return 'late'; }),
       /Coordinator callback must be synchronous/,
     );
+    assert.equal(asyncSideEffect, false, 'async callback must be rejected before its body executes');
     assert.equal(withCoordinatorLock(db, () => 9), 9, 'lease must be reusable after all rejected callbacks');
   } finally {
     db.close();
