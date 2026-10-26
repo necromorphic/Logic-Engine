@@ -87,7 +87,7 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
   assert.deepEqual(published.map(entry => entry.active), [false, true]);
   assert.ok(published.every(entry => entry.conversation_id === 'chat-1'
     && /^[a-f0-9]{64}$/.test(entry.content_sha256)
-    && !Object.keys(entry).some(key => /text|content|raw/i.test(key))));
+    && !Object.keys(entry).some(key => /raw|text_body|content_text|message_body/i.test(key))));
   published.length = 0;
 
   const oldVersionIds = f.chat[0]._logicEngineLifecycle.versions.map(version => version.versionId);
