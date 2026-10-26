@@ -1,5 +1,5 @@
 import { mkdirSync } from 'node:fs';
-import { dirname, resolve } from 'node:path';
+import { dirname, isAbsolute, resolve } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
@@ -168,19 +168,24 @@ const world = (r) => r && ({
 
 export class SQLiteStore {
   constructor(path = ':memory:') {
-    if (path !== ':memory:') mkdirSync(dirname(resolve(path)), { recursive: true });
-    this.db = new DatabaseSync(path);
-    // Core-side participation prototype. All cooperating LogicEngine processes
-    // using the same Core DB derive the same lock DB path. This does not enroll
-    // the separate Memory Provider or make network dispatch gateway-only.
+    // Validate and canonicalize the shared coordinator before opening either
+    // handle, so invalid configuration cannot leak an already-open Core DB.
+    const corePath = path === ':memory:' ? ':memory:' : resolve(path);
     const coordinatorPath = path === ':memory:' ? null
-      : (process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH || (resolve(path) + '.coordinator.sqlite'));
-    if (coordinatorPath && resolve(coordinatorPath) === resolve(path)) {
-      this.db.close();
+      : (process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH || (corePath + '.coordinator.sqlite'));
+    if (coordinatorPath && !isAbsolute(coordinatorPath)) {
+      throw new TypeError('LOGIC_ENGINE_COORDINATOR_DB_PATH must be an absolute path shared by all participants.');
+    }
+    const absoluteCoordinatorPath = coordinatorPath ? resolve(coordinatorPath) : null;
+    if (absoluteCoordinatorPath && absoluteCoordinatorPath === corePath) {
       throw new Error('Coordinator DB must be separate from the Core DB.');
     }
-    if (coordinatorPath) mkdirSync(dirname(resolve(coordinatorPath)), { recursive: true });
-    this.coordinatorDb = coordinatorPath ? openCoordinatorDatabase(coordinatorPath) : null;
+    if (corePath !== ':memory:') mkdirSync(dirname(corePath), { recursive: true });
+    if (absoluteCoordinatorPath) mkdirSync(dirname(absoluteCoordinatorPath), { recursive: true });
+    this.db = new DatabaseSync(corePath);
+    // Core-side participation prototype. This does not enroll the separate
+    // Memory Provider or make network dispatch gateway-only.
+    this.coordinatorDb = absoluteCoordinatorPath ? openCoordinatorDatabase(absoluteCoordinatorPath) : null;
     this.coordinatorStartupRelease = null;
     this.coordinatorDepth = 0;
     // Schema creation and migrations are writes too; acquire the shared lock
