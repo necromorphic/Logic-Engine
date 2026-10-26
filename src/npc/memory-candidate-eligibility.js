@@ -35,6 +35,37 @@ const KNOWN_EVIDENCE_ASSESSMENTS = new Set([
   "insufficient",
 ]);
 
+// Admission inputs are metadata, not executable behavior. Reject accessors,
+// exotic object prototypes, and cycles before reading any supplied property.
+// Descriptor inspection avoids invoking ordinary JavaScript getters.
+function isDataOnlyTree(value, active = new Set()) {
+  if (value === null || (typeof value !== "object" && typeof value !== "function")) return true;
+  if (typeof value === "function" || active.has(value)) return false;
+
+  const prototype = Object.getPrototypeOf(value);
+  if (Array.isArray(value)) {
+    if (prototype !== Array.prototype) return false;
+  } else if (prototype !== Object.prototype && prototype !== null) {
+    return false;
+  }
+
+  active.add(value);
+  const descriptors = Object.getOwnPropertyDescriptors(value);
+  for (const key of Reflect.ownKeys(descriptors)) {
+    const descriptor = descriptors[key];
+    if (!Object.hasOwn(descriptor, "value")) {
+      active.delete(value);
+      return false;
+    }
+    if (!isDataOnlyTree(descriptor.value, active)) {
+      active.delete(value);
+      return false;
+    }
+  }
+  active.delete(value);
+  return true;
+}
+
 function isNonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
@@ -162,6 +193,15 @@ function candidateRejection(candidate, request) {
  * that those bindings are authentic or that the access decision is genuine.
  */
 export function evaluateMemoryCandidateAdmission(request, result) {
+  // Never execute caller-supplied getters while evaluating admission metadata.
+  if (!isDataOnlyTree(request) || !isDataOnlyTree(result)) {
+    return Object.freeze({
+      status: "non_ready",
+      admitted: Object.freeze([]),
+      reason: "result_incomplete_or_unavailable",
+    });
+  }
+
   if (
     request == null
     || !isNonEmptyString(request.world_id)
