@@ -120,6 +120,10 @@ export class SQLiteMemoryProvider {
     if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
   }
 
+  #dataVersion() {
+    return this.db.prepare('PRAGMA data_version').get().data_version;
+  }
+
   #withImmediateTransaction(work) {
     this.db.exec('BEGIN IMMEDIATE');
     try {
@@ -476,6 +480,7 @@ export class SQLiteMemoryProvider {
     ]);
     const queryAuthorizationGeneration = this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0;
     const recordAuthorizationGeneration = this.recordAuthorizationGeneration.get(recordGrantKey) ?? 0;
+    const providerDataVersion = this.#dataVersion();
 
     let sourceValid = false;
     try {
@@ -513,7 +518,10 @@ export class SQLiteMemoryProvider {
     // alone loses that lifecycle transition. Fail this in-flight authorization;
     // a later request can use the new grant after a fresh retrieval.
     if ((this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration
-      || (this.recordAuthorizationGeneration.get(recordGrantKey) ?? 0) !== recordAuthorizationGeneration) {
+      || (this.recordAuthorizationGeneration.get(recordGrantKey) ?? 0) !== recordAuthorizationGeneration
+      || this.#dataVersion() !== providerDataVersion) {
+      // PRAGMA data_version detects commits from other SQLite connections, whose
+      // in-memory grant generations are not shared with this Provider instance.
       throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     }
     const latestState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
@@ -624,8 +632,10 @@ export class SQLiteMemoryProvider {
     // the index non-ready. Any ingest, rebuild, or competing state transition
     // during an awaited Core validation invalidates this reconciliation attempt.
     const providerStateGeneration = this.stateGeneration.get(worldId) ?? 0;
+    const providerDataVersion = this.#dataVersion();
     const providerStateChanged = () =>
-      (this.stateGeneration.get(worldId) ?? 0) !== providerStateGeneration;
+      (this.stateGeneration.get(worldId) ?? 0) !== providerStateGeneration
+      || this.#dataVersion() !== providerDataVersion;
     let before;
     try { before = snapshotOf(await this.getSnapshot(worldId)); } catch { before = null; }
     if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
@@ -759,6 +769,7 @@ export class SQLiteMemoryProvider {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
     const stateGeneration = this.stateGeneration.get(scope.world_id) ?? 0;
+    const providerDataVersion = this.#dataVersion();
     const scopedRecords = this.db.prepare(`SELECT record_ref, record_version FROM memory_records
       WHERE world_id=? AND subject_id=? AND purpose=?`)
       .all(scope.world_id, scope.subject_id, scope.purpose);
@@ -807,7 +818,8 @@ export class SQLiteMemoryProvider {
     // A readiness transition away and back to ready/current during the await is
     // an ABA change. Fail closed rather than treating the final Boolean state as
     // proof that the same Provider snapshot remained valid throughout retrieval.
-    if ((this.stateGeneration.get(scope.world_id) ?? 0) !== stateGeneration) {
+    if ((this.stateGeneration.get(scope.world_id) ?? 0) !== stateGeneration
+      || this.#dataVersion() !== providerDataVersion) {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
 
