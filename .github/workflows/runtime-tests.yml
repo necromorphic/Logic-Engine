@@ -41,5 +41,9 @@ jobs:
         run: |
           node --version
           node -e "const v = process.versions.node.split('.').map(Number); if (v[0] < 22 || (v[0] === 22 && v[1] < 13)) { console.error('Node.js 22.13.0 or newer is required; found ' + process.versions.node); process.exit(1); }"
-      - run: npm test
-      - run: node --test experiments/recalculation-oracle/harness.test.mjs
+      - name: Run repository tests
+        shell: cmd
+        run: npm test
+      - name: Run recalculation harness
+        shell: cmd
+        run: node --test experiments/recalculation-oracle/harness.test.mjs
