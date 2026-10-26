@@ -60,3 +60,43 @@ Narration may add sensory language and stylistic detail but may not create conse
 A receipt identifies the target, payload/event references, attempt, state and any host confirmation available. Use `injected_unconfirmed` when the host accepted injection but did not confirm visible rendering. Only an actual supported signal can set `shown`.
 
 A delivery failure can be retried without recommitting the underlying world event. A rolled-back event invalidates associated deliveries but does not use delivery state as evidence that the event happened.
+
+
+## 7. Core 1.9 subject-relative acquisition contract proposal
+
+**Status: semantic proposal for cross-block review only; not a callable runtime contract.** No production field is approved, and Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+A knowledge claim concerns one authenticated subject in one trusted world, about one proposition or source reference. To be admissible, its evidence must establish:
+- trusted subject/world binding, not caller-supplied labels;
+- source identity and lineage, plus authoritative currentness/retraction status;
+- one declared acquisition mechanism: observation, delivered communication, document/recording, inference from admissible premises, authorized author knowledge, or imported initial state with provenance;
+- mechanism-specific evidence. Retrieval, candidate assembly, context inclusion, or attempted send alone does not prove delivery, receipt, acquisition, or belief;
+- epistemic status distinct from canonical truth: knowledge, suspicion, dispute, and false belief must not be silently collapsed.
+
+Lifecycle rules proposed for review:
+- source edit/update: revalidate identity, lineage and version; unsupported comparison => NON_READY;
+- source deletion/retraction and access-grant revocation are distinct invalidations;
+- rollback/rebuild: re-evaluate against restored source projection and lineage; world_revision + commit_sequence are not a per-source journal;
+- restart/replay: reconstruct only from durable evidence and implemented deterministic rules;
+- missing/unknown version, incomplete inventory, validator error, unsupported source kind or missing lineage => NON_READY;
+- multiple sources require reconciliation: invalidating one source need not erase a claim if another independently valid acquisition path remains;
+- recheck authorization/currentness at the actual Host pre-dispatch boundary when a source or grant can change after candidate assembly. Core API send is not the pinned SillyTavern model sender.
+
+Existing mechanisms and limits:
+- AuthorizedReadService.readEntityFields() authorizes a finite canonical-field read, not subject knowledge; no production NPC field policy is approved.
+- entities.updated_revision is a projection's last applicable event revision and can revert on rollback/rebuild; no approved equivalence to Provider source_version exists.
+- Provider record_version versions a Provider record; source_version is opaque and its authority comes only from an injected validator.
+- MemoryNpcConsumer.retrieveForNpc() is an injected admission seam, not a production receiver or acquisition mechanism.
+- Host browser/lifecycle CI does not prove complete mutation inventory, live Android/Termux behavior, or final-send enforcement.
+- Raw Host/ST text retention and disclosure remain unapproved.
+
+Owners:
+- **Core:** trusted subject/world binding, canonical source validity/currentness, disclosure policy.
+- **Provider:** record identity/version/lineage and durable reconciliation; Provider metadata cannot create acquisition authority.
+- **NPC:** subject-relative admission and epistemic-state compatibility; admission cannot imply acquisition or belief.
+- **Host:** real capture/inventory evidence and actual pre-dispatch interception/revocation behavior.
+- **Coordinator:** consolidate one agreed contract before any callable shape is designed.
+
+Acceptance before production enablement must use real components and prove update/edit staleness; delete/retraction separately from grant revocation; rollback/rebuild even without an increased commit_sequence; restart/replay and corrupt/missing lineage; incomplete inventory/unknown sources fail-closed; no protected fields/content leakage; revocation between assembly and send blocks dispatch; and separate evidence for admission, disclosure, delivery, receipt/acquisition and belief. Provider-local callbacks or fixture-only green tests do not satisfy these gates.
+
+Cross-block decisions still required before API/schema design: supported first acquisition mechanism and its evidence; authoritative source type/currentness/retraction; source-version owner and semantics; durable NPC representation; actual Host release/receipt signals; and any finite disclosure fields/purpose. Until these are agreed, no source fields are approved and no runtime/schema implementation is authorized.
