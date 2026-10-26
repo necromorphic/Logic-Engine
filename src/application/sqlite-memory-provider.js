@@ -605,6 +605,13 @@ export class SQLiteMemoryProvider {
   }
 
   putRecord(record) {
+    // Serialize identity lookup and both durable record/index phases as one
+    // coordinator window. The local record transaction still commits before
+    // the separate index transaction so index failure remains recoverable.
+    return this.#withCoordinatorLock(() => this.#putRecordUnderLock(record));
+  }
+
+  #putRecordUnderLock(record) {
     if (!object(record) || !validId(record.world_id) || !validId(record.subject_id)
       || !validId(record.purpose) || !validId(record.record_ref) || !validId(record.record_version)
       || record.source_kind !== 'canonical_entity' || !validId(record.source_entity_id)
