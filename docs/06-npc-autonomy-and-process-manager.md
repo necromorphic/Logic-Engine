@@ -792,3 +792,11 @@ The NPC decision prototype now sorts candidate IDs using explicit JavaScript str
 A regression test was added first and observed failing on commit `415ab1f0dff772b990efa6647812417c1eab6991`: for IDs `"a"` and `"Z"`, the prior comparator returned locale order `["a", "Z"]`, while the required code-unit order is `["Z", "a"]`. The implementation change is in commit `d7bd3f4ea160a8f83ad9b64d0034eed9944ef12b`. GitHub Actions Runtime tests run `40356912387` completed with overall **success**, including `npm test` and the recalculation-oracle harness.
 
 This is a determinism hardening of the isolated pure prototype only. It does not add a production caller, connect mechanic evaluator outcomes to NPC feasibility, or authorize/propose/commit actions. Memory→NPC remains disabled/fail-closed.
+
+## 24. Candidate input completeness and mutation-isolation regression checks (26 Oct 2026)
+
+The latest Runtime tests workflow for commit `cc63c34f875a771aecef2651d2aa7150754e92ce`, run [40357663955](https://github.com/necromorphic/Logic-Engine/actions/runs/40357663955), completed with overall **success**. Both `npm test` and `node --test experiments/recalculation-oracle/harness.test.mjs` passed. The new tests verify that evaluation does not mutate caller-owned candidate objects or the input array, the returned candidate IDs are detached from later input mutation, and the unresolved result remains stable across explicit candidate permutations.
+
+A subsequent code review found one malformed-input edge case: JavaScript's `Array.prototype.map` skips sparse array holes, which could make a non-empty malformed input appear to be an empty candidate set. The NPC prototype now uses `Array.from(candidates, ...)` so each hole is passed through the existing object-shape validation and rejected instead of silently skipped. A focused regression test covers a one-hole sparse array.
+
+This change remains local to the isolated pure prototype. It does not define a production schema, change Core/Mechanics behavior, connect the kernel to the executor, or alter Memory→NPC admission. The test and fix commits are `7aaccb6e1725f6e141ff9b6ea689de476dc83a70` and `c89c1e9e8eb312055e759d7cb8177dcce1d88feb`; CI for these new commits must be checked before treating the regression as verified.
