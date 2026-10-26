@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, writeFileSync, existsSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -168,6 +168,31 @@ test('direct replay and projection helper calls enter Core transactions instead 
     assert.equal(store.txDepth, 0, 'direct projection rebuild must leave no open transaction');
   } finally {
     store.close();
+    if (previous === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+    else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previous;
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+
+test('SQLiteStore rejects coordinator and Core DB paths that alias the same file', (t) => {
+  if (process.platform === 'win32') {
+    t.skip('symlink creation requires platform-specific privileges on Windows');
+    return;
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'logic-engine-coordinator-alias-'));
+  const corePath = join(dir, 'core.sqlite');
+  const aliasPath = join(dir, 'coordinator-alias.sqlite');
+  const previous = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
+  try {
+    writeFileSync(corePath, '');
+    symlinkSync(corePath, aliasPath);
+    process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = aliasPath;
+    assert.throws(
+      () => new SQLiteStore(corePath),
+      /Coordinator DB must be separate from the Core DB, including filesystem aliases/,
+    );
+  } finally {
     if (previous === undefined) delete process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
     else process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = previous;
     rmSync(dir, { recursive: true, force: true });
