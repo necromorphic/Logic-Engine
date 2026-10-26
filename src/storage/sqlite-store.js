@@ -203,10 +203,14 @@ function createGuardedDatabaseFacade(store, database) {
       const control = /^\s*(?:BEGIN(?:\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE))?|COMMIT|END|ROLLBACK(?:\s+TO(?:\s+SAVEPOINT)?\s+[A-Za-z_][A-Za-z0-9_]*)?|SAVEPOINT\s+[A-Za-z_][A-Za-z0-9_]*|RELEASE(?:\s+SAVEPOINT)?\s+[A-Za-z_][A-Za-z0-9_]*)\s*;?\s*$/i;
       if (control.test(sql)) return database.exec(sql);
       const schemaChange = /^\s*(?:CREATE|ALTER|DROP|REINDEX)\b/i.test(sql);
-      if (schemaChange && store.txDepth === 0 && store.coordinatorDepth === 0) {
-        // Legacy service constructors issue schema DDL through store.db. Keep
-        // that compatibility surface while forcing each DDL batch through the
-        // same coordinator lease and Core transaction as ordinary writes.
+      const dataWrite = /^\\s*(?:INSERT|UPDATE|DELETE|REPLACE)\\b/i.test(sql);
+      if ((schemaChange || dataWrite) && store.txDepth === 0 && store.coordinatorDepth === 0) {
+        if (database.isTransaction) {
+          throw new Error('SQLITE_STORE_WRITE_OUTSIDE_TRANSACTION: finish raw read transactions before issuing a public facade write.');
+        }
+        // Preserve compatibility for service constructors and maintenance code
+        // while ensuring each standalone public-facade write obtains the same
+        // coordinator lease and Core transaction as store-owned mutations.
         return store.tx(() => database.exec(sql));
       }
       assertWriteLease();
@@ -219,8 +223,16 @@ function createGuardedDatabaseFacade(store, database) {
           const value = Reflect.get(target, property, target);
           if (property === 'run') {
             return (...args) => {
-              assertWriteLease();
-              return value.apply(target, args);
+              if (store.txDepth > 0 || store.coordinatorDepth > 0) {
+                return value.apply(target, args);
+              }
+              if (database.isTransaction) {
+                throw new Error('SQLITE_STORE_WRITE_OUTSIDE_TRANSACTION: finish raw read transactions before issuing a public facade write.');
+              }
+              // Public StatementSync.run() is not a raw-handle escape hatch:
+              // standalone calls are automatically serialized and committed
+              // through the Core transaction boundary.
+              return store.tx(() => value.apply(target, args));
             };
           }
           return typeof value === 'function' ? value.bind(target) : value;
