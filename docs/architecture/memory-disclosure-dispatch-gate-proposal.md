@@ -122,3 +122,11 @@ This checkpoint distinguishes newly demonstrated narrow paths from the still-blo
 - **Core:** The source-authority audit and cross-block contract-path matrix are now recorded in this PR. The approved source-version mapping remains limited to `canonical_entity`; injected fixture callbacks are not production authority.
 
 **Result:** the baseline request path is now more concrete, but no shared serialization boundary spans Provider revocation, Core source invalidation, and final outbound transport. The proposed PC-side egress gateway still requires owner approval and implementation. Production Memory→NPC remains `DISABLED / FAIL-CLOSED`.
+
+## Product/Security policy decision — delegated Coordinator defaults (26 Oct 2026)
+
+The policy defaults are recorded in [`docs/security/product-security-protected-memory-disclosure-policy.md`](../security/product-security-protected-memory-disclosure-policy.md).
+
+For design review, the Coordinator approves the PC-side egress gateway as the required topology for protected Memory-bearing requests; provider credentials for those routes stay on the PC; unsupported routes and gateway failures fail closed; raw prompts, Memory payloads, raw Host messages, derived Host summaries, secrets, and provider keys are not durably retained or logged; minimal content-free audit metadata has a 30-day default retention; and ambiguous post-dispatch-start transport outcomes are not automatically retried.
+
+This resolves the **policy-default** questions under the user's delegated Coordinator authority. It does not establish independent human Product/Security sign-off, implement a gateway, authorize a new API/schema, or establish that all send paths are covered. The existing PC/Provider/Host boundaries still do not provide a shared serialization point. The policy is approved for contract/design review only; production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
