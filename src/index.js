@@ -3,6 +3,7 @@ import { dirname, isAbsolute, resolve } from 'node:path';
 import { SQLiteStore } from './storage/sqlite-store.js';
 import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
+import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
 
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
@@ -45,7 +46,26 @@ if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('ENGINE
 if (!['127.0.0.1', '::1', 'localhost'].includes(host) && process.env.ENGINE_ALLOW_REMOTE !== 'true') throw new Error('Remote binding is disabled unless ENGINE_ALLOW_REMOTE=true.');
 
 const store = new SQLiteStore(dbPath);
-const server = createApiServer({ engine: new LogicEngine(store), token, internalToken, approvalToken, adminToken, adapterTokens });
+const hostVersionLedgerPath = process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH
+  ? resolve(process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH)
+  : resolve('./data/logic-engine-host-versions.sqlite');
+if (dbPath !== ':memory:' && resolve(hostVersionLedgerPath) === resolve(dbPath)) {
+  throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from ENGINE_DB_PATH.');
+}
+if (coordinatorPath && resolve(hostVersionLedgerPath) === resolve(coordinatorPath)) {
+  throw new Error('ENGINE_HOST_VERSION_LEDGER_DB_PATH must be separate from LOGIC_ENGINE_COORDINATOR_DB_PATH.');
+}
+// This deny-only verifier is deliberately not source authority. Until the trusted
+// Host/Core complete-inventory adapter is wired, reconciliation can never set READY.
+const hostVersionLedger = new HostVersionDigestLedger({
+  path: hostVersionLedgerPath,
+  coordinatorPath,
+  verifyInventorySnapshot: async () => false,
+});
+const server = createApiServer({
+  engine: new LogicEngine(store), token, internalToken, approvalToken, adminToken, adapterTokens,
+  hostVersionLedger,
+});
 server.listen(port, host, () => process.stdout.write(
   'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +
   '\nDirect commit: ' + (internalToken ? 'enabled for internal credential' : 'disabled') +
