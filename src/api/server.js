@@ -48,7 +48,19 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null, allowedOrigins = [] }) {
+  if (!Array.isArray(allowedOrigins) || allowedOrigins.some((origin) => typeof origin !== 'string' || !origin.trim())) {
+    throw new TypeError('allowedOrigins must be an array of exact HTTP(S) origins.');
+  }
+  const allowedOriginSet = new Set();
+  for (const origin of allowedOrigins) {
+    let parsed;
+    try { parsed = new URL(origin); } catch { throw new TypeError('Each allowed origin must be a valid HTTP(S) origin.'); }
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.origin !== origin || parsed.username || parsed.password || parsed.pathname !== '/' || parsed.search || parsed.hash) {
+      throw new TypeError('Each allowed origin must be an exact origin without path, credentials, query, or fragment.');
+    }
+    allowedOriginSet.add(origin);
+  }
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -88,6 +100,35 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
     authorizedReadFieldPolicy || defaultAuthorizedReadFieldPolicy);
 
   return createServer(async (req, res) => {
+    const requestOrigin = req.headers.origin;
+    if (typeof requestOrigin === 'string') {
+      if (!allowedOriginSet.has(requestOrigin)) {
+        return send(res, 403, { error: { code: 'ORIGIN_NOT_ALLOWED', message: 'Request origin is not allowlisted.' } });
+      }
+      res.setHeader('access-control-allow-origin', requestOrigin);
+      res.setHeader('vary', 'Origin');
+      res.setHeader('access-control-allow-methods', 'GET, POST, DELETE, OPTIONS');
+      res.setHeader('access-control-allow-headers', 'authorization, content-type, x-adapter-id, x-adapter-token');
+      res.setHeader('access-control-max-age', '600');
+    }
+    if (req.method === 'OPTIONS') {
+      if (typeof requestOrigin !== 'string' || !allowedOriginSet.has(requestOrigin)) {
+        return send(res, 403, { error: { code: 'ORIGIN_NOT_ALLOWED', message: 'CORS preflight requires an allowlisted origin.' } });
+      }
+      const requestedMethod = req.headers['access-control-request-method'];
+      const allowedMethods = new Set(['GET', 'POST', 'DELETE']);
+      if (typeof requestedMethod !== 'string' || !allowedMethods.has(requestedMethod.toUpperCase())) {
+        return send(res, 403, { error: { code: 'CORS_METHOD_NOT_ALLOWED', message: 'Requested method is not allowed.' } });
+      }
+      const requestedHeaders = String(req.headers['access-control-request-headers'] || '')
+        .split(',').map((header) => header.trim().toLowerCase()).filter(Boolean);
+      const allowedHeaders = new Set(['authorization', 'content-type', 'x-adapter-id', 'x-adapter-token']);
+      if (requestedHeaders.some((header) => !allowedHeaders.has(header))) {
+        return send(res, 403, { error: { code: 'CORS_HEADERS_NOT_ALLOWED', message: 'Requested headers are not allowed.' } });
+      }
+      res.writeHead(204);
+      return res.end();
+    }
     try {
       const url = new URL(req.url || '/', 'http://127.0.0.1');
       if (req.method === 'GET' && url.pathname === '/health') return send(res, 200, { ok: true, service: 'logic-engine', protocol_version: 'v1' });
