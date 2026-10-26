@@ -760,3 +760,33 @@ test('record revocation survives Provider restart and index rebuild cannot resto
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
 });
+
+
+test('Provider input snapshot rejects Object.prototype pollution before inherited getters run', (t) => {
+  const s = setup(t);
+  const incomplete = { ...s.record };
+  delete incomplete.lineage;
+  const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, 'lineage');
+  let getterCalls = 0;
+
+  Object.defineProperty(Object.prototype, 'lineage', {
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      throw new Error('inherited lineage getter must not execute');
+    },
+  });
+
+  try {
+    assert.throws(
+      () => s.provider.putRecord(incomplete),
+      /Invalid direct-source Memory record/,
+    );
+  } finally {
+    if (descriptor) Object.defineProperty(Object.prototype, 'lineage', descriptor);
+    else delete Object.prototype.lineage;
+  }
+
+  assert.equal(getterCalls, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_records').get().count, 0);
+});
