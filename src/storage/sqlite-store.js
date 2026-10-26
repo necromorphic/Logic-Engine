@@ -214,13 +214,14 @@ export class SQLiteStore {
     // Memory Provider or make network dispatch gateway-only.
     this.coordinatorStartupRelease = null;
     this.coordinatorDepth = 0;
-    // Schema creation and migrations are writes too; acquire the shared lock
-    // before the first DDL and retain it across all migrations.
-    if (this.coordinatorDb) {
-      this.coordinatorStartupRelease = beginCoordinatorLock(this.coordinatorDb);
-      this.coordinatorDepth = 1;
-    }
     try {
+      // Schema creation and migrations are writes too; acquire the shared lock
+      // before the first DDL and retain it across all migrations. Keep lock
+      // acquisition inside the cleanup scope so constructor failure closes both DBs.
+      if (this.coordinatorDb) {
+        this.coordinatorStartupRelease = beginCoordinatorLock(this.coordinatorDb);
+        this.coordinatorDepth = 1;
+      }
     this.db.exec(`
       PRAGMA foreign_keys=ON;
       PRAGMA busy_timeout=5000;
