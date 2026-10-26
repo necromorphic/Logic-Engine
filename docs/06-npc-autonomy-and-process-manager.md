@@ -201,3 +201,56 @@ The model may propose candidate actions and explain their plausibility. A propos
 ### 9.5 Scope and future acceptance checks
 
 This proposes an extensible role-and-social-institution profile mechanism; it does not introduce runtime APIs, schemas, storage contracts, or implementation claims. Core approval is required before defining new contracts. A future vertical slice should test: (1) two different personalities sharing one role and responding differently; (2) one NPC holding conflicting roles; (3) separation of world fact, observation, suspicion, belief, and knowledge; (4) pinned/versioned world rules and no silent retroactive semantic change; and (5) validation and persisted consequences through the canonical Core path. Prompt-only examples or unvalidated model output do not prove production capability.
+
+
+## 10. NPC decision cycle: from situation to validated consequence
+
+This is a proposed behavioral contract for the NPC block. It does not define a runtime API, storage schema, or new Core transaction path.
+
+### 10.1 Decision cycle
+
+1. **Establish the actor's decision context.** Gather only relevant current world state, the actor's roles and capabilities, stable traits and mutable condition, goals, plans, relationships, obligations, resources, recent events, and unresolved tasks.
+2. **Apply epistemic filtering.** Include only information the actor is authorized and causally able to know. Preserve distinctions among observed facts, testimony, inference, suspicion, belief, and unknown information. Do not supply omniscient state by default.
+3. **Identify the active pressures.** Determine which goals, duties, loyalties, fears, deadlines, risks, and relationships are relevant. Conflicts between them should remain visible rather than being silently collapsed into one generic personality label.
+4. **Generate plausible candidate actions.** The model may propose more than one option, including inaction, delay, inquiry, negotiation, concealment, cooperation, deception, retreat, or escalation where appropriate. Candidate actions must be grounded in this actor's capabilities, knowledge, motives, and circumstances; the role label alone is not enough.
+5. **Check feasibility and rules.** The engine must validate preconditions, epistemic access, permissions, capabilities, resources, timing, applicable pinned World Pack rules, and known constraints. A plausible intention is not proof that the action can be performed.
+6. **Resolve competing actions and world constraints.** If actors' actions conflict, use the existing approved Core conflict-resolution and commit path. NPC-local reasoning must not bypass Core authorization, validation, idempotency, or persistence.
+7. **Resolve the outcome.** Distinguish the intended action from the action actually allowed and the outcome that occurs. Success is not guaranteed: an action may fail, be blocked, be interrupted, or produce a different rule-governed result.
+8. **Persist causal consequences through the approved owner path.** Record the accepted event/result and its causal relationship using existing approved contracts. Do not create a parallel NPC-owned world-state/event store.
+9. **Reassess affected NPC state.** Update goals, plans, tasks, relationships, beliefs, or current condition only where the resolved outcome and acquired information justify a change. Do not rewrite stable traits or prior history merely to make the next action convenient.
+10. **Schedule follow-up and communication.** If consequences create a new task, deadline, report, investigation, or opportunity for another NPC, make it eligible through the approved process/time mechanisms. A pending message or report is not equivalent to information received.
+11. **Narrate only what is appropriate to reveal.** Narration represents resolved state and permitted perspective; it must not silently turn a proposal into a fact, grant the player knowledge they have not acquired, or author the player's response.
+
+### 10.2 Separation of responsibilities
+
+- **LLM / decision reasoning:** interpret context and propose candidate actions, motives, dialogue, and uncertainty-aware explanations.
+- **NPC domain logic:** determine actor-relative relevance, connect roles/personality/knowledge/goals to candidate behavior, and identify what state may need reconsideration.
+- **World Pack:** define world-specific rules, capabilities, preconditions, and outcome semantics.
+- **Core and approved domain owners:** validate authority, resolve conflicts, enforce transaction/idempotency rules, and commit durable world effects through the canonical path.
+- **Narration:** communicate the resolved outcome according to perspective and information access; it does not own world truth.
+
+This is a responsibility boundary, not a claim that all these mechanisms currently exist in production.
+
+### 10.3 Failure and uncertainty behavior
+
+- If a required rule, permission, capability, source, or precondition is missing or ambiguous, do not silently invent it. Apply an existing approved fallback if one exists; otherwise preserve the unresolved decision for explicit handling.
+- If the candidate action is impossible, reject or request a different candidate without pretending it happened.
+- If two actions compete for the same exclusive resource or produce incompatible effects, do not let generation order alone decide the winner. Use the approved conflict-resolution policy or leave the conflict unresolved.
+- If the action fails, retain the failure and its consequences when the world rules say they occurred; do not silently retry until success.
+- If new evidence changes the actor's belief, update the belief only through the approved state path and preserve the evidence/provenance and prior causal history.
+- If narration fails after a world effect has committed, do not commit the same effect again merely because narration is retried.
+
+### 10.4 Future acceptance checks
+
+A future vertical slice should demonstrate, against the actual approved integration path:
+
+1. The same situation yields meaningfully different candidate actions for two NPCs with different profiles, without violating shared world rules.
+2. An NPC does not act on information it has not acquired through a valid in-world path.
+3. A candidate requiring unavailable authority, capability, resources, or prerequisites is not committed as a successful event.
+4. Competing actions do not win solely because one was generated first.
+5. Intended action, validated action, resolved outcome, and narration remain distinguishable.
+6. A failed action is not silently repeated until success; retries remain idempotent.
+7. A restart/replay preserves committed consequences and does not duplicate them.
+8. A missing or conflicting authoritative rule remains explicitly unresolved rather than being filled with invented world mechanics.
+
+Until the relevant contracts and real runtime tests exist, these are design requirements, not evidence of current implementation.
