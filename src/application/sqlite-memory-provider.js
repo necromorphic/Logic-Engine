@@ -445,6 +445,10 @@ export class SQLiteMemoryProvider {
   }
 
   async authorizeCandidate(input) {
+    // Take the cross-connection epoch before reading any authorization state.
+    // Otherwise a revoke/re-grant committed between the initial grant read and
+    // the later epoch capture would be invisible to this request.
+    const requestDataVersion = this.#dataVersion();
     if (!object(input) || !validId(input.world_id) || !validId(input.subject_id)
       || !validId(input.purpose) || !validId(input.record_ref) || !validId(input.record_version)) return false;
     const scope = { world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose };
@@ -480,7 +484,7 @@ export class SQLiteMemoryProvider {
     ]);
     const queryAuthorizationGeneration = this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0;
     const recordAuthorizationGeneration = this.recordAuthorizationGeneration.get(recordGrantKey) ?? 0;
-    const providerDataVersion = this.#dataVersion();
+    const providerDataVersion = requestDataVersion;
 
     let sourceValid = false;
     try {
@@ -762,6 +766,10 @@ export class SQLiteMemoryProvider {
   }
 
   async retrieveCandidates(scope) {
+    // Capture before checking the query grant or readiness. Capturing after
+    // those reads can miss a cross-connection revoke/re-grant ABA that finishes
+    // just before the first await.
+    const requestDataVersion = this.#dataVersion();
     this.#scope(scope);
     if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const queryGrantKey = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose]);
@@ -771,7 +779,7 @@ export class SQLiteMemoryProvider {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
     const stateGeneration = this.stateGeneration.get(scope.world_id) ?? 0;
-    const providerDataVersion = this.#dataVersion();
+    const providerDataVersion = requestDataVersion;
     const scopedRecords = this.db.prepare(`SELECT record_ref, record_version FROM memory_records
       WHERE world_id=? AND subject_id=? AND purpose=?`)
       .all(scope.world_id, scope.subject_id, scope.purpose);
