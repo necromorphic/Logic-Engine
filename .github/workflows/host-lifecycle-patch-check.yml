@@ -31,6 +31,7 @@ jobs:
       - name: Syntax-check patched host and prototype modules
         run: |
           node --check sillytavern-host-checkout/public/script.js
+          node --check sillytavern-host-checkout/public/scripts/slash-commands.js
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
       - name: Run all Host prototype tests
