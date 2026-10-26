@@ -8,7 +8,7 @@
 - Host prototype branch: `host/lifecycle-completeness-followup-2026-10-25`.
 - `host-adapter/prototype/st-lifecycle-bridge.mjs`: persisted `_logicEngineLifecycle` metadata, per-message version digests, active swipe index comparison, identity snapshot comparison, and fail-closed behavior for mismatched fingerprint/metadata.
 - `host-adapter/prototype/lifecycle-journal.mjs`: IndexedDB hash-chain journal with a stored head checkpoint; required coverage list includes deletion, import/export, copy/restore, external edit, rollback, restart and replay, but a required-path list is not evidence that those paths are hooked.
-- Provider implementation: `src/application/source-version-ledger.js` (PR #390).
+- Provider implementation: `src/application/host-version-digest-ledger.js` (PR #402/current main).
 
 ## What matches
 
@@ -19,7 +19,7 @@
 | Active swipe | Host compares selected swipe index with stored activeVersionIndex | Provider has an active pointer and snapshot active flag | Semantics align; real transport/adapter absent |
 | Missed event | Host can compare current chat fingerprint and identity metadata against journal checkpoint | Provider accepts complete trusted snapshot and reconciles known versions | Not yet connected; Host completeness is explicitly not established |
 | Restart | IndexedDB journal/head checkpoint can detect internal mismatch | SQLite ledger persists accepted snapshot head and versions | Separate stores, no restart/reconciliation bridge |
-| Restore/branch | Host prototype does not support trustworthy forward/re-baseline branch enrollment and leaves uninstrumented paths NON_READY | Provider rejects stale sequence and changed branch; requires injected validator | Compatible fail-closed direction, but no shared branch/restore contract |
+| Restore/branch/rollback | Host prototype does not support trustworthy forward/re-baseline branch enrollment and leaves uninstrumented paths NON_READY | Current `reconcileConversation` input has no installation identity, branch/restore lineage, or monotonic snapshot sequence. The injected verifier receives only `world_id`, `conversation_id`, `complete`, and `versions`; this request shape cannot prove anti-rollback or branch-change rejection. | BLOCKED: no approved shared envelope/authority contract; do not claim Provider-enforced anti-rollback |
 | Deletion | Some explicit mutation hooks exist; whole-chat/group/character deletion and all imports/restores are not proven complete | Provider can tombstone exact version and tombstones missing versions only after a trusted complete snapshot | Cannot safely infer deletion from current Host prototype |
 
 ## Required snapshot envelope for a future adapter
@@ -40,7 +40,7 @@ The current Host prototype does not yet emit this approved envelope. In particul
 - `validateVersion` and `validateSnapshot` are required constructor dependencies; no default trust policy exists.
 - Identical identity + digest + parent is idempotent. Same identity with a different digest/parent returns `NON_READY`.
 - Swipe selection only changes active pointer. Exact-version tombstone retains the record as tombstoned.
-- A trusted complete snapshot can recover missed events; stale sequence, different branch, installation collision, tombstone resurrection, invalid inventory or unavailable trust validator fails closed.
+- A trusted complete snapshot can recover missed events and the Provider fails closed on invalid inventory, known-version disappearance, digest conflict, tombstone resurrection, and unavailable/false verifier. However, the current Provider request/verifier shape does **not** carry installation identity, branch/restore lineage, or monotonic snapshot sequence, so stale-sequence rejection, branch-change detection, and restore/rollback resistance are not established by this implementation. Those guarantees remain blocked pending an approved Core/Host contract; do not infer them from an injected verifier alone.
 - Ledger does not retain raw message text and does not expose an HTTP route.
 - Snapshot absence is used to tombstone a version only after the injected verifier accepts the complete same-branch snapshot. That verifier is not implemented by this PR.
 
