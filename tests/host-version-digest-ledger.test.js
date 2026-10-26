@@ -43,6 +43,22 @@ test('same identity with different digest records conflict and forces NON_READY'
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 });
 
+test('conflicting digest cannot change the active pointer before NON_READY', (t) => {
+  const ledger = setup(t);
+  ledger.captureVersion(entry());
+  ledger.captureVersion(entry({
+    version_id: 'version-b', content_sha256: digest('second version'), active: false
+  }));
+  assert.equal(ledger.db.prepare('SELECT version_id FROM host_version_active_pointer').get().version_id, 'version-a');
+
+  assert.deepEqual(ledger.captureVersion(entry({
+    version_id: 'version-b', content_sha256: digest('conflicting bytes'), active: true
+  })), { status: 'conflict', code: 'HOST_VERSION_DIGEST_CONFLICT' });
+
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  assert.equal(ledger.db.prepare('SELECT version_id FROM host_version_active_pointer').get().version_id, 'version-a');
+});
+
 test('active selection preserves alternatives and exact tombstone does not delete another version', (t) => {
   const ledger = setup(t);
   ledger.captureVersion(entry());
