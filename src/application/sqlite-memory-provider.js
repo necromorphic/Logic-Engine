@@ -478,7 +478,13 @@ export class SQLiteMemoryProvider {
     const currentGrant = this.db.prepare(`SELECT allowed FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
-    return currentGrant?.allowed === 1;
+    if (currentGrant?.allowed !== 1) {
+      // A grant that disappears while source validation is awaited is a
+      // mid-request revocation, not an ordinary pre-existing per-record denial.
+      // Keep the consumer from turning a revoked last candidate into ready-empty.
+      throw new Error('MEMORY_RECORD_ACCESS_REVOKED');
+    }
+    return true;
   }
 
   putRecord(record) {
