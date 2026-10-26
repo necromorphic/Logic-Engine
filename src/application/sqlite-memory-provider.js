@@ -711,7 +711,7 @@ export class SQLiteMemoryProvider {
     }));
     return {
       completeness: rows.length > 50 ? 'partial' : 'complete',
-      index_health: state.index_health,
+      index_health: latestState.index_health,
       source_reconciliation: latestState.source_reconciliation,
       scope: { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose },
       snapshot: current,
