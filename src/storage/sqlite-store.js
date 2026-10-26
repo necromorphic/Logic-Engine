@@ -200,9 +200,9 @@ function createGuardedDatabaseFacade(store, database) {
   };
   return {
     exec(sql) {
-      const control = /^\\s*(?:BEGIN(?:\\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE))?|COMMIT|END|ROLLBACK(?:\\s+TO(?:\\s+SAVEPOINT)?\\s+[A-Za-z_][A-Za-z0-9_]*)?|SAVEPOINT\\s+[A-Za-z_][A-Za-z0-9_]*|RELEASE(?:\\s+SAVEPOINT)?\\s+[A-Za-z_][A-Za-z0-9_]*)\\s*;?\\s*$/i;
+      const control = /^\s*(?:BEGIN(?:\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE))?|COMMIT|END|ROLLBACK(?:\s+TO(?:\s+SAVEPOINT)?\s+[A-Za-z_][A-Za-z0-9_]*)?|SAVEPOINT\s+[A-Za-z_][A-Za-z0-9_]*|RELEASE(?:\s+SAVEPOINT)?\s+[A-Za-z_][A-Za-z0-9_]*)\s*;?\s*$/i;
       if (control.test(sql)) return database.exec(sql);
-      const schemaChange = /^\\s*(?:CREATE|ALTER|DROP|REINDEX)\\b/i.test(sql);
+      const schemaChange = /^\s*(?:CREATE|ALTER|DROP|REINDEX)\b/i.test(sql);
       if (schemaChange && store.txDepth === 0 && store.coordinatorDepth === 0) {
         // Legacy service constructors issue schema DDL through store.db. Keep
         // that compatibility surface while forcing each DDL batch through the
