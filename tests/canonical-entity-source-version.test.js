@@ -67,6 +67,7 @@ test('Core source-version validator rejects stale revisions after update and rol
     turn_id: 'source-authority-update',
     event_type: 'action.completed',
     expected_revision: initial.world_revision,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'source-a' } }],
     effects: [{ kind: 'entity.update', entity_id: 'source-a', attributes: { public_note: 'updated' } }],
   });
   assert.equal(update.accepted, true);
@@ -111,7 +112,8 @@ test('Core source-version validator rejects destroyed entities and unavailable C
     turn_id: 'source-authority-destroy',
     event_type: 'action.completed',
     expected_revision: current.world_revision,
-    effects: [{ kind: 'entity.destroy', entity_id: 'source-a' }],
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'source-a' } }],
+    effects: [{ kind: 'entity.update', entity_id: 'source-a', status: 'destroyed' }],
   });
   assert.equal(destroyed.accepted, true);
   const destroyedSnapshot = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'] });
