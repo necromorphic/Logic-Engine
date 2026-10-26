@@ -202,6 +202,14 @@ function createGuardedDatabaseFacade(store, database) {
     exec(sql) {
       const control = /^\s*(?:BEGIN(?:\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE))?|COMMIT|END|ROLLBACK(?:\s+TO(?:\s+SAVEPOINT)?\s+[A-Za-z_][A-Za-z0-9_]*)?|SAVEPOINT\s+[A-Za-z_][A-Za-z0-9_]*|RELEASE(?:\s+SAVEPOINT)?\s+[A-Za-z_][A-Za-z0-9_]*)\s*;?\s*$/i;
       if (control.test(sql)) return database.exec(sql);
+      const journalMode = /^\s*PRAGMA\s+journal_mode\s*=/i.test(sql);
+      if (journalMode && store.txDepth === 0 && store.coordinatorDepth === 0) {
+        // SQLite rejects journal_mode changes inside a transaction. Serialize
+        // this database-level maintenance operation with all participating
+        // processes using the coordinator lock, without opening a Core write tx.
+        const release = store.coordinatorDb ? beginCoordinatorLock(store.coordinatorDb) : null;
+        try { return database.exec(sql); } finally { release?.(); }
+      }
       const schemaChange = /^\s*(?:CREATE|ALTER|DROP|REINDEX)\b/i.test(sql);
       const dataWrite = /^\s*(?:INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql);
       if ((schemaChange || dataWrite) && store.txDepth === 0 && store.coordinatorDepth === 0) {
