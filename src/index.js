@@ -71,6 +71,6 @@ server.listen(port, host, () => process.stdout.write(
   '\nDirect commit: ' + (internalToken ? 'enabled for internal credential' : 'disabled') +
   '\nProposal approval: ' + (approvalToken ? 'enabled' : 'disabled') + '\nAdmin registry: ' + (adminToken ? 'enabled' : 'disabled') + '\nConfigured adapters: ' + Object.keys(adapterTokens).length + '\n',
 ));
-function stop() { server.close(() => { store.close(); process.exit(0); }); }
+function stop() { server.close(() => { try { hostVersionLedger.close(); } finally { store.close(); process.exit(0); } }); }
 process.on('SIGINT', stop);
 process.on('SIGTERM', stop);
