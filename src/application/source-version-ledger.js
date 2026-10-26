@@ -4,10 +4,8 @@ import { createHash } from 'node:crypto';
 const object = value => value !== null && typeof value === 'object' && !Array.isArray(value);
 const valid = value => typeof value === 'string' && value.length > 0 && value === value.trim()
   && value.length <= 240 && ![...value].some(c => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
-const digestOf = value => createHash('sha256').update(value, 'utf8').digest('hex');
 const tuple = x => [x.world_id, x.conversation_id, x.message_id, x.version_id];
 const keyOf = x => JSON.stringify(tuple(x));
-const sameTuple = (a, b) => tuple(a).every((v, i) => v === tuple(b)[i]);
 
 /**
  * Provider-owned digest-only ledger for Host source-version identities.
@@ -18,11 +16,15 @@ const sameTuple = (a, b) => tuple(a).every((v, i) => v === tuple(b)[i]);
  * No message text is accepted or stored by this class.
  */
 export class SQLiteSourceVersionLedger {
-  constructor({ path = ':memory:', validateSnapshot }) {
+  constructor({ path = ':memory:', validateSnapshot, validateVersion }) {
     if (typeof validateSnapshot !== 'function') {
       throw new TypeError('SQLiteSourceVersionLedger requires trusted validateSnapshot');
     }
+    if (typeof validateVersion !== 'function') {
+      throw new TypeError('SQLiteSourceVersionLedger requires trusted validateVersion');
+    }
     this.validateSnapshot = validateSnapshot;
+    this.validateVersion = validateVersion;
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA foreign_keys = ON;
@@ -74,6 +76,9 @@ export class SQLiteSourceVersionLedger {
     if (!Number.isSafeInteger(input.snapshot_sequence) || input.snapshot_sequence < 0) {
       throw new TypeError('Invalid snapshot_sequence');
     }
+    let verified = false;
+    try { verified = this.validateVersion(Object.freeze({ ...input })) === true; } catch { verified = false; }
+    if (!verified) return { status: 'NON_READY', reason: 'VERSION_NOT_AUTHORIZED' };
     return this.#transaction(() => {
       const old = this.db.prepare(`SELECT * FROM source_versions
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...tuple(input));
@@ -152,6 +157,13 @@ export class SQLiteSourceVersionLedger {
     }
 
     return this.#transaction(() => {
+      const foreignHead = this.db.prepare(`SELECT host_installation_id FROM source_ledger_heads
+        WHERE world_id=? AND conversation_id=? AND host_installation_id<>? LIMIT 1`)
+        .get(snapshot.world_id, snapshot.conversation_id, snapshot.host_installation_id);
+      if (foreignHead) {
+        this.#setSnapshotNonReady(snapshot, 'HOST_INSTALLATION_CONFLICT');
+        return { status: 'NON_READY', reason: 'HOST_INSTALLATION_CONFLICT' };
+      }
       const head = this.db.prepare(`SELECT * FROM source_ledger_heads
         WHERE world_id=? AND conversation_id=? AND host_installation_id=?`)
         .get(snapshot.world_id, snapshot.conversation_id, snapshot.host_installation_id);
