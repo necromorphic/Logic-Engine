@@ -100,3 +100,29 @@ No PR was merged/closed as part of this reconciliation. This is deliberate: the 
 5. Only after approval: actual route-handler tests per enabled branch, including post-assembly edit/delete/revocation/scope-change race and zero provider egress on deny/error/unknown.
 
 No active phone installation or Ollama vectorization/remote-store patch is changed by this document. No raw message text is retained.
+
+## Follow-up static discovery increment — 26 Oct 2026
+
+A second source search at the same pinned SHA found additional call-site families outside the initial 18-file table. This is **additional discovery, not exhaustive closure**:
+
+- `src/endpoints/search.js`: external search-provider and YouTube page fetches. Usually not generation by themselves, but may fetch content that later enters a prompt; protect source acquisition/retrieval separately if the product contract includes it.
+- `src/endpoints/translate.js`: LibreTranslate/Google/Yandex translation calls; user-provided or scene text may be sent for translation.
+- `src/endpoints/openrouter.js`: provider/model and modality discovery plus an image-generation route; do not equate every call with inference, but inventory the actual image dispatch branch.
+- `src/endpoints/nanogpt.js`: balance/subscription usage endpoints (account metadata, not necessarily protected content); distinguish from inference.
+- `src/vectors/cohere-vectors.js`, `src/vectors/nomicai-vectors.js` and other `src/vectors/**` files: embedding/vectorization transport. These are deliberately **out of Host patch scope** because the existing Ollama/vectorization/remote-store integration must not be changed; list as a separate data-egress family, not as a proposed Host hook.
+- `public/scripts/extensions/tts/**` and `public/scripts/extensions/stable-diffusion/**`: direct extension callers for TTS/image generation, including plugin/provider-specific URLs. A server endpoint-only list cannot establish coverage of direct browser/plugin calls.
+- Other browser files contain fetches for login, user settings, backups, stats, scrapers, etc. These are not automatically model-inference calls, but a literal `fetch(` search must be classified rather than assumed relevant or irrelevant.
+
+### Reproducible audit script
+
+Added a read-only script at [tools/audit-pinned-st-outbound.sh](tools/audit-pinned-st-outbound.sh), commit `02f1f3b1b07fa887329b01f825f4e7ca700e76a1`. Run from the Logic-Engine checkout while pointing it at a local SillyTavern checkout:
+
+```sh
+bash host-adapter/prototype/tools/audit-pinned-st-outbound.sh /path/to/SillyTavern
+```
+
+It refuses to emit the inventory unless `git rev-parse HEAD` exactly matches the pinned ST SHA. It prints lexical transport call sites, server route declarations and provider/media/local-inference markers. It does not install hooks, contact providers, capture messages, or modify SillyTavern. Its output still requires manual call-graph classification and is not itself proof of exhaustive coverage or runtime behavior.
+
+### Remaining route-inventory gap
+
+This environment can inspect pinned source snippets and maintain the audit script, but it has not executed the script against a complete local ST checkout. Therefore there is no honest whole-repository hit count or complete route-by-route call graph to report yet. The exact command above is the next reproducible source-level step on a disposable checkout. Until its output is reviewed and all enabled call branches are traced, the route inventory remains **BOUNDED / NON_READY**. No runtime gate or interception patch is authorized before Core approves the final-disclosure contract.
