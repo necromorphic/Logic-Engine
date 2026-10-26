@@ -862,3 +862,30 @@ test('request accessors that throw fail closed without invoking Memory', async (
   assert.equal(queryCalled, false);
   assert.equal(JSON.stringify(result).includes('private request getter'), false);
 });
+
+
+test('malformed Memory snapshot cursor values are non-ready, including matching invalid cursors', async (t) => {
+  const { consumer, provider, setCandidates, snapshot } = setup(t);
+  setCandidates([]);
+  const originalRetrieve = provider.retrieveCandidates;
+
+  for (const malformedSnapshot of [
+    { world_revision: -1, commit_sequence: snapshot.commit_sequence },
+    { world_revision: snapshot.world_revision + 0.5, commit_sequence: snapshot.commit_sequence },
+    { world_revision: Number.MAX_SAFE_INTEGER + 1, commit_sequence: snapshot.commit_sequence },
+    { world_revision: String(snapshot.world_revision), commit_sequence: snapshot.commit_sequence },
+    { world_revision: snapshot.world_revision, commit_sequence: String(snapshot.commit_sequence) },
+  ]) {
+    provider.retrieveCandidates = async () => ({
+      ...(await originalRetrieve()),
+      snapshot: malformedSnapshot,
+    });
+
+    const result = await consumer.retrieveForNpc(request());
+    assert.equal(result.status, 'non_ready');
+    assert.equal(result.reason, 'memory_result_incomplete_or_scope_mismatch');
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.candidates, []);
+    assert.equal(JSON.stringify(result).includes(JSON.stringify(malformedSnapshot)), false);
+  }
+});
