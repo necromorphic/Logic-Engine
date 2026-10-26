@@ -193,6 +193,9 @@ export async function fingerprintSource(messages, sourceLocator = null) {
     isUser: message.is_user === true,
     isSystem: message.is_system === true,
     systemType: message.extra?.type ?? null,
+    // ST stores child branch names on the source message's extra.branches.
+    // Fingerprint these observed references; this does not authenticate parent-child lineage.
+    branchReferences: Array.isArray(message.extra?.branches) ? message.extra.branches : [],
     name: message.name ?? null,
     currentMessage: message.mes ?? '',
     versions: Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''],
