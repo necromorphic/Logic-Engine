@@ -411,6 +411,25 @@ test("identity tuple encoding does not collide when references or versions conta
   ]);
 });
 
+test("summary lineage rejects duplicate source ref/version identities without disclosure", () => {
+  const source = {
+    ref: "source:duplicate",
+    version: "7",
+    world_id: request.world_id,
+    access: { outcome: "allow", subject_id: request.subject_id, purpose: request.purpose },
+    freshness: { status: "current" },
+  };
+  const summary = candidate({
+    content_kind: "summary",
+    lineage: { status: "complete", sources: [source, { ...source }] },
+  });
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
+
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, []);
+  assert.equal(JSON.stringify(result).includes("source:duplicate"), false);
+});
+
 test("summary lineage rejects sparse arrays instead of skipping missing source slots", () => {
   const sources = [];
   sources.length = 2;
