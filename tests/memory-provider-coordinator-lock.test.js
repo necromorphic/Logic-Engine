@@ -73,9 +73,12 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
       const { id, operation } = JSON.parse(line);
       try {
         if (operation === 'grantQuery') provider.grantQuery(scope, true);
+        else if (operation === 'revokeQuery') provider.grantQuery(scope, false);
         else if (operation === 'grantRecord') provider.grantRecord(scope, record.record_ref, record.record_version, true);
+        else if (operation === 'revokeRecord') provider.revokeRecord(scope, record.record_ref, record.record_version);
         else if (operation === 'putRecord') provider.putRecord(record);
         else if (operation === 'tombstone') provider.markRawSourceDeleted({ world_id:'world-coordinator', conversation_id:'conversation', message_id:'message', version_id:'v1' });
+        else if (operation === 'purge') provider.purgeRawSource({ world_id:'world-coordinator', conversation_id:'conversation', message_id:'message', version_id:'v1' });
         else if (operation === 'rebuildIndex') await provider.rebuildIndex(scope.world_id);
         else if (operation === 'reconcile') await provider.reconcile(scope.world_id);
         else if (operation === 'close') { provider.close(); process.stdout.write(JSON.stringify({id, ok:true})+'\\n'); process.exit(0); }
@@ -137,7 +140,7 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
       });
     };
 
-    for (const operation of ['grantQuery', 'grantRecord', 'putRecord', 'tombstone', 'rebuildIndex', 'reconcile']) {
+    for (const operation of ['grantQuery', 'revokeQuery', 'grantRecord', 'revokeRecord', 'putRecord', 'tombstone', 'purge', 'rebuildIndex', 'reconcile']) {
       await assertBlockedByCoreLock(operation);
     }
 
