@@ -126,7 +126,7 @@ This section is a domain compatibility default, not a storage/API/schema change 
 
 ### World Pack provenance invariant
 
-For every committed Relationship transition, the historical semantics needed to explain or re-evaluate that transition must remain unambiguous for its full retained lifetime, including process restart, projection rebuild, manifest unregister/removal, replacement by a newer manifest, backup/restore, and recovery. A version label alone is not provenance.
+For every committed Relationship transition, the historical semantics needed to explain or re-evaluate that transition must remain unambiguous for its full retained lifetime, including process restart, projection rebuild, manifest unregister/removal, replacement by a newer manifest, backup/restore, and recovery. A version label alone is not provenance. Even where an event/effect records `world_pack_id + world_pack_version`, those identifiers alone do not prove that the complete historical executable rules and provenance remain available; they are necessary identification metadata, not sufficient proof that semantic re-evaluation is possible.
 
 **Preferred representation:** persist the exact `world_pack_id + world_pack_version` on the committed event/effect alongside the existing `rule_module_id + rule_module_version`, if and when Core approves the event-contract change. Relationships does not authorize or implement that schema change.
 
