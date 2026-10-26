@@ -378,7 +378,11 @@ export class MemoryNpcConsumer {
 
     const sourceById = new Map();
     for (const entity of sourceRead.entities) {
-      if (!object(entity) || !validId(entity.entity_id)) return nonReady('authorized_source_read_invalid');
+      if (!object(entity) || !validId(entity.entity_id) || sourceById.has(entity.entity_id)) {
+        // The authorized read boundary must not return ambiguous canonical
+        // identities. Never silently choose the last row for a duplicate ID.
+        return nonReady('authorized_source_read_invalid');
+      }
       sourceById.set(entity.entity_id, entity);
     }
 
