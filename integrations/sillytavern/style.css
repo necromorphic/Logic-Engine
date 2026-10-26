@@ -1,0 +1,17 @@
+.logic-engine-bridge-settings {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6em;
+  margin: 0.5em 0;
+}
+#logic_engine_bridge_status {
+  padding: 0.5em;
+  border-radius: 0.4em;
+  overflow-wrap: anywhere;
+}
+#logic_engine_bridge_status[data-state="ok"] {
+  border: 1px solid var(--SmartThemeQuoteColor, #4a8);
+}
+#logic_engine_bridge_status[data-state="error"] {
+  border: 1px solid var(--SmartThemeEmColor, #c66);
+}
