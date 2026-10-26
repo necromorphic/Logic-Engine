@@ -810,3 +810,13 @@ A further review of the isolated decision kernel found that `Math.max(...prefere
 The same branch contains `src/npc/memory-candidate-eligibility.js`, which remains a pure NPC-side admission oracle, not a production receiver or trusted authorization service. It requires trusted caller-supplied scope and snapshot, a complete dense result, request-level access/scope confirmation, candidate lifecycle/freshness and lineage checks, and drops every repeated record-reference/version pair because no approved immutable payload digest is available. It returns only stable record reference/version and epistemic/evidence labels, not protected content.
 
 Important boundary: those checks validate the *shape and consistency of supplied evidence*; the helper cannot establish that a caller's bindings or access decisions are authentic, cannot itself query/reconcile/revoke Memory records, and cannot prove an end-to-end Host → Provider → Core → NPC path. In particular, the helper is not proof that an empty result was produced against the requested snapshot unless the upstream result contract itself carries and attests that binding. No new result field or contract is assumed here. Memory→NPC remains DISABLED / FAIL-CLOSED pending owner-approved evidence and real-path verification.
+
+## 26. Memory-admission regression coverage: sparse lineage and immutable output (26 Oct 2026)
+
+Runtime tests run [40359376426](https://github.com/necromorphic/Logic-Engine/actions/runs/40359376426) completed successfully on commit `ee72374a679498e6f849502724e0bfa7f137a7f0`; both `npm test` and the recalculation-oracle harness passed. That run includes the new regression proving a sparse summary-lineage array is not accepted as complete authorized provenance.
+
+Two further regression cases have since been added to `tests/npc-memory-candidate-eligibility.test.js`:
+- A summary with `lineage.status = "complete"` but a hole in `lineage.sources` must yield no admitted candidate.
+- Once the helper returns admitted reference metadata, later mutation of the caller's candidate object must not alter that result; the result object, admitted array, and admitted item must remain frozen.
+
+These are fixture-level tests of the current pure helper, not proof of trusted provenance or a production Memory→NPC path. CI for the latest head containing both tests must be checked separately; the successful run above predates the metadata-isolation test.
