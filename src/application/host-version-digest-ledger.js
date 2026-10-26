@@ -65,6 +65,13 @@ export class HostVersionDigestLedger {
     return { status: 'non_ready', code };
   }
 
+  #invalidateReadyAfterMutation(worldId, conversationId, now) {
+    const state = this.getInventoryState(worldId, conversationId);
+    if (state?.status === 'READY') {
+      this.#markNonReady(worldId, conversationId, 'HOST_LEDGER_MUTATED_AFTER_RECONCILIATION', now);
+    }
+  }
+
   #put(v, now) {
     const prior = this.#get(v);
     if (prior && prior.content_sha256 !== v.content_sha256) {
@@ -102,7 +109,14 @@ export class HostVersionDigestLedger {
     if (!validTuple(v) || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
       throw new TypeError('Invalid digest-only Host version entry');
     }
-    return this.#write(() => this.#put(v, new Date().toISOString()));
+    return this.#write(() => {
+      const now = new Date().toISOString();
+      const result = this.#put(v, now);
+      if (result.status === 'captured' || result.status === 'tombstoned') {
+        this.#invalidateReadyAfterMutation(v.world_id, v.conversation_id, now);
+      }
+      return result;
+    });
   }
 
   selectActiveVersion(v) {
@@ -112,6 +126,7 @@ export class HostVersionDigestLedger {
       if (!row || row.lifecycle !== 'present') return { status: 'non_ready', code: 'HOST_VERSION_UNAVAILABLE' };
       const now = new Date().toISOString();
       this.#setActive(v, now);
+      this.#invalidateReadyAfterMutation(v.world_id, v.conversation_id, now);
       return { status: 'selected' };
     });
   }
@@ -125,6 +140,7 @@ export class HostVersionDigestLedger {
       this.db.prepare("UPDATE host_version_digest_ledger SET lifecycle='tombstoned',updated_at=?,tombstoned_at=? WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?")
         .run(now, now, ...tuple(v));
       this.db.prepare('DELETE FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?').run(...tuple(v));
+      this.#invalidateReadyAfterMutation(v.world_id, v.conversation_id, now);
       return { status: 'tombstoned' };
     });
   }
