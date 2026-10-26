@@ -758,3 +758,147 @@ test("sparse candidate result arrays are malformed, not authorized complete-empt
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes("memory:claim-2"), false);
 });
+
+
+test("rejects accessor-backed admission metadata without invoking getters", () => {
+  let getterCalls = 0;
+  const accessorCandidate = candidate();
+  Object.defineProperty(accessorCandidate, "world_id", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      throw new Error("getter must not execute");
+    },
+  });
+
+  const candidateResult = evaluateMemoryCandidateAdmission(
+    request,
+    completeResult([accessorCandidate]),
+  );
+  assert.equal(candidateResult.status, "non_ready");
+  assert.deepEqual(candidateResult.admitted, []);
+  assert.equal(getterCalls, 0);
+
+  const accessorRequest = { ...request };
+  Object.defineProperty(accessorRequest, "subject_id", {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      throw new Error("request getter must not execute");
+    },
+  });
+  const requestResult = evaluateMemoryCandidateAdmission(accessorRequest, completeResult([]));
+  assert.equal(requestResult.status, "non_ready");
+  assert.deepEqual(requestResult.admitted, []);
+  assert.equal(getterCalls, 0);
+});
+
+test("rejects cyclic and exotic admission objects without traversing them as metadata", () => {
+  const cyclicResult = completeResult([]);
+  cyclicResult.extra = cyclicResult;
+  const cycleDecision = evaluateMemoryCandidateAdmission(request, cyclicResult);
+  assert.equal(cycleDecision.status, "non_ready");
+  assert.deepEqual(cycleDecision.admitted, []);
+
+  const exoticCandidate = candidate();
+  Object.setPrototypeOf(exoticCandidate, { world_id: request.world_id });
+  const exoticDecision = evaluateMemoryCandidateAdmission(request, completeResult([exoticCandidate]));
+  assert.equal(exoticDecision.status, "non_ready");
+  assert.deepEqual(exoticDecision.admitted, []);
+
+  const hostileProxy = new Proxy({}, {
+    getPrototypeOf() {
+      throw new Error("proxy trap must not escape");
+    },
+  });
+  const proxyDecision = evaluateMemoryCandidateAdmission(request, hostileProxy);
+  assert.equal(proxyDecision.status, "non_ready");
+  assert.deepEqual(proxyDecision.admitted, []);
+});
+
+
+test("rejects Proxy admission metadata before invoking its get trap", () => {
+  let getCalls = 0;
+  const target = { ...request };
+  const hostileRequest = new Proxy(target, {
+    getPrototypeOf() {
+      return Object.prototype;
+    },
+    ownKeys(value) {
+      return Reflect.ownKeys(value);
+    },
+    getOwnPropertyDescriptor(value, key) {
+      const descriptor = Reflect.getOwnPropertyDescriptor(value, key);
+      if (!descriptor) return undefined;
+      return {
+        value: descriptor.value,
+        writable: true,
+        enumerable: true,
+        configurable: true,
+      };
+    },
+    get(value, key) {
+      getCalls += 1;
+      if (key === "world_id") return "attacker-controlled";
+      return Reflect.get(value, key);
+    },
+  });
+
+  const decision = evaluateMemoryCandidateAdmission(hostileRequest, completeResult([]));
+  assert.equal(decision.status, "non_ready");
+  assert.deepEqual(decision.admitted, []);
+  assert.equal(getCalls, 0);
+});
+
+
+test("fails closed on Object.prototype pollution without invoking inherited getters", () => {
+  let getterCalls = 0;
+  const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, "world_id");
+  Object.defineProperty(Object.prototype, "world_id", {
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      throw new Error("inherited getter must not execute");
+    },
+  });
+
+  let decision;
+  try {
+    const incompleteRequest = { ...request };
+    delete incompleteRequest.world_id;
+    decision = evaluateMemoryCandidateAdmission(incompleteRequest, completeResult([]));
+  } finally {
+    if (descriptor) Object.defineProperty(Object.prototype, "world_id", descriptor);
+    else delete Object.prototype.world_id;
+  }
+
+  assert.equal(decision.status, "non_ready");
+  assert.deepEqual(decision.admitted, []);
+  assert.equal(getterCalls, 0);
+});
+
+
+test("fails closed when Array.prototype iteration is polluted", () => {
+  const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  const inputResult = completeResult([candidate()]);
+  let decision;
+
+  Object.defineProperty(Array.prototype, Symbol.iterator, {
+    configurable: true,
+    writable: true,
+    value() {
+      throw new Error("polluted array iterator must not execute");
+    },
+  });
+
+  try {
+    decision = evaluateMemoryCandidateAdmission(request, inputResult);
+  } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, descriptor);
+  }
+
+  assert.equal(decision.status, "non_ready");
+  assert.deepEqual(decision.admitted, []);
+});
