@@ -70,7 +70,32 @@ Required domain behavior:
 
 The helper's `supported` result is an internal domain assessment only. It is not a trusted actor assertion, canonical relationship fact, or production NPC→Relationships receiver. Production Memory→NPC remains DISABLED / FAIL-CLOSED.
 
-## 5. Acceptance and blockers
+
+## 5. Crosswalk to Core's proposed epistemic states
+
+Core PR #339, `docs/77-core-communicative-intent-interpretation-contract.md`, proposes conceptual states `candidate`, `model-selected`, `explicitly confirmed`, `disputed`, and `stale / revoked`. That document is still a draft proposal, not an implemented runtime contract. These labels are **not** the same enum as Relationships' local assessment outcomes.
+
+- Core's `candidate` / `model-selected` can be input context for an assessment, but neither automatically satisfies Relationships' `supported` gate.
+- Core's `explicitly confirmed` only confirms the narrow proposition supported by the permitted source. It does not automatically establish a relationship dimension or a broader motive.
+- Core's `disputed` maps conceptually to a Relationships outcome that must remain unresolved; the current pure helper returns `conflict_review_required` when valid supplied assessments conflict or disagree.
+- Core's `stale / revoked` means the source is no longer verified for current use. The current Relationships helper has no input for this authoritative state, so this condition must be blocked upstream; do not pass stale refs as if they were current and do not invent a local substitute status.
+- Core's proposal to preserve revision history remains distinct from the helper's stateless batch aggregation. The helper cannot implement or prove Core history/invalidation semantics.
+
+No one-to-one mapping is defined between every Core epistemic state and every Relationships outcome. In particular, `supported` is not a synonym for `explicitly confirmed`.
+
+### Domain examples
+
+| Context supplied to Relationships | Safe domain outcome | Forbidden shortcut |
+|---|---|---|
+| “You look dangerous tonight” could be flirtation, warning, teasing, or literal observation. | Keep competing supported readings in conflict unless approved context resolves them; evaluate no candidate against a mismatching reading. | Pick the most frequent label or treat a model-selected label as confirmed fact. |
+| “Keep talking and I'll make you disappear,” followed by laughter. | Preserve joke/threat ambiguity if the supplied evidence does not resolve it. | Assume laughter proves harmlessness or proves there was a threat. |
+| “I'm only doing this to protect you; don't tell anyone.” | Permit reassurance and manipulation/coercion readings to remain competing interpretations. | Infer motive, consent, or relationship delta directly from wording. |
+| A source message is edited, deleted, swiped away, branched away, or revoked. | Require an authoritative currentness/provenance result before any new candidate can rely on that source. | Assume a reference string is still valid or silently overwrite the prior interpretation. |
+| A later source explicitly clarifies a narrow claim. | Reassess with that source if authorized; keep the prior interpretation historical and apply only the narrow confirmed proposition. | Rewrite history as if the clarification had always been known, or infer broader intent. |
+
+The examples align with Core PR #339's examples and consumer boundary. They are domain acceptance guidance, not evidence that source invalidation, revision history, or NPC transport has shipped.
+
+## 6. Acceptance and blockers
 
 | Case | Current evidence | Status / owner |
 |---|---|---|
@@ -84,7 +109,7 @@ The helper's `supported` result is an internal domain assessment only. It is not
 | Commit of a relationship transition based on a supported assessment | Existing canonical admin-gated Core path exists, but the new interaction helpers are not wired into it and do not confer authority. | **NOT INTEGRATED**; requires separately approved and tested runtime handoff. |
 | Historical semantic re-evaluation / meaning-changing migration | `docs/75-relationships-world-pack-version-semantics.md` marks these unsupported absent approved contracts and real paths. | **BLOCKED — Core + Relationships**; no API/schema invented. |
 
-## 6. Review conclusion
+## 7. Review conclusion
 
 The current design supports assessing several NPC-supplied candidates without selecting a “true” reading, and it preserves uncertainty by rejecting ambiguous or insufficient batches. It does not yet support a durable interpretation-revision lifecycle or authoritative source invalidation. Those are cross-block/runtime gaps, not reasons to expand the pure Relationships helper with speculative fields.
 
