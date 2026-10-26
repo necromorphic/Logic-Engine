@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { createHash } from 'node:crypto';
+import { isProxy } from 'node:util/types';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { openCoordinatorDatabase, beginCoordinatorLock } from '../storage/coordinator-lock.js';
@@ -10,6 +11,28 @@ const tuple = (v) => [v.world_id, v.conversation_id, v.message_id, v.version_id]
 const validTuple = (v) => v && validId(v.world_id) && validId(v.conversation_id)
   && validId(v.message_id) && validId(v.version_id);
 const digest = (v) => createHash('sha256').update(v).digest('hex');
+const isPlainDataRecord = (value) => {
+  if (!value || typeof value !== 'object' || Array.isArray(value) || isProxy(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string') return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
+  }
+  return true;
+};
+const asyncFunctionPrototype = Object.getPrototypeOf(async function asyncFunctionPrototypeMarker() {});
+const isPlainDataArray = (value) => {
+  if (!Array.isArray(value) || isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1 || !keys.includes('length')) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
+  }
+  return true;
+};
 const canonicalFilePath = (path) => {
   let candidate = resolve(path);
   const suffix = [];
@@ -38,7 +61,9 @@ const aliasesSameFile = (left, right) => {
  * The inventory verifier must be a trusted Host/Core integration.
  */
 export class HostVersionDigestLedger {
-  constructor({ path, coordinatorPath, verifyInventorySnapshot }) {
+  constructor(options) {
+    if (!isPlainDataRecord(options)) throw new TypeError('A plain data options object is required');
+    const { path, coordinatorPath, verifyInventorySnapshot } = options;
     if (typeof path !== 'string' || !path.trim() || path === ':memory:') {
       throw new TypeError('A file-backed ledger path is required');
     }
@@ -183,7 +208,7 @@ export class HostVersionDigestLedger {
   }
 
   captureVersion(v) {
-    if (!validTuple(v) || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
+    if (!isPlainDataRecord(v) || !validTuple(v) || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
       throw new TypeError('Invalid digest-only Host version entry');
     }
     return this.#write(() => this.#captureVersionInWrite(v));
@@ -196,7 +221,7 @@ export class HostVersionDigestLedger {
    */
   captureBoundVersion(v) {
     const allowedKeys = new Set(['adapterId', 'conversationId', 'message_id', 'version_id', 'content_sha256', 'active', 'deleted', 'resolveBinding']);
-    if (!v || typeof v !== 'object' || Array.isArray(v)
+    if (!isPlainDataRecord(v)
       || Object.keys(v).some((key) => !allowedKeys.has(key))
       || !validId(v.adapterId) || !validId(v.conversationId)
       || typeof v.resolveBinding !== 'function'
@@ -207,7 +232,7 @@ export class HostVersionDigestLedger {
       || (v.deleted && v.active)) {
       throw new TypeError('Invalid bound Host version entry');
     }
-    if (v.resolveBinding.constructor?.name === 'AsyncFunction') {
+    if (isProxy(v.resolveBinding) || Object.getPrototypeOf(v.resolveBinding) === asyncFunctionPrototype) {
       throw new TypeError('Host binding resolution must be synchronous under the coordinator lease');
     }
     return this.#write(() => {
@@ -274,7 +299,7 @@ export class HostVersionDigestLedger {
   }
 
   selectActiveVersion(v) {
-    if (!validTuple(v)) throw new TypeError('Invalid Host version tuple');
+    if (!isPlainDataRecord(v) || !validTuple(v)) throw new TypeError('Invalid Host version tuple');
     return this.#write(() => {
       const row = this.#get(v);
       if (!row || row.lifecycle !== 'present') {
@@ -296,7 +321,7 @@ export class HostVersionDigestLedger {
   }
 
   tombstoneVersion(v) {
-    if (!validTuple(v)) throw new TypeError('Invalid Host version tuple');
+    if (!isPlainDataRecord(v) || !validTuple(v)) throw new TypeError('Invalid Host version tuple');
     return this.#write(() => {
       const row = this.#get(v);
       if (!row) {
@@ -318,6 +343,16 @@ export class HostVersionDigestLedger {
   }
 
   async reconcileConversation(input) {
+    // Only inspect ordinary data records before copying. Accessors and Proxy
+    // traps are executable caller code and must not run inside trust checks.
+    if (!isPlainDataRecord(input)) return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
+    if (input.complete === undefined || !Array.isArray(input.versions)) {
+      return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
+    }
+    if (typeof input.complete !== 'boolean' || !isPlainDataArray(input.versions)
+      || input.versions.some((v) => !isPlainDataRecord(v))) {
+      return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
+    }
     // Snapshot caller input synchronously before the first await. Validation,
     // trust verification, hashing and reconciliation must use the same immutable
     // version inventory; otherwise the caller could mutate rows while the
