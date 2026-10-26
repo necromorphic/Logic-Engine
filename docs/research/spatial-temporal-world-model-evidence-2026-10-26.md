@@ -89,3 +89,35 @@ Further source inspection confirms the store has a concrete durable operation pa
 - Relevant existing test files are present at the audited tree: `tests/time-advance-operation.test.js`, `tests/time-segment.test.js`, `tests/time-scheduler.test.js`, `tests/time-trigger-registry.test.js`, `tests/snapshot-read.test.js`, and `tests/core.test.js`. Their presence is code-tree evidence only; **none was executed in this audit**.
 
 This makes the temporal operation checkpoint concrete for future analysis, but it still does not supply an approved spatial event vocabulary or spatial projection consumer. For a spatial reconstruction, the team must define whether it reconstructs state at a confirmed segment boundary only or supports intermediate coordinates within a segment. The inspected code alone does not authorize the latter. No change to TimeEngine is proposed here.
+
+
+## 9. Existing-test coverage map (source inspection; not execution)
+
+The following test files were read at main HEAD `bf35fb8dd13628718dacc11c27654c0929fba0e2`. This section records assertions present in source, not a claim that they passed in this run.
+
+| Test file / source blob | Existing guarantee asserted in test source | What it does not prove for the Spatial/Temporal World Model |
+|---|---|---|
+| `tests/time-advance-operation.test.js` — `7684b2fee1c8a808f506343585948ea478885a4b` | Exact due-coordinate execution; interval target reached; idempotent operation replay; changed request under same key rejected; blocked plan leaves time unchanged; sub-second execution rejected; persisted checkpoint recovery resumes without replaying the already-confirmed segment | No spatial state reconstruction, no spatial effects, no historical query at an arbitrary coordinate |
+| `tests/time-segment.test.js` — `ed8d223f11ec5fa9ff8f9ec97f61a5586f2fe960` | Segment is atomic; projection rebuild once; replay does not repeat effects/rebuild; failure rolls back prior segment mutations; stale revision rejected; unsupported intra-segment dependencies/read-write conflicts rejected | Generic entity projection only; no spatial derivation and no query contract for state between event/segment boundaries |
+| `tests/time-scheduler.test.js` — `7b33974179f752a9abfa3fd4ff6f6d29d9a50b8a` | Deterministic `(from,to]` boundaries; stable ordering; same-coordinate dependency ordering; missing dependency blocks without partial prefix; read/write conflict requires review; interruption stops at a coordinate; cycles and world mismatch fail closed | Scheduler orders due work, not historical world facts or spatial events; it does not prove a spatial consumer can safely use the plan |
+| `tests/snapshot-read.test.js` — `63827c03bbb7b028a4218410c70f0a3bfb53c757` | World-scoped bounded snapshots; composite cursor `(world_revision, commit_sequence)`; coherent SQLite reads; missing targets fail closed; rollback-only revision changes invalidate context-manifest expansion even when event cursor does not advance | Snapshot is a current internal read, not an arbitrary-time spatial reconstruction API or a durable spatial checkpoint |
+| `tests/core.test.js` — `0543b8c6cd3aa45d069e1fc4294486a467bbe557` | Rollback invalidates dependent events and rebuilds existing projections; independent branch remains; game time is not rewound; conflicting independent facts remain conflicted until rollback removes one claim | No spatial projection participates in rollback/rebuild, and no rule says how spatial conflicts should be represented |
+| `docs/63-time-advance-operation-runtime-slice.md` — `eb57ace27c6e1cefa875006a237707a7d016d120` | Documents T5 merged status, persisted trigger lifecycle, checkpoint/restart semantics, and explicit non-goals (no background wall-clock advancement, no automatic NPC knowledge) | Does not authorize the spatial model to modify TimeEngine or reuse its internal tables as a public contract |
+
+### Derived conclusions
+
+1. **Supported checkpoint boundary:** the strongest existing seam evidenced by tests is the committed segment boundary, with canonical world coordinate plus revision and commit-sequence markers. The report does not claim this is already an approved spatial read API.
+2. **Equal-time events:** scheduler tests prove deterministic planning/order constraints for due work. Store replay orders committed events by commit sequence; a spatial projection would need to consume the canonical committed/valid event order, not sort by coordinate alone. This is an inference from two distinct source contracts, not a currently implemented spatial rule.
+3. **Rollback:** the Core test asserts rollback changes revision while game time remains at its advanced value. Snapshot tests separately assert a rollback-only revision change invalidates a prior manifest even if commit sequence stays the same. Therefore a spatial read must not treat game time alone, or commit sequence alone, as sufficient freshness/identity.
+4. **Historical coordinate ambiguity:** the inspected suite covers segment checkpoints and due coordinates, but not arbitrary interpolation/reconstruction within a segment. Intermediate-coordinate queries remain unsupported until a contract says how to resolve several committed events sharing a coordinate and how to represent unobserved movement between events.
+5. **Test execution status:** no test command was run by this connector-only audit. The GitHub Actions query showed a successful Runtime tests run for PR #347 at SHA `da6373706762290de201b145753fc48b0938e185`, against base `bf35fb8dd13628718dacc11c27654c0929fba0e2`; that is not evidence that the spatial branch or these tests were executed by this work. The combined commit status query for the main SHA returned no statuses.
+
+## 10. Updated decision
+
+The current source supports a **candidate read/rebuild seam only at canonical committed event/projection boundaries**, but does not yet establish a spatial projection contract. Thus the next decision is narrow:
+
+- **Core:** confirm whether a new derived projection may consume valid committed events and rebuild/rollback lifecycle using the existing store internals, or specify the supported application-level boundary. Until confirmed, no production spatial consumer is added.
+- **Time owner:** confirm that the supported query point is the last confirmed segment boundary, not arbitrary in-segment game time, unless a separate contract and tests define the latter.
+- **Spatial block:** continue documentation/test-matrix work only; do not add tables, event kinds, entity attributes, APIs, or lifecycle hooks.
+
+Result remains **BLOCKED / NO APPROVED SPATIAL SEAM** for production integration. This is a specific blocker, not a claim that Core has no useful primitives.
