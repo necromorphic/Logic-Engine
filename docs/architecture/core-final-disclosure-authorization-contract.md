@@ -153,3 +153,21 @@ The following public/store methods enter the Core `tx()` write boundary and ther
 | `processStore.invalidateEvents()` called by rollback | Cross-store process/event invalidation | This is a separate persistence boundary that needs its own ordering review; Core SQLite transaction alone does not prove atomicity with it. |
 
 **Core-side finding:** `SQLiteStore.tx()` is a synchronous, same-connection SQLite transaction using `BEGIN IMMEDIATE`; nested calls use savepoints. This is a sound Core-local write boundary, but not a cross-owner lock. The contract implementation must decide whether all these writers can acquire a coordinator before entering `tx()`, whether any callback/maintenance/restore path bypasses these methods, and how lock ordering avoids deadlocks. Do not wrap only `commit()` and `rollback()` while leaving other relevant source/policy writers uncoordinated.
+
+
+## 10. Core owner verdict for the current repository (26 Oct 2026)
+
+**Verdict: UNSUPPORTED for the exact coordinator-lock candidate against current code.** This does not reject the desired safety invariant or claim that a PC-side gateway is impossible in principle. It means Core cannot accept this candidate as enforceable today because complete writer participation and bypass exclusion have not been demonstrated.
+
+Reasoning:
+- `SQLiteStore.tx()` provides Core-DB-local `BEGIN IMMEDIATE`, not mandatory acquisition of a separate coordinator by every writer.
+- Direct API→store commit paths exist in `src/api/server.js` (current-main lines 331 and 371); therefore an engine-level wrapper alone would not cover canonical writes.
+- Actor-binding changes use Core `store.tx()`, but do not acquire a shared coordinator.
+- Time, trigger/configuration, rollback/rebuild, mechanic/rule/context registration, and process-store invalidation paths have not been shown to participate in a shared order.
+- Store construction/migrations use direct DB DDL/data writes; direct DB access is available to application services. No complete maintenance/migration/restore/recovery bypass exclusion has been demonstrated.
+- Provider persists to a separate DB and relies on injected asynchronous source/inventory validators. Final validation under a synchronous SQLite writer lock must be synchronous and authoritative; otherwise this candidate is unsupported until a separately approved async coordination protocol exists.
+- `src/index.js` does not wire a production egress gateway. The PR #377 test-only multi-process experiment uses synthetic databases and does not prove production writer participation or actual Host transport ordering.
+
+This is a conservative implementation verdict, not a statement that every possible writer has been exhaustively enumerated. The audit is incomplete by definition until API/direct-store, process-store, migration, maintenance, restore, recovery and direct-DB paths are covered by a source-backed call-site matrix.
+
+No runtime API/schema/gateway change is authorized by this verdict. Production Memory→NPC remains `DISABLED / FAIL-CLOSED`. Reconsider only after every relevant Core/Provider writer is proven to participate in the same durable order (or is technically prevented from mutating protected validity), final checks are synchronous and authoritative under that order, and real two-process tests instrument the actual pinned Host upstream transport. Writer-first must yield no dispatch-start and exactly zero upstream calls; gateway-first must durably record dispatch-start before exactly one transport invocation; crash/restart and ambiguous sends must never auto-retry. Existing ST vectorization/remote-store changes remain out of scope.
