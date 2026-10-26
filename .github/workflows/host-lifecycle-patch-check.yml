@@ -42,5 +42,13 @@ jobs:
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js
+          node --check sillytavern-host-checkout/src/endpoints/backends/chat-completions.js
+      - name: Ensure MakerSuite request body is not logged
+        run: |
+          if grep -F 'console.debug(`${apiName} request:`, body)' sillytavern-host-checkout/src/endpoints/backends/chat-completions.js; then
+            echo "Raw MakerSuite/Vertex request body logging must not be present" >&2
+            exit 1
+          fi
+          grep -F 'request metadata:' sillytavern-host-checkout/src/endpoints/backends/chat-completions.js >/dev/null
       - name: Run all Host prototype tests
         run: node --test host-adapter/prototype/tests/*.test.mjs

@@ -57,6 +57,11 @@ jobs:
           git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
           git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
           git diff --check
+          if grep -F 'console.debug(`${apiName} request:`, body)' src/endpoints/backends/chat-completions.js; then
+            echo "Raw MakerSuite/Vertex request body logging must not be present" >&2
+            exit 1
+          fi
+          grep -F 'request metadata:' src/endpoints/backends/chat-completions.js >/dev/null
       - name: Install pinned host dependencies
         shell: bash
         run: npm ci --ignore-scripts --no-audit --no-fund
@@ -65,7 +70,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx eslint public/script.js public/scripts/slash-commands.js --parser-options '{"sourceType":"module"}'
+          npx eslint public/script.js public/scripts/slash-commands.js src/endpoints/backends/chat-completions.js --parser-options '{"sourceType":"module"}'
         working-directory: ${{ runner.temp }}/st
       - name: Syntax-check prototype modules
         shell: bash

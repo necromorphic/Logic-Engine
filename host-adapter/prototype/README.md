@@ -31,6 +31,8 @@ Before capture can succeed, an administrator must bind the authenticated adapter
 
 ## Pinned-source hook patch
 
+The candidate patch also replaces the pinned MakerSuite/Vertex sender's raw `console.debug(`${apiName} request:`, body)` with metadata-only logging (`model`, `stream`, and message count). The pinned-source CI fails if the raw-body log returns and syntax-checks/lints the changed endpoint. This is a patch-artifact mitigation only; it is not installed into a live ST instance and does not create a final-send authorization gateway.
+
 Source audit: [`SOURCE-LIFECYCLE-AUDIT.md`](./SOURCE-LIFECYCLE-AUDIT.md) records pinned-source evidence and explicitly distinguishes source-confirmed behavior from unrun runtime experiments.
 
 The reproducible patch artifact is `host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch`. Latest reviewed candidate HEAD before this documentation correction was `1302b3cde2c69b0cd622489a667414b9bf1700c4`; all three exact-head workflows passed:
