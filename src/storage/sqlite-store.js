@@ -1035,6 +1035,11 @@ export class SQLiteStore {
   }
 
   saveReplay(id, key, requestHash, result) {
+    // This helper is also a callable method on the store instance. Preserve the
+    // coordinator invariant even if a future caller invokes it outside commit().
+    if (this.txDepth === 0) {
+      return this.tx(() => this.saveReplay(id, key, requestHash, result));
+    }
     this.db.prepare('INSERT INTO idempotency_keys(world_id,idempotency_key,request_hash,response_json,created_at) VALUES(?,?,?,?,?)')
       .run(id, key, requestHash, enc(result), now());
   }
@@ -2194,6 +2199,11 @@ export class SQLiteStore {
   }
 
   rebuild(id, revision) {
+    // Projection rebuilding mutates several tables. Never allow it to bypass
+    // the shared coordinator merely because the normal caller is commit/rollback.
+    if (this.txDepth === 0) {
+      return this.tx(() => this.rebuild(id, revision));
+    }
     this.db.prepare('DELETE FROM mechanic_instances WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM entities WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM facts WHERE world_id=?').run(id);
