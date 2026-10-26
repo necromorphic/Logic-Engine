@@ -659,6 +659,10 @@ export class SQLiteMemoryProvider {
       this.#setState(scope.world_id, 'stale', 'stale', null, 'SNAPSHOT_STALE');
       throw new Error('MEMORY_SNAPSHOT_STALE');
     }
+    // Snapshot lookup is awaited. A query grant revoked while it was in flight
+    // must not authorize this retrieval using the pre-await allow.
+    if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+
     const rows = this.db.prepare(`SELECT r.* FROM memory_records r
       JOIN memory_index_entries i USING(world_id,record_ref,record_version)
       JOIN memory_record_grants g ON g.world_id=r.world_id AND g.record_ref=r.record_ref
