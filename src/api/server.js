@@ -148,7 +148,10 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         const allowed = ['conversation_id', 'message_id', 'version_id', 'content_sha256', 'active', 'deleted'];
         if (!body || typeof body !== 'object' || Array.isArray(body)
           || Object.keys(body).some((key) => !allowed.includes(key))
-          || !['conversation_id', 'message_id', 'version_id', 'content_sha256'].every((key) => typeof body[key] === 'string')
+          || !['conversation_id', 'message_id', 'version_id'].every((key) => typeof body[key] === 'string'
+            && body[key] === body[key].trim() && body[key].length > 0 && body[key].length <= 200
+            && ![...body[key]].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127))
+          || typeof body.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(body.content_sha256)
           || typeof body.active !== 'boolean' || typeof body.deleted !== 'boolean'
           || (body.deleted && body.active)) {
           throw new EngineError('INVALID_HOST_VERSION_CAPTURE',
