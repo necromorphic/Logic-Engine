@@ -51,7 +51,12 @@ function cloneJson(value, name) {
       if (prototype !== Array.prototype) invalid();
       ancestors.add(item);
       const keys = Reflect.ownKeys(item);
-      if (keys.some((key) => key !== 'length' && (typeof key !== 'string' || !/^(0|[1-9]\\d*)$/.test(key)))) invalid();
+      if (keys.some((key) => {
+        if (key === 'length') return false;
+        if (typeof key !== 'string') return true;
+        const index = Number(key);
+        return !Number.isSafeInteger(index) || index < 0 || String(index) !== key;
+      })) invalid();
       const result = [];
       for (let index = 0; index < item.length; index += 1) {
         if (!Object.hasOwn(item, index)) invalid();
