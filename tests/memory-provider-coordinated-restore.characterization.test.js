@@ -120,6 +120,10 @@ test('characterizes coordinated Core+Provider database restore as undetectable b
       turn_id: 'restore-source-change',
       event_type: 'action.completed',
       expected_revision: current.world_revision,
+      causal_links: [{
+        relation: 'REQUIRES',
+        predicate: { kind: 'entity_exists', entity_id: 'source-entity' },
+      }],
       effects: [{
         kind: 'entity.update',
         entity_id: 'source-entity',
