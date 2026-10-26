@@ -13,16 +13,20 @@ permissions:
 
 jobs:
   pinned-source-audit:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 15
     steps:
       - name: Checkout Logic-Engine
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
-      - name: Set up Node.js
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22"
+      - name: Verify installed Node.js
+        shell: powershell
+        run: |
+          node --version
+          $version = [version](node -p "process.versions.node")
+          if ($version -lt [version]"22.13.0") {
+            throw "Node.js 22.13.0 or newer is required; found $version"
+          }
 
       - name: Checkout exact SillyTavern target
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -35,11 +39,13 @@ jobs:
         run: npm ci --prefix SillyTavern
 
       - name: Verify pinned checkout
-        shell: bash
+        shell: powershell
         run: |
-          actual="$(git -C SillyTavern rev-parse HEAD)"
-          test "$actual" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
-          echo "SillyTavern target SHA: $actual"
+          $actual = (git -C SillyTavern rev-parse HEAD).Trim()
+          if ($actual -ne "06bde939fb1e9c4c8d8641d810f0a916b5bce127") {
+            throw "Unexpected SillyTavern SHA: $actual"
+          }
+          Write-Host "SillyTavern target SHA: $actual"
 
       - name: Run source-level lifecycle assertions
         env:
