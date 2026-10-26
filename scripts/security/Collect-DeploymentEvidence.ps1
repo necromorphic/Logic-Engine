@@ -179,13 +179,15 @@ $tcpEvidence = @()
 try {
     $tcpEvidence = @(
         Get-NetTCPConnection -State Established -ErrorAction Stop | ForEach-Object {
+            $connection = $_
+            $ownerProcess = $allProcesses | Where-Object { [int]$_.ProcessId -eq [int]$connection.OwningProcess } | Select-Object -First 1
             [pscustomobject]@{
-                localAddress = [string]$_.LocalAddress
-                localPort = [int]$_.LocalPort
-                remoteAddress = [string]$_.RemoteAddress
-                remotePort = [int]$_.RemotePort
-                owningProcessId = [int]$_.OwningProcess
-                owningProcessName = [string](($allProcesses | Where-Object ProcessId -eq $_.OwningProcess | Select-Object -First 1).Name)
+                localAddress = [string]$connection.LocalAddress
+                localPort = [int]$connection.LocalPort
+                remoteAddress = [string]$connection.RemoteAddress
+                remotePort = [int]$connection.RemotePort
+                owningProcessId = [int]$connection.OwningProcess
+                owningProcessName = [string]$ownerProcess.Name
             }
         }
     )
