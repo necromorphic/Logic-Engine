@@ -153,6 +153,18 @@ test('Core publisher failure stays NON_READY and can be retried without re-enrol
   assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'CAPTURED_REVIEW_ONLY');
 });
 
+test('Host-owned live source verification reports local match as non-authoritative and detects drift', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const matching = await f.bridge.verifyCurrentSource();
+  assert.equal(matching.status, 'LOCAL_MATCH_NON_AUTHORITATIVE');
+  assert.equal(matching.trustDecision, 'NON_READY');
+  f.chat[0].mes = 'untracked external edit';
+  const drift = await f.bridge.verifyCurrentSource();
+  assert.equal(drift.status, 'NON_READY');
+  assert.equal(drift.reason, 'live source inventory fingerprint mismatch');
+});
+
 test('enrolled bridge writes event IDs and advances the fingerprint after an edit', async () => {
   const f = makeFixture();
   const enrollment = await f.bridge.enrollCurrentConversation();
