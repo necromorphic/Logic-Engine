@@ -124,6 +124,39 @@ test('Provider record ingestion rejects Proxy/accessor-backed input before readi
   assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_records').get().count, 0);
 });
 
+test('Provider scope operations reject Proxy/accessor-backed scopes before field reads', async (t) => {
+  const s = setup(t);
+  let getterCalls = 0;
+  const target = { ...s.scope };
+  const proxyScope = new Proxy(target, {
+    get() {
+      getterCalls += 1;
+      throw new Error('scope Proxy getter must not execute');
+    },
+  });
+  assert.throws(() => s.provider.grantQuery(proxyScope, true), /Invalid Memory scope/);
+  assert.throws(() => s.provider.grantRecord(proxyScope, 'memory:record-a', 'record-v1', true), /Invalid Memory scope/);
+  assert.throws(() => s.provider.authorizeQuery(proxyScope), /Invalid Memory scope/);
+  await assert.rejects(() => s.provider.retrieveCandidates(proxyScope), /Invalid Memory scope/);
+
+  const accessorScope = { ...s.scope };
+  Object.defineProperty(accessorScope, 'subject_id', {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      throw new Error('scope accessor must not execute');
+    },
+  });
+  assert.throws(() => s.provider.grantQuery(accessorScope, true), /Invalid Memory scope/);
+  assert.throws(() => s.provider.grantRecord(accessorScope, 'memory:record-a', 'record-v1', true), /Invalid Memory scope/);
+  assert.throws(() => s.provider.authorizeQuery(accessorScope), /Invalid Memory scope/);
+  await assert.rejects(() => s.provider.retrieveCandidates(accessorScope), /Invalid Memory scope/);
+
+  assert.equal(getterCalls, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_query_grants').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_record_grants').get().count, 0);
+});
+
 test('raw lifecycle targets reject Proxy/accessor-backed input before field reads or mutation', (t) => {
   const s = setup(t);
   let getterCalls = 0;
