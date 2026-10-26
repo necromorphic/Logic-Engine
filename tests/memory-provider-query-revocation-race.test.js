@@ -278,3 +278,59 @@ test('candidate authorization fails non-ready if Provider index changes during s
   release();
   await assert.rejects(pending, /MEMORY_INDEX_NOT_READY/);
 });
+
+
+test('candidate authorization fails closed when a grant is revoked and re-granted during validation', async (t) => {
+  let release;
+  let started;
+  const validationStarted = new Promise((resolve) => { started = resolve; });
+  const validationGate = new Promise((resolve) => { release = resolve; });
+  let holdValidation = false;
+  const provider = new SQLiteMemoryProvider({
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => {
+      if (holdValidation) {
+        started();
+        await validationGate;
+      }
+      return true;
+    },
+    validateInventory: async () => true,
+  });
+  t.after(() => provider.close());
+
+  const scope = { world_id: 'grant-cycle-world', subject_id: 'grant-cycle-npc', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'grant-cycle-record',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'grant-cycle-entity',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'grant-cycle-entity', source_version: 'source-v1' }],
+  };
+  provider.grantQuery(scope, true);
+  provider.putRecord(record);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  await provider.rebuildIndex(scope.world_id);
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+  holdValidation = true;
+
+  const pending = provider.authorizeCandidate({
+    ...scope,
+    record_ref: record.record_ref,
+    record_version: record.record_version,
+    source_kind: record.source_kind,
+    source_entity_id: record.source_entity_id,
+  });
+  await validationStarted;
+  provider.revokeRecord(scope, record.record_ref, record.record_version);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  release();
+  await assert.rejects(pending, /MEMORY_AUTHORIZATION_CHANGED/);
+});
