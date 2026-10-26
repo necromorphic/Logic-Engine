@@ -203,7 +203,7 @@ function createGuardedDatabaseFacade(store, database) {
       const control = /^\s*(?:BEGIN(?:\s+(?:DEFERRED|IMMEDIATE|EXCLUSIVE))?|COMMIT|END|ROLLBACK(?:\s+TO(?:\s+SAVEPOINT)?\s+[A-Za-z_][A-Za-z0-9_]*)?|SAVEPOINT\s+[A-Za-z_][A-Za-z0-9_]*|RELEASE(?:\s+SAVEPOINT)?\s+[A-Za-z_][A-Za-z0-9_]*)\s*;?\s*$/i;
       if (control.test(sql)) return database.exec(sql);
       const schemaChange = /^\s*(?:CREATE|ALTER|DROP|REINDEX)\b/i.test(sql);
-      const dataWrite = /^\\s*(?:INSERT|UPDATE|DELETE|REPLACE)\\b/i.test(sql);
+      const dataWrite = /^\s*(?:INSERT|UPDATE|DELETE|REPLACE)\b/i.test(sql);
       if ((schemaChange || dataWrite) && store.txDepth === 0 && store.coordinatorDepth === 0) {
         if (database.isTransaction) {
           throw new Error('SQLITE_STORE_WRITE_OUTSIDE_TRANSACTION: finish raw read transactions before issuing a public facade write.');
