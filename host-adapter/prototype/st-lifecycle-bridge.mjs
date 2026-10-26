@@ -92,7 +92,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       ...result,
       trustDecision: 'NON_READY',
       trustEvidence: {
-        localJournalIntegrity: matched ? 'VERIFIED' : 'NOT_VERIFIED',
+        localJournalIntegrity: result.journalIntegrity ?? (matched ? 'VERIFIED' : 'NOT_VERIFIED'),
         liveSourceFingerprint: fingerprint,
         identityVersionMapping,
         sourceAuthenticity: 'UNPROVEN',
