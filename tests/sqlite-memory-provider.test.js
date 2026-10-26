@@ -71,6 +71,20 @@ test('in-memory Provider does not open the process coordinator database', (t) =>
   assert.equal(existsSync(coordinatorPath), false);
 });
 
+test('failed coordinator open does not create or leak a Provider database handle', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-startup-'));
+  const path = join(directory, 'provider.sqlite');
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
+  assert.throws(() => new SQLiteMemoryProvider({
+    path,
+    coordinatorPath: directory,
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  }));
+  assert.equal(existsSync(path), false);
+});
+
 test('persists raw record identity/version and rebuilds its derived index after restart', async (t) => {
   const s = setup(t);
   s.provider.grantQuery(s.scope, true);
