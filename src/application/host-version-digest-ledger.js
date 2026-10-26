@@ -145,46 +145,88 @@ export class HostVersionDigestLedger {
     if (!validTuple(v) || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
       throw new TypeError('Invalid digest-only Host version entry');
     }
+    return this.#write(() => this.#captureVersionInWrite(v));
+  }
+
+  /**
+   * Resolve Core's adapter-scoped binding while the shared coordinator lease is
+   * held, then persist the digest event before another Core binding mutation
+   * (including revocation) can interleave. The callback must be synchronous.
+   */
+  captureBoundVersion(v) {
+    if (!v || typeof v !== 'object' || !validId(v.adapterId) || !validId(v.conversationId)
+      || typeof v.resolveBinding !== 'function'
+      || typeof v.message_id !== 'string' || !validId(v.message_id)
+      || typeof v.version_id !== 'string' || !validId(v.version_id)
+      || !validDigest(v.content_sha256)
+      || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean'
+      || (v.deleted && v.active)) {
+      throw new TypeError('Invalid bound Host version entry');
+    }
+    if (v.resolveBinding.constructor?.name === 'AsyncFunction') {
+      throw new TypeError('Host binding resolution must be synchronous under the coordinator lease');
+    }
     return this.#write(() => {
-      const now = new Date().toISOString();
-      const prior = this.#get(v);
-      if (v.deleted && v.active) {
-        this.#markNonReady(v.world_id, v.conversation_id, 'HOST_VERSION_DELETED_ACTIVE', now);
-        return { status: 'non_ready', code: 'HOST_VERSION_DELETED_ACTIVE' };
+      const binding = v.resolveBinding({ adapterId: v.adapterId, conversationId: v.conversationId });
+      if (!binding || typeof binding.then === 'function'
+        || binding.conversation_id !== v.conversationId
+        || !validId(binding.world_id)) {
+        throw new Error('HOST_CONVERSATION_NOT_AUTHORIZED');
       }
-      // A lifecycle event cannot establish the original identity/digest of a
-      // version first observed as deleted. Only a trusted complete inventory
-      // may introduce historical tombstones; an event-only capture must fail
-      // closed when the corresponding live version was never recorded.
-      if (!prior && v.deleted) {
-        this.#markNonReady(v.world_id, v.conversation_id, 'HOST_VERSION_UNKNOWN', now);
-        return { status: 'non_ready', code: 'HOST_VERSION_UNKNOWN' };
-      }
-      // A newly captured identity or a newly observed deletion changes the
-      // ledger beyond the last verified inventory; never leave stale READY.
-      if (!prior || (prior.lifecycle === 'present' && v.deleted)) {
-        this.#invalidateReadiness(v.world_id, v.conversation_id, now);
-      }
-      // A conflicting digest must never be allowed to mutate the active pointer
-      // from the same untrusted event. Record the conflict first; reconciliation
-      // can rebuild pointers only from a trusted complete inventory.
-      if (prior && prior.content_sha256 !== v.content_sha256) return this.#put(v, now);
-      // Host may report an existing swipe with a changed active flag. Reflect
-      // that pointer mutation here as well as through selectActiveVersion.
-      if (prior?.lifecycle === 'present' && !v.deleted) {
-        const current = this.db.prepare('SELECT version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=?')
-          .get(v.world_id, v.conversation_id, v.message_id);
-        if (v.active && current?.version_id !== v.version_id) {
-          this.#invalidateReadiness(v.world_id, v.conversation_id, now);
-          this.#setActive(v, now);
-        } else if (!v.active && current?.version_id === v.version_id) {
-          this.#invalidateReadiness(v.world_id, v.conversation_id, now);
-          this.db.prepare('DELETE FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?')
-            .run(...tuple(v));
-        }
-      }
-      return this.#put(v, now);
+      const entry = {
+        world_id: binding.world_id,
+        conversation_id: binding.conversation_id,
+        message_id: v.message_id,
+        version_id: v.version_id,
+        content_sha256: v.content_sha256,
+        active: v.active,
+        deleted: v.deleted,
+      };
+      if (!validTuple(entry)) throw new TypeError('Invalid resolved Host version tuple');
+      return this.#captureVersionInWrite(entry);
     });
+  }
+
+  #captureVersionInWrite(v) {
+    const now = new Date().toISOString();
+    const prior = this.#get(v);
+    if (v.deleted && v.active) {
+      this.#markNonReady(v.world_id, v.conversation_id, 'HOST_VERSION_DELETED_ACTIVE', now);
+      return { status: 'non_ready', code: 'HOST_VERSION_DELETED_ACTIVE' };
+    }
+    // A lifecycle event cannot establish the original identity/digest of a
+    // version first observed as deleted. Only a trusted complete inventory
+    // may introduce historical tombstones; an event-only capture must fail
+    // closed when the corresponding live version was never recorded.
+    if (!prior && v.deleted) {
+      this.#markNonReady(v.world_id, v.conversation_id, 'HOST_VERSION_UNKNOWN', now);
+      return { status: 'non_ready', code: 'HOST_VERSION_UNKNOWN' };
+    }
+    // A newly captured identity or a newly observed deletion changes the
+    // ledger beyond the last verified inventory; never leave stale READY.
+    if (!prior || (prior.lifecycle === 'present' && v.deleted)) {
+      this.#invalidateReadiness(v.world_id, v.conversation_id, now);
+    }
+    // A conflicting digest must never be allowed to mutate the active pointer
+    // from the same untrusted event. Record the conflict first; reconciliation
+    // can rebuild pointers only from a trusted complete inventory.
+    if (prior && prior.content_sha256 !== v.content_sha256) return this.#put(v, now);
+    // Host may report an existing swipe with a changed active flag. Reflect
+    // that pointer mutation here as well as through selectActiveVersion.
+    if (prior?.lifecycle === 'present' && !v.deleted) {
+      const current = this.db.prepare('SELECT version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=?')
+        .get(v.world_id, v.conversation_id, v.message_id);
+      if (v.active && current?.version_id !== v.version_id) {
+        this.#invalidateReadiness(v.world_id, v.conversation_id, now);
+        this.#setActive(v, now);
+      } else if (!v.active && current?.version_id === v.version_id) {
+        this.#invalidateReadiness(v.world_id, v.conversation_id, now);
+        this.db.prepare('DELETE FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?')
+          .run(...tuple(v));
+      }
+    }
+    return this.#put(v, now);
+
   }
 
   selectActiveVersion(v) {
