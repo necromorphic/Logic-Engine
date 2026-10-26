@@ -559,3 +559,45 @@ test('reconciliation refuses current when index inventory changes outside its Pr
   });
   assert.notEqual(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'current');
 });
+
+
+test('failed index rebuild rolls back index deletion instead of leaving a partial index', async (t) => {
+  const provider = new SQLiteMemoryProvider({
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+  });
+  t.after(() => provider.close());
+
+  const scope = { world_id: 'atomic-index-rebuild-world', subject_id: 'atomic-index-rebuild-npc', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'atomic-index-rebuild-record',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'atomic-index-rebuild-entity',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'canonical_entity',
+      entity_id: 'atomic-index-rebuild-entity',
+      source_version: 'source-v1',
+    }],
+  };
+  provider.putRecord(record);
+  assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=?')
+    .get(scope.world_id).count, 1);
+
+  provider.db.exec(`CREATE TRIGGER fail_index_rebuild BEFORE INSERT ON memory_index_entries
+    BEGIN SELECT RAISE(ABORT, 'injected index write failure'); END;`);
+  await assert.rejects(() => provider.rebuildIndex(scope.world_id), /injected index write failure/);
+
+  assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=?')
+    .get(scope.world_id).count, 1, 'the pre-existing index entry must survive transaction rollback');
+  assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).index_health, 'unavailable');
+  assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'stale');
+});
