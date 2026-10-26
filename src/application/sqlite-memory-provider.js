@@ -125,9 +125,6 @@ const validDirectLineage = (row, lineage) => row.source_kind === 'canonical_enti
  * refuses retrieval until rebuild + reconciliation complete.
  */
 export class SQLiteMemoryProvider {
-  #db;
-  #coordinatorDb;
-
   constructor(options = {}) {
     if (!isPlainDataRecord(options)) throw new TypeError('SQLiteMemoryProvider requires plain data options');
     const {
@@ -176,14 +173,14 @@ export class SQLiteMemoryProvider {
     this.queryAuthorizationGeneration = new Map();
     this.recordAuthorizationGeneration = new Map();
     // Open the coordinator first so a failed coordinator open cannot leak a Provider DB handle.
-    this.#coordinatorDb = sharedCoordinatorPath ? openCoordinatorDatabase(sharedCoordinatorPath) : null;
-    this.#db = null;
+    this.coordinatorDb = sharedCoordinatorPath ? openCoordinatorDatabase(sharedCoordinatorPath) : null;
+    this.db = null;
     let releaseStartupLock = () => {};
     let startupError = null;
     try {
       releaseStartupLock = this.#acquireCoordinatorLock();
-      this.#db = new DatabaseSync(path);
-      this.#db.exec(`
+      this.db = new DatabaseSync(path);
+      this.db.exec(`
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS memory_records (
         world_id TEXT NOT NULL, subject_id TEXT NOT NULL, purpose TEXT NOT NULL,
@@ -244,23 +241,23 @@ export class SQLiteMemoryProvider {
           ON DELETE CASCADE
       );
     `);
-      const stateColumns = this.#db.prepare('PRAGMA table_info(memory_index_state)').all();
-      if (!stateColumns.some((column) => column.name === 'failure_code')) this.#db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+      const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
+      if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
     } catch (error) {
       startupError = error;
     } finally {
       try { releaseStartupLock(); } catch (error) { startupError ??= error; }
     }
     if (startupError) {
-      try { this.#db.close(); } catch {}
-      try { this.#coordinatorDb?.close(); } catch {}
+      try { this.db.close(); } catch {}
+      try { this.coordinatorDb?.close(); } catch {}
       throw startupError;
     }
   }
 
   #acquireCoordinatorLock() {
-    if (!this.#coordinatorDb) return () => {};
-    return beginCoordinatorLock(this.#coordinatorDb);
+    if (!this.coordinatorDb) return () => {};
+    return beginCoordinatorLock(this.coordinatorDb);
   }
 
   #withCoordinatorLock(work) {
@@ -275,19 +272,19 @@ export class SQLiteMemoryProvider {
   }
 
   #dataVersion() {
-    return this.#db.prepare('PRAGMA data_version').get().data_version;
+    return this.db.prepare('PRAGMA data_version').get().data_version;
   }
 
   #withImmediateTransaction(work) {
     return this.#withCoordinatorLock(() => {
-      this.#db.exec('BEGIN IMMEDIATE');
+      this.db.exec('BEGIN IMMEDIATE');
       this.transactionDepth += 1;
       try {
         const result = work();
-        this.#db.exec('COMMIT');
+        this.db.exec('COMMIT');
         return result;
       } catch (error) {
-        try { this.#db.exec('ROLLBACK'); } catch {}
+        try { this.db.exec('ROLLBACK'); } catch {}
         throw error;
       } finally {
         this.transactionDepth -= 1;
@@ -325,7 +322,7 @@ export class SQLiteMemoryProvider {
     const digest = rawDigest(input.content);
     const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
     return this.#withImmediateTransaction(() => {
-      const existing = this.#db.prepare(`SELECT * FROM memory_raw_captures
+      const existing = this.db.prepare(`SELECT * FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
       if (existing) {
         if (existing.role !== input.role || existing.content_text !== input.content
@@ -334,7 +331,7 @@ export class SQLiteMemoryProvider {
         }
         return { status: 'duplicate', content_sha256: digest };
       }
-      this.#db.prepare(`INSERT INTO memory_raw_captures
+      this.db.prepare(`INSERT INTO memory_raw_captures
         (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,
          metadata_json,captured_at,deleted_at)
         VALUES(?,?,?,?,?,?,?,?,?,NULL)`)
@@ -363,7 +360,7 @@ export class SQLiteMemoryProvider {
     }
     const request = { ...input, action: 'read_version' };
     await this.#assertRawReadAllowed(request);
-    let row = this.#db.prepare(`SELECT * FROM memory_raw_captures
+    let row = this.db.prepare(`SELECT * FROM memory_raw_captures
       WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
       .get(input.world_id, input.conversation_id, input.message_id, input.version_id);
     if (!row || row.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
@@ -372,7 +369,7 @@ export class SQLiteMemoryProvider {
     // Recheck at the disclosure boundary after the database read. This narrows
     // authorization/deletion races but is not a cross-store atomicity guarantee.
     await this.#assertRawReadAllowed(request);
-    row = this.#db.prepare(`SELECT * FROM memory_raw_captures
+    row = this.db.prepare(`SELECT * FROM memory_raw_captures
       WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
       .get(input.world_id, input.conversation_id, input.message_id, input.version_id);
     if (!row || row.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
@@ -397,7 +394,7 @@ export class SQLiteMemoryProvider {
     }
     const request = { ...input, action: 'read_active' };
     await this.#assertRawReadAllowed(request);
-    const readRows = () => this.#db.prepare(`SELECT c.* FROM memory_raw_active_versions a
+    const readRows = () => this.db.prepare(`SELECT c.* FROM memory_raw_active_versions a
       JOIN memory_raw_captures c ON c.world_id=a.world_id
         AND c.conversation_id=a.conversation_id AND c.message_id=a.message_id
         AND c.version_id=a.version_id
@@ -433,10 +430,10 @@ export class SQLiteMemoryProvider {
     }
     return this.#withImmediateTransaction(() => {
       const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
-      const source = this.#db.prepare(`SELECT deleted_at FROM memory_raw_captures
+      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
       if (!source || source.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
-      this.#db.prepare(`INSERT INTO memory_raw_active_versions
+      this.db.prepare(`INSERT INTO memory_raw_active_versions
         (world_id,conversation_id,message_id,version_id,selected_at) VALUES(?,?,?,?,?)
         ON CONFLICT(world_id,conversation_id,message_id) DO UPDATE SET
         version_id=excluded.version_id,selected_at=excluded.selected_at`)
@@ -461,11 +458,11 @@ export class SQLiteMemoryProvider {
     const values = [input.world_id, input.conversation_id, input.message_id, input.source_version_id,
       input.copy_ref, input.copy_version, input.copy_kind, input.content, digest];
     return this.#withImmediateTransaction(() => {
-      const source = this.#db.prepare(`SELECT deleted_at FROM memory_raw_captures
+      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
         .get(input.world_id, input.conversation_id, input.message_id, input.source_version_id);
       if (!source || source.deleted_at !== null) throw new Error('MEMORY_RAW_SOURCE_UNAVAILABLE');
-      const existing = this.#db.prepare(`SELECT * FROM memory_raw_derived_copies
+      const existing = this.db.prepare(`SELECT * FROM memory_raw_derived_copies
         WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?
           AND copy_ref=? AND copy_version=?`).get(...values.slice(0, 6));
       if (existing) {
@@ -473,7 +470,7 @@ export class SQLiteMemoryProvider {
           || existing.content_sha256 !== digest) throw new Error('MEMORY_RAW_COPY_CONFLICT');
         return { status: 'duplicate', content_sha256: digest };
       }
-      this.#db.prepare(`INSERT INTO memory_raw_derived_copies
+      this.db.prepare(`INSERT INTO memory_raw_derived_copies
         (world_id,conversation_id,message_id,source_version_id,copy_ref,copy_version,copy_kind,
          content_text,content_sha256,status,created_at,invalidated_at)
         VALUES(?,?,?,?,?,?,?,?,?,'current',?,NULL)`)
@@ -494,15 +491,15 @@ export class SQLiteMemoryProvider {
     }
     const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
     return this.#withImmediateTransaction(() => {
-      const source = this.#db.prepare(`SELECT deleted_at FROM memory_raw_captures
+      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
       if (!source) return { status: 'missing', invalidated_copies: 0 };
       const now = new Date().toISOString();
-      this.#db.prepare(`UPDATE memory_raw_captures SET deleted_at=COALESCE(deleted_at,?)
+      this.db.prepare(`UPDATE memory_raw_captures SET deleted_at=COALESCE(deleted_at,?)
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(now, ...key);
-      this.#db.prepare(`DELETE FROM memory_raw_active_versions
+      this.db.prepare(`DELETE FROM memory_raw_active_versions
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
-      const result = this.#db.prepare(`UPDATE memory_raw_derived_copies
+      const result = this.db.prepare(`UPDATE memory_raw_derived_copies
         SET status='invalidated', invalidated_at=COALESCE(invalidated_at,?)
         WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?
           AND status='current'`).run(now, input.world_id, input.conversation_id, input.message_id, input.version_id);
@@ -522,15 +519,15 @@ export class SQLiteMemoryProvider {
     }
     const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
     return this.#withImmediateTransaction(() => {
-      const source = this.#db.prepare(`SELECT 1 AS found FROM memory_raw_captures
+      const source = this.db.prepare(`SELECT 1 AS found FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
       if (!source) return { status: 'missing', purged_copies: 0 };
-      const copies = this.#db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_derived_copies
+      const copies = this.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_derived_copies
         WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`)
         .get(input.world_id, input.conversation_id, input.message_id, input.version_id).count;
-      this.#db.prepare(`DELETE FROM memory_raw_active_versions
+      this.db.prepare(`DELETE FROM memory_raw_active_versions
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
-      this.#db.prepare(`DELETE FROM memory_raw_captures
+      this.db.prepare(`DELETE FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
       return { status: 'purged', purged_copies: copies };
     });
@@ -538,8 +535,8 @@ export class SQLiteMemoryProvider {
 
 
   close() {
-    try { this.#db.close(); }
-    finally { this.#coordinatorDb?.close(); }
+    try { this.db.close(); }
+    finally { this.coordinatorDb?.close(); }
   }
 
   #scope(scope) {
@@ -550,7 +547,7 @@ export class SQLiteMemoryProvider {
 
   #setState(worldId, indexHealth, reconciliation, snapshot = null, failureCode = null) {
     this.#withSerializedWrite(() => {
-      this.#db.prepare(`INSERT INTO memory_index_state
+      this.db.prepare(`INSERT INTO memory_index_state
         (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
         VALUES(?,?,?,?,?,?,?)
         ON CONFLICT(world_id) DO UPDATE SET index_health=excluded.index_health,
@@ -566,7 +563,7 @@ export class SQLiteMemoryProvider {
   /** Provider-internal diagnostics; never project this state into NPC-facing results. */
   getIndexStatusForDiagnostics(worldId) {
     if (!validId(worldId)) throw new TypeError('Invalid world_id');
-    const row = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(worldId);
+    const row = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(worldId);
     if (!row) return Object.freeze({
       index_health: 'unavailable', source_reconciliation: 'stale',
       snapshot: null, failure_code: 'INDEX_STATE_MISSING',
@@ -585,7 +582,7 @@ export class SQLiteMemoryProvider {
     this.#scope(scope);
     if (typeof allowed !== 'boolean') throw new TypeError('allowed must be boolean');
     this.#withSerializedWrite(() => {
-      this.#db.prepare(`INSERT INTO memory_query_grants VALUES(?,?,?,?)
+      this.db.prepare(`INSERT INTO memory_query_grants VALUES(?,?,?,?)
         ON CONFLICT(world_id,subject_id,purpose) DO UPDATE SET allowed=excluded.allowed`)
         .run(scope.world_id, scope.subject_id, scope.purpose, allowed ? 1 : 0);
     });
@@ -599,7 +596,7 @@ export class SQLiteMemoryProvider {
       throw new TypeError('Invalid record grant');
     }
     this.#withSerializedWrite(() => {
-      this.#db.prepare(`INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)
+      this.db.prepare(`INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)
         ON CONFLICT(world_id,subject_id,purpose,record_ref,record_version)
         DO UPDATE SET allowed=excluded.allowed`)
         .run(scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion, allowed ? 1 : 0);
@@ -614,7 +611,7 @@ export class SQLiteMemoryProvider {
 
   authorizeQuery(scope) {
     this.#scope(scope);
-    const row = this.#db.prepare(`SELECT allowed FROM memory_query_grants
+    const row = this.db.prepare(`SELECT allowed FROM memory_query_grants
       WHERE world_id=? AND subject_id=? AND purpose=?`)
       .get(scope.world_id, scope.subject_id, scope.purpose);
     return row?.allowed === 1;
@@ -637,11 +634,11 @@ export class SQLiteMemoryProvider {
       || !validId(input.purpose) || !validId(input.record_ref) || !validId(input.record_version)) return false;
     const scope = { world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose };
     if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
-    const grant = this.#db.prepare(`SELECT allowed FROM memory_record_grants
+    const grant = this.db.prepare(`SELECT allowed FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
     if (grant?.allowed !== 1) return false;
-    const row = this.#db.prepare(`SELECT * FROM memory_records
+    const row = this.db.prepare(`SELECT * FROM memory_records
       WHERE world_id=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.record_ref, input.record_version);
     if (!row || row.subject_id !== input.subject_id || row.purpose !== input.purpose
@@ -655,7 +652,7 @@ export class SQLiteMemoryProvider {
     // Candidate authorization is only valid against a ready Provider index.
     // Capture a Provider-local generation so a write/rebuild/reconciliation
     // transition during the awaited source check cannot reuse a prior ready row.
-    const initialState = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
+    const initialState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
       .get(input.world_id);
     if (!initialState || initialState.index_health !== 'ready'
       || initialState.source_reconciliation !== 'current') {
@@ -696,7 +693,7 @@ export class SQLiteMemoryProvider {
     // model dispatch atomic with revocation.
     return this.#withImmediateTransaction(() => {
     if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
-    const currentGrant = this.#db.prepare(`SELECT allowed FROM memory_record_grants
+    const currentGrant = this.db.prepare(`SELECT allowed FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
     if (currentGrant?.allowed !== 1) {
@@ -715,7 +712,7 @@ export class SQLiteMemoryProvider {
       // in-memory grant generations are not shared with this Provider instance.
       throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     }
-    const latestState = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
+    const latestState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
       .get(input.world_id);
     if ((this.stateGeneration.get(input.world_id) ?? 0) !== stateGeneration
       || !latestState || latestState.index_health !== 'ready'
@@ -756,7 +753,7 @@ export class SQLiteMemoryProvider {
       record.record_version, record.source_kind, record.source_entity_id, record.source_version,
       record.content_kind, record.epistemic_kind, record.producer_kind, record.content_disposition,
       record.evidence_assessment, encode(record.lineage), new Date().toISOString()];
-    const existing = this.#db.prepare(`SELECT * FROM memory_records
+    const existing = this.db.prepare(`SELECT * FROM memory_records
       WHERE world_id=? AND record_ref=? AND record_version=?`)
       .get(record.world_id, record.record_ref, record.record_version);
     if (existing) {
@@ -772,13 +769,13 @@ export class SQLiteMemoryProvider {
       // An earlier ingest may have committed the durable record but failed while
       // writing its derived index entry. An identical replay must not report a
       // fully ordinary duplicate while silently leaving that entry absent.
-      const indexed = this.#db.prepare(`SELECT 1 AS ok FROM memory_index_entries
+      const indexed = this.db.prepare(`SELECT 1 AS ok FROM memory_index_entries
         WHERE world_id=? AND record_ref=? AND record_version=?`)
         .get(record.world_id, record.record_ref, record.record_version);
       if (!indexed) {
         this.#setState(record.world_id, 'rebuilding', 'stale', null, 'INDEX_ENTRY_MISSING');
         try {
-          this.#withSerializedWrite(() => this.#db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
+          this.#withSerializedWrite(() => this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
             .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString()));
         } catch (error) {
           this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
@@ -795,9 +792,9 @@ export class SQLiteMemoryProvider {
     // Invalidate the readiness marker before any ingest mutation. If either the raw
     // write or index write fails, retrieval cannot reuse a prior ready marker.
     this.#setState(record.world_id, 'rebuilding', 'stale');
-    this.#withSerializedWrite(() => this.#db.prepare(`INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values));
+    this.#withSerializedWrite(() => this.db.prepare(`INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values));
     try {
-      this.#withSerializedWrite(() => this.#db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
+      this.#withSerializedWrite(() => this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
         .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString()));
     } catch (error) {
       this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
@@ -811,10 +808,10 @@ export class SQLiteMemoryProvider {
     this.#setState(worldId, 'rebuilding', 'stale');
     try {
       const count = this.#withImmediateTransaction(() => {
-        this.#db.prepare('DELETE FROM memory_index_entries WHERE world_id=?').run(worldId);
-        const records = this.#db.prepare('SELECT record_ref,record_version FROM memory_records WHERE world_id=?')
+        this.db.prepare('DELETE FROM memory_index_entries WHERE world_id=?').run(worldId);
+        const records = this.db.prepare('SELECT record_ref,record_version FROM memory_records WHERE world_id=?')
           .all(worldId);
-        const insert = this.#db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)');
+        const insert = this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)');
         for (const record of records) {
           insert.run(worldId, record.record_ref, record.record_version, new Date().toISOString());
         }
@@ -848,9 +845,9 @@ export class SQLiteMemoryProvider {
       this.#setState(worldId, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
       return { status: 'unavailable', reason: 'CORE_SNAPSHOT_UNAVAILABLE' };
     }
-    const records = this.#db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
+    const records = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
     for (const row of records) {
-      const entry = this.#db.prepare(`SELECT 1 AS ok FROM memory_index_entries
+      const entry = this.db.prepare(`SELECT 1 AS ok FROM memory_index_entries
         WHERE world_id=? AND record_ref=? AND record_version=?`)
         .get(worldId, row.record_ref, row.record_version);
       if (!entry) {
@@ -911,7 +908,7 @@ export class SQLiteMemoryProvider {
     const recordSet = (rows) => rows.map(({ created_at, ...record }) => record)
       .sort((a, b) => a.record_ref.localeCompare(b.record_ref)
         || a.record_version.localeCompare(b.record_version));
-    const latestRecords = this.#db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
+    const latestRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
     if (!isDeepStrictEqual(recordSet(records), recordSet(latestRecords))) {
       this.#setState(worldId, 'stale', 'stale');
       return { status: 'stale' };
@@ -933,7 +930,7 @@ export class SQLiteMemoryProvider {
           this.#setState(worldId, 'stale', 'stale', null, 'PROVIDER_STATE_CHANGED');
           return { status: 'stale', reason: 'PROVIDER_STATE_CHANGED' };
         }
-        const finalRecords = this.#db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
+        const finalRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
         if (!isDeepStrictEqual(recordSet(records), recordSet(finalRecords))) {
           this.#setState(worldId, 'stale', 'stale');
           return { status: 'stale', reason: 'PROVIDER_RECORD_SET_CHANGED' };
@@ -944,7 +941,7 @@ export class SQLiteMemoryProvider {
         // under the same write lock before publishing ready/current.
         const compareIdentity = (a, b) => a.record_ref.localeCompare(b.record_ref)
           || a.record_version.localeCompare(b.record_version);
-        const finalIndex = this.#db.prepare('SELECT record_ref, record_version FROM memory_index_entries WHERE world_id=?')
+        const finalIndex = this.db.prepare('SELECT record_ref, record_version FROM memory_index_entries WHERE world_id=?')
           .all(worldId)
           .map((row) => ({ record_ref: row.record_ref, record_version: row.record_version }))
           .sort(compareIdentity);
@@ -978,13 +975,13 @@ export class SQLiteMemoryProvider {
     if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const queryGrantKey = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose]);
     const queryAuthorizationGeneration = this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0;
-    const state = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
+    const state = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
     if (!state || state.index_health !== 'ready' || state.source_reconciliation !== 'current') {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
     const stateGeneration = this.stateGeneration.get(scope.world_id) ?? 0;
     const providerDataVersion = requestDataVersion;
-    const scopedRecords = this.#db.prepare(`SELECT record_ref, record_version FROM memory_records
+    const scopedRecords = this.db.prepare(`SELECT record_ref, record_version FROM memory_records
       WHERE world_id=? AND subject_id=? AND purpose=?`)
       .all(scope.world_id, scope.subject_id, scope.purpose);
     const recordAuthorizationGenerations = new Map(scopedRecords.map((row) => {
@@ -1019,7 +1016,7 @@ export class SQLiteMemoryProvider {
     // A Provider write can invalidate readiness while getSnapshot() is awaited.
     // Re-read the readiness marker after the await; the earlier state object is
     // only a snapshot of readiness before that asynchronous boundary.
-    const latestState = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
+    const latestState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
     if (!latestState || latestState.index_health !== 'ready'
       || latestState.source_reconciliation !== 'current') {
       throw new Error('MEMORY_INDEX_NOT_READY');
@@ -1046,14 +1043,14 @@ export class SQLiteMemoryProvider {
         if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
         if ((this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration
           || this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
-        const lockedState = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
+        const lockedState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
         if (!lockedState || lockedState.index_health !== 'ready'
           || lockedState.source_reconciliation !== 'current') throw new Error('MEMORY_INDEX_NOT_READY');
         if (String(current.world_revision) !== lockedState.snapshot_revision
           || String(current.commit_sequence) !== lockedState.snapshot_sequence) throw new Error('MEMORY_SNAPSHOT_STALE');
         if ((this.stateGeneration.get(scope.world_id) ?? 0) !== stateGeneration
           || this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_INDEX_NOT_READY');
-        const rows = this.#db.prepare(`SELECT r.* FROM memory_records r
+        const rows = this.db.prepare(`SELECT r.* FROM memory_records r
           JOIN memory_index_entries i USING(world_id,record_ref,record_version)
           JOIN memory_record_grants g ON g.world_id=r.world_id AND g.record_ref=r.record_ref
             AND g.record_version=r.record_version AND g.subject_id=? AND g.purpose=? AND g.allowed=1
@@ -1074,7 +1071,7 @@ export class SQLiteMemoryProvider {
         // rather than collapsing denial into successful complete-empty. No record
         // identity, count, or content is included in the failure.
         if (rows.length === 0) {
-          const withheld = this.#db.prepare(`SELECT 1 AS found FROM memory_records r
+          const withheld = this.db.prepare(`SELECT 1 AS found FROM memory_records r
             JOIN memory_index_entries i USING(world_id,record_ref,record_version)
             WHERE r.world_id=? AND r.subject_id=? AND r.purpose=? LIMIT 1`)
             .get(scope.world_id, scope.subject_id, scope.purpose);

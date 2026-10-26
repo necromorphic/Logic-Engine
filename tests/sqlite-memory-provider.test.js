@@ -1,5 +1,4 @@
 import test from 'node:test';
-import { DatabaseSync } from 'node:sqlite';
 import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -21,10 +20,6 @@ function setup(t, options = {}) {
     ...options,
   };
   let provider = new SQLiteMemoryProvider(providerOptions);
-  // Test-only inspection/fault-injection connection; production callers cannot
-  // access the Provider's private SQLite handles or mutate around its lock.
-  const db = new DatabaseSync(path);
-  db.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
   const scope = { world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' };
   const record = {
     ...scope, record_ref: 'memory:record-a', record_version: 'record-v1',
@@ -35,11 +30,10 @@ function setup(t, options = {}) {
   };
   t.after(() => {
     try { provider?.close(); } catch {}
-    try { db.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
   });
   return {
-    path, db, scope, record,
+    path, scope, record,
     get provider() { return provider; },
     reopen() { provider.close(); provider = new SQLiteMemoryProvider(providerOptions); },
     setSnapshot(value) { snapshot = value; },
@@ -80,14 +74,6 @@ test('file-backed Provider detects coordinator alias through a symlinked parent 
   assert.equal(existsSync(coordinatorPath), false);
 });
 
-test('Provider does not expose writable SQLite handles', (t) => {
-  const s = setup(t);
-  assert.equal(s.provider.db, undefined);
-  assert.equal(s.provider.coordinatorDb, undefined);
-  assert.equal(Object.hasOwn(s.provider, 'db'), false);
-  assert.equal(Object.hasOwn(s.provider, 'coordinatorDb'), false);
-});
-
 test('in-memory Provider does not open the process coordinator database', (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-memory-'));
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -100,6 +86,7 @@ test('in-memory Provider does not open the process coordinator database', (t) =>
     validateInventory: async () => true,
   });
   t.after(() => provider.close());
+  assert.equal(provider.coordinatorDb, null);
   assert.equal(existsSync(coordinatorPath), false);
 });
 
@@ -134,7 +121,7 @@ test('Provider record ingestion rejects Proxy/accessor-backed input before readi
   });
   assert.throws(() => s.provider.putRecord({ ...s.record, lineage: accessorLineage }),
     /Invalid direct-source Memory record/);
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_records').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_records').get().count, 0);
 });
 
 test('Provider scope operations reject Proxy/accessor-backed scopes before field reads', async (t) => {
@@ -166,8 +153,8 @@ test('Provider scope operations reject Proxy/accessor-backed scopes before field
   await assert.rejects(() => s.provider.retrieveCandidates(accessorScope), /Invalid Memory scope/);
 
   assert.equal(getterCalls, 0);
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_query_grants').get().count, 0);
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_record_grants').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_query_grants').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_record_grants').get().count, 0);
 });
 
 test('raw lifecycle targets reject Proxy/accessor-backed input before field reads or mutation', (t) => {
@@ -200,59 +187,59 @@ test('raw lifecycle targets reject Proxy/accessor-backed input before field read
   assert.throws(() => s.provider.purgeRawSource(accessorTarget), /Invalid raw Memory purge target/);
 
   assert.equal(getterCalls, 0);
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_captures').get().count, 0);
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_derived_copies').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_captures').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_derived_copies').get().count, 0);
 });
 
 test('raw tombstone and purge update provider-local lifecycle rows atomically', (t) => {
   const s = setup(t);
   const key = ['world-a', 'chat-a', 'message-a', 'version-a'];
-  s.db.prepare(`INSERT INTO memory_raw_captures
+  s.provider.db.prepare(`INSERT INTO memory_raw_captures
     (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,
      metadata_json,captured_at,deleted_at)
     VALUES(?,?,?,?,?,?,?,?,?,NULL)`)
     .run(...key, 'assistant', 'raw text', 'raw-digest', '{}', '2026-01-01T00:00:00.000Z');
-  s.db.prepare(`INSERT INTO memory_raw_active_versions
+  s.provider.db.prepare(`INSERT INTO memory_raw_active_versions
     (world_id,conversation_id,message_id,version_id,selected_at) VALUES(?,?,?,?,?)`)
     .run(...key, '2026-01-01T00:00:00.000Z');
-  s.db.prepare(`INSERT INTO memory_raw_derived_copies
+  s.provider.db.prepare(`INSERT INTO memory_raw_derived_copies
     (world_id,conversation_id,message_id,source_version_id,copy_ref,copy_version,copy_kind,
      content_text,content_sha256,status,created_at,invalidated_at)
     VALUES(?,?,?,?,?,?,?,?,?,'current',?,NULL)`)
     .run(...key.slice(0, 3), key[3], 'copy:summary-a', 'copy-v1', 'summary',
       'derived text', 'copy-digest', '2026-01-01T00:00:00.000Z');
 
-  s.db.exec(`CREATE TRIGGER fail_raw_purge BEFORE DELETE ON memory_raw_captures
+  s.provider.db.exec(`CREATE TRIGGER fail_raw_purge BEFORE DELETE ON memory_raw_captures
     BEGIN SELECT RAISE(ABORT, 'injected raw purge failure'); END;`);
   assert.throws(() => s.provider.purgeRawSource({
     world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
   }), /injected raw purge failure/);
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_captures').get().count, 1);
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions').get().count, 1);
-  assert.equal(s.db.prepare(`SELECT status FROM memory_raw_derived_copies
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_captures').get().count, 1);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions').get().count, 1);
+  assert.equal(s.provider.db.prepare(`SELECT status FROM memory_raw_derived_copies
     WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`).get(...key).status, 'current');
-  s.db.exec('DROP TRIGGER fail_raw_purge');
+  s.provider.db.exec('DROP TRIGGER fail_raw_purge');
 
-  s.db.exec(`CREATE TRIGGER fail_raw_copy_invalidation BEFORE UPDATE ON memory_raw_derived_copies
+  s.provider.db.exec(`CREATE TRIGGER fail_raw_copy_invalidation BEFORE UPDATE ON memory_raw_derived_copies
     BEGIN SELECT RAISE(ABORT, 'injected raw invalidation failure'); END;`);
   assert.throws(() => s.provider.markRawSourceDeleted({
     world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
   }), /injected raw invalidation failure/);
-  assert.equal(s.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+  assert.equal(s.provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
     WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key).deleted_at, null);
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions').get().count, 1);
-  assert.equal(s.db.prepare(`SELECT status FROM memory_raw_derived_copies
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions').get().count, 1);
+  assert.equal(s.provider.db.prepare(`SELECT status FROM memory_raw_derived_copies
     WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`).get(...key).status, 'current');
-  s.db.exec('DROP TRIGGER fail_raw_copy_invalidation');
+  s.provider.db.exec('DROP TRIGGER fail_raw_copy_invalidation');
 
   assert.deepEqual(s.provider.markRawSourceDeleted({
     world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
   }), { status: 'deleted', invalidated_copies: 1 });
-  assert.equal(s.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+  assert.equal(s.provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
     WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key).deleted_at !== null, true);
-  assert.equal(s.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_active_versions
+  assert.equal(s.provider.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_active_versions
     WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key).count, 0);
-  const invalidatedCopy = s.db.prepare(`SELECT status, invalidated_at FROM memory_raw_derived_copies
+  const invalidatedCopy = s.provider.db.prepare(`SELECT status, invalidated_at FROM memory_raw_derived_copies
     WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`).get(...key);
   assert.equal(invalidatedCopy.status, 'invalidated');
   assert.equal(typeof invalidatedCopy.invalidated_at, 'string');
@@ -264,9 +251,9 @@ test('raw tombstone and purge update provider-local lifecycle rows atomically', 
   assert.deepEqual(s.provider.purgeRawSource({
     world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
   }), { status: 'purged', purged_copies: 1 });
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_captures').get().count, 0);
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions').get().count, 0);
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_derived_copies').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_captures').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_derived_copies').get().count, 0);
   assert.deepEqual(s.provider.purgeRawSource({
     world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
   }), { status: 'missing', purged_copies: 0 });
@@ -472,15 +459,15 @@ test('durable record survives ingest index-write failure and recovers after rest
   const s = setup(t);
   s.provider.grantQuery(s.scope, true);
   s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
-  s.db.exec(`CREATE TRIGGER fail_ingest_index_insert BEFORE INSERT ON memory_index_entries
+  s.provider.db.exec(`CREATE TRIGGER fail_ingest_index_insert BEFORE INSERT ON memory_index_entries
     BEGIN SELECT RAISE(ABORT, 'injected ingest index failure'); END;`);
 
   assert.throws(() => s.provider.putRecord(s.record), /injected ingest index failure/);
-  assert.equal(s.db.prepare(
+  assert.equal(s.provider.db.prepare(
     'SELECT COUNT(*) AS count FROM memory_records WHERE world_id=? AND record_ref=?',
   ).get(s.scope.world_id, s.record.record_ref).count, 1,
   'durable source record must survive the separate derived-index failure');
-  assert.equal(s.db.prepare(
+  assert.equal(s.provider.db.prepare(
     'SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=? AND record_ref=?',
   ).get(s.scope.world_id, s.record.record_ref).count, 0);
   assert.deepEqual(s.provider.getIndexStatusForDiagnostics(s.scope.world_id), {
@@ -490,7 +477,7 @@ test('durable record survives ingest index-write failure and recovers after rest
     failure_code: 'INDEX_WRITE_FAILED',
   });
 
-  s.db.exec('DROP TRIGGER fail_ingest_index_insert');
+  s.provider.db.exec('DROP TRIGGER fail_ingest_index_insert');
   s.reopen();
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   assert.deepEqual(await s.provider.rebuildIndex(s.scope.world_id), { status: 'rebuilt', count: 1 });
@@ -751,13 +738,13 @@ test('does not publish current when source inventory completeness cannot be conf
 test('raw ingest survives a derived-index failure and becomes usable only after rebuild', async (t) => {
   const s = setup(t);
   s.provider.grantQuery(s.scope, true);
-  s.db.exec(`CREATE TRIGGER fail_index_insert BEFORE INSERT ON memory_index_entries
+  s.provider.db.exec(`CREATE TRIGGER fail_index_insert BEFORE INSERT ON memory_index_entries
     BEGIN SELECT RAISE(ABORT, 'injected index failure'); END;`);
   assert.throws(() => s.provider.putRecord(s.record), /injected index failure/);
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
     .get('world-a').count, 1);
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
-  s.db.exec('DROP TRIGGER fail_index_insert');
+  s.provider.db.exec('DROP TRIGGER fail_index_insert');
   assert.deepEqual(await s.provider.rebuildIndex('world-a'), { status: 'rebuilt', count: 1 });
   assert.equal((await s.provider.reconcile('world-a')).status, 'current');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
@@ -836,7 +823,7 @@ test('interrupted index rebuild remains unavailable after provider restart', asy
   await s.provider.rebuildIndex('world-a');
   assert.equal((await s.provider.reconcile('world-a')).status, 'current');
 
-  s.db.exec(`CREATE TRIGGER fail_rebuild_insert BEFORE INSERT ON memory_index_entries
+  s.provider.db.exec(`CREATE TRIGGER fail_rebuild_insert BEFORE INSERT ON memory_index_entries
     BEGIN SELECT RAISE(ABORT, 'injected rebuild failure'); END;`);
   await assert.rejects(() => s.provider.rebuildIndex('world-a'), /injected rebuild failure/);
   s.reopen();
@@ -883,7 +870,7 @@ test('provider rejects derived summaries until lineage-wide authorization is imp
     }),
     /Invalid direct-source Memory record/,
   );
-  assert.equal(s.db.prepare(
+  assert.equal(s.provider.db.prepare(
     'SELECT COUNT(*) AS count FROM memory_records WHERE world_id=? AND record_ref=?',
   ).get(s.scope.world_id, 'memory:derived-summary').count, 0);
 });
@@ -1019,5 +1006,5 @@ test('Provider input snapshot rejects Object.prototype pollution before inherite
   }
 
   assert.equal(getterCalls, 0);
-  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_records').get().count, 0);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_records').get().count, 0);
 });
