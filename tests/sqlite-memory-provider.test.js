@@ -73,7 +73,7 @@ test('denies by default and immediately honors record revocation', async (t) => 
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
     source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
   }), false);
-  assert.equal((await s.provider.retrieveCandidates(s.scope)).candidates.length, 0);
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
 });
 
 
@@ -130,18 +130,24 @@ test('does not turn duplicate ingest into a second record or permit identity reb
 test('rechecks provider grants after asynchronous source validation', async (t) => {
   let releaseValidation;
   let validationStarted;
+  let holdValidation = false;
   const started = new Promise((resolve) => { validationStarted = resolve; });
   const pendingValidation = new Promise((resolve) => { releaseValidation = resolve; });
   const s = setup(t, {
     validateSourceVersion: async (candidate) => {
-      validationStarted();
-      await pendingValidation;
+      if (holdValidation) {
+        validationStarted();
+        await pendingValidation;
+      }
       return candidate.source_version === 'source-v1';
     },
   });
   s.provider.grantQuery(s.scope, true);
   s.provider.putRecord(s.record);
   s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  holdValidation = true;
 
   const authorization = s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
@@ -150,7 +156,7 @@ test('rechecks provider grants after asynchronous source validation', async (t) 
   await started;
   s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
   releaseValidation();
-  assert.equal(await authorization, false);
+  await assert.rejects(authorization, /MEMORY_RECORD_ACCESS_REVOKED/);
 });
 
 test('does not publish current when source inventory completeness cannot be confirmed', async (t) => {
@@ -173,7 +179,7 @@ test('raw ingest survives a derived-index failure and becomes usable only after 
   s.provider.db.exec('DROP TRIGGER fail_index_insert');
   assert.deepEqual(await s.provider.rebuildIndex('world-a'), { status: 'rebuilt', count: 1 });
   assert.equal((await s.provider.reconcile('world-a')).status, 'current');
-  assert.equal((await s.provider.retrieveCandidates(s.scope)).candidates.length, 0);
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
 });
 
 test('isolates identical record identities and grants across worlds', async (t) => {
@@ -322,4 +328,85 @@ test('source version becoming unverifiable at candidate authorization is not fil
     }),
     (error) => error.message === 'MEMORY_SOURCE_VERSION_UNVERIFIABLE',
   );
+});
+
+test('distinguishes indexed but ungranted records from authorized complete-empty', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  await assert.rejects(
+    () => s.provider.retrieveCandidates(s.scope),
+    (error) => error.message === 'MEMORY_RECORDS_WITHHELD',
+  );
+  assert.equal(JSON.stringify(s.provider.getIndexStatusForDiagnostics(s.scope.world_id))
+    .includes(s.record.record_ref), false);
+});
+
+
+test('validator outage during reconciliation persists non-ready state across restart', async (t) => {
+  let unavailable = false;
+  const s = setup(t, {
+    validateSourceVersion: async (record) => {
+      if (unavailable) throw new Error('private validator outage details');
+      return record.source_version === 'source-v1'
+        && record.source_entity_id === 'entity-source-a';
+    },
+  });
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  unavailable = true;
+  assert.deepEqual(await s.provider.reconcile(s.scope.world_id), {
+    status: 'stale',
+    reason: 'SOURCE_VALIDATION_FAILED',
+  });
+  assert.deepEqual(s.provider.getIndexStatusForDiagnostics(s.scope.world_id), {
+    index_health: 'stale',
+    source_reconciliation: 'stale',
+    snapshot: null,
+    failure_code: 'SOURCE_VALIDATION_FAILED',
+  });
+
+  s.reopen();
+  assert.deepEqual(s.provider.getIndexStatusForDiagnostics(s.scope.world_id), {
+    index_health: 'stale',
+    source_reconciliation: 'stale',
+    snapshot: null,
+    failure_code: 'SOURCE_VALIDATION_FAILED',
+  });
+  await assert.rejects(
+    () => s.provider.retrieveCandidates(s.scope),
+    (error) => error.message === 'MEMORY_INDEX_NOT_READY',
+  );
+});
+
+
+test('record revocation survives Provider restart and index rebuild cannot restore access', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  s.provider.putRecord(s.record);
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  assert.equal((await s.provider.retrieveCandidates(s.scope)).candidates.length, 1);
+
+  s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
+  s.reopen();
+
+  assert.equal(await s.provider.authorizeCandidate({
+    ...s.scope,
+    record_ref: s.record.record_ref,
+    record_version: s.record.record_version,
+    source_kind: 'canonical_entity',
+    source_entity_id: s.record.source_entity_id,
+  }), false, 'revoked record grant must remain revoked after restart');
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
 });
