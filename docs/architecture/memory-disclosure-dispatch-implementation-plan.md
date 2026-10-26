@@ -92,3 +92,35 @@ Core must not claim the whole gate is complete until Provider writes and the act
 - [ ] Audit/retention/security requirements pass.
 - [ ] Exact-head Runtime CI passes.
 - [ ] Explicit release approval recorded; until then production remains `DISABLED / FAIL-CLOSED`.
+
+
+## Deterministic race-test protocol (required after Gate 0)
+
+These are test orderings, not new runtime API names or a proposal for fixture-only authority. The final tests must drive the real Provider persistence/writers, the approved Core source reads/rollback path, and the pinned Host route through the actual sole transport. Test-only barriers may pause execution, but may not replace the production validator, inventory, grant store, or transport.
+
+| ID | Deterministic ordering | Required observable result |
+|---|---|---|
+| RACE-01 — revoke wins | Prepare an otherwise valid protected request. Pause immediately before the agreed durable dispatch-start serialization point. Commit Provider grant revocation through its real writer. Release the request. | The request is denied before transport; outbound invocation count is exactly zero. |
+| RACE-02 — dispatch-start wins | Pause a revocation until the exact request has durably won dispatch-start under the same serialization authority. Then commit the revocation. | The request is marked in-flight before revocation; transport invocation count is at most one. The test does not claim bytes can be recalled. A retry with the same request identity cannot create a second disclosure. |
+| RACE-03 — source rollback wins | Capture a valid R2 source snapshot and pause before dispatch-start. Roll back R2 through the real Core rollback writer, restoring R1 while `world_revision` changes and `commit_sequence` may remain unchanged. Release the request. | The R2 request is denied and transport count is zero; the implementation must compare authoritative source revision/currentness, not `commit_sequence` alone. |
+| RACE-04 — source destroyed/changed | Pause after candidate identification, then delete/destroy or update the source before dispatch-start. | Missing, destroyed, unknown, or revision-mismatched source yields zero transport calls. |
+| RACE-05 — Provider readiness changes | Pause before dispatch-start, then make Provider readiness/reconciliation stale or revoke the applicable query/record grant through its real persistence path. | The pending request cannot use the previous allow/readiness result; zero transport calls if the invalidation wins. |
+| RACE-06 — incomplete inventory | Have the real inventory authority report incomplete, unknown, unavailable, or stale inventory during final authorization. | No protected dispatch. A test callback returning unconditional true is not an acceptable substitute. |
+| RACE-07 — Core/Provider unavailable | Make either authoritative read/store unavailable before dispatch-start. | Fail closed; zero outbound calls; caller receives no source text, snippets, counts, or existence oracle. |
+| RACE-08 — crash before durable start | Terminate the gateway before dispatch-start commits, then restart and retry. | No prior transport call occurred; the request may be reconsidered only after full current-state validation. |
+| RACE-09 — crash after durable start, before handoff | Commit dispatch-start, terminate before invoking transport, restart. | Conservatively retain the started/in-flight classification. No automatic second disclosure may occur just because transport acknowledgement is absent. |
+| RACE-10 — crash after handoff, before acknowledgement | Allow the actual transport call, then drop/lose the acknowledgement and restart. | The system must not assume “not sent” and resend automatically. Preserve an ambiguous/in-flight result for explicit resolution according to the approved retry policy. |
+| RACE-11 — duplicate/replay | Submit the same protected request identity concurrently and again after restart, with identical and conflicting payloads. | Identical retries cannot cause a second outbound disclosure; conflicting reuse is rejected. Exact identity and durable deduplication semantics must be approved before implementation. |
+| RACE-12 — route bypass | Exercise every protected outbound path in the pinned Host build, including send, regenerate, continuation, retry, chat switch, cancellation and alternate API settings. | Every protected request reaches the sole gateway; any direct-provider bypass blocks release. |
+| RACE-13 — LAN/bridge interruption | Drop phone↔PC connectivity before authorization, after authorization but before dispatch-start, and after dispatch-start acknowledgement. | Before dispatch-start: no transport call. After dispatch-start: follow the durable in-flight/ambiguous rule; never infer non-disclosure from a lost phone acknowledgement. |
+| RACE-14 — stale backup restore | Revoke a grant or invalidate a source, then restore a Provider/Core backup predating that change. | Revocation and invalidation cannot be resurrected. If the approved recovery mechanism cannot prove this, protected dispatch remains disabled. |
+| RACE-15 — diagnostics | Cause each denial, validator outage, timeout, crash recovery and stale-version case. | No raw prompt, Memory content, snippet, secret, API key, or source existence/count oracle is returned or logged by default. |
+| RACE-16 — vectorization non-regression | Run the existing pinned SillyTavern vectorization/remote-store checks before and after the protected-egress work. | Existing vectorization behavior and the separate vector patch remain unchanged. |
+
+### Required evidence captured per race
+
+For each case, record the exact source and Host commits, Provider database mode, test command and run URL, deterministic ordering/barrier, expected and observed outbound-call count, final durable state, and whether a restart was involved. Keep content out of logs. Do not mark a case passed based only on a pure helper or mocked callback; distinguish unit, Provider-local integration, pinned-Host integration, and true end-to-end transport evidence.
+
+### Current boundary decision
+
+At the present code boundaries, RACE-01/02 cannot yet be honestly implemented end-to-end: Provider writes use a separate SQLite connection from Core, while the Host network handoff is external and there is no production egress coordinator wired in `src/index.js`. The purpose of these cases is to make the missing shared ordering testable after the owners approve an enforceable design—not to claim that it exists today.
