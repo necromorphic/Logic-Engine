@@ -35,6 +35,15 @@ test('Host conversation resolves only through adapter-scoped Core binding, never
     (error) => error.code === 'INVALID_HOST_CONVERSATION_RESOLUTION');
 });
 
+test('Core refuses to bind a Host conversation to a nonexistent world', (t) => {
+  const { service } = setup(t);
+  assert.throws(() => service.bind({
+    adapterId: 'adapter-a', conversationId: 'chat-unknown-world', worldId: 'world-does-not-exist',
+  }), (error) => error.code === 'WORLD_NOT_FOUND');
+  assert.throws(() => service.resolve({ adapterId: 'adapter-a', conversationId: 'chat-unknown-world' }),
+    (error) => error.code === 'HOST_CONVERSATION_NOT_AUTHORIZED');
+});
+
 test('duplicate binding is idempotent; silent reassignment and revoked resolution fail closed', (t) => {
   const { store, service } = setup(t);
   service.bind({ adapterId: 'adapter-a', conversationId: 'chat-1', worldId: 'binding-world-a' });
