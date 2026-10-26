@@ -162,6 +162,28 @@ test('ledger mutations after READY invalidate the published inventory state', as
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 });
 
+test('identical concurrent reconciliations converge to READY', async (t) => {
+  let enteredCount = 0;
+  let release;
+  const enteredPromise = new Promise((resolve) => { release = resolve; });
+  let unblock;
+  const gate = new Promise((resolve) => { unblock = resolve; });
+  const ledger = setup(t, async () => {
+    enteredCount += 1;
+    if (enteredCount === 2) release();
+    await gate;
+    return true;
+  });
+  const snapshot = { world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()] };
+  const first = ledger.reconcileConversation(snapshot);
+  const second = ledger.reconcileConversation(snapshot);
+  await enteredPromise;
+  unblock();
+  const results = await Promise.all([first, second]);
+  assert.deepEqual(results.map((x) => x.status), ['ready', 'ready']);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'READY');
+});
+
 test('reconciliation rejects if ledger changes while the verifier is awaiting', async (t) => {
   let entered;
   let release;
