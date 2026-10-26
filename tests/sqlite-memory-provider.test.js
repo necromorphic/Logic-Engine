@@ -209,6 +209,29 @@ test('raw tombstone and purge update provider-local lifecycle rows atomically', 
     .run(...key.slice(0, 3), key[3], 'copy:summary-a', 'copy-v1', 'summary',
       'derived text', 'copy-digest', '2026-01-01T00:00:00.000Z');
 
+  s.provider.db.exec(`CREATE TRIGGER fail_raw_purge BEFORE DELETE ON memory_raw_captures
+    BEGIN SELECT RAISE(ABORT, 'injected raw purge failure'); END;`);
+  assert.throws(() => s.provider.purgeRawSource({
+    world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
+  }), /injected raw purge failure/);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_captures').get().count, 1);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions').get().count, 1);
+  assert.equal(s.provider.db.prepare(`SELECT status FROM memory_raw_derived_copies
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`).get(...key).status, 'current');
+  s.provider.db.exec('DROP TRIGGER fail_raw_purge');
+
+  s.provider.db.exec(`CREATE TRIGGER fail_raw_copy_invalidation BEFORE UPDATE ON memory_raw_derived_copies
+    BEGIN SELECT RAISE(ABORT, 'injected raw invalidation failure'); END;`);
+  assert.throws(() => s.provider.markRawSourceDeleted({
+    world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
+  }), /injected raw invalidation failure/);
+  assert.equal(s.provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key).deleted_at, null);
+  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions').get().count, 1);
+  assert.equal(s.provider.db.prepare(`SELECT status FROM memory_raw_derived_copies
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`).get(...key).status, 'current');
+  s.provider.db.exec('DROP TRIGGER fail_raw_copy_invalidation');
+
   assert.deepEqual(s.provider.markRawSourceDeleted({
     world_id: key[0], conversation_id: key[1], message_id: key[2], version_id: key[3],
   }), { status: 'deleted', invalidated_copies: 1 });
