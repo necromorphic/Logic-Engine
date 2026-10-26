@@ -210,3 +210,32 @@ Decision references:
 - Complete Host source inventory across edit/delete/swipe/import/restore/restart/replay: **NON_READY**.
 - Callable final-disclosure gate and revoke-to-dispatch serialization: **NOT APPROVED / NOT PROVEN**.
 - Production Memory → NPC: **DISABLED / FAIL-CLOSED**.
+
+
+## 11. Latest exact-head checkpoint — Provider tests green, source-status precision still open (26 Oct 2026)
+
+This checkpoint supersedes the earlier Provider CI head/result in sections 8–10 where the same artifact is concerned. It does not change production readiness.
+
+### Provider current head and CI
+
+- Provider PR #344 head at this checkpoint: `b01ea2935fb9d07d8795c6dc2a03a0edd86d0d20`.
+- Exact-head Runtime CI: [#40304389545](https://github.com/necromorphic/Logic-Engine/actions/runs/40304389545) — **PASS**.
+- `npm test`: **604/604 passed**.
+- recalculation oracle: **8/8 passed**.
+- File-backed tests now cover persisted record/grant, restart, rebuild, reconciliation, revoked-grant persistence, direct-source version mismatch after rollback, missing source, wrong-world binding, destroyed source and Core snapshot outage. `validateInventory: async () => true` remains explicitly test-only.
+
+### Remaining Provider acceptance precision
+
+The current test-injected source validator still uses `entity.status !== 'destroyed'` and `Number.isSafeInteger(entity.updated_revision)`. Core's approved conditions require unknown/unsupported status and negative/malformed revision to fail closed. A follow-up is recorded in [Provider handoff #6413328654](https://github.com/necromorphic/Logic-Engine/issues/181#issuecomment-6413328654) to constrain the positive status to the currently evidenced supported status, require a non-negative safe integer, add representable negative cases, and correct the stale test comment that says no source-version mapping has been approved. Until this precision change is verified at a newer exact head, the Provider suite is green but this acceptance item remains **OPEN**.
+
+### Rollback projection distinction
+
+The Provider test now proves that an R2-pinned record is rejected after rollback if the source is restored to R1 **or** is absent/destroyed; it does not prove Core's separate required invariant that rolling back only the update restores the prior R1 entity and attributes. That mismatch was escalated in [Core issue #140 comment #6413298453](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6413298453). No Core fix or explicit contract revision is yet evidenced.
+
+### Cross-block disposition
+
+- Provider persistence/revocation regression: **PASS at the exact head above**, with the source-status precision follow-up still open.
+- Complete Host inventory across edit/delete/swipe/import/restore/restart/replay: **NON_READY**; no execution artifact for the bounded pinned-ST recording-fake-provider harness is present in #258.
+- Final subject-relative disclosure gate and revoke-to-dispatch serialization: **NO APPROVED CALLABLE SEAM / NOT PROVEN**.
+- Raw Host/ST text retention remains unapproved.
+- Production Memory → NPC remains **DISABLED / FAIL-CLOSED**.
