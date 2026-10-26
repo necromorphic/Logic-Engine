@@ -105,13 +105,23 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
   assert.ok(published.every(entry => !JSON.stringify(entry).includes('edited answer')));
 });
 
-test('Core publisher failures fail closed after native save without misreporting a local save failure', async () => {
+test('Core publisher failure stays NON_READY and can be retried without re-enrolling', async () => {
+  let fail = true;
   const f = makeFixture([{ is_user: false, mes: 'hello' }], {
-    publishDigest: async () => { throw Error('upstream contains sensitive details'); },
+    publishDigest: async () => {
+      if (fail) throw Error('upstream contains sensitive details');
+    },
   });
-  await assert.rejects(f.bridge.enrollCurrentConversation(), /NON_READY: Core digest capture failed/);
+  const enrollment = await f.bridge.enrollCurrentConversation();
+  assert.equal(enrollment.coreCaptureStatus, 'NON_READY');
   assert.equal(f.saveCount, 1);
   assert.ok(f.chat[0]._logicEngineLifecycle?.messageId);
+
+  fail = false;
+  const retry = await f.bridge.syncCurrentDigestInventory();
+  assert.equal(retry.status, 'CAPTURED_REVIEW_ONLY');
+  assert.equal(retry.published, true);
+  assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'CAPTURED_REVIEW_ONLY');
 });
 
 test('enrolled bridge writes event IDs and advances the fingerprint after an edit', async () => {
