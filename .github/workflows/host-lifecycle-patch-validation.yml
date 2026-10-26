@@ -74,6 +74,7 @@ jobs:
           node --check public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           node --check public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check src/endpoints/logic-engine-lifecycle-proxy.mjs
+          node --check src/endpoints/logic-engine-lifecycle.js
         working-directory: ${{ runner.temp }}/st
       - name: Upload pinned outbound audit report
         if: always()
