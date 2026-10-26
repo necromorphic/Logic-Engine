@@ -198,8 +198,12 @@ export class SQLiteStore {
     // Validate and canonicalize the shared coordinator before opening either
     // handle, so invalid configuration cannot leak an already-open Core DB.
     const corePath = path === ':memory:' ? ':memory:' : resolve(path);
+    const configuredCoordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
     const coordinatorPath = path === ':memory:' ? null
-      : (process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH || (corePath + '.coordinator.sqlite'));
+      : (configuredCoordinatorPath === undefined ? (corePath + '.coordinator.sqlite') : configuredCoordinatorPath);
+    if (path !== ':memory:' && (typeof coordinatorPath !== 'string' || !coordinatorPath.trim())) {
+      throw new TypeError('LOGIC_ENGINE_COORDINATOR_DB_PATH must be a non-empty absolute path.');
+    }
     if (coordinatorPath && !isAbsolute(coordinatorPath)) {
       throw new TypeError('LOGIC_ENGINE_COORDINATOR_DB_PATH must be an absolute path shared by all participants.');
     }
