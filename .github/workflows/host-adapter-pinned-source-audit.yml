@@ -13,13 +13,13 @@ permissions:
 jobs:
   pinned-source-audit:
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Checkout Logic-Engine
-        uses: actions/checkout@v4
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Set up Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: "22"
 
@@ -30,7 +30,7 @@ jobs:
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: SillyTavern
 
-      - name: Verify pinned checkout
+      - name: Install pinned SillyTavern dependencies\n        run: npm ci --prefix SillyTavern\n\n      - name: Verify pinned checkout
         shell: bash
         run: |
           actual="$(git -C SillyTavern rev-parse HEAD)"
@@ -40,4 +40,4 @@ jobs:
       - name: Run source-level lifecycle assertions
         env:
           SILLYTAVERN_DIR: SillyTavern
-        run: node --test experiments/host-adapter-source-audit/harness.test.mjs
+        run: node --test experiments/host-adapter-source-audit/harness.test.mjs\n\n      - name: Run bounded fake-provider integration harness\n        env:\n          SILLYTAVERN_DIR: SillyTavern\n        run: node --test experiments/host-adapter-runtime-harness/harness.test.mjs
