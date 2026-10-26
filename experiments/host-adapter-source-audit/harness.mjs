@@ -6,9 +6,14 @@ import { resolve } from 'node:path';
 const root = process.env.SILLYTAVERN_DIR ?? resolve(process.cwd(), 'SillyTavern');
 const targetSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
-const [events, script] = await Promise.all([
+const [events, script, chatCompletions, googleEndpoint, googleVectors, googleModels, nativeGoogleTts] = await Promise.all([
   readFile(resolve(root, 'public/scripts/events.js'), 'utf8'),
   readFile(resolve(root, 'public/script.js'), 'utf8'),
+  readFile(resolve(root, 'src/endpoints/backends/chat-completions.js'), 'utf8'),
+  readFile(resolve(root, 'src/endpoints/google.js'), 'utf8'),
+  readFile(resolve(root, 'src/vectors/google-vectors.js'), 'utf8'),
+  readFile(resolve(root, 'src/endpoints/backends/google-models.js'), 'utf8'),
+  readFile(resolve(root, 'public/scripts/extensions/tts/google-native.js'), 'utf8'),
 ]);
 
 test('audit input is the exact pinned SillyTavern commit', async () => {
@@ -65,4 +70,28 @@ test('swipe notification carries the host-local message index', () => {
 test('edit/update notifications use the current host-local edit index', () => {
   assert.match(script, /event_types\.MESSAGE_EDITED,\s*this_edit_mes_id/);
   assert.match(script, /event_types\.MESSAGE_UPDATED,\s*this_edit_mes_id/);
+});
+
+test('Google AI Studio chat generation allows direct egress when reverse_proxy is absent', () => {
+  assert.ok(chatCompletions.includes("const API_MAKERSUITE = 'https://generativelanguage.googleapis.com';"));
+  assert.ok(chatCompletions.includes('apiUrl = new URL(request.body.reverse_proxy || API_MAKERSUITE);'));
+  assert.ok(chatCompletions.includes('/${apiVersion}/models/${model}:${responseType}?key=${apiKey}'));
+  assert.ok(chatCompletions.includes("const apiKey = request.body.reverse_proxy ? request.body.proxy_password : readSecret(request.user.directories, SECRET_KEYS.MAKERSUITE"));
+});
+
+test('Google caption and native TTS use optional proxy override, not a mandatory gateway', () => {
+  assert.ok(googleEndpoint.includes('const apiUrl = trimTrailingSlash(request.body.reverse_proxy || API_MAKERSUITE);'));
+  assert.ok(googleEndpoint.includes("router.post('/caption-image'"));
+  assert.ok(googleEndpoint.includes("router.post('/generate-native-tts'"));
+  assert.ok(nativeGoogleTts.includes("reverse_proxy: useReverseProxy ? oai_settings.reverse_proxy : '',"));
+});
+
+test('Google vector helper delegates URL choice to the shared optional-proxy configuration', () => {
+  assert.ok(googleVectors.includes("getGoogleApiConfig(request, model, 'batchEmbedContents')"));
+  assert.ok(googleEndpoint.includes('request.body.reverse_proxy || API_MAKERSUITE'));
+});
+
+test('Google model discovery is a separate fetch path outside the generation gateway integration test', () => {
+  assert.ok(googleModels.includes('export async function fetchGoogleModels(modelsUrl, fetchImpl = fetch)'));
+  assert.ok(googleModels.includes('response = await fetchImpl(requestUrl.toString())'));
 });
