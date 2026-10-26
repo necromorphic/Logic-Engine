@@ -104,7 +104,9 @@ async function runWorker(role, directory) {
     if (role === 'gateway-crash-after-transport') {
       ledger.prepare('INSERT INTO transport_calls DEFAULT VALUES').run();
     }
-    process.stdout.write(JSON.stringify({ event }) + '\\n', () => process.exit(73));
+    emit(event);
+    await waitForCommand();
+    process.exit(73);
     return;
   } else if (role === 'recovery') {
     const marker = ledger.prepare("SELECT 1 AS found FROM dispatch WHERE outcome = 'dispatch-start' LIMIT 1").get();
@@ -189,6 +191,7 @@ if (workerRole && workerDirectory) {
         ? 'CRASH_AFTER_DURABLE_START_BEFORE_TRANSPORT'
         : 'CRASH_AFTER_TRANSPORT_BEFORE_RESPONSE';
       await waitFor(gateway, expectedEvent);
+      gateway.send('crash');
       assert.equal(await waitForExit(gateway), 73, gateway.stderr());
 
       const recovery = startWorker('recovery', directory);
