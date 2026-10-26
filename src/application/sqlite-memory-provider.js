@@ -30,9 +30,35 @@ const aliasesSameFile = (left, right) => {
   return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
 };
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const intrinsicObjectPrototypeKeys = new Set([
+  'constructor', '__defineGetter__', '__defineSetter__', 'hasOwnProperty', '__lookupGetter__',
+  '__lookupSetter__', 'isPrototypeOf', 'propertyIsEnumerable', 'toString', 'valueOf',
+  '__proto__', 'toLocaleString',
+]);
+const hasSafeObjectPrototype = () => {
+  try {
+    const keys = Reflect.ownKeys(Object.prototype);
+    if (keys.length !== intrinsicObjectPrototypeKeys.size) return false;
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (typeof key !== 'string' || !intrinsicObjectPrototypeKeys.has(key)) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, key);
+      if (!descriptor) return false;
+      if (key === '__proto__') {
+        if (!Object.hasOwn(descriptor, 'get') || !Object.hasOwn(descriptor, 'set')) return false;
+      } else if (!Object.hasOwn(descriptor, 'value')) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
 const isPlainDataRecord = (value) => {
   if (!object(value) || isProxy(value)) return false;
   const prototype = Object.getPrototypeOf(value);
+  if (prototype === Object.prototype && !hasSafeObjectPrototype()) return false;
   if (prototype !== Object.prototype && prototype !== null) return false;
   for (const key of Reflect.ownKeys(value)) {
     if (typeof key !== 'string') return false;
