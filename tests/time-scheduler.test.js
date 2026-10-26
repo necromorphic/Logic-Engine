@@ -256,3 +256,37 @@ test('trigger payload normalization copies plain JSON data and canonicalizes neg
   normalized.nested[0].value = 99;
   assert.equal(Object.is(payload.nested[0].value, -0), true);
 });
+
+
+test('trigger records reject unknown fields instead of silently dropping misspelled scheduling intent', () => {
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers: [trigger('typo', 5, { interrupt_after_coordiante: true })],
+    }),
+    (error) => error.code === 'INVALID_TRIGGER_FIELD' && error.details.field === 'interrupt_after_coordiante',
+  );
+});
+
+test('trigger records reject accessors without invoking them', () => {
+  let getterCalled = false;
+  const unsafe = trigger('accessor', 5);
+  Object.defineProperty(unsafe, 'interrupt_after_coordinate', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return true; },
+  });
+
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers: [unsafe],
+    }),
+    (error) => error.code === 'INVALID_TRIGGER',
+  );
+  assert.equal(getterCalled, false);
+});
