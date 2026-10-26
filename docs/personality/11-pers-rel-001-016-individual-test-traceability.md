@@ -47,3 +47,45 @@ Status: documentation-only audit against the exact source snapshot recorded belo
 - [PR #324 — current-main test crosswalk](https://github.com/necromorphic/Logic-Engine/pull/324)
 
 This appendix adds no runtime API, schema, or cross-block implementation.
+
+## Coordinator refresh — explicit disposition and owner/closure test (2026-10-26)
+
+This section applies the coordinator's required labels to **every** PERS-REL ID. Labels describe the evidence boundary, not overall feature completion:
+
+- **EXECUTABLE** — a named test exists in the audited source and the test suite ran in the successful exact-head Runtime CI recorded for PR #324. This proves only the behavior and boundary asserted by that test.
+- **SOURCE-INSPECTED** — a named test or source declaration was inspected, but this refresh does not claim a passing execution result for that specific evidence.
+- **BLOCKED** — the required production behavior/test depends on an unapproved or missing owner contract/seam.
+- **NOT TESTED** — no matching test was found at the required boundary; no passing claim is made.
+
+Audited implementation source remains main `bf35fb8dd13628718dacc11c27654c0929fba0e2`. PR #324's documentation-only head is `81919f82a3205044559951c98f6c438dd056ef2b`; its Runtime CI #2152 passed: https://github.com/necromorphic/Logic-Engine/actions/runs/40218179679. CI success does not upgrade an evaluator-only test into consumer integration.
+
+| ID | Disposition label | Exact current evidence / required closure test | Blocking owner / dependency |
+|---|---|---|---|
+| PERS-REL-001 | **EXECUTABLE** | Evaluator `keeps direction explicit and does not create a reciprocal patch`; Core `admin-gated typed transition commits directed state, event, revision and audit atomically`. Closure still needs a real NPC-authorized write and authorized directional read test. | NPC consumer authority + Core authorized-read contract (#140, #317). |
+| PERS-REL-002 | **EXECUTABLE** | Evaluator omitted-dimension/explicit-clear tests; Core `partial dimension patch preserves other dimensions and mixed invalid patch is atomic` and clear/replay test. Closure: authorized production write/read verifies untouched dimensions and clear semantics. | Core production authority/read boundary (#140); do not expand privileged-write evidence. |
+| PERS-REL-003 | **EXECUTABLE** | Evaluator and Core tests distinguish unset, explicit neutral and cleared across replay. Closure: authorized historical read proves no coercion or unauthorized disclosure. | Core authorized-read contract (#140). |
+| PERS-REL-004 | **NOT TESTED** | No test found proving co-presence/co-mention alone causes no transition. Closure: actual NPC/event consumer test with co-presence as the only input and assert no candidate or canonical state change. | Relationships semantics (#143) + NPC consumer (#317); define the rule before testing. |
+| PERS-REL-005 | **BLOCKED** | Existing tests reject caller-supplied provenance and unauthorized routes; they do not test trusted initialization/import. Closure: after Core approves the operation, test authorized import, provenance, audit, rollback/restart and no spoofed authority. | Core; no approved initialization/import contract identified. |
+| PERS-REL-006 | **BLOCKED** | Existing negative route tests do not test author correction. Closure: after Core approves the correction contract, test preserved original history, correction provenance/audit, replay/rollback and unauthorized correction rejection. | Core; no approved correction contract identified. |
+| PERS-REL-007 | **EXECUTABLE** | Core tests cover cross-world rejection and normalized committed participant IDs. Closure: actual NPC-authorized identity-resolution test covers ambiguous names/mentions and rejects unresolved or cross-world identity without writes. | NPC identity-resolution path + Core authority boundary (#140/#317). |
+| PERS-REL-008 | **EXECUTABLE** | Evaluator test `self-relations are rejected unless each affected dimension explicitly allows them`. Closure: production authorized caller/commit test proves the rule cannot be bypassed. | Relationships semantics (#143) and Core enforcement boundary. |
+| PERS-REL-009 | **BLOCKED** | No Relationship→Personality/NPC consumer test. Closure: change a relationship dimension and assert stable-trait/profile storage and model-facing context are not rewritten. | Personality owns acceptance; NPC owns consumer (#317); Core read seam (#140). |
+| PERS-REL-010 | **BLOCKED** | No consumer test proving observed behavior/relationship does not become canonical hidden motive. Closure: vary relationship/observed behavior while motive evidence is absent or ambiguous; assert no motive is committed or presented as fact. | Personality semantics + NPC consumer (#317); Core read boundary where relevant (#140). |
+| PERS-REL-011 | **BLOCKED** | Evaluator withheld-state tests are not knowledge authorization. Closure: through real actor/purpose-authorized read and NPC knowledge consumer, prove relationship grants no knowledge and no protected value/existence/provenance leakage. | Core authorized read/disclosure (#140) + NPC consumer (#317). |
+| PERS-REL-012 | **NOT TESTED** | No card projection test found. Closure: actual card consumer proves output is derived from authorized canonical state, is read-only, and cannot become independent authority/source of truth. | Owner of the card/UI consumer to be confirmed; Core authorized-read contract (#140). |
+| PERS-REL-013 | **EXECUTABLE** | Core tests cover source rollback invalidation, dependent-transition rollback, restart and projection rebuild for the supported required-dependency first slice. Closure for broader semantics requires independent-support/reconciliation tests; do not overgeneralize this result. | Core first slice covered; alternative-support policy remains Relationships (#143) + Core reconciliation. |
+| PERS-REL-014 | **BLOCKED** | Evaluator tests reject duplicate evidence references and preserve conflict/insufficient outcomes, but no independent-support ledger/policy is proven. Closure: approved support policy; add/revoke independent sources and duplicate references across rollback/restart/rebuild, asserting distinct conflict vs insufficient outcomes and no stale promotion. | Relationships semantics (#143) + Core reconciliation/runtime representation. |
+| PERS-REL-015 | **BLOCKED** | Evaluator distinguishes withheld from unset; Core snapshot tests cover freshness, not actor/purpose authorization or non-disclosure. Closure: authorized/unauthorized real read tests prove withheld remains distinct and leaks no value, existence, provenance, count, snippet or diagnostic; assert freshness. | Core authorized read/disclosure (#140). |
+| PERS-REL-016 | **BLOCKED** | Directionality tests do not prove player agency or non-inference. Closure: real NPC/player-control tests assert relationship context cannot author player dialogue, thoughts, decisions or actions and cannot imply consent, obligation, or reciprocity. | NPC consumer/player-agency boundary (#317); Personality owns acceptance. |
+
+### Keep these concepts separate in every Personality/NPC consumer
+
+- **Stable traits**: durable character attributes; a relationship update must not silently rewrite them.
+- **Temporary state**: transient emotion, arousal, mood or current situational condition; it is not a stable trait or an acquired fact.
+- **Acquired experience and knowledge**: information learned from an identified source/event with provenance and access rules; relationship strength alone grants neither knowledge nor permission to disclose it.
+- **Hidden motives**: hypotheses/internal goals requiring their own evidence and uncertainty; observed behavior or relationship state alone does not establish a canonical motive.
+- **Consent**: a distinct, actor-specific authorization/choice; it must not be inferred from affection, trust, relationship direction or prior behavior.
+- **Obligations**: explicit world-/event-/contract-derived commitments, not an automatic consequence of relationship value.
+- **Reciprocity**: a separate directed relation or explicit event, never an implicit reverse edge or assumed mutual agreement.
+
+No test or runtime contract is invented by this table. Where the actual production seam or owner decision is missing, the case remains BLOCKED/NOT TESTED. Issue #73 stays open until those boundaries have approved contracts, executable tests and confirmed owners.
