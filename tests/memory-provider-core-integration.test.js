@@ -430,3 +430,30 @@ test('a real Core source mutation after reconciliation blocks NPC retrieval with
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
   assert.equal(JSON.stringify(result).includes('changed after Provider reconciliation'), false);
 });
+
+
+test('real Core entity revision change makes Provider reconciliation stale through the shared validator', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  const before = s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'] });
+  const update = s.engine.commitEvent(s.scope.world_id, {
+    event_id: 'provider-e2e-source-update',
+    idempotency_key: 'provider-e2e-source-update',
+    turn_id: 'provider-e2e-source-update',
+    event_type: 'action.completed',
+    expected_revision: before.world_revision,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'source-a' } }],
+    effects: [{ kind: 'entity.update', entity_id: 'source-a', attributes: { public_note: 'changed after indexing' } }],
+  });
+  assert.equal(update.accepted, true);
+
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('changed after indexing'), false);
+});
