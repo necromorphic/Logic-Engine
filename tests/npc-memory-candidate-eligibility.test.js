@@ -806,3 +806,15 @@ test("sparse candidate result arrays are malformed, not authorized complete-empt
   assert.deepEqual(result.admitted, []);
   assert.equal(JSON.stringify(result).includes("memory:claim-2"), false);
 });
+
+test("sparse summary lineage is not treated as complete authorized provenance", () => {
+  const sources = new Array(1);
+  const summary = candidate({
+    content_kind: "summary",
+    lineage: { status: "complete", sources },
+  });
+
+  const result = evaluateMemoryCandidateAdmission(request, completeResult([summary]));
+  assert.equal(result.status, "ready");
+  assert.deepEqual(result.admitted, []);
+});
