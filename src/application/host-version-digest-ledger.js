@@ -1,0 +1,173 @@
+import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
+import { resolve } from 'node:path';
+import { openCoordinatorDatabase, beginCoordinatorLock } from '../storage/coordinator-lock.js';
+
+const validId = (v) => typeof v === 'string' && v === v.trim() && v.length > 0 && v.length <= 200;
+const validDigest = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
+const tuple = (v) => [v.world_id, v.conversation_id, v.message_id, v.version_id];
+const validTuple = (v) => v && validId(v.world_id) && validId(v.conversation_id)
+  && validId(v.message_id) && validId(v.version_id);
+const digest = (v) => createHash('sha256').update(v).digest('hex');
+
+/**
+ * Draft-only digest ledger. Stores Host identity, digests and lifecycle state,
+ * never raw message text. It is not the semantic Memory-record store and is
+ * intentionally not wired to a public route or default runtime.
+ * The inventory verifier must be a trusted Host/Core integration.
+ */
+export class HostVersionDigestLedger {
+  constructor({ path, coordinatorPath, verifyInventorySnapshot }) {
+    if (typeof path !== 'string' || !path.trim() || path === ':memory:') {
+      throw new TypeError('A file-backed ledger path is required');
+    }
+    if (typeof coordinatorPath !== 'string' || !coordinatorPath.trim() || coordinatorPath === ':memory:') {
+      throw new TypeError('The shared coordinator path is required');
+    }
+    if (typeof verifyInventorySnapshot !== 'function') {
+      throw new TypeError('A trusted inventory verifier is required');
+    }
+    this.verifyInventorySnapshot = verifyInventorySnapshot;
+    this.db = new DatabaseSync(resolve(path));
+    this.coordinator = openCoordinatorDatabase(coordinatorPath);
+    this.db.exec([
+      'PRAGMA foreign_keys=ON;',
+      'PRAGMA busy_timeout=5000;',
+      "CREATE TABLE IF NOT EXISTS host_version_digest_ledger (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, content_sha256 TEXT NOT NULL, lifecycle TEXT NOT NULL CHECK(lifecycle IN ('present','tombstoned')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tombstoned_at TEXT, PRIMARY KEY(world_id,conversation_id,message_id,version_id));",
+      'CREATE TABLE IF NOT EXISTS host_version_active_pointer (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(world_id,conversation_id,message_id), FOREIGN KEY(world_id,conversation_id,message_id,version_id) REFERENCES host_version_digest_ledger(world_id,conversation_id,message_id,version_id));',
+      'CREATE TABLE IF NOT EXISTS host_version_ledger_conflicts (id INTEGER PRIMARY KEY AUTOINCREMENT, world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, persisted_digest TEXT NOT NULL, observed_digest TEXT NOT NULL, observed_at TEXT NOT NULL);',
+      "CREATE TABLE IF NOT EXISTS host_version_inventory_state (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('NON_READY','READY')), snapshot_digest TEXT, failure_code TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(world_id,conversation_id));"
+    ].join('\n'));
+  }
+
+  #write(work) {
+    const release = beginCoordinatorLock(this.coordinator);
+    try {
+      this.db.exec('BEGIN IMMEDIATE');
+      try { const result = work(); this.db.exec('COMMIT'); return result; }
+      catch (error) { try { this.db.exec('ROLLBACK'); } catch {} throw error; }
+    } finally { release(); }
+  }
+
+  #get(v) {
+    return this.db.prepare('SELECT * FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?').get(...tuple(v));
+  }
+
+  #put(v, now) {
+    const prior = this.#get(v);
+    if (prior && prior.content_sha256 !== v.content_sha256) {
+      this.db.prepare('INSERT INTO host_version_ledger_conflicts (world_id,conversation_id,message_id,version_id,persisted_digest,observed_digest,observed_at) VALUES(?,?,?,?,?,?,?)')
+        .run(...tuple(v), prior.content_sha256, v.content_sha256, now);
+      this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,failure_code,updated_at) VALUES(?,?,'NON_READY','HOST_VERSION_DIGEST_CONFLICT',?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='NON_READY',failure_code='HOST_VERSION_DIGEST_CONFLICT',updated_at=excluded.updated_at")
+        .run(v.world_id, v.conversation_id, now);
+      return { status: 'conflict', code: 'HOST_VERSION_DIGEST_CONFLICT' };
+    }
+    if (prior) {
+      if (prior.lifecycle === 'tombstoned' && !v.deleted) return { status: 'non_ready', code: 'HOST_TOMBSTONE_REAPPEARED' };
+      if (v.deleted && prior.lifecycle !== 'tombstoned') {
+        this.db.prepare("UPDATE host_version_digest_ledger SET lifecycle='tombstoned',updated_at=?,tombstoned_at=? WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?")
+          .run(now, now, ...tuple(v));
+        this.db.prepare('DELETE FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?').run(...tuple(v));
+        return { status: 'tombstoned' };
+      }
+      return { status: prior.lifecycle === 'tombstoned' ? 'tombstoned' : 'duplicate' };
+    }
+    this.db.prepare('INSERT INTO host_version_digest_ledger (world_id,conversation_id,message_id,version_id,content_sha256,lifecycle,created_at,updated_at,tombstoned_at) VALUES(?,?,?,?,?,?,?,?,?)')
+      .run(...tuple(v), v.content_sha256, v.deleted ? 'tombstoned' : 'present', now, now, v.deleted ? now : null);
+    if (v.active && !v.deleted) this.#setActive(v, now);
+    return { status: v.deleted ? 'tombstoned' : 'captured' };
+  }
+
+  #setActive(v, now) {
+    this.db.prepare('INSERT INTO host_version_active_pointer (world_id,conversation_id,message_id,version_id,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(world_id,conversation_id,message_id) DO UPDATE SET version_id=excluded.version_id,updated_at=excluded.updated_at')
+      .run(v.world_id, v.conversation_id, v.message_id, v.version_id, now);
+  }
+
+  captureVersion(v) {
+    if (!validTuple(v) || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
+      throw new TypeError('Invalid digest-only Host version entry');
+    }
+    return this.#write(() => this.#put(v, new Date().toISOString()));
+  }
+
+  selectActiveVersion(v) {
+    if (!validTuple(v)) throw new TypeError('Invalid Host version tuple');
+    return this.#write(() => {
+      const row = this.#get(v);
+      if (!row || row.lifecycle !== 'present') return { status: 'non_ready', code: 'HOST_VERSION_UNAVAILABLE' };
+      const now = new Date().toISOString();
+      this.#setActive(v, now);
+      return { status: 'selected' };
+    });
+  }
+
+  tombstoneVersion(v) {
+    if (!validTuple(v)) throw new TypeError('Invalid Host version tuple');
+    return this.#write(() => {
+      const row = this.#get(v);
+      if (!row) return { status: 'non_ready', code: 'HOST_VERSION_UNKNOWN' };
+      const now = new Date().toISOString();
+      this.db.prepare("UPDATE host_version_digest_ledger SET lifecycle='tombstoned',updated_at=?,tombstoned_at=? WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?")
+        .run(now, now, ...tuple(v));
+      this.db.prepare('DELETE FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?').run(...tuple(v));
+      return { status: 'tombstoned' };
+    });
+  }
+
+  async reconcileConversation(snapshot) {
+    if (!snapshot || !validId(snapshot.world_id) || !validId(snapshot.conversation_id)
+      || snapshot.complete !== true || !Array.isArray(snapshot.versions)) {
+      return { status: 'non_ready', code: 'HOST_INVENTORY_INCOMPLETE' };
+    }
+    const seen = new Set();
+    for (const v of snapshot.versions) {
+      if (!validTuple(v) || v.world_id !== snapshot.world_id || v.conversation_id !== snapshot.conversation_id
+        || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
+        return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
+      }
+      const key = JSON.stringify(tuple(v));
+      if (seen.has(key)) return { status: 'non_ready', code: 'HOST_INVENTORY_DUPLICATE_IDENTITY' };
+      seen.add(key);
+    }
+    let trusted = false;
+    try {
+      trusted = await this.verifyInventorySnapshot(Object.freeze({
+        world_id: snapshot.world_id, conversation_id: snapshot.conversation_id, complete: true,
+        versions: snapshot.versions.map((v) => Object.freeze({ ...v }))
+      })) === true;
+    } catch { trusted = false; }
+    if (!trusted) return { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' };
+    const canonical = snapshot.versions.map((v) => [...tuple(v), v.content_sha256, v.active, v.deleted])
+      .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
+    const snapshotDigest = digest(JSON.stringify(canonical));
+    return this.#write(() => {
+      const known = this.db.prepare('SELECT * FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=?')
+        .all(snapshot.world_id, snapshot.conversation_id);
+      for (const row of known) {
+        const key = JSON.stringify([row.world_id, row.conversation_id, row.message_id, row.version_id]);
+        if (!seen.has(key)) {
+          const now = new Date().toISOString();
+          this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,snapshot_digest,failure_code,updated_at) VALUES(?,?,'NON_READY',?,'HOST_INVENTORY_DISAPPEARANCE',?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='NON_READY',snapshot_digest=excluded.snapshot_digest,failure_code='HOST_INVENTORY_DISAPPEARANCE',updated_at=excluded.updated_at")
+            .run(snapshot.world_id, snapshot.conversation_id, snapshotDigest, now);
+          return { status: 'non_ready', code: 'HOST_INVENTORY_DISAPPEARANCE' };
+        }
+      }
+      const now = new Date().toISOString();
+      for (const v of snapshot.versions) {
+        const result = this.#put(v, now);
+        if (result.status === 'conflict' || result.status === 'non_ready') return { status: 'non_ready', code: result.code };
+        if (v.active && !v.deleted) this.#setActive(v, now);
+      }
+      this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,snapshot_digest,failure_code,updated_at) VALUES(?,?,'READY',?,NULL,?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='READY',snapshot_digest=excluded.snapshot_digest,failure_code=NULL,updated_at=excluded.updated_at")
+        .run(snapshot.world_id, snapshot.conversation_id, snapshotDigest, now);
+      return { status: 'ready', snapshot_sha256: snapshotDigest, version_count: snapshot.versions.length };
+    });
+  }
+
+  getInventoryState(worldId, conversationId) {
+    return this.db.prepare('SELECT * FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
+      .get(worldId, conversationId) ?? null;
+  }
+
+  close() { this.db.close(); this.coordinator.close(); }
+}
