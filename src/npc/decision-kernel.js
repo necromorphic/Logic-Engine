@@ -72,7 +72,10 @@ export function evaluateNpcDecisionPrototype(candidates) {
     };
   }
 
-  const highest = Math.max(...feasible.map(({ preference }) => preference));
+  const highest = feasible.reduce(
+    (maximum, candidate) => Math.max(maximum, candidate.preference),
+    Number.NEGATIVE_INFINITY,
+  );
   const winners = feasible.filter(({ preference }) => preference === highest);
 
   if (winners.length !== 1) {
