@@ -98,3 +98,38 @@ test("does not mutate the proposed candidate or assessments", () => {
   evaluateInteractionDrivenRelationshipCandidate(input);
   assert.deepEqual(input, before);
 });
+
+test("rejects accessor-backed top-level input without invoking getters", () => {
+  let getterCalls = 0;
+  const input = { ...base };
+  Object.defineProperty(input, "expectedInterpretation", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "teasing";
+    },
+  });
+  const result = evaluateInteractionDrivenRelationshipCandidate(input);
+  assert.equal(result.status, "invalid_candidate");
+  assert.equal(result.reason, "interaction_candidate_shape_invalid");
+  assert.equal(getterCalls, 0);
+});
+
+test("rejects accessor-backed candidate records without invoking getters", () => {
+  let getterCalls = 0;
+  const unsafeCandidate = { ...candidate };
+  Object.defineProperty(unsafeCandidate, "patch", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return { trust: "high" };
+    },
+  });
+  const result = evaluateInteractionDrivenRelationshipCandidate({
+    ...base,
+    candidate: unsafeCandidate,
+  });
+  assert.equal(result.status, "invalid_candidate");
+  assert.equal(result.reason, "interaction_candidate_shape_invalid");
+  assert.equal(getterCalls, 0);
+});
