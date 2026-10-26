@@ -207,20 +207,29 @@ function heapPop(heap) {
   return root;
 }
 
-export function normalizeTimeTrigger(input, worldId) {
+export function optionalTriggerValue(input, field, defaultValue) {
+  if (!Object.hasOwn(input, field)) return defaultValue;
+  const value = input[field];
+  if (value === undefined) {
+    fail('INVALID_TRIGGER_FIELD_VALUE', field + ' must not be explicitly undefined.');
+  }
+  return value;
+}
+
+function normalizeTimeTrigger(input, worldId) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('INVALID_TRIGGER', 'Every trigger must be an object.');
   assertTriggerRecord(input);
   const trigger = {
     trigger_id: nonEmptyString(input.trigger_id, 'trigger_id'),
     world_id: nonEmptyString(input.world_id, 'world_id'),
     due_coordinate: safeInteger(input.due_coordinate, 'due_coordinate'),
-    status: input.status === undefined ? 'pending' : input.status,
-    dependencies: stringSet(input.dependencies, 'dependencies'),
-    read_set: validateReferenceKinds(stringSet(input.read_set, 'read_set'), 'read_set', false),
-    write_set: validateReferenceKinds(stringSet(input.write_set, 'write_set'), 'write_set', true),
-    processing_mode: input.processing_mode === undefined ? 'exact' : input.processing_mode,
-    interrupt_after_coordinate: input.interrupt_after_coordinate === undefined ? false : input.interrupt_after_coordinate,
-    payload: cloneJson(input.payload ?? null, 'payload'),
+    status: optionalTriggerValue(input, 'status', 'pending'),
+    dependencies: stringSet(optionalTriggerValue(input, 'dependencies', []), 'dependencies'),
+    read_set: validateReferenceKinds(stringSet(optionalTriggerValue(input, 'read_set', []), 'read_set'), 'read_set', false),
+    write_set: validateReferenceKinds(stringSet(optionalTriggerValue(input, 'write_set', []), 'write_set'), 'write_set', true),
+    processing_mode: optionalTriggerValue(input, 'processing_mode', 'exact'),
+    interrupt_after_coordinate: optionalTriggerValue(input, 'interrupt_after_coordinate', false),
+    payload: cloneJson(optionalTriggerValue(input, 'payload', null), 'payload'),
   };
   if (trigger.world_id !== worldId) fail('CROSS_WORLD_TRIGGER', 'A due-work plan cannot mix triggers from different worlds.', { trigger_id: trigger.trigger_id });
   if (!['pending', 'completed', 'cancelled'].includes(trigger.status)) fail('INVALID_TRIGGER_STATUS', 'Trigger status must be pending, completed, or cancelled.');
