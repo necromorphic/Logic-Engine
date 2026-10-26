@@ -328,7 +328,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           const stableRequest = { operation: 'mechanic.instance.create', world_id: worldId, instance_id: body.instance_id, template_id: body.template_id, template_version: body.template_version, parameters: body.parameters || {}, state: body.state || {}, expected_revision: body.expected_revision, idempotency_key: operationKey };
           const prepared = engine.prepareEvent({ idempotency_key: storageKey, turn_id: turnId, event_type: 'mechanic.instance.create', expected_revision: body.expected_revision, effects: [{ kind: 'mechanic.instance.create', instance_id: body.instance_id, template_id: body.template_id, template_version: body.template_version, parameters: body.parameters || {}, state: body.state || {} }] });
           prepared.request_hash = hashRequest(stableRequest);
-          const commit_result = engine.store.commit(worldId, prepared);
+          const commit_result = engine.commitPreparedEvent(worldId, prepared);
           let currentInstance;
           try {
             currentInstance = engine.getMechanicInstance(worldId, body.instance_id);
@@ -368,7 +368,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         const effectKind = 'mechanic.instance.' + operation;
         const prepared = engine.prepareEvent({ idempotency_key: storageKey, turn_id: turnId, event_type: effectKind, expected_revision: body.expected_revision, caused_by: instanceBefore ? [instanceBefore.last_event_id] : [], effects: [{ kind: effectKind, instance_id: instanceId }] });
         prepared.request_hash = hashRequest(stableRequest);
-        const commit_result = engine.store.commit(worldId, prepared);
+        const commit_result = engine.commitPreparedEvent(worldId, prepared);
         let currentInstance;
         try {
           currentInstance = engine.getMechanicInstance(worldId, instanceId);
