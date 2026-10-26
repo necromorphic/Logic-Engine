@@ -97,6 +97,28 @@ test('untrusted inventory snapshot cannot make ledger ready', async (t) => {
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id), null);
 });
 
+test('rejected caller-controlled inventory cannot poison readiness for another conversation', async (t) => {
+  const ledger = setup(t, async (snapshot) => snapshot.conversation_id === 'chat-a');
+  const ready = await ledger.reconcileConversation({
+    world_id: 'world-a', conversation_id: 'chat-a', complete: true, versions: [entry()]
+  });
+  assert.equal(ready.status, 'ready');
+  const before = ledger.getInventoryState('world-a', 'chat-a');
+  assert.equal(before.status, 'READY');
+
+  // A caller can name an otherwise valid scope but cannot prove authority for
+  // its inventory. Rejection must not mutate that scope's durable readiness.
+  assert.deepEqual(await ledger.reconcileConversation({
+    world_id: 'world-a', conversation_id: 'chat-a', complete: true,
+    versions: [entry({ message_id: 'attacker-controlled-message', content_sha256: digest('untrusted') })]
+  }), { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' });
+
+  const after = ledger.getInventoryState('world-a', 'chat-a');
+  assert.equal(after.status, 'READY');
+  assert.equal(after.updated_at, before.updated_at);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 1);
+});
+
 test('trusted complete snapshot recovers missed capture and publishes readiness', async (t) => {
   const ledger = setup(t, async (snapshot) => snapshot.complete === true);
   const result = await ledger.reconcileConversation({
