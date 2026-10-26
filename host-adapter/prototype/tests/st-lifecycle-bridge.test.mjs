@@ -197,6 +197,23 @@ test('restart reconciliation fails closed when source changed after the last jou
   await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
 });
 
+test('speaker-label changes are fingerprinted and require an instrumented edit checkpoint', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  f.chat[0].name = 'untracked speaker substitution';
+  const changed = await f.bridge.reconcileCurrentConversation();
+  assert.equal(changed.status, 'NON_READY');
+  assert.match(changed.reason, /fingerprint differs/);
+  await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
+
+  const g = makeFixture();
+  await g.bridge.enrollCurrentConversation();
+  await g.bridge.beforeMutation('edit-message', [0]);
+  g.chat[0].name = 'speaker label changed by supported edit';
+  await g.bridge.afterMutation('edit-message');
+  assert.equal((await g.bridge.beforeMutation('delete-message', [0])).status, 'ready');
+});
+
 test('native save failure leaves the journal behind so the next mutation fails closed', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
