@@ -7,7 +7,7 @@ import { AuthorizedReadService } from '../src/application/authorized-read-servic
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
-function setup(t, { twoRecords = false } = {}) {
+function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const bindings = new ActorBindingService(engine);
@@ -36,8 +36,9 @@ function setup(t, { twoRecords = false } = {}) {
     const snapshot = engine.getSnapshot(id);
     return { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence };
   };
+  // Approved Core mapping for direct canonical_entity only. Inventory callback below remains test-only.
   const sourceVersionValidator = async (record) => {
-    if (record.source_version !== 'fixture-source-v1') return false;
+    if (record.source_kind !== 'canonical_entity' || !record.source_entity_id) return false;
     if (triggerRace && record.record_ref === 'memory:record-b') {
       triggerRace = false;
       provider.revokeRecord(scope, 'memory:record-a', 'record-v1');
@@ -48,11 +49,15 @@ function setup(t, { twoRecords = false } = {}) {
     }
     try {
       const snapshot = engine.getSnapshot(record.world_id, { entityIds: [record.source_entity_id] });
-      return snapshot.entities.length === 1 && snapshot.entities[0].entity_id === record.source_entity_id;
+      if (snapshot.entities.length !== 1) return false;
+      const entity = snapshot.entities[0];
+      return entity.entity_id === record.source_entity_id && entity.status !== 'destroyed'
+        && Number.isSafeInteger(entity.updated_revision)
+        && record.source_version === String(entity.updated_revision);
     } catch { return false; }
   };
   provider = new SQLiteMemoryProvider({
-    path: ':memory:',
+    path: providerPath,
     getSnapshot: snapshotReader,
     validateSourceVersion: sourceVersionValidator,
     validateInventory: async () => true,
@@ -65,13 +70,13 @@ function setup(t, { twoRecords = false } = {}) {
     record_version: 'record-v1',
     source_kind: 'canonical_entity',
     source_entity_id: sourceId,
-    source_version: 'fixture-source-v1',
+    source_version: String(engine.getSnapshot(worldId, { entityIds: [sourceId] }).entities[0]?.updated_revision ?? 'unverifiable'),
     content_kind: 'claim',
     epistemic_kind: 'acquired_report',
     producer_kind: 'memory-index',
     content_disposition: 'usable',
     evidence_assessment: 'unassessed',
-    lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: 'fixture-source-v1' }],
+    lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: String(engine.getSnapshot(worldId, { entityIds: [sourceId] }).entities[0]?.updated_revision ?? 'unverifiable') }],
   }));
   for (const record of records) {
     provider.putRecord(record);
@@ -93,6 +98,13 @@ function setup(t, { twoRecords = false } = {}) {
     },
     triggerRace() { triggerRace = true; },
     triggerQueryRevocation() { triggerQueryRevocation = true; },
+    reopenProvider() {
+      provider.close();
+      provider = new SQLiteMemoryProvider({ path: providerPath, getSnapshot: snapshotReader,
+        validateSourceVersion: sourceVersionValidator,
+        validateInventory: async () => true, // test-only; not Host completeness evidence
+      });
+    },
   };
 }
 
@@ -155,7 +167,7 @@ test('real Core entity existence does not substitute for an approved source-vers
 
   // The current Core contract has no authoritative durable per-entity source
   // version. Model that missing proof explicitly instead of treating the
-  // fixture-source-v1 token or composite snapshot as source authority.
+  // fixture token token or composite snapshot as source authority.
   s.provider.validateSourceVersion = async () => false;
   assert.equal((await s.prepare()).status, 'stale');
 
