@@ -49,7 +49,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          npx eslint public/script.js --parser-options '{"sourceType":"module"}'
+          npx eslint public/script.js public/scripts/slash-commands.js --parser-options '{"sourceType":"module"}'
         working-directory: ${{ runner.temp }}/st
       - name: Syntax-check prototype modules
         shell: bash
