@@ -1,8 +1,32 @@
 # Core cross-block contract-path matrix
 
-**Status:** audit/preparation only. This matrix does not approve runtime wiring or production disclosure.
+**Status:** Core architectural decision recorded; runtime implementation remains blocked. This matrix does not approve production disclosure.
 **Repository baseline:** current `main` plus the explicitly named draft branches/PR evidence noted below.
 **Rule:** every row separates what existing code enforces from what remains unproven.
+
+
+## Core decision recorded 26 Oct 2026 — #140
+
+- **ACCEPT as target topology:** protected Memory-bearing model requests must go through a PC-side egress gateway that owns final authorization and the sole upstream transport for the covered route.
+- **REJECT as sufficient production protocol:** the current shared coordinator-lock prototype, a Core-only `SQLiteStore.tx()`, or sequential Core/Provider preflight checks followed by a later Host fetch. Prototype tests establish behavior only when every participant obeys the lock; production participation and bypass exclusion are not proven.
+- **UNSUPPORTED as current implementation:** no production gateway is wired; Provider authority writers do not join a proven common order; the pinned Host route still permits direct upstream egress; complete direct-DB, migration, recovery and maintenance bypass exclusion is not established.
+- Production Memory→NPC stays **DISABLED / FAIL-CLOSED**. This decision approves the topology direction for planning, not a runtime API/schema/store/outbox/cursor or production activation.
+
+### Required protocol invariants
+
+1. The PC gateway owns the sole upstream transport for every protected request. No reusable allow token followed by phone-side fetch; any uncovered backend/extension/path must not carry protected Memory.
+2. One enforceable serialization authority orders durable dispatch-start against every validity-changing writer: Core source/entity/status/binding changes and rollback/rebuild; Provider grants/revocations, source/version/lineage, readiness/reconciliation, purge/restore; and startup/migration/recovery/maintenance. Any writer that cannot participate or be technically blocked is a bypass.
+3. Immediately before durable dispatch-start, the gateway rechecks canonical source identity/version/currentness, actor binding, disclosure policy, Provider grant/revocation, and readiness/reconciliation under that same order. No awaited validator may be treated as authoritative while a synchronous SQLite writer lock is held.
+4. If denial, revocation, invalidation, staleness, or readiness loss is ordered first, there must be zero upstream invocations. If dispatch-start wins first, the request is in-flight and cannot be recalled. A crash/ambiguous send after durable dispatch-start is not automatically retried; record it as ambiguous until explicitly reconciled. This is at-most-once invocation attempts, not exactly-once provider processing.
+5. The serialization protocol does not imply cross-store atomic commit or atomicity with the network. Core canonical events/audit remain Core-owned; Provider records remain Provider-owned absent a separate owner decision.
+6. Unknown source/version/lineage, incomplete inventory, unavailable/rebuilding Provider, unrecognized route, gateway/auth/authority failure, or unproven restore path means no protected payload is sent.
+
+### Gate sequence
+
+- **A — owner contract:** Host maps every protected route and proves direct egress can be technically disabled; Provider maps every authority-changing writer and provides a synchronous authoritative currentness check or identifies the missing interface; Core maps every canonical writer and closes or technically prevents direct DB/migration/restore bypass. Product/Security separately approves key placement, audit/retention, LAN/bridge authentication, and in-flight/retry semantics.
+- **B — choose the exact serialization point:** only after Gate A, approve the minimum runtime seam and any persistence/API changes. No speculative outbox/cursor/store/schema before that decision.
+- **C — production-path proof:** pinned Core + Provider + Host commits and actual PC gateway route. Writer-first → zero upstream arrivals; dispatch-start-first → durable start before one invocation; bypass attempt → test failure; crash/restart/restore/migration → no automatic retry and fail-closed unless current authority is proven; unauthorized fields/content/counts/diagnostics never leak.
+
 
 | Condition / invariant | Existing code path | Existing test/evidence | Owner | Status / gap |
 |---|---|---|---|---|
@@ -13,8 +37,8 @@
 | Provider query/record grants are current after awaited source validation | `SQLiteMemoryProvider.authorizeCandidate`, grant methods and Provider-local immediate transaction | `tests/memory-provider-query-revocation-race.test.js`; Provider PR #362 exact-head Runtime CI #40312515729 covers per-scope grant-generation and post-await rechecks | Memory Provider | Provider-local race is covered; it does not order revocation against Core mutation or final network dispatch. |
 | Provider index/reconciliation is ready and current | `SQLiteMemoryProvider.rebuildIndex`, `reconcile`, `memory_index_state` | Provider reconciliation tests; Provider PR #362 documents atomic record comparison/readiness publication under Provider `BEGIN IMMEDIATE`; exact-head Runtime CI #40312515729 passed | Memory Provider | Inventory completeness depends on trusted `validateInventory`; test uses `async () => true`. Actual Host inventory and restore/reconciliation contract remain unproven. |
 | Raw Host message/version lifecycle is complete | Provider raw capture/tombstone methods are Provider-owned; Host event capture is outside Core | Host #258 reports **NO SUCH MECHANISM FOUND / NON_READY** for a complete authoritative active + historical/deleted inventory with missed-change, rollback and replay detection. PR #358 verifies pinned ST SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`, 7/7 source assertions and one baseline server-handler fake-provider request; it is not a full browser/Android lifecycle test. | Host/Adapter + Provider | Core cannot infer completeness from Provider records. Host inventory remains NON_READY; fake-provider baseline does not prove historical/deleted inventory or revocation safety. |
-| Final model request passes one protected egress gate | No production egress coordinator is wired by `src/index.js`; `MemoryNpcConsumer` is an admission/context helper, not a model-dispatch receipt | Host PR #361 (merged as `e220fe6fe3f216825af6362d2115a6a53d2a0968`) proves only one baseline `POST /v1/chat/completions` request reached a recording fake provider; deny/stale/revoke cases requiring Core authorization remain BLOCKED. Provider #181 explicitly reports **NO PROVIDER-OWNED SERIALIZED DISPATCH SEAM**. | Host/Adapter + Product/Security + Core + Provider | Missing real final-dispatch boundary. PC-side gateway is a proposal, not an approved runtime contract. The only demonstrated Host route is a bounded harness, not complete egress coverage. |
-| Revocation/source invalidation is serialized against dispatch-start | Core `SQLiteStore.tx()` uses Core DB `BEGIN IMMEDIATE`; Provider has its own SQLite transaction; Host network handoff is external | PR #357 transaction audit comment 6413981020 | Joint | No shared serialization point spans these boundaries. Core-only transaction/preflight cannot guarantee zero egress after a prior revocation. Remain fail-closed. |
+| Final model request passes one protected egress gate | No production egress coordinator is wired by `src/index.js`; `MemoryNpcConsumer` is an admission/context helper, not a model-dispatch receipt | Host PR #361 (merged as `e220fe6fe3f216825af6362d2115a6a53d2a0968`) proves only one baseline `POST /v1/chat/completions` request reached a recording fake provider; deny/stale/revoke cases requiring Core authorization remain BLOCKED. Provider #181 explicitly reports **NO PROVIDER-OWNED SERIALIZED DISPATCH SEAM**. | Host/Adapter + Product/Security + Core + Provider | **Topology direction ACCEPTED for planning; runtime UNSUPPORTED.** Gateway must own the sole protected upstream transport; direct Host egress remains a blocking bypass. |
+| Revocation/source invalidation is serialized against dispatch-start | Core `SQLiteStore.tx()` uses Core DB `BEGIN IMMEDIATE`; Provider has its own SQLite transaction; Host network handoff is external | PR #377 passes controlled multiprocess lock-order/crash tests, but its synthetic stores assume participants obey the protocol | Joint | **Prototype REJECTED as production proof.** No shared production serialization point is established across all writers and actual network handoff. Remain fail-closed. |
 | Retry, crash, ambiguous acknowledgement and restore cannot duplicate/resurrect disclosure | No single cross-owner durable dispatch-start contract exists yet | Acceptance scenarios are listed in `memory-disclosure-dispatch-implementation-plan.md`; no real end-to-end route test | Product/Security + Host/Adapter + Provider + Core | Decision and mechanism still required before runtime implementation. |
 | Existing vectorization remains untouched | Separate ST vector patch is outside Core source paths | PR #357 scope statement and this audit | Host/Adapter / project owner | No changes authorized or made here. |
 
@@ -26,5 +50,5 @@
 - **Core source-version predicate:** keep the only approved `canonical_entity` rule narrow and fail closed.
 - **Core rollback/currentness:** preserve entity projection restoration and composite-cursor checks; do not rely on `commit_sequence` alone.
 - **Provider-local guarantees:** useful and testable, but do not imply Core/Provider/Host atomicity.
-- **Production gate:** disabled until exact Host routes, authoritative inventory, all invalidation writers, and the sole outbound transport share a proven serialization order.
+- **Production gate:** disabled until exact Host routes, authoritative inventory, all invalidation writers, and the sole outbound transport share a proven serialization order. The PC-side sole-egress topology is accepted for planning; the current lock prototype is not accepted as proof.
 - **No guessed contracts:** no new API, schema, outbox, cursor, receiver, or production wiring is introduced by this audit.
