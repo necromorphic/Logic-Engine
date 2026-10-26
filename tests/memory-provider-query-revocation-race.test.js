@@ -550,8 +550,8 @@ test('reconciliation refuses current when index inventory changes outside its Pr
   holdValidation = true;
   const pending = provider.reconcile(scope.world_id);
   await validationStarted;
-  // Simulate a second Provider process/connection: durable index rows change
-  // without changing this instance's in-memory stateGeneration counter.
+  // Simulate an out-of-band durable index mutation that bypasses Provider
+  // methods and therefore does not advance this instance's in-memory generation.
   provider.db.prepare('DELETE FROM memory_index_entries WHERE world_id=? AND record_ref=?')
     .run(scope.world_id, record.record_ref);
   releaseValidation();
