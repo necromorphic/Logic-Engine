@@ -25,8 +25,10 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.13.0'
+      - name: Install dependencies
+        run: npm ci
       - name: Run NPC memory boundary tests
-        run: node --test tests/npc-memory-candidate-eligibility.test.js
+        run: node --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js
 
   test:
     runs-on: [self-hosted, Windows, X64]
