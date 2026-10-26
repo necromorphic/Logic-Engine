@@ -1,0 +1,43 @@
+name: Host Adapter pinned SillyTavern source audit
+
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/host-adapter-pinned-source-audit.yml"
+      - "tests/host-adapter-source-audit.test.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  pinned-source-audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Logic-Engine
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Checkout exact SillyTavern target
+        uses: actions/checkout@v4
+        with:
+          repository: SillyTavern/SillyTavern
+          ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          path: SillyTavern
+
+      - name: Verify pinned checkout
+        shell: bash
+        run: |
+          actual="$(git -C SillyTavern rev-parse HEAD)"
+          test "$actual" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+          echo "SillyTavern target SHA: $actual"
+
+      - name: Run source-level lifecycle assertions
+        env:
+          SILLYTAVERN_DIR: SillyTavern
+        run: node --test tests/host-adapter-source-audit.test.mjs
