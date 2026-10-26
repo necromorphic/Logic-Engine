@@ -206,3 +206,27 @@ test('SQLiteStore rejects coordinator and Core DB paths that alias the same file
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+
+test('public SQLiteStore.db facade rejects mutations outside the store transaction lease', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'logic-engine-db-facade-'));
+  const storePath = join(dir, 'core.sqlite');
+  const store = new SQLiteStore(storePath);
+  try {
+    store.tx(() => store.db.exec('CREATE TABLE guarded_facade_probe (value TEXT NOT NULL)'));
+    assert.throws(
+      () => store.db.prepare('INSERT INTO guarded_facade_probe(value) VALUES(?)').run('outside'),
+      /SQLITE_STORE_WRITE_OUTSIDE_TRANSACTION/,
+    );
+    assert.throws(
+      () => store.db.exec('DELETE FROM guarded_facade_probe'),
+      /SQLITE_STORE_WRITE_OUTSIDE_TRANSACTION/,
+    );
+    store.tx(() => store.db.prepare('INSERT INTO guarded_facade_probe(value) VALUES(?)').run('inside'));
+    assert.equal(store.db.prepare('SELECT value FROM guarded_facade_probe').get().value, 'inside');
+    assert.throws(() => store.db.close(), /Use SQLiteStore\.close\(\)/);
+  } finally {
+    store.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
