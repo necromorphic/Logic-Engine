@@ -70,6 +70,7 @@ function assertDueWorkRequest(input) {
     }
     const descriptor = Object.getOwnPropertyDescriptor(input, key);
     if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) invalid();
+    if (descriptor.value === undefined) invalid();
   }
 }
 
@@ -94,6 +95,9 @@ function assertTriggerRecord(input) {
     }
     const descriptor = Object.getOwnPropertyDescriptor(input, key);
     if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) invalid();
+    if (descriptor.value === undefined) {
+      fail('INVALID_TRIGGER_FIELD_VALUE', key + ' must not be explicitly undefined.');
+    }
   }
 }
 
