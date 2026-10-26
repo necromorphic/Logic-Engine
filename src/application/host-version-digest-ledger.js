@@ -142,6 +142,20 @@ export class HostVersionDigestLedger {
       if (!prior || (prior.lifecycle === 'present' && v.deleted)) {
         this.#invalidateReadiness(v.world_id, v.conversation_id, now);
       }
+      // Host may report an existing swipe with a changed active flag. Reflect
+      // that pointer mutation here as well as through selectActiveVersion.
+      if (prior?.lifecycle === 'present' && !v.deleted) {
+        const current = this.db.prepare('SELECT version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=?')
+          .get(v.world_id, v.conversation_id, v.message_id);
+        if (v.active && current?.version_id !== v.version_id) {
+          this.#invalidateReadiness(v.world_id, v.conversation_id, now);
+          this.#setActive(v, now);
+        } else if (!v.active && current?.version_id === v.version_id) {
+          this.#invalidateReadiness(v.world_id, v.conversation_id, now);
+          this.db.prepare('DELETE FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?')
+            .run(...tuple(v));
+        }
+      }
       return this.#put(v, now);
     });
   }
