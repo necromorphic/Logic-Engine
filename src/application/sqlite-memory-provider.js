@@ -52,7 +52,8 @@ export class SQLiteMemoryProvider {
     this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
     this.reconcileGeneration = new Map();
     this.stateGeneration = new Map();
-    this.authorizationGeneration = new Map();
+    this.queryAuthorizationGeneration = new Map();
+    this.recordAuthorizationGeneration = new Map();
     this.db = new DatabaseSync(path);
     this.db.exec(`
       PRAGMA foreign_keys = ON;
@@ -410,7 +411,8 @@ export class SQLiteMemoryProvider {
     this.db.prepare(`INSERT INTO memory_query_grants VALUES(?,?,?,?)
       ON CONFLICT(world_id,subject_id,purpose) DO UPDATE SET allowed=excluded.allowed`)
       .run(scope.world_id, scope.subject_id, scope.purpose, allowed ? 1 : 0);
-    this.authorizationGeneration.set(scope.world_id, (this.authorizationGeneration.get(scope.world_id) ?? 0) + 1);
+    const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose]);
+    this.queryAuthorizationGeneration.set(key, (this.queryAuthorizationGeneration.get(key) ?? 0) + 1);
   }
 
   grantRecord(scope, recordRef, recordVersion, allowed) {
@@ -422,7 +424,8 @@ export class SQLiteMemoryProvider {
       ON CONFLICT(world_id,subject_id,purpose,record_ref,record_version)
       DO UPDATE SET allowed=excluded.allowed`)
       .run(scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion, allowed ? 1 : 0);
-    this.authorizationGeneration.set(scope.world_id, (this.authorizationGeneration.get(scope.world_id) ?? 0) + 1);
+    const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion]);
+    this.recordAuthorizationGeneration.set(key, (this.recordAuthorizationGeneration.get(key) ?? 0) + 1);
   }
 
   revokeRecord(scope, recordRef, recordVersion) {
@@ -467,7 +470,12 @@ export class SQLiteMemoryProvider {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
     const stateGeneration = this.stateGeneration.get(input.world_id) ?? 0;
-    const authorizationGeneration = this.authorizationGeneration.get(input.world_id) ?? 0;
+    const queryGrantKey = JSON.stringify([input.world_id, input.subject_id, input.purpose]);
+    const recordGrantKey = JSON.stringify([
+      input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version,
+    ]);
+    const queryAuthorizationGeneration = this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0;
+    const recordAuthorizationGeneration = this.recordAuthorizationGeneration.get(recordGrantKey) ?? 0;
 
     let sourceValid = false;
     try {
@@ -504,7 +512,8 @@ export class SQLiteMemoryProvider {
     // If a grant was revoked and re-granted during the await, the final Boolean
     // alone loses that lifecycle transition. Fail this in-flight authorization;
     // a later request can use the new grant after a fresh retrieval.
-    if ((this.authorizationGeneration.get(input.world_id) ?? 0) !== authorizationGeneration) {
+    if ((this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration
+      || (this.recordAuthorizationGeneration.get(recordGrantKey) ?? 0) !== recordAuthorizationGeneration) {
       throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     }
     const latestState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
