@@ -498,3 +498,64 @@ test('reconciliation cannot publish current after a concurrent index rebuild cha
   });
   assert.notEqual(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'current');
 });
+
+
+test('reconciliation refuses current when index inventory changes outside its Provider instance', async (t) => {
+  let holdValidation = false;
+  let releaseValidation;
+  let signalValidation;
+  const validationStarted = new Promise((resolve) => { signalValidation = resolve; });
+  const validationGate = new Promise((resolve) => { releaseValidation = resolve; });
+  const provider = new SQLiteMemoryProvider({
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => {
+      if (holdValidation) {
+        signalValidation();
+        await validationGate;
+      }
+      return true;
+    },
+    validateInventory: async () => true,
+  });
+  t.after(() => provider.close());
+
+  const scope = { world_id: 'reconcile-index-inventory-race-world', subject_id: 'reconcile-index-inventory-race-npc', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'reconcile-index-inventory-race-record',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'reconcile-index-inventory-race-entity',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'canonical_entity',
+      entity_id: 'reconcile-index-inventory-race-entity',
+      source_version: 'source-v1',
+    }],
+  };
+  provider.grantQuery(scope, true);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  provider.putRecord(record);
+  await provider.rebuildIndex(scope.world_id);
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+
+  holdValidation = true;
+  const pending = provider.reconcile(scope.world_id);
+  await validationStarted;
+  // Simulate a second Provider process/connection: durable index rows change
+  // without changing this instance's in-memory stateGeneration counter.
+  provider.db.prepare('DELETE FROM memory_index_entries WHERE world_id=? AND record_ref=?')
+    .run(scope.world_id, record.record_ref);
+  releaseValidation();
+
+  assert.deepEqual(await pending, {
+    status: 'stale',
+    reason: 'INDEX_INVENTORY_MISMATCH',
+  });
+  assert.notEqual(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'current');
+});
