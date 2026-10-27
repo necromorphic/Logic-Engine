@@ -1,0 +1,77 @@
+name: Windows Core DB ACL boundary candidate
+on:
+  pull_request:
+    paths:
+      - 'scripts/security/Set-CoreDbAclBoundary.ps1'
+      - 'docs/security/core-db-acl-boundary-candidate.md'
+      - '.github/workflows/windows-core-db-acl-boundary.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-core-db-acl-boundary-\${{ github.workflow }}-\${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  powershell-51-acl-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Apply candidate ACL only to a disposable fixture
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $services = @(Get-CimInstance Win32_Service | Where-Object { $_.StartName -like 'NT SERVICE\\*' })
+          $unique = @{}
+          foreach ($service in $services) {
+            try {
+              $sid = (New-Object System.Security.Principal.NTAccount([string]$service.StartName)).Translate(
+                [System.Security.Principal.SecurityIdentifier]
+              ).Value
+              if ($sid -notin @('S-1-5-18', 'S-1-5-19', 'S-1-5-20') -and -not $unique.ContainsKey($sid)) {
+                $unique[$sid] = $service
+              }
+            } catch {}
+          }
+          $candidates = @($unique.Values)
+          if ($candidates.Count -lt 3) { throw 'Runner lacks three distinct virtual service identities for the isolated ACL smoke fixture.' }
+          $root = Join-Path $env:RUNNER_TEMP ('core-db-acl-smoke-' + [guid]::NewGuid().ToString('N'))
+          New-Item -ItemType Directory -Path $root | Out-Null
+          $db = Join-Path $root 'core.sqlite'
+          $evidence = Join-Path $env:RUNNER_TEMP ('core-db-acl-evidence-' + [guid]::NewGuid().ToString('N') + '.json')
+          Set-Content -LiteralPath $db -Value 'temporary non-sensitive ACL fixture'
+          try {
+            & .\scripts\security\Set-CoreDbAclBoundary.ps1 -CoreServiceName $candidates[0].Name -ProviderServiceName $candidates[1].Name -GatewayServiceName $candidates[2].Name -CoreDbPath $db -EvidencePath $evidence -Apply -Confirm:$false
+            $report = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
+            if ($report.status -ne 'APPLIED_AND_ACL_SHAPE_VERIFIED') {
+              throw "Unexpected ACL smoke status: $($report.status)"
+            }
+            if ($report.services.core.sid -eq $report.services.provider.sid -or
+                $report.services.core.sid -eq $report.services.gateway.sid -or
+                $report.services.provider.sid -eq $report.services.gateway.sid) {
+              throw 'Fixture service identities were not distinct.'
+            }
+            $acl = Get-Acl -LiteralPath $root
+            $identities = @($acl.Access | ForEach-Object { [string]$_.IdentityReference })
+            if ($identities -notcontains [string]$report.services.core.account) {
+              throw 'Core service identity is missing from the fixture directory ACL.'
+            }
+            if ($identities -contains [string]$report.services.provider.account -or
+                $identities -contains [string]$report.services.gateway.account) {
+              throw 'Provider or gateway has an explicit fixture directory ACE.'
+            }
+            Write-Output 'ACL shape smoke passed on a disposable fixture; this is not a target deployment access test.'
+          } finally {
+            if (Test-Path -LiteralPath $evidence) { Remove-Item -LiteralPath $evidence -Force }
+            if (Test-Path -LiteralPath $root) {
+              $acl = Get-Acl -LiteralPath $root
+              $acl.SetAccessRuleProtection($false, $true)
+              Set-Acl -LiteralPath $root -AclObject $acl
+              Remove-Item -LiteralPath $root -Recurse -Force
+            }
+          }
