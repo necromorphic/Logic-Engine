@@ -84,6 +84,19 @@ The design must identify the exact production call path and prove validation hap
 3. projection replay in `rebuild`;
 4. coherent state reads in `readSnapshot`.
 
+### 4.1 Exact source-path findings (bounded audit of current `main`)
+
+The source inspection narrows the open question; it does not resolve it:
+
+- `src/core/rules.js:205` exports `validateEffects`. For `entity.create`, `entity.update`, and `entity.upsert`, it verifies that `attributes` is an object and checks effect shape. It does not resolve a World Pack or validate attributes against an entity type's `attributes_schema`.
+- `src/storage/sqlite-store.js:1283` is the `commit(id, x, options = {})` method. Its inspected body does not call `validateEffects` or resolve a World Pack entity schema. It does enforce other canonical invariants, including world existence, revision/cursor checks, duplicate entity-effect prevention, create-ID reuse rejection, and update preconditions. This means the contract must trace and prove the trusted caller path as well as any invariant required at the storage commit boundary; the method name alone is not proof of typed validation.
+- `src/storage/sqlite-store.js:1507` implements `commitSegment` and calls `this.commit(..., { deferRebuild: true })` for each segment event, then calls `rebuild`. Therefore any required typed-source invariant must hold for this route too, including deferred projection rebuild.
+- `src/storage/sqlite-store.js:2215` rebuilds projections from events marked `valid`. It replays `entity.create` and `entity.upsert` through the same upsert projection path, merges `entity.update` attribute patches, and represents `entity.delete` as a destroyed tombstone with empty attributes.
+- The inspected entity checks reject `entity.create` when an ID already exists, including a destroyed tombstone, but do not establish a distinct durable incarnation identifier for `entity.upsert`. The contract must not infer that an upsert of a tombstoned ID is the same incarnation or allow old position to carry forward without an approved identity rule.
+- The `worlds` row stores `world_pack_id` and `world_pack_version`, and `commit` reads the world row, but the inspected commit path does not resolve those values to a loaded, immutable entity-type schema. The existence of pack ID/version columns is not proof that schema validation is active.
+
+These findings are based on the named source paths and are bounded to the inspected implementation. They are evidence for Core review, not a recommendation to add validation at a guessed layer. Core must identify the trusted caller path and select one authoritative enforcement point that cannot be bypassed.
+
 Core review must determine the authoritative insertion point. It must not be assumed that validating an effect once is sufficient if another canonical commit route can bypass the same invariant. Replay/rebuild must either revalidate against the same pinned schema identity or prove that only previously validated canonical events can enter the valid event stream.
 
 Before a canonical entity effect is accepted, Core must validate:
