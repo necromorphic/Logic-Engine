@@ -382,8 +382,6 @@ test('loopback Gateway endpoint authenticates Host and delegates only to the inj
       body: request.body,
       adapter_id: request.adapterId,
       conversation_id: request.conversationId,
-      adapter_id: request.adapterId,
-      conversation_id: request.conversationId,
       world_id: request.worldId,
       actor_id: request.actorId,
       purpose: request.purpose,
