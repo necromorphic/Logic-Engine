@@ -712,3 +712,47 @@ test('untrusted incomplete snapshot cannot poison a caller-selected conversation
     .get(victim.world_id, victim.conversation_id).n, 1);
 });
 
+
+
+test('authenticated Core inventory readback retains observed versions independently of a rolled-back Host snapshot', (t) => {
+  const ledger = setup(t);
+  const first = entry({ message_id: 'message-rollback', version_id: 'version-before', content_sha256: digest('before'), active: true });
+  const second = entry({ message_id: 'message-rollback', version_id: 'version-after', content_sha256: digest('after'), active: true });
+  assert.equal(ledger.captureVersion(first).status, 'captured');
+  assert.equal(ledger.captureVersion(second).status, 'captured');
+
+  const authoritative = ledger.getBoundInventory({
+    adapterId: 'adapter-a',
+    conversationId: 'chat-a',
+    resolveBinding: ({ adapterId, conversationId }) => {
+      assert.equal(adapterId, 'adapter-a');
+      assert.equal(conversationId, 'chat-a');
+      return { world_id: 'world-a', conversation_id: 'chat-a' };
+    },
+  });
+
+  assert.equal(authoritative.authority, 'CORE_HOST_VERSION_LEDGER');
+  assert.equal(authoritative.conversation_id, 'chat-a');
+  assert.equal(authoritative.version_count, 2);
+  assert.deepEqual(authoritative.versions.map(v => v.version_id), ['version-after', 'version-before']);
+  assert.equal(authoritative.versions.find(v => v.version_id === 'version-after').active, true);
+  assert.equal(authoritative.versions.find(v => v.version_id === 'version-before').active, false);
+  // A local snapshot restored to the earlier one-version state cannot match
+  // this separately persisted Core inventory.
+  const rolledBackLocal = [{ message_id: 'message-rollback', version_id: 'version-before', content_sha256: digest('before'), active: true, deleted: false }];
+  assert.notDeepEqual(
+    rolledBackLocal.map(v => [v.message_id, v.version_id, v.content_sha256, v.active, v.deleted]),
+    authoritative.versions.map(v => [v.message_id, v.version_id, v.content_sha256, v.active, v.deleted]),
+  );
+  assert.equal(JSON.stringify(authoritative).includes('before'), false);
+  assert.equal(JSON.stringify(authoritative).includes('after'), false);
+});
+
+test('Core inventory readback rejects an unauthenticated or mismatched conversation binding', (t) => {
+  const ledger = setup(t);
+  assert.throws(() => ledger.getBoundInventory({
+    adapterId: 'adapter-a',
+    conversationId: 'chat-a',
+    resolveBinding: () => ({ world_id: 'world-other', conversation_id: 'chat-other' }),
+  }), /HOST_CONVERSATION_NOT_AUTHORIZED/);
+});
