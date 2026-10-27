@@ -11,6 +11,14 @@ const unavailable = () => new EngineError(
   404,
 );
 
+/** Stable version token for one canonical entity revision. This is provenance metadata, not disclosed content. */
+export function canonicalEntitySourceVersion(entity) {
+  if (!object(entity) || !Number.isSafeInteger(entity.updated_revision) || entity.updated_revision < 0) {
+    throw unavailable();
+  }
+  return 'entity-revision-' + entity.updated_revision;
+}
+
 /**
  * Internal, fail-closed read boundary.
  *
@@ -210,6 +218,10 @@ export class AuthorizedReadService {
         }
         if (!allowed) continue;
 
+        if (field === 'source_version') {
+          disclosed.source_version = canonicalEntitySourceVersion(entity);
+          continue;
+        }
         if (field === 'entity_id' || field === 'entity_type' || field === 'status') {
           if (Object.hasOwn(entity, field)) disclosed[field] = entity[field];
           continue;
