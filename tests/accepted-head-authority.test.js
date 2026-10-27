@@ -1,0 +1,123 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { once } from 'node:events';
+import {
+  AcceptedHeadAuthority,
+  closeAuthorityServer,
+  createAcceptedHeadAuthorityServer,
+} from '../src/security/accepted-head-authority.js';
+import {
+  advanceAcceptedHeadSync,
+  getAcceptedHeadsSync,
+} from '../src/security/accepted-head-client-sync.js';
+
+const coreToken = 'core-token-for-accepted-head-tests-00000000000000000000000000000001';
+const providerToken = 'provider-token-for-accepted-head-tests-00000000000000000000000000000002';
+
+function tempDir(prefix = 'logic-accepted-head-') {
+  return mkdtempSync(join(tmpdir(), prefix));
+}
+
+test('accepted-head authority advances monotonic per-domain heads and makes operation IDs idempotent', () => {
+  const dir = tempDir();
+  const path = join(dir, 'authority.sqlite');
+  const authority = new AcceptedHeadAuthority({ path, installationId: 'test-installation' });
+  try {
+    assert.deepEqual(authority.getHeads(), { core: 0, provider: 0 });
+    const first = authority.advance({ domain: 'core', operationId: 'core-op-1' });
+    assert.deepEqual(first, {
+      domain: 'core', head: 1, operation_id: 'core-op-1', replayed: false,
+    });
+    const replay = authority.advance({ domain: 'core', operationId: 'core-op-1' });
+    assert.deepEqual(replay, {
+      domain: 'core', head: 1, operation_id: 'core-op-1', replayed: true,
+    });
+    assert.deepEqual(authority.advance({ domain: 'provider', operationId: 'provider-op-1' }), {
+      domain: 'provider', head: 1, operation_id: 'provider-op-1', replayed: false,
+    });
+    assert.deepEqual(authority.advance({ domain: 'core', operationId: 'core-op-2' }), {
+      domain: 'core', head: 2, operation_id: 'core-op-2', replayed: false,
+    });
+    assert.deepEqual(authority.getHeads(), { core: 2, provider: 1 });
+    assert.throws(
+      () => authority.advance({ domain: 'provider', operationId: 'core-op-1' }),
+      /ACCEPTED_HEAD_OPERATION_ID_CONFLICT/,
+    );
+    assert.throws(() => authority.advance({ domain: 'core', operationId: '  ' }), /Invalid accepted-head/);
+  } finally {
+    authority.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('accepted-head authority persists across restart and rejects a different installation identity', () => {
+  const dir = tempDir();
+  const path = join(dir, 'authority.sqlite');
+  const first = new AcceptedHeadAuthority({ path, installationId: 'installation-A' });
+  first.advance({ domain: 'provider', operationId: 'provider-op-persisted' });
+  first.close();
+
+  const reopened = new AcceptedHeadAuthority({ path, installationId: 'installation-A' });
+  try {
+    assert.deepEqual(reopened.getHeads(), { core: 0, provider: 1 });
+    assert.deepEqual(reopened.advance({ domain: 'provider', operationId: 'provider-op-persisted' }), {
+      domain: 'provider', head: 1, operation_id: 'provider-op-persisted', replayed: true,
+    });
+  } finally {
+    reopened.close();
+  }
+
+  assert.throws(
+    () => new AcceptedHeadAuthority({ path, installationId: 'installation-B' }),
+    /ACCEPTED_HEAD_INSTALLATION_MISMATCH/,
+  );
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('authority server exposes current heads and requires domain-specific token for advances', async () => {
+  const dir = tempDir();
+  const authority = new AcceptedHeadAuthority({
+    path: join(dir, 'authority.sqlite'),
+    installationId: 'server-test-installation',
+  });
+  const server = createAcceptedHeadAuthorityServer({ authority, coreToken, providerToken });
+  try {
+    server.listen(0, '127.0.0.1');
+    await once(server, 'listening');
+    const port = server.address().port;
+
+    assert.deepEqual(getAcceptedHeadsSync({ port }), { core: 0, provider: 0 });
+    assert.deepEqual(advanceAcceptedHeadSync({
+      domain: 'core', operationId: 'sync-core-op-1', token: coreToken, port,
+    }), { domain: 'core', head: 1, operation_id: 'sync-core-op-1', replayed: false });
+    assert.deepEqual(advanceAcceptedHeadSync({
+      domain: 'provider', operationId: 'sync-provider-op-1', token: providerToken, port,
+    }), { domain: 'provider', head: 1, operation_id: 'sync-provider-op-1', replayed: false });
+    assert.deepEqual(getAcceptedHeadsSync({ port }), { core: 1, provider: 1 });
+
+    assert.throws(() => advanceAcceptedHeadSync({
+      domain: 'core', operationId: 'unauthorized-op', token: providerToken, port,
+    }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
+    assert.throws(() => advanceAcceptedHeadSync({
+      domain: 'core', operationId: 'invalid-op', token: 'too-short', port,
+    }), /Invalid accepted-head client configuration/);
+  } finally {
+    await closeAuthorityServer(server);
+    authority.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('authority client fails closed when the service is unavailable', () => {
+  assert.throws(() => getAcceptedHeadsSync({ port: 65534, timeoutMs: 200 }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
+  assert.throws(() => advanceAcceptedHeadSync({
+    domain: 'provider',
+    operationId: 'provider-op-offline',
+    token: providerToken,
+    port: 65534,
+    timeoutMs: 200,
+  }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
+});
