@@ -483,7 +483,7 @@ diff --git a/src/server-startup.js b/src/server-startup.js
  
  /**
   * @typedef {object} ServerStartupResult
-@@ -138 +138,2 @@ export function setupPrivateEndpoints(app) {
+@@ -138,1 +138,2 @@ export function setupPrivateEndpoints(app) {
 +    app.use(createHostLifecycleMutationMiddleware());
      app.use('/', userDataRouter);
 @@ -185,5 +186,6 @@ export function setupPrivateEndpoints(app) {
