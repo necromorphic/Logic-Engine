@@ -46,15 +46,23 @@ function invalidDecision() {
  *
  * Required goal fields: { id, status, priority }
  * Required action fields: { id, goal_id, allowed, preconditions_met, cost }
+ * Optional current_intention: { goal_id, action_id } or null.
  *
  * Only goals with status "active" participate. Actions must explicitly be
- * allowed and have satisfied preconditions. Higher goal priority wins; within
- * the same priority, lower cost wins; ties resolve by stable lexical IDs.
+ * allowed and have satisfied preconditions. A still-eligible current intention
+ * is retained unless an eligible action belongs to a strictly higher-priority
+ * goal. Otherwise higher goal priority wins; then lower cost; then lexical IDs.
  */
 export function selectNpcIntention(input) {
   if (!isPlainDataObject(input)) return invalidDecision();
   const { goals, actions } = input;
   if (!isDenseArray(goals) || !isDenseArray(actions)) return invalidDecision();
+  const current = input.current_intention;
+  if (current !== undefined && current !== null && (
+    !isPlainDataObject(current)
+    || !nonEmptyString(current.goal_id)
+    || !nonEmptyString(current.action_id)
+  )) return invalidDecision();
 
   const goalById = new Map();
   for (const goal of goals) {
@@ -109,7 +117,13 @@ export function selectNpcIntention(input) {
     || a.goal_id.localeCompare(b.goal_id)
     || a.action_id.localeCompare(b.action_id));
 
-  const winner = eligible[0];
+  const highestPriority = eligible[0].goal_priority;
+  const retained = current == null ? undefined : eligible.find((candidate) =>
+    candidate.goal_id === current.goal_id && candidate.action_id === current.action_id
+  );
+  const winner = retained && retained.goal_priority >= highestPriority
+    ? retained
+    : eligible[0];
   return Object.freeze({
     status: "selected",
     intention: Object.freeze({
