@@ -54,6 +54,18 @@ test('extension manifest and UI use the pinned ST extension contract', async () 
 });
 
 
+
+test('health check fails closed on transport failure and malformed JSON', async () => {
+  await assert.rejects(
+    fetchHealth('http://127.0.0.1:8787', async () => { throw new Error('offline'); }),
+    /offline/,
+  );
+  await assert.rejects(
+    fetchHealth('http://127.0.0.1:8787', async () => ({ ok: true, json: async () => { throw new SyntaxError('invalid JSON'); } })),
+    /invalid JSON/,
+  );
+});
+
 test('health request can be cancelled when the extension disables', async () => {
   const controller = new AbortController();
   let receivedSignal;
