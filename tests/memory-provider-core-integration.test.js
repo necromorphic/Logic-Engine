@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
@@ -8,7 +11,7 @@ import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { createCanonicalEntitySourceVersionValidator, createCanonicalEntityInventoryValidator } from '../src/application/canonical-entity-source-version.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
-function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
+function setup(t, { twoRecords = false, providerPath = ':memory:', cleanupProviderDir = null } = {}) {
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const bindings = new ActorBindingService(engine);
@@ -85,9 +88,14 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
     authorizedReadService, actorBindingService: bindings, memoryProvider: provider,
     contentFields: ['attributes.public_note'],
   });
-  t.after(() => { provider.close(); store.close(); });
+  t.after(() => {
+    try { provider.close(); } finally {
+      store.close();
+      if (cleanupProviderDir) rmSync(cleanupProviderDir, { recursive: true, force: true });
+    }
+  });
   return {
-    engine, provider, consumer, scope, records,
+    engine, get provider() { return provider; }, consumer, scope, records,
     async prepare() {
       await provider.rebuildIndex(worldId);
       return provider.reconcile(worldId);
@@ -96,10 +104,14 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
     triggerQueryRevocation() { triggerQueryRevocation = true; },
     reopenProvider() {
       provider.close();
-      provider = new SQLiteMemoryProvider({ path: providerPath, getSnapshot: snapshotReader,
+      provider = new SQLiteMemoryProvider({
+        path: providerPath,
+        coordinatorPath: providerPath === ':memory:' ? null : `${providerPath}.coordinator.sqlite`,
+        getSnapshot: snapshotReader,
         validateSourceVersion: sourceVersionValidator,
         validateInventory: canonicalInventoryValidator,
       });
+      return provider;
     },
   };
 }
@@ -512,4 +524,22 @@ test('reconciliation never publishes current when Core snapshot changes during i
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+});
+
+
+test('file-backed Provider restart forces reconciliation before retrieval can resume', async (t) => {
+  const providerDir = mkdtempSync(join(tmpdir(), 'logic-engine-provider-restart-'));
+  const providerPath = join(providerDir, 'provider.sqlite');
+  const s = setup(t, { providerPath, cleanupProviderDir: providerDir });
+  assert.equal((await s.prepare()).status, 'current');
+  assert.equal((await s.provider.retrieveCandidates(s.scope)).completeness, 'complete');
+
+  const reopened = s.reopenProvider();
+  assert.equal(reopened.getIndexState(s.scope.world_id).source_reconciliation, 'stale');
+  await assert.rejects(() => reopened.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+
+  const recovered = await reopened.reconcile(s.scope.world_id);
+  assert.equal(recovered.status, 'current');
+  assert.equal(recovered.records_checked, 1);
+  assert.equal((await reopened.retrieveCandidates(s.scope)).completeness, 'complete');
 });
