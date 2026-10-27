@@ -177,6 +177,7 @@ export class SQLiteMemoryProvider {
       CREATE TABLE IF NOT EXISTS provider_authority_state (
         singleton INTEGER PRIMARY KEY CHECK(singleton=1),
         accepted_head INTEGER NOT NULL CHECK(accepted_head >= 0),
+        bootstrap_head INTEGER NOT NULL CHECK(bootstrap_head >= 0),
         status TEXT NOT NULL CHECK(status IN ('ready','non_ready'))
       );
       CREATE TABLE IF NOT EXISTS provider_authority_operations (
@@ -188,7 +189,11 @@ export class SQLiteMemoryProvider {
         created_at TEXT NOT NULL
       );
     `);
-      const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
+      const authorityStateColumns = this.db.prepare('PRAGMA table_info(provider_authority_state)').all();
+      if (!authorityStateColumns.some((column) => column.name === 'bootstrap_head')) {
+        this.db.exec('ALTER TABLE provider_authority_state ADD COLUMN bootstrap_head INTEGER');
+      }
+            const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
       if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
       if (this.acceptedHead) this.#initializeAcceptedHead();
     } catch (error) {
@@ -250,7 +255,7 @@ export class SQLiteMemoryProvider {
     if (!status.enrolled.core || !status.enrolled.provider || status.pending.core) {
       throw new Error('MEMORY_ACCEPTED_HEAD_AUTHORITY_NOT_READY');
     }
-    const local = this.db.prepare('SELECT accepted_head,status FROM provider_authority_state WHERE singleton=1').get();
+    const local = this.db.prepare('SELECT accepted_head,bootstrap_head,status FROM provider_authority_state WHERE singleton=1').get();
     if (!local) {
       const existing = [
         'memory_records','memory_index_entries','memory_query_grants','memory_record_grants','memory_index_state',
@@ -261,10 +266,14 @@ export class SQLiteMemoryProvider {
         .run(status.heads.provider);
       return;
     }
+    if (local.bootstrap_head === null || local.bootstrap_head === undefined) {
+      throw new Error('MEMORY_ACCEPTED_HEAD_BOOTSTRAP_REQUIRED');
+    }
     if (status.pending.provider) {
       const op = this.db.prepare("SELECT * FROM provider_authority_operations WHERE resulting_head=? AND status='committed'")
         .get(status.heads.provider);
       if (!op || Number(local.accepted_head) !== status.heads.provider
+        || op.expected_head + 1 !== op.resulting_head
         || op.operation_id !== `provider-mutation-v1:${op.operation_digest}`) {
         throw new Error('MEMORY_ACCEPTED_HEAD_RECOVERY_REQUIRED');
       }
@@ -274,9 +283,15 @@ export class SQLiteMemoryProvider {
       });
     }
     const latest = this.#acceptedHeadStatus();
-    const checkpoint = this.db.prepare('SELECT accepted_head FROM provider_authority_state WHERE singleton=1').get();
+    const checkpoint = this.db.prepare('SELECT accepted_head,bootstrap_head FROM provider_authority_state WHERE singleton=1').get();
+    const head = Number(checkpoint?.accepted_head);
+    const bootstrapHead = Number(checkpoint?.bootstrap_head);
+    const headOperation = head === bootstrapHead ? null
+      : this.db.prepare("SELECT * FROM provider_authority_operations WHERE resulting_head=? AND status='committed'").get(head);
     if (latest.pending.provider || latest.pending.core || !latest.enrolled.core || !latest.enrolled.provider
-      || !checkpoint || Number(checkpoint.accepted_head) !== latest.heads.provider) {
+      || !checkpoint || head !== latest.heads.provider
+      || (head !== bootstrapHead && (!headOperation || headOperation.expected_head + 1 !== head
+        || headOperation.operation_id !== `provider-mutation-v1:${headOperation.operation_digest}`))) {
       throw new Error('MEMORY_ACCEPTED_HEAD_MISMATCH');
     }
     this.db.prepare("UPDATE provider_authority_state SET status='ready' WHERE singleton=1").run();
@@ -287,10 +302,19 @@ export class SQLiteMemoryProvider {
     let status;
     try { status = this.#acceptedHeadStatus(); } catch { throw new Error('MEMORY_ACCEPTED_HEAD_UNAVAILABLE'); }
     const local = this.db.prepare('SELECT accepted_head,status FROM provider_authority_state WHERE singleton=1').get();
-    if (!local || local.status !== 'ready' || status.pending.core || status.pending.provider
-      || !status.enrolled.core || !status.enrolled.provider
+    if (!local || local.status !== 'ready' || local.bootstrap_head === null || local.bootstrap_head === undefined
+      || status.pending.core || status.pending.provider || !status.enrolled.core || !status.enrolled.provider
       || Number(local.accepted_head) !== status.heads.provider) {
       throw new Error('MEMORY_ACCEPTED_HEAD_NOT_READY');
+    }
+    const head = Number(local.accepted_head);
+    const bootstrapHead = Number(local.bootstrap_head);
+    if (head !== bootstrapHead) {
+      const op = this.db.prepare("SELECT * FROM provider_authority_operations WHERE resulting_head=? AND status='committed'").get(head);
+      if (!op || op.expected_head + 1 !== head
+        || op.operation_id !== `provider-mutation-v1:${op.operation_digest}`) {
+        throw new Error('MEMORY_ACCEPTED_HEAD_NOT_READY');
+      }
     }
   }
 
