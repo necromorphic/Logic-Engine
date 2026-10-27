@@ -46,9 +46,13 @@ test('patched clearChat entry point invokes fail-closed guard before side effect
   assert.ok(end > start, 'clearChat function boundary must exist');
   const body = script.slice(start, end);
   const guard = body.indexOf("guardOperation('clear-chat', [])");
+  const fallback = body.indexOf("logic-engine-host-lifecycle-locator:' + lifecycleLocator");
+  const unavailableError = body.indexOf('Host lifecycle guard unavailable for enrolled chat; clear-chat refused');
   const firstSideEffect = body.indexOf('cancelDebouncedChatSave();');
+  assert.ok(body.indexOf('const lifecycleLocator = getCurrentChatId();') >= 0, 'clearChat must snapshot the active Host locator');
   assert.ok(guard >= 0, 'clearChat must call the Host lifecycle guard');
-  assert.ok(firstSideEffect > guard, 'the guard must run before clear/reload side effects');
+  assert.ok(fallback > guard && unavailableError > fallback, 'missing bridge must fail closed when the active locator is enrolled');
+  assert.ok(firstSideEffect > unavailableError, 'all guard/fallback checks must run before clear/reload side effects');
 });
 
 const requireFromST = createRequire(resolve(stRoot, 'package.json'));
