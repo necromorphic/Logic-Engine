@@ -77,7 +77,44 @@ jobs:
             foreach ($role in @('core', 'provider', 'gateway')) {
               if ($identities -contains [string]$report.services.$role.account) { throw "$role identity has an explicit fixture directory ACE." }
             }
-            Write-Output 'Accepted-head authority ACL shape smoke passed on disposable identities; this is not a target deployment access test.'
+
+            function Invoke-AsLocalUser {
+              param([Parameter(Mandatory = $true)][string]$Account, [Parameter(Mandatory = $true)][string]$Command)
+              $encoded = [Convert]::ToBase64String([System.Text.Encoding]::Unicode.GetBytes($Command))
+              $credential = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\$Account", $securePassword)
+              $process = Start-Process -FilePath (Join-Path $PSHOME 'powershell.exe') -Credential $credential -ArgumentList @(
+                '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-EncodedCommand', $encoded
+              ) -Wait -PassThru -ErrorAction Stop
+              return [int]$process.ExitCode
+            }
+
+            $authorityAccount = $testAccounts[0]
+            $authorityWrite = "try { Add-Content -LiteralPath '$db' -Value 'authority-write-probe' -ErrorAction Stop; exit 0 } catch { exit 10 }"
+            if ((Invoke-AsLocalUser -Account $authorityAccount -Command $authorityWrite) -ne 0) {
+              throw 'Authority service identity could not write its own authority DB fixture.'
+            }
+            $authorityCreate = "try { Set-Content -LiteralPath '$authorityDir\sidecar-probe.tmp' -Value 'probe' -ErrorAction Stop; exit 0 } catch { exit 11 }"
+            if ((Invoke-AsLocalUser -Account $authorityAccount -Command $authorityCreate) -ne 0) {
+              throw 'Authority service identity could not create a sidecar in its own directory.'
+            }
+            Remove-Item -LiteralPath (Join-Path $authorityDir 'sidecar-probe.tmp') -Force
+
+            $denyRead = "try { Get-Content -LiteralPath '$db' -ErrorAction Stop | Out-Null; exit 20 } catch { exit 0 }"
+            $denyWrite = "try { Add-Content -LiteralPath '$db' -Value 'unauthorized-write-probe' -ErrorAction Stop; exit 21 } catch { exit 0 }"
+            $denyCreate = "try { Set-Content -LiteralPath '$authorityDir\unauthorized-sidecar.tmp' -Value 'probe' -ErrorAction Stop; exit 22 } catch { exit 0 }"
+            foreach ($index in @(1, 2, 3)) {
+              $account = $testAccounts[$index]
+              if ((Invoke-AsLocalUser -Account $account -Command $denyRead) -ne 0) {
+                throw "Non-authority identity $account could read the authority DB."
+              }
+              if ((Invoke-AsLocalUser -Account $account -Command $denyWrite) -ne 0) {
+                throw "Non-authority identity $account could write the authority DB."
+              }
+              if ((Invoke-AsLocalUser -Account $account -Command $denyCreate) -ne 0) {
+                throw "Non-authority identity $account could create a file in the authority directory."
+              }
+            }
+            Write-Output 'Accepted-head authority ACL shape and effective disposable-user read/write denial checks passed; target-machine access is still unverified.'
           } finally {
             if ($evidence -and (Test-Path -LiteralPath $evidence)) { Remove-Item -LiteralPath $evidence -Force }
             if ($root -and (Test-Path -LiteralPath $root)) {
