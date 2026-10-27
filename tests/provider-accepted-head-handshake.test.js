@@ -240,7 +240,7 @@ test('trusted Provider dispatch evidence checks exact candidate, grants, source 
     });
     provider.grantRecord(scope, candidate.record_ref, candidate.record_version, true);
     const reconciled = await provider.reconcile(scope.world_id);
-    assert.equal(reconciled.status, 'ready');
+    assert.equal(reconciled.status, 'current');
 
     const evidence = provider.readDispatchEvidence({
       world_id: scope.world_id,
