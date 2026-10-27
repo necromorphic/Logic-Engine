@@ -486,7 +486,7 @@ diff --git a/src/endpoints/logic-engine-lifecycle.js b/src/endpoints/logic-engin
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-lifecycle.js
-@@ -0,0 +1,41 @@
+@@ -0,0 +1,42 @@
 +import express from 'express';
 +import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
 +import { scanHostArtifactRoots } from './logic-engine-host-inventory.mjs';
@@ -499,7 +499,8 @@ new file mode 100644
 +router.post('/host-artifact-inventory/scan', async (request, response) => {
 +    const roots = [
 +        { domain: 'chats', path: request.user?.directories?.chats },
-+        { domain: 'groups', path: request.user?.directories?.groupChats },
++        { domain: 'groups', path: request.user?.directories?.groups },
++        { domain: 'group_chats', path: request.user?.directories?.groupChats },
 +        { domain: 'backups', path: request.user?.directories?.backups },
 +    ];
 +    if (roots.some(root => typeof root.path !== 'string' || !root.path)) {
