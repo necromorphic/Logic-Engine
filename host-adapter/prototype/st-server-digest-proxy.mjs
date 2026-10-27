@@ -50,8 +50,10 @@ export function createHostDigestProxyHandler({
   env = process.env,
   fetchImpl = globalThis.fetch,
   timeoutMs = 5000,
+  onAcceptedCapture = null,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
+  if (onAcceptedCapture !== null && typeof onAcceptedCapture !== 'function') throw new TypeError('onAcceptedCapture must be a trusted callback');
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
   }
@@ -95,6 +97,17 @@ export function createHostDigestProxyHandler({
         return response.status(status).json({
           error: { code: 'LOGIC_ENGINE_CAPTURE_REJECTED', message: 'Logic-Engine did not accept the digest capture.' },
         });
+      }
+      if (onAcceptedCapture) {
+        try {
+          await onAcceptedCapture(request, body);
+        } catch {
+          // Core may have accepted the capture, but local durable evidence did
+          // not. Do not report success; an idempotent retry can repair the gap.
+          return response.status(503).json({
+            error: { code: 'LOGIC_ENGINE_CAPTURE_ACK_UNAVAILABLE', message: 'Accepted capture acknowledgement could not be persisted.' },
+          });
+        }
       }
       // Do not relay upstream diagnostics. A successful digest write is not
       // readiness: Core's inventory verifier remains deny-only until an
