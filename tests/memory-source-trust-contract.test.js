@@ -157,6 +157,7 @@ test('source retraction and unchanged event cursor survive Core SQLite restart',
   const directory = mkdtempSync(join(tmpdir(), 'logic-engine-source-trust-'));
   const databasePath = join(directory, 'core.sqlite');
   let store = new SQLiteStore(databasePath);
+  t.after(() => { try { store.close(); } catch {} rmSync(directory, { recursive: true, force: true }); });
   let engine = new LogicEngine(store);
   engine.createWorld({
     world_id: 'source-trust-restart-world',
@@ -196,6 +197,4 @@ test('source retraction and unchanged event cursor survive Core SQLite restart',
   assert.equal(store.currentCommitSequence('source-trust-restart-world'), sequenceBefore);
   assert.equal(engine.getState('source-trust-restart-world').world_revision, revisionAfterRollback);
   store.close();
-  rmSync(directory, { recursive: true, force: true });
-  t.after(() => rmSync(directory, { recursive: true, force: true }));
 });
