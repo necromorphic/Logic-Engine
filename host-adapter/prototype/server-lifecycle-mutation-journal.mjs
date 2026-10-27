@@ -25,6 +25,13 @@ const MUTATIONS = new Map([
 
 const digest = value => createHash('sha256').update(value).digest('hex');
 const canonical = value => JSON.stringify(value);
+const stableValue = value => {
+    if (Array.isArray(value)) return value.map(stableValue);
+    if (value && typeof value === 'object') {
+        return Object.fromEntries(Object.keys(value).sort().map(key => [key, stableValue(value[key])]));
+    }
+    return value;
+};
 const safeUserDirectories = request => {
     const directories = request.user?.directories;
     const roots = [
@@ -225,14 +232,36 @@ export function createHostLifecycleMutationMiddleware() {
                 release();
                 return fail(response, 'HOST_INVENTORY_INCOMPLETE');
             }
-            operationId = randomUUID();
+            const suppliedOperationId = request.headers?.['x-logic-engine-operation-id'];
+            if (suppliedOperationId !== undefined
+                && (typeof suppliedOperationId !== 'string' || !/^[a-zA-Z0-9._:-]{1,128}$/.test(suppliedOperationId))) {
+                release();
+                return fail(response, 'HOST_OPERATION_ID_INVALID', 400);
+            }
+            operationId = suppliedOperationId ?? randomUUID();
+            const route = request.baseUrl + request.path;
+            const requestFingerprint = digest(canonical(stableValue({
+                method: request.method,
+                route,
+                body: request.body ?? null,
+            })));
+            const priorOperation = chain.records.find(record => record.kind === 'intent' && record.operationId === operationId);
+            if (priorOperation) {
+                release();
+                return fail(response,
+                    priorOperation.requestFingerprint === requestFingerprint
+                        ? 'HOST_OPERATION_ALREADY_RECORDED'
+                        : 'HOST_OPERATION_ID_CONFLICT',
+                    409);
+            }
             const recordHash = await appendRecord(paths.journalPath, chain.lastHash, {
                 version: 1,
                 kind: 'intent',
                 operationId,
+                requestFingerprint,
                 operation,
                 method: request.method,
-                route: request.baseUrl + request.path,
+                route,
                 startedAt: new Date().toISOString(),
                 beforeSnapshotDigest: snapshotDigest(before),
                 beforeArtifactCount: before.artifactCount,
