@@ -32,13 +32,13 @@ The existing file-backed coordinator is the shared ordering primitive for normal
 ### Core or Provider mutation
 
 1. Acquire the shared coordinator lease.
-2. Ask the accepted-head authority to advance the relevant domain head (core or provider) using a unique operation identity. The authority operation must be idempotent. If the authority is unavailable, abort before committing the local mutation.
-3. Commit the local mutation and persist the returned domain head in that domain's local metadata in the same local transaction.
-4. Release the coordinator lease only after both the authority advance and local commit succeed.
+2. Ask the accepted-head authority to advance the relevant domain head (core or provider) using a unique operation identity, an operation digest and the local expected head. The authority rejects a stale expected head, conflicting operation reuse, or a second mutation while a prior operation is pending. A successful advance increments the monotonic head and records the operation as PENDING. If the authority is unavailable, abort before committing the local mutation.
+3. Commit the local mutation and persist the returned domain head plus operation identity in that domain's local metadata in the same local transaction.
+4. While still holding the coordinator, finalize the exact operation at the authority. The authority changes PENDING to COMMITTED only for the same domain, operation identity and digest. Release the coordinator after successful finalization. If finalization fails, release the coordinator but fail closed: the pending operation blocks protected dispatch and further mutations in that domain until explicit recovery.
 
-If the authority advances but the local transaction fails or the process crashes before local commit, the authority head is ahead of local metadata. This is a deliberate fail-closed state: the gateway must deny all protected dispatches for that domain until explicit recovery reconciles the pending operation. Never decrement the authority head, replay an old backup as current, or silently auto-repair from provider-local row counts.
+If the authority advances but the local transaction fails or the process crashes before local commit, the authority head is ahead of local metadata and the operation remains PENDING. If the local commit succeeds but finalization fails/crashes, local metadata and authority head match but the operation remains PENDING. Both states deny protected dispatch. Recovery may finalize only when the local durable operation identity/digest and head prove that the exact mutation committed. Otherwise an audited recovery procedure must reconcile the local domain without lowering the authority head; never replay an old backup as current or silently auto-repair from provider-local row counts.
 
-No new mutation path may commit Core/Provider state without this sequence. Existing synchronous mutation methods must not use best-effort asynchronous authority notifications after commit.
+No new mutation path may commit Core/Provider state without this sequence. Existing synchronous mutation methods must not use best-effort asynchronous authority notifications after commit. The authority IPC must be bounded and idempotent; its service must not acquire the shared coordinator, or the call would deadlock.
 
 ### Final gateway dispatch
 
@@ -56,7 +56,8 @@ Revocation/source invalidation ordered before dispatch-start must produce zero u
 
 - Separate service identity; only that identity can mutate the authority store.
 - Monotonic per-domain heads for Core and Provider. The authority also records operation identity, domain, resulting head, and minimal non-content status needed for crash recovery.
-- Repeated submission of the same operation identity returns the same result; conflicting reuse fails closed.
+- Repeated submission of a committed operation identity with the same domain/digest returns the same result; a pending operation blocks automatic replay. Conflicting reuse fails closed.
+- The authority exposes only monotonic advance and finalize operations in the runtime contract. Pending operations make the authority non-ready; no runtime API lowers a head or silently clears pending state.
 - Authority state is not inside either application DB, their WAL/SHM, or their normal backup/restore domain.
 - Missing/corrupt/unavailable authority, local-head mismatch, unresolved operation, wrong installation identity or failed advance means NON_READY.
 - Authority restore/re-enrollment is not an ordinary DB restore. It requires a named operator, explicit audit, fresh current-source reconciliation and a procedure that cannot lower the head or resurrect revoked grants.
