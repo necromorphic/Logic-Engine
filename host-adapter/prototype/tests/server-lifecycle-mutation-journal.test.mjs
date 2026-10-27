@@ -478,7 +478,7 @@ test('strict lifecycle mode blocks mutation when enrollment state directory disa
 test('startup group-chat migration is allowed when no Host enrollment exists', async () => {
     const { root, directories } = await fixture();
     try {
-        assert.deepEqual(await assertHostStartupMigrationSafe(directories), { status: 'NO_ENROLLMENT_STATE' });
+        assert.deepEqual(await assertHostStartupMigrationSafe([directories]), { status: 'SAFE_NO_ENROLLED_GROUP_CHATS' });
     } finally {
         await rm(root, { recursive: true, force: true });
     }
@@ -510,5 +510,26 @@ test('startup group-chat migration fails closed on malformed enrollment registry
         await assert.rejects(assertHostStartupMigrationSafe(directories));
     } finally {
         await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('startup group-chat migration checks every user registry, not only the first user', async () => {
+    const first = await fixture();
+    const second = await fixture();
+    try {
+        await registerHostConversation(second.request, {
+            conversationId: 'group-conversation-2',
+            sourceLocator: 'group-chat-2',
+            domain: 'group_chats',
+        });
+        await assert.rejects(
+            assertHostStartupMigrationSafe([first.directories, second.directories]),
+            error => error?.message === 'HOST_STARTUP_MIGRATION_BLOCKED',
+        );
+    } finally {
+        await Promise.all([
+            rm(first.root, { recursive: true, force: true }),
+            rm(second.root, { recursive: true, force: true }),
+        ]);
     }
 });
