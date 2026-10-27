@@ -100,7 +100,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.match(startup, /createHostLifecycleMutationMiddleware/);
   assert.match(
     startup,
-    /createHostLifecycleMutationMiddleware\\(\\{\\s*requirePersistedInventory:\\s*true,\\s*requireCoreInventory:\\s*true\\s*\\}\\)/,
+    /createHostLifecycleMutationMiddleware\(\{\s*requirePersistedInventory:\s*true,\s*requireCoreInventory:\s*true\s*\}\)/,
     'the pinned Host startup must require both persisted-save receipts and independent Core inventory',
   );
   for (const route of [
