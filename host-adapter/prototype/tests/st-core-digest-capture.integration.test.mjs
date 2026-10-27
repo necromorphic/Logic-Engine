@@ -72,7 +72,11 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
     LOGIC_ENGINE_ADAPTER_ID: 'st-desktop',
     LOGIC_ENGINE_ADAPTER_TOKEN: ADAPTER_TOKEN,
   };
-  const handler = createHostDigestProxyHandler({ env });
+  const acceptedCaptures = [];
+  const handler = createHostDigestProxyHandler({
+    env,
+    onAcceptedCapture: async (_request, capture) => { acceptedCaptures.push(capture); },
+  });
   const invoke = async (body) => {
     const response = {
       statusCode: null,
@@ -94,6 +98,9 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
   });
   assert.equal(capture.statusCode, 201);
   assert.deepEqual(capture.body, { ok: true, inventory_status: 'NON_READY' });
+  assert.equal(acceptedCaptures.length, 1, 'local journal acknowledgement follows accepted Core capture');
+  assert.equal(acceptedCaptures[0].message_id, 'message-1');
+  assert.equal(acceptedCaptures[0].deleted, false);
 
   const stored = ledger.db.prepare(
     'SELECT world_id, conversation_id, message_id, version_id, content_sha256, lifecycle FROM host_version_digest_ledger',
@@ -117,6 +124,7 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
   });
   assert.equal(conflict.statusCode, 409);
   assert.equal(conflict.body.error.code, 'LOGIC_ENGINE_CAPTURE_REJECTED');
+  assert.equal(acceptedCaptures.length, 1, 'conflicting capture must not be journaled as accepted');
   assert.equal(ledger.getInventoryState('host-proxy-integration-world', 'stable-host-conversation').status, 'NON_READY');
 
   // Exercise the actual SQLite Memory Provider against the Core-owned Host
