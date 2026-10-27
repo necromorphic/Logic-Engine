@@ -4,6 +4,41 @@ export const SUPPORTED_RULE_OPERATORS = Object.freeze(['eq', 'neq', 'exists', 'g
 const OPS = new Set(SUPPORTED_RULE_OPERATORS);
 const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
+function assertRuleObject(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)
+    || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
+    throw new EngineError('INVALID_RULE', 'Condition must be a plain data object.');
+  }
+  for (const key of Reflect.ownKeys(value)) {
+    const descriptor = typeof key === 'string' ? Object.getOwnPropertyDescriptor(value, key) : null;
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new EngineError('INVALID_RULE', 'Condition must contain only enumerable string-keyed data properties.');
+    }
+  }
+  return value;
+}
+
+function assertRuleArray(value, label, maxItems) {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype
+    || value.length > maxItems || Object.getOwnPropertySymbols(value).length > 0) {
+    throw new EngineError('INVALID_RULE', label + ' must be a plain array of at most ' + maxItems + ' items.');
+  }
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1 || !keys.includes('length')
+    || !keys.every((key) => key === 'length'
+      || (typeof key === 'string' && /^(0|[1-9][0-9]*)$/.test(key)
+        && Number(key) < value.length && String(Number(key)) === key))) {
+    throw new EngineError('INVALID_RULE', label + ' must not contain holes or custom properties.');
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new EngineError('INVALID_RULE', label + ' must contain only enumerable data items.');
+    }
+  }
+  return value;
+}
+
 function readPath(root, path) {
   if (typeof path !== 'string' || !path || path.split('.').some((key) => !key || UNSAFE_PATH_SEGMENTS.has(key))) {
     throw new EngineError('INVALID_RULE_PATH', 'Unsafe or empty rule path.');
@@ -53,9 +88,7 @@ function nestedRules(rule, op) {
 
 export function evaluateCondition(rule, context, depth = 0) {
   if (depth > 24) throw new EngineError('RULE_DEPTH_EXCEEDED', 'Rule nesting exceeds 24 levels.');
-  if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
-    throw new EngineError('INVALID_RULE', 'Condition must be an object.');
-  }
+  assertRuleObject(rule);
 
   const op = rule.op;
   if (!OPS.has(op)) throw new EngineError('UNSUPPORTED_RULE_OPERATOR', 'Unsupported operator: ' + String(op));
@@ -74,14 +107,14 @@ export function evaluateCondition(rule, context, depth = 0) {
   }
 
   if (op === 'all' || op === 'any') {
-    const rules = nestedRules(rule, op);
+    const rules = assertRuleArray(nestedRules(rule, op), op + ' rules', 64);
     if (rules.length > 64) throw new EngineError('INVALID_RULE', op + ' supports at most 64 nested rules.');
     const results = rules.map((item) => evaluateCondition(item, context, depth + 1));
     return op === 'all' ? results.every(Boolean) : results.some(Boolean);
   }
 
   if (op === 'not') {
-    const rules = nestedRules(rule, op);
+    const rules = assertRuleArray(nestedRules(rule, op), 'not rules', 1);
     if (rules.length !== 1) throw new EngineError('INVALID_RULE', 'not requires exactly one nested rule.');
     return !evaluateCondition(rules[0], context, depth + 1);
   }
@@ -96,9 +129,7 @@ export function evaluateCondition(rule, context, depth = 0) {
   if (op === 'exists' && rule.value !== undefined && typeof rule.value !== 'boolean') {
     throw new EngineError('INVALID_RULE', 'exists value must be boolean when provided.');
   }
-  if (op === 'in' && (!Array.isArray(rule.values) || rule.values.length > 128)) {
-    throw new EngineError('INVALID_RULE', 'in requires at most 128 values.');
-  }
+  if (op === 'in') assertRuleArray(rule.values, 'in values', 128);
 
   const found = readPath(context, rule.path);
   if (op === 'exists') return found.exists === (rule.value ?? true);
@@ -328,9 +359,7 @@ export function collectConditionDependencies(rule) {
   const paths = new Set();
   const visit = (current, depth = 0) => {
     if (depth > 24) throw new EngineError('RULE_DEPTH_EXCEEDED', 'Rule nesting exceeds 24 levels.');
-    if (!current || typeof current !== 'object' || Array.isArray(current)) {
-      throw new EngineError('INVALID_RULE', 'Condition must be an object.');
-    }
+    assertRuleObject(current);
 
     const op = current.op;
     if (!OPS.has(op)) throw new EngineError('UNSUPPORTED_RULE_OPERATOR', 'Unsupported operator: ' + String(op));
@@ -348,7 +377,7 @@ export function collectConditionDependencies(rule) {
     }
 
     if (op === 'all' || op === 'any' || op === 'not') {
-      const children = nestedRules(current, op);
+      const children = assertRuleArray(nestedRules(current, op), op + ' rules', op === 'not' ? 1 : 64);
       if (children.length > 64) throw new EngineError('INVALID_RULE', op + ' supports at most 64 nested rules.');
       if (op === 'not' && children.length !== 1) {
         throw new EngineError('INVALID_RULE', 'not requires exactly one nested rule.');
@@ -372,9 +401,7 @@ export function collectConditionDependencies(rule) {
     if (op === 'exists' && current.value !== undefined && typeof current.value !== 'boolean') {
       throw new EngineError('INVALID_RULE', 'exists value must be boolean when provided.');
     }
-    if (op === 'in' && (!Array.isArray(current.values) || current.values.length > 128)) {
-      throw new EngineError('INVALID_RULE', 'in requires at most 128 values.');
-    }
+    if (op === 'in') assertRuleArray(current.values, 'in values', 128);
     paths.add(current.path);
   };
 
