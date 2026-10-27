@@ -51,11 +51,8 @@ jobs:
           )
           echo SillyTavern target SHA: %actual%
 
-      - name: Run source-level lifecycle assertions
-        env:
-          SILLYTAVERN_DIR: SillyTavern
-        run: node --test experiments/host-adapter-source-audit/harness.mjs
-
+      # The source audit imports the proxy module introduced by the patch,
+      # so apply the reviewed patch before running the assertions.
       - name: Apply reviewed Host patch to the pinned checkout
         shell: cmd
         run: |
@@ -63,6 +60,11 @@ jobs:
           if errorlevel 1 exit /b 1
           git -C SillyTavern apply ..\\host-adapter\\prototype\\patches\\sillytavern-1.19.0-lifecycle-hooks.patch
           if errorlevel 1 exit /b 1
+
+      - name: Run source-level lifecycle assertions
+        env:
+          SILLYTAVERN_DIR: SillyTavern
+        run: node --test experiments/host-adapter-source-audit/harness.mjs
 
       - name: Run bounded fake-provider integration harness
         env:
