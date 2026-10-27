@@ -1,4 +1,4 @@
-# Независимый аудит ядра Logic-Engine — задание для Gemini
+# Независимый аудит ядра Logic-Engine — техническое задание
 
 Дата: 2026-10-23  
 Репозиторий: https://github.com/necromorphic/Logic-Engine  
