@@ -69,6 +69,7 @@ export class AcceptedHeadAuthority {
           operation_id TEXT PRIMARY KEY,
           domain TEXT NOT NULL CHECK (domain IN ('core','provider')),
           resulting_head INTEGER NOT NULL CHECK (resulting_head > 0),
+          operation_digest TEXT NOT NULL,
           created_at TEXT NOT NULL
         );
       `);
@@ -102,17 +103,18 @@ export class AcceptedHeadAuthority {
     return Object.freeze({ core: heads.core, provider: heads.provider });
   }
 
-  advance({ domain, operationId }) {
-    if (!DOMAINS.has(domain) || !validText(operationId, 200)) {
+  advance({ domain, operationId, operationDigest }) {
+    if (!DOMAINS.has(domain) || !validText(operationId, 200)
+      || typeof operationDigest !== 'string' || !/^[a-f0-9]{64}$/.test(operationDigest)) {
       throw new TypeError('Invalid accepted-head advance request.');
     }
     this.#db.exec('BEGIN IMMEDIATE;');
     try {
       const existing = this.#db.prepare(
-        'SELECT domain, resulting_head FROM authority_operations WHERE operation_id=?',
+        'SELECT domain, resulting_head, operation_digest FROM authority_operations WHERE operation_id=?',
       ).get(operationId);
       if (existing) {
-        if (existing.domain !== domain) throw new Error('ACCEPTED_HEAD_OPERATION_ID_CONFLICT');
+        if (existing.domain !== domain || existing.operation_digest !== operationDigest) throw new Error('ACCEPTED_HEAD_OPERATION_ID_CONFLICT');
         this.#db.exec('COMMIT;');
         return Object.freeze({ domain, head: existing.resulting_head, operation_id: operationId, replayed: true });
       }
@@ -123,8 +125,8 @@ export class AcceptedHeadAuthority {
       const next = row.head + 1;
       this.#db.prepare('UPDATE authority_domain_heads SET head=? WHERE domain=?').run(next, domain);
       this.#db.prepare(
-        'INSERT INTO authority_operations(operation_id, domain, resulting_head, created_at) VALUES(?,?,?,?)',
-      ).run(operationId, domain, next, new Date().toISOString());
+        'INSERT INTO authority_operations(operation_id, domain, resulting_head, operation_digest, created_at) VALUES(?,?,?,?,?)',
+      ).run(operationId, domain, next, operationDigest, new Date().toISOString());
       this.#db.exec('COMMIT;');
       return Object.freeze({ domain, head: next, operation_id: operationId, replayed: false });
     } catch (error) {
@@ -213,7 +215,7 @@ export function createAcceptedHeadAuthorityServer({
         return;
       }
       try {
-        const result = authority.advance({ domain, operationId: input.operation_id });
+        const result = authority.advance({ domain, operationId: input.operation_id, operationDigest: input.operation_digest });
         reply(response, 200, { result });
       } catch (error) {
         if (error?.message === 'ACCEPTED_HEAD_OPERATION_ID_CONFLICT') {
