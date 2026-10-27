@@ -91,3 +91,89 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
     }
   };
 }
+
+ 
+/**
+ * Complete-inventory attestation for the direct canonical-entity source slice.
+ * Reads every Core entity through snapshot-pinned pages, then verifies that each
+ * Provider record is backed by an active entity with the exact current token.
+ * Any unavailable, stale, partial, malformed, or unverifiable inventory fails
+ * closed. This callback does not enable Memory→NPC traffic by itself.
+ */
+export function createCanonicalEntityInventoryValidator(engine) {
+  if (typeof engine?.getCanonicalEntityInventory !== 'function') {
+    throw new TypeError('A trusted Core engine with getCanonicalEntityInventory is required');
+  }
+
+  return async (worldId, records) => {
+    if (!validId(worldId) || !Array.isArray(records)) return false;
+    const inventory = new Map();
+    let cursor = null;
+    let marker = null;
+    let previousEntityId = null;
+    let pageCount = 0;
+
+    try {
+      do {
+        const page = engine.getCanonicalEntityInventory(worldId, {
+          limit: 200,
+          ...(cursor ? { cursor } : {}),
+        });
+        pageCount += 1;
+        if (!object(page)
+          || page.world_id !== worldId
+          || !Number.isSafeInteger(page.world_revision)
+          || page.world_revision < 0
+          || !Number.isSafeInteger(page.commit_sequence)
+          || page.commit_sequence < 0
+          || !Array.isArray(page.entities)
+          || typeof page.complete !== 'boolean') return false;
+
+        const currentMarker = {
+          world_revision: page.world_revision,
+          commit_sequence: page.commit_sequence,
+        };
+        if (marker && (marker.world_revision !== currentMarker.world_revision
+          || marker.commit_sequence !== currentMarker.commit_sequence)) return false;
+        marker = currentMarker;
+
+        for (const entity of page.entities) {
+          if (!object(entity) || !validId(entity.entity_id)
+            || !['active', 'destroyed'].includes(entity.status)
+            || (entity.source_version !== null && !canonicalSourceVersion(entity.source_version))
+            || inventory.has(entity.entity_id)
+            || (previousEntityId !== null && entity.entity_id <= previousEntityId)) return false;
+          inventory.set(entity.entity_id, entity);
+          previousEntityId = entity.entity_id;
+        }
+
+        if (page.complete) {
+          if (page.next_cursor !== null) return false;
+          cursor = null;
+        } else {
+          if (!page.next_cursor || typeof page.next_cursor !== 'object'
+            || page.entities.length === 0
+            || page.next_cursor.after_entity_id !== previousEntityId
+            || page.next_cursor.world_revision !== page.world_revision
+            || page.next_cursor.commit_sequence !== page.commit_sequence) return false;
+          cursor = page.next_cursor;
+        }
+        if (pageCount > 100000) return false;
+      } while (cursor);
+
+      for (const record of records) {
+        if (!object(record)
+          || record.world_id !== worldId
+          || record.source_kind !== 'canonical_entity'
+          || !validId(record.source_entity_id)
+          || !canonicalSourceVersion(record.source_version)) return false;
+        const entity = inventory.get(record.source_entity_id);
+        if (!entity || entity.status !== 'active'
+          || entity.source_version !== record.source_version) return false;
+      }
+      return true;
+    } catch {
+      return false;
+    }
+  };
+}
