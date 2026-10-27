@@ -52,43 +52,74 @@ export class AcceptedHeadAuthority {
     if (!validText(installationId, 160)) throw new TypeError('A stable installation identity is required.');
     this.#installationId = installationId;
     const absolutePath = canonicalPath(path);
+    const wasExisting = existsSync(absolutePath);
     mkdirSync(dirname(absolutePath), { recursive: true });
     this.#db = new DatabaseSync(absolutePath);
     try {
       this.#db.exec('PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;');
-      this.#db.exec(`
-        CREATE TABLE IF NOT EXISTS authority_installation (
-          singleton INTEGER PRIMARY KEY CHECK (singleton=1),
-          installation_id TEXT NOT NULL
-        );
-        CREATE TABLE IF NOT EXISTS authority_domain_heads (
-          domain TEXT PRIMARY KEY CHECK (domain IN ('core','provider')),
-          head INTEGER NOT NULL CHECK (head >= 0),
-          enrolled INTEGER NOT NULL DEFAULT 0 CHECK (enrolled IN (0,1))
-        );
-        CREATE TABLE IF NOT EXISTS authority_operations (
-          operation_id TEXT PRIMARY KEY,
-          domain TEXT NOT NULL CHECK (domain IN ('core','provider')),
-          resulting_head INTEGER NOT NULL CHECK (resulting_head > 0),
-          operation_digest TEXT NOT NULL,
-          operation_kind TEXT NOT NULL CHECK (operation_kind IN ('enroll','mutation')),
-          status TEXT NOT NULL CHECK (status IN ('pending','committed')),
-          created_at TEXT NOT NULL
-        );
-      `);
-      this.#db.exec('BEGIN IMMEDIATE;');
-      try {
-        this.#db.prepare('INSERT OR IGNORE INTO authority_installation(singleton, installation_id) VALUES(1, ?)').run(installationId);
-        const stored = this.#db.prepare('SELECT installation_id FROM authority_installation WHERE singleton=1').get();
-        if (!stored || stored.installation_id !== installationId) {
-          throw new Error('ACCEPTED_HEAD_INSTALLATION_MISMATCH');
+      if (!wasExisting) {
+        this.#db.exec(`
+          CREATE TABLE authority_installation (
+            singleton INTEGER PRIMARY KEY CHECK (singleton=1),
+            installation_id TEXT NOT NULL
+          );
+          CREATE TABLE authority_domain_heads (
+            domain TEXT PRIMARY KEY CHECK (domain IN ('core','provider')),
+            head INTEGER NOT NULL CHECK (head >= 0),
+            enrolled INTEGER NOT NULL DEFAULT 0 CHECK (enrolled IN (0,1))
+          );
+          CREATE TABLE authority_operations (
+            operation_id TEXT PRIMARY KEY,
+            domain TEXT NOT NULL CHECK (domain IN ('core','provider')),
+            resulting_head INTEGER NOT NULL CHECK (resulting_head > 0),
+            operation_digest TEXT NOT NULL,
+            operation_kind TEXT NOT NULL CHECK (operation_kind IN ('enroll','mutation')),
+            status TEXT NOT NULL CHECK (status IN ('pending','committed')),
+            created_at TEXT NOT NULL
+          );
+        `);
+        this.#db.exec('BEGIN IMMEDIATE;');
+        try {
+          this.#db.prepare('INSERT INTO authority_installation(singleton, installation_id) VALUES(1, ?)').run(installationId);
+          this.#db.prepare('INSERT INTO authority_domain_heads(domain, head, enrolled) VALUES(?, 0, 0)').run('core');
+          this.#db.prepare('INSERT INTO authority_domain_heads(domain, head, enrolled) VALUES(?, 0, 0)').run('provider');
+          this.#db.exec('COMMIT;');
+        } catch (error) {
+          try { this.#db.exec('ROLLBACK;'); } catch {}
+          throw error;
         }
-        this.#db.prepare('INSERT OR IGNORE INTO authority_domain_heads(domain, head, enrolled) VALUES(?, 0, 0)').run('core');
-        this.#db.prepare('INSERT OR IGNORE INTO authority_domain_heads(domain, head, enrolled) VALUES(?, 0, 0)').run('provider');
-        this.#db.exec('COMMIT;');
-      } catch (error) {
-        try { this.#db.exec('ROLLBACK;'); } catch {}
-        throw error;
+      } else {
+        const requiredTables = ['authority_installation', 'authority_domain_heads', 'authority_operations'];
+        const existingTables = new Set(this.#db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name));
+        if (requiredTables.some((table) => !existingTables.has(table))) {
+          throw new Error('ACCEPTED_HEAD_SCHEMA_INCOMPLETE');
+        }
+        const requiredColumns = {
+          authority_installation: ['singleton', 'installation_id'],
+          authority_domain_heads: ['domain', 'head', 'enrolled'],
+          authority_operations: ['operation_id', 'domain', 'resulting_head', 'operation_digest', 'operation_kind', 'status', 'created_at'],
+        };
+        for (const [table, columns] of Object.entries(requiredColumns)) {
+          const actual = new Set(this.#db.prepare('PRAGMA table_info(' + table + ')').all().map((row) => row.name));
+          if (columns.some((column) => !actual.has(column))) throw new Error('ACCEPTED_HEAD_SCHEMA_INCOMPLETE');
+        }
+        const installationRows = this.#db.prepare('SELECT installation_id FROM authority_installation WHERE singleton=1').all();
+        const domainRows = this.#db.prepare('SELECT domain, head, enrolled FROM authority_domain_heads ORDER BY domain').all();
+        if (installationRows.length !== 1 || installationRows[0].installation_id !== installationId
+          || domainRows.length !== 2
+          || domainRows[0].domain !== 'core' || domainRows[1].domain !== 'provider'
+          || domainRows.some((row) => !Number.isSafeInteger(row.head) || row.head < 0 || ![0, 1].includes(row.enrolled))) {
+          throw new Error(installationRows.length === 1 && installationRows[0].installation_id !== installationId
+            ? 'ACCEPTED_HEAD_INSTALLATION_MISMATCH' : 'ACCEPTED_HEAD_STATE_INVALID');
+        }
+        const inconsistent = this.#db.prepare(`
+          SELECT h.domain FROM authority_domain_heads h
+          WHERE h.head <> COALESCE((SELECT MAX(o.resulting_head) FROM authority_operations o WHERE o.domain=h.domain), 0)
+             OR (h.enrolled=0 AND h.head<>0)
+             OR (h.enrolled=1 AND h.head=0)
+          LIMIT 1
+        `).get();
+        if (inconsistent) throw new Error('ACCEPTED_HEAD_STATE_INVALID');
       }
     } catch (error) {
       try { this.#db.close(); } catch {}
