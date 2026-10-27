@@ -55,11 +55,12 @@ Revocation/source invalidation ordered before dispatch-start must produce zero u
 ## Accepted-head authority contract
 
 - Separate service identity; only that identity can mutate the authority store.
+- A new installation starts UNENROLLED. No normal mutation or protected dispatch is allowed until Core and Provider each complete a separate audited baseline enrollment: the authority advances that domain from head 0 to head 1 as a PENDING enrollment operation, the local DB persists head 1 plus the enrollment operation identity, then the authority finalizes enrollment. A pre-enrollment backup remains at head 0 and is rejected after enrollment. Enrollment must happen only after current-state/source inventory reconciliation is reviewed.
 - Monotonic per-domain heads for Core and Provider. The authority also records operation identity, domain, resulting head, and minimal non-content status needed for crash recovery.
 - Repeated submission of a committed operation identity with the same domain/digest returns the same result; a pending operation blocks automatic replay. Conflicting reuse fails closed.
 - The authority exposes only monotonic advance and finalize operations in the runtime contract. Pending operations make the authority non-ready; no runtime API lowers a head or silently clears pending state.
 - Authority state is not inside either application DB, their WAL/SHM, or their normal backup/restore domain.
-- Missing/corrupt/unavailable authority, local-head mismatch, unresolved operation, wrong installation identity or failed advance means NON_READY.
+- Missing/corrupt/unavailable authority, an unenrolled domain, local-head mismatch, unresolved operation, wrong installation identity or failed advance means NON_READY.
 - Authority restore/re-enrollment is not an ordinary DB restore. It requires a named operator, explicit audit, fresh current-source reconciliation and a procedure that cannot lower the head or resurrect revoked grants.
 - The accepted-head service does not authorize content by itself; it supplies monotonic freshness and operation ordering. Core/Provider still own their domain predicates.
 
@@ -79,7 +80,7 @@ If SQLite read-only access cannot be proven with the required ACLs, stop and rev
 
 ## Required implementation order
 
-1. Implement accepted-head authority + authenticated IPC + idempotent monotonic per-domain operations, with crash/restart tests.
+1. Implement accepted-head authority + authenticated IPC + explicit one-time baseline enrollment, idempotent monotonic per-domain operations and pending/finalize crash handling, with restart tests.
 2. Add the authority/local-head handshake to every Core and Provider state-changing path, including readiness/reconciliation, grants/revocation, tombstone/purge, migrations, maintenance and restore.
 3. Add and test the separate gateway ledger and final-state check.
 4. Enumerate every pinned SillyTavern provider-facing generation route. Only explicitly integrated routes may carry protected Memory; every unsupported route must reject protected Memory before any direct provider send. No global-fetch monkey patch and no vectorization configuration changes.
