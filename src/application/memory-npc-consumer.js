@@ -375,7 +375,7 @@ export class MemoryNpcConsumer {
         recipient: 'model',
         purpose: 'npc_decision',
         entityIds,
-        fields: ['entity_id', ...this.contentFields],
+        fields: ['entity_id', 'source_version', ...this.contentFields],
       });
     } catch {
       // Missing, denied, or unavailable source reads have one safe outcome.
@@ -398,7 +398,7 @@ export class MemoryNpcConsumer {
 
     const sourceById = new Map();
     for (const entity of sourceRead.entities) {
-      if (!object(entity) || !validId(entity.entity_id) || sourceById.has(entity.entity_id)) {
+      if (!object(entity) || !validId(entity.entity_id) || !validId(entity.source_version) || sourceById.has(entity.entity_id)) {
         // The authorized read boundary must not return ambiguous canonical
         // identities. Never silently choose the last row for a duplicate ID.
         return nonReady('authorized_source_read_invalid');
@@ -428,6 +428,7 @@ export class MemoryNpcConsumer {
       // failure. Fail closed. A present source with a denied field may still be
       // safely excluded without disclosing which field policy denied it.
       if (!source) return nonReady('authorized_source_missing');
+      if (source.source_version !== candidate.source.source_version) return nonReady('memory_source_version_stale');
       if (this.contentFields.some((field) => !Object.hasOwn(source, field))) continue;
 
       const trustedCandidate = {
