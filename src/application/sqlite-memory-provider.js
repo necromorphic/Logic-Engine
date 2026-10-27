@@ -819,7 +819,15 @@ export class SQLiteMemoryProvider {
     // Invalidate the readiness marker before any ingest mutation. If either the raw
     // write or index write fails, retrieval cannot reuse a prior ready marker.
     this.#setState(record.world_id, 'rebuilding', 'stale');
-    this.#withSerializedWrite(() => this.#db.prepare(`INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values));
+    try {
+      this.#withSerializedWrite(() => this.#db.prepare(`INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values));
+    } catch (error) {
+      // A failed raw-record write is not an in-progress rebuild. Persist a typed
+      // unavailable state so diagnostics distinguish storage failure from work
+      // that may still complete, while preserving the original write error.
+      try { this.#setState(record.world_id, 'unavailable', 'stale', null, 'RECORD_WRITE_FAILED'); } catch {}
+      throw error;
+    }
     try {
       this.#withSerializedWrite(() => this.#db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
         .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString()));

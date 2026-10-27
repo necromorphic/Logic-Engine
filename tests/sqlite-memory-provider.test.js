@@ -1187,3 +1187,23 @@ test('identical duplicate ingest repairs a missing index entry after raw-first f
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
 });
+
+test('raw-record write failure publishes unavailable typed state and persists no partial record', (t) => {
+  const s = setup(t);
+  s.db.exec(`CREATE TRIGGER fail_raw_record_insert BEFORE INSERT ON memory_records
+    BEGIN SELECT RAISE(ABORT, 'injected raw record write failure'); END;`);
+
+  assert.throws(() => s.provider.putRecord(s.record), /injected raw record write failure/);
+  assert.equal(s.db.prepare(
+    'SELECT COUNT(*) AS count FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?',
+  ).get(s.scope.world_id, s.record.record_ref, s.record.record_version).count, 0);
+  assert.equal(s.db.prepare(
+    'SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?',
+  ).get(s.scope.world_id, s.record.record_ref, s.record.record_version).count, 0);
+  assert.deepEqual(s.provider.getIndexStatusForDiagnostics(s.scope.world_id), {
+    index_health: 'unavailable',
+    source_reconciliation: 'stale',
+    snapshot: null,
+    failure_code: 'RECORD_WRITE_FAILED',
+  });
+});
