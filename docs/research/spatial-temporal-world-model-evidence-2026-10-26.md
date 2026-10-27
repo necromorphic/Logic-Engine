@@ -141,3 +141,96 @@ This matrix was also posted to issues #350 and #351 so the feasibility spike and
 - Until these conditions are met, status remains **BLOCKED / NO APPROVED SPATIAL SEAM**. No production integration, new API/schema, or NPC admission is implied.
 
 **Execution caveat:** test files were inspected as source but not executed during this research pass. The previously located successful CI run was for a different SHA and is not evidence that this branch/current HEAD passed CI.
+
+## 12. Decision-ready seam proposal (follow-up)
+
+**Purpose:** choose the smallest safe boundary for a future spatial projection without promoting an unapproved runtime contract. This section is a research recommendation, not Core approval.
+
+### 12.1 Candidate boundaries
+
+| Candidate | Boundary and data flow | Advantages | Main risks / missing guarantees | Decision |
+|---|---|---|---|---|
+| A. Ephemeral derived projection over a supported committed-event read | Read valid committed events from an owner-approved Core boundary; deterministically derive a spatial view in memory; label it with the exact source cursor/freshness markers; discard and rebuild when stale | Smallest blast radius; no second durable truth; easy to test replay and world isolation; does not require persistence before semantics are proven | No supported spatial-consumer read contract has been confirmed; current internal store methods are not automatically public APIs; repeated rebuild cost; rollback freshness behavior still needs an explicit rule | **Recommended first experiment**, but only after Core identifies the supported read boundary. Until then, design-only |
+| B. Persisted, rebuildable spatial projection | Add a derived projection to Core's projection/rebuild lifecycle; reconstruct from valid events after restart and rollback | Faster repeated reads; can share deterministic rebuild lifecycle if explicitly supported | Requires schema/storage and lifecycle changes; rollback invalidation, atomicity and reader staleness must be specified; higher coupling and migration/recovery cost | Defer until A proves semantics and Core approves a concrete contract |
+| C. Event-linked scene/episode records | Build scene records linked to source/event evidence, with spatial relations as one part of the episode | Can preserve scene boundaries, provenance, missing evidence and subject/viewpoint distinctions better than a spatial-only snapshot | Solves a broader episodic-evidence problem, not just spatial queries; source retention and lineage rules are separate; must not become NPC memory or imply perception | Parallel/future scene-integrity work; not the first spatial seam |
+| D. Snapshots as checkpoints/accelerators | Use an existing supported snapshot only as a starting point, then replay subsequent committed events | Potentially reduces replay cost | Existing snapshot is a bounded current internal read, not an arbitrary-time spatial history API; snapshot alone misses intervening changes and does not define spatial semantics | Optional optimization only after A is correct; never canonical truth |
+
+### 12.2 Recommended minimal boundary
+
+The least risky target to validate is **A: a disposable, deterministic, in-memory derived view**. The intended flow, contingent on owner approval, is:
+
+1. Core remains the only authority that commits world facts and decides event validity.
+2. A spatial derivation consumes only valid, committed source evidence through a supported Core read boundary. A scheduler proposal or uncommitted effect is not an input fact.
+3. Replay follows canonical committed event order (including commit sequence); game-time coordinate alone is not a sufficient ordering key when multiple events can share a coordinate.
+4. The derived result is scoped to one world and tagged with the exact source freshness/cursor markers that the approved read contract provides. The current source evidence distinguishes `world_revision`, `commit_sequence`, and `game_time_coordinate`; they must not be substituted for one another.
+5. The first supported reconstruction point should be the last confirmed committed segment/checkpoint boundary. Arbitrary intra-segment historical queries remain out of scope unless the Time/Core owners approve a definition and tests for them.
+6. If input validity, source completeness, freshness, position, or ordering is uncertain or conflicting, preserve that uncertainty. Do not invent a coordinate or silently choose a winner.
+7. The derived view does not write canonical facts, advance game time, schedule work, establish NPC perception, or grant Memory→NPC access.
+8. If the source cursor becomes stale or rollback/rebuild changes the supported source state, the view must be discarded/rebuilt or marked unavailable according to a Core-approved rule. Until that rule exists, production readers must not consume it.
+
+**Important limit:** this is a proposed research boundary, not an API design. It deliberately names no method, table, event type, field, hook, or adapter.
+
+### 12.3 Acceptance-test matrix for a future isolated spike
+
+These are required test cases, not claims that the tests already exist or have passed.
+
+| ID | Scenario | Required assertion | Existing evidence / gap |
+|---|---|---|---|
+| STW-01 | Only committed effects | Uncommitted/rejected proposals cannot alter the derived view | Core commit boundary exists; spatial consumer absent |
+| STW-02 | Deterministic replay | Same valid event history and same source cursor produce byte-for-byte/equivalent spatial output | Existing store rebuild orders valid events by commit sequence; no spatial projection |
+| STW-03 | Same game-time coordinate | Events at equal coordinates retain canonical committed ordering; no coordinate-only sorting | Scheduler has same-coordinate ordering constraints; projection rule still absent |
+| STW-04 | Segment atomicity/replay | A failed segment leaves no partial spatial effects; idempotent replay does not duplicate them | Generic segment atomicity/replay tests exist; spatial derivation absent |
+| STW-05 | Rollback and rebuild | A rolled-back supporting event no longer contributes; independent valid claims remain; stale derived readers fail closed | Core rollback/rebuild tests exist; spatial lifecycle and reader contract absent |
+| STW-06 | Composite freshness | A revision-only change cannot be missed just because commit sequence or game-time coordinate did not advance | Snapshot tests cover composite cursor/rollback-only revision change; spatial reader absent |
+| STW-07 | Unknown/conflicting position | Missing or contradictory evidence remains unknown/conflicting; no silent coordinate invention or arbitrary winner | No spatial semantics contract or tests identified |
+| STW-08 | Entity lifecycle | Create, update, remove, teleport/space transition are derived only when supported by committed evidence; absence is not inferred as a position | Generic entity effects exist; spatial meanings absent |
+| STW-09 | World isolation | Identical entity IDs in two worlds never share spatial state or replay inputs | Existing store is world-scoped; spatial projection isolation untested |
+| STW-10 | Restart/reconstruction | Rebuilding from the same authoritative history after restart yields the same result and source cursor | Durable TimeAdvance recovery exists; spatial rebuild absent |
+| STW-11 | Segment boundary | Query at a confirmed boundary agrees with committed state at that boundary | Segment/checkpoint primitives exist; no spatial query |
+| STW-12 | Intermediate coordinate | Query between committed boundaries is rejected or explicitly unresolved until an approved contract defines semantics | Current evidence does not establish arbitrary intra-segment reconstruction |
+| STW-13 | No NPC authority leak | Spatial output alone cannot be treated as source evidence, NPC perception, belief, or acquisition authorization | Existing narrative-boundary document separates these concepts; no spatial-to-NPC path authorized |
+
+### 12.4 Minimum concept checklist (no schema implied)
+
+Before any data model is approved, product/Core owners must settle the meaning of:
+
+- **Identity and isolation:** what entity/object is referenced, and how world/session boundaries are enforced.
+- **Spatial frame:** named room/place/region relations versus 2D/3D coordinates; how frames relate and when conversion is valid.
+- **Pose/orientation:** whether position alone is sufficient or orientation/body pose is required for the intended scenes.
+- **Temporal anchor:** confirmed game-time coordinate plus the exact committed source cursor; how equal-time events are ordered.
+- **Change semantics:** movement, teleport, entering/leaving a space, creation/removal, and whether any interpolation is allowed.
+- **Evidence quality:** unknown, incomplete, stale, conflicting, inferred, and source-confirmed are distinct states.
+- **Provenance:** which committed source evidence supports each derived relation, and what rollback/rebuild does to it.
+- **Consumer permissions:** the derived view is not an NPC's sensory record, episodic memory, belief, or permission to disclose information.
+
+This is a semantic checklist only; it does not authorize field names or storage design.
+
+### 12.5 Decisions and ownership
+
+| Decision | Owner | Proposed default for feasibility only | Required approval |
+|---|---|---|---|
+| Supported committed-event input boundary | Core | No direct dependency on private store internals; use only an explicitly supported boundary | Core must name the exact existing seam or approve a separate contract |
+| First reconstruction point | Time owner + Core | Confirmed committed segment/checkpoint boundary | Confirm whether this is sufficient for product needs |
+| Rollback/stale-reader behavior | Core | Fail closed; discard/rebuild derived state before serving it | Core must define the invalidation/rebuild guarantee |
+| Spatial scope and uncertainty semantics | Product/spatial semantics owner | Preserve unknown/conflict; do not infer missing coordinates | Product decision required |
+| Persistence | Core + spatial owner | No persistence in the first experiment | Separate approval before schema/storage change |
+| NPC/Memory consumption | NPC + Memory + Host/Core owners under their own gates | No consumption or authority granted | Separate integration approval; this spike grants none |
+
+### 12.6 Effort and exit criteria
+
+Rough effort is expressed as relative scope, not calendar promises:
+
+- **Candidate A design/fixture spike:** small, after Core confirms an input boundary.
+- **Candidate A deterministic replay and rollback/freshness tests:** medium, because a real disposable checkout and the actual approved boundary are needed.
+- **Candidate B persisted projection:** medium-to-large; includes schema, migration/rebuild, atomicity, invalidation, restart and reader-consistency review.
+- **Candidate C scene-linked records:** large and cross-block; source lineage, scene completeness and NPC viewpoint must be separately designed.
+
+The research spike can be marked **architecture-ready** when the evidence matrix, candidate comparison, recommended boundary, acceptance tests, and owner decisions are reviewed and internally consistent. It cannot be marked **production-ready** until the owners approve the seam and consistency contract and the relevant tests actually run against the resulting implementation.
+
+### 12.7 Current conclusion
+
+**GO:** continue documentation and read-only/isolated feasibility work.  
+**NO-GO:** production runtime, persistence/schema changes, unapproved Core/TimeEngine integration, and NPC/Memory exposure.
+
+The smallest next action is for Core to identify whether a supported committed-event read boundary already exists for a derived consumer. If it does, the spike can test candidate A without adding a runtime contract. If it does not, this block must provide the evidence and acceptance tests for a separate owner decision; it must not create the seam itself.
+
