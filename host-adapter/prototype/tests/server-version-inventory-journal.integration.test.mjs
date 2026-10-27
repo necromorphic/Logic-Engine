@@ -58,6 +58,38 @@ test('enforced server mutation journal records before/after persisted version in
     JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }),
     ...messages.map(value => JSON.stringify(value)),
   ].join('\n') + '\n');
+  const originalFetch = globalThis.fetch;
+  const envKeys = ['LOGIC_ENGINE_CORE_URL', 'LOGIC_ENGINE_API_TOKEN', 'LOGIC_ENGINE_ADAPTER_ID', 'LOGIC_ENGINE_ADAPTER_TOKEN'];
+  const priorEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
+  const coreVersions = new Map();
+  process.env.LOGIC_ENGINE_CORE_URL = 'http://127.0.0.1:8787';
+  process.env.LOGIC_ENGINE_API_TOKEN = 'test-core-api-token-long-enough';
+  process.env.LOGIC_ENGINE_ADAPTER_ID = 'adapter-test';
+  process.env.LOGIC_ENGINE_ADAPTER_TOKEN = 'test-adapter-token-long-enough';
+  globalThis.fetch = async (url, options) => {
+    const endpoint = new URL(String(url));
+    const body = JSON.parse(options.body);
+    if (endpoint.pathname === '/v1/host-version-ledger/capture') {
+      const key = JSON.stringify([body.conversation_id, body.message_id, body.version_id]);
+      coreVersions.set(key, { ...body });
+      return { ok: true, status: 201, json: async () => ({ capture: { status: 'captured' } }) };
+    }
+    if (endpoint.pathname === '/v1/host-version-ledger/inventory') {
+      const versions = [...coreVersions.values()]
+        .filter(version => version.conversation_id === body.conversation_id)
+        .map(({ conversation_id, message_id, version_id, content_sha256, active, deleted }) =>
+          ({ conversation_id, message_id, version_id, content_sha256, active, deleted }));
+      return { ok: true, status: 200, json: async () => ({
+        inventory: {
+          authority: 'CORE_HOST_VERSION_LEDGER',
+          conversation_id: body.conversation_id,
+          inventory_status: 'READY',
+          versions,
+        },
+      }) };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
   try {
     await writeChat([makeMessage({ messageId, versions: [{ versionId: version1, text: 'private-before' }], activeVersionIndex: 0 })]);
     const conversationId = installationUuid + ':' + conversationUuid;
@@ -145,6 +177,11 @@ test('enforced server mutation journal records before/after persisted version in
     assert.ok(rollback.errors.includes('CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT'));
     assert.equal(rollback.mutationJournal.snapshotConsistency, 'DIVERGES_FROM_LAST_LOCAL_CHECKPOINT');
   } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of envKeys) {
+      if (priorEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = priorEnv[key];
+    }
     await rm(root, { recursive: true, force: true });
   }
 });
