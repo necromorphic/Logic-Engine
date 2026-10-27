@@ -93,6 +93,8 @@ test('enforced server mutation journal records before/after persisted version in
   try {
     await writeChat([makeMessage({ messageId, versions: [{ versionId: version1, text: 'private-before' }], activeVersionIndex: 0 })]);
     const conversationId = installationUuid + ':' + conversationUuid;
+    request.body = { avatar_url: 'avatar.png', file_name: 'chat-a', chat: [{ chat_metadata: { logic_engine_conversation_id: conversationUuid } }, makeMessage({ messageId, versions: [{ versionId: version1, text: 'private-before' }, { versionId: version2, text: 'private-after', parentVersionId: version1 }], activeVersionIndex: 1 })] };
+    coreVersions.set(JSON.stringify([conversationId, messageId, version1]), { conversation_id: conversationId, message_id: messageId, version_id: version1, content_sha256: digest('private-before'), active: true, deleted: false });
     await registerHostConversation(request, {
       conversationId,
       sourceLocator: 'chat-a', sourcePath: 'chat-a.jsonl', domain: 'chats',
