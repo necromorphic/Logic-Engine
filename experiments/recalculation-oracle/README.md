@@ -15,8 +15,8 @@ The independent oracle is a separately authored literal expected projection in t
 ## Guarantees and limits
 
 1. The harness rejects unknown declared dependencies and dependency cycles. It does not guess an evaluation order for cycles.
-2. Reads made by an executed node are recorded through `ctx.read`. A read not listed in `dependsOn` is a contract violation.
-3. Dynamic read tracking cannot detect a dependency in a node that incremental strategy B skipped. An independently authored invariant or oracle is needed to catch that stale result. This limitation is demonstrated by a negative test.
+2. Incremental B/C require `previousInputs` as well as `previousValues`. The harness computes the changed input coordinates from the old and new snapshots and rejects a `changedInputs` list that omits or invents changes. This guards against caller-supplied change lists that would silently skip recomputation. The snapshot comparison assumes JSON-compatible input values.
+3. Reads made by an executed node are recorded through `ctx.read`. A read not listed in `dependsOn` is a contract violation. Dynamic read tracking cannot detect a dependency in a node that incremental strategy B skipped. An independently authored invariant or oracle is needed to catch that stale result. This limitation is demonstrated by a negative test.
 4. A failed invariant triggers C's full recomputation, but full recomputation does not repair an invalid dependency contract. The result is marked `needs_review` if the full run still observes an undeclared read or an invariant remains unproven.
 5. An invariant is only as strong as its domain definition. Core must not invent world-specific semantic invariants or interpret an absent edge as proof of no dependency.
 6. This harness does not model concurrency, revision leases, storage transactions, event rollback, side effects, or production performance. It must not be described as proving any of those properties.
