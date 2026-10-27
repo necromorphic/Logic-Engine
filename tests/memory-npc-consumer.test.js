@@ -1082,6 +1082,10 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
   provider = new SQLiteMemoryProvider(providerOptions);
   consumer = createConsumer();
   holdSecondValidation = false;
+  // Startup deliberately marks persisted readiness stale. Rebuild and reconcile
+  // before testing durable revocation rather than confusing recovery with denial.
+  assert.deepEqual(await provider.rebuildIndex(scope.world_id), { status: 'rebuilt', count: 2 });
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
   const afterRestart = await retrieve();
   assert.equal(afterRestart.status, 'non_ready');
   assert.deepEqual(afterRestart.candidates, []);
