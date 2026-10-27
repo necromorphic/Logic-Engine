@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -16,11 +17,14 @@ function setup(t) {
     validateInventory: async () => true,
   };
   let provider = new SQLiteMemoryProvider(options);
+  const testDb = createProviderTestDb(t, { path });
   t.after(() => {
     try { provider.close(); } catch {}
+    testDb.close();
     rmSync(directory, { recursive: true, force: true });
   });
   return {
+    db: testDb.db,
     get provider() { return provider; },
     reopen() {
       provider.close();
@@ -29,9 +33,9 @@ function setup(t) {
   };
 }
 
-function insertLegacyVersion(provider, versionId, content) {
+function insertLegacyVersion(db, versionId, content) {
   const digest = createHash('sha256').update(content, 'utf8').digest('hex');
-  provider.db.prepare(`INSERT INTO memory_raw_captures
+  db.prepare(`INSERT INTO memory_raw_captures
     (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,
      metadata_json,captured_at,deleted_at)
     VALUES(?,?,?,?,?,?,?,?,?,NULL)`)
@@ -39,10 +43,10 @@ function insertLegacyVersion(provider, versionId, content) {
       '2026-01-01T00:00:00.000Z');
 }
 
-function insertLegacyCopy(provider, sourceVersionId, copyRef) {
+function insertLegacyCopy(db, sourceVersionId, copyRef) {
   const content = `legacy copy from ${sourceVersionId}`;
   const digest = createHash('sha256').update(content, 'utf8').digest('hex');
-  provider.db.prepare(`INSERT INTO memory_raw_derived_copies
+  db.prepare(`INSERT INTO memory_raw_derived_copies
     (world_id,conversation_id,message_id,source_version_id,copy_ref,copy_version,copy_kind,
      content_text,content_sha256,status,created_at,invalidated_at)
     VALUES(?,?,?,?,?,?,?, ?,?,'current',?,NULL)`)
@@ -50,8 +54,8 @@ function insertLegacyCopy(provider, sourceVersionId, copyRef) {
       content, digest, '2026-01-01T00:00:00.000Z');
 }
 
-function selectLegacyVersion(provider, versionId) {
-  provider.db.prepare(`INSERT INTO memory_raw_active_versions
+function selectLegacyVersion(db, versionId) {
+  db.prepare(`INSERT INTO memory_raw_active_versions
     (world_id,conversation_id,message_id,version_id,selected_at)
     VALUES(?,?,?,?,?)`)
     .run('world-a', 'chat-a', 'message-a', versionId, '2026-01-01T00:00:00.000Z');
@@ -59,60 +63,60 @@ function selectLegacyVersion(provider, versionId) {
 
 test('exact-version tombstone invalidates only known dependent copies and preserves a different active version across restart', (t) => {
   const s = setup(t);
-  insertLegacyVersion(s.provider, 'version-a', 'old version');
-  insertLegacyVersion(s.provider, 'version-b', 'replacement version');
-  insertLegacyCopy(s.provider, 'version-a', 'copy-from-a');
-  insertLegacyCopy(s.provider, 'version-b', 'copy-from-b');
-  selectLegacyVersion(s.provider, 'version-b');
+  insertLegacyVersion(s.db, 'version-a', 'old version');
+  insertLegacyVersion(s.db, 'version-b', 'replacement version');
+  insertLegacyCopy(s.db, 'version-a', 'copy-from-a');
+  insertLegacyCopy(s.db, 'version-b', 'copy-from-b');
+  selectLegacyVersion(s.db, 'version-b');
 
   assert.deepEqual(s.provider.markRawSourceDeleted({
     world_id: 'world-a', conversation_id: 'chat-a', message_id: 'message-a', version_id: 'unknown-version',
   }), { status: 'missing', invalidated_copies: 0 },
   'an unknown exact version is not guessed from message identity');
-  assert.equal(s.provider.db.prepare('SELECT version_id FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
+  assert.equal(s.db.prepare('SELECT version_id FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
     .get('world-a', 'chat-a', 'message-a').version_id, 'version-b');
 
   assert.deepEqual(s.provider.markRawSourceDeleted({
     world_id: 'world-a', conversation_id: 'chat-a', message_id: 'message-a', version_id: 'version-a',
   }), { status: 'deleted', invalidated_copies: 1 });
 
-  assert.ok(s.provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+  assert.ok(s.db.prepare(`SELECT deleted_at FROM memory_raw_captures
     WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
     .get('world-a', 'chat-a', 'message-a', 'version-a').deleted_at);
-  assert.equal(s.provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+  assert.equal(s.db.prepare(`SELECT deleted_at FROM memory_raw_captures
     WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
     .get('world-a', 'chat-a', 'message-a', 'version-b').deleted_at, null);
-  assert.equal(s.provider.db.prepare('SELECT version_id FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
+  assert.equal(s.db.prepare('SELECT version_id FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
     .get('world-a', 'chat-a', 'message-a').version_id, 'version-b');
-  assert.equal(s.provider.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?')
+  assert.equal(s.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?')
     .get('copy-from-a').status, 'invalidated');
-  assert.equal(s.provider.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?')
+  assert.equal(s.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?')
     .get('copy-from-b').status, 'current');
 
   s.reopen();
-  assert.ok(s.provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+  assert.ok(s.db.prepare(`SELECT deleted_at FROM memory_raw_captures
     WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
     .get('world-a', 'chat-a', 'message-a', 'version-a').deleted_at);
-  assert.equal(s.provider.db.prepare('SELECT version_id FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
+  assert.equal(s.db.prepare('SELECT version_id FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
     .get('world-a', 'chat-a', 'message-a').version_id, 'version-b');
-  assert.equal(s.provider.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?')
+  assert.equal(s.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?')
     .get('copy-from-a').status, 'invalidated');
-  assert.equal(s.provider.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?')
+  assert.equal(s.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?')
     .get('copy-from-b').status, 'current');
 
   assert.deepEqual(s.provider.markRawSourceDeleted({
     world_id: 'world-a', conversation_id: 'chat-a', message_id: 'message-a', version_id: 'version-a',
   }), { status: 'deleted', invalidated_copies: 0 },
   'repeating the same tombstone does not invalidate an unrelated or already-invalidated copy');
-  assert.equal(s.provider.db.prepare('SELECT version_id FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
+  assert.equal(s.db.prepare('SELECT version_id FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
     .get('world-a', 'chat-a', 'message-a').version_id, 'version-b');
 
   assert.deepEqual(s.provider.markRawSourceDeleted({
     world_id: 'world-a', conversation_id: 'chat-a', message_id: 'message-a', version_id: 'version-b',
   }), { status: 'deleted', invalidated_copies: 1 });
-  assert.equal(s.provider.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
+  assert.equal(s.db.prepare('SELECT COUNT(*) AS count FROM memory_raw_active_versions WHERE world_id=? AND conversation_id=? AND message_id=?')
     .get('world-a', 'chat-a', 'message-a').count, 0,
   'tombstoning the currently selected exact version clears that pointer');
-  assert.equal(s.provider.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?')
+  assert.equal(s.db.prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?')
     .get('copy-from-b').status, 'invalidated');
 });
