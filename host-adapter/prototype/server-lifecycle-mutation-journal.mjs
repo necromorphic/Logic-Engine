@@ -170,7 +170,7 @@ function snapshotDigest(scan) {
     }));
 }
 
-async function scanMutationSnapshot(paths, registry, requirePersistedInventory) {
+async function scanMutationSnapshot(paths, registry, requirePersistedInventory, compareCore = false) {
     const artifacts = await scanHostArtifactRoots(paths.roots);
     if (!artifacts.complete || !requirePersistedInventory) return artifacts;
     const conversationInventory = await scanPersistedConversationInventories(
@@ -187,6 +187,24 @@ async function scanMutationSnapshot(paths, registry, requirePersistedInventory) 
             conversationInventory,
             errors: conversationInventory.errors,
         };
+    }
+    if (compareCore) {
+        try {
+            await assertCoreInventoryMatchesSnapshot(conversationInventory, registry);
+        } catch (error) {
+            const code = error?.message === 'CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE'
+                ? 'CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE'
+                : 'CORE_HOST_INVENTORY_UNAVAILABLE';
+            return {
+                ...artifacts,
+                status: 'INVENTORY_INCOMPLETE',
+                complete: false,
+                artifacts: [],
+                artifactCount: null,
+                conversationInventory: { ...conversationInventory, status: 'INVENTORY_INCOMPLETE', complete: false, inventories: [], errors: [code] },
+                errors: [code],
+            };
+        }
     }
     return { ...artifacts, conversationInventory };
 }
@@ -472,10 +490,12 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 release();
                 return fail(response, 'HOST_JOURNAL_RECONCILIATION_REQUIRED');
             }
-            before = await scanMutationSnapshot(paths, registry, requirePersistedInventory);
+            const coreConfigured = Boolean(process.env.LOGIC_ENGINE_CORE_URL && process.env.LOGIC_ENGINE_API_TOKEN
+                && process.env.LOGIC_ENGINE_ADAPTER_ID && process.env.LOGIC_ENGINE_ADAPTER_TOKEN);
+            before = await scanMutationSnapshot(paths, registry, requirePersistedInventory, coreConfigured);
             if (!before.complete) {
                 release();
-                return fail(response, 'HOST_INVENTORY_INCOMPLETE');
+                return fail(response, before.errors?.[0] ?? before.conversationInventory?.errors?.[0] ?? 'HOST_INVENTORY_INCOMPLETE');
             }
             const suppliedOperationId = request.headers?.['x-logic-engine-operation-id'];
             if (suppliedOperationId !== undefined
@@ -576,7 +596,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             ending = true;
             void (async () => {
                 try {
-                    const after = await scanMutationSnapshot(paths, registry, requirePersistedInventory);
+                    let after = await scanMutationSnapshot(paths, registry, requirePersistedInventory);
                     if (!after.complete) {
                         await appendRecord(paths.journalPath, chain.lastHash, {
                             version: 1,
@@ -618,6 +638,28 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                     }
                     try {
                         await publishCoreInventorySnapshot(before, after);
+                        after = await scanMutationSnapshot(paths, registry, requirePersistedInventory, true);
+                        if (!after.complete) {
+                            const code = after.errors?.[0] ?? after.conversationInventory?.errors?.[0] ?? 'CORE_HOST_INVENTORY_UNAVAILABLE';
+                            const hash = await appendRecord(paths.journalPath, chain.lastHash, {
+                                version: 1,
+                                kind: 'outcome',
+                                operationId,
+                                status: 'UNRESOLVED',
+                                completedAt: new Date().toISOString(),
+                                httpStatus: response.statusCode,
+                                coreCaptureStatus: code,
+                                afterSnapshotDigest: snapshotDigest(after),
+                                afterArtifactCount: after.artifactCount,
+                                afterConversationInventoryDigest: after.conversationInventory?.inventory_sha256 ?? null,
+                                afterConversationInventories: after.conversationInventory?.inventories ?? null,
+                            });
+                            chain.lastHash = hash;
+                            return commitBufferedResponse(args, {
+                                status: 503,
+                                body: JSON.stringify({ error: { code } }),
+                            });
+                        }
                     } catch {
                         const hash = await appendRecord(paths.journalPath, chain.lastHash, {
                             version: 1,
@@ -963,6 +1005,47 @@ async function readCoreHostVersionInventory(conversationId) {
     return inventory;
 }
 
+
+async function assertCoreInventoryMatchesSnapshot(conversationInventory, registry) {
+    const remoteInventories = await Promise.all(registry.conversations.map(item =>
+        readCoreHostVersionInventory(item.conversationId)));
+    const local = new Map();
+    for (const conversation of conversationInventory.inventories ?? []) {
+        for (const version of conversation.versions ?? []) {
+            local.set(JSON.stringify([conversation.conversation_id, version.message_id, version.version_id]), {
+                conversation_id: conversation.conversation_id,
+                message_id: version.message_id,
+                version_id: version.version_id,
+                content_sha256: version.payload_sha256,
+                active: version.active,
+                deleted: false,
+            });
+        }
+    }
+    const remote = new Map();
+    for (const inventory of remoteInventories) {
+        for (const version of inventory.versions) {
+            const item = { conversation_id: inventory.conversation_id, ...version };
+            const key = JSON.stringify([item.conversation_id, item.message_id, item.version_id]);
+            if (remote.has(key)) throw new Error('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE');
+            remote.set(key, item);
+        }
+    }
+    for (const [key, item] of remote) {
+        const current = local.get(key);
+        if (item.deleted) {
+            if (current) throw new Error('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE');
+        } else if (!current || current.content_sha256 !== item.content_sha256 || current.active !== item.active) {
+            throw new Error('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE');
+        }
+    }
+    for (const [key, item] of local) {
+        const current = remote.get(key);
+        if (!current || current.deleted || current.content_sha256 !== item.content_sha256 || current.active !== item.active) {
+            throw new Error('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE');
+        }
+    }
+}
 
 export async function getHostConversationInventory(request) {
     const paths = await statePaths(request);
