@@ -24,8 +24,8 @@ const aliasesSameFile = (left, right) => {
   const canonicalRight = canonicalFilePath(right);
   if (canonicalLeft === canonicalRight) return true;
   if (!existsSync(canonicalLeft) || !existsSync(canonicalRight)) return false;
-  const leftStat = statSync(canonicalLeft);
-  const rightStat = statSync(canonicalRight);
+  const leftStat = statSync(canonicalLeft, { bigint: true });
+  const rightStat = statSync(canonicalRight, { bigint: true });
   return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
 };
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
