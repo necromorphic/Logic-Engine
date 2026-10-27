@@ -145,3 +145,22 @@ test('rejects sparse and accessor-backed arrays in nested rules and membership c
   );
   assert.equal(reads, 0);
 });
+
+
+test('rejects accessor-backed and cyclic nested comparison values without executing getters', () => {
+  let reads = 0;
+  const nested = {};
+  Object.defineProperty(nested, 'secret', { enumerable: true, get() { reads += 1; return 'x'; } });
+  assert.throws(
+    () => evaluateCondition({ op: 'eq', path: 'actor', value: { secret: 'x' } }, { actor: nested }),
+    (error) => error.code === 'INVALID_RULE_VALUE',
+  );
+  assert.equal(reads, 0);
+
+  const cyclic = {};
+  cyclic.self = cyclic;
+  assert.throws(
+    () => evaluateCondition({ op: 'eq', path: 'actor', value: {} }, { actor: cyclic }),
+    (error) => error.code === 'INVALID_RULE_VALUE',
+  );
+});
