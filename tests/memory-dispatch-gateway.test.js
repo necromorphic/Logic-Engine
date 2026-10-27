@@ -11,7 +11,7 @@ import {
   enrollAcceptedHeadSync,
   finalizeAcceptedHeadSync,
 } from '../src/security/accepted-head-client-sync.js';
-import { MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
+import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
@@ -128,12 +128,26 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
   route: 'google-ai-studio-chat-completions',
+  model: 'gemini-2.5-flash-lite',
   body: JSON.stringify({ messages: [{ role: 'user', content: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' }] }),
   worldId: 'world-1',
   actorId: 'npc-1',
   purpose: 'recall',
   sources: sourceSet,
   ...overrides,
+});
+
+test('Host dispatch signature binds the exact body, route, model, identity, and source versions', () => {
+  const request = validRequest('signed-request');
+  const secret = 'host-dispatch-signing-secret-00000000000000000000000000000001';
+  const signature = createDispatchRequestSignature(secret, request);
+  assert.equal(verifyDispatchRequestSignature(secret, request, signature), true);
+  assert.equal(verifyDispatchRequestSignature(secret, { ...request, body: request.body + 'tampered' }, signature), false);
+  assert.equal(verifyDispatchRequestSignature(secret, { ...request, sources: [{
+    source_kind: 'canonical_entity',
+    source_entity_id: 'entity-42',
+    source_version: 'version-8',
+  }] }, signature), false);
 });
 
 test('read-only Gateway SQLite connection can read committed WAL state without write access', () => {
@@ -171,9 +185,10 @@ test('dispatch validates current heads and grants, records one content-free star
 
     const db = new DatabaseSync(fixture.ledgerPath);
     try {
-      const row = db.prepare('SELECT status,request_digest,sources_json FROM dispatch_ledger WHERE request_id=?')
+      const row = db.prepare('SELECT status,request_digest,model,sources_json FROM dispatch_ledger WHERE request_id=?')
         .get('request-001');
       assert.equal(row.status, 'COMPLETED');
+      assert.equal(row.model, 'gemini-2.5-flash-lite');
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
