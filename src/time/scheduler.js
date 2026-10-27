@@ -217,7 +217,7 @@ function heapPop(heap) {
   return root;
 }
 
-export function optionalTriggerValue(input, field, defaultValue) {
+function optionalTriggerValue(input, field, defaultValue) {
   if (!Object.hasOwn(input, field)) return defaultValue;
   const value = input[field];
   if (value === undefined) {
@@ -226,7 +226,7 @@ export function optionalTriggerValue(input, field, defaultValue) {
   return value;
 }
 
-function normalizeTimeTrigger(input, worldId) {
+export function normalizeTimeTrigger(input, worldId) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('INVALID_TRIGGER', 'Every trigger must be an object.');
   assertTriggerRecord(input);
   const trigger = {
@@ -257,9 +257,9 @@ function buildDependencyOrder(due, allById, completedIds) {
   for (const trigger of due) {
     const required = [];
     for (const dependencyId of trigger.dependencies) {
-      if (completedIds.has(dependencyId)) continue;
       const dependency = allById.get(dependencyId);
       if (!dependency) {
+        if (completedIds.has(dependencyId)) continue;
         blocked.push({ trigger_id: trigger.trigger_id, dependency_id: dependencyId, reason: 'missing_dependency' });
         continue;
       }
