@@ -50,7 +50,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   const snapshot = engine.getSnapshot('memory-npc-world');
   const candidate = (overrides = {}) => ({
     record: { ref: 'memory:claim-1', version: 'v1' },
-    source: { kind: 'canonical_entity', entity_id: 'source-a' },
+    source: { kind: 'canonical_entity', entity_id: 'source-a', version: 'source-v1' },
     world_id: scope.world_id,
     subject_id: scope.subject_id,
     purpose: scope.purpose,
@@ -126,6 +126,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     'attributes.public_note': 'authorized source text',
   });
   assert.equal(result.candidates[0].record_ref, 'memory:claim-1');
+  assert.equal(result.candidates[0].source_version, 'source-v1');
   assert.deepEqual(getLastCandidateAuthorization(), {
     ...{ world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' },
     record_ref: 'memory:claim-1',
@@ -143,6 +144,21 @@ test('joins trusted Memory record authorization, Core authorized source read, an
   assert.equal(store.currentCommitSequence('memory-npc-world'), before.sequence);
   assert.equal(store.events('memory-npc-world', true).length, before.events);
   assert.equal(store.audit('memory-npc-world').length, before.audit);
+});
+
+
+test('conflicting source versions for the same Memory identity fail closed', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
+  setCandidates([
+    candidate(),
+    candidate({
+      source: { kind: 'canonical_entity', entity_id: 'source-a', version: 'source-v2' },
+    }),
+  ]);
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
+  assert.equal(result.reason, 'memory_record_identity_conflict');
 });
 
 test('query denial and incomplete Memory results fail closed without returning candidates', async (t) => {
@@ -1026,6 +1042,7 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
   assert.deepEqual(initial.candidates[0].content, {
     'attributes.public_note': 'read from canonical Core state',
   });
+  assert.equal(initial.candidates[0].source_version, 'source-real-v1');
   assert.equal(JSON.stringify(initial).includes('never expose this field'), false);
 
   // Pause the later candidate's real Provider source validator after the earlier
