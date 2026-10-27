@@ -142,7 +142,7 @@ export class AcceptedHeadAuthority {
         }
         if (existing.status !== 'committed') throw new Error('ACCEPTED_HEAD_OPERATION_PENDING');
         this.#db.exec('COMMIT;');
-        return Object.freeze({ domain, head: existing.resulting_head, operation_id: operationId, replayed: true, status: 'committed' });
+        return Object.freeze({ domain, head: existing.resulting_head, operation_id: operationId, operation_digest: operationDigest, replayed: true, status: 'committed' });
       }
       const row = this.#db.prepare('SELECT head, enrolled FROM authority_domain_heads WHERE domain=?').get(domain);
       if (!row || row.head !== 0 || row.enrolled !== 0) throw new Error('ACCEPTED_HEAD_ALREADY_ENROLLED');
@@ -153,7 +153,7 @@ export class AcceptedHeadAuthority {
         'INSERT INTO authority_operations(operation_id, domain, resulting_head, operation_digest, operation_kind, status, created_at) VALUES(?,?,?,?,?,?,?)',
       ).run(operationId, domain, 1, operationDigest, 'enroll', 'pending', new Date().toISOString());
       this.#db.exec('COMMIT;');
-      return Object.freeze({ domain, head: 1, operation_id: operationId, replayed: false, status: 'pending' });
+      return Object.freeze({ domain, head: 1, operation_id: operationId, operation_digest: operationDigest, replayed: false, status: 'pending' });
     } catch (error) {
       try { this.#db.exec('ROLLBACK;'); } catch {}
       throw error;
@@ -175,7 +175,7 @@ export class AcceptedHeadAuthority {
         if (existing.domain !== domain || existing.operation_digest !== operationDigest || existing.operation_kind !== 'mutation') throw new Error('ACCEPTED_HEAD_OPERATION_ID_CONFLICT');
         if (existing.status !== 'committed') throw new Error('ACCEPTED_HEAD_OPERATION_PENDING');
         this.#db.exec('COMMIT;');
-        return Object.freeze({ domain, head: existing.resulting_head, operation_id: operationId, replayed: true, status: 'committed' });
+        return Object.freeze({ domain, head: existing.resulting_head, operation_id: operationId, operation_digest: operationDigest, replayed: true, status: 'committed' });
       }
       const row = this.#db.prepare('SELECT head, enrolled FROM authority_domain_heads WHERE domain=?').get(domain);
       if (!row || row.enrolled !== 1) throw new Error('ACCEPTED_HEAD_NOT_ENROLLED');
@@ -191,7 +191,7 @@ export class AcceptedHeadAuthority {
         'INSERT INTO authority_operations(operation_id, domain, resulting_head, operation_digest, operation_kind, status, created_at) VALUES(?,?,?,?,?,?,?)',
       ).run(operationId, domain, next, operationDigest, 'mutation', 'pending', new Date().toISOString());
       this.#db.exec('COMMIT;');
-      return Object.freeze({ domain, head: next, operation_id: operationId, replayed: false, status: 'pending' });
+      return Object.freeze({ domain, head: next, operation_id: operationId, operation_digest: operationDigest, replayed: false, status: 'pending' });
     } catch (error) {
       try { this.#db.exec('ROLLBACK;'); } catch {}
       throw error;
@@ -219,7 +219,7 @@ export class AcceptedHeadAuthority {
       }
       this.#db.exec('COMMIT;');
       return Object.freeze({
-        domain, head: row.resulting_head, operation_id: operationId,
+        domain, head: row.resulting_head, operation_id: operationId, operation_digest: operationDigest,
         replayed: row.status === 'committed', status: 'committed',
       });
     } catch (error) {
