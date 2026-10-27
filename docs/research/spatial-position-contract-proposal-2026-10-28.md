@@ -146,3 +146,30 @@ Core review is requested on the following, in order:
 - Memory→NPC remains `DISABLED / FAIL-CLOSED`.
 - No ST-01–ST-16 test is reported as passed without actual execution.
 - Any unresolved identity, provenance, frame, unit, temporal, or conflict question blocks treating a position as supported.
+
+## 9. Core review — 2026-10-28
+
+**Disposition: CONDITIONAL APPROVAL for the documentation contract direction; NOT approval of a production contract or implementation.**
+
+### Core-owned decisions
+
+1. **Canonical authority:** Core remains the sole authority for committed world state. A spatial position is not canonical merely because it appears in an entity attribute, event label, proposal, uncommitted effect, or derived projection.
+2. **Minimum evidence rule:** Until a typed spatial source is separately approved and actually available, the Core answer to “where is this entity?” is **unknown / unsupported**, not a guessed interpretation of generic data.
+3. **State boundary:** Any future derived result must be tied to a coherent, world-scoped Core state boundary. The existing composite marker `(world_revision, commit_sequence)` must be treated as a pair, not as interchangeable counters. The exact marker and read-consistency guarantee must be taken from the approved existing read path; this review does not create a new cursor or API.
+4. **Time is separate:** Core revision/commit sequence does not substitute for TimeEngine's game-time coordinate. A historical spatial answer is unsupported unless the source provides a proven mapping to both the requested temporal point and the committed state boundary. Do not interpolate between boundaries by default.
+5. **Rollback and rebuild:** Any derived spatial result that depends on invalidated source evidence must be invalidated or deterministically rebuilt. If that cannot be demonstrated using an approved seam, the result must remain stale/unknown and the consumer must fail closed.
+6. **Provenance and conflicts:** A supported result must retain verifiable links to committed, still-valid source evidence. Missing, malformed, unsupported, stale, or conflicting evidence must not be collapsed into a supported position. No last-write-wins or arrival-order choice is approved by this review.
+7. **No authority escalation:** This contract grants no observation, knowledge, belief, or disclosure authority to NPCs and does not change Memory→NPC, which remains DISABLED / FAIL-CLOSED.
+
+These decisions align with the bounded existing-read experiment described in PR #529. That experiment validates only its source-read/replay/freshness boundary; it does **not** prove spatial semantics or authorize production integration.
+
+### Decisions not owned by Core
+
+Core does **not** select product-level spatial semantics without an explicit spatial/product requirement and supporting evidence. The following remain decision-needed: initial dimensionality (2D/3D), coordinate frame(s), axes and handedness, units/discrete scale, position anchor, whether local frames are needed, and whether entity IDs require an incarnation/generation distinction. Do not pick these from convention or from sample values. If the product scope cannot justify a choice, keep it open and do not treat positions as supported.
+
+### Required revision before this proposal can be called decision-ready
+
+- Replace the first requested decision in §7 (“confirm that a position contract may be developed as a documentation-only proposal”) with the Core decisions above; that permission has already been granted and is no longer the open question.
+- Keep the product/spatial choices explicitly open until their owner supplies requirements.
+- Before any implementation request, cite the exact current-main source and tests that establish the composite-marker/read consistency and rollback/rebuild guarantees, and record the executed verification output at the exact tested SHA. Existing PR #529 results may be cited only for the bounded experiment and its stated limits.
+- Do not describe the draft as an approved contract, and do not start runtime/schema/API/event/adapter work under this approval.
