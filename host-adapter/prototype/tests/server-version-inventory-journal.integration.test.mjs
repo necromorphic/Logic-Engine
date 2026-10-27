@@ -93,13 +93,14 @@ test('enforced server mutation journal records before/after persisted version in
     });
     const journal = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
     const records = journal.trim().split('\n').map(line => JSON.parse(line));
-    assert.equal(records.length, 2);
-    assert.equal(records[0].beforeConversationInventories[0].versions.length, 1);
-    assert.equal(records[1].afterConversationInventories[0].versions.length, 2);
-    assert.ok(records[0].beforeConversationInventoryDigest);
-    assert.ok(records[1].afterConversationInventoryDigest);
-    assert.ok(records[1].versionChanges.some(change => change.change === 'ADDED' && change.version_id === version2));
-    assert.ok(records[1].versionChanges.some(change => change.change === 'ACTIVE_CHANGED' && change.version_id === version1));
+    const mutationRecords = records.filter(record => record.kind === 'intent' || record.kind === 'outcome');
+    assert.equal(mutationRecords.length, 2);
+    assert.equal(mutationRecords[0].beforeConversationInventories[0].versions.length, 1);
+    assert.equal(mutationRecords[1].afterConversationInventories[0].versions.length, 2);
+    assert.ok(mutationRecords[0].beforeConversationInventoryDigest);
+    assert.ok(mutationRecords[1].afterConversationInventoryDigest);
+    assert.ok(mutationRecords[1].versionChanges.some(change => change.change === 'ADDED' && change.version_id === version2));
+    assert.ok(mutationRecords[1].versionChanges.some(change => change.change === 'ACTIVE_CHANGED' && change.version_id === version1));
     assert.doesNotMatch(journal, /private-before|private-after/);
 
     const checkpoint = await getHostConversationInventory(request);
