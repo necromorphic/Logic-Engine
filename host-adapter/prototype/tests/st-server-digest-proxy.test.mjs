@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHostDigestProxyHandler } from '../st-server-digest-proxy.mjs';
 
 const CONFIG = {
-  LOGIC_ENGINE_CORE_URL: 'http://192.168.1.10:8787',
+  LOGIC_ENGINE_CORE_URL: 'https://logic-engine-pc.example:8787',
   LOGIC_ENGINE_API_TOKEN: 'core-api-token-long-enough',
   LOGIC_ENGINE_ADAPTER_ID: 'sillytavern-phone',
   LOGIC_ENGINE_ADAPTER_TOKEN: 'adapter-token-long-enough',
@@ -48,7 +48,7 @@ test('proxy forwards only allowlisted digest fields with server-side credentials
   await handler({ body: capture }, response);
   assert.equal(response.statusCode, 201);
   assert.deepEqual(response.payload, { ok: true, inventory_status: 'NON_READY' });
-  assert.equal(observed.url, 'http://192.168.1.10:8787/v1/host-version-ledger/capture');
+  assert.equal(observed.url, 'https://logic-engine-pc.example:8787/v1/host-version-ledger/capture');
   assert.equal(observed.options.method, 'POST');
   assert.equal(observed.options.redirect, 'error');
   assert.equal(observed.options.headers.authorization, 'Bearer ' + CONFIG.LOGIC_ENGINE_API_TOKEN);
@@ -76,8 +76,34 @@ test('proxy rejects caller URLs, world IDs, raw text and malformed digests befor
   assert.equal(calls, 0);
 });
 
+test('plaintext HTTP is permitted only for a loopback Core endpoint', async () => {
+  let calls = 0;
+  const local = responseRecorder();
+  await createHostDigestProxyHandler({
+    env: { ...CONFIG, LOGIC_ENGINE_CORE_URL: 'http://127.0.0.1:8787' },
+    fetchImpl: async (url) => {
+      calls++;
+      assert.equal(String(url), 'http://127.0.0.1:8787/v1/host-version-ledger/capture');
+      return { status: 200, ok: true };
+    },
+  })({ body: capture }, local);
+  assert.equal(local.statusCode, 200);
+  assert.equal(calls, 1);
+
+  let remoteCalls = 0;
+  const remote = responseRecorder();
+  await createHostDigestProxyHandler({
+    env: { ...CONFIG, LOGIC_ENGINE_CORE_URL: 'http://192.168.1.10:8787' },
+    fetchImpl: async () => { remoteCalls++; throw Error('must not send credentials over HTTP'); },
+  })({ body: capture }, remote);
+  assert.equal(remote.statusCode, 503);
+  assert.equal(remote.payload.error.code, 'LOGIC_ENGINE_PROXY_UNCONFIGURED');
+  assert.equal(remoteCalls, 0);
+});
+
 test('proxy rejects upstream URL credentials and paths from configuration', async () => {
   for (const value of [
+    'http://192.168.1.10:8787',
     'http://user:pass@192.168.1.10:8787',
     'http://192.168.1.10:8787/anything',
     'file:///tmp/core',
