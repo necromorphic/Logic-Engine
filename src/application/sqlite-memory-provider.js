@@ -737,6 +737,13 @@ export class SQLiteMemoryProvider {
       .get(input.world_id, input.record_ref, input.record_version);
     if (!row || row.subject_id !== input.subject_id || row.purpose !== input.purpose
       || row.source_kind !== input.source_kind || row.source_entity_id !== input.source_entity_id) return false;
+    // Bind the consumer's exact source token to the immutable persisted record.
+    // The Core validator independently checks that same opaque token against the
+    // authoritative active source; no prefix stripping or revision substitution.
+    if (input.source_version !== undefined
+      && (!validId(input.source_version) || input.source_version !== row.source_version)) {
+      throw new Error('MEMORY_SOURCE_VERSION_UNVERIFIABLE');
+    }
     let lineage;
     try { lineage = decode(row.lineage_json); } catch {
       throw new Error('MEMORY_LINEAGE_INVALID');
@@ -1172,7 +1179,7 @@ export class SQLiteMemoryProvider {
 
     const candidates = rows.slice(0, 50).map((row) => ({
       record: { ref: row.record_ref, version: row.record_version },
-      source: { kind: row.source_kind, entity_id: row.source_entity_id },
+      source: { kind: row.source_kind, entity_id: row.source_entity_id, version: row.source_version },
       world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
       content_kind: row.content_kind, epistemic_kind: row.epistemic_kind,
       producer: { kind: row.producer_kind },
