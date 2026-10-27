@@ -39,10 +39,18 @@ function responseMock() {
         body: undefined,
         status(code) { this.statusCode = code; return this; },
         setHeader(name, value) { this.headers[name.toLowerCase()] = value; },
+        writeHead(code, headers = {}) {
+            this.statusCode = code;
+            Object.assign(this.headers, headers);
+            this.headersSent = true;
+            return this;
+        },
+        write(value) { this.headersSent = true; this.body = (this.body ?? '') + String(value); return true; },
+        flushHeaders() { this.headersSent = true; },
         json(value) { return this.end(JSON.stringify(value)); },
         end(value) {
             this.headersSent = true;
-            this.body = value;
+            if (value !== undefined) this.body = (this.body ?? '') + String(value);
             finish();
             return this;
         },
@@ -79,6 +87,31 @@ test('explicit enrollment enables durable before/after journal around direct ser
         assert.ok(records[1].changes.some(change => change.artifactId === 'chats:chat-1.jsonl'));
         assert.ok(records.every(record => record.recordHash && record.previousHash));
         assert.doesNotMatch(ledger, /"mes":"after"/);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('incomplete post-scan overrides a pre-flushed success response before headers reach the client', async () => {
+    const { root, directories, request } = await fixture();
+    try {
+        await writeFile(path.join(directories.chats, 'chat-1.jsonl'), '{"mes":"before"}\\n');
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        const response = responseMock();
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            await rm(directories.backups, { recursive: true, force: true });
+            response.writeHead(200, { 'Content-Type': 'application/json' });
+            response.write('{"ok":true}');
+            response.end();
+        });
+        await response.finished;
+        assert.equal(response.statusCode, 503);
+        assert.match(String(response.body), /HOST_POST_MUTATION_SCAN_INCOMPLETE/);
+        assert.doesNotMatch(String(response.body), /"ok":true/);
     } finally {
         await rm(root, { recursive: true, force: true });
     }
