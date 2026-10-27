@@ -194,10 +194,13 @@ test('candidate authorization binds a supplied source version to the persisted P
     ...base,
     source_version: 'source-v1',
   }), true);
-  assert.equal(await s.provider.authorizeCandidate({
-    ...base,
-    source_version: 'source-v2',
-  }), false);
+  await assert.rejects(
+    () => s.provider.authorizeCandidate({
+      ...base,
+      source_version: 'source-v2',
+    }),
+    /MEMORY_SOURCE_VERSION_UNVERIFIABLE/,
+  );
 });
 
 test('marks provider unavailable when the current Core snapshot cannot be read', async (t) => {
