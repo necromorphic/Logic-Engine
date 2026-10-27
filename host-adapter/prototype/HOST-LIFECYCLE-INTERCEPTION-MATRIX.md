@@ -50,7 +50,7 @@ These results do not prove route completeness, Android/Termux behavior, source a
 
 ## Branch freshness status
 
-At the last comparison, PR head `88da5046e4acd3198bcff9a9f50efd22143d1cce` and current `main` `7d3ecc6e6733c144370df0923be59709445ff53c` had diverged (51 commits ahead, 8 behind; 9 changed files). The green checks above validate the PR head, not a merge result containing current `main`. Rebase/merge conflict resolution and full CI on the resulting commit remain required before review readiness. Keep PR #445 Draft and Host capture `NON_READY`.
+Historical snapshot: PR head `88da5046e4acd3198bcff9a9f50efd22143d1cce` diverged from `main` at that time (51 ahead, 8 behind; 9 changed files). That stale branch was superseded by PR #456; do not use this historical comparison as current branch status. Host capture remains `NON_READY`.
 
 ## What the tests establish
 
@@ -70,3 +70,11 @@ At the last comparison, PR head `88da5046e4acd3198bcff9a9f50efd22143d1cce` and c
 ## Disposition
 
 Selected entry points are visibly guarded. Complete lifecycle interception, complete live source inventory, authenticated source lineage, and rollback-resistant checkpointing remain unproven. Keep Host capture/reconciliation `NON_READY`, PR #445 Draft, and production `Memory→NPC` `DISABLED / FAIL-CLOSED` until the required evidence and upstream owner decisions exist.
+
+## Current mainline integration status (27 Oct 2026)
+
+The current Host lifecycle integration is tracked by [Draft PR #456](https://github.com/necromorphic/Logic-Engine/pull/456), branch `host/lifecycle-mainline-integration-2026-10-27`. Its base is current `main` at `7d3ecc6e6733c144370df0923be59709445ff53c`; branch comparison reports 9 commits ahead and 0 behind. Exact PR HEAD: `5c8e20eeeed16e1ce4361cb97823bee6f6d32bbc`.
+
+All five exact-HEAD workflows passed on that SHA: Runtime tests, Host browser IndexedDB restart, Host lifecycle patch check, Host Adapter pinned-source audit, and Host lifecycle patch validation. See [PR #456 checks](https://github.com/necromorphic/Logic-Engine/pull/456/checks). PR #445 was closed as superseded, not merged.
+
+Green CI establishes only the repository checks described above. It does not establish complete route interception, authoritative all-time inventory, source authenticity, rollback resistance, authenticated import/branch/restore lineage, live Android/Termux durability, or final-send enforcement. Keep Host capture/reconciliation `NON_READY`; production Memory→NPC remains `DISABLED / FAIL-CLOSED`.
