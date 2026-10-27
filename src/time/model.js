@@ -90,8 +90,10 @@ export function createTimeInterval(from, to) {
 }
 
 export function intervalContainsTime(interval, coordinate) {
-  if (!interval || !Number.isSafeInteger(interval.from) || !Number.isSafeInteger(interval.to)
-      || interval.to < interval.from) {
+  assertPlainDataRecord(interval, ['from', 'to', 'boundary'], 'INVALID_INTERVAL', 'interval', ['from', 'to']);
+  if (!Number.isSafeInteger(interval.from) || !Number.isSafeInteger(interval.to)
+      || interval.to < interval.from
+      || (interval.boundary !== undefined && interval.boundary !== '(from, to]')) {
     fail('INVALID_INTERVAL', 'interval must contain safe integer from/to coordinates in ascending order.');
   }
   safeInteger(coordinate, 'coordinate');
