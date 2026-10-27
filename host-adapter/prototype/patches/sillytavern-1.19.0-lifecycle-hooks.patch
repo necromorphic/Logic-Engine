@@ -193,11 +193,11 @@ diff --git a/public/script.js b/public/script.js
          this_edit_mes_id = undefined;
      }
 @@ -5905,16 +6001,21 @@
-     chat_metadata.tainted = true;
- 
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('message-send', []);
 +
+     chat_metadata.tainted = true;
+ 
      if (typeof insertAt === 'number' && insertAt >= 0 && insertAt <= chat.length) {
          chat.splice(insertAt, 0, message);
          await saveChatConditional();
