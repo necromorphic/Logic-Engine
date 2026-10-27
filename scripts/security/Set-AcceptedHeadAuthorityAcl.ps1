@@ -42,6 +42,95 @@ function Get-ServiceIdentity {
     }
 }
 
+function Assert-NoReparsePath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $current = [System.IO.Path]::GetFullPath($Path)
+    while ($current) {
+        if (-not (Test-Path -LiteralPath $current)) {
+            throw "Path component does not exist; refusing ACL operation: $current"
+        }
+        $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+        if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+            throw "Path component is a reparse point; refusing ACL operation: $current"
+        }
+        $parent = [System.IO.Path]::GetDirectoryName($current.TrimEnd('\'))
+        if (-not $parent -or $parent -eq $current) { break }
+        $current = $parent
+    }
+}
+
+function Assert-SafeParentPathMutationRights {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProtectedDirectory,
+        [Parameter(Mandatory = $true)][string[]]$TrustedSids
+    )
+    $dangerous = [System.Security.AccessControl.FileSystemRights]::Delete -bor
+        [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+        [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [System.Security.AccessControl.FileSystemRights]::TakeOwnership
+    $current = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($ProtectedDirectory).TrimEnd('\'))
+    while ($current) {
+        $acl = Get-Acl -LiteralPath $current -ErrorAction Stop
+        foreach ($rule in @($acl.Access)) {
+            if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) { continue }
+            if (($rule.PropagationFlags -band [System.Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
+            try {
+                $sid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+            } catch {
+                throw "Cannot resolve ACL principal '$($rule.IdentityReference)' on parent path '$current'; refusing ACL operation."
+            }
+            if ($sid -in $TrustedSids) { continue }
+            if (($rule.FileSystemRights -band $dangerous) -ne 0) {
+                throw "Parent path grants directory replacement/ACL-control rights to non-trusted principal '$($rule.IdentityReference)' on '$current'; refusing ACL operation."
+            }
+        }
+        $parent = [System.IO.Path]::GetDirectoryName($current.TrimEnd('\'))
+        if (-not $parent -or $parent -eq $current) { break }
+        $current = $parent
+    }
+}
+
+function Get-TargetFingerprint {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    [pscustomobject]@{
+        fullName = [string]$item.FullName
+        attributes = [int]$item.Attributes
+        creationTimeUtcTicks = [long]$item.CreationTimeUtc.Ticks
+        lastWriteTimeUtcTicks = [long]$item.LastWriteTimeUtc.Ticks
+        length = if ($item -is [System.IO.FileInfo]) { [long]$item.Length } else { $null }
+    }
+}
+
+function Assert-TargetSetUnchanged {
+    param(
+        [Parameter(Mandatory = $true)][string]$Directory,
+        [Parameter(Mandatory = $true)][string[]]$Targets,
+        [Parameter(Mandatory = $true)][hashtable]$Fingerprints,
+        [Parameter(Mandatory = $true)][string[]]$TrustedSids
+    )
+    Assert-SafeParentPathMutationRights -ProtectedDirectory $Directory -TrustedSids $TrustedSids
+    Assert-NoReparsePath -Path $Directory
+    $actual = @(Get-ChildItem -LiteralPath $Directory -Force | ForEach-Object { [string]$_.FullName } | Sort-Object)
+    $expected = @($Targets | Where-Object { $_ -ne $Directory } | Sort-Object)
+    if (($actual -join "`n") -cne ($expected -join "`n")) {
+        throw 'Authority database directory contents changed after validation; refusing further ACL mutations.'
+    }
+    foreach ($path in $Targets) {
+        Assert-NoReparsePath -Path $path
+        $current = Get-TargetFingerprint -Path $path
+        $prior = $Fingerprints[$path]
+        if (-not $prior -or
+            $current.fullName -cne $prior.fullName -or
+            $current.attributes -ne $prior.attributes -or
+            $current.creationTimeUtcTicks -ne $prior.creationTimeUtcTicks -or
+            $current.lastWriteTimeUtcTicks -ne $prior.lastWriteTimeUtcTicks -or
+            $current.length -ne $prior.length) {
+            throw "Target identity fingerprint changed after validation; refusing further ACL mutations: $path"
+        }
+    }
+}
+
 function New-AuthorityAcl {
     param([System.Security.AccessControl.FileSystemSecurity]$CurrentAcl, [string]$AuthorityAccount, [switch]$Directory)
     $acl = $CurrentAcl
@@ -81,15 +170,9 @@ if ($authority.sid -in @('S-1-5-18', 'S-1-5-19', 'S-1-5-20')) {
 
 $dbPath = [System.IO.Path]::GetFullPath($AuthorityDbPath)
 if (-not (Test-Path -LiteralPath $dbPath -PathType Leaf)) { throw 'Accepted-head authority database file does not exist.' }
-$dbItem = Get-Item -LiteralPath $dbPath -Force
-if (($dbItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-    throw 'Authority database is a reparse point; refusing to modify ACLs.'
-}
 $directory = [System.IO.Path]::GetDirectoryName($dbPath)
-$dirItem = Get-Item -LiteralPath $directory -Force
-if (($dirItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-    throw 'Authority database directory is a reparse point; refusing to modify ACLs.'
-}
+Assert-NoReparsePath -Path $dbPath
+Assert-NoReparsePath -Path $directory
 
 function Test-PathOverlap {
     param([string]$Left, [string]$Right)
@@ -116,10 +199,8 @@ foreach ($store in $protectedStores) {
     if (-not (Test-Path -LiteralPath $storeFile -PathType Leaf)) {
         throw "$($store.label) file does not exist; refusing to claim restore-domain separation."
     }
-    $storeItem = Get-Item -LiteralPath $storeFile -Force
-    if (($storeItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw "$($store.label) is a reparse point; refusing to claim restore-domain separation."
-    }
+    Assert-NoReparsePath -Path $storeFile
+    Assert-NoReparsePath -Path $store.path
     if (-not (Test-Path -LiteralPath $store.path -PathType Container)) {
         throw "$($store.label) parent directory does not exist; refusing to claim restore-domain separation."
     }
@@ -135,10 +216,7 @@ foreach ($backupRoot in $BackupRoots) {
     if (-not (Test-Path -LiteralPath $backupPath -PathType Container)) {
         throw "Backup/restore root does not exist: $backupPath"
     }
-    $backupItem = Get-Item -LiteralPath $backupPath -Force
-    if (($backupItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-        throw "Backup/restore root is a reparse point: $backupPath"
-    }
+    Assert-NoReparsePath -Path $backupPath
     if (Test-PathOverlap -Left $authorityDirectory -Right $backupPath) {
         throw "Authority directory overlaps a supplied backup/restore root: $backupPath"
     }
@@ -153,7 +231,12 @@ $unexpected = @(Get-ChildItem -LiteralPath $directory -Force | Where-Object { $_
 if ($unexpected.Count -gt 0) {
     throw 'Authority database directory is not dedicated: unexpected entries exist. No ACL changes were made.'
 }
-$targets = @($directory) + @(Get-ChildItem -LiteralPath $directory -Force | ForEach-Object { $_.FullName })
+$targets = @($directory) + @(Get-ChildItem -LiteralPath $directory -Force | ForEach-Object { [string]$_.FullName })
+foreach ($target in $targets) { Assert-NoReparsePath -Path $target }
+$targetFingerprints = @{}
+foreach ($target in $targets) { $targetFingerprints[$target] = Get-TargetFingerprint -Path $target }
+$trustedParentSids = @($authority.sid, 'S-1-5-18', 'S-1-5-32-544')
+Assert-SafeParentPathMutationRights -ProtectedDirectory $directory -TrustedSids $trustedParentSids
 $evidenceFullPath = [System.IO.Path]::GetFullPath($EvidencePath)
 if ($evidenceFullPath.StartsWith($directory.TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
     throw 'EvidencePath must be outside the protected authority directory.'
@@ -198,9 +281,11 @@ if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.Win
 $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidenceFullPath -Encoding UTF8
 try {
     foreach ($target in $targets) {
+        Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints -TrustedSids $trustedParentSids
         $current = Get-Acl -LiteralPath $target
         $isDirectory = ([System.IO.File]::GetAttributes($target) -band [System.IO.FileAttributes]::Directory) -ne 0
         $replacement = New-AuthorityAcl -CurrentAcl $current -AuthorityAccount $authority.account -Directory:$isDirectory
+        Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints -TrustedSids $trustedParentSids
         Set-Acl -LiteralPath $target -AclObject $replacement
     }
     foreach ($target in $targets) {
