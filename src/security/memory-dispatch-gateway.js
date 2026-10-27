@@ -182,6 +182,69 @@ function assertSourcesMatchCandidates(sources, candidates) {
   }
 }
 
+
+/**
+ * Derive dispatch provenance only from a ready MemoryNpcConsumer result.
+ * Callers must not manufacture candidate/source lists independently from the
+ * admitted result. This returns metadata only; protected text remains transient
+ * in the final Host request body and is never persisted by this helper.
+ */
+export function deriveDispatchEvidenceFromAdmission(result) {
+  if (!object(result) || result.status !== 'ready'
+    || !Array.isArray(result.admitted) || !Array.isArray(result.candidates)
+    || result.candidates.length === 0 || result.candidates.length > 50
+    || result.admitted.length !== result.candidates.length
+    || !Number.isSafeInteger(result.snapshot?.world_revision) || result.snapshot.world_revision < 0
+    || !Number.isSafeInteger(result.snapshot?.commit_sequence) || result.snapshot.commit_sequence < 0) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+
+  const admittedIdentities = result.admitted.map((item) => {
+    if (!object(item) || !validText(item.record_ref, 200) || !validText(item.record_version, 200)) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    return JSON.stringify([item.record_ref, item.record_version]);
+  }).sort();
+
+  const candidates = normalizeCandidates(result.candidates.map((item) => {
+    if (!object(item)) throw new Error('MEMORY_DISPATCH_NOT_READY');
+    return {
+      record_ref: item.record_ref,
+      record_version: item.record_version,
+      source_kind: 'canonical_entity',
+      source_entity_id: item.source_entity_id,
+      source_version: item.source_version,
+    };
+  }));
+
+  const candidateIdentities = candidates
+    .map((item) => JSON.stringify([item.record_ref, item.record_version]))
+    .sort();
+  if (JSON.stringify(admittedIdentities) !== JSON.stringify(candidateIdentities)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+
+  const uniqueSources = new Map();
+  for (const candidate of candidates) {
+    const key = JSON.stringify([candidate.source_entity_id, candidate.source_version]);
+    uniqueSources.set(key, {
+      source_kind: candidate.source_kind,
+      source_entity_id: candidate.source_entity_id,
+      source_version: candidate.source_version,
+    });
+  }
+  const sources = normalizeSources([...uniqueSources.values()]);
+  assertSourcesMatchCandidates(sources, candidates);
+  return Object.freeze({
+    sources,
+    candidates,
+    snapshot: Object.freeze({
+      world_revision: result.snapshot.world_revision,
+      commit_sequence: result.snapshot.commit_sequence,
+    }),
+  });
+}
+
 function assertSameSources(actual, expected) {
   let normalized;
   try { normalized = normalizeSources(actual); } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
