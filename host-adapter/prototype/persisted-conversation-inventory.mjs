@@ -106,7 +106,10 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
         try {
           const text = await readStableFile(absolutePath, fs);
           const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
-          if (!lines.length) continue;
+          if (!lines.length) {
+            parseErrors.push('CHAT_JSONL_EMPTY_OR_HEADER_MISSING:' + domain);
+            continue;
+          }
           parsed = lines.map(line => JSON.parse(line));
           if (!parsed.every(value => value && typeof value === 'object' && !Array.isArray(value))) throw Error('JSONL_RECORD_INVALID');
         } catch {
@@ -115,9 +118,15 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
         }
         const header = parsed[0];
         const headerId = header.chat_metadata?.logic_engine_conversation_id;
-        if (typeof headerId !== 'string') continue;
+        if (typeof headerId !== 'string' || !validUuid(headerId)) {
+          parseErrors.push('UNENROLLED_CHAT_ARTIFACT:' + domain);
+          continue;
+        }
         const enrollment = enrollmentByUuid.get(headerId);
-        if (!enrollment) continue;
+        if (!enrollment) {
+          parseErrors.push('UNENROLLED_CONVERSATION_ARTIFACT:' + domain);
+          continue;
+        }
         if (enrollment.domain !== domain || path.parse(relativePath).name !== enrollment.sourceLocator
           || relativePath !== enrollment.sourcePath) {
           parseErrors.push('ENROLLED_CONVERSATION_LOCATOR_OR_DOMAIN_MISMATCH');
