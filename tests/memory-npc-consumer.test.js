@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
@@ -46,7 +49,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   const snapshot = engine.getSnapshot('memory-npc-world');
   const candidate = (overrides = {}) => ({
     record: { ref: 'memory:claim-1', version: 'v1' },
-    source: { kind: 'canonical_entity', entity_id: 'source-a' },
+    source: { kind: 'canonical_entity', entity_id: 'source-a', version: 'source-v1' },
     world_id: scope.world_id,
     subject_id: scope.subject_id,
     purpose: scope.purpose,
@@ -899,4 +902,224 @@ test('malformed Memory snapshot cursor values are non-ready, including matching 
     assert.deepEqual(result.candidates, []);
     assert.equal(JSON.stringify(result).includes(JSON.stringify(malformedSnapshot)), false);
   }
+});
+
+
+test('real file-backed SQLiteMemoryProvider revalidates revocation races and preserves grants across restart', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-real-provider-consumer-'));
+  const providerPath = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  const bindings = new ActorBindingService(engine);
+  engine.createWorld({
+    world_id: 'real-provider-world',
+    world_pack_id: 'test.real-provider',
+    world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('real-provider-world', {
+    idempotency_key: 'seed-real-provider-world',
+    turn_id: 'seed-real-provider-world',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [
+      { kind: 'entity.create', entity_id: 'npc-real', entity_type: 'character' },
+      { kind: 'entity.create', entity_id: 'source-real', entity_type: 'character', attributes: {
+        public_note: 'read from canonical Core state',
+        private_note: 'never expose this field',
+      } },
+    ],
+  });
+  bindings.bind('real-provider-world', 'adapter-real', 'npc-real');
+  const authorizedReadService = new AuthorizedReadService(
+    engine,
+    bindings,
+    (_context, _entity, field) => field === 'entity_id' || field === 'attributes.public_note',
+  );
+
+  let holdSecondValidation = false;
+  let signalSecondValidation;
+  let releaseSecondValidation;
+  const secondValidationEntered = new Promise((resolve) => { signalSecondValidation = resolve; });
+  const secondValidationRelease = new Promise((resolve) => { releaseSecondValidation = resolve; });
+  let holdSourceMutationValidation = false;
+  let signalSourceMutationValidation;
+  let releaseSourceMutationValidation;
+  const sourceMutationValidationEntered = new Promise((resolve) => {
+    signalSourceMutationValidation = resolve;
+  });
+  const sourceMutationValidationRelease = new Promise((resolve) => {
+    releaseSourceMutationValidation = resolve;
+  });
+  const providerOptions = {
+    path: providerPath,
+    coordinatorPath,
+    getSnapshot: async () => {
+      const snapshot = engine.getSnapshot('real-provider-world');
+      return {
+        world_revision: snapshot.world_revision,
+        commit_sequence: snapshot.commit_sequence,
+      };
+    },
+    validateSourceVersion: async (record) => {
+      if (holdSecondValidation && record.record_ref === 'memory:real-provider-2') {
+        signalSecondValidation();
+        await secondValidationRelease;
+      }
+      if (holdSourceMutationValidation && record.record_ref === 'memory:real-provider-2') {
+        signalSourceMutationValidation();
+        await sourceMutationValidationRelease;
+      }
+      const source = store.db.prepare(`SELECT source_version FROM entity_source_versions
+        WHERE world_id=? AND entity_id=?`).get(record.world_id, record.source_entity_id);
+      return Boolean(source) && record.source_version === 'core-entity-v1:' + String(source.source_version);
+    },
+    validateInventory: async () => true,
+  };
+  let provider = new SQLiteMemoryProvider(providerOptions);
+  t.after(() => {
+    try { provider?.close(); } catch {}
+    store.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const scope = { world_id: 'real-provider-world', subject_id: 'npc-real', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'memory:real-provider-1',
+    record_version: 'record-v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'source-real',
+    source_version: 'core-entity-v1:1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'real-sqlite-provider-test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'canonical_entity',
+      entity_id: 'source-real',
+      source_version: 'core-entity-v1:1',
+    }],
+  };
+  const secondRecord = {
+    ...record,
+    record_ref: 'memory:real-provider-2',
+    record_version: 'record-v2',
+  };
+  provider.grantQuery(scope, true);
+  for (const item of [record, secondRecord]) {
+    provider.grantRecord(scope, item.record_ref, item.record_version, true);
+    assert.equal(provider.putRecord(item).status, 'stored');
+  }
+  assert.deepEqual(await provider.rebuildIndex(scope.world_id), { status: 'rebuilt', count: 2 });
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+
+  const createConsumer = () => new MemoryNpcConsumer({
+    authorizedReadService,
+    actorBindingService: bindings,
+    memoryProvider: provider,
+    contentFields: ['attributes.public_note'],
+  });
+  let consumer = createConsumer();
+  const retrieve = () => consumer.retrieveForNpc({
+    worldId: scope.world_id,
+    adapterId: 'adapter-real',
+    actorEntityId: scope.subject_id,
+  });
+
+  const initial = await retrieve();
+  assert.equal(initial.status, 'ready', JSON.stringify(initial));
+  assert.deepEqual(initial.candidates.map((item) => item.record_ref), [
+    record.record_ref, secondRecord.record_ref,
+  ]);
+  assert.deepEqual(initial.candidates[0].content, {
+    'attributes.public_note': 'read from canonical Core state',
+  });
+  assert.equal(initial.candidates[0].source_version, 'core-entity-v1:1');
+  assert.equal(JSON.stringify(initial).includes('never expose this field'), false);
+
+  // Pause the later candidate's real Provider source validator after the earlier
+  // candidate was authorized. Revoke the earlier candidate before releasing it.
+  holdSecondValidation = true;
+  const inFlight = retrieve();
+  await secondValidationEntered;
+  provider.revokeRecord(scope, record.record_ref, record.record_version);
+  releaseSecondValidation();
+  const afterRace = await inFlight;
+
+  assert.equal(afterRace.status, 'ready', JSON.stringify(afterRace));
+  assert.deepEqual(afterRace.candidates.map((item) => item.record_ref), [secondRecord.record_ref]);
+  assert.equal(afterRace.candidates.some((item) => item.record_ref === record.record_ref), false);
+
+  provider.revokeRecord(scope, secondRecord.record_ref, secondRecord.record_version);
+  const allRevoked = await retrieve();
+  assert.equal(allRevoked.status, 'non_ready');
+  assert.deepEqual(allRevoked.candidates, []);
+
+  // Reopen the durable Provider database. Revocations must survive restart.
+  provider.close();
+  provider = new SQLiteMemoryProvider(providerOptions);
+  consumer = createConsumer();
+  holdSecondValidation = false;
+  const afterRestart = await retrieve();
+  assert.equal(afterRestart.status, 'non_ready');
+  assert.deepEqual(afterRestart.candidates, []);
+
+  // Re-grants are explicit new authorization; only a fresh retrieval may use them.
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  provider.grantRecord(scope, secondRecord.record_ref, secondRecord.record_version, true);
+  const afterExplicitRegrant = await retrieve();
+  assert.equal(afterExplicitRegrant.status, 'ready', JSON.stringify(afterExplicitRegrant));
+  assert.deepEqual(afterExplicitRegrant.candidates.map((item) => item.record_ref), [
+    record.record_ref, secondRecord.record_ref,
+  ]);
+
+  // Mutate the canonical Core source while the later candidate's source-version
+  // check is suspended. A previously indexed version must not be disclosed.
+  holdSourceMutationValidation = true;
+  const staleSourceInFlight = retrieve();
+  await sourceMutationValidationEntered;
+  engine.commitEvent(scope.world_id, {
+    event_id: 'update-source-during-memory-validation',
+    idempotency_key: 'update-source-during-memory-validation',
+    turn_id: 'update-source-during-memory-validation',
+    event_type: 'action.completed',
+    expected_revision: 1,
+    causal_links: [{
+      relation: 'REQUIRES',
+      predicate: { kind: 'entity_exists', entity_id: 'source-real' },
+    }],
+    effects: [{
+      kind: 'entity.update',
+      entity_id: 'source-real',
+      attributes: { public_note: 'updated canonical source' },
+    }],
+  });
+  releaseSourceMutationValidation();
+  const staleSourceResult = await staleSourceInFlight;
+  assert.equal(staleSourceResult.status, 'non_ready');
+  assert.deepEqual(staleSourceResult.candidates, []);
+
+  // Roll back the canonical mutation. The visible source projection returns to
+  // its prior value, but the source token must advance again so the original
+  // indexed candidate cannot become valid merely because the old value returned.
+  const rollback = engine.rollbackEvent(scope.world_id, {
+    root_event_id: 'update-source-during-memory-validation',
+    idempotency_key: 'rollback-source-during-memory-validation',
+  });
+  assert.equal(rollback.rollback_outcome, 'resolved');
+  assert.equal(
+    engine.getSnapshot(scope.world_id, { entityIds: ['source-real'] }).entities[0].attributes.public_note,
+    'read from canonical Core state',
+  );
+  const restoredSourceVersion = store.db.prepare(`SELECT source_version FROM entity_source_versions
+    WHERE world_id=? AND entity_id=?`).get(scope.world_id, 'source-real');
+  assert.equal(restoredSourceVersion.source_version, 3,
+    'rollback must issue a new source token even when the canonical projection is restored');
+
+  const afterRollback = await retrieve();
+  assert.equal(afterRollback.status, 'non_ready');
+  assert.deepEqual(afterRollback.candidates, []);
 });
