@@ -1589,11 +1589,25 @@ test('fresh executor evaluation observes an attribute that was previously proven
   assert.deepEqual(absentEvaluation.condition_result.unknown_paths, []);
   assert.deepEqual(absentEvaluation.dependency_manifest.condition_paths, ['actor.injury']);
 
-  commit(engine, worldId, 'actor-injury-appears', 2, [{
-    kind: 'entity.update',
-    entity_id: 'entity.actor-context',
-    attributes: { injury: 'broken-arm' },
-  }]);
+  engine.commitEvent(worldId, {
+    event_id: 'actor-injury-appears',
+    idempotency_key: 'actor-injury-appears',
+    turn_id: 'actor-injury-appears-turn',
+    event_type: 'action.completed',
+    expected_revision: 2,
+    effects: [{
+      kind: 'entity.update',
+      entity_id: 'entity.actor-context',
+      attributes: { injury: 'broken-arm' },
+    }],
+    caused_by: [],
+    depends_on: [],
+    read_set: ['entity:entity.actor-context'],
+    causal_links: [
+      { relation: 'READS_ENTITY', target_id: 'entity.actor-context' },
+      { relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'entity.actor-context' } },
+    ],
+  });
 
   const freshEvaluation = executor.evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
   assert.equal(freshEvaluation.status, 'no_match');
