@@ -62,6 +62,28 @@ function responseMock() {
     return response;
 }
 
+test('cross-user account purge is rejected before the native deletion handler', async () => {
+    const response = responseMock();
+    let nextCalled = false;
+    const request = {
+        method: 'POST',
+        baseUrl: '/api/users',
+        path: '/delete',
+        originalUrl: '/api/users/delete',
+        body: { handle: 'target-user', purge: true },
+        user: { profile: { handle: 'admin-user' }, directories: {} },
+    };
+    await createHostLifecycleMutationMiddleware({ requireCoreInventory: true })(
+        request,
+        response,
+        () => { nextCalled = true; },
+    );
+    await response.finished;
+    assert.equal(response.statusCode, 503);
+    assert.equal(nextCalled, false);
+    assert.equal(JSON.parse(response.body).error.code, 'HOST_CROSS_USER_PURGE_NOT_SUPPORTED');
+});
+
 test('explicit enrollment enables durable before/after journal around direct server mutation routes', async () => {
     const { root, directories, request } = await fixture();
     try {
