@@ -13,7 +13,7 @@ def issue(body=None, labels=None, state="OPEN"):
         "number": 900,
         "title": "Example stage",
         "state": state,
-        "labels": [{"name": name} for name in (labels or ["stage:auto-close"])],
+        "labels": [{"name": name} for name in (["stage:auto-close"] if labels is None else labels)],
         "body": body if body is not None else (
             "<!-- stage-status: READY_TO_CLOSE -->\n"
             "- [x] Implementation merged\n"
