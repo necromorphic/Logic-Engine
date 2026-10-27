@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
@@ -662,6 +663,90 @@ test('validator outage during reconciliation persists non-ready state across res
   );
 });
 
+
+test('raw-text operations remain disabled until policy approval', async (t) => {
+  const s = setup(t, { authorizeRawRead: async () => true });
+  assert.throws(
+    () => s.provider.captureRawMessage({
+      world_id: 'world-a', conversation_id: 'conversation-a', message_id: 'message-a',
+      version_id: 'version-a', role: 'user', content: 'fixture text',
+    }),
+    /MEMORY_RAW_CAPTURE_NOT_APPROVED/,
+  );
+  await assert.rejects(
+    () => s.provider.readRawMessageVersion({
+      world_id: 'world-a', conversation_id: 'conversation-a', message_id: 'message-a',
+      version_id: 'version-a',
+    }),
+    /MEMORY_RAW_DISCLOSURE_NOT_APPROVED/,
+  );
+  await assert.rejects(
+    () => s.provider.readActiveRawMessages({
+      world_id: 'world-a', conversation_id: 'conversation-a',
+    }),
+    /MEMORY_RAW_DISCLOSURE_NOT_APPROVED/,
+  );
+});
+
+test('exact-version raw tombstones invalidate only dependent copies and purge cascades locally', (t) => {
+  const s = setup(t);
+  const world_id = 'world-a';
+  const conversation_id = 'conversation-a';
+  const message_id = 'message-a';
+  const now = '2026-10-28T00:00:00.000Z';
+  const insertCapture = s.provider.db.prepare(`INSERT INTO memory_raw_captures
+    (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,
+     metadata_json,captured_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,NULL)`);
+  const insertCopy = s.provider.db.prepare(`INSERT INTO memory_raw_derived_copies
+    (world_id,conversation_id,message_id,source_version_id,copy_ref,copy_version,copy_kind,
+     content_text,content_sha256,status,created_at,invalidated_at)
+    VALUES(?,?,?,?,?,?,?,?,?,'current',?,NULL)`);
+  for (const version_id of ['version-a', 'version-b']) {
+    const content = `synthetic test fixture ${version_id}`;
+    const digest = createHash('sha256').update(content, 'utf8').digest('hex');
+    insertCapture.run(world_id, conversation_id, message_id, version_id, 'user',
+      content, digest, '{}', now);
+    insertCopy.run(world_id, conversation_id, message_id, version_id,
+      `copy:${version_id}`, 'copy-v1', 'test_fixture', `derived ${version_id}`,
+      createHash('sha256').update(`derived ${version_id}`, 'utf8').digest('hex'), now);
+  }
+  s.provider.db.prepare(`INSERT INTO memory_raw_active_versions
+    (world_id,conversation_id,message_id,version_id,selected_at) VALUES(?,?,?,?,?)`)
+    .run(world_id, conversation_id, message_id, 'version-b', now);
+
+  assert.deepEqual(s.provider.markRawSourceDeleted({
+    world_id, conversation_id, message_id, version_id: 'version-a',
+  }), { status: 'deleted', invalidated_copies: 1 });
+  assert.equal(s.provider.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get(world_id, conversation_id, message_id, 'version-a').deleted_at !== null, true);
+  assert.equal(s.provider.db.prepare(`SELECT version_id FROM memory_raw_active_versions
+    WHERE world_id=? AND conversation_id=? AND message_id=?`)
+    .get(world_id, conversation_id, message_id).version_id, 'version-b');
+  assert.equal(s.provider.db.prepare(`SELECT status FROM memory_raw_derived_copies
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`)
+    .get(world_id, conversation_id, message_id, 'version-a').status, 'invalidated');
+  assert.equal(s.provider.db.prepare(`SELECT status FROM memory_raw_derived_copies
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`)
+    .get(world_id, conversation_id, message_id, 'version-b').status, 'current');
+
+  assert.deepEqual(s.provider.purgeRawSource({
+    world_id, conversation_id, message_id, version_id: 'version-a',
+  }), { status: 'purged', purged_copies: 1 });
+  assert.equal(s.provider.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_derived_copies
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`)
+    .get(world_id, conversation_id, message_id, 'version-a').count, 0);
+  assert.equal(s.provider.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get(world_id, conversation_id, message_id, 'version-b').count, 1);
+
+  assert.deepEqual(s.provider.markRawSourceDeleted({
+    world_id, conversation_id, message_id, version_id: 'version-b',
+  }), { status: 'deleted', invalidated_copies: 1 });
+  assert.equal(s.provider.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_active_versions
+    WHERE world_id=? AND conversation_id=? AND message_id=?`)
+    .get(world_id, conversation_id, message_id).count, 0);
+});
 
 test('record revocation survives Provider restart and index rebuild cannot restore access', async (t) => {
   const s = setup(t);
