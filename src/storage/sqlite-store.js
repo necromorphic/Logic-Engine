@@ -643,7 +643,7 @@ export class SQLiteStore {
         if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1) {
           throw new Error('CORE_ACCEPTED_HEAD_NOT_ENROLLED');
         }
-        const heads = getAcceptedHeadsSync({ port: this.acceptedHeadConfig.port });
+        const heads = getAcceptedHeadsSync({ port: this.acceptedHeadConfig.port, token: this.acceptedHeadConfig.token });
         if (heads.core !== local.head) throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
         const operationId = randomUUID();
         const operationDigest = createHash('sha256')
