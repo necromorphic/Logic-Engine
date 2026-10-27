@@ -213,7 +213,7 @@ test('migration backfills Core source tokens for entities already persisted befo
   const snapshot = reopenedEngine.getSnapshot('source-token-migration-world', {
     entityIds: ['source-a'], includeSourceVersions: true,
   });
-  assert.equal(snapshot.entities[0].source_version, 'core-entity-v1:1');
+  assert.equal(snapshot.entities[0].source_version, 'core-entity-v1:2');
   t.after(() => {
     try { store.close(); } catch {}
     rmSync(directory, { recursive: true, force: true });
