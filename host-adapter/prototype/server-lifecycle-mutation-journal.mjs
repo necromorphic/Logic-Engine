@@ -108,7 +108,8 @@ async function readAndValidateJournal(journalPath) {
     const records = [];
     let previousHash = '0'.repeat(64);
     const pending = new Set();
-    for (const line of text.split('\n').filter(Boolean)) {
+    let degraded = false;
+    for (const line of text.split('\\n').filter(Boolean)) {
         const record = JSON.parse(line);
         const { recordHash, ...unsigned } = record;
         if (record.previousHash !== previousHash || digest(canonical(unsigned)) !== recordHash) {
@@ -117,14 +118,19 @@ async function readAndValidateJournal(journalPath) {
         previousHash = recordHash;
         records.push(record);
         if (record.kind === 'intent') pending.add(record.operationId);
-        if (record.kind === 'outcome') {
+        if (record.kind === 'outcome' && record.status === 'COMMITTED') pending.delete(record.operationId);
+        if (record.kind === 'reconciliation') {
             pending.delete(record.operationId);
-            if (record.status !== 'COMMITTED') {
-                return { records, unresolved: true, lastHash: previousHash };
-            }
+            degraded = true;
         }
     }
-    return { records, unresolved: pending.size > 0, lastHash: previousHash };
+    return {
+        records,
+        unresolved: pending.size > 0,
+        pendingOperations: [...pending],
+        degraded,
+        lastHash: previousHash,
+    };
 }
 
 async function appendRecord(journalPath, priorHash, record) {
@@ -265,6 +271,7 @@ export function createHostLifecycleMutationMiddleware() {
                 startedAt: new Date().toISOString(),
                 beforeSnapshotDigest: snapshotDigest(before),
                 beforeArtifactCount: before.artifactCount,
+                beforeArtifacts: before.artifacts.map(item => ({ artifactId: item.artifactId, byteLength: item.byteLength, sha256: item.sha256 })),
             });
             chain.lastHash = recordHash;
         } catch {
@@ -327,6 +334,58 @@ export function createHostLifecycleMutationMiddleware() {
             return response;
         };
         return next();
+    };
+}
+
+/**
+ * Acknowledges an unresolved operation without claiming that its outcome is
+ * known. This unblocks future logging but leaves history degraded/non-authoritative.
+ */
+export async function reconcileHostMutation(request, { operationId, acknowledge, reason }) {
+    if (typeof operationId !== 'string' || !operationId || operationId.length > 128
+        || acknowledge !== 'I_ACCEPT_UNKNOWN_MUTATION_OUTCOME'
+        || typeof reason !== 'string' || !reason.trim() || reason.length > 256) {
+        throw new Error('HOST_RECONCILIATION_INVALID');
+    }
+    const paths = await statePaths(request);
+    const userKey = digest(String(request.user?.profile?.handle ?? paths.roots[0].path));
+    const release = await acquireUserLock(userKey);
+    try {
+        const chain = await readAndValidateJournal(paths.journalPath);
+        if (!chain.unresolved || !chain.pendingOperations.includes(operationId)) {
+            throw new Error('HOST_RECONCILIATION_OPERATION_NOT_PENDING');
+        }
+        const intent = chain.records.find(record => record.kind === 'intent' && record.operationId === operationId);
+        const current = await scanHostArtifactRoots(paths.roots);
+        if (!current.complete) throw new Error('HOST_RECONCILIATION_SCAN_INCOMPLETE');
+        const before = Array.isArray(intent?.beforeArtifacts) ? { artifacts: intent.beforeArtifacts } : null;
+        await appendRecord(paths.journalPath, chain.lastHash, {
+            version: 1,
+            kind: 'reconciliation',
+            operationId,
+            status: 'UNCERTAINTY_ACKNOWLEDGED',
+            acknowledgedAt: new Date().toISOString(),
+            reason: reason.trim(),
+            currentSnapshotDigest: snapshotDigest(current),
+            currentArtifactCount: current.artifactCount,
+            changes: before ? diffSnapshots(before, current) : null,
+        });
+        return { status: 'RECONCILED_WITH_GAP', historyAuthority: 'NON_AUTHORITATIVE' };
+    } finally {
+        release();
+    }
+}
+
+export async function getHostMutationJournalStatus(request) {
+    const paths = await statePaths(request);
+    const chain = await readAndValidateJournal(paths.journalPath);
+    return {
+        status: chain.unresolved ? 'RECONCILIATION_REQUIRED' : chain.degraded ? 'NON_READY_HISTORY_GAP' : 'RECORDING',
+        historicalCompleteness: 'UNKNOWN',
+        authority: 'NON_AUTHORITATIVE',
+        pendingOperations: chain.pendingOperations,
+        degraded: chain.degraded,
+        recordCount: chain.records.length,
     };
 }
 
