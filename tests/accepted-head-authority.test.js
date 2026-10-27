@@ -79,6 +79,10 @@ test('authority requires explicit enrollment and then advances monotonic per-dom
       () => authority.advance({ domain: 'core', operationId: 'core-op-1', operationDigest: digestB, expectedHead: 3 }),
       /ACCEPTED_HEAD_OPERATION_ID_CONFLICT/,
     );
+    assert.throws(
+      () => authority.finalize({ domain: 'core', operationId: 'core-op-1', operationDigest: digestB }),
+      /ACCEPTED_HEAD_OPERATION_ID_CONFLICT/,
+    );
     assert.throws(() => authority.advance({ domain: 'core', operationId: '  ', operationDigest: digestA, expectedHead: 3 }), /Invalid accepted-head/);
     assert.throws(() => authority.advance({ domain: 'core', operationId: 'stale-op', operationDigest: digestA, expectedHead: 0 }), /ACCEPTED_HEAD_HEAD_MISMATCH/);
   } finally {
