@@ -262,3 +262,16 @@ test('known-absent attribute dependencies must be reevaluated when the attribute
     (error) => error.code === 'CONTRADICTORY_KNOWN_ABSENCE',
   );
 });
+
+
+test('rule paths enforce the declarative schema length limit', () => {
+  assert.equal(evaluateCondition({ op: 'exists', path: 'a'.repeat(256) }, {}), false);
+  assert.throws(
+    () => evaluateCondition({ op: 'exists', path: 'a'.repeat(257) }, {}),
+    (error) => error.code === 'INVALID_RULE_PATH',
+  );
+  assert.throws(
+    () => evaluateConditionResult({ op: 'exists', path: 'a'.repeat(257) }, {}),
+    (error) => error.code === 'INVALID_RULE_PATH',
+  );
+});
