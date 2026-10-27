@@ -115,7 +115,7 @@ function impactedNodes(inputs, nodes, changedInputs) {
   return new Set(order.filter((id) => dirty.has(id)));
 }
 
-export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs = [], previousValues = {}, previousInputs, invariants = [] }) {
+export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs = [], previousValues = {}, previousInputs, invariants = [], dependencyGraphVerified = false }) {
   if (!['A', 'B', 'C'].includes(strategy)) throw new TypeError('strategy must be A, B, or C');
   if (!Array.isArray(changedInputs) || changedInputs.some((x) => typeof x !== 'string')) {
     throw new TypeError('changedInputs must be an array of input names');
@@ -123,6 +123,9 @@ export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs 
   if (!isRecord(previousValues)) throw new TypeError('previousValues must be an object');
   if (!Array.isArray(invariants) || invariants.some((fn) => typeof fn !== 'function')) {
     throw new TypeError('invariants must be an array of functions');
+  }
+  if (typeof dependencyGraphVerified !== 'boolean') {
+    throw new TypeError('dependencyGraphVerified must be a boolean');
   }
   // Validate change coordinates against canonical model inputs before selecting
   // nodes. An unknown coordinate must not become a successful no-op in B/C.
@@ -192,7 +195,7 @@ export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs 
     invariantFailures,
     fallback: { used: false, reason: null },
     fallbackInvariantFailures: [],
-    status: invariantFailures.length || incremental.violations.some((v) => v.code === 'UNDECLARED_READ') ? 'needs_review' : 'ready',
+    status: invariantFailures.length || incremental.violations.some((v) => v.code === 'UNDECLARED_READ') || (strategy !== 'A' && !dependencyGraphVerified) ? 'needs_review' : 'ready',
   };
 }
 
