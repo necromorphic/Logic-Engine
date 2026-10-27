@@ -152,7 +152,14 @@ function buildDependencyOrder(due, allById, completedIds) {
     }
     dependencies.set(trigger.trigger_id, required);
   }
-  if (blocked.length) return { blocked, ordered: [], dependencies };
+  if (blocked.length) {
+    blocked.sort((a, b) => (
+      a.trigger_id < b.trigger_id ? -1 : a.trigger_id > b.trigger_id ? 1
+        : a.dependency_id < b.dependency_id ? -1 : a.dependency_id > b.dependency_id ? 1
+          : a.reason < b.reason ? -1 : a.reason > b.reason ? 1 : 0
+    ));
+    return { blocked, ordered: [], dependencies };
+  }
 
   const degree = new Map([...dependencies].map(([id, refs]) => [id, refs.length]));
   const ready = [];
