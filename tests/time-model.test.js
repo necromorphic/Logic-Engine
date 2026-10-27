@@ -117,3 +117,91 @@ test('calendar validation rejects invalid epoch, dates, duplicate holidays, and 
     (error) => error.code === 'INVALID_INTEGER',
   );
 });
+
+
+test('calendar definitions reject unknown, symbol, hidden, and accessor fields without invoking getters', () => {
+  const unknown = calendar();
+  unknown.unexpected = true;
+  assert.throws(() => createCalendarDefinition(unknown), (error) => error.code === 'INVALID_CALENDAR');
+
+  const symbolField = calendar();
+  symbolField[Symbol('hidden')] = true;
+  assert.throws(() => createCalendarDefinition(symbolField), (error) => error.code === 'INVALID_CALENDAR');
+
+  const accessor = calendar();
+  let getterCalled = false;
+  Object.defineProperty(accessor, 'version', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return '1.0.0'; },
+  });
+  assert.throws(() => createCalendarDefinition(accessor), (error) => error.code === 'INVALID_CALENDAR');
+  assert.equal(getterCalled, false);
+
+  const hidden = calendar();
+  Object.defineProperty(hidden, 'hidden', { value: true, enumerable: false });
+  assert.throws(() => createCalendarDefinition(hidden), (error) => error.code === 'INVALID_CALENDAR');
+});
+
+test('calendar definition arrays reject holes, accessor entries, and extra properties', () => {
+  const sparseWeekdays = ['Ashday', 'Brightday'];
+  sparseWeekdays.length = 3;
+  assert.throws(
+    () => createCalendarDefinition({ ...calendar(), weekdays: sparseWeekdays }),
+    (error) => error.code === 'INVALID_WEEKDAYS',
+  );
+
+  const accessorWeekdays = ['Ashday'];
+  let getterCalled = false;
+  Object.defineProperty(accessorWeekdays, '0', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return 'Ashday'; },
+  });
+  assert.throws(
+    () => createCalendarDefinition({ ...calendar(), weekdays: accessorWeekdays }),
+    (error) => error.code === 'INVALID_WEEKDAYS',
+  );
+  assert.equal(getterCalled, false);
+
+  const extraYearCycle = calendar().year_cycle;
+  extraYearCycle.unexpected = true;
+  assert.throws(
+    () => createCalendarDefinition({ ...calendar(), year_cycle: extraYearCycle }),
+    (error) => error.code === 'INVALID_YEAR_CYCLE',
+  );
+
+  const sparseHolidays = [];
+  sparseHolidays.length = 1;
+  assert.throws(
+    () => createCalendarDefinition({ ...calendar(), holidays: sparseHolidays }),
+    (error) => error.code === 'INVALID_HOLIDAYS',
+  );
+});
+
+test('nested calendar records reject custom prototypes and explicitly undefined fields', () => {
+  const customMonth = Object.create({ inherited: true });
+  customMonth.id = 'first';
+  customMonth.name = 'First';
+  customMonth.days = 2;
+  const value = calendar();
+  value.year_cycle[0].months[0] = customMonth;
+  assert.throws(
+    () => createCalendarDefinition(value),
+    (error) => error.code === 'INVALID_CALENDAR_MONTH',
+  );
+
+  const explicitUndefined = calendar();
+  explicitUndefined.epoch.time_of_day_ms = undefined;
+  assert.throws(
+    () => createCalendarDefinition(explicitUndefined),
+    (error) => error.code === 'INVALID_CALENDAR_EPOCH',
+  );
+
+  const unknownHolidayField = calendar();
+  unknownHolidayField.holidays[0].unexpected = true;
+  assert.throws(
+    () => createCalendarDefinition(unknownHolidayField),
+    (error) => error.code === 'INVALID_HOLIDAY',
+  );
+});
