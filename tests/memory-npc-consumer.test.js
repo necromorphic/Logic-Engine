@@ -44,7 +44,9 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   );
   const scope = { world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' };
   const snapshot = engine.getSnapshot('memory-npc-world');
-  const sourceVersion = String(engine.getSnapshot('memory-npc-world', { entityIds: ['source-a'] }).entities[0].updated_revision);
+  const sourceVersion = engine.getSnapshot('memory-npc-world', {
+    entityIds: ['source-a'], includeSourceVersions: true,
+  }).entities[0].source_version;
   const candidate = (overrides = {}) => ({
     record: { ref: 'memory:claim-1', version: 'v1' },
     source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: sourceVersion },
