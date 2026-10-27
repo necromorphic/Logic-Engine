@@ -74,9 +74,11 @@ File-level comparison narrows the overlap: #522 and #514/#515 both change `src/c
 
 ### E. SillyTavern diagnostic UI overlap
 
-[#492](https://github.com/necromorphic/Logic-Engine/pull/492) is a diagnostic extension candidate; [#501](https://github.com/necromorphic/Logic-Engine/pull/501) describes a bridge extension with a read-only health check and exact-origin CORS. Their user-facing purpose overlaps, but their exact file diffs and runtime contracts must be compared before one is declared a replacement for the other. Neither health UI nor `GET /health` proves the protected generation path.
+[#492](https://github.com/necromorphic/Logic-Engine/pull/492) is a diagnostic extension candidate; [#501](https://github.com/necromorphic/Logic-Engine/pull/501) describes a bridge extension with a read-only health check and exact-origin CORS. Their user-facing purpose overlaps, but their code paths differ: #492 adds a diagnostic extension/proxy under `host-adapter/prototype/diagnostic-extension`, while #501 adds `host-adapter/sillytavern-extension` and changes the engine health CORS/server files. Neither health UI nor `GET /health` proves the protected generation path.
 
-**Next action:** perform a file-by-file overlap review, retain one canonical UI implementation if appropriate, and keep protected dispatch separate. Do not merge both by default.
+**Important local collision:** the user-reported uncommitted Windows working tree contains `src/api/server.js`, `src/index.js`, `tests/api.test.js`, and untracked `src/api/health-cors.js`—the same four engine paths changed by PR #501. This proves path overlap, not identical contents. Before committing or cherry-picking anything, compare the local diff to #501 file by file; do not overwrite or apply both blindly. PR #501's body says current-head extension lifecycle tests did not yet have a pass at the reported point, so earlier API/prototype test counts are not proof of current-head CI.
+
+**Next action:** compare local changes with #501 and review both UI paths. Retain one canonical UI implementation if appropriate, keep the engine patch's authorship/change history intact, and keep protected dispatch separate. Do not merge both by default.
 
 ### F. Deployment security artifacts
 
