@@ -532,7 +532,8 @@ Issue #181 comparison/evidence report: https://github.com/necromorphic/Logic-Eng
 #### Remaining guarantees and owners
 
 - **Host owner:** durable identity/version persistence and migration; pre-mutation exact deletion capture; edit ancestry; copy/import/restore handling; completeness/currentness evidence.
-- **Core + Provider:** approved authoritative source-version and inventory/currentness semantics. Equality of `world_revision + commit_sequence` is not a source-specific journal and cannot alone prove no missed changes or rollback.
+- **Core source-version token (draft PR #490):** Core now issues `core-entity-v1:N` from a durable per-entity counter in the existing Core SQLite database. The counter is stable across unrelated entity changes and advances when the canonical entity projection changes during rebuild/rollback; it is not inferred from `updated_revision` or the world cursor. Exact-head CI #40497648772 passed 823/823 repository tests and 8/8 NPC-boundary tests. This is branch/CI evidence, not merged-main or production evidence. Full-database restore resistance is not provided by the counter alone.
+- **Core + Provider + Host:** authoritative complete Host inventory/currentness and retraction semantics remain blocked. Equality of `world_revision + commit_sequence` is not a source-specific journal and cannot alone prove no missed changes or rollback.
 - **Core + owner of the actual outbound response path:** identify and test final authorization immediately before serializer/transport release, and quantify or eliminate the residual post-check race. No production serializer→transport binding is currently evidenced.
 
 **Verdict:** Host inventory `NO SUCH MECHANISM FOUND / NON_READY`; final disclosure `NO PRODUCTION PATH FOUND / BLOCKED`; real Host→Provider vertical slice **NOT PROVEN**. Memory→NPC remains **DISABLED / FAIL-CLOSED**. No runtime/API/schema/store/journal/cursor/outbox changes; vectorization remains untouched.
@@ -545,7 +546,7 @@ Issue #181 comparison/evidence report: https://github.com/necromorphic/Logic-Eng
 ### Verified semantics on the reported Provider head
 
 - `record_version` versions a Provider Memory record, keyed with `world_id` and `record_ref`; it does not version a canonical Core entity.
-- `source_version` is a required opaque supplied string structurally repeated in direct-source lineage. The Provider does not define its authority, revision namespace, monotonicity, rollback semantics, or equivalence to Core `updated_revision`.
+- `source_version` remains an opaque Provider-record token structurally repeated in direct-source lineage. Core's new authoritative token implementation is in draft PR #490 (exact head `f7054a988e98f4702e2bce0ad974bcf70d5eca71`); it is not yet merged and does not establish Host inventory completeness, restore-resistant anti-rollback, or the final disclosure boundary. Do not merge PR #488's earlier `updated_revision`-derived token in isolation.
 - `world_revision` and `commit_sequence` are world-level snapshot markers. They are not a source-specific change journal.
 - The current Provider record contract has no durable subject-relative acquisition evidence proving which subject acquired which proposition, through which allowed mechanism, with what delivery/observation evidence.
 - Provider reconciliation and authorization depend on injected validation/inventory authorities. Fixture callbacks are test evidence, not production authority.
