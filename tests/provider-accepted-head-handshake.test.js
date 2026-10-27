@@ -107,7 +107,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
 
     provider.grantQuery(scope, true);
     assert.equal(provider.authorizeQuery(scope), true);
-    assert.deepEqual(getAcceptedHeadsSync({ port }), { core: 1, provider: 2 });
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 2 });
     const localHead = provider.db.prepare('SELECT head,enrolled FROM accepted_head_state WHERE singleton=1').get();
     assert.equal(localHead.head, 2);
     assert.equal(localHead.enrolled, 1);
