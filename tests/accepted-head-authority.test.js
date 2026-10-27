@@ -93,7 +93,7 @@ async function startAuthorityProcess(path) {
     windowsHide: true,
   });
   const [chunk] = await once(child.stdout, 'data');
-  const match = String(chunk).match(/LISTENING:(\\d+)/);
+  const match = String(chunk).match(/LISTENING:(\d+)/);
   if (!match) {
     child.kill();
     throw new Error('Accepted-head test service did not start.');
