@@ -18,16 +18,16 @@ async function startAcceptedHeadAuthority(path) {
     'const args = process.argv.slice(1);',
     'const authority = new AcceptedHeadAuthority({ path: args[0], installationId: "provider-ledger-test-installation" });',
     'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN });',
-    'server.listen(0, "127.0.0.1", () => process.stdout.write("LISTENING:" + server.address().port + "\\n"));',
+    'server.listen(0, "127.0.0.1", () => process.stdout.write("LISTENING:" + server.address().port + "\n"));',
     'process.stdin.on("data", () => server.close(() => { authority.close(); process.exit(0); }));',
-  ].join('\\n');
+  ].join('\n');
   const child = spawn(process.execPath, ['--input-type=module', '-e', script, path], {
     stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
     env: { PATH: process.env.PATH || '', SystemRoot: process.env.SystemRoot || '', WINDIR: process.env.WINDIR || '',
       LE_TEST_CORE_TOKEN: coreToken, LE_TEST_PROVIDER_TOKEN: providerToken },
   });
   const [chunk] = await once(child.stdout, 'data');
-  const match = String(chunk).match(/LISTENING:(\\d+)/);
+  const match = String(chunk).match(/LISTENING:(\d+)/);
   if (!match) { child.kill(); throw new Error('Accepted-head test service did not start.'); }
   const port = Number(match[1]);
   for (const [domain, operationId, digest, token] of [
