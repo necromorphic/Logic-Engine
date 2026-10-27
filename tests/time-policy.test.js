@@ -190,3 +190,50 @@ test('nested duration rule records reject non-enumerable and custom-prototype fi
     (error) => error.code === 'INVALID_TIME_POLICY',
   );
 });
+
+
+test('duration proposals and approval options reject accessors without invoking them', () => {
+  let getterCalled = false;
+  const rangePolicy = policy({
+    duration_rules: [{
+      event_type: 'rest.completed',
+      rule: { kind: 'range', min_duration_ms: 1000, max_duration_ms: 3000, resolution: 'author' },
+    }],
+  });
+  const proposal = {};
+  Object.defineProperty(proposal, 'duration_ms', {
+    enumerable: true,
+    get() { getterCalled = true; return 2000; },
+  });
+  const rejectedProposal = resolveDurationDecision(rangePolicy, 'rest.completed', proposal, 0);
+  assert.equal(rejectedProposal.status, 'rejected');
+  assert.equal(rejectedProposal.reason, 'INVALID_AUTHOR_DURATION_PROPOSAL');
+  assert.equal(getterCalled, false);
+
+  const safeProposal = { duration_ms: 2000 };
+  const options = {};
+  Object.defineProperty(options, 'authorApproved', {
+    enumerable: true,
+    get() { getterCalled = true; return true; },
+  });
+  const pendingApproval = resolveDurationDecision(rangePolicy, 'rest.completed', safeProposal, 0, options);
+  assert.equal(pendingApproval.status, 'needs_author');
+  assert.equal(getterCalled, false);
+});
+
+test('duration proposals reject symbol and non-enumerable fields', () => {
+  const categoryPolicy = policy();
+  const symbolProposal = { category: 'simple' };
+  symbolProposal[Symbol('hidden')] = true;
+  assert.equal(
+    resolveDurationDecision(categoryPolicy, 'craft.completed', symbolProposal).reason,
+    'INVALID_CATEGORY_PROPOSAL',
+  );
+
+  const hiddenProposal = {};
+  Object.defineProperty(hiddenProposal, 'category', { value: 'simple', enumerable: false });
+  assert.equal(
+    resolveDurationDecision(categoryPolicy, 'craft.completed', hiddenProposal).reason,
+    'INVALID_CATEGORY_PROPOSAL',
+  );
+});
