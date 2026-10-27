@@ -24,7 +24,7 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,150 @@
+@@ -1583,23 +1593,171 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -58,7 +58,28 @@ diff --git a/public/script.js b/public/script.js
 +                groupId: selected_group ?? null,
 +            }),
 +            getChat: () => chat,
-+            saveChat: () => saveChatConditional(),
++            saveChat: async () => {
++                await saveChatConditional();
++                const expectedConversationId = await getLogicEngineConversationId();
++                const isGroupChat = Boolean(selected_group);
++                const receiptResponse = await fetch(
++                    isGroupChat ? '/api/chats/group/get' : '/api/chats/get',
++                    {
++                        method: 'POST',
++                        headers: getRequestHeaders(),
++                        body: JSON.stringify(isGroupChat
++                            ? { id: selected_group }
++                            : { avatar_url: characters[this_chid]?.avatar, file_name: getCurrentChatId() }),
++                    },
++                );
++                if (!receiptResponse.ok) throw Error('NON_READY: persisted Host save receipt unavailable');
++                const persistedChat = await receiptResponse.json().catch(() => null);
++                if (!Array.isArray(persistedChat) || persistedChat.length !== chat.length + 1
++                    || persistedChat[0]?.chat_metadata?.logic_engine_conversation_id !== expectedConversationId.split(':')[1]
++                    || JSON.stringify(persistedChat.slice(1)) !== JSON.stringify(chat)) {
++                    throw Error('NON_READY: persisted Host chat differs from the current message/version state');
++                }
++            },
 +            publishDigest: async entry => {
 +                const response = await fetch('/api/logic-engine/host-version-ledger/capture', {
 +                    method: 'POST',
