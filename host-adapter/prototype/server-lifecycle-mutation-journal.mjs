@@ -605,6 +605,62 @@ export async function registerHostConversation(request, { conversationId, source
 }
 
 
+
+/**
+ * Record a digest/lifecycle acknowledgement only after Core has accepted the
+ * corresponding capture. This lets the server snapshot distinguish an explicit
+ * accepted tombstone from an unexplained disappearance in the current file.
+ */
+export async function recordHostCaptureAcknowledgement(request, capture) {
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (!request?.user?.directories || !capture || typeof capture !== 'object'
+        || typeof capture.conversation_id !== 'string'
+        || typeof capture.message_id !== 'string' || !uuidPattern.test(capture.message_id)
+        || typeof capture.version_id !== 'string' || !uuidPattern.test(capture.version_id)
+        || typeof capture.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(capture.content_sha256)
+        || typeof capture.active !== 'boolean' || typeof capture.deleted !== 'boolean'
+        || (capture.deleted && capture.active)) {
+        throw new Error('HOST_CAPTURE_ACK_INVALID');
+    }
+    const paths = await statePaths(request);
+    const registry = await readRegistry(paths.registryPath);
+    const enrollment = registry.conversations.find(item => item.conversationId === capture.conversation_id);
+    if (!enrollment || typeof enrollment.sourcePath !== 'string') throw new Error('HOST_CAPTURE_ACK_NOT_ENROLLED');
+    const userKey = digest(String(request.user.profile?.handle ?? paths.roots[0].path));
+    const release = await acquireUserLock(userKey);
+    try {
+        const chain = await readAndValidateJournal(paths.journalPath);
+        if (chain.unresolved || chain.degraded) throw new Error('HOST_CAPTURE_ACK_JOURNAL_UNRESOLVED');
+        const prior = [...chain.records].reverse().find(record =>
+            record.kind === 'capture_ack'
+            && record.conversation_id === capture.conversation_id
+            && record.message_id === capture.message_id
+            && record.version_id === capture.version_id);
+        if (prior) {
+            if (prior.content_sha256 !== capture.content_sha256) throw new Error('HOST_CAPTURE_ACK_DIGEST_CONFLICT');
+            if (prior.deleted && !capture.deleted) throw new Error('HOST_CAPTURE_ACK_TOMBSTONE_REAPPEARED');
+            if (prior.deleted === capture.deleted && prior.active === capture.active) return { status: 'ALREADY_ACKNOWLEDGED' };
+        } else if (capture.deleted) {
+            throw new Error('HOST_CAPTURE_ACK_TOMBSTONE_UNKNOWN');
+        }
+        await appendRecord(paths.journalPath, chain.lastHash, {
+            version: 1,
+            kind: 'capture_ack',
+            operationId: randomUUID(),
+            conversation_id: capture.conversation_id,
+            message_id: capture.message_id,
+            version_id: capture.version_id,
+            content_sha256: capture.content_sha256,
+            active: capture.active,
+            deleted: capture.deleted,
+            acknowledgedAt: new Date().toISOString(),
+        });
+        return { status: 'ACKNOWLEDGED' };
+    } finally {
+        release();
+    }
+}
+
 /**
  * Read the persisted JSONL source for every explicitly enrolled conversation.
  * This reports current identities/swipes only; it never upgrades Host trust,
