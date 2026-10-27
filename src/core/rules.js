@@ -24,8 +24,8 @@ function assertPlainDataObject(value, code = 'INVALID_RULE', label = 'Rule') {
 }
 
 function assertDenseDataArray(value, maxLength, code, label) {
-  if (!Array.isArray(value) || value.length > maxLength) {
-    throw new EngineError(code, label + ' must be an array of at most ' + maxLength + ' items.');
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length > maxLength) {
+    throw new EngineError(code, label + ' must be a standard array of at most ' + maxLength + ' items.');
   }
   const keys = Reflect.ownKeys(value);
   if (keys.length !== value.length + 1) throw new EngineError(code, label + ' must be dense and contain no extra properties.');
@@ -277,6 +277,13 @@ export function validateEffects(effects, options = {}) {
 
   for (const effect of effects) {
     assertPlainDataObject(effect, 'INVALID_EFFECT', 'Effect');
+    // Validate arrays before any .every(), iterator, or indexed read can execute an accessor.
+    if (effect.kind === 'entity.update' && Object.hasOwn(effect, 'remove_attributes')) {
+      assertDenseDataArray(effect.remove_attributes, 200, 'INVALID_EFFECT', 'remove_attributes');
+    }
+    if (effect.kind === 'relationship.transition' && Object.hasOwn(effect, 'evidence_refs')) {
+      assertDenseDataArray(effect.evidence_refs, 128, 'INVALID_RELATIONSHIP_TRANSITION', 'evidence_refs');
+    }
 
     const allowedFields = {
       'entity.create': ['kind', 'entity_id', 'entity_type', 'status', 'attributes'],
