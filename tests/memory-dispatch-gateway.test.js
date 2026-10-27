@@ -12,6 +12,8 @@ import {
   finalizeAcceptedHeadSync,
 } from '../src/security/accepted-head-client-sync.js';
 import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
+import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
+import { createGoogleAiStudioTransport } from '../src/security/memory-dispatch-google-transport.js';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
@@ -277,6 +279,83 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
     );
     assert.equal(sends, 1);
   } finally {
+    await fixture.close();
+  }
+});
+
+test('loopback Gateway endpoint requires Host authentication and a body-bound signature before Google egress', async () => {
+  const apiKey = 'google-ai-studio-test-key-not-real';
+  const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
+  const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
+  let upstreamCalls = 0;
+  let observedUrl;
+  let observedBody;
+  const transport = createGoogleAiStudioTransport({
+    apiKey,
+    fetchImpl: async (url, options) => {
+      upstreamCalls += 1;
+      observedUrl = String(url);
+      observedBody = options.body;
+      return new Response('{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      });
+    },
+  });
+  const fixture = await createFixture({ sendUpstream: transport });
+  const server = createMemoryDispatchGatewayServer({
+    gateway: fixture.gateway,
+    hostToken,
+    hostSigningKey: signingKey,
+  });
+  try {
+    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
+    const url = 'http://127.0.0.1:' + server.address().port + '/v1/dispatch';
+    const request = validRequest('http-gateway-request');
+    const payload = {
+      request_id: request.requestId,
+      route: request.route,
+      model: request.model,
+      stream: request.stream,
+      body: request.body,
+      world_id: request.worldId,
+      actor_id: request.actorId,
+      purpose: request.purpose,
+      sources: request.sources,
+      signature: createDispatchRequestSignature(signingKey, request),
+    };
+
+    const anonymous = await fetch(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(anonymous.status, 403);
+    assert.equal(upstreamCalls, 0);
+
+    const tampered = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + hostToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ ...payload, body: payload.body + 'tampered' }),
+    });
+    assert.equal(tampered.status, 403);
+    assert.equal(upstreamCalls, 0);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + hostToken, 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 200);
+    assert.match(await response.text(), /"candidates"/);
+    assert.equal(upstreamCalls, 1);
+    assert.equal(observedBody, request.body);
+    const upstreamUrl = new URL(observedUrl);
+    assert.equal(upstreamUrl.hostname, 'generativelanguage.googleapis.com');
+    assert.equal(upstreamUrl.pathname, '/v1beta/models/gemini-2.5-flash-lite:generateContent');
+    assert.equal(upstreamUrl.searchParams.get('key'), apiKey);
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
     await fixture.close();
   }
 });
