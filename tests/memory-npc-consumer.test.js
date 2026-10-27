@@ -1129,11 +1129,17 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
   // Roll back the canonical mutation. The visible source projection returns to
   // its prior value, but the source token must advance again so the original
   // indexed candidate cannot become valid merely because the old value returned.
+  const beforeRollbackSequence = store.currentCommitSequence(scope.world_id);
+  const beforeRollbackRevision = engine.getState(scope.world_id).world_revision;
   const rollback = engine.rollbackEvent(scope.world_id, {
     root_event_id: 'update-source-during-memory-validation',
     idempotency_key: 'rollback-source-during-memory-validation',
   });
   assert.equal(rollback.rollback_outcome, 'resolved');
+  assert.equal(store.currentCommitSequence(scope.world_id), beforeRollbackSequence,
+    'rollback-only source validity changes must not be inferred from commit_sequence');
+  assert.notEqual(engine.getState(scope.world_id).world_revision, beforeRollbackRevision,
+    'world_revision must expose the rollback even when commit_sequence is unchanged');
   assert.equal(
     engine.getSnapshot(scope.world_id, { entityIds: ['source-real'] }).entities[0].attributes.public_note,
     'read from canonical Core state',
