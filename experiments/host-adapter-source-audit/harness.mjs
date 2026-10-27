@@ -74,6 +74,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   const backupRoutes = await readFile(resolve(root, 'src/endpoints/backups.js'), 'utf8');
   const groupRoutes = await readFile(resolve(root, 'src/endpoints/groups.js'), 'utf8');
   const dataMaidRoutes = await readFile(resolve(root, 'src/endpoints/data-maid.js'), 'utf8');
+  const characterRoutes = await readFile(resolve(root, 'src/endpoints/characters.js'), 'utf8');
   const startup = await readFile(resolve(root, 'src/server-startup.js'), 'utf8');
   const hostJournal = await readFile(resolve(root, 'src/endpoints/logic-engine-host-journal.mjs'), 'utf8');
   const lifecycleRoutes = await readFile(resolve(root, 'src/endpoints/logic-engine-lifecycle.js'), 'utf8');
@@ -88,6 +89,9 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
     assert.ok(groupRoutes.includes(route), `pinned group mutation route must be covered: ${route}`);
   }
   assert.ok(dataMaidRoutes.includes("router.post('/delete'"), 'Data Maid deletion route must be covered');
+  for (const route of ["router.post('/rename'", "router.post('/delete'", "router.post('/import'", "router.post('/duplicate'"]) {
+    assert.ok(characterRoutes.includes(route), `pinned character mutation route must be covered: ${route}`);
+  }
 
   assert.match(startup, /app\.use\(createHostLifecycleMutationMiddleware\(\)\);[\s\S]*?app\.use\('\/', userDataRouter\)/);
   assert.match(startup, /createHostLifecycleMutationMiddleware/);
@@ -96,6 +100,8 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
     "'POST /api/chats/group/import'", "'POST /api/chats/import'",
     "'POST /api/chats/group/delete'", "'POST /api/chats/group/save'",
     "'POST /api/groups/create'", "'POST /api/groups/edit'", "'POST /api/groups/delete'",
+    "'POST /api/characters/rename'", "'POST /api/characters/delete'",
+    "'POST /api/characters/import'", "'POST /api/characters/duplicate'",
     "'POST /api/backups/chat/delete'", "'POST /api/data-maid/delete'",
   ]) assert.ok(hostJournal.includes(route), `Host journal must intercept direct route ${route}`);
 
