@@ -22,11 +22,21 @@ No subsystem may create a parallel canonical world log, revision cursor, causali
 |---|---|---|
 | Acting NPC identity | Core actor bindings and actor-bound authorized reads are documented in `docs/20-minimal-runtime.md`; `docs/34-npc-decision-context-and-proposal.md` describes the trusted caller boundary. | Existing primitives are not by themselves a complete NPC decision-context contract. Exact binding through the whole decision is **UNCONFIRMED**. |
 | World state and snapshot | Core snapshot/context-manifest primitives are described in `docs/34-npc-decision-context-and-proposal.md`. | Reuse existing Core references when available; do not invent a parallel revision. Exact binding of model input to snapshot must be verified. |
-| World rules / action effects | Core owns supported validation and canonical commit; supported effects are operation-specific. | A universal action vocabulary or effect mapping is not established. |
+| World rules / action effects | `src/core/rules.js` exports legacy Boolean `evaluateCondition(...)` and opt-in tri-state `evaluateConditionResult(...)`; `src/core/mechanics.js` validates mechanic contracts; `src/core/mechanic-effect-translator.js` translates a bounded mechanic-intent vocabulary; `src/application/proposals.js` validates supported proposal effects and requires explicit approval before commit. | These are distinct layers. Tri-state evaluation does not prove access/completeness; mechanic intents are not automatically NPC action candidates; proposal validation explicitly does not check actor authorization, player agency, causal completeness, or semantic alignment. |
 | Personality / Relationships | Semantic ownership is documented in `docs/31-npc-subsystem-contract.md` and the Personality semantics documentation cited by PR #535. | NPC-facing read path and field-level contract **UNCONFIRMED / BLOCKED**. |
 | NPC goal lifecycle / intention / plan progress | Pure helpers are proposed in open draft PR #532. | Helpers consume supplied data; they do not generate goals/candidates, persist state, verify outcomes, or execute actions. |
 | Candidate discovery and precondition evaluation | PR #535 inventory found no verified general NPC candidate source or complete NPC precondition route. | **UNCONFIRMED / BLOCKED**. First action family remains **BLOCKED**. |
-| Authoritative action result | Existing Core proposal/validation/commit path is documented, but an NPC-to-Core execution/result path is not verified. | No NPC helper may treat its own output as success. |
+| Authoritative action result | `POST /v1/worlds/:world_id/proposals` creates a durable `pending` proposal; `/approve` requires the separate approval credential and current snapshot; `/commit` commits only an approved proposal after a stale-snapshot check; `/cancel` is adapter-owned. `src/application/proposals.js` records validation limits. | This is a real generic event-proposal route, not an NPC-specific executor. Explicit approval is required; adapter identity is not in-world NPC authorization. The full NPC proposal-to-result-to-plan-reconciliation path is **UNCONFIRMED / BLOCKED**. |
+
+### Additional observed Core boundaries relevant to the contract
+
+- `LogicEngine.getSnapshot(...)` provides a bounded, transaction-consistent canonical read. It is not itself an actor-authorized model context.
+- `evaluateConditionResult(...)` can preserve `unknown` for missing paths unless a trusted caller supplies `knownAbsentPaths`; that option is a caller assertion and must be derived from the same consistent, authorized snapshot. It is not access control or a completeness proof.
+- `POST /v1/worlds/:world_id/authorized-read` uses a configured adapter identity and a trusted field policy. This bounded read does not establish a complete Personality/Relationships feed or general NPC knowledge model.
+- Generic proposals are stored as `pending`; the current API requires explicit approval for every event. The validation record explicitly lists `semantic_alignment_with_source_text`, `causal_completeness`, `actor_authorization`, and `player_agency_policy` as not checked.
+- The existing mechanic-intent translator supports only its declared intent vocabulary and maps into existing effect kinds. This does not establish that an NPC action family has a trusted candidate source or that an NPC is permitted to request those effects.
+
+These are observed reusable primitives with limits, not an approved integrated NPC contract.
 
 ## 3. Conceptual goal contract (not a wire schema)
 
