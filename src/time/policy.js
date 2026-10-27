@@ -152,7 +152,8 @@ export function resolveDurationDecision(policyInput, eventType, proposal = null,
   // Preserve the existing null sentinel behavior while validating numeric claims
   // regardless of which duration-rule branch will resolve the event.
   if (requestedDurationMs !== null) integer(requestedDurationMs, 'requestedDurationMs');
-  const rule = policy.duration_rules.find((entry) => entry.event_type === str(eventType, 'event_type'))?.rule;
+  const normalizedEventType = str(eventType, 'event_type');
+  const rule = policy.duration_rules.find((entry) => entry.event_type === normalizedEventType)?.rule;
   if (!rule) {
     if (requestedDurationMs === 0 && proposal == null) return { status: 'resolved', certainty: 'fixed', duration_ms: 0, source: 'implicit_zero', policy_id: policy.policy_id, policy_version: policy.version };
     return { status: 'rejected', reason: 'DURATION_RULE_MISSING', policy_id: policy.policy_id, policy_version: policy.version };
