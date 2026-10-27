@@ -43,7 +43,11 @@ function object(value, label) {
   if (!isObject(value) || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
     fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be a plain JSON object.');
   }
-  for (const key of Reflect.ownKeys(value)) {
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > MAX_CONTAINER_ITEMS) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded object field count.');
+  }
+  for (const key of keys) {
     if (typeof key !== 'string') {
       fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must not contain symbol keys.');
     }
