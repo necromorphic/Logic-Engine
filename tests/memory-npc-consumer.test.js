@@ -406,7 +406,7 @@ test('duplicate Memory identity/version cannot be rebound to a different canonic
   const { consumer, setCandidates, candidate } = setup(t);
   setCandidates([
     candidate(),
-    candidate({ source: { kind: 'canonical_entity', entity_id: 'source-b' } }),
+    candidate({ source: { kind: 'canonical_entity', entity_id: 'source-b', version: 'source-v1' } }),
   ]);
 
   const result = await consumer.retrieveForNpc(request());
