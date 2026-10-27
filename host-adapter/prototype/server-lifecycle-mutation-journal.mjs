@@ -107,6 +107,18 @@ export async function assertHostStartupMigrationSafe(directories) {
         if (!userStat.isDirectory() || userStat.isSymbolicLink()) {
             throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
         }
+        // The native startup migration writes through this path. A symlink here
+        // can redirect the migration outside the expected user's chat directory.
+        // A not-yet-created chats directory is valid; an existing unsafe path is not.
+        let chatStat;
+        try {
+            chatStat = await lstat(chatRoot);
+        } catch (error) {
+            if (error?.code !== 'ENOENT') throw error;
+        }
+        if (chatStat && (!chatStat.isDirectory() || chatStat.isSymbolicLink())) {
+            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
+        }
         const stateDirectory = path.join(userRoot, '.logic-engine-host');
         let stateStat;
         try {
