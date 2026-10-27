@@ -203,3 +203,15 @@ test('provider rejects lineage arrays with a polluted prototype chain', (t) => {
     Object.setPrototypeOf(Array.prototype, previous);
   }
 });
+
+
+test('provider method surface cannot be replaced through its shared prototype', (t) => {
+  const { provider } = setup(t);
+  const original = SQLiteMemoryProvider.prototype.retrieveCandidates;
+  assert.equal(Object.isFrozen(SQLiteMemoryProvider.prototype), true);
+  assert.throws(() => {
+    SQLiteMemoryProvider.prototype.retrieveCandidates = async () => ({ candidates: [], completeness: 'complete' });
+  }, TypeError);
+  assert.equal(SQLiteMemoryProvider.prototype.retrieveCandidates, original);
+  assert.equal(Object.isExtensible(provider), false);
+});
