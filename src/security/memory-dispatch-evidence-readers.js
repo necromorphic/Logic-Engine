@@ -139,7 +139,7 @@ export function createTrustedMemoryDispatchEvidenceReaders({
     } catch {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
-    if (!current || typeof current.then === 'function'
+    if (!current || typeof current.then === 'function' || current.world_id !== worldId
       || current.world_revision !== snapshot.world_revision
       || current.commit_sequence !== snapshot.commit_sequence) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
