@@ -54,4 +54,4 @@ jobs:
           fi
           grep -F 'request metadata:' sillytavern-host-checkout/src/endpoints/backends/chat-completions.js >/dev/null
       - name: Run all Host prototype tests
-        run: timeout 120s node --test --test-reporter=spec host-adapter/prototype/tests/*.test.mjs
+        run: timeout 120s node --test --test-reporter=tap host-adapter/prototype/tests/*.test.mjs
