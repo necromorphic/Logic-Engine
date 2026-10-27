@@ -155,8 +155,11 @@ export function createAcceptedHeadAuthorityServer({
   maxBodyBytes = 4096,
 }) {
   if (!(authority instanceof AcceptedHeadAuthority)) throw new TypeError('An accepted-head authority store is required.');
-  if (host !== '127.0.0.1' && host !== '::1') throw new TypeError('Accepted-head authority must bind to loopback only.');
+  if (host !== '127.0.0.1') throw new TypeError('Accepted-head authority must bind to IPv4 loopback only.');
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new TypeError('Invalid authority port.');
+  if (!Number.isInteger(maxBodyBytes) || maxBodyBytes < 256 || maxBodyBytes > 65536) {
+    throw new TypeError('Invalid authority request-size limit.');
+  }
   if (typeof coreToken !== 'string' || coreToken.length < 32
     || typeof providerToken !== 'string' || providerToken.length < 32
     || coreToken === providerToken) {
