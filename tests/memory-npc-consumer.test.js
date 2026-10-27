@@ -860,6 +860,34 @@ test('mutable provider candidate cannot rebind its source during asynchronous re
   assert.equal(result.candidates[0].content['attributes.public_note'], 'authorized source text');
 });
 
+test('record revoked during Core source read is not returned to NPC', async (t) => {
+  const { consumer, provider, revokeContent, authorizedReadService } = setup(t);
+  let candidateChecks = 0;
+  provider.authorizeCandidate = async () => {
+    candidateChecks += 1;
+    // The record remains allowed during the initial checks, then is revoked
+    // while Core is returning the canonical source. The final NPC check must
+    // reject the result before candidate content is returned.
+    return candidateChecks <= 2;
+  };
+
+  const originalRead = authorizedReadService.readEntityFields.bind(authorizedReadService);
+  authorizedReadService.readEntityFields = (input) => {
+    const result = originalRead(input);
+    if (input.fields.includes('attributes.public_note')) revokeContent();
+    return result;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+
+  assert.equal(candidateChecks, 3);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_authorization_unconfirmed');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+});
+
 test('rechecks earlier Memory candidates after a later async authorization revokes access', async (t) => {
   const { consumer, provider, setCandidates, candidate } = setup(t);
   setCandidates([
