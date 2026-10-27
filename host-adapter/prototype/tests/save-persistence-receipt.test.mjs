@@ -178,3 +178,16 @@ test('pinned browser bridge verifies persisted chat before committing its lifecy
   assert.match(patch, /persistedChat\.length !== chat\.length \+ 1/);
   assert.match(patch, /persisted Host chat differs from the current message\/version state/);
 });
+
+
+test('pinned Host inventory checks the independent Core ledger and fails closed on rollback divergence', async () => {
+  const patchUrl = new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url);
+  const patch = await readFile(patchUrl, 'utf8');
+  assert.match(patch, /\/v1\/host-version-ledger\/inventory/);
+  assert.match(patch, /CORE_HOST_INVENTORY_UNAVAILABLE/);
+  assert.match(patch, /CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE/);
+  assert.match(patch, /remote\.payload_sha256 !== local\.payload_sha256/);
+  assert.match(patch, /remote\.active !== local\.active/);
+  assert.match(patch, /redirect: 'error'/);
+  assert.match(patch, /raw content|message text/i);
+});
