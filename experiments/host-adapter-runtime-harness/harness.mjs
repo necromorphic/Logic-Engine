@@ -58,10 +58,7 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
         id: 'fake-response',
-        object: 'chat.completion',
-        created: 1,
-        model: 'fake-model',
-        choices: [{ index: 0, message: { role: 'assistant', content: 'harness-ok' }, finish_reason: 'stop' }],
+        candidates: [{ content: { parts: [{ text: 'harness-ok' }] } }],
       }));
     });
   });
@@ -99,7 +96,7 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      chat_completion_source: 'openai',
+      chat_completion_source: 'makersuite',
       reverse_proxy: `http://127.0.0.1:${providerAddress.port}/v1`,
       proxy_password: 'test-only-not-a-real-secret',
       model: 'fake-model',
@@ -114,7 +111,7 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
   const responseJson = await response.json();
   assert.equal(responseJson.choices?.[0]?.message?.content, 'harness-ok');
   assert.equal(requestCount, 1, 'exactly one outbound request should arrive at the fake provider');
-  assert.deepEqual(arrivals, [{ method: 'POST', path: '/v1/chat/completions' }]);
+  assert.deepEqual(arrivals, [{ method: 'POST', path: '/v1beta/models/fake-model:generateContent?key=test-only-not-a-real-secret' }]);
   assert.equal(JSON.stringify(arrivals).includes('HARNESS_SENTINEL_DO_NOT_LOG'), false);
   assert.ok(capturedDebugCalls > 0, 'the handler should emit debug diagnostics');
   assert.ok(
