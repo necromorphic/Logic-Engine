@@ -284,20 +284,21 @@ This revalidation supersedes the original baseline for current-main source ident
 
 **Yes, at the Core application layer for internal read-only consumption; no spatial-specific public/runtime contract exists.** The existing methods are:
 
-- `src/application/engine.js:487` — `getSnapshot(id, request = {})`, delegating to `SQLiteStore.readSnapshot`.
-- `src/application/engine.js:488` — `getEvents(id, includeInvalid = false)`, delegating to `SQLiteStore.events`.
-- `src/storage/sqlite-store.js:747` — `readSnapshot(id, request = {})`; reads world state and returns `world_revision`, `commit_sequence`, game-time coordinate, and requested canonical data. With an empty request it returns the current world snapshot of entities/facts.
+- `src/application/engine.js:487` — `getState(id)`, delegating to `SQLiteStore.state`; returns the current world record, `world_revision`, `commit_sequence`, `game_time_coordinate`, entities, and facts in one read transaction.
+- `src/application/engine.js:488` — `getSnapshot(id, request = {})`, delegating to `SQLiteStore.readSnapshot`; returns a bounded selection and its markers. It is not a full-world inventory when called with an empty request.
+- `src/application/engine.js:489` — `getEvents(id, includeInvalid = false)`, delegating to `SQLiteStore.events`.
+- `src/storage/sqlite-store.js:747` — `readSnapshot(id, request = {})`; reads requested canonical entities/facts/events and returns revision/cursor markers in one read transaction.
 - `src/storage/sqlite-store.js:1025` — `events(id, includeInvalid = false)`; by default filters to `valid` events and orders them by `commit_sequence`.
 
 These are existing Core application/store methods, not a new spatial API. They are suitable for a disposable internal experiment that stays inside Core-owned execution. They are **not** a grant to expose raw snapshot/event payloads to an LLM, Host, NPC, Memory Provider, or external consumer. The snapshot source explicitly labels its raw data as not automatically actor-authorized or model-safe.
 
 ### 14.2 Accepted read protocol for the experiment
 
-Use only these existing methods; add no API, schema, table, event type, cursor, adapter, or lifecycle hook.
+Use only these existing methods (`getState` and `getEvents`); add no API, schema, table, event type, cursor, adapter, or lifecycle hook.
 
-1. Read a baseline snapshot marker from `getSnapshot(worldId, {})`: `world_id`, `world_revision`, `commit_sequence`, and `game_time_coordinate`.
+1. Read a baseline state snapshot from `getState(worldId)`. It returns `world_id`, `world_revision`, `commit_sequence`, `game_time_coordinate`, entities, and facts together in one SQLite read transaction.
 2. Read the current valid event list from `getEvents(worldId, false)`. Its canonical order is `commit_sequence`; never reorder by game time alone.
-3. Read a second snapshot marker. Accept the input batch only if all four marker fields equal the baseline and every event belongs to the same world, has `validity === 'valid'`, and has a unique, strictly increasing `commit_sequence`. Otherwise discard the entire derived result and retry from the beginning or return unresolved.
+3. Read `getState(worldId)` again. Accept the input batch only if all four marker fields equal the baseline and every event belongs to the same world, has `validity === 'valid'`, and has a unique, strictly increasing `commit_sequence`. Otherwise discard the entire derived result and retry from the beginning or return unresolved.
 4. Build a fresh in-memory projection deterministically from the accepted event list. Do not persist the projection and do not write to Core.
 5. Before returning any derived result, compare the current marker to the projection's build marker again. A mismatch means stale: rebuild or refuse. Never serve the old result as current.
 6. On process restart, discard the projection and reconstruct from Core. A rollback that changes `world_revision` invalidates the previous projection even if `commit_sequence` or game-time coordinate does not advance.
