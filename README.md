@@ -4,9 +4,9 @@
 
 > **Статус проверки: 27 октября 2026 года.** Этот снимок отражает конкретные проверки интеграционной ветки, а не готовность проекта к выпуску. Портфельный трекер: [#252](https://github.com/necromorphic/Logic-Engine/issues/252). Главный блокер Host → Provider → Core → NPC: [#264](https://github.com/necromorphic/Logic-Engine/issues/264).
 
-> **Подтверждённый code-bearing HEAD PR [#510](https://github.com/necromorphic/Logic-Engine/pull/510):** `7fdf7e839c16d9253b4621e9196c55a325eee751`. На этом HEAD все пять workflow прошли: Runtime 852/852, recalculation oracle 8/8, NPC boundary 8/8, Host lifecycle patch 120/120, pinned-source audit 12/12 + 2/2 bounded fake-provider tests, patch validation и browser IndexedDB restart. Это patch/fixture evidence, не проверка установленного SillyTavern или Android/Termux.
+> **Последний полностью проверенный HEAD PR [#510](https://github.com/necromorphic/Logic-Engine/pull/510):** `2a51408616eb923c0d140daab9086115cb072525`. Все пять workflow прошли на этом exact head: Runtime 852/852, recalculation oracle 8/8, NPC boundary 81/81, Host lifecycle patch 120/120, pinned-source audit 12/12 + 2/2 bounded fake-provider tests, patch validation и browser IndexedDB restart. Это patch/fixture evidence, не проверка установленного SillyTavern или Android/Termux.
 
-> **Последующая проверка README:** текущий коммит этой ветки меняет только README; Runtime workflow для него ожидает self-hosted Windows runner. Исходники Host/Provider/Core на этом участке не изменялись относительно подтверждённого code-bearing HEAD выше. Полный production-путь всё равно не доказан; не трактовать успешный CI как разрешение на установку или включение Memory → NPC.
+> **Provider/Core accepted-head read gates:** focused tests passed, and full Runtime/NPC suites passed on CI-only branches whose implementation/test blob SHAs match PR #484 and #490. Provider: Windows Runtime 809/809, oracle 8/8, NPC boundary 81/81. Core: Windows Runtime 823/823, oracle 8/8, NPC boundary 83/83. PRs remain draft; CI is not independent Core approval.
 
 > **Memory → NPC: DISABLED / FAIL-CLOSED.** PR #510 — draft и зависит от PR #507; объединять его до завершения зависимостей и независимого Core review нельзя. Остались доказательные блокеры: полный активный/исторический/удалённый Host inventory; accepted-head authority и устойчивость к восстановлению резервной копии; подтверждённые Windows ACL; привязка финального сериализованного тела запроса к точным допущенным кандидатам; покрытие всех outbound/bypass маршрутов; отзыв доступа в гонке непосредственно перед отправкой с нулём upstream-вызовов при отказе; проверка установленного SillyTavern и Android/Termux. Успешные отдельные тесты не закрывают эти пункты.
 
@@ -19,8 +19,8 @@
 | Workstream | Progress | Evidence / remaining |
 |---|---:|---|
 | Host lifecycle patch + pinned SillyTavern source audit | `████████░░ 80%` | Patch validation, browser restart fixture and pinned-source assertions passed; live installed ST and full historical inventory are not proven. |
-| Memory Provider accepted-head writes + reads | `███████░░░ 70%` | Earlier full Runtime CI passed on an earlier head; new live-read gate targeted tests passed 2/2. Full Runtime/NPC CI for the updated PR head is pending. |
-| Core accepted-head + canonical snapshot reads | `███████░░░ 70%` | New read gate targeted test passed; full Runtime/NPC CI and independent Core review are pending. |
+| Memory Provider accepted-head writes + reads | `████████░░ 80%` | Windows Runtime 809/809 + oracle 8/8 + NPC boundary 81/81 passed on a CI-only branch with identical Provider implementation/test blobs; independent Core review and production gates remain. |
+| Core accepted-head + canonical snapshot reads | `████████░░ 80%` | Windows Runtime 823/823 + oracle 8/8 + NPC boundary 83/83 passed on a CI-only branch with identical Core implementation/test blobs; independent Core review and production gates remain. |
 | Gateway/dispatch ledger prototype | `████░░░░░░ 40%` | Signature, ledger, evidence-reader and synchronous dispatch-start tests exist; production Host route is not wired. |
 | Exact final body ↔ authorized candidate/version binding | `██░░░░░░░░ 20%` | Not proven: current ST request body is client-assembled; trusted server-owned Memory assembly seam is unresolved. |
 | Complete Host inventory + restore-resistant authority | `██░░░░░░░░ 20%` | Previously observed rollback can be detected; all-time active/history/deleted inventory and joint privileged-restore resistance remain NON_READY. |
