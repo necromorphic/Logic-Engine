@@ -202,6 +202,7 @@ test('server-side inventory endpoint is digest-only and never reports historical
   const inventoryScanner = await readFile(resolve(root, 'src/endpoints/logic-engine-host-inventory.mjs'), 'utf8');
   assert.match(lifecycleRoutes, /router\.post\('\/host-artifact-inventory\/scan'/);
   assert.match(lifecycleRoutes, /request\.user\?\.directories\?\.chats/);
+  assert.match(lifecycleRoutes, /request\\.user\\?\\.directories\\?\\.groups/);
   assert.match(lifecycleRoutes, /request\.user\?\.directories\?\.groupChats/);
   assert.match(lifecycleRoutes, /request\.user\?\.directories\?\.backups/);
   assert.match(lifecycleRoutes, /historicalCompleteness:\s*'UNKNOWN'/);
