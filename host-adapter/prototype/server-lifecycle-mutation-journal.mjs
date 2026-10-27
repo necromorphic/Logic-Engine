@@ -312,7 +312,16 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
         };
         if (originalFlushHeaders) response.flushHeaders = function () { return response; };
 
+        const restoreResponseMethods = () => {
+            response.end = originalEnd;
+            response.write = originalWrite;
+            response.writeHead = originalWriteHead;
+            if (originalFlushHeaders) response.flushHeaders = originalFlushHeaders;
+        };
         const commitBufferedResponse = (endArgs, override) => {
+            // Native ServerResponse.end() may call _implicitHeader(), which in turn
+            // calls response.writeHead(). Restore native methods before committing.
+            restoreResponseMethods();
             if (override) {
                 bufferedWrites.length = 0;
                 bufferedWriteHead = null;
