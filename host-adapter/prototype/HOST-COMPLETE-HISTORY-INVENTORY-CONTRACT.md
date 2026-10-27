@@ -10,13 +10,13 @@ Build an inventory of all Host-persisted chat artifacts and their observed versi
 
 | Domain | Required evidence | Current disposition |
 |---|---|---|
-| Character chat files | Enumerated server-side files, stable Host-local artifact key, byte/content digest, observed locator, scan generation | Not implemented as a global inventory |
-| Group chat files | Enumerated group chat files and group metadata, digest and locator | Not implemented as a global inventory |
+| Character chat files | Enumerated server-side files, stable Host-local artifact key, byte/content digest, observed locator, scan generation | Current server-side snapshot scanner implemented; non-authoritative and not historical |
+| Group chat files | Enumerated group chat files and group metadata, digest and locator | Current server-side snapshot scanner implemented; non-authoritative and not historical |
 | Message versions/swipes | Per-message and per-version identity, active selection, digest, parent/version ancestry where evidenced | Enrollment-forward only |
 | Branches | Parent artifact identity, child artifact identity, parent snapshot/version digest, branch metadata digest | Mutable native references only; lineage unauthenticated |
-| Imports | Source artifact digest, destination artifact identity, import operation ID, resulting persisted digest | Current selected UI routes reject while enrolled; direct server routes not proven covered |
-| Deletes | Pre-delete inventory plus durable tombstone tied to artifact identity and operation | Selected paths guard/reject; all routes not covered |
-| Backups/restores | Backup artifact digest, pre/post inventory, restore operation ID and lineage | Selected UI restore path rejects; direct restore/filesystem paths not covered |
+| Imports | Source artifact digest, destination artifact identity, import operation ID, resulting persisted digest | Candidate server middleware maps listed import routes when a local enrollment registry exists; lineage and bypass resistance unproven |
+| Deletes | Pre-delete inventory plus durable tombstone tied to artifact identity and operation | Candidate middleware records pre/post snapshots for mapped routes; per-artifact tombstone semantics and registry tamper resistance unproven |
+| Backups/restores | Backup artifact digest, pre/post inventory, restore operation ID and lineage | Backup-delete route mapped in candidate middleware; restore and filesystem paths remain uncovered; lineage unproven |
 | External changes | Full rescan and difference against prior trusted inventory | Detectable only relative to an available checkpoint; no independent trust anchor |
 | Pre-enrollment/deleted history | External archival evidence, if any | UNKNOWN_UNRECOVERABLE absent such evidence |
 
@@ -61,19 +61,19 @@ Build an inventory of all Host-persisted chat artifacts and their observed versi
 
 ## Pinned SillyTavern mutation coverage audit
 
-Audited against SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. These are confirmed server-side mutation paths; the current Host patch does **not** yet intercept them:
+Audited against SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. The current candidate patch installs a Host middleware before the private endpoint routers and maps the routes below. This is conditional instrumentation, not proof of complete or tamper-resistant coverage: it runs only when the local per-user enrollment registry is present and non-empty, and that registry shares the Host storage trust domain.
 
 | Source | Route(s) | Mutation | Current Host status |
 |---|---|---|---|
-| `src/endpoints/chats.js` | `POST /api/chats/save`, `/rename`, `/delete`, `/group/import`, `/import`, `/group/delete`, `/group/save` | Save/overwrite, rename by copy+unlink, delete, import, group chat mutation | Uncovered by server-side Host journal |
-| `src/endpoints/groups.js` | `POST /api/groups/create`, `/edit`, `/delete` | Create/update group metadata; delete group metadata and cascaded group chat files | Uncovered by server-side Host journal |
-| `src/endpoints/backups.js` | `POST /api/backups/chat/delete` | Delete a chat backup | Uncovered by server-side Host journal |
-| `src/endpoints/data-maid.js` | `POST /api/data-maid/delete` | Delete arbitrary files under the authenticated user's root from a validated report | Uncovered by server-side Host journal |
+| `src/endpoints/chats.js` | `POST /api/chats/save`, `/rename`, `/delete`, `/group/import`, `/import`, `/group/delete`, `/group/save` | Save/overwrite, rename by copy+unlink, delete, import, group chat mutation | Mapped to conditional pre/post snapshot middleware; route-specific artifact identity/lineage and direct-route acceptance still require verification |
+| `src/endpoints/groups.js` | `POST /api/groups/create`, `/edit`, `/delete` | Create/update group metadata; delete group metadata and cascaded group chat files | Mapped to conditional pre/post snapshot middleware; cascade identity and lineage remain unproven |
+| `src/endpoints/backups.js` | `POST /api/backups/chat/delete` | Delete a chat backup | Mapped to conditional pre/post snapshot middleware; restore paths remain uncovered |
+| `src/endpoints/data-maid.js` | `POST /api/data-maid/delete` | Delete arbitrary files under the authenticated user's root from a validated report | Mapped to conditional pre/post snapshot middleware; target identity and behavior under registry removal remain unproven |
 | `src/endpoints/chats.js` backup helper | invoked by chat saves | Create backup and prune old backups | Side effects not individually journaled |
 
 The snapshot endpoint enumerates four actual storage roots from the pinned Host user object: `directories.chats`, `directories.groups`, `directories.groupChats`, and `directories.backups`. Group metadata (`groups`) and group chat JSONL (`groupChats`) are separate roots and both must be present for a complete scan.
 
-This audit is evidence of the remaining gap, not proof that these routes are protected. A complete-history claim remains blocked until server-side operation boundaries cover these routes and indirect side effects, with durable pre/post records, interruption handling, idempotency, and direct-API tests. The generic Data Maid deletion route is particularly important because it can remove managed artifacts without going through the chat-specific handlers.
+The middleware now attempts to write a durable intent before each mapped route and a post-scan outcome before returning the response. A non-2xx response is recorded as `UNRESOLVED`, forcing later mapped mutations to fail closed until reconciliation. These are candidate behaviors requiring exact-head CI and route-level tests. The middleware does not authenticate the local registry against rollback/removal; if the registry is absent or empty, the route falls through. It also records a broad snapshot diff rather than a separately authenticated identity/tombstone for each target, and cannot reconstruct pre-enrollment history. The generic Data Maid deletion route remains especially important because it can remove managed artifacts without going through chat-specific handlers.
 
 ## Acceptance states
 
@@ -84,7 +84,7 @@ This audit is evidence of the remaining gap, not proof that these routes are pro
 
 ## Explicit unknowns / blockers
 
-- The pinned SillyTavern implementation has multiple client and server mutation paths; the current browser lifecycle bridge does not intercept all direct server API calls.
+- The candidate server middleware maps the listed chat/group/backup/Data Maid mutation routes, but complete coverage of indirect filesystem effects, restore/migration paths, and every server entry point is not proven.
 - No external anti-rollback trust anchor is currently established.
 - Current files cannot reconstruct versions deleted before enrollment or before inventory capture.
 - No approved contract presently establishes authenticated lineage for branch/import/restore.
