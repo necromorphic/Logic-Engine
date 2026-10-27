@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../src/storage/coordinator-lock.js';
 import {
+  advanceAcceptedHeadSync,
   enrollAcceptedHeadSync,
   finalizeAcceptedHeadSync,
   getAcceptedHeadsSync,
@@ -16,6 +17,7 @@ import {
 
 const coreToken = 'core-token-for-core-handshake-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-core-handshake-tests-00000000000000000000000000000002';
+const readToken = 'gateway-read-token-for-core-handshake-tests-00000000000000000000000000000003';
 const digestA = 'a'.repeat(64);
 const digestB = 'b'.repeat(64);
 
@@ -25,7 +27,7 @@ async function startAuthorityProcess(path) {
     'import { AcceptedHeadAuthority, createAcceptedHeadAuthorityServer } from ' + JSON.stringify(authorityUrl) + ';',
     'const args = process.argv.slice(1);',
     'const authority = new AcceptedHeadAuthority({ path: args[0], installationId: "core-handshake-test-installation" });',
-    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN });',
+    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN, readToken: process.env.LE_TEST_READ_TOKEN });',
     'server.listen(0, "127.0.0.1", () => process.stdout.write("LISTENING:" + server.address().port + "\\n"));',
     'process.stdin.on("data", () => server.close(() => { authority.close(); process.exit(0); }));',
   ].join('\n');
@@ -38,6 +40,7 @@ async function startAuthorityProcess(path) {
       WINDIR: process.env.WINDIR || '',
       LE_TEST_CORE_TOKEN: coreToken,
       LE_TEST_PROVIDER_TOKEN: providerToken,
+      LE_TEST_READ_TOKEN: readToken,
     },
   });
   const [chunk] = await once(child.stdout, 'data');
@@ -120,24 +123,88 @@ test('Core commits only when accepted-head authority is current and aborts mutat
       game_time: '2026-01-01T00:00:00Z',
     });
     assert.equal(created.world_id, 'accepted-head-world-one');
-    assert.deepEqual(getAcceptedHeadsSync({ port }), { core: 2, provider: 1 });
-    const localHead = store.db.prepare(
-      'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+    const firstOperation = store.db.prepare(
+      'SELECT head,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get();
-    assert.equal(localHead.head, 2);
-    assert.equal(localHead.enrolled, 1);
+    assert.equal(firstOperation.head, 2);
+    assert.match(firstOperation.last_operation_digest, /^[a-f0-9]{64}$/);
+    assert.equal(firstOperation.last_operation_id, 'core-' + firstOperation.last_operation_digest);
+
+    store.createWorld({
+      world_id: 'accepted-head-world-two',
+      world_pack_id: 'test-pack',
+      world_pack_version: '1',
+      game_time: '2026-01-01T00:00:30Z',
+    });
+    const secondOperation = store.db.prepare(
+      'SELECT head,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
+    ).get();
+    assert.equal(secondOperation.head, 3);
+    assert.match(secondOperation.last_operation_digest, /^[a-f0-9]{64}$/);
+    assert.equal(secondOperation.last_operation_id, 'core-' + secondOperation.last_operation_digest);
+    assert.notEqual(secondOperation.last_operation_digest, firstOperation.last_operation_digest);
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 3, provider: 1 });
+    assert.equal(secondOperation.head, 3);
+
+    // Simulate a crash after the local transaction committed but before
+    // authority finalization. Startup may finalize only when durable local
+    // operation identity, digest, and resulting head match the pending record.
+    const recoveryDigest = 'e'.repeat(64);
+    const pendingRecovery = advanceAcceptedHeadSync({
+      domain: 'core',
+      operationId: 'core-recovery-committed-operation',
+      operationDigest: recoveryDigest,
+      expectedHead: 3,
+      token: coreToken,
+      port,
+    });
+    assert.equal(pendingRecovery.status, 'pending');
+    store.close();
+    store = null;
+    const recoveryDb = new DatabaseSync(corePath);
+    try {
+      recoveryDb.prepare(
+        'UPDATE accepted_head_state SET head=?,last_operation_id=?,last_operation_digest=? WHERE singleton=1',
+      ).run(4, pendingRecovery.operation_id, recoveryDigest);
+    } finally {
+      recoveryDb.close();
+    }
+    store = new SQLiteStore(corePath);
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 4, provider: 1 });
+    assert.equal(store.db.prepare(
+      'SELECT head,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
+    ).get().last_operation_id, pendingRecovery.operation_id);
 
     child.stdin.end('stop');
     await once(child, 'exit');
     child = null;
 
     assert.throws(() => store.createWorld({
-      world_id: 'accepted-head-world-two',
+      world_id: 'accepted-head-world-three',
       world_pack_id: 'test-pack',
       world_pack_version: '1',
       game_time: '2026-01-01T00:01:00Z',
     }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
-    assert.equal(store.world('accepted-head-world-two') ?? null, null);
+    assert.equal(store.world('accepted-head-world-three') ?? null, null);
+
+    store.close();
+    store = null;
+    const damaged = new DatabaseSync(corePath);
+    try {
+      damaged.exec('DROP TABLE context_manifests');
+    } finally {
+      damaged.close();
+    }
+    assert.throws(() => new SQLiteStore(corePath), /CORE_SCHEMA_INCOMPLETE/);
+    const verifySchema = new DatabaseSync(corePath);
+    try {
+      const missing = verifySchema.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='context_manifests'",
+      ).get();
+      assert.equal(missing, undefined);
+    } finally {
+      verifySchema.close();
+    }
   } finally {
     try { store?.close(); } catch {}
     if (child) {
