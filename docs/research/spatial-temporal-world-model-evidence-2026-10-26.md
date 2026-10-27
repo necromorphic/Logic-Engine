@@ -343,3 +343,45 @@ The decision does not approve a typed spatial event vocabulary, arbitrary histor
 - **DONE / test-verified:** the five new tests specifically passed: stable world-scoped source read; mutation between state/event reads rejected; rollback invalidates by `world_revision` even when commit sequence and game-time coordinate do not advance; deterministic replay does not write Core state; file-backed restart reconstructs equivalent source evidence.
 - **NOT DONE / not established:** a typed spatial event/attribute contract; derivation of position, movement, orientation, or relative geometry; semantic conflict resolution; historical/intermediate-time queries; full-database restore anti-rollback. The current spike deliberately does not invent spatial meaning from generic attributes.
 - **NO runtime integration:** only a test file and research documentation changed. No production code, schema, or new runtime contract was added. Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+
+## 15. Coordinator-approved scope and next evidence gate (2026-10-28)
+
+### 15.1 Binding scope decision
+
+The coordinator approved the bounded architecture scope in issue #351 comment 6454710569:
+https://github.com/necromorphic/Logic-Engine/issues/351#issuecomment-6454710569
+
+- Space: 3D logical space.
+- Concepts: position, movement, orientation, pose.
+- Temporal history: current state and confirmed TimeEngine segment/checkpoint boundaries; no arbitrary intra-segment historical reconstruction.
+- Representation: deterministic, in-memory, read-only, disposable and rebuildable from approved canonical Core evidence.
+- Authority: Core remains the sole canonical world-state writer; TimeEngine remains the sole game-time owner.
+- Memory→NPC remains DISABLED / FAIL-CLOSED; no Host/NPC exposure.
+- No production runtime integration, new API/schema/event/cursor/adapter, persistent projection, Core writes, or changes to Memory/Host/NPC/vectorization are authorized.
+
+This decision supersedes earlier report wording that the architecture scope itself still awaited coordinator approval. It does not waive source-semantic, test, TimeEngine-boundary, or restore anti-rollback gates.
+
+### 15.2 Current source search: findings
+
+Repository search at the reviewed main baseline surfaced:
+- `src/application/engine.js`: `getState(id)`, `getSnapshot(id, request = {})`, and `getEvents(id, includeInvalid = false)` delegate to store reads. This is the approved bounded experiment seam, not a spatial semantic contract.
+- `src/storage/sqlite-store.js`: canonical world/event/entity storage and generic `attributes_json` exist. Their existence does not establish a typed 3D coordinate frame, units, pose/orientation representation, or movement/teleport semantics.
+- `docs/13-event-type-contract.md`: `event_type` is descriptive metadata, not an authority boundary.
+- `docs/07-knowledge-and-narrative-boundaries.md`: identifies spatial semantics and provenance as concepts to investigate, not as implemented typed spatial runtime contracts.
+
+Searches for position/orientation/pose/movement/teleport/coordinates did not surface an approved typed spatial source contract in the reviewed main results. This is bounded search evidence, not proof that no relevant source exists anywhere in all branches or unsearched files. No generic event name or `attributes_json` payload may be reinterpreted as spatial evidence without explicit committed semantics.
+
+### 15.3 Gate status after approval
+
+- **DONE:** architecture scope approved; bounded read/replay/freshness experiment and its reported CI results are documented in §14.6.
+- **IN PROGRESS:** map each requested concept to an exact committed source and its semantics, frame/units/representation, provenance, and lifecycle rules.
+- **BLOCKED for implementation:** no approved typed source mapping has yet been established for position, movement, orientation, or pose.
+- **NOT TESTED:** spatial behavior acceptance tests ST-01–ST-16 are not to be marked passed unless actually implemented in an isolated test harness and executed. Existing source-boundary tests do not prove spatial semantics.
+- **REMAINS BLOCKED:** full-database restore anti-rollback is not detectable when restored data reproduces the same composite markers; fail closed in that ambiguous case.
+- **REMAINS RESTRICTED:** no output to Host, Memory, or NPC; no inference of NPC observation/knowledge/belief.
+
+### 15.4 Next action
+
+Continue evidence mapping without changing production runtime: identify any explicit, committed, typed source for each of position, movement, orientation and pose; record exact file/symbol/line range, semantics, tests and SHA. If a concept has no such source, mark it UNKNOWN/unsupported and list the smallest separate contract decision required. Only then define a test-only spatial fixture from supported evidence and execute applicable acceptance checks. Do not create production schema/API or infer spatial values to make the tests pass.
+
