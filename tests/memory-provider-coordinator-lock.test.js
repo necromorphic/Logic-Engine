@@ -1,7 +1,7 @@
 import test from 'node:test';
 import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, linkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -56,6 +56,26 @@ test('file-backed Provider rejects coordinator and Provider DB path aliases', ()
     assert.throws(() => new SQLiteMemoryProvider({
       path: providerPath,
       coordinatorPath: providerPath,
+      getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+      validateSourceVersion: async () => true,
+      validateInventory: async () => true,
+    }), /Coordinator DB must be separate from the Memory Provider DB/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('file-backed Provider rejects distinct paths that are hard links to the same database file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'logic-provider-hardlink-alias-'));
+  const providerPath = join(dir, 'provider.sqlite');
+  const coordinatorPath = join(dir, 'coordinator.sqlite');
+  try {
+    writeFileSync(providerPath, '');
+    linkSync(providerPath, coordinatorPath);
+    assert.notEqual(providerPath, coordinatorPath);
+    assert.throws(() => new SQLiteMemoryProvider({
+      path: providerPath,
+      coordinatorPath,
       getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
       validateSourceVersion: async () => true,
       validateInventory: async () => true,
