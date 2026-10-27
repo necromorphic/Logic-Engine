@@ -143,4 +143,4 @@ This refresh records repository CI only. It does not establish live browser/Andr
 
 ## Pinned source inventory evidence (27 Oct 2026)
 
-See [`PINNED-SOURCE-INVENTORY-EVIDENCE.md`](./PINNED-SOURCE-INVENTORY-EVIDENCE.md) for the pinned archive identity, native locator/version semantics, branch/import lifecycle evidence, and the explicit conclusion that `getChat()` cannot prove a complete authoritative all-time inventory. The document is source inspection only; it does not claim upstream archive authenticity or a live-device experiment. Host remains `NON_READY`; Memory→NPC remains `DISABLED / FAIL-CLOSED`.
+See [`PINNED-SOURCE-INVENTORY-EVIDENCE.md`](./PINNED-SOURCE-INVENTORY-EVIDENCE.md) for the pinned archive identity, native locator/version semantics, branch/import lifecycle evidence, and the explicit conclusion that `getChat()` cannot prove a complete authoritative all-time inventory. The document includes an upstream verified-commit check and matching Git blob IDs for three audited source files; it does not claim full-archive equivalence or a live-device experiment. Host remains `NON_READY`; Memory→NPC remains `DISABLED / FAIL-CLOSED`.
