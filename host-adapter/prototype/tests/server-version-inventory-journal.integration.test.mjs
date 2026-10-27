@@ -174,8 +174,8 @@ test('enforced server mutation journal records before/after persisted version in
     })]);
     const rollback = await getHostConversationInventory(request);
     assert.equal(rollback.complete, false);
-    assert.ok(rollback.errors.includes('CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT'));
-    assert.equal(rollback.mutationJournal.snapshotConsistency, 'DIVERGES_FROM_LAST_LOCAL_CHECKPOINT');
+    assert.ok(rollback.errors.includes('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE'));
+    assert.equal(rollback.mutationJournal.snapshotConsistency, 'CORE_ANCHOR_DIVERGENCE');
   } finally {
     globalThis.fetch = originalFetch;
     for (const key of envKeys) {
