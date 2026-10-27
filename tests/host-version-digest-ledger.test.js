@@ -744,8 +744,8 @@ test('authenticated Core inventory readback retains observed versions independen
     rolledBackLocal.map(v => [v.message_id, v.version_id, v.content_sha256, v.active, v.deleted]),
     authoritative.versions.map(v => [v.message_id, v.version_id, v.content_sha256, v.active, v.deleted]),
   );
-  assert.equal(JSON.stringify(authoritative).includes('before'), false);
-  assert.equal(JSON.stringify(authoritative).includes('after'), false);
+  assert.equal(JSON.stringify(authoritative).includes('sample raw message not stored'), false);
+  assert.equal(JSON.stringify(authoritative).includes('raw message text'), false);
 });
 
 test('Core inventory readback rejects an unauthenticated or mismatched conversation binding', (t) => {
