@@ -185,7 +185,10 @@ export class AuthorizedReadService {
 
     let snapshot;
     try {
-      snapshot = this.engine.getSnapshot(request.worldId, { entityIds: request.entityIds });
+      snapshot = this.engine.getSnapshot(request.worldId, {
+        entityIds: request.entityIds,
+        ...(request.fields.includes('source_version') ? { includeSourceVersions: true } : {}),
+      });
     } catch (error) {
       if (error?.code === 'ENTITY_NOT_FOUND') throw unavailable();
       throw error;
