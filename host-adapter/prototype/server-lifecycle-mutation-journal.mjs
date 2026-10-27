@@ -102,7 +102,7 @@ async function readAndValidateJournal(journalPath) {
         if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_JOURNAL_UNSAFE');
         text = await readFile(journalPath, 'utf8');
     } catch (error) {
-        if (error?.code === 'ENOENT') return { records: [], unresolved: false, lastHash: '0'.repeat(64) };
+        if (error?.code === 'ENOENT') return { records: [], unresolved: false, pendingOperations: [], degraded: false, lastHash: '0'.repeat(64) };
         throw error;
     }
     const records = [];
