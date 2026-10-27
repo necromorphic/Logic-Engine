@@ -5,6 +5,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import {
   advanceAcceptedHeadSync,
   finalizeAcceptedHeadSync,
+  getAcceptedHeadStatusSync,
   getAcceptedHeadsSync,
 } from '../security/accepted-head-client-sync.js';
 import { DatabaseSync } from 'node:sqlite';
@@ -14,6 +15,18 @@ import { hashRequest } from '../core/request-hash.js';
 import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidate.js';
 
 const now = () => new Date().toISOString();
+
+// Schema hashing is cheap; row-level changes are captured by SQLite's
+// Session changeset so operation identity binds to the exact writes without
+// rescanning the entire world database for every mutation.
+function databaseSchemaDigest(db) {
+  return hashRequest(db.prepare(`
+    SELECT type, name, tbl_name, sql
+    FROM sqlite_master
+    WHERE name NOT LIKE 'sqlite_%'
+    ORDER BY type, name
+  `).all());
+}
 const acceptedHeadConfigFromEnv = () => {
   const required = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED === '1';
   const portRaw = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_PORT;
@@ -229,7 +242,7 @@ export class SQLiteStore {
         this.coordinatorRelease = beginCoordinatorLock(this.coordinatorDb);
         this.coordinatorLeaseDepth = 1;
       }
-      this.db.exec(`
+      const schemaSql = `
       PRAGMA foreign_keys=ON;
       PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS worlds(
@@ -327,11 +340,73 @@ export class SQLiteStore {
         last_operation_id TEXT,
         last_operation_digest TEXT
       );
+      CREATE TABLE IF NOT EXISTS accepted_head_enrollment_audit(
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        domain TEXT NOT NULL CHECK(domain IN ('core','provider')),
+        approval_id TEXT NOT NULL,
+        baseline_digest TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        enrolled_head INTEGER NOT NULL CHECK(enrolled_head=1),
+        enrolled_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS schema_migrations(
         version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL
       );
-      `);
-      this.db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
+      `;
+      if (this.acceptedHeadConfig) {
+        const existingObjects = new Set(this.db.prepare(
+          "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+        ).all().map((row) => row.object_name));
+        const requiredObjects = [...schemaSql.matchAll(/CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)/gi)]
+          .map((match) => match[1].toLowerCase() + ':' + match[2]);
+        if (requiredObjects.some((objectName) => !existingObjects.has(objectName))) {
+          throw new Error('CORE_SCHEMA_INCOMPLETE');
+        }
+        const localAcceptedHead = this.db.prepare(
+          'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+        ).get();
+        if (!localAcceptedHead || localAcceptedHead.enrolled !== 1
+          || !Number.isSafeInteger(localAcceptedHead.head) || localAcceptedHead.head < 1) {
+          throw new Error('CORE_ACCEPTED_HEAD_NOT_ENROLLED');
+        }
+      }
+      this.db.exec(schemaSql);
+      if (!this.acceptedHeadConfig) {
+        this.db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
+      } else {
+        const local = this.db.prepare(
+          'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
+        ).get();
+        let status = getAcceptedHeadStatusSync({
+          port: this.acceptedHeadConfig.port,
+          token: this.acceptedHeadConfig.token,
+        });
+        const pending = status.operations.core;
+        if (pending) {
+          const localMatchesPending = local
+            && local.head === pending.head
+            && local.last_operation_id === pending.operation_id
+            && local.last_operation_digest === pending.operation_digest
+            && local.enrolled === 1;
+          if (!localMatchesPending) {
+            throw new Error('CORE_ACCEPTED_HEAD_RECOVERY_REQUIRED');
+          }
+          finalizeAcceptedHeadSync({
+            domain: 'core',
+            operationId: pending.operation_id,
+            operationDigest: pending.operation_digest,
+            token: this.acceptedHeadConfig.token,
+            port: this.acceptedHeadConfig.port,
+          });
+          status = getAcceptedHeadStatusSync({
+            port: this.acceptedHeadConfig.port,
+            token: this.acceptedHeadConfig.token,
+          });
+        }
+        if (status.pending.core || status.heads.core !== local.head || !status.enrolled.core) {
+          throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
+        }
+      }
       this.migrate();
       if (this.coordinatorRelease) {
         this.coordinatorRelease();
@@ -627,9 +702,12 @@ export class SQLiteStore {
         release?.();
       };
     }
+    let acceptedHeadSession = null;
     try {
       this.db.exec('BEGIN IMMEDIATE');
       this.txDepth = 1;
+      const beforeSchemaDigest = this.acceptedHeadConfig ? databaseSchemaDigest(this.db) : null;
+      acceptedHeadSession = this.acceptedHeadConfig ? this.db.createSession() : null;
       const changesBefore = this.db.prepare('SELECT total_changes() AS count').get().count;
       const result = fn();
       if (result !== null && (typeof result === 'object' || typeof result === 'function')
@@ -643,12 +721,19 @@ export class SQLiteStore {
         if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1) {
           throw new Error('CORE_ACCEPTED_HEAD_NOT_ENROLLED');
         }
-        const heads = getAcceptedHeadsSync({ port: this.acceptedHeadConfig.port });
+        const heads = getAcceptedHeadsSync({ port: this.acceptedHeadConfig.port, token: this.acceptedHeadConfig.token });
         if (heads.core !== local.head) throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
-        const operationId = randomUUID();
-        const operationDigest = createHash('sha256')
-          .update(JSON.stringify({ domain: 'core', operation_id: operationId, expected_head: local.head }))
-          .digest('hex');
+        const changeset = acceptedHeadSession.changeset();
+        acceptedHeadSession.close();
+        acceptedHeadSession = null;
+        const operationDigest = hashRequest({
+          domain: 'core',
+          expected_head: local.head,
+          before_schema_digest: beforeSchemaDigest,
+          after_schema_digest: databaseSchemaDigest(this.db),
+          changeset_digest: createHash('sha256').update(changeset).digest('hex'),
+        });
+        const operationId = 'core-' + operationDigest;
         const advanced = advanceAcceptedHeadSync({
           domain: 'core',
           operationId,
@@ -684,6 +769,7 @@ export class SQLiteStore {
       try { this.db.exec('ROLLBACK'); } catch {}
       throw error;
     } finally {
+      try { acceptedHeadSession?.close(); } catch {}
       this.txDepth = 0;
       releaseCoordinator?.();
     }
