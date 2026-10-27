@@ -173,7 +173,7 @@ test('replayed operation ID is rejected before a second mutation', async () => {
     const { root, directories, request } = await fixture();
     try {
         const chatPath = path.join(directories.chats, 'chat-1.jsonl');
-        await writeFile(chatPath, '{"mes":"initial"}\\n');
+        await writeFile(chatPath, '{"mes":"initial"}\n');
         await registerHostConversation(request, {
             conversationId: 'conversation-1',
             sourceLocator: 'chat-1',
@@ -184,7 +184,7 @@ test('replayed operation ID is rejected before a second mutation', async () => {
         const middleware = createHostLifecycleMutationMiddleware();
         const first = responseMock();
         await middleware(request, first, async () => {
-            await writeFile(chatPath, '{"mes":"first mutation"}\\n');
+            await writeFile(chatPath, '{"mes":"first mutation"}\n');
             first.json({ ok: true });
         });
         await first.finished;
@@ -193,7 +193,7 @@ test('replayed operation ID is rejected before a second mutation', async () => {
         let reachedHandler = false;
         await middleware(request, second, async () => {
             reachedHandler = true;
-            await writeFile(chatPath, '{"mes":"duplicate mutation"}\\n');
+            await writeFile(chatPath, '{"mes":"duplicate mutation"}\n');
             second.json({ ok: true });
         });
         await second.finished;
@@ -211,7 +211,7 @@ test('explicit reconciliation records uncertainty and permits future journaling 
     const { root, directories, request } = await fixture();
     try {
         const chatPath = path.join(directories.chats, 'chat-1.jsonl');
-        await writeFile(chatPath, '{"mes":"before"}\\n');
+        await writeFile(chatPath, '{"mes":"before"}\n');
         await registerHostConversation(request, {
             conversationId: 'conversation-1',
             sourceLocator: 'chat-1',
@@ -219,7 +219,7 @@ test('explicit reconciliation records uncertainty and permits future journaling 
         });
         const response = responseMock();
         await createHostLifecycleMutationMiddleware()(request, response, async () => {
-            await writeFile(chatPath, '{"mes":"mutated"}\\n');
+            await writeFile(chatPath, '{"mes":"mutated"}\n');
             await rm(directories.backups, { recursive: true, force: true });
             response.json({ ok: true });
         });
@@ -227,7 +227,7 @@ test('explicit reconciliation records uncertainty and permits future journaling 
         assert.equal(response.statusCode, 503);
 
         const ledgerPath = path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl');
-        const records = (await readFile(ledgerPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+        const records = (await readFile(ledgerPath, 'utf8')).trim().split('\n').map(line => JSON.parse(line));
         const intent = records.find(record => record.kind === 'intent');
         assert.ok(intent);
         assert.equal((await getHostMutationJournalStatus(request)).status, 'RECONCILIATION_REQUIRED');
