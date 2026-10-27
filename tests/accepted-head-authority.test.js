@@ -84,13 +84,20 @@ async function startAuthorityProcess(path) {
     'import { AcceptedHeadAuthority, createAcceptedHeadAuthorityServer } from ' + JSON.stringify(authorityUrl) + ';',
     'const args = process.argv.slice(1);',
     'const authority = new AcceptedHeadAuthority({ path: args[0], installationId: "server-test-installation" });',
-    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: args[1], providerToken: args[2] });',
+    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN });',
     'server.listen(0, "127.0.0.1", () => process.stdout.write("LISTENING:" + server.address().port + "\\n"));',
     'process.stdin.on("data", () => server.close(() => { authority.close(); process.exit(0); }));',
   ].join('\n');
-  const child = spawn(process.execPath, ['--input-type=module', '-e', script, path, coreToken, providerToken], {
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script, path], {
     stdio: ['pipe', 'pipe', 'pipe'],
     windowsHide: true,
+    env: {
+      PATH: process.env.PATH || '',
+      SystemRoot: process.env.SystemRoot || '',
+      WINDIR: process.env.WINDIR || '',
+      LE_TEST_CORE_TOKEN: coreToken,
+      LE_TEST_PROVIDER_TOKEN: providerToken,
+    },
   });
   const [chunk] = await once(child.stdout, 'data');
   const match = String(chunk).match(/LISTENING:(\d+)/);
