@@ -223,6 +223,7 @@ export class MemoryNpcConsumer {
           record_version: candidate.record.version,
           source_kind: candidate.source.kind,
           source_entity_id: candidate.source.entity_id,
+          source_version: candidate.source.version,
         }) === true;
       } catch {
         // A denial is an ordinary filtered record; an authorization failure is
