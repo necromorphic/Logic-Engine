@@ -333,7 +333,10 @@ function verifyEnrolledChatSavePersistence(request, registry, after) {
 }
 
 
-async function publishCoreInventorySnapshot(before, after) {
+async function publishCoreInventorySnapshot(before, after, { requirePersistedInventory = true } = {}) {
+    // Artifact-only prototype mode is non-authoritative and has no version records to anchor.
+    // Production wiring enables persisted inventory, where missing Core configuration remains a hard failure.
+    if (!requirePersistedInventory) return;
     const baseUrl = process.env.LOGIC_ENGINE_CORE_URL;
     const apiToken = process.env.LOGIC_ENGINE_API_TOKEN;
     const adapterId = process.env.LOGIC_ENGINE_ADAPTER_ID;
@@ -637,7 +640,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                         });
                     }
                     try {
-                        await publishCoreInventorySnapshot(before, after);
+                        await publishCoreInventorySnapshot(before, after, { requirePersistedInventory });
                         after = await scanMutationSnapshot(paths, registry, requirePersistedInventory, true);
                         if (!after.complete) {
                             const code = after.errors?.[0] ?? after.conversationInventory?.errors?.[0] ?? 'CORE_HOST_INVENTORY_UNAVAILABLE';
