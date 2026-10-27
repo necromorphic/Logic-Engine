@@ -4,7 +4,7 @@ diff --git a/src/server-startup.js b/src/server-startup.js
 @@ -23,1 +23,2 @@
  import { router as extensionsRouter } from './endpoints/extensions.js';
 +import { router as logicEngineDiagnosticRouter } from './endpoints/logic-engine-diagnostic.js';
-@@ -157,1 +158,2 @@
+@@ -158,1 +159,2 @@
      app.use('/api/extensions', extensionsRouter);
 +    app.use('/api/logic-engine-diagnostics', logicEngineDiagnosticRouter);
 diff --git a/src/endpoints/logic-engine-diagnostic.js b/src/endpoints/logic-engine-diagnostic.js
