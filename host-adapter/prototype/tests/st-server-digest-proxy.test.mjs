@@ -156,3 +156,18 @@ test('proxy hides upstream error bodies and rejects redirects without following 
   assert.equal(redirectFailure.payload.error.code, 'LOGIC_ENGINE_UNREACHABLE');
   assert.equal(JSON.stringify(redirectFailure.payload).includes('private URL'), false);
 });
+
+
+test('proxy fails closed when Core accepted a capture but local acknowledgement was not durable', async () => {
+  let acknowledged = 0;
+  const response = responseRecorder();
+  await createHostDigestProxyHandler({
+    env: CONFIG,
+    fetchImpl: async () => ({ ok: true, status: 201, json: async () => ({ ok: true }) }),
+    onAcceptedCapture: async () => { acknowledged++; throw Error('private local journal path'); },
+  })({ body: capture }, response);
+  assert.equal(acknowledged, 1);
+  assert.equal(response.statusCode, 503);
+  assert.equal(response.payload.error.code, 'LOGIC_ENGINE_CAPTURE_ACK_UNAVAILABLE');
+  assert.equal(JSON.stringify(response.payload).includes('private local journal path'), false);
+});
