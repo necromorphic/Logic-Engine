@@ -187,3 +187,12 @@ If Core cannot be reached, the binding is not authorized, the Core inventory is 
 - This detects rollback/divergence only for versions already observed and durably recorded by Core. It cannot prove what existed before explicit enrollment or before successful digest capture.
 - The Core ledger is an independent comparison point, not a magical anti-rollback guarantee against an administrator who can restore both Core storage and Host storage. Deployment ACLs, backup/restore isolation, and a separately protected accepted-head authority remain required for that threat model.
 - The current inventory status stays non-ready until the existing trusted complete-inventory reconciliation process has accepted the snapshot. This addition does not authorize Memory→NPC, does not capture raw text, and does not replace the pinned-source or live-runtime checks.
+
+
+### Mutation-time enforcement added in PR #510
+
+For enrolled conversations, the pinned server middleware now checks the Core digest inventory before calling the native mutation handler when Core credentials are configured. A missing/malformed/unavailable Core anchor or a local/Core version, digest, tombstone, or active-pointer mismatch returns `503` before the handler runs. If Core credentials are absent, enrolled mutations are rejected before the handler.
+
+After a successful persisted-state readback, the server publishes only version IDs, content digests, active flags and tombstones to Core **before returning the buffered success response**. If Core rejects or cannot durably accept the capture, the response becomes `503` and the operation remains `UNRESOLVED`. This closes the browser-after-save capture gap for the supported save path.
+
+Routes that can delete, rename, replace, import, or relocate enrolled history are blocked before their native handlers until identity-preserving/tombstone-aware server handlers exist. This is intentionally restrictive; it avoids reporting a failure only after destructive work has already occurred.
