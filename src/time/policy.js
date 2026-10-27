@@ -12,11 +12,14 @@ const integer = (v, name, positive = false) => {
 };
 const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 
-function assertPlainDataRecord(value, allowed, name) {
+function assertPlainDataRecord(value, allowed, name, required = []) {
   if (!obj(value)) fail('INVALID_TIME_POLICY', name + ' must be an object.');
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
     fail('INVALID_TIME_POLICY', name + ' must be a plain data object.');
+  }
+  for (const field of required) {
+    if (!Object.hasOwn(value, field)) fail('INVALID_TIME_POLICY', name + ' is missing required field ' + field + '.');
   }
   for (const key of Reflect.ownKeys(value)) {
     if (typeof key !== 'string' || !allowed.includes(key)) {
@@ -71,8 +74,8 @@ function denseArrayValues(value, name, max) {
   return values;
 }
 
-const exactKeys = (value, allowed, name) => {
-  assertPlainDataRecord(value, allowed, name);
+const exactKeys = (value, allowed, name, required = []) => {
+  assertPlainDataRecord(value, allowed, name, required);
 };
 
 function ruleOf(input, limit) {
@@ -81,9 +84,14 @@ function ruleOf(input, limit) {
     range: ['kind', 'min_duration_ms', 'max_duration_ms', 'resolution'],
     category_map: ['kind', 'categories'],
   };
-  assertPlainDataRecord(input, ['kind', 'duration_ms', 'min_duration_ms', 'max_duration_ms', 'resolution', 'categories'], 'Duration rule');
+  assertPlainDataRecord(input, ['kind', 'duration_ms', 'min_duration_ms', 'max_duration_ms', 'resolution', 'categories'], 'Duration rule', ['kind']);
   if (!allowedByKind[input.kind]) fail('INVALID_TIME_POLICY', 'Unsupported duration rule kind.');
-  exactKeys(input, allowedByKind[input.kind], input.kind + ' duration rule');
+  const requiredByKind = {
+    fixed: ['kind', 'duration_ms'],
+    range: ['kind', 'min_duration_ms', 'max_duration_ms', 'resolution'],
+    category_map: ['kind', 'categories'],
+  };
+  exactKeys(input, allowedByKind[input.kind], input.kind + ' duration rule', requiredByKind[input.kind]);
   if (input.kind === 'fixed') {
     const duration_ms = integer(input.duration_ms, 'duration_ms');
     if (duration_ms > limit) fail('INVALID_TIME_POLICY', 'Fixed duration exceeds policy limit.');
@@ -101,7 +109,7 @@ function ruleOf(input, limit) {
     if (!categoryEntries.length) fail('INVALID_TIME_POLICY', 'category_map requires categories.');
     const seen = new Set();
     const categories = categoryEntries.map((entry) => {
-      exactKeys(entry, ['category', 'duration_ms'], 'Duration category');
+      exactKeys(entry, ['category', 'duration_ms'], 'Duration category', ['category', 'duration_ms']);
       const category = str(entry.category, 'category');
       const duration_ms = integer(entry.duration_ms, 'category duration_ms');
       if (duration_ms > limit || seen.has(category)) fail('INVALID_TIME_POLICY', 'Duration categories must be unique and within policy limits.');
@@ -114,7 +122,7 @@ function ruleOf(input, limit) {
 
 export function createTimePolicy(input) {
   const allowed = ['policy_id', 'version', 'max_action_duration_ms', 'max_skip_duration_ms', 'duration_rules'];
-  assertPlainDataRecord(input, allowed, 'Time policy');
+  assertPlainDataRecord(input, allowed, 'Time policy', ['policy_id', 'version', 'max_action_duration_ms', 'max_skip_duration_ms', 'duration_rules']);
   const policy_id = str(input.policy_id, 'policy_id');
   const version = str(input.version, 'version');
   const max_action_duration_ms = integer(input.max_action_duration_ms, 'max_action_duration_ms', true);
@@ -125,7 +133,7 @@ export function createTimePolicy(input) {
   const ruleEntries = denseArrayValues(input.duration_rules, 'duration_rules', 1000);
   const seen = new Set();
   const duration_rules = ruleEntries.map((entry) => {
-    assertPlainDataRecord(entry, ['event_type', 'rule'], 'Duration rule entry');
+    assertPlainDataRecord(entry, ['event_type', 'rule'], 'Duration rule entry', ['event_type', 'rule']);
     const event_type = str(entry.event_type, 'event_type');
     if (seen.has(event_type)) fail('INVALID_TIME_POLICY', 'event_type duration rules must be unique.');
     seen.add(event_type);
