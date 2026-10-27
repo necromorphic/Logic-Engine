@@ -75,6 +75,16 @@ test('event IDs are scoped to worlds and same-ID events remain isolated', (t) =>
   assert.deepEqual(h.engine.getEvents('other-world').map((event) => event.event_id), ['shared-event-id']);
   assert.equal(h.engine.getState('w').entities[0].entity_id, 'local-only');
   assert.equal(h.engine.getState('other-world').entities[0].entity_id, 'foreign-only');
+
+  const linked = h.engine.commitEvent('w', cmd({
+    idempotency_key: 'local-reference-to-shared-id',
+    expected_revision: 1,
+    caused_by: ['shared-event-id'],
+  }));
+  assert.equal(linked.accepted, true);
+  assert.equal(h.engine.getEvents('w').length, 2);
+  assert.equal(h.engine.getEvents('other-world').length, 1);
+
   const primaryKey = h.store.db.prepare('PRAGMA table_info(world_events)').all()
     .filter((column) => column.pk > 0)
     .sort((a, b) => a.pk - b.pk)
