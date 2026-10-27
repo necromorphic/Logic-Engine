@@ -373,3 +373,12 @@ test('remove_attributes rejects accessors and sparse arrays without executing ge
   }
   assert.equal(getterCalls, 0);
 });
+
+test('explicitly undefined provenance fields are rejected as non-JSON input', () => {
+  for (const field of ['source_refs', 'caused_by']) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({ [field]: undefined })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+});
