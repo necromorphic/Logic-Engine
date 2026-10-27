@@ -57,3 +57,12 @@ test('production middleware requires persisted version inventory and journals ve
   assert.match(patch, /afterConversationInventories/);
   assert.match(patch, /versionChanges: diffConversationInventories\(before, after\)/);
 });
+
+
+test('production inventory scan compares against the last committed local mutation checkpoint', async () => {
+  const patch = await readFile(patchPath, 'utf8');
+  assert.match(patch, /readAndValidateJournal\(paths\.journalPath\)/);
+  assert.match(patch, /MATCHES_LAST_COMMITTED_LOCAL_CHECKPOINT/);
+  assert.match(patch, /DIVERGES_FROM_LAST_LOCAL_CHECKPOINT/);
+  assert.match(patch, /CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT/);
+});
