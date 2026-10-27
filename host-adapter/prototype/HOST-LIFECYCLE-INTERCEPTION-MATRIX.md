@@ -16,7 +16,7 @@ Pinned source context: `06bde939fb1e9c4c8d8641d810f0a916b5bce127`; patch file: `
 | Lifecycle operation | Observed patch entry point / hook | Current behavior for enrolled chats | Evidence status / remaining gap |
 |---|---|---|---|
 | Append/send user message | `public/script.js`, message insertion path; `beforeMutation('message-send')`, then `afterMutation` after save | Guard and journal path invoked on this insertion path | **Patched guard.** Other message creation paths and all alternate callers are not proven covered. |
-| Generate / regenerate / continue | `public/script.js`, generation processing; operation selected as `create-message`, `create-swipe`, or `edit-message` | The patch now invokes `beforeMutation()` for the selected operation before processing; `create-message` passes an empty affected-index list, while edits/swipes identify the existing final message | **Patched pre-guard at this hook; patch application/validation and runtime tests passed on HEAD `2882bba15dd299705e988761bac3c73190e23917`; Chromium IndexedDB restart is still pending.** This validates the tested patch/test paths, not every runtime route. Partial generation, stop/error paths, alternate generation routes, and persistence ordering remain unproven. |
+| Generate / regenerate / continue | `public/script.js`, generation processing; operation selected as `create-message`, `create-swipe`, or `edit-message` | The patch now invokes `beforeMutation()` for the selected operation before processing; `create-message` passes an empty affected-index list, while edits/swipes identify the existing final message | **Patched pre-guard at this hook.** Exact-HEAD CI on `cc4373575c17b947efc1f73de77e912bb0317980` passed patch check, patch validation, runtime tests, and Chromium IndexedDB restart. This validates the tested patch/test paths, not every runtime route. Partial generation, stop/error paths, alternate generation routes, and persistence ordering remain unproven. |
 | Edit message | `public/script.js`, message editor update path | `beforeMutation('edit-message')` before update; post-hook after save | **Patched guard.** External edits and alternate edit routes remain uncovered/unproven. |
 | Delete last / selected message range | `deleteLastMessage` and selected deletion path in `public/script.js` | Pre-hook before in-memory deletion; save/post-hook afterward | **Patched guard.** Need route-level integration evidence for all deletion entry points and failure ordering. |
 | Create/select swipe | Generation path and swipe selection path in `public/script.js` | Calls `create-swipe`, `select-swipe`, or `edit-message` bridge operations | **Patched guard at selected paths.** Swipe-back/delete source branches and all alternate mutation paths are not proven covered. |
@@ -33,6 +33,17 @@ Pinned source context: `06bde939fb1e9c4c8d8641d810f0a916b5bce127`; patch file: `
 | Server-side import/delete/rename API called directly | API routes outside the patched browser call site | No proof every API route is bound to the browser guard | **Coverage unproven.** Direct API invocation may bypass client-side guards unless separately intercepted server-side. |
 | External file edit / restore outside application | Filesystem, external tools, unpatched extensions | No Host interception shown | **Not covered by current patch.** Fingerprint mismatch can detect some later differences only relative to an available trusted checkpoint; it does not authenticate source or guarantee detection before mutation. |
 | Journal/storage unavailable | Bridge-open fallback | Re-checks enrollment marker; rejects enrolled chat mutation when journal unavailable | **Helper behavior covered by unit-level path.** Does not establish route interception or independent rollback resistance of local storage. |
+
+## Exact-HEAD validation snapshot
+
+Reviewed HEAD: `cc4373575c17b947efc1f73de77e912bb0317980` (27 Oct 2026). All four PR workflows passed on this exact SHA:
+
+- [Host lifecycle patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40426838730)
+- [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40426838611)
+- [Chromium IndexedDB restart](https://github.com/necromorphic/Logic-Engine/actions/runs/40426838520)
+- [Runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40426838524)
+
+These results do not prove route completeness, Android/Termux behavior, source authenticity, complete inventory, rollback resistance, or authenticated lineage. This snapshot applies only to the listed SHA; any later commit requires new exact-HEAD validation.
 
 ## What the tests establish
 
