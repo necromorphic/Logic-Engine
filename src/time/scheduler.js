@@ -125,13 +125,21 @@ function buildDependencyOrder(due, allById, completedIds) {
   for (const trigger of due) {
     const required = [];
     for (const dependencyId of trigger.dependencies) {
-      if (completedIds.has(dependencyId)) continue;
       const dependency = allById.get(dependencyId);
       if (!dependency) {
+        if (completedIds.has(dependencyId)) continue;
         blocked.push({ trigger_id: trigger.trigger_id, dependency_id: dependencyId, reason: 'missing_dependency' });
         continue;
       }
-      if (dependency.status === 'completed') continue;
+      if (dependency.status === 'completed') {
+        if (dependency.due_coordinate > trigger.due_coordinate) {
+          fail('CAUSAL_TIME_ORDER_CONFLICT', 'A trigger cannot depend on work scheduled later in game time.', {
+            trigger_id: trigger.trigger_id, dependency_id: dependencyId,
+          });
+        }
+        continue;
+      }
+      if (completedIds.has(dependencyId)) continue;
       if (dependency.status === 'cancelled') {
         blocked.push({ trigger_id: trigger.trigger_id, dependency_id: dependencyId, reason: 'dependency_cancelled' });
         continue;
