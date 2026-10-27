@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import {
   advanceAcceptedHeadSync,
   finalizeAcceptedHeadSync,
+  getAcceptedHeadStatusSync,
   getAcceptedHeadsSync,
 } from '../security/accepted-head-client-sync.js';
 import { DatabaseSync } from 'node:sqlite';
@@ -376,6 +377,39 @@ export class SQLiteStore {
       this.db.exec(schemaSql);
       if (!this.acceptedHeadConfig) {
         this.db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
+      } else {
+        const local = this.db.prepare(
+          'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
+        ).get();
+        let status = getAcceptedHeadStatusSync({
+          port: this.acceptedHeadConfig.port,
+          token: this.acceptedHeadConfig.token,
+        });
+        const pending = status.operations.core;
+        if (pending) {
+          const localMatchesPending = local
+            && local.head === pending.head
+            && local.last_operation_id === pending.operation_id
+            && local.last_operation_digest === pending.operation_digest
+            && local.enrolled === 1;
+          if (!localMatchesPending) {
+            throw new Error('CORE_ACCEPTED_HEAD_RECOVERY_REQUIRED');
+          }
+          finalizeAcceptedHeadSync({
+            domain: 'core',
+            operationId: pending.operation_id,
+            operationDigest: pending.operation_digest,
+            token: this.acceptedHeadConfig.token,
+            port: this.acceptedHeadConfig.port,
+          });
+          status = getAcceptedHeadStatusSync({
+            port: this.acceptedHeadConfig.port,
+            token: this.acceptedHeadConfig.token,
+          });
+        }
+        if (status.pending.core || status.heads.core !== local.head || !status.enrolled.core) {
+          throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
+        }
       }
       this.migrate();
       if (this.coordinatorRelease) {
