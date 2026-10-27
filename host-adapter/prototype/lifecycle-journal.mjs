@@ -131,15 +131,52 @@ export class HostLifecycleJournal {
     };
   }
 
-  async status(cid,{instrumentedPaths=[],sourceFingerprintMatches=false}={}) {
+  /**
+   * Compares the live native source inventory with the latest locally journaled
+   * fingerprint. A match proves local checkpoint consistency only: the journal
+   * and head live in the same Host-controlled storage domain, so this cannot
+   * establish authenticity or anti-rollback. The result therefore never grants
+   * trust or production readiness.
+   */
+  async verifyCurrentSource(cid,{messages,sourceLocator=null}={}) {
+    if(this.#bad.has(cid)) return {status:'NON_READY',journalIntegrity:'FAILED',reason:this.#bad.get(cid)};
+    let rows;
+    try { rows=await this.#records(cid); } catch(e) { return {status:'NON_READY',journalIntegrity:'FAILED',reason:'journal unreadable: '+(e?.message||e)}; }
+    const check=await this.#verifyStored(cid,rows);
+    if(!check.ok) return {status:'NON_READY',journalIntegrity:'FAILED',reason:check.reason};
+    if(!rows.length||rows[0].operation!=='baseline') return {status:'NON_READY',journalIntegrity:'VERIFIED',reason:'missing baseline'};
+    if(!Array.isArray(messages)) return {status:'NON_READY',journalIntegrity:'VERIFIED',reason:'live source inventory unavailable'};
+    const expected=rows.at(-1).sourceFingerprint;
+    if(typeof expected!=='string'||!expected) return {status:'NON_READY',journalIntegrity:'VERIFIED',reason:'latest journal record has no source fingerprint'};
+    let actual;
+    try { actual=await fingerprintSource(messages,sourceLocator); }
+    catch(e) { return {status:'NON_READY',journalIntegrity:'VERIFIED',reason:'live source inventory cannot be fingerprinted: '+(e?.message||e)}; }
+    if(actual!==expected) return {status:'NON_READY',journalIntegrity:'VERIFIED',reason:'live source inventory fingerprint mismatch',sequence:rows.at(-1).sequence};
+    return {
+      status:'LOCAL_MATCH_NON_AUTHORITATIVE',
+      journalIntegrity:'VERIFIED',
+      authority:'NON_AUTHORITATIVE',
+      trustDecision:'NON_READY',
+      sequence:rows.at(-1).sequence,
+      sourceFingerprint:actual,
+      blockers:[
+        'NO_INDEPENDENT_TRUST_ANCHOR',
+        'HOST_STORAGE_REWRITE_AND_ROLLBACK_NOT_EXCLUDED',
+        'COMPLETE_NATIVE_LIFECYCLE_COVERAGE_UNPROVEN',
+        'PRE_ENROLLMENT_HISTORY_UNKNOWN',
+        'PINNED_SOURCE_ATTESTATION_NOT_VERIFIED',
+      ],
+    };
+  }
+
+  async status(cid,{instrumentedPaths=[]}={}) {
     if(this.#bad.has(cid)) return {status:'NON_READY',reason:this.#bad.get(cid)};
     let rows; try { rows=await this.#records(cid); } catch(e) { return this.#fail(cid,'journal unreadable: '+(e?.message||e)); }
     const check=await this.#verifyStored(cid,rows); if(!check.ok) return this.#fail(cid,check.reason);
     if(!rows.length||rows[0].operation!=='baseline') return {status:'NON_READY',reason:'missing baseline'};
     const missing=REQUIRED_COVERAGE.filter(p=>!instrumentedPaths.includes(p));
     if(missing.length) return {status:'NON_READY',reason:'incomplete mutation instrumentation',missingPaths:missing,baselineBoundary:'enrollment-forward-only'};
-    if(!sourceFingerprintMatches) return {status:'NON_READY',reason:'source fingerprint mismatch or unverified'};
-    return {status:'NON_READY',reason:'native hook coverage has no trusted pinned-source attestation',sequence:rows.at(-1).sequence,baselineBoundary:'enrollment-forward-only'};
+    return {status:'NON_READY',reason:'live source verification must run through the Host bridge; native hook coverage has no trusted pinned-source attestation',sequence:rows.at(-1).sequence,baselineBoundary:'enrollment-forward-only'};
   }
   async #verify(rows) {
     let previous=null;
@@ -151,16 +188,42 @@ export class HostLifecycleJournal {
 function txDone(tx) { return new Promise((resolve,reject)=>{tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||Error('IndexedDB transaction failed'));tx.onabort=()=>reject(tx.error||Error('IndexedDB transaction aborted'));}); }
 export async function contentDigest(text) { return digest(String(text)); }
 export async function fingerprintSource(messages, sourceLocator = null) {
-  const projection = messages.map(message => ({
-    role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
-    isUser: message.is_user === true,
-    isSystem: message.is_system === true,
-    systemType: message.extra?.type ?? null,
-    name: message.name ?? null,
-    currentMessage: message.mes ?? '',
-    versions: Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''],
-    activeVersionIndex: Number.isInteger(message.swipe_id) ? message.swipe_id : 0,
-  }));
+  if (!Array.isArray(messages)) throw TypeError('Malformed native message inventory');
+  const projection = messages.map(message => {
+    if (!message || typeof message !== 'object' || Array.isArray(message)) {
+      throw TypeError('Malformed native message entry');
+    }
+    // Do not normalize malformed source metadata to "absent": that would make
+    // invalid swipe/branch state fingerprint-identical to a valid empty state.
+    if (message.swipes !== undefined && !Array.isArray(message.swipes)) {
+      throw TypeError('Malformed native swipe inventory');
+    }
+    if (message.swipe_id !== undefined && !Number.isInteger(message.swipe_id)) {
+      throw TypeError('Malformed native active-swipe index');
+    }
+    const versions = Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
+    const activeVersionIndex = message.swipe_id ?? 0;
+    if (activeVersionIndex < 0 || activeVersionIndex >= versions.length) {
+      throw TypeError('Native active-swipe index is out of range');
+    }
+    const branchReferences = message.extra?.branches;
+    if (branchReferences !== undefined && !Array.isArray(branchReferences)) {
+      throw TypeError('Malformed native branch-reference inventory');
+    }
+    return {
+      role: message.is_user ? 'user' : message.is_system ? 'system' : 'assistant',
+      isUser: message.is_user === true,
+      isSystem: message.is_system === true,
+      systemType: message.extra?.type ?? null,
+      // ST stores child branch names on the source message's extra.branches.
+      // Fingerprint these observed references; this does not authenticate parent-child lineage.
+      branchReferences: branchReferences ?? [],
+      name: message.name ?? null,
+      currentMessage: message.mes ?? '',
+      versions,
+      activeVersionIndex,
+    };
+  });
   return digest({ sourceLocator: sourceLocator ?? null, projection });
 }
 export const lifecycleJournalContract=Object.freeze({schemaVersion:2,requiredCoveragePaths:REQUIRED_COVERAGE});
