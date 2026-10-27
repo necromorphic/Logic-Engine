@@ -49,7 +49,7 @@ test('authority requires explicit enrollment and then advances monotonic per-dom
     assert.deepEqual(authority.getEnrollmentStatus(), { core: true, provider: true });
 
     assert.deepEqual(authority.advance({ domain: 'core', operationId: 'core-op-1', operationDigest: digestC, expectedHead: 1 }), {
-      domain: 'core', head: 2, operation_id: 'core-op-1', replayed: false, status: 'pending',
+      domain: 'core', head: 2, operation_id: 'core-op-1', operation_digest: digestC, replayed: false, status: 'pending',
     });
     assert.throws(
       () => authority.advance({ domain: 'core', operationId: 'core-op-1', operationDigest: digestC, expectedHead: 1 }),
@@ -57,17 +57,17 @@ test('authority requires explicit enrollment and then advances monotonic per-dom
     );
     assert.equal(authority.getPendingDomains().core, true);
     assert.deepEqual(authority.finalize({ domain: 'core', operationId: 'core-op-1', operationDigest: digestC }), {
-      domain: 'core', head: 2, operation_id: 'core-op-1', replayed: false, status: 'committed',
+      domain: 'core', head: 2, operation_id: 'core-op-1', operation_digest: digestC, replayed: false, status: 'committed',
     });
     assert.deepEqual(authority.advance({ domain: 'core', operationId: 'core-op-1', operationDigest: digestC, expectedHead: 2 }), {
-      domain: 'core', head: 2, operation_id: 'core-op-1', replayed: true, status: 'committed',
+      domain: 'core', head: 2, operation_id: 'core-op-1', operation_digest: digestC, replayed: true, status: 'committed',
     });
     assert.deepEqual(authority.advance({ domain: 'provider', operationId: 'provider-op-1', operationDigest: digestD, expectedHead: 1 }), {
-      domain: 'provider', head: 2, operation_id: 'provider-op-1', replayed: false, status: 'pending',
+      domain: 'provider', head: 2, operation_id: 'provider-op-1', operation_digest: digestD, replayed: false, status: 'pending',
     });
     authority.finalize({ domain: 'provider', operationId: 'provider-op-1', operationDigest: digestD });
     assert.deepEqual(authority.advance({ domain: 'core', operationId: 'core-op-2', operationDigest: digestA, expectedHead: 2 }), {
-      domain: 'core', head: 3, operation_id: 'core-op-2', replayed: false, status: 'pending',
+      domain: 'core', head: 3, operation_id: 'core-op-2', operation_digest: digestA, replayed: false, status: 'pending',
     });
     authority.finalize({ domain: 'core', operationId: 'core-op-2', operationDigest: digestA });
     assert.deepEqual(authority.getHeads(), { core: 3, provider: 2 });
@@ -101,7 +101,7 @@ test('authority persists enrollment and committed heads across restart and rejec
     assert.deepEqual(reopened.getHeads(), { core: 0, provider: 2 });
     assert.deepEqual(reopened.getEnrollmentStatus(), { core: false, provider: true });
     assert.deepEqual(reopened.advance({ domain: 'provider', operationId: 'provider-op-persisted', operationDigest: digestB, expectedHead: 2 }), {
-      domain: 'provider', head: 2, operation_id: 'provider-op-persisted', replayed: true, status: 'committed',
+      domain: 'provider', head: 2, operation_id: 'provider-op-persisted', operation_digest: digestB, replayed: true, status: 'committed',
     });
   } finally {
     reopened.close();
@@ -158,37 +158,37 @@ test('authority IPC requires explicit enrollment, enforces domain tokens, and fa
 
     assert.deepEqual(enrollAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-enroll', operationDigest: digestA, token: coreToken, port,
-    }), { domain: 'core', head: 1, operation_id: 'sync-core-enroll', replayed: false, status: 'pending' });
+    }), { domain: 'core', head: 1, operation_id: 'sync-core-enroll', operation_digest: digestA, replayed: false, status: 'pending' });
     assert.throws(() => getAcceptedHeadsSync({ port }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
     assert.deepEqual(finalizeAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-enroll', operationDigest: digestA, token: coreToken, port,
-    }), { domain: 'core', head: 1, operation_id: 'sync-core-enroll', replayed: false, status: 'committed' });
+    }), { domain: 'core', head: 1, operation_id: 'sync-core-enroll', operation_digest: digestA, replayed: false, status: 'committed' });
 
     assert.deepEqual(enrollAcceptedHeadSync({
       domain: 'provider', operationId: 'sync-provider-enroll', operationDigest: digestB, token: providerToken, port,
-    }), { domain: 'provider', head: 1, operation_id: 'sync-provider-enroll', replayed: false, status: 'pending' });
+    }), { domain: 'provider', head: 1, operation_id: 'sync-provider-enroll', operation_digest: digestB, replayed: false, status: 'pending' });
     assert.deepEqual(finalizeAcceptedHeadSync({
       domain: 'provider', operationId: 'sync-provider-enroll', operationDigest: digestB, token: providerToken, port,
-    }), { domain: 'provider', head: 1, operation_id: 'sync-provider-enroll', replayed: false, status: 'committed' });
+    }), { domain: 'provider', head: 1, operation_id: 'sync-provider-enroll', operation_digest: digestB, replayed: false, status: 'committed' });
     assert.deepEqual(getAcceptedHeadsSync({ port }), { core: 1, provider: 1 });
 
     assert.deepEqual(advanceAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-op-1', operationDigest: digestC, expectedHead: 1, token: coreToken, port,
-    }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', replayed: false, status: 'pending' });
+    }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', operation_digest: digestC, replayed: false, status: 'pending' });
     assert.throws(() => getAcceptedHeadsSync({ port }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
     assert.deepEqual(finalizeAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-op-1', operationDigest: digestC, token: coreToken, port,
-    }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', replayed: false, status: 'committed' });
+    }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', operation_digest: digestC, replayed: false, status: 'committed' });
     assert.deepEqual(advanceAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-op-1', operationDigest: digestC, expectedHead: 2, token: coreToken, port,
-    }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', replayed: true, status: 'committed' });
+    }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', operation_digest: digestC, replayed: true, status: 'committed' });
 
     assert.deepEqual(advanceAcceptedHeadSync({
       domain: 'provider', operationId: 'sync-provider-op-1', operationDigest: digestD, expectedHead: 1, token: providerToken, port,
-    }), { domain: 'provider', head: 2, operation_id: 'sync-provider-op-1', replayed: false, status: 'pending' });
+    }), { domain: 'provider', head: 2, operation_id: 'sync-provider-op-1', operation_digest: digestD, replayed: false, status: 'pending' });
     assert.deepEqual(finalizeAcceptedHeadSync({
       domain: 'provider', operationId: 'sync-provider-op-1', operationDigest: digestD, token: providerToken, port,
-    }), { domain: 'provider', head: 2, operation_id: 'sync-provider-op-1', replayed: false, status: 'committed' });
+    }), { domain: 'provider', head: 2, operation_id: 'sync-provider-op-1', operation_digest: digestD, replayed: false, status: 'committed' });
     assert.deepEqual(getAcceptedHeadsSync({ port }), { core: 2, provider: 2 });
 
     assert.throws(() => advanceAcceptedHeadSync({
