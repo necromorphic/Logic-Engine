@@ -75,6 +75,10 @@ export function enrollAcceptedHeadDomain({
     if (!local || local.head !== 0 || local.enrolled !== 0) {
       throw new Error('ACCEPTED_HEAD_LOCAL_STATE_NOT_FRESH');
     }
+    const auditTable = db.prepare(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name='accepted_head_enrollment_audit'",
+    ).get();
+    if (!auditTable) throw new Error('ACCEPTED_HEAD_ENROLLMENT_AUDIT_SCHEMA_MISSING');
 
     const operationId = 'enroll:' + domain + ':' + approvalId;
     const operationDigest = createHash('sha256').update(JSON.stringify({
@@ -97,7 +101,6 @@ export function enrollAcceptedHeadDomain({
       const updated = db.prepare('UPDATE accepted_head_state SET head=1,enrolled=1,last_operation_id=?,last_operation_digest=? WHERE singleton=1 AND head=0 AND enrolled=0')
         .run(operationId, operationDigest);
       if (updated.changes !== 1) throw new Error('ACCEPTED_HEAD_LOCAL_STATE_CHANGED');
-      db.exec("CREATE TABLE IF NOT EXISTS accepted_head_enrollment_audit(singleton INTEGER PRIMARY KEY CHECK(singleton=1),domain TEXT NOT NULL CHECK(domain IN ('core','provider')),approval_id TEXT NOT NULL,baseline_digest TEXT NOT NULL,operation_id TEXT NOT NULL,enrolled_head INTEGER NOT NULL CHECK(enrolled_head=1),enrolled_at TEXT NOT NULL)");
       db.prepare('INSERT INTO accepted_head_enrollment_audit(singleton,domain,approval_id,baseline_digest,operation_id,enrolled_head,enrolled_at) VALUES(1,?,?,?,?,1,?)')
         .run(domain, approvalId, baselineDigest, operationId, new Date().toISOString());
       db.exec('COMMIT');
