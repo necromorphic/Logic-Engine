@@ -297,6 +297,7 @@ export function createAcceptedHeadAuthorityServer({
   authority,
   coreToken,
   providerToken,
+  readToken,
   host = '127.0.0.1',
   port = 0,
   maxBodyBytes = 4096,
@@ -309,10 +310,11 @@ export function createAcceptedHeadAuthorityServer({
   }
   if (typeof coreToken !== 'string' || coreToken.length < 32
     || typeof providerToken !== 'string' || providerToken.length < 32
-    || coreToken === providerToken) {
-    throw new TypeError('Distinct strong Core and Provider authority tokens are required.');
+    || typeof readToken !== 'string' || readToken.length < 32
+    || new Set([coreToken, providerToken, readToken]).size !== 3) {
+    throw new TypeError('Distinct strong Core, Provider, and read-only authority tokens are required.');
   }
-  const tokens = { core: coreToken, provider: providerToken };
+  const tokens = { core: coreToken, provider: providerToken, read: readToken };
 
   const reply = (response, status, payload) => {
     response.writeHead(status, {
@@ -329,7 +331,7 @@ export function createAcceptedHeadAuthorityServer({
     if (request.method === 'GET' && request.url === '/v1/heads') {
       const token = request.headers.authorization?.startsWith('Bearer ')
         ? request.headers.authorization.slice(7) : '';
-      if (!safeTokenEqual(tokens.core, token) && !safeTokenEqual(tokens.provider, token)) {
+      if (!safeTokenEqual(tokens.core, token) && !safeTokenEqual(tokens.provider, token) && !safeTokenEqual(tokens.read, token)) {
         reply(response, 403, { error: 'DENIED' });
         return;
       }
