@@ -1,24 +1,11 @@
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
-@@ -22,3 +22,4 @@
- import { router as novelAiRouter } from './endpoints/novelai.js';
- import { router as extensionsRouter } from './endpoints/extensions.js';
- import { router as assetsRouter } from './endpoints/assets.js';
-+import { router as logicEngineDiagnosticRouter } from './endpoints/logic-engine-diagnostic.js';
-@@ -156,3 +157,4 @@
+@@ -156,3 +156,7 @@
      app.use('/api/novelai', novelAiRouter);
      app.use('/api/extensions', extensionsRouter);
-+    app.use('/api/logic-engine-diagnostics', logicEngineDiagnosticRouter);
++    app.get('/api/logic-engine-diagnostics/status', async (request, response) => {
++        const { createLogicEngineHealthHandler } = await import('./endpoints/logic-engine-diagnostic-health.mjs');
++        return createLogicEngineHealthHandler()(request, response);
++    });
      app.use('/api/assets', assetsRouter);
-diff --git a/src/endpoints/logic-engine-diagnostic.js b/src/endpoints/logic-engine-diagnostic.js
-new file mode 100644
---- /dev/null
-+++ b/src/endpoints/logic-engine-diagnostic.js
-@@ -0,0 +1,6 @@
-+import express from 'express';
-+import { createLogicEngineHealthHandler } from './logic-engine-diagnostic-health.mjs';
-+
-+export const router = express.Router();
-+
-+router.get('/status', createLogicEngineHealthHandler());

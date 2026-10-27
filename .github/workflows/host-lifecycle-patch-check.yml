@@ -74,7 +74,6 @@ jobs:
       - name: Syntax-check diagnostic route and extension
         run: |
           node --check sillytavern-diagnostic-checkout/src/server-startup.js
-          node --check sillytavern-diagnostic-checkout/src/endpoints/logic-engine-diagnostic.js
           node --check sillytavern-diagnostic-checkout/src/endpoints/logic-engine-diagnostic-health.mjs
           node --check host-adapter/prototype/diagnostic-extension/index.js
       - name: Test fail-closed health probe
