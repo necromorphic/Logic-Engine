@@ -31,7 +31,7 @@ From the Logic-Engine repository root, generate the provider-neutral patch:
 node host-adapter/sillytavern-extension/prepare-pinned-st-patch.mjs
 ```
 
-This generates `host-adapter/sillytavern-extension/patches/sillytavern-1.19.0-logic-engine-bridge.patch`. The generator explicitly removes the model-provider logging hunk from the older candidate patch and adds the missing proxy implementation. Then, in the exact pinned SillyTavern checkout, first run `git apply --check <patch-path>`, inspect the diff, and only then apply it. Do not apply it to a live installation before review.
+This generates `host-adapter/sillytavern-extension/patches/sillytavern-1.19.0-logic-engine-bridge.patch`. The generator explicitly removes the model-provider logging hunk from the older candidate patch and adds the server-side proxy implementation. In the exact pinned SillyTavern checkout, run `git apply --check <patch-path>` and inspect the diff for review only. **Do not apply this patch to any SillyTavern installation until the exact diff receives the required second explicit Core approval under issue #264.** Passing `git apply --check` proves patch applicability, not trust or production readiness.
 
 Configure the SillyTavern server process with `LOGIC_ENGINE_CORE_URL`, `LOGIC_ENGINE_API_TOKEN`, `LOGIC_ENGINE_ADAPTER_ID`, and `LOGIC_ENGINE_ADAPTER_TOKEN`. Configure the matching adapter secret in Logic-Engine. Do not expose the engine port publicly.
 
