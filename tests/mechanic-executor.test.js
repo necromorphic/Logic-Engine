@@ -1421,3 +1421,37 @@ test('proposal commit rolls back canonical state when committed-audit insertion 
     "SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=? AND action='proposal.committed'",
   ).get(worldId).count, beforeCommittedAudits + 1);
 });
+
+
+test('a newly present effect target invalidates an evaluation based on target absence', (t) => {
+  const { engine, worldId } = setup(t);
+  enableFixture(engine, worldId);
+  const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+
+  assert.equal(evaluation.status, 'ready');
+  assert.deepEqual(evaluation.dependency_manifest.effect_target_dependencies, [
+    { kind: 'entity_absence', target_id: 'entity.new' },
+  ]);
+
+  // Simulate another committed event creating the target after evaluation.
+  commit(engine, worldId, 'concurrent-create-target', 2, [{
+    kind: 'entity.create',
+    entity_id: 'entity.new',
+    entity_type: 'character',
+    attributes: { name: 'Concurrent target' },
+  }]);
+
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
+  assert.throws(
+    () => proposals.createFromMechanicEvaluation(worldId, evaluation, {
+      idempotencyKey: 'stale-absent-target-evaluation',
+      turnId: 'turn-stale-absent-target',
+      sourceText: 'The target appeared after evaluation and must invalidate the result.',
+      adapterId: 'test-adapter',
+    }),
+    (error) => error.code === 'STALE_MECHANIC_EVALUATION' && error.status === 409,
+  );
+  assert.equal(proposals.getByIdempotencyKey?.(worldId, 'stale-absent-target-evaluation'), undefined);
+  assert.equal(engine.getState(worldId).entities.filter((entity) => entity.entity_id === 'entity.new').length, 1);
+});
