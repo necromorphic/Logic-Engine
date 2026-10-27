@@ -41,9 +41,13 @@ def check_rollup_is_green(checks):
     for check in checks:
         if not isinstance(check, dict):
             return False
-        conclusion = str(check.get("conclusion") or "").upper()
+        raw_conclusion = check.get("conclusion")
+        conclusion = str(raw_conclusion or "").upper()
         state = str(check.get("state") or "").upper()
-        if conclusion != "SUCCESS" and state != "SUCCESS":
+        if raw_conclusion is not None:
+            if conclusion != "SUCCESS":
+                return False
+        elif state != "SUCCESS":
             return False
     return True
 
