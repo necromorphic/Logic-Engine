@@ -115,6 +115,8 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.match(hostJournal, /HOST_POST_MUTATION_SCAN_INCOMPLETE/);
   assert.match(lifecycleRoutes, /registerHostConversation/);
   assert.match(lifecycleRoutes, /host-lifecycle\/enroll/);
+  assert.match(lifecycleRoutes, /host-lifecycle\/status/);
+  assert.match(lifecycleRoutes, /host-lifecycle\/reconcile/);
 });
 
 test('server-side Core digest proxy exists and never exposes its credentials to browser code', async () => {
@@ -218,7 +220,7 @@ test('server-side inventory endpoint is digest-only and never reports historical
   const inventoryScanner = await readFile(resolve(root, 'src/endpoints/logic-engine-host-inventory.mjs'), 'utf8');
   assert.match(lifecycleRoutes, /router\.post\('\/host-artifact-inventory\/scan'/);
   assert.match(lifecycleRoutes, /request\.user\?\.directories\?\.chats/);
-  assert.match(lifecycleRoutes, /request\\.user\\?\\.directories\\?\\.groups/);
+  assert.match(lifecycleRoutes, /request\.user\?\.directories\?\.groups/);
   assert.match(lifecycleRoutes, /request\.user\?\.directories\?\.groupChats/);
   assert.match(lifecycleRoutes, /request\.user\?\.directories\?\.backups/);
   assert.match(lifecycleRoutes, /historicalCompleteness:\s*'UNKNOWN'/);
