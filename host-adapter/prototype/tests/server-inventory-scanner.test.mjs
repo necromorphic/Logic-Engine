@@ -27,7 +27,7 @@ test('scanner enumerates persisted artifacts without exposing their contents', a
 test('scanner rejects a directory that changes while entries are being enumerated', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-inventory-race-'));
   try {
-    await writeFile(path.join(root, 'first.jsonl'), '{"mes":"first"}\\n');
+    await writeFile(path.join(root, 'first.jsonl'), '{"mes":"first"}\n');
     let injected = false;
     const fs = {
       lstat, open, realpath,
@@ -35,7 +35,7 @@ test('scanner rejects a directory that changes while entries are being enumerate
         const entries = await readdir(directory, options);
         if (directory === root && !injected) {
           injected = true;
-          await writeFile(path.join(root, 'added-during-scan.jsonl'), '{"mes":"late"}\\n');
+          await writeFile(path.join(root, 'added-during-scan.jsonl'), '{"mes":"late"}\n');
         }
         return entries;
       },
