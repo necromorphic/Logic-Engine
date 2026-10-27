@@ -42,15 +42,20 @@ function Get-PathAclEvidence {
 
     $results = New-Object System.Collections.Generic.List[object]
     foreach ($target in $targets) {
-        $item = Get-Item -LiteralPath $target -Force -ErrorAction SilentlyContinue
-        if (-not $item) {
+        $item = $null
+        try {
+            $item = Get-Item -LiteralPath $target -Force -ErrorAction Stop
+        } catch {
+            $category = [string]$_.CategoryInfo.Category
+            $isMissing = $category -in @("ObjectNotFound", "PathNotFound")
             $results.Add([pscustomobject]@{
                 requestedPath = $InputPath
                 path = $target
-                exists = $false
+                exists = if ($isMissing) { $false } else { $null }
                 owner = $null
                 sddl = $null
                 accessRules = @()
+                error = if ($isMissing) { $null } else { "Path lookup failed: $($_.Exception.GetType().Name)" }
             })
             continue
         }
@@ -95,7 +100,16 @@ function Get-PathAclEvidence {
     # SQLite sidecars are siblings of the database and must be checked independently.
     foreach ($suffix in @("-wal", "-shm", "-journal")) {
         $sidecar = "$resolved$suffix"
-        $item = Get-Item -LiteralPath $sidecar -Force -ErrorAction SilentlyContinue
+        $item = $null
+        $sidecarLookupError = $null
+        try {
+            $item = Get-Item -LiteralPath $sidecar -Force -ErrorAction Stop
+        } catch {
+            $category = [string]$_.CategoryInfo.Category
+            if ($category -notin @("ObjectNotFound", "PathNotFound")) {
+                $sidecarLookupError = "Path lookup failed: $($_.Exception.GetType().Name)"
+            }
+        }
         if ($item) {
             try {
                 $acl = Get-Acl -LiteralPath $sidecar
@@ -133,12 +147,12 @@ function Get-PathAclEvidence {
             $results.Add([pscustomobject]@{
                 requestedPath = $InputPath
                 path = $sidecar
-                exists = $false
+                exists = if ($sidecarLookupError) { $null } else { $false }
                 itemType = "SQLite sidecar"
                 owner = $null
                 sddl = $null
                 accessRules = @()
-                error = $null
+                error = $sidecarLookupError
             })
         }
     }
@@ -195,10 +209,29 @@ try {
     $tcpEvidence = @([pscustomobject]@{ unavailable = "Get-NetTCPConnection failed or is unavailable" })
 }
 
-$firewallEvidence = @()
+$firewallProfiles = @()
 try {
-    $firewallEvidence = @(
-        Get-NetFirewallRule -PolicyStore ActiveStore -Direction Outbound -Enabled True -Action Allow -ErrorAction Stop |
+    $firewallProfiles = @(
+        Get-NetFirewallProfile -PolicyStore ActiveStore -ErrorAction Stop | ForEach-Object {
+            [pscustomobject]@{
+                name = [string]$_.Name
+                enabled = [bool]$_.Enabled
+                defaultInboundAction = [string]$_.DefaultInboundAction
+                defaultOutboundAction = [string]$_.DefaultOutboundAction
+                allowInboundRules = [string]$_.AllowInboundRules
+                allowLocalFirewallRules = [string]$_.AllowLocalFirewallRules
+            }
+        }
+    )
+} catch {
+    $firewallProfiles = @([pscustomobject]@{ unavailable = "Firewall profile query failed or is unavailable" })
+}
+
+$outboundFirewallRules = @()
+try {
+    $outboundFirewallRules = @(
+        Get-NetFirewallRule -PolicyStore ActiveStore -Direction Outbound -Enabled True -ErrorAction Stop |
+        Where-Object { [string]$_.Action -in @("Allow", "Block") } |
         ForEach-Object {
             $rule = $_
             $app = Get-NetFirewallApplicationFilter -AssociatedNetFirewallRule $rule -ErrorAction SilentlyContinue
@@ -219,8 +252,10 @@ try {
         }
     )
 } catch {
-    $firewallEvidence = @([pscustomobject]@{ unavailable = "Firewall cmdlets failed or are unavailable" })
+    $outboundFirewallRules = @([pscustomobject]@{ unavailable = "Outbound firewall rule query failed or is unavailable" })
 }
+$firewallAllowRules = @($outboundFirewallRules | Where-Object { $_.action -eq "Allow" })
+$firewallBlockRules = @($outboundFirewallRules | Where-Object { $_.action -eq "Block" })
 
 $report = [ordered]@{
     reportType = "Logic Engine deployment security evidence (read-only)"
@@ -238,10 +273,13 @@ $report = [ordered]@{
     processEvidence = $selectedProcesses
     pathAclEvidence = $pathEvidence
     establishedTcpConnections = $tcpEvidence
-    enabledOutboundAllowRules = $firewallEvidence
+    firewallProfiles = $firewallProfiles
+    enabledOutboundAllowRules = $firewallAllowRules
+    enabledOutboundBlockRules = $firewallBlockRules
     limitations = @(
         "Read-only inventory only; no settings or files were changed.",
-        "Process lists, ACLs and firewall rules do not by themselves prove exclusive egress or restore resistance.",
+        "An inaccessible path is reported as unknown, not as absent; validate all unknown/error entries manually."
+        "Firewall profile defaults and enabled outbound allow/block rules are inventory evidence only and do not prove exclusive egress or restore resistance.",
         "No connection tests, authorization bypass tests, backup restores or protected requests were executed.",
         "Review and redact machine names, account names, local paths and remote endpoints before sharing."
     )
