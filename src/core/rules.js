@@ -5,8 +5,9 @@ const OPS = new Set(SUPPORTED_RULE_OPERATORS);
 const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
 function readPath(root, path) {
-  if (typeof path !== 'string' || !path || path.split('.').some((key) => !key || UNSAFE_PATH_SEGMENTS.has(key))) {
-    throw new EngineError('INVALID_RULE_PATH', 'Unsafe or empty rule path.');
+  if (typeof path !== 'string' || !path || path.length > 256
+    || path.split('.').some((key) => !key || UNSAFE_PATH_SEGMENTS.has(key))) {
+    throw new EngineError('INVALID_RULE_PATH', 'Unsafe or empty rule path (maximum 256 characters).');
   }
 
   let value = root;
