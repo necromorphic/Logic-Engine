@@ -18,11 +18,11 @@ Inventory baseline from GitHub REST API on 2026-10-28; see the operational clean
 4. **Archive/close PR only after comparison:** if a newer PR truly supersedes an older one, record which unique changes/tests were carried forward, then close the superseded PR; delete its branch only after verifying it is not a base for another open PR.
 5. **Issues:** keep one portfolio issue and one integration register; do not close independent block gates just because their titles overlap.
 
-## Classification counts (heuristic, 512 unique branches and 82 open PRs)
+## Classification counts (heuristic, 512 unique branches and 86 open PRs at inventory baseline)
 
 - `WORKSTREAM_UNCLASSIFIED`: 214
 - `DUPLICATE_CANDIDATE`: 112
-- `OPEN_PR_HEAD`: 82
+- `OPEN_PR_HEAD`: 86
 - `DOC_OR_AUDIT_CANDIDATE`: 60
 - `SAFETY_OR_TEST_REQUIRES_REVIEW`: 39
 - `CANONICAL_MAIN`: 1
@@ -35,9 +35,9 @@ Meanings:
 - `SAFETY_OR_TEST_REQUIRES_REVIEW`: security, tests, CI, performance; do not delete without coverage review.
 - `WORKSTREAM_UNCLASSIFIED`: no safe disposition can be inferred from name.
 
-## Open PRs and branch ownership — current REST inventory
+## Open PRs and branch ownership — inventory baseline (before subsequent cleanup)
 
-GitHub REST API returned **82 open PRs**. All current open PRs are listed below, including the last page omitted by the earlier 80-PR inventory.
+GitHub REST API returned **86 open PRs** at the inventory baseline. This table is a historical snapshot; consult the operational cleanup delta for current counts and later actions.
 
 | PR | Head branch | Base | State | Title |
 |---|---|---|---|---|
@@ -1227,11 +1227,11 @@ Current lifecycle classification uses the latest open-PR API response. Open PR h
 | `work/recalculation-oracle-integration` | `cea76df9a037f3e334688838aa39ec72dbf859a5` | CLOSED_UNMERGED_REVIEW | — | #225 | Closed without merge: #225; inspect unique commits/tests and whether another open PR depends on it |
 | `work/sillytavern-diagnostic-extension` | `c494830d85fea7201053ff08da598316e5747937` | KEEP_OPEN_PR | — | — | Head of current open PR(s): #492 |
 
-### Status counts — corrected for 82 open PRs
+### Status counts — inventory baseline (before subsequent cleanup)
 
-- `MERGED_PR_BRANCH_REVIEW`: 201
+- `MERGED_PR_BRANCH_REVIEW`: 198
 - `CLOSED_UNMERGED_REVIEW`: 187
-- `KEEP_OPEN_PR`: 82
+- `KEEP_OPEN_PR`: 86
 - `UNCLASSIFIED_REVIEW`: 22
 - `UNMAPPED_CANDIDATE`: 17
 - `KEEP_MAIN`: 1
@@ -1288,7 +1288,8 @@ GitHub compare API checks were run against current main for selected duplicate-l
 - **PR #490 closed without merge** as a superseded parallel source-version implementation. The canonical staged path is #509 → #521 → #504: #509 owns the durable persistence migration/transactional ledger, #521 adds Core readback and validation, and #504 consumes that contract. A closing comment records the reason and confirms the branch was not deleted.
 - Current GitHub search after that action returned **82 open PRs** and **19 open Issues**. The 512-branch count above is the inventory snapshot from the audit run, not a newly verified post-cleanup branch count.
 - **PR #355 remains open**: it has unique additions in `tests/causality-contract.test.js` and a benchmark test edit not present in the current-main replacement PR #368. Do not close it until those changes are transferred or explicitly abandoned.
-- **PR #523 remains a draft**. Its README was refreshed from current `main` and updated with the verified cleanup delta; mergeability and CI must be rechecked before merging.
+- **PR #523 was closed** after a clean replacement, PR #534, was created from current `main`. PR #534 carries the refreshed README and reports; exact-head CI status is tracked on the PR.
 - No runtime PR was merged. No branches were deleted. Memory→NPC remains DISABLED / FAIL-CLOSED.
 
 - **Merged after inventory baseline:** #470 (provider-neutral Core audit brief), #458 (Relationships World Pack semantics docs), and #324 (Personality acceptance crosswalk). Each was non-draft, clean/mergeable, and all reported exact-head checks passed before squash merge.
+- **Clean replacement:** [PR #534](https://github.com/necromorphic/Logic-Engine/pull/534) is the current documentation-only consolidation PR based directly on `main`.
