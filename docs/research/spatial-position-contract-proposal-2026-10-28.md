@@ -127,14 +127,15 @@ These are the evidence boundaries of the current research, not a claim that ever
 
 ## 7. Decisions requested
 
-Core review is requested on the following, in order:
+The permission to continue documentation-only drafting has already been granted. The remaining decisions are:
 
-1. Confirm that a position contract may be developed as a documentation-only proposal within the constraints above.
-2. Select or request evidence for the initial dimensionality, coordinate frame model, units, and position anchor.
-3. Decide the minimum identity/lifecycle and temporal-validity guarantees needed before a position can be considered supported.
-4. Identify the authoritative evidence/provenance form available in Core, or state that the required source does not yet exist.
-5. Approve explicit unknown/stale/conflict behavior.
-6. Confirm whether the proposal is ready for a separate implementation request after these decisions; this document itself grants no implementation permission.
+1. **Spatial/Product owner:** define the initial supported spatial scope and provide a rationale for dimensionality, coordinate frame(s), axes/handedness, units or discrete scale, and position anchor. If these requirements are not available, explicitly defer the choices and keep all unsupported positions unknown.
+2. **Core owner:** confirm the exact existing committed evidence and coherent read boundary that a future derived projection may consume. If the current seam cannot prove the needed guarantees, record BLOCKED / NO APPROVED SEAM rather than adding an API or adapter in this task.
+3. **Core owner:** specify the minimum identity/lifecycle guarantee needed to prevent cross-world contamination and position inheritance after deletion/recreation. Do not assume entity ID alone is sufficient without source evidence.
+4. **Core + Time owner:** define the supported relationship between a committed Core state boundary and the existing TimeEngine game-time coordinate. Until the mapping is proven, historical reconstruction and interpolation remain unsupported.
+5. **Core owner:** confirm how rollback/rebuild invalidates dependent derived results and what evidence is required to claim a result is fresh.
+6. **Core owner:** retain explicit unknown, stale, conflict, and malformed/unsupported outcomes; do not resolve conflict heuristically.
+7. **Architecture gate:** only after the above decisions and exact-SHA verification, decide whether to open a separate implementation request. This proposal does not authorize that implementation.
 
 ## 8. Safety and release gates
 
