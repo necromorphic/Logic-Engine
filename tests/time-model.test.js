@@ -117,3 +117,43 @@ test('calendar validation rejects invalid epoch, dates, duplicate holidays, and 
     (error) => error.code === 'INVALID_INTEGER',
   );
 });
+
+
+test('interval membership rejects unsafe interval records without invoking getters', () => {
+  let getterCalled = false;
+  const accessor = { to: 20 };
+  Object.defineProperty(accessor, 'from', {
+    enumerable: true,
+    get() { getterCalled = true; return 10; },
+  });
+  assert.throws(
+    () => intervalContainsTime(accessor, 15),
+    (error) => error.code === 'INVALID_INTERVAL',
+  );
+  assert.equal(getterCalled, false);
+
+  assert.throws(
+    () => intervalContainsTime({ from: 10, to: 20, unexpected: true }, 15),
+    (error) => error.code === 'INVALID_INTERVAL',
+  );
+  assert.throws(
+    () => intervalContainsTime({ from: 10, to: 20, boundary: '[from, to)' }, 15),
+    (error) => error.code === 'INVALID_INTERVAL',
+  );
+});
+
+test('interval coordinates must be own properties even if Object.prototype is polluted', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'from');
+  Object.defineProperty(Object.prototype, 'from', {
+    configurable: true, enumerable: true, writable: true, value: 10,
+  });
+  try {
+    assert.throws(
+      () => intervalContainsTime({ to: 20 }, 15),
+      (error) => error.code === 'INVALID_INTERVAL',
+    );
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'from', previous);
+    else delete Object.prototype.from;
+  }
+});
