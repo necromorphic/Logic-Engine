@@ -29,6 +29,8 @@ export function createTrustedMemoryDispatchEvidenceReaders({
     throw new TypeError('Trusted Memory dispatch readers require Core services and server-derived Host context.');
   }
 
+  const allowedPurposes = new Set(['npc_decision', 'character_card', 'narrative']);
+
   const context = Object.freeze({
     adapterId: trustedContext.adapterId,
     conversationId: trustedContext.conversationId,
@@ -39,7 +41,7 @@ export function createTrustedMemoryDispatchEvidenceReaders({
     if (!request || typeof request !== 'object'
       || request.actorId !== context.actorEntityId
       || typeof request.worldId !== 'string' || request.worldId !== request.worldId.trim()
-      || !request.worldId || typeof request.purpose !== 'string' || !request.purpose.trim()) {
+      || !request.worldId || typeof request.purpose !== 'string' || !allowedPurposes.has(request.purpose)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     let conversation;
@@ -99,8 +101,8 @@ export function createTrustedMemoryDispatchEvidenceReaders({
     }
     if (!snapshot || typeof snapshot !== 'object' || typeof snapshot.then === 'function'
       || snapshot.world_id !== worldId || !Array.isArray(snapshot.entities)
-      || !(typeof snapshot.world_revision === 'number' || typeof snapshot.world_revision === 'string')
-      || !(typeof snapshot.commit_sequence === 'number' || typeof snapshot.commit_sequence === 'string')) {
+      || !Number.isSafeInteger(snapshot.world_revision) || snapshot.world_revision < 0
+      || !Number.isSafeInteger(snapshot.commit_sequence) || snapshot.commit_sequence < 0) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     const byId = new Map(snapshot.entities.map((entity) => [entity.entity_id, entity]));
@@ -109,7 +111,7 @@ export function createTrustedMemoryDispatchEvidenceReaders({
     }
     for (const source of expected) {
       const entity = byId.get(source.source_entity_id);
-      if (!entity || entity.status === 'destroyed'
+      if (!entity || entity.status !== 'active'
         || canonicalEntitySourceVersion(entity) !== source.source_version) {
         throw new Error('MEMORY_DISPATCH_NOT_READY');
       }
@@ -145,7 +147,7 @@ export function createTrustedMemoryDispatchEvidenceReaders({
     const currentById = new Map(current.entities.map((entity) => [entity.entity_id, entity]));
     if (currentById.size !== byId.size || expected.some((source) => {
       const entity = currentById.get(source.source_entity_id);
-      return !entity || entity.status === 'destroyed'
+      return !entity || entity.status !== 'active'
         || canonicalEntitySourceVersion(entity) !== source.source_version;
     })) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
