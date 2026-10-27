@@ -69,7 +69,7 @@ Historical snapshot: PR head `88da5046e4acd3198bcff9a9f50efd22143d1cce` diverged
 
 ## Disposition
 
-Selected entry points are visibly guarded. Complete lifecycle interception, complete live source inventory, authenticated source lineage, and rollback-resistant checkpointing remain unproven. Keep Host capture/reconciliation `NON_READY`, PR #445 Draft, and production `Memory→NPC` `DISABLED / FAIL-CLOSED` until the required evidence and upstream owner decisions exist.
+Selected entry points are visibly guarded. Complete lifecycle interception, complete live source inventory, authenticated source lineage, and rollback-resistant checkpointing remain unproven. Keep Host capture/reconciliation `NON_READY`, PR #456 Draft, PR #445 closed as superseded, and production `Memory→NPC` `DISABLED / FAIL-CLOSED` until the required evidence and upstream owner decisions exist.
 
 ## Current mainline integration status
 
