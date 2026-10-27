@@ -1,7 +1,7 @@
 diff --git a/src/endpoints/extensions.js b/src/endpoints/extensions.js
 --- a/src/endpoints/extensions.js
 +++ b/src/endpoints/extensions.js
-@@ -533,3 +533,7 @@
+@@ -533,3 +534,7 @@
      return response.send(allExtensions);
  });
  
