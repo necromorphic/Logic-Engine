@@ -195,7 +195,7 @@ export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs 
     invariantFailures,
     fallback: { used: false, reason: null },
     fallbackInvariantFailures: [],
-    status: invariantFailures.length || incremental.violations.some((v) => v.code === 'UNDECLARED_READ') || (strategy !== 'A' && !dependencyGraphVerified) ? 'needs_review' : 'ready',
+    status: invariantFailures.length || incremental.violations.some((v) => v.code === 'UNDECLARED_READ') || (strategy !== 'A' && (!dependencyGraphVerified || invariants.length === 0)) ? 'needs_review' : 'ready',
   };
 }
 
