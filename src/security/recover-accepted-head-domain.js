@@ -31,12 +31,12 @@ export function recoverAcceptedHeadDomain({ domain, databasePath, coordinatorPat
   let db = null;
   try {
     release = beginCoordinatorLock(coordinatorDb);
-    const status = getAcceptedHeadStatusSync({ port });
+    const status = getAcceptedHeadStatusSync({ port, token });
     db = new DatabaseSync(canonicalDatabasePath);
     const local = db.prepare('SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1').get();
     if (!local || local.enrolled !== 1) throw new Error('ACCEPTED_HEAD_RECOVERY_LOCAL_STATE_INVALID');
 
-    const pending = status.pendingOperations.find((operation) => operation.domain === domain);
+    const pending = status.operations[domain];
     if (!pending) {
       if (!status.pending[domain] && status.enrolled[domain] && status.heads[domain] === local.head) {
         return Object.freeze({ domain, status: 'already_current', head: local.head });
@@ -47,7 +47,7 @@ export function recoverAcceptedHeadDomain({ domain, databasePath, coordinatorPat
     // Only finalize when the local DB proves the exact operation committed in
     // the same transaction as its accepted head. Never auto-repair a lower local
     // head: it may be a restored backup with stale/revoked authorization state.
-    if (local.head !== pending.resulting_head
+    if (local.head !== pending.head
       || local.last_operation_id !== pending.operation_id
       || local.last_operation_digest !== pending.operation_digest) {
       throw new Error('ACCEPTED_HEAD_RECOVERY_REQUIRES_RECONCILIATION');
