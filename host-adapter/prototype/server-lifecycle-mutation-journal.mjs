@@ -153,7 +153,58 @@ async function appendRecord(journalPath, priorHash, record) {
 }
 
 function snapshotDigest(scan) {
-    return digest(canonical(scan.artifacts.map(item => [item.artifactId, item.byteLength, item.sha256])));
+    return digest(canonical({
+        artifacts: scan.artifacts.map(item => [item.artifactId, item.byteLength, item.sha256]),
+        conversationInventoryDigest: scan.conversationInventory?.inventory_sha256 ?? null,
+    }));
+}
+
+async function scanMutationSnapshot(paths, registry, requirePersistedInventory) {
+    const artifacts = await scanHostArtifactRoots(paths.roots);
+    if (!artifacts.complete || !requirePersistedInventory) return artifacts;
+    const conversationInventory = await scanPersistedConversationInventories(
+        paths.roots.filter(root => root.domain === 'chats' || root.domain === 'group_chats'),
+        registry.conversations,
+    );
+    if (!conversationInventory.complete) {
+        return {
+            ...artifacts,
+            status: 'INVENTORY_INCOMPLETE',
+            complete: false,
+            artifacts: [],
+            artifactCount: null,
+            conversationInventory,
+            errors: conversationInventory.errors,
+        };
+    }
+    return { ...artifacts, conversationInventory };
+}
+
+function diffConversationInventories(before, after) {
+    const flatten = snapshot => (snapshot?.conversationInventory?.inventories ?? []).flatMap(conversation =>
+        conversation.versions.map(version => ({
+            conversation_id: conversation.conversation_id,
+            message_id: version.message_id,
+            version_id: version.version_id,
+            payload_sha256: version.payload_sha256,
+            parent_version_id: version.parent_version_id,
+            active: version.active,
+        })),
+    );
+    const a = new Map(flatten(before).map(item => [JSON.stringify([item.conversation_id, item.message_id, item.version_id]), item]));
+    const b = new Map(flatten(after).map(item => [JSON.stringify([item.conversation_id, item.message_id, item.version_id]), item]));
+    const keys = [...new Set([...a.keys(), ...b.keys()])].sort();
+    return keys.flatMap(key => {
+        const oldItem = a.get(key);
+        const newItem = b.get(key);
+        if (!oldItem) return [{ change: 'ADDED', ...newItem }];
+        if (!newItem) return [{ change: 'REMOVED_FROM_CURRENT_SNAPSHOT', ...oldItem }];
+        const changes = [];
+        if (oldItem.payload_sha256 !== newItem.payload_sha256) changes.push('DIGEST_CHANGED');
+        if (oldItem.parent_version_id !== newItem.parent_version_id) changes.push('PARENT_CHANGED');
+        if (oldItem.active !== newItem.active) changes.push('ACTIVE_CHANGED');
+        return changes.length ? [{ change: changes.join('+'), ...newItem }] : [];
+    });
 }
 
 function diffSnapshots(before, after) {
@@ -193,7 +244,7 @@ function fail(response, code, status = 503) {
  * A successful pre-snapshot and fsynced intent are required before the handler.
  * The response is held until a post-snapshot and fsynced outcome are recorded.
  */
-export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true' } = {}) {
+export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false } = {}) {
     return async function hostLifecycleMutationMiddleware(request, response, next) {
         const operation = MUTATIONS.get(request.method + ' ' + request.baseUrl + request.path)
             ?? MUTATIONS.get(request.method + ' ' + request.originalUrl?.split('?')[0]);
@@ -247,7 +298,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 release();
                 return fail(response, 'HOST_JOURNAL_RECONCILIATION_REQUIRED');
             }
-            before = await scanHostArtifactRoots(paths.roots);
+            before = await scanMutationSnapshot(paths, registry, requirePersistedInventory);
             if (!before.complete) {
                 release();
                 return fail(response, 'HOST_INVENTORY_INCOMPLETE');
@@ -286,6 +337,8 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 beforeSnapshotDigest: snapshotDigest(before),
                 beforeArtifactCount: before.artifactCount,
                 beforeArtifacts: before.artifacts.map(item => ({ artifactId: item.artifactId, byteLength: item.byteLength, sha256: item.sha256 })),
+                beforeConversationInventoryDigest: before.conversationInventory?.inventory_sha256 ?? null,
+                beforeConversationInventories: before.conversationInventory?.inventories ?? null,
             });
             chain.lastHash = recordHash;
         } catch {
@@ -349,7 +402,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             ending = true;
             void (async () => {
                 try {
-                    const after = await scanHostArtifactRoots(paths.roots);
+                    const after = await scanMutationSnapshot(paths, registry, requirePersistedInventory);
                     if (!after.complete) {
                         await appendRecord(paths.journalPath, chain.lastHash, {
                             version: 1,
@@ -359,6 +412,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                             completedAt: new Date().toISOString(),
                             httpStatus: response.statusCode,
                             afterSnapshotStatus: after.status,
+                            afterConversationInventoryErrors: after.conversationInventory?.errors ?? null,
                         });
                         return commitBufferedResponse(args, {
                             status: 503,
@@ -377,6 +431,9 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                         afterSnapshotDigest: snapshotDigest(after),
                         afterArtifactCount: after.artifactCount,
                         changes,
+                        afterConversationInventoryDigest: after.conversationInventory?.inventory_sha256 ?? null,
+                        afterConversationInventories: after.conversationInventory?.inventories ?? null,
+                        versionChanges: diffConversationInventories(before, after),
                     });
                     chain.lastHash = hash;
                     return commitBufferedResponse(args, null);
