@@ -55,6 +55,46 @@ function Assert-NoReparsePath {
     }
 }
 
+function Assert-SafeParentPathMutationRights {
+    param(
+        [Parameter(Mandatory = $true)][string]$ProtectedDirectory,
+        [Parameter(Mandatory = $true)][string[]]$TrustedSids
+    )
+
+    # The child DACL cannot protect the child directory if an untrusted principal
+    # can delete/rename that directory through its parent. Be conservative: any
+    # explicit or inherited ALLOW ACE granting a dangerous right to a non-trusted
+    # principal blocks this candidate. This is not a substitute for target-PC
+    # effective-access testing (nested groups/privileges still matter).
+    $dangerous = [System.Security.AccessControl.FileSystemRights]::Delete -bor
+        [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
+        [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor
+        [System.Security.AccessControl.FileSystemRights]::TakeOwnership -bor
+        [System.Security.AccessControl.FileSystemRights]::FullControl
+
+    $current = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($ProtectedDirectory).TrimEnd('\'))
+    while ($current) {
+        $acl = Get-Acl -LiteralPath $current -ErrorAction Stop
+        foreach ($rule in @($acl.Access)) {
+            if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) { continue }
+            $sid = $null
+            try {
+                $sid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
+            } catch {
+                throw "Cannot resolve ACL principal '$($rule.IdentityReference)' on parent path '$current'; refusing ACL operation."
+            }
+            if ($sid -in $TrustedSids) { continue }
+            if (($rule.FileSystemRights -band $dangerous) -ne 0) {
+                throw "Parent-path ACL grants delete/rename/ACL-control rights to non-trusted principal '$($rule.IdentityReference)' on '$current'; refusing ACL operation."
+            }
+        }
+
+        $parent = [System.IO.Path]::GetDirectoryName($current.TrimEnd('\'))
+        if (-not $parent -or $parent -eq $current) { break }
+        $current = $parent
+    }
+}
+
 function Get-TargetFingerprint {
     param([Parameter(Mandatory = $true)][string]$Path)
     $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
@@ -71,8 +111,10 @@ function Assert-TargetSetUnchanged {
     param(
         [Parameter(Mandatory = $true)][string]$Directory,
         [Parameter(Mandatory = $true)][string[]]$Targets,
-        [Parameter(Mandatory = $true)][hashtable]$Fingerprints
+        [Parameter(Mandatory = $true)][hashtable]$Fingerprints,
+        [Parameter(Mandatory = $true)][string[]]$TrustedSids
     )
+    Assert-SafeParentPathMutationRights -ProtectedDirectory $Directory -TrustedSids $TrustedSids
     Assert-NoReparsePath -Path $Directory
     $actual = @(Get-ChildItem -LiteralPath $Directory -Force | ForEach-Object { [string]$_.FullName } | Sort-Object)
     $expected = @($Targets | Where-Object { $_ -ne $Directory } | Sort-Object)
@@ -138,6 +180,7 @@ $directory = [System.IO.Path]::GetDirectoryName($dbPath)
 # Reject reparse points in every existing component, not only the leaf and immediate parent.
 Assert-NoReparsePath -Path $dbPath
 Assert-NoReparsePath -Path $directory
+Assert-SafeParentPathMutationRights -ProtectedDirectory $directory -TrustedSids @($core.sid, 'S-1-5-18', 'S-1-5-32-544')
 
 $allowedNames = @(
     [System.IO.Path]::GetFileName($dbPath),
@@ -210,11 +253,11 @@ try {
     foreach ($target in $targets) {
         # Revalidate the full path chain, exact directory contents, and observable target fingerprint
         # immediately before each mutation. This narrows but cannot eliminate a hostile local TOCTOU race.
-        Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints
+        Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints -TrustedSids @($core.sid, 'S-1-5-18', 'S-1-5-32-544')
         $current = Get-Acl -LiteralPath $target
         $isDirectory = ([System.IO.File]::GetAttributes($target) -band [System.IO.FileAttributes]::Directory) -ne 0
         $replacement = New-BoundaryAcl -CurrentAcl $current -CoreAccount $core.account -Directory:$isDirectory
-        Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints
+        Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints -TrustedSids @($core.sid, 'S-1-5-18', 'S-1-5-32-544')
         Set-Acl -LiteralPath $target -AclObject $replacement
     }
     foreach ($target in $targets) {
