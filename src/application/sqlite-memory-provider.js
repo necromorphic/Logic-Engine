@@ -180,6 +180,15 @@ export class SQLiteMemoryProvider {
         last_operation_id TEXT,
         last_operation_digest TEXT
       );
+      CREATE TABLE IF NOT EXISTS accepted_head_enrollment_audit(
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        domain TEXT NOT NULL CHECK(domain IN ('core','provider')),
+        approval_id TEXT NOT NULL,
+        baseline_digest TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        enrolled_head INTEGER NOT NULL CHECK(enrolled_head=1),
+        enrolled_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS memory_raw_captures (
         world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
         version_id TEXT NOT NULL, role TEXT NOT NULL, content_text TEXT NOT NULL,
