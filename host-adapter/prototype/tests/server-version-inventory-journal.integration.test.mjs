@@ -56,7 +56,7 @@ test('enforced server mutation journal records before/after persisted version in
   const chatPath = path.join(directories.chats, 'chat-a.jsonl');
   const writeChat = messages => writeFile(chatPath, [
     JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }),
-    ...messages.map(JSON.stringify),
+    ...messages.map(value => JSON.stringify(value)),
   ].join('\n') + '\n');
   try {
     await writeChat([makeMessage({ messageId, versions: [{ versionId: version1, text: 'private-before' }], activeVersionIndex: 0 })]);
