@@ -480,6 +480,60 @@ export class HostVersionDigestLedger {
     });
   }
 
+
+  /**
+   * Read the independently persisted digest-only inventory for an authenticated
+   * adapter/conversation binding. This is the external comparison point for
+   * detecting rollback of the Host's local journal and chat files together.
+   * It returns identities/digests only, never message text.
+   */
+  getBoundInventory(v) {
+    const allowedKeys = new Set(['adapterId', 'conversationId', 'resolveBinding']);
+    if (!isPlainDataRecord(v)
+      || Object.keys(v).some((key) => !allowedKeys.has(key))
+      || !validId(v.adapterId) || !validId(v.conversationId)
+      || typeof v.resolveBinding !== 'function'
+      || isProxy(v.resolveBinding) || Object.getPrototypeOf(v.resolveBinding) === asyncFunctionPrototype) {
+      throw new TypeError('Invalid bound Host inventory request');
+    }
+    return this.#write(() => {
+      const binding = v.resolveBinding({ adapterId: v.adapterId, conversationId: v.conversationId });
+      if (!binding || typeof binding.then === 'function'
+        || binding.conversation_id !== v.conversationId || !validId(binding.world_id)) {
+        throw new Error('HOST_CONVERSATION_NOT_AUTHORIZED');
+      }
+      const rows = this.db.prepare(
+        'SELECT message_id,version_id,content_sha256,lifecycle FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? ORDER BY message_id,version_id',
+      ).all(binding.world_id, binding.conversation_id);
+      const pointers = this.db.prepare(
+        'SELECT message_id,version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? ORDER BY message_id',
+      ).all(binding.world_id, binding.conversation_id);
+      const active = new Map(pointers.map((row) => [row.message_id, row.version_id]));
+      const versions = rows.map((row) => ({
+        message_id: row.message_id,
+        version_id: row.version_id,
+        content_sha256: row.content_sha256,
+        active: active.get(row.message_id) === row.version_id,
+        deleted: row.lifecycle === 'tombstoned',
+      }));
+      const state = this.db.prepare(
+        'SELECT status,snapshot_digest,failure_code,updated_at FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?',
+      ).get(binding.world_id, binding.conversation_id) ?? null;
+      return Object.freeze({
+        authority: 'CORE_HOST_VERSION_LEDGER',
+        world_id: binding.world_id,
+        conversation_id: binding.conversation_id,
+        inventory_status: state?.status ?? 'NON_READY',
+        snapshot_sha256: state?.snapshot_digest ?? null,
+        failure_code: state?.failure_code ?? 'HOST_INVENTORY_NEVER_RECONCILED',
+        updated_at: state?.updated_at ?? null,
+        inventory_sha256: digest(JSON.stringify(versions)),
+        version_count: versions.length,
+        versions,
+      });
+    });
+  }
+
   getInventoryState(worldId, conversationId) {
     return this.db.prepare('SELECT * FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
       .get(worldId, conversationId) ?? null;
