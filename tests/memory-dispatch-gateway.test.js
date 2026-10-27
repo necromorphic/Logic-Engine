@@ -81,7 +81,7 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
 
   let providerGranted = initialProviderGrant;
   const calls = [];
-  gateway = new MemoryDispatchGateway({
+  const makeGateway = () => new MemoryDispatchGateway({
     ledgerPath,
     coordinatorPath,
     authorityPort: service.port,
@@ -109,10 +109,17 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       return { status: 200, body: 'accepted' };
     },
   });
+  gateway = makeGateway();
 
   return {
     directory, authorityPath, coordinatorPath, ledgerPath, child: service.child, port: service.port,
-    gateway, calls,
+    get gateway() { return gateway; },
+    calls,
+    reopenGateway() {
+      try { gateway?.close(); } catch {}
+      gateway = makeGateway();
+      return gateway;
+    },
     setProviderGranted(value) { providerGranted = value; },
     async close() {
       if (closed) return;
@@ -140,7 +147,7 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   ...overrides,
 });
 
-test('Host dispatch signature binds the exact body, route, model, identity, and source versions', () => {
+test('Host dispatch signature binds the exact body, route, model, identity, and source versions with locale-independent source ordering', () => {
   const request = validRequest('signed-request');
   const secret = 'host-dispatch-signing-secret-00000000000000000000000000000001';
   const signature = createDispatchRequestSignature(secret, request);
@@ -151,6 +158,15 @@ test('Host dispatch signature binds the exact body, route, model, identity, and 
     source_entity_id: 'entity-42',
     source_version: 'version-8',
   }] }, signature), false);
+  const reordered = { ...request, sources: [
+    { source_kind: 'canonical_entity', source_entity_id: 'z-entity', source_version: 'v1' },
+    { source_kind: 'canonical_entity', source_entity_id: 'ä-entity', source_version: 'v1' },
+  ] };
+  const reverseOrder = { ...reordered, sources: [...reordered.sources].reverse() };
+  assert.equal(
+    createDispatchRequestSignature(secret, reordered),
+    createDispatchRequestSignature(secret, reverseOrder),
+  );
 });
 
 test('read-only Gateway SQLite connection can read committed WAL state without write access', () => {
@@ -277,6 +293,10 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
       fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request')),
       /MEMORY_DISPATCH_DUPLICATE_ID/,
     );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-new-id')),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+    );
     assert.equal(sends, 1);
   } finally {
     await fixture.close();
@@ -305,14 +325,15 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
     },
   });
   const fixture = await createFixture({ sendUpstream: transport });
-  const server = createMemoryDispatchGatewayServer({
+  const server = await createMemoryDispatchGatewayServer({
     gateway: fixture.gateway,
     hostToken,
     hostSigningKey: signingKey,
   });
   try {
-    await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
-    const url = 'http://127.0.0.1:' + server.address().port + '/v1/dispatch';
+    const boundAddress = server.address();
+    assert.equal(boundAddress.address, '127.0.0.1');
+    const url = 'http://127.0.0.1:' + boundAddress.port + '/v1/dispatch';
     const request = validRequest('http-gateway-request');
     const payload = {
       request_id: request.requestId,
@@ -360,6 +381,45 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
     assert.equal(observedHeaders[apiKeyHeader], apiKey);
   } finally {
     await new Promise((resolve) => server.close(resolve));
+    await fixture.close();
+  }
+});
+
+test('gateway startup rejects any requested non-loopback bind', async () => {
+  const gateway = { dispatchProtectedRequest: async () => ({ status: 200 }) };
+  const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
+  const hostSigningKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
+  await assert.rejects(
+    createMemoryDispatchGatewayServer({ gateway, hostToken, hostSigningKey, host: '0.0.0.0' }),
+    /Invalid Memory dispatch Gateway server configuration/,
+  );
+});
+
+test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks new-ID replay', async () => {
+  const fixture = await createFixture();
+  try {
+    const request = validRequest('crash-before-response');
+    await fixture.gateway.dispatchProtectedRequest(request);
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      db.prepare("UPDATE dispatch_ledger SET status='DISPATCH_STARTED', finished_at=NULL WHERE request_id=?")
+        .run(request.requestId);
+    } finally {
+      db.close();
+    }
+    fixture.reopenGateway();
+    const verify = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(verify.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?').get(request.requestId).status, 'UNKNOWN');
+    } finally {
+      verify.close();
+    }
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('crash-replay-new-id')),
+      /MEMORY_DISPATCH_REPLAY_BLOCKED/,
+    );
+    assert.equal(fixture.calls.length, 1);
+  } finally {
     await fixture.close();
   }
 });
