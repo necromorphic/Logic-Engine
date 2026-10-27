@@ -108,3 +108,44 @@ test('rollback advances canonical source version instead of rewinding to the res
   assert.equal(s.engine.getSnapshot('source-version-world', { entityIds: ['source-a'] }).entities[0].attributes.public_note, 'before');
   assert.equal(s.readVersion('source-a'), 3);
 });
+
+test('upsert, delete, and rollback preserve monotonic source versions', (t) => {
+  const s = fixture(t);
+  s.commit('create-upsert-delete-source', 0, [{
+    kind: 'entity.create',
+    entity_id: 'source-lifecycle',
+    entity_type: 'character',
+    attributes: { public_note: 'created' },
+  }]);
+  assert.equal(s.readVersion('source-lifecycle'), 1);
+
+  s.commit('upsert-existing-source', 1, [{
+    kind: 'entity.upsert',
+    entity_id: 'source-lifecycle',
+    entity_type: 'character',
+    attributes: { public_note: 'upserted' },
+  }]);
+  assert.equal(s.readVersion('source-lifecycle'), 2);
+
+  s.commit('delete-source', 2, [{
+    kind: 'entity.delete',
+    entity_id: 'source-lifecycle',
+  }]);
+  assert.equal(s.readVersion('source-lifecycle'), 3);
+  assert.equal(
+    s.engine.getSnapshot('source-version-world', { entityIds: ['source-lifecycle'] }).entities[0].status,
+    'destroyed',
+  );
+
+  const rollback = s.engine.rollbackEvent('source-version-world', {
+    root_event_id: 'delete-source',
+    idempotency_key: 'rollback-source-delete',
+  });
+  assert.equal(rollback.rollback_outcome, 'resolved');
+  assert.equal(
+    s.engine.getSnapshot('source-version-world', { entityIds: ['source-lifecycle'] }).entities[0].status,
+    'active',
+  );
+  assert.equal(s.readVersion('source-lifecycle'), 4,
+    'rollback must issue a fresh token rather than reuse the pre-delete token');
+});
