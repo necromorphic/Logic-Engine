@@ -18,16 +18,55 @@ function readPath(root, path) {
 }
 
 // JSON object member order is not semantically meaningful; array order is.
-function canonicalJson(value) {
-  if (Array.isArray(value)) return value.map(canonicalJson);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]));
-  }
-  return value;
-}
+// Compare JSON values directly so non-JSON JavaScript values (NaN, undefined,
+// Date instances, cycles, etc.) cannot collapse into an unrelated JSON value
+// through JSON.stringify's coercions.
+function jsonEqual(left, right, activeLeft = new WeakSet(), activeRight = new WeakSet()) {
+  if (left === null || right === null) return left === right;
 
-function jsonEqual(left, right) {
-  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+  const leftType = typeof left;
+  const rightType = typeof right;
+  if (leftType !== rightType) return false;
+
+  if (leftType === 'string' || leftType === 'boolean') return left === right;
+  if (leftType === 'number') return Number.isFinite(left) && Number.isFinite(right) && left === right;
+  if (leftType !== 'object') return false;
+
+  const leftIsArray = Array.isArray(left);
+  if (leftIsArray !== Array.isArray(right)) return false;
+  if (!leftIsArray) {
+    const leftPrototype = Object.getPrototypeOf(left);
+    const rightPrototype = Object.getPrototypeOf(right);
+    if (![Object.prototype, null].includes(leftPrototype)
+      || ![Object.prototype, null].includes(rightPrototype)) return false;
+  }
+
+  // Cyclic object graphs are not JSON values. Reject them instead of recursing
+  // indefinitely or treating their serialization failure as a match.
+  if (activeLeft.has(left) || activeRight.has(right)) return false;
+  activeLeft.add(left);
+  activeRight.add(right);
+  try {
+    if (leftIsArray) {
+      if (left.length !== right.length) return false;
+      for (let index = 0; index < left.length; index += 1) {
+        if (!jsonEqual(left[index], right[index], activeLeft, activeRight)) return false;
+      }
+      return true;
+    }
+
+    const leftKeys = Object.keys(left).sort();
+    const rightKeys = Object.keys(right).sort();
+    if (leftKeys.length !== rightKeys.length) return false;
+    for (let index = 0; index < leftKeys.length; index += 1) {
+      if (leftKeys[index] !== rightKeys[index]
+        || !jsonEqual(left[leftKeys[index]], right[rightKeys[index]], activeLeft, activeRight)) return false;
+    }
+    return true;
+  } finally {
+    activeLeft.delete(left);
+    activeRight.delete(right);
+  }
 }
 
 function nestedRules(rule, op) {
