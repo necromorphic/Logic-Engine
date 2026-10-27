@@ -347,3 +347,29 @@ test('effect translation rejects sparse arrays and custom array properties', () 
     code('INVALID_MECHANIC_EFFECT_INTENT'),
   );
 });
+
+test('remove_attributes rejects accessors and sparse arrays without executing getters', () => {
+  let getterCalls = 0;
+  const accessorRemovals = ['old_rank'];
+  Object.defineProperty(accessorRemovals, '0', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      return 'old_rank';
+    },
+  });
+  const sparseRemovals = [];
+  sparseRemovals.length = 1;
+
+  for (const remove_attributes of [accessorRemovals, sparseRemovals]) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({
+        kind: 'update_attribute',
+        payload: { remove_attributes },
+      })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+  assert.equal(getterCalls, 0);
+});
