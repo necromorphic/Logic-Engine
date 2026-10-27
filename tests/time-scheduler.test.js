@@ -591,3 +591,29 @@ test('historically completed prerequisites at earlier coordinates remain satisfi
   assert.equal(plan.status, 'planned');
   assert.deepEqual(plan.segments.map((segment) => segment.trigger_ids), [['dependent']]);
 });
+
+
+test('inherited completed_trigger_ids cannot alter due-work planning', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'completed_trigger_ids');
+  Object.defineProperty(Object.prototype, 'completed_trigger_ids', {
+    configurable: true, enumerable: true, writable: true, value: ['pending-trigger'],
+  });
+  try {
+    const result = planDueWork({
+      world_id: 'world-1',
+      from_coordinate: 0,
+      to_coordinate: 1000,
+      triggers: [{
+        trigger_id: 'pending-trigger',
+        world_id: 'world-1',
+        due_coordinate: 1000,
+      }],
+    });
+    assert.equal(result.status, 'planned');
+    assert.equal(result.segments.length, 1);
+    assert.deepEqual(result.segments[0].trigger_ids, ['pending-trigger']);
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'completed_trigger_ids', previous);
+    else delete Object.prototype.completed_trigger_ids;
+  }
+});
