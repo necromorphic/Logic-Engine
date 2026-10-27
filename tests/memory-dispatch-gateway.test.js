@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -11,7 +11,7 @@ import {
   enrollAcceptedHeadSync,
   finalizeAcceptedHeadSync,
 } from '../src/security/accepted-head-client-sync.js';
-import { MemoryDispatchGateway } from '../src/security/memory-dispatch-gateway.js';
+import { MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
@@ -134,6 +134,26 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   purpose: 'recall',
   sources: sourceSet,
   ...overrides,
+});
+
+test('read-only Gateway SQLite connection can read committed WAL state without write access', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-gateway-readonly-wal-'));
+  const path = join(directory, 'core.sqlite');
+  const writer = new DatabaseSync(path);
+  let reader;
+  try {
+    writer.exec('PRAGMA journal_mode=WAL; CREATE TABLE sample(id INTEGER PRIMARY KEY, value TEXT NOT NULL);');
+    writer.prepare('INSERT INTO sample(value) VALUES(?)').run('committed-value');
+    reader = openReadOnlySqliteDatabase(path);
+    assert.equal(reader.prepare('SELECT value FROM sample WHERE id=1').get().value, 'committed-value');
+    assert.throws(() => reader.prepare('INSERT INTO sample(value) VALUES(?)').run('must-not-write'), /readonly|read-only/i);
+    assert.equal(existsSync(path + '-wal'), true);
+    assert.equal(existsSync(path + '-shm'), true);
+  } finally {
+    try { reader?.close(); } catch {}
+    writer.close();
+    rmSync(directory, { recursive: true, force: true });
+  }
 });
 
 test('dispatch validates current heads and grants, records one content-free start, and sends once', async () => {
