@@ -179,3 +179,17 @@ test('rule equality rejects non-enumerable properties in objects and arrays', ()
   assert.throws(() => eq(hiddenArrayProperty, [1]), (error) => error.code === 'RULE_TYPE_MISMATCH');
   assert.throws(() => eq([1], hiddenArrayProperty), (error) => error.code === 'RULE_TYPE_MISMATCH');
 });
+
+test('rule equality rejects deeply nested and oversized JSON values without recursion failure', () => {
+  const eq = (value) => evaluateCondition(
+    { op: 'eq', path: 'value', value },
+    { value: null },
+  );
+
+  let deeplyNested = null;
+  for (let index = 0; index < 66; index += 1) deeplyNested = { child: deeplyNested };
+  assert.throws(() => eq(deeplyNested), (error) => error.code === 'RULE_TYPE_MISMATCH');
+
+  const oversized = Array.from({ length: 10001 }, (_, index) => index);
+  assert.throws(() => eq(oversized), (error) => error.code === 'RULE_TYPE_MISMATCH');
+});
