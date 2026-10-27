@@ -154,6 +154,25 @@ test('Core commits only when accepted-head authority is current and aborts mutat
       game_time: '2026-01-01T00:01:00Z',
     }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
     assert.equal(store.world('accepted-head-world-three') ?? null, null);
+
+    store.close();
+    store = null;
+    const damaged = new DatabaseSync(corePath);
+    try {
+      damaged.exec('DROP TABLE context_manifests');
+    } finally {
+      damaged.close();
+    }
+    assert.throws(() => new SQLiteStore(corePath), /CORE_SCHEMA_INCOMPLETE/);
+    const verifySchema = new DatabaseSync(corePath);
+    try {
+      const missing = verifySchema.prepare(
+        "SELECT name FROM sqlite_master WHERE type='table' AND name='context_manifests'",
+      ).get();
+      assert.equal(missing, undefined);
+    } finally {
+      verifySchema.close();
+    }
   } finally {
     try { store?.close(); } catch {}
     if (child) {
