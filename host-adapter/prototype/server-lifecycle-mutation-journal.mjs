@@ -474,6 +474,11 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             if (UNSUPPORTED_ENROLLED_MUTATIONS.has(operation)) {
                 return fail(response, 'HOST_MUTATION_PATH_NOT_PROVEN', 503);
             }
+            const coreConfigured = Boolean(process.env.LOGIC_ENGINE_CORE_URL && process.env.LOGIC_ENGINE_API_TOKEN
+                && process.env.LOGIC_ENGINE_ADAPTER_ID && process.env.LOGIC_ENGINE_ADAPTER_TOKEN);
+            if (requirePersistedInventory && !coreConfigured) {
+                return fail(response, 'CORE_HOST_INVENTORY_CONFIGURATION_MISSING', 503);
+            }
             paths = await statePaths(request);
         } catch {
             return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
@@ -490,8 +495,6 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 release();
                 return fail(response, 'HOST_JOURNAL_RECONCILIATION_REQUIRED');
             }
-            const coreConfigured = Boolean(process.env.LOGIC_ENGINE_CORE_URL && process.env.LOGIC_ENGINE_API_TOKEN
-                && process.env.LOGIC_ENGINE_ADAPTER_ID && process.env.LOGIC_ENGINE_ADAPTER_TOKEN);
             before = await scanMutationSnapshot(paths, registry, requirePersistedInventory, coreConfigured);
             if (!before.complete) {
                 release();
