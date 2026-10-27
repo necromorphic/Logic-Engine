@@ -205,3 +205,16 @@ test('nested calendar records reject custom prototypes and explicitly undefined 
     (error) => error.code === 'INVALID_HOLIDAY',
   );
 });
+
+
+test('normalized calendar definitions can be revalidated without trusting derived year lengths', () => {
+  const normalized = createCalendarDefinition(calendar());
+  assert.deepEqual(createCalendarDefinition(normalized), normalized);
+
+  const tampered = structuredClone(normalized);
+  tampered.year_cycle[0].days += 1;
+  assert.throws(
+    () => createCalendarDefinition(tampered),
+    (error) => error.code === 'INVALID_CALENDAR_YEAR',
+  );
+});
