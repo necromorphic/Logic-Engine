@@ -278,6 +278,16 @@ export class SQLiteMemoryProvider {
           throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
         }
       }
+      // Readiness is process-local evidence: a previous process may have
+      // stopped during reconciliation or while Core state changed. Every
+      // Provider startup must therefore require a fresh full reconciliation.
+      this.db.prepare(`
+        UPDATE memory_index_state
+        SET index_health='stale', source_reconciliation='stale',
+            snapshot_revision=NULL, snapshot_sequence=NULL,
+            failure_code='PROCESS_RESTART_RECONCILIATION_REQUIRED',
+            updated_at=?
+      `).run(new Date().toISOString());
     } catch (error) {
       startupError = error;
     } finally {
