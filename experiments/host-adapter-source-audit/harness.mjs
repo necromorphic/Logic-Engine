@@ -135,7 +135,7 @@ test('Core digest proxy sends only allowlisted digests to a fixed configured end
     resolve(root, 'src/endpoints/logic-engine-lifecycle-proxy.mjs'),
   ).href);
   const env = {
-    LOGIC_ENGINE_CORE_URL: 'http://192.168.1.10:8787',
+    LOGIC_ENGINE_CORE_URL: 'https://logic-engine-pc.example:8787',
     LOGIC_ENGINE_API_TOKEN: 'a'.repeat(24),
     LOGIC_ENGINE_ADAPTER_ID: 'st-desktop',
     LOGIC_ENGINE_ADAPTER_TOKEN: 'b'.repeat(24),
@@ -166,7 +166,7 @@ test('Core digest proxy sends only allowlisted digests to a fixed configured end
   assert.equal(response.statusCode, 201);
   assert.deepEqual(response.body, { ok: true, inventory_status: 'NON_READY' });
   assert.equal(calls.length, 1);
-  assert.equal(String(calls[0].url), 'http://192.168.1.10:8787/v1/host-version-ledger/capture');
+  assert.equal(String(calls[0].url), 'https://logic-engine-pc.example:8787/v1/host-version-ledger/capture');
   assert.equal(calls[0].options.method, 'POST');
   assert.equal(calls[0].options.redirect, 'error');
   assert.equal(calls[0].options.headers.authorization, 'Bearer ' + env.LOGIC_ENGINE_API_TOKEN);
