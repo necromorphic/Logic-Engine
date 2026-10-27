@@ -63,3 +63,36 @@ PR #201 is now superseded for code/tests by current-main integration #313. Produ
   - selecting a tombstoned version remains rejected;
   - if the exact source is tombstoned during the second/final raw-read authorization check, the read returns `MEMORY_RAW_VERSION_UNAVAILABLE` rather than disclosing the content.
 - This closes Provider-local test gaps only. It does **not** establish Host ID persistence, pre-mutation deletion identity, complete `memory_raw_captures` inventory, source authority, or a production Host→Provider caller. No new API/schema or runtime integration was introduced; Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+## ТЗ-2 — согласование версий и отзыв данных (exact reviewed head)
+
+Reviewed Provider/Core/NPC branch HEAD: `791c52eb994011cbb0474ab48895413be3a1aef0` (PR #504, branch `test/provider-consumer-real-sqlite-2026-10-27`; base is `coord/core-source-version-consolidated`, not current `main`). Exact-head CI: [Runtime run #40577381900](https://github.com/necromorphic/Logic-Engine/actions/runs/40577381900) — repository tests **817/817**, recalculation oracle **8/8**, NPC boundary **83/83**; all jobs passed. This is evidence for that exact branch head only, not a claim that PR #504 is merged or based on current main.
+
+### Behavior matrix
+
+| Scenario | Existing executable evidence | Result / limit |
+|---|---|---|
+| Exact repeated record ingest / conflicting same identity-version payload | `tests/sqlite-memory-provider.test.js` — duplicate ingest and immutable identity rebinding | Identical replay is idempotent; conflicting payload/version binding is rejected. |
+| Active raw-message variant changes | Provider `selectActiveRawVersion`; `tests/memory-provider-raw-archive.test.js` | Selection changes the pointer only; alternatives remain archived. This raw Host path is currently denied/disabled pending trusted Host handoff. |
+| Exact-version deletion/tombstone | `tests/memory-provider-raw-tombstone.test.js`, `tests/memory-provider-raw-archive.test.js` | Tombstone applies only to the exact known version; repeated tombstone is idempotent; unknown version is not guessed; tombstoning the active version clears that pointer. |
+| Known dependent-copy invalidation | Raw archive/tombstone tests | Only dependent copies registered in this Provider database are invalidated. External indexes/stores and unknown dependants are outside the guarantee. |
+| Source entity update, deletion/status change, or stale source version | `tests/canonical-entity-source-version.test.js`, `tests/memory-provider-core-integration.test.js`, `tests/memory-provider-file-backed-reconciliation.test.js` | Current canonical source-version mismatch or non-active/missing source fails closed; Core outage is non-ready, not empty. |
+| Rollback with unchanged `commit_sequence` | `tests/memory-provider-lifecycle-regressions.test.js`, `tests/memory-provider-file-backed-reconciliation.test.js` | Stale prior version is rejected; Provider does not treat the composite world cursor as a source-specific journal. |
+| Interrupted reconciliation and restart | `tests/memory-provider-reconcile-interruption.test.js` | Reopened Provider stays non-ready until a complete successful reconciliation. |
+| Restart/replay and persistent revocation | `tests/memory-provider-file-backed-reconciliation.test.js`, raw tombstone tests | Grants/revocations, tombstones and active-version state persist; original capture replay does not resurrect a tombstoned version. |
+| Revocation while reading/authorizing | `tests/memory-provider-query-revocation-race.test.js`, `tests/memory-provider-core-integration.test.js`, raw archive tests | Query/record revocation during awaited validation is rechecked and fails closed. The final check narrows TOCTOU but is not an atomic disclosure lease. |
+| Incomplete/unavailable inventory | `tests/memory-provider-core-integration.test.js`, `tests/memory-provider-typed-failures.test.js` | Reconciliation/read becomes non-ready; Provider row counts do not prove Host inventory completeness. Positive inventory callbacks in tests are fixtures, not Host evidence. |
+| Restore of prior content/version | `tests/memory-provider-coordinated-restore.characterization.test.js` | A normal source-version change invalidates old candidates. **Known blocker:** coordinated restoration of matching Core and Provider database backups can reproduce the old matching state and cannot be detected by current snapshot/version markers alone. Requires a Core-owned restore-resistant authority signal; Provider must not invent one. |
+
+### Trust boundary and source-version contract
+
+- Provider's raw archive key is `(world_id, conversation_id, message_id, version_id)`; that is a storage identity tuple, **not** proof that the caller is authorized to assert those IDs. Current raw Host capture and disclosure are deliberately denied by tests until the trusted Host/Core handoff is approved. The actual SillyTavern source tuple, durable ID lifecycle, and complete historical inventory are therefore **not verified/production-integrated**.
+- The executable `createCanonicalEntitySourceVersionValidator` currently accepts a canonical decimal string equal to the active entity's `updated_revision`, with exactly one matching direct-source lineage entry. Its tests cover malformed decimal values, stale revisions, rollback, destroyed/missing entities and Core outage.
+- The requested opaque token spelling `core-entity-v1:N` is **not accepted by that validator as currently implemented**: the validator explicitly checks canonical decimal `N`, not the prefixed token. Do not silently strip the prefix or claim support. Core must confirm whether this token is a distinct wrapper at the Core/consumer boundary or the value Provider must persist and validate; then add exact contract tests on the agreed representation. This is an owner-contract discrepancy, not evidence that a prefixed token already works.
+- The current source validator supports only direct `canonical_entity` lineage with one source. Host-message sources, summaries, and arbitrary multi-source lineage are not approved by this validator.
+- Reconciliation can prove currentness only against the supplied trusted validator/inventory callbacks. The current test callback `validateInventory: async () => true` is a fixture; it is not a production completeness proof.
+
+### Acceptance status
+
+**Provider-local lifecycle and real in-process Core/NPC seam: tested at the exact PR #504 head. Overall TЗ-2: PARTIAL / BLOCKED.** Remaining blockers are (1) trusted Host tuple and complete source inventory, (2) explicit Core decision on `core-entity-v1:N` representation, (3) detection of coordinated Core+Provider restore, and (4) atomic final disclosure/revocation semantics. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**. No new API, schema, store, journal, or cursor is introduced by this addendum.
