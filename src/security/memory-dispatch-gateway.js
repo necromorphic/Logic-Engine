@@ -339,6 +339,7 @@ export class MemoryDispatchGateway {
     let coreHead;
     let providerHead;
     let release = null;
+    let upstreamHandle = null;
 
     try {
       release = beginCoordinatorLock(this.coordinatorDb);
@@ -409,6 +410,22 @@ export class MemoryDispatchGateway {
           new Date().toISOString(),
         );
         this.db.exec('COMMIT');
+        // The trusted Host transport must synchronously initiate its existing
+        // request and return a handle before the shared coordinator is released.
+        // This serializes transport initiation against Core/Provider revocation;
+        // only waiting for the response happens outside the lock.
+        try {
+          upstreamHandle = this.sendUpstream({
+            route, model, stream, body, requestId, requestDigest, forwardResponse, signal,
+          });
+          if (!object(upstreamHandle) || upstreamHandle.started !== true
+            || !upstreamHandle.response || typeof upstreamHandle.response.then !== 'function') {
+            throw new Error('MEMORY_DISPATCH_TRANSPORT_START_UNCONFIRMED');
+          }
+        } catch {
+          try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
+          throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
+        }
       } catch (error) {
         try { this.db.exec('ROLLBACK'); } catch {}
         if (String(error?.message || '').includes('UNIQUE constraint failed')) {
@@ -418,19 +435,20 @@ export class MemoryDispatchGateway {
       }
     } catch (error) {
       if (error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID'
-        || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED') throw error;
+        || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED'
+        || error?.message === 'MEMORY_DISPATCH_OUTCOME_UNKNOWN') throw error;
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     } finally {
       try { release?.(); } catch {}
     }
 
-    // Never hold the shared coordinator while performing upstream network I/O.
-    // Once DISPATCH_STARTED is durable, an ambiguous outcome is never retried.
+    // Transport initiation is complete and serialized; do not hold the lock
+    // while awaiting the response. Any ambiguous outcome remains non-retryable.
     let response;
     try {
-      response = await this.sendUpstream({ route, model, stream, body, requestId, requestDigest, forwardResponse, signal });
+      response = await upstreamHandle.response;
     } catch {
-      this.#recordOutcome(requestId, 'UNKNOWN', null);
+      try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
     }
 
