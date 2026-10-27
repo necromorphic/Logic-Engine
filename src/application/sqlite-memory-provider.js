@@ -274,7 +274,8 @@ export class SQLiteMemoryProvider {
           });
         }
         if (status.pending.core || status.pending.provider
-          || status.heads.provider !== local.head || !status.enrolled.provider) {
+          || status.heads.provider !== local.head || !status.enrolled.provider
+          || !status.enrolled.core || !Number.isSafeInteger(status.heads.core) || status.heads.core < 1) {
           throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
         }
       }
@@ -308,6 +309,35 @@ export class SQLiteMemoryProvider {
 
   #dataVersion() {
     return this.db.prepare('PRAGMA data_version').get().data_version;
+  }
+
+  // A successful startup check is not a durable authorization lease. The
+  // external authority may be pending, ahead, or unavailable while this
+  // Provider process remains alive, so protected reads revalidate it at both
+  // sides of every asynchronous candidate-assembly boundary.
+  #assertAcceptedHeadCurrent() {
+    if (!this.acceptedHeadConfig) return;
+    let status;
+    try {
+      status = getAcceptedHeadStatusSync({
+        port: this.acceptedHeadConfig.port,
+        token: this.acceptedHeadConfig.token,
+      });
+    } catch {
+      throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
+    }
+    const local = this.db.prepare(
+      'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+    ).get();
+    if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1
+      || !status.enrolled.provider || !status.enrolled.core
+      || !Number.isSafeInteger(status.heads.provider) || status.heads.provider < 1
+      || !Number.isSafeInteger(status.heads.core) || status.heads.core < 1
+      || status.heads.provider !== local.head
+      || status.pending.provider || status.pending.core
+      || status.operations.provider || status.operations.core) {
+      throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
+    }
   }
 
   #withImmediateTransaction(work) {
@@ -709,12 +739,13 @@ export class SQLiteMemoryProvider {
   }
 
   async authorizeCandidate(input) {
+    if (!object(input) || !validId(input.world_id) || !validId(input.subject_id)
+      || !validId(input.purpose) || !validId(input.record_ref) || !validId(input.record_version)) return false;
+    this.#assertAcceptedHeadCurrent();
     // Take the cross-connection epoch before reading any authorization state.
     // Otherwise a revoke/re-grant committed between the initial grant read and
     // the later epoch capture would be invisible to this request.
     const requestDataVersion = this.#dataVersion();
-    if (!object(input) || !validId(input.world_id) || !validId(input.subject_id)
-      || !validId(input.purpose) || !validId(input.record_ref) || !validId(input.record_version)) return false;
     const scope = { world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose };
     if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const grant = this.db.prepare(`SELECT allowed FROM memory_record_grants
@@ -800,6 +831,7 @@ export class SQLiteMemoryProvider {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
     if (this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
+    this.#assertAcceptedHeadCurrent();
     return true;
   }
 
@@ -1037,11 +1069,12 @@ export class SQLiteMemoryProvider {
   }
 
   async retrieveCandidates(scope) {
+    this.#scope(scope);
+    this.#assertAcceptedHeadCurrent();
     // Capture before checking the query grant or readiness. Capturing after
     // those reads can miss a cross-connection revoke/re-grant ABA that finishes
     // just before the first await.
     const requestDataVersion = this.#dataVersion();
-    this.#scope(scope);
     if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const queryGrantKey = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose]);
     const queryAuthorizationGeneration = this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0;
@@ -1144,6 +1177,9 @@ export class SQLiteMemoryProvider {
       freshness: { status: 'current' },
       snapshot: current,
     }));
+    // Recheck the external accepted head after candidate assembly. Provider-local
+    // data_version alone cannot detect a restored DB or a pending external head.
+    this.#assertAcceptedHeadCurrent();
     // Detect commits from another Provider connection that happened while this
     // result was being assembled. This remains Provider-local protection; it
     // cannot make a later model dispatch atomic with revocation.
