@@ -51,6 +51,9 @@ jobs:
           repository: SillyTavern/SillyTavern
           ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
           path: SillyTavern
+      - name: Verify extension hooks against the pinned SillyTavern loader
+        run: |
+          node --input-type=module -e "import assert from 'node:assert/strict'; import { readFileSync } from 'node:fs'; const loader = readFileSync('SillyTavern/public/scripts/extensions.js', 'utf8'); const manifest = JSON.parse(readFileSync('host-adapter/sillytavern-extension/manifest.json', 'utf8')); assert.match(loader, /renderExtensionTemplateAsync/); assert.match(loader, /'disable'.*'activate'/s); assert.equal(manifest.hooks.activate, 'init'); assert.equal(manifest.hooks.disable, 'cleanup'); assert.equal(manifest.js, 'index.js'); assert.equal(manifest.css, 'style.css'); console.log('Pinned SillyTavern extension loader contract verified');"
       - name: Verify pinned source revision and generate review patch
         run: |
           test "$(git -C SillyTavern rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
