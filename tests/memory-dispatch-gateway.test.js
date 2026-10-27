@@ -56,7 +56,7 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
-async function createFixture({ sendUpstream } = {}) {
+async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, initialProviderGrant = true } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -77,7 +77,7 @@ async function createFixture({ sendUpstream } = {}) {
     domain: 'provider', operationId: providerEnrolled.operation_id, operationDigest: digestB, token: providerToken, port: service.port,
   });
 
-  let providerGranted = true;
+  let providerGranted = initialProviderGrant;
   const calls = [];
   gateway = new MemoryDispatchGateway({
     ledgerPath,
@@ -85,7 +85,7 @@ async function createFixture({ sendUpstream } = {}) {
     authorityPort: service.port,
     readToken,
     readCoreEvidence: ({ worldId, actorId, sources }) => ({
-      head: 1,
+      head: coreHead,
       world_id: worldId,
       actor_id: actorId,
       readiness: 'READY',
@@ -93,7 +93,7 @@ async function createFixture({ sendUpstream } = {}) {
       sources,
     }),
     readProviderEvidence: ({ worldId, actorId, purpose, sources }) => ({
-      head: 1,
+      head: providerHead,
       world_id: worldId,
       actor_id: actorId,
       purpose,
@@ -179,6 +179,19 @@ test('dispatch validates current heads and grants, records one content-free star
     } finally {
       db.close();
     }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('local Core or Provider head mismatch prevents dispatch before transport', async () => {
+  const fixture = await createFixture({ coreHead: 2 });
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('stale-local-head')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
   } finally {
     await fixture.close();
   }
