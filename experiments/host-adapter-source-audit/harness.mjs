@@ -195,3 +195,18 @@ test('Core digest proxy rejects caller-supplied authority and hides upstream dia
   assert.deepEqual(rejected.body, { error: { code: 'LOGIC_ENGINE_CAPTURE_REJECTED', message: 'Logic-Engine did not accept the digest capture.' } });
   assert.doesNotMatch(JSON.stringify(rejected.body), /sensitive upstream detail/);
 });
+
+
+test('server-side inventory endpoint is digest-only and never reports historical completeness', async () => {
+  const lifecycleRoutes = await readFile(resolve(root, 'src/endpoints/logic-engine-lifecycle.js'), 'utf8');
+  const inventoryScanner = await readFile(resolve(root, 'src/endpoints/logic-engine-host-inventory.mjs'), 'utf8');
+  assert.match(lifecycleRoutes, /router\.post\('\/host-artifact-inventory\/scan'/);
+  assert.match(lifecycleRoutes, /request\.user\?\.directories\?\.chats/);
+  assert.match(lifecycleRoutes, /request\.user\?\.directories\?\.backups/);
+  assert.match(lifecycleRoutes, /historicalCompleteness:\s*'UNKNOWN'/);
+  assert.match(inventoryScanner, /createHash\('sha256'\)/);
+  assert.match(inventoryScanner, /historicalCompleteness:\s*'UNKNOWN'/);
+  assert.match(inventoryScanner, /authority:\s*'NON_AUTHORITATIVE'/);
+  assert.match(inventoryScanner, /INVENTORY_INCOMPLETE/);
+  assert.doesNotMatch(inventoryScanner, /response\.send\(|response\.download\(/);
+});
