@@ -5,9 +5,11 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 import {
+  advanceAcceptedHeadSync,
   enrollAcceptedHeadSync,
   finalizeAcceptedHeadSync,
   getAcceptedHeadsSync,
@@ -123,6 +125,29 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     assert.equal(secondOperation.last_operation_id, 'provider-' + secondOperation.last_operation_digest);
     assert.notEqual(secondOperation.last_operation_digest, firstOperation.last_operation_digest);
     assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 3 });
+
+    const recoveryDigest = 'e'.repeat(64);
+    const pendingRecovery = advanceAcceptedHeadSync({
+      domain: 'provider',
+      operationId: 'provider-recovery-committed-operation',
+      operationDigest: recoveryDigest,
+      expectedHead: 3,
+      token: providerToken,
+      port,
+    });
+    assert.equal(pendingRecovery.status, 'pending');
+    provider.close();
+    provider = null;
+    const recoveryDb = new DatabaseSync(providerPath);
+    try {
+      recoveryDb.prepare(
+        'UPDATE accepted_head_state SET head=?,last_operation_id=?,last_operation_digest=? WHERE singleton=1',
+      ).run(4, pendingRecovery.operation_id, recoveryDigest);
+    } finally {
+      recoveryDb.close();
+    }
+    provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 4 });
 
     child.stdin.end('stop');
     await once(child, 'exit');
