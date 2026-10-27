@@ -168,12 +168,9 @@ These decisions align with the bounded existing-read experiment described in PR 
 
 Core does **not** select product-level spatial semantics without an explicit spatial/product requirement and supporting evidence. The following remain decision-needed: initial dimensionality (2D/3D), coordinate frame(s), axes and handedness, units/discrete scale, position anchor, whether local frames are needed, and whether entity IDs require an incarnation/generation distinction. Do not pick these from convention or from sample values. If the product scope cannot justify a choice, keep it open and do not treat positions as supported.
 
-### Required revision before this proposal can be called decision-ready
+### Review status
 
-- Replace the first requested decision in §7 (“confirm that a position contract may be developed as a documentation-only proposal”) with the Core decisions above; that permission has already been granted and is no longer the open question.
-- Keep the product/spatial choices explicitly open until their owner supplies requirements.
-- Before any implementation request, cite the exact current-main source and tests that establish the composite-marker/read consistency and rollback/rebuild guarantees, and record the executed verification output at the exact tested SHA. Existing PR #529 results may be cited only for the bounded experiment and its stated limits.
-- Do not describe the draft as an approved contract, and do not start runtime/schema/API/event/adapter work under this approval.
+The source/test review and Core-owned decisions are recorded in §10 below. Product/spatial choices remain open; no production contract or implementation is approved. The evidence review was static and no tests were executed by Core during this review.
 
 ## 10. Core source review and decision — 2026-10-28
 
