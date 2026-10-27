@@ -43,6 +43,19 @@ The existing `AuthorizedReadService` is the narrow field-level policy seam. Its 
 - Denial/unavailability uses the existing generic `READ_NOT_AVAILABLE` response (HTTP 404) where the authorized-read service applies. Stale snapshot uses the existing `STALE_AUTHORIZED_READ_SNAPSHOT` conflict (HTTP 409). Do not reveal target IDs or content in a denial.
 - Internal trusted methods such as `getSnapshot`, `getState`, `getEvents`, and `getAudit` are not recipient authorization boundaries and must not be exposed as substitutes for authorized reads.
 
+### NPC decision-read allowlist (current Core disposition)
+
+For `purpose: npc_decision` and the current API recipient `model`, Core confirms only the existing default, self-identity-only disclosure:
+
+- **Allowed by the shipped default, for the currently bound actor entity only:** `entity_id`, `entity_type`, and `status`.
+- **Not allowed by the shipped default:** every `attributes.*` field, including names, descriptions, relationship values, memories, secrets, and other character/world facts; identity fields for any non-self target; raw events, audit payloads, snippets, counts, or diagnostics.
+- This is an allowlist of the only default-disclosable fields, not a promise that every read succeeds. The actor must be authenticated through the configured adapter credential and have an active Core actor binding to a current, non-destroyed canonical entity in the requested world. Caller-supplied actor IDs cannot replace that binding.
+- The requested purpose and recipient must be supported; each returned field must receive an explicit `true` from the trusted application field policy. Missing, throwing, or non-`true` policy results deny the field. The caller and model cannot supply or override that policy.
+- A broader non-self or attribute read is **not approved by this Core contract**. It requires an explicitly configured, trusted host policy that names the applicable world, bound actor, recipient, purpose, target, and field; it must not be inferred from entity identity, NPC role, lore, or Memory possession.
+- The target set must resolve completely and not be wholly withheld; mixed missing/withheld targets fail closed rather than returning a partial set. Revoked binding or changed canonical snapshot detected at the final recheck prevents content return. Stale snapshot returns `STALE_AUTHORIZED_READ_SNAPSHOT` (409); unavailable/denied reads use generic `READ_NOT_AVAILABLE` (404), without target/content disclosure.
+
+Existing evidence: `tests/authorized-read-api.test.js` verifies the default self-identity-only response, denial of non-self targets without host policy, and explicit host-policy allowlisting; `tests/authorized-read-service.test.js` verifies field-level filtering, fail-closed policy errors, binding revocation, and snapshot mutation. These tests validate the in-repository boundary, not a production Memory→NPC consumer or final outbound dispatch gate.
+
 ## 5. Transaction and revocation boundary
 
 - Core canonical event, projection, rollback, and associated audit changes are committed within the existing Core store transaction. A successful rollback updates validity, rebuilds projections, increments `world_revision`, and records rollback/audit state within that transaction.
