@@ -155,6 +155,7 @@ test('authority IPC requires explicit enrollment, enforces domain tokens, and fa
     assert.deepEqual(getAcceptedHeadStatusSync({ port, token: coreToken }), {
       heads: { core: 0, provider: 0 },
       pending: { core: false, provider: false },
+      operations: { core: null, provider: null },
       enrolled: { core: false, provider: false },
     });
     assert.throws(() => getAcceptedHeadsSync({ port, token: coreToken }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
