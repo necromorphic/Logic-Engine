@@ -116,7 +116,7 @@
 - `examples/world-packs/biological-world.json` — тестовый профиль с биологическими сущностями.
 - `examples/world-packs/magic-world.json` — тестовый профиль с неизвестными магическими механиками.
 - `examples/world-packs/digital-world.json` — цифровой мир без обязательных биологических полей.
-- `AI_REVIEW_BRIEF.md` — задание для независимого архитектурного аудита Gemini и DeepSeek.
+- `AI_REVIEW_BRIEF.md` — задание для независимого архитектурного аудита языковыми моделями.
 
 ## Статус и порядок работы
 
