@@ -60,7 +60,7 @@ export function advanceAcceptedHeadSync({
   if (!response || response.ok !== true || response.result?.domain !== domain
     || response.result?.operation_id !== operationId
     || !Number.isSafeInteger(response.result?.head) || response.result.head < 1
-    || response.result.status !== 'pending') {
+    || !['pending', 'committed'].includes(response.result.status)) {
     throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
   }
   return Object.freeze({
@@ -68,7 +68,7 @@ export function advanceAcceptedHeadSync({
     head: response.result.head,
     operation_id: operationId,
     replayed: response.result.replayed === true,
-    status: 'pending',
+    status: response.result.status,
   });
 }
 
