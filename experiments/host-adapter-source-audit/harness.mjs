@@ -69,49 +69,44 @@ test('edit/update notifications use the current host-local edit index', () => {
 });
 
 
-test('server-side chat mutation routes remain an explicit NON_READY boundary (static audit, not a runtime guard test)', async () => {
+test('server-side Host mutation middleware covers pinned direct API routes for enrolled users', async () => {
   const chatsRoutes = await readFile(resolve(root, 'src/endpoints/chats.js'), 'utf8');
   const backupRoutes = await readFile(resolve(root, 'src/endpoints/backups.js'), 'utf8');
   const groupRoutes = await readFile(resolve(root, 'src/endpoints/groups.js'), 'utf8');
   const dataMaidRoutes = await readFile(resolve(root, 'src/endpoints/data-maid.js'), 'utf8');
+  const startup = await readFile(resolve(root, 'src/server-startup.js'), 'utf8');
+  const hostJournal = await readFile(resolve(root, 'src/endpoints/logic-engine-host-journal.mjs'), 'utf8');
+  const lifecycleRoutes = await readFile(resolve(root, 'src/endpoints/logic-engine-lifecycle.js'), 'utf8');
 
-  // These handlers operate on server-side artifacts and are not called through
-  // the browser's localStorage enrollment marker or Host lifecycle bridge.
-  // This test deliberately records the gap; it does NOT claim the routes are safe.
   for (const route of [
-    "router.post('/save'",
-    "router.post('/rename'",
-    "router.post('/delete'",
-    "router.post('/group/import'",
-    "router.post('/import'",
-    "router.post('/group/delete'",
-    "router.post('/group/save'",
-  ]) {
-    assert.ok(chatsRoutes.includes(route), `pinned server mutation route must be reviewed: ${route}`);
-  }
-  assert.ok(backupRoutes.includes("router.post('/chat/delete'"), 'backup deletion route must be reviewed');
+    "router.post('/save'", "router.post('/rename'", "router.post('/delete'",
+    "router.post('/group/import'", "router.post('/import'",
+    "router.post('/group/delete'", "router.post('/group/save'",
+  ]) assert.ok(chatsRoutes.includes(route), `pinned chat mutation route must be reviewed: ${route}`);
+  assert.ok(backupRoutes.includes("router.post('/chat/delete'"), 'backup deletion route must be covered');
   for (const route of ["router.post('/create'", "router.post('/edit'", "router.post('/delete'"]) {
-    assert.ok(groupRoutes.includes(route), `pinned group metadata mutation route must be reviewed: ${route}`);
+    assert.ok(groupRoutes.includes(route), `pinned group mutation route must be covered: ${route}`);
   }
-  assert.ok(dataMaidRoutes.includes("router.post('/delete'"), 'Data Maid can delete arbitrary files under the user root and must be covered');
+  assert.ok(dataMaidRoutes.includes("router.post('/delete'"), 'Data Maid deletion route must be covered');
 
-  assert.match(chatsRoutes, /await trySaveChat\(chatData, chatFilePath/);
-  assert.match(chatsRoutes, /tryDeleteFile\(chatFilePath\)/);
-  assert.match(chatsRoutes, /fs\.copyFileSync\(pathToUpload, pathToNewFile\)/);
-  assert.match(backupRoutes, /await fsPromises\.unlink\(filePath\)/);
-  assert.match(groupRoutes, /writeFileAtomicSync\(pathToFile, fileData\)/);
-  assert.match(dataMaidRoutes, /await fs\.promises\.unlink\(pathToFile\)/);
+  assert.match(startup, /app\.use\(createHostLifecycleMutationMiddleware\(\)\);[\s\S]*?app\.use\('\/', userDataRouter\)/);
+  assert.match(startup, /createHostLifecycleMutationMiddleware/);
+  for (const route of [
+    "'POST /api/chats/save'", "'POST /api/chats/rename'", "'POST /api/chats/delete'",
+    "'POST /api/chats/group/import'", "'POST /api/chats/import'",
+    "'POST /api/chats/group/delete'", "'POST /api/chats/group/save'",
+    "'POST /api/groups/create'", "'POST /api/groups/edit'", "'POST /api/groups/delete'",
+    "'POST /api/backups/chat/delete'", "'POST /api/data-maid/delete'",
+  ]) assert.ok(hostJournal.includes(route), `Host journal must intercept direct route ${route}`);
 
-  assert.doesNotMatch(chatsRoutes, /logic-engine-host-lifecycle|guardOperation\(/,
-    'pinned chats.js has no Host enrollment/bridge guard; do not claim direct server API calls are intercepted');
-  assert.doesNotMatch(groupRoutes, /logic-engine-host-lifecycle|guardOperation\(/,
-    'pinned groups.js has no Host guard; group metadata changes and cascaded group-chat deletion remain uncovered');
-  assert.doesNotMatch(dataMaidRoutes, /logic-engine-host-lifecycle|guardOperation\(/,
-    'pinned data-maid.js has no Host guard; generic user-file deletion remains uncovered');
-  assert.doesNotMatch(backupRoutes, /logic-engine-host-lifecycle|guardOperation\(/,
-    'pinned backups.js has no Host enrollment/bridge guard; backup deletion remains outside browser protection');
+  assert.match(hostJournal, /kind: 'intent'/);
+  assert.match(hostJournal, /kind: 'outcome'/);
+  assert.match(hostJournal, /await handle\.sync\(\)/);
+  assert.match(hostJournal, /HOST_JOURNAL_RECONCILIATION_REQUIRED/);
+  assert.match(hostJournal, /HOST_POST_MUTATION_SCAN_INCOMPLETE/);
+  assert.match(lifecycleRoutes, /registerHostConversation/);
+  assert.match(lifecycleRoutes, /host-lifecycle\/enroll/);
 });
-
 
 test('server-side Core digest proxy exists and never exposes its credentials to browser code', async () => {
   const proxyPath = resolve(root, 'src/endpoints/logic-engine-lifecycle-proxy.mjs');
