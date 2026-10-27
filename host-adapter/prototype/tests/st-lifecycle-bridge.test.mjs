@@ -63,10 +63,12 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   const journal = new HostLifecycleJournal(db);
   let saveCount = 0;
   let sourceLocator = 'chat-file-1';
+  let sourceLineage = { mainChat: null, integrity: null, sessionName: 'chat-file-1', groupId: null };
   const bridge = createStLifecycleBridge({
     journal,
     getConversationId: () => 'chat-1',
     getSourceLocator: () => sourceLocator,
+    getSourceLineage: () => sourceLineage,
     getChat: () => chat,
     publishDigest,
     saveChat: async () => {
@@ -74,7 +76,7 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
       if (failSave) throw Error('simulated native chat save failure');
     },
   });
-  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
+  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setSourceLineage(value) { sourceLineage = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
 
 test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
@@ -151,6 +153,90 @@ test('Core publisher failure stays NON_READY and can be retried without re-enrol
   assert.equal(retry.status, 'CAPTURED_REVIEW_ONLY');
   assert.equal(retry.published, true);
   assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'CAPTURED_REVIEW_ONLY');
+});
+
+
+test('live source verification binds message/version inventory to observed ST branch metadata and branch references', async () => {
+  const f = makeFixture([{ is_user: false, mes: 'branch answer', extra: { branches: ['chat-file-1 - Branch #1'] } }]);
+  f.setSourceLineage({ mainChat: 'parent-chat', integrity: 'branch-integrity-a', sessionName: 'chat-file-1 - Branch #1', groupId: null });
+  await f.bridge.enrollCurrentConversation();
+
+  const matching = await f.bridge.verifyCurrentSource();
+  assert.equal(matching.status, 'LOCAL_MATCH_NON_AUTHORITATIVE');
+  assert.equal(matching.trustDecision, 'NON_READY');
+
+  f.setSourceLineage({ mainChat: 'different-parent', integrity: 'branch-integrity-b', sessionName: 'chat-file-1 - Branch #1', groupId: null });
+  const changedBranch = await f.bridge.verifyCurrentSource();
+  assert.equal(changedBranch.status, 'NON_READY');
+  assert.match(changedBranch.reason, /fingerprint mismatch/);
+
+  f.setSourceLineage({ mainChat: 'parent-chat', integrity: 'branch-integrity-a', sessionName: 'chat-file-1 - Branch #1', groupId: null });
+  f.chat[0].extra.branches.push('forged-branch-name');
+  const changedBranchReferences = await f.bridge.verifyCurrentSource();
+  assert.equal(changedBranchReferences.status, 'NON_READY');
+  assert.match(changedBranchReferences.reason, /fingerprint mismatch/);
+});
+
+test('malformed swipe and branch metadata cannot normalize to a valid empty inventory', async () => {
+  const malformedBranches = makeFixture([{ is_user: false, mes: 'hello' }]);
+  await malformedBranches.bridge.enrollCurrentConversation();
+  malformedBranches.chat[0].extra = { branches: 'not-an-array' };
+  const branchResult = await malformedBranches.bridge.verifyCurrentSource();
+  assert.equal(branchResult.status, 'NON_READY');
+  assert.match(branchResult.reason, /malformed native branch-reference inventory/i);
+  assert.equal(branchResult.trustEvidence.liveSourceFingerprint, 'NOT_VERIFIED');
+
+  const malformedSwipes = makeFixture([{ is_user: false, mes: 'hello' }]);
+  await malformedSwipes.bridge.enrollCurrentConversation();
+  malformedSwipes.chat[0].swipes = 'not-an-array';
+  const swipeResult = await malformedSwipes.bridge.verifyCurrentSource();
+  assert.equal(swipeResult.status, 'NON_READY');
+  assert.match(swipeResult.reason, /malformed native swipe inventory/);
+  assert.equal(swipeResult.trustEvidence.identityVersionMapping, 'MISMATCH');
+
+  const malformedActiveSwipe = makeFixture([{ is_user: false, mes: 'hello' }]);
+  await malformedActiveSwipe.bridge.enrollCurrentConversation();
+  malformedActiveSwipe.chat[0].swipe_id = '0';
+  const activeSwipeResult = await malformedActiveSwipe.bridge.verifyCurrentSource();
+  assert.equal(activeSwipeResult.status, 'NON_READY');
+  assert.match(activeSwipeResult.reason, /malformed native active-swipe index/i);
+  assert.equal(activeSwipeResult.trustEvidence.identityVersionMapping, 'MISMATCH');
+
+  const outOfRangeSwipe = makeFixture([{ is_user: false, mes: 'hello', swipes: ['hello', 'other'], swipe_id: 0 }]);
+  await outOfRangeSwipe.bridge.enrollCurrentConversation();
+  outOfRangeSwipe.chat[0].swipe_id = 2;
+  const outOfRangeResult = await outOfRangeSwipe.bridge.verifyCurrentSource();
+  assert.equal(outOfRangeResult.status, 'NON_READY');
+  assert.match(outOfRangeResult.reason, /active-swipe index is out of range/i);
+});
+
+test('Host-owned live source verification reports local match as non-authoritative and detects drift', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const matching = await f.bridge.verifyCurrentSource();
+  assert.equal(matching.status, 'LOCAL_MATCH_NON_AUTHORITATIVE');
+  assert.equal(matching.trustDecision, 'NON_READY');
+  assert.equal(matching.trustEvidence.localJournalIntegrity, 'VERIFIED');
+  assert.equal(matching.trustEvidence.liveSourceFingerprint, 'MATCH');
+  assert.equal(matching.trustEvidence.identityVersionMapping, 'MATCH');
+  assert.equal(matching.trustEvidence.sourceAuthenticity, 'UNPROVEN');
+  assert.equal(matching.trustEvidence.rollbackResistance, 'UNPROVEN');
+  assert.equal(matching.trustEvidence.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
+  f.chat[0].mes = 'untracked external edit';
+  const drift = await f.bridge.verifyCurrentSource();
+  assert.equal(drift.status, 'NON_READY');
+  assert.match(drift.reason, /identity\/version inventory mismatch|live source inventory fingerprint mismatch/);
+});
+
+test('Host source verification rejects identity metadata tampering even when message text fingerprint is unchanged', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  f.chat[0]._logicEngineLifecycle.messageId = 'forged-message-id';
+  const result = await f.bridge.verifyCurrentSource();
+  assert.equal(result.status, 'NON_READY');
+  assert.match(result.reason, /identity\/version inventory mismatch/);
+  assert.equal(result.trustEvidence.identityVersionMapping, 'MISMATCH');
+  assert.equal(result.trustEvidence.sourceAuthenticity, 'UNPROVEN');
 });
 
 test('enrolled bridge writes event IDs and advances the fingerprint after an edit', async () => {
@@ -638,6 +724,7 @@ test('fresh journal/bridge instances replay the persisted journal rows after res
     journal: restartedJournal,
     getConversationId: () => 'chat-1',
     getSourceLocator: () => 'chat-file-1',
+    getSourceLineage: () => ({ mainChat: null, integrity: null, sessionName: 'chat-file-1', groupId: null }),
     getChat: () => f.chat,
     saveChat: async () => {},
   });
