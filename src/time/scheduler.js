@@ -62,9 +62,6 @@ function assertDueWorkRequest(input) {
   const invalid = () => fail('INVALID_DUE_WORK_REQUEST', 'Due-work request fields must be own enumerable data properties on a plain object.');
   const prototype = Object.getPrototypeOf(input);
   if (prototype !== Object.prototype && prototype !== null) invalid();
-  for (const field of ['world_id', 'from_coordinate', 'to_coordinate', 'triggers']) {
-    if (!Object.hasOwn(input, field)) invalid();
-  }
   for (const key of Reflect.ownKeys(input)) {
     if (typeof key !== 'string' || !allowed.has(key)) {
       fail('INVALID_DUE_WORK_FIELD', 'Due-work request contains an unsupported field.', {
@@ -74,6 +71,9 @@ function assertDueWorkRequest(input) {
     const descriptor = Object.getOwnPropertyDescriptor(input, key);
     if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) invalid();
     if (descriptor.value === undefined) invalid();
+  }
+  for (const field of ['world_id', 'from_coordinate', 'to_coordinate', 'triggers']) {
+    if (!Object.hasOwn(input, field)) invalid();
   }
 }
 
