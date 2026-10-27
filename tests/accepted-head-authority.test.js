@@ -17,6 +17,7 @@ import {
 
 const coreToken = 'core-token-for-accepted-head-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-accepted-head-tests-00000000000000000000000000000002';
+const readToken = 'gateway-read-token-for-accepted-head-tests-00000000000000000000000000000003';
 const digestA = 'a'.repeat(64);
 const digestB = 'b'.repeat(64);
 const digestC = 'c'.repeat(64);
@@ -121,7 +122,7 @@ async function startAuthorityProcess(path) {
     'import { AcceptedHeadAuthority, createAcceptedHeadAuthorityServer } from ' + JSON.stringify(authorityUrl) + ';',
     'const args = process.argv.slice(1);',
     'const authority = new AcceptedHeadAuthority({ path: args[0], installationId: "server-test-installation" });',
-    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN });',
+    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN, readToken: process.env.LE_TEST_READ_TOKEN });',
     'server.listen(0, "127.0.0.1", () => process.stdout.write("LISTENING:" + server.address().port + "\\n"));',
     'process.stdin.on("data", () => server.close(() => { authority.close(); process.exit(0); }));',
   ].join('\n');
@@ -134,6 +135,7 @@ async function startAuthorityProcess(path) {
       WINDIR: process.env.WINDIR || '',
       LE_TEST_CORE_TOKEN: coreToken,
       LE_TEST_PROVIDER_TOKEN: providerToken,
+      LE_TEST_READ_TOKEN: readToken,
     },
   });
   const [chunk] = await once(child.stdout, 'data');
@@ -152,6 +154,21 @@ test('authority IPC requires explicit enrollment, enforces domain tokens, and fa
   try {
     const anonymousRead = await fetch('http://127.0.0.1:' + port + '/v1/heads');
     assert.equal(anonymousRead.status, 403);
+    const gatewayRead = await fetch('http://127.0.0.1:' + port + '/v1/heads', {
+      headers: { authorization: 'Bearer ' + readToken },
+    });
+    assert.equal(gatewayRead.status, 200);
+    const gatewayMutation = await fetch('http://127.0.0.1:' + port + '/v1/advance', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + readToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        domain: 'core',
+        operation_id: 'gateway-must-not-mutate',
+        operation_digest: digestA,
+        expected_head: 0,
+      }),
+    });
+    assert.equal(gatewayMutation.status, 403);
     assert.deepEqual(getAcceptedHeadStatusSync({ port, token: coreToken }), {
       heads: { core: 0, provider: 0 },
       pending: { core: false, provider: false },
