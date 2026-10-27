@@ -46,7 +46,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   const snapshot = engine.getSnapshot('memory-npc-world');
   const candidate = (overrides = {}) => ({
     record: { ref: 'memory:claim-1', version: 'v1' },
-    source: { kind: 'canonical_entity', entity_id: 'source-a' },
+    source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: 'source-v1' },
     world_id: scope.world_id,
     subject_id: scope.subject_id,
     purpose: scope.purpose,
@@ -128,6 +128,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     record_version: 'v1',
     source_kind: 'canonical_entity',
     source_entity_id: 'source-a',
+    source_version: 'source-v1',
   });
   assert.equal(JSON.stringify(result).includes('must never leak'), false);
   assert.equal(JSON.stringify(result).includes('private_note'), false);
@@ -169,6 +170,18 @@ test('malformed records in a complete Memory result are non-ready, not authorize
   assert.equal(wrongScope.status, 'non_ready');
   assert.equal(wrongScope.reason, 'memory_candidate_invalid_or_scope_mismatch');
   assert.deepEqual(wrongScope.candidates, []);
+});
+
+test('canonical Memory candidate without an exact source version fails closed', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
+  setCandidates([candidate({
+    source: { kind: 'canonical_entity', entity_id: 'source-a' },
+  })]);
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_candidate_source_identity_invalid');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
 });
 
 test('authorized candidate with missing or unknown semantic metadata is non-ready, not authorized-empty', async (t) => {
@@ -403,7 +416,7 @@ test('duplicate Memory identity/version cannot be rebound to a different canonic
   const { consumer, setCandidates, candidate } = setup(t);
   setCandidates([
     candidate(),
-    candidate({ source: { kind: 'canonical_entity', entity_id: 'source-b' } }),
+    candidate({ source: { kind: 'canonical_entity', entity_id: 'source-b', source_version: 'source-v1' } }),
   ]);
 
   const result = await consumer.retrieveForNpc(request());
