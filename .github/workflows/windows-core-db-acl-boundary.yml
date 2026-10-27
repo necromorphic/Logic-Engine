@@ -78,7 +78,7 @@ jobs:
               } catch { $rejected = $true }
               if (-not $rejected) { throw 'An ancestor reparse point was not rejected.' }
             } finally {
-              if (Test-Path -LiteralPath $junction) { Remove-Item -LiteralPath $junction -Force }
+              if (Test-Path -LiteralPath $junction) { & cmd.exe /c rmdir $junction | Out-Null }
               if (Test-Path -LiteralPath ($evidence + '.ancestor')) { Remove-Item -LiteralPath ($evidence + '.ancestor') -Force }
             }
             & .\scripts\security\Set-CoreDbAclBoundary.ps1 -CoreServiceName $testServices[0] -ProviderServiceName $testServices[1] -GatewayServiceName $testServices[2] -CoreDbPath $db -EvidencePath $evidence -Apply -Confirm:$false
