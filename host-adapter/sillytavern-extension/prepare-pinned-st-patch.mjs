@@ -1,4 +1,4 @@
-import { readFile, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -28,5 +28,6 @@ patch += [
   '',
 ].join('\n');
 
+await mkdir(dirname(output), { recursive: true });
 await writeFile(output, patch, 'utf8');
 process.stdout.write(`Generated provider-neutral pinned ST patch: ${output}\n`);
