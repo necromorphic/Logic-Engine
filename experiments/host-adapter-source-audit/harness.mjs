@@ -93,7 +93,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
     assert.ok(characterRoutes.includes(route), `pinned character mutation route must be covered: ${route}`);
   }
 
-  assert.match(startup, /app\.use\(createHostLifecycleMutationMiddleware\(\)\);[\s\S]*?app\.use\('\/', userDataRouter\)/);
+  assert.match(startup, /app\.use\(createHostLifecycleMutationMiddleware\((?:\{[^}]*\})?\)\);[\s\S]*?app\.use\('\/', userDataRouter\)/);
   assert.match(startup, /createHostLifecycleMutationMiddleware/);
   for (const route of [
     "'POST /api/chats/save'", "'POST /api/chats/rename'", "'POST /api/chats/delete'",
