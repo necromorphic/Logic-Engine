@@ -12,16 +12,13 @@ const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 // handler has a console.debug path that serializes the request body, so debug
 // output is suppressed and separately counted rather than retained as text.
 const loggedOutput = [];
-let suppressedDebugCalls = 0;
+const capturedDebugOutput = [];
+let capturedDebugCalls = 0;
 const originalConsoleMethods = Object.fromEntries(
   ['debug', 'info', 'log', 'warn', 'error'].map(name => [name, console[name]]),
 );
 for (const name of Object.keys(originalConsoleMethods)) {
   console[name] = (...args) => {
-    if (name === 'debug') {
-      suppressedDebugCalls += 1;
-      return;
-    }
     const rendered = args.map(arg => {
       try {
         return typeof arg === 'string' ? arg : JSON.stringify(arg);
@@ -29,6 +26,13 @@ for (const name of Object.keys(originalConsoleMethods)) {
         return String(arg);
       }
     }).join(' ');
+    if (name === 'debug') {
+      // Keep debug output in memory only so the test can assert the prompt body
+      // is absent; never print or persist the captured request content.
+      capturedDebugCalls += 1;
+      capturedDebugOutput.push(rendered);
+      return;
+    }
     loggedOutput.push({ method: name, rendered });
   };
 }
@@ -112,7 +116,20 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
   assert.equal(requestCount, 1, 'exactly one outbound request should arrive at the fake provider');
   assert.deepEqual(arrivals, [{ method: 'POST', path: '/v1/chat/completions' }]);
   assert.equal(JSON.stringify(arrivals).includes('HARNESS_SENTINEL_DO_NOT_LOG'), false);
-  assert.ok(suppressedDebugCalls > 0, 'the upstream body-serializing debug path must be suppressed');
+  assert.ok(capturedDebugCalls > 0, 'the handler should emit debug diagnostics');
+  assert.ok(
+    capturedDebugOutput.some(line =>
+      line.includes('request metadata')
+      && line.includes('fake-model')
+      && line.includes('messageCount')
+    ),
+    'the debug diagnostic should contain metadata rather than the raw request body',
+  );
+  assert.equal(
+    capturedDebugOutput.some(line => line.includes('HARNESS_SENTINEL_DO_NOT_LOG')),
+    false,
+    'request-body sentinel must not appear in captured debug output',
+  );
   assert.equal(
     loggedOutput.some(entry => entry.rendered.includes('HARNESS_SENTINEL_DO_NOT_LOG')),
     false,
