@@ -1454,3 +1454,62 @@ test('proposal handoff rejects stale evaluation when a previously absent target 
   );
   assert.equal(engine.getState(worldId).entities.filter((entity) => entity.entity_id === 'entity.new').length, 1);
 });
+
+
+test('proposal handoff rejects a condition evaluation when a known-absent attribute appears', (t) => {
+  const { engine, worldId } = setup(t);
+  const value = template({
+    applicability: [],
+    actions: [{
+      action_id: 'wait',
+      input_schema: { type: 'object' },
+      preconditions: [{ op: 'exists', path: 'actor.injury', value: false }],
+      effects: [{
+        effect_id: 'create-entity',
+        kind: 'create_entity',
+        target_ref: 'entity.new',
+        payload: { entity_type: 'character', attributes: { name: 'New' } },
+      }],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  const provider = ({ snapshot }) => ({
+    context: { actor: {} },
+    knownAbsentPaths: ['actor.injury'],
+    dependencyEvidence: [{
+      path: 'actor.injury',
+      kind: 'entity_attribute',
+      entity_id: 'entity.actor-context',
+      attribute: 'injury',
+    }],
+    world_revision: snapshot.world_revision,
+    commit_sequence: snapshot.commit_sequence,
+    authorization_scope: 'test-principal',
+    policy_version: 'test-absence-policy-v1',
+  });
+  const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: provider })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+
+  assert.equal(evaluation.status, 'ready');
+  assert.deepEqual(evaluation.dependency_manifest.condition_paths, ['actor.injury']);
+
+  commit(engine, worldId, 'actor-injury-appeared', 2, [{
+    kind: 'entity.update',
+    entity_id: 'entity.actor-context',
+    attributes: { injury: 'broken-arm' },
+  }]);
+
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
+  assert.throws(
+    () => proposals.createFromMechanicEvaluation(worldId, evaluation, {
+      idempotencyKey: 'stale-absent-condition-evaluation',
+      turnId: 'turn-stale-absent-condition',
+      sourceText: 'A condition depended on an absent attribute that later appeared.',
+      adapterId: 'test-adapter',
+    }),
+    (error) => error.code === 'STALE_MECHANIC_EVALUATION' && error.status === 409,
+  );
+  assert.equal(engine.getState(worldId).entities.find((entity) => entity.entity_id === 'entity.actor-context').attributes.injury, 'broken-arm');
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+});
