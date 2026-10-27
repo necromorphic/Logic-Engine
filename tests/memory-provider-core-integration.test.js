@@ -500,6 +500,7 @@ test('reconciliation never publishes current when Core snapshot changes during i
         turn_id: 'provider-e2e-mutation-during-reconcile',
         event_type: 'action.completed',
         expected_revision: before.world_revision,
+        causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'source-a' } }],
         effects: [{ kind: 'entity.update', entity_id: 'source-a', attributes: { public_note: 'changed during reconcile' } }],
       });
       assert.equal(changed.accepted, true);
