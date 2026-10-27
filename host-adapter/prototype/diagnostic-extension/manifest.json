@@ -1,0 +1,11 @@
+{
+  "display_name": "Logic-Engine Diagnostics",
+  "loading_order": 10,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "Logic-Engine",
+  "version": "0.1.0",
+  "homePage": "https://github.com/necromorphic/Logic-Engine"
+}

@@ -1,0 +1,12 @@
+.logic-engine-diagnostic {
+    margin: 0.75em 0;
+    padding: 0.75em;
+    border: 1px solid var(--SmartThemeBorderColor);
+    border-radius: 0.5em;
+}
+.logic-engine-diagnostic__header { margin-bottom: 0.4em; }
+.logic-engine-diagnostic__description,
+.logic-engine-diagnostic__boundary { margin: 0.5em 0; opacity: 0.85; }
+.logic-engine-diagnostic__actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.75em; }
+.logic-engine-diagnostic__status[data-state="error"] { color: var(--SmartThemeEmColor, inherit); }
+.logic-engine-diagnostic__status[data-state="warning"] { font-weight: 600; }

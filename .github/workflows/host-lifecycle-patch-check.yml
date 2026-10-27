@@ -28,11 +28,14 @@ jobs:
           cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           cp host-adapter/prototype/conversation-identity.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           cp host-adapter/prototype/st-server-digest-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
-      - name: Apply-check and apply the pinned-source patch
+          cp host-adapter/prototype/diagnostic-health-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-diagnostic-health.mjs
+      - name: Apply-check and apply the pinned-source patches
         run: |
           cd sillytavern-host-checkout
           git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
           git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-diagnostic-status.patch"
+          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-diagnostic-status.patch"
       - name: Syntax-check patched host and prototype modules
         run: |
           node --check sillytavern-host-checkout/public/script.js
@@ -41,11 +44,15 @@ jobs:
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
+          node --check sillytavern-host-checkout/src/endpoints/logic-engine-diagnostic-health.mjs
+          node --check sillytavern-host-checkout/src/endpoints/logic-engine-diagnostic.js
+          node --check sillytavern-host-checkout/src/server-startup.js
+          node --check host-adapter/prototype/diagnostic-extension/index.js
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js
           node --check sillytavern-host-checkout/src/endpoints/backends/chat-completions.js
       - name: Ensure MakerSuite request body is not logged
         run: |
-          if grep -F 'console.debug(`${apiName} request:`, body)' sillytavern-host-checkout/src/endpoints/backends/chat-completions.js; then
+          if grep -E 'console.debug.*request:.*body' sillytavern-host-checkout/src/endpoints/backends/chat-completions.js; then
             echo "Raw MakerSuite/Vertex request body logging must not be present" >&2
             exit 1
           fi
