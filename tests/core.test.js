@@ -53,6 +53,35 @@ test('stale proposal is rejected without partial effects', (t) => {
   assert.equal(h.engine.getState('w').entities.length, 1);
 });
 
+test('event IDs are scoped to worlds and same-ID events remain isolated', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  h.engine.createWorld({ world_id: 'other-world', world_pack_id: 'test.world', world_pack_version: '1.0.0', game_time: '2005-12-29T10:00:00Z' });
+
+  const local = h.engine.commitEvent('w', cmd({
+    event_id: 'shared-event-id',
+    idempotency_key: 'local-shared-event',
+    effects: [{ kind: 'entity.upsert', entity_id: 'local-only', entity_type: 'object', attributes: { world: 'w' } }],
+  }));
+  const foreign = h.engine.commitEvent('other-world', cmd({
+    event_id: 'shared-event-id',
+    idempotency_key: 'foreign-shared-event',
+    effects: [{ kind: 'entity.upsert', entity_id: 'foreign-only', entity_type: 'object', attributes: { world: 'other-world' } }],
+  }));
+
+  assert.equal(local.event_id, 'shared-event-id');
+  assert.equal(foreign.event_id, 'shared-event-id');
+  assert.deepEqual(h.engine.getEvents('w').map((event) => event.event_id), ['shared-event-id']);
+  assert.deepEqual(h.engine.getEvents('other-world').map((event) => event.event_id), ['shared-event-id']);
+  assert.equal(h.engine.getState('w').entities[0].entity_id, 'local-only');
+  assert.equal(h.engine.getState('other-world').entities[0].entity_id, 'foreign-only');
+
+  assert.throws(
+    () => h.engine.commitEvent('w', cmd({ idempotency_key: 'foreign-reference-to-shared-id', caused_by: ['shared-event-id'] })),
+    (error) => error.code === 'INVALID_CAUSAL_REFERENCE',
+  );
+});
+
 test('causal references must resolve to valid prior events in the same world', (t) => {
   const h = setup();
   t.after(() => h.store.close());
