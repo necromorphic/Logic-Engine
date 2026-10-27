@@ -63,3 +63,12 @@ The current Host candidate correctly reports lifecycle completeness, source auth
 ## Upstream pin comparison (27 Oct 2026)
 
 The upstream GitHub commit API returned `verification.verified=true` and `verification.reason=valid` for the pinned commit. The tree identifies the same Git blob IDs as the supplied archive for the three source files that directly support this audit's locator, branch, and group-import conclusions. This reduces provenance uncertainty for the audited files, but does not certify every archive entry or prove any runtime lifecycle guarantee. Repository CI is tracked separately against the Logic-Engine PR's exact HEAD.
+
+
+## Lifecycle interception versus fail-closed helper tests
+
+The prototype has explicit guards at selected patched entry points, including character/group import, backup restore, branch creation, selected chat-locator deletion/rename, and selected message/swipe mutations. The bridge also rejects operation names outside its current hooked-path allowlist.
+
+The test named `uncovered server-side lifecycle operations fail closed before a caller mutates source` calls `beforeMutation(operation, ...)` directly for a list of unsupported operation names. This proves the helper rejects those names when invoked; it does **not** prove every SillyTavern route capable of performing those operations is intercepted before mutation. Likewise, a successful patch-validation workflow verifies the patch's expected shape/checks, not complete runtime interception across all server and client routes.
+
+Accordingly, treat interception coverage as **selected entry points verified, complete route coverage unproven**. Until a route-by-route audit and integration evidence exist, alternate entry points, direct server-side API calls, filesystem edits, restore tools, and unpatched plugins must not be treated as covered by the helper's fail-closed behavior.
