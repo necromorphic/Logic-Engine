@@ -94,3 +94,93 @@ test('cross-connection revoke/re-grant during source validation invalidates in-f
 
   await assert.rejects(pending, /MEMORY_AUTHORIZATION_CHANGED/);
 });
+
+
+test('cross-connection query revoke/re-grant during source validation invalidates in-flight candidate authorization', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-cross-query-revoke-'));
+  const path = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+
+  let holdValidation = false;
+  let releaseValidation;
+  let signalValidation;
+  const validationStarted = new Promise((resolve) => { signalValidation = resolve; });
+  const validationGate = new Promise((resolve) => { releaseValidation = resolve; });
+
+  const common = {
+    path,
+    coordinatorPath,
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateInventory: async () => true,
+  };
+  let provider;
+  let secondProvider;
+  t.after(() => {
+    try { provider?.close(); } catch {}
+    try { secondProvider?.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  provider = new SQLiteMemoryProvider({
+    ...common,
+    validateSourceVersion: async () => {
+      if (holdValidation) {
+        signalValidation();
+        await validationGate;
+      }
+      return true;
+    },
+  });
+  secondProvider = new SQLiteMemoryProvider({
+    ...common,
+    validateSourceVersion: async () => true,
+  });
+
+  const scope = {
+    world_id: 'cross-query-world',
+    subject_id: 'cross-query-npc',
+    purpose: 'npc_decision',
+  };
+  const record = {
+    ...scope,
+    record_ref: 'memory:cross-query-revoke',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'source-cross-query',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'canonical_entity',
+      entity_id: 'source-cross-query',
+      source_version: 'source-v1',
+    }],
+  };
+
+  provider.grantQuery(scope, true);
+  provider.putRecord(record);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  await provider.rebuildIndex(scope.world_id);
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+
+  holdValidation = true;
+  const pending = provider.authorizeCandidate({
+    ...scope,
+    record_ref: record.record_ref,
+    record_version: record.record_version,
+    source_kind: record.source_kind,
+    source_entity_id: record.source_entity_id,
+  });
+  await validationStarted;
+
+  // The final value is allowed=true. A final Boolean check alone cannot detect
+  // this ABA transition from another SQLite connection.
+  secondProvider.grantQuery(scope, false);
+  secondProvider.grantQuery(scope, true);
+  releaseValidation();
+
+  await assert.rejects(pending, /MEMORY_AUTHORIZATION_CHANGED/);
+});
