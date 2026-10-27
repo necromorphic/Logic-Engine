@@ -326,7 +326,7 @@ The first isolated spike must exercise the real existing methods, not mocks, and
 - stale data is refused at result publication;
 - no writes are made to Core and no output is routed to Host, Memory, or NPC.
 
-The first test-only spike was added at `tests/spatial-temporal-world-model-source-spike.test.js` on 2026-10-28. Its exact-head CI result is pending; the remaining acceptance criteria must be assessed against the actual test assertions, not inferred from the test filename.
+The test-only source-boundary spike at `tests/spatial-temporal-world-model-source-spike.test.js` passed on exact head `bffdd072e4545b40fc97b911673ab320374960c2`: [CI run #40589449385](https://github.com/necromorphic/Logic-Engine/actions/runs/40589449385), Runtime 805/805, recalculation-oracle harness 8/8, NPC-boundary job passed. The five new tests verify world-scoped valid-event reads, stable commit ordering, marker-change rejection, rollback/revision-only invalidation, deterministic in-memory replay without Core writes, and reconstruction after a file-backed process restart. This is source-boundary/replay evidence only, not proof of spatial semantics.
 
 ### 14.5 Core decision and remaining boundary
 
@@ -335,3 +335,11 @@ The first test-only spike was added at `tests/spatial-temporal-world-model-sourc
 The decision does not approve a typed spatial event vocabulary, arbitrary historical-time queries, persistent spatial storage, a public consumer contract, or production integration. If the spike requires an atomic event-list-plus-marker read, a new event type/schema, or full-restore anti-rollback, stop and submit that narrower requirement for a separate review rather than silently adding a mechanism.
 
 **Next action / owner:** Spatial research owner implements only the disposable test harness against the existing Core methods; Core reviews the observed diff and test output. TimeEngine owner reviews the boundary rule for any future historical/intermediate-time query. No production runtime changes are included in this approval.
+
+
+### 14.6 Verification result (exact head 2026-10-28)
+
+- **DONE / test-verified:** `tests/spatial-temporal-world-model-source-spike.test.js` passed on `bffdd072e4545b40fc97b911673ab320374960c2`. [Runtime CI #40589449385](https://github.com/necromorphic/Logic-Engine/actions/runs/40589449385) reports 805 tests passed, 0 failed; recalculation-oracle harness 8 passed, 0 failed; NPC-boundary job passed.
+- **DONE / test-verified:** the five new tests specifically passed: stable world-scoped source read; mutation between state/event reads rejected; rollback invalidates by `world_revision` even when commit sequence and game-time coordinate do not advance; deterministic replay does not write Core state; file-backed restart reconstructs equivalent source evidence.
+- **NOT DONE / not established:** a typed spatial event/attribute contract; derivation of position, movement, orientation, or relative geometry; semantic conflict resolution; historical/intermediate-time queries; full-database restore anti-rollback. The current spike deliberately does not invent spatial meaning from generic attributes.
+- **NO runtime integration:** only a test file and research documentation changed. No production code, schema, or new runtime contract was added. Memory→NPC remains DISABLED / FAIL-CLOSED.
