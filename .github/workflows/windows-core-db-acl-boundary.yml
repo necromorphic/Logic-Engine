@@ -49,6 +49,38 @@ jobs:
             $db = Join-Path $root 'core.sqlite'
             $evidence = Join-Path $env:RUNNER_TEMP ('core-db-acl-evidence-' + [guid]::NewGuid().ToString('N') + '.json')
             Set-Content -LiteralPath $db -Value 'temporary non-sensitive ACL fixture'
+
+            # Regression: a permitted sidecar filename must still be rejected when it is a symlink.
+            $outsideTarget = Join-Path $env:RUNNER_TEMP ('acl-sidecar-target-' + [guid]::NewGuid().ToString('N') + '.txt')
+            $sidecar = $db + '-wal'
+            Set-Content -LiteralPath $outsideTarget -Value 'external target'
+            try {
+              New-Item -ItemType SymbolicLink -Path $sidecar -Target $outsideTarget | Out-Null
+              $rejected = $false
+              try {
+                & .\scripts\security\Set-CoreDbAclBoundary.ps1 -CoreServiceName $testServices[0] -ProviderServiceName $testServices[1] -GatewayServiceName $testServices[2] -CoreDbPath $db -EvidencePath ($evidence + '.sidecar') -Apply -Confirm:$false
+              } catch { $rejected = $true }
+              if (-not $rejected) { throw 'A reparse-point SQLite sidecar was not rejected.' }
+            } finally {
+              if (Test-Path -LiteralPath $sidecar) { Remove-Item -LiteralPath $sidecar -Force }
+              if (Test-Path -LiteralPath $outsideTarget) { Remove-Item -LiteralPath $outsideTarget -Force }
+              if (Test-Path -LiteralPath ($evidence + '.sidecar')) { Remove-Item -LiteralPath ($evidence + '.sidecar') -Force }
+            }
+
+            # Regression: an ancestor junction must be rejected even when the final file exists.
+            $junction = Join-Path $env:RUNNER_TEMP ('acl-ancestor-junction-' + [guid]::NewGuid().ToString('N'))
+            & cmd.exe /c mklink /J $junction $root | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw 'Could not create disposable ancestor-junction regression fixture.' }
+            try {
+              $rejected = $false
+              try {
+                & .\scripts\security\Set-CoreDbAclBoundary.ps1 -CoreServiceName $testServices[0] -ProviderServiceName $testServices[1] -GatewayServiceName $testServices[2] -CoreDbPath (Join-Path $junction 'core.sqlite') -EvidencePath ($evidence + '.ancestor') -Apply -Confirm:$false
+              } catch { $rejected = $true }
+              if (-not $rejected) { throw 'An ancestor reparse point was not rejected.' }
+            } finally {
+              if (Test-Path -LiteralPath $junction) { Remove-Item -LiteralPath $junction -Force }
+              if (Test-Path -LiteralPath ($evidence + '.ancestor')) { Remove-Item -LiteralPath ($evidence + '.ancestor') -Force }
+            }
             & .\scripts\security\Set-CoreDbAclBoundary.ps1 -CoreServiceName $testServices[0] -ProviderServiceName $testServices[1] -GatewayServiceName $testServices[2] -CoreDbPath $db -EvidencePath $evidence -Apply -Confirm:$false
             $report = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
             if ($report.status -ne 'APPLIED_AND_ACL_SHAPE_VERIFIED') {
