@@ -275,3 +275,75 @@ test('empty mechanic intent batches are rejected explicitly', () => {
     code('INVALID_MECHANIC_EFFECT_INTENT'),
   );
 });
+
+test('effect translation rejects getters without executing them', () => {
+  let getterCalls = 0;
+  const accessorIntent = intent();
+  Object.defineProperty(accessorIntent, 'effect_id', {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return 'effect-001';
+    },
+  });
+  assert.throws(
+    () => translateMechanicEffectIntents([accessorIntent]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+
+  const accessorPayload = { entity_type: 'person' };
+  Object.defineProperty(accessorPayload, 'entity_type', {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return 'person';
+    },
+  });
+  assert.throws(
+    () => translateMechanicEffectIntents([intent({ payload: accessorPayload })]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+
+  const accessorValue = {};
+  Object.defineProperty(accessorValue, 'secret', {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return 'value';
+    },
+  });
+  assert.throws(
+    () => translateMechanicEffectIntents([intent({
+      kind: 'assert_fact',
+      target_ref: 'fact.example',
+      payload: { predicate: 'p', value: accessorValue },
+    })]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+  assert.equal(getterCalls, 0);
+});
+
+test('effect translation rejects sparse arrays and custom array properties', () => {
+  const sparse = [];
+  sparse.length = 1;
+  const custom = [1];
+  custom.extra = true;
+
+  for (const value of [sparse, custom]) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({
+        kind: 'assert_fact',
+        target_ref: 'fact.example',
+        payload: { predicate: 'p', value },
+      })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+
+  const sparseBatch = [];
+  sparseBatch.length = 1;
+  assert.throws(
+    () => translateMechanicEffectIntents(sparseBatch),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+});
