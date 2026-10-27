@@ -185,12 +185,29 @@ export function createHostLifecycleMutationMiddleware() {
         let paths;
         let registry;
         try {
+            const chatRootPath = request.user?.directories?.chats;
+            if (typeof chatRootPath !== 'string' || !path.isAbsolute(chatRootPath)) return next();
+            let canonicalChatRoot;
+            try {
+                canonicalChatRoot = await realpath(chatRootPath);
+            } catch {
+                return next();
+            }
+            const stateDirectory = path.join(path.dirname(canonicalChatRoot), '.logic-engine-host');
+            try {
+                const stateStat = await lstat(stateDirectory);
+                if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) throw new Error('HOST_STATE_DIRECTORY_UNSAFE');
+            } catch (error) {
+                if (error?.code === 'ENOENT') return next();
+                throw error;
+            }
+            const registryPath = path.join(stateDirectory, 'enrollments.json');
+            registry = await readRegistry(registryPath);
+            if (registry.conversations.length === 0) return next();
             paths = await statePaths(request);
-            registry = await readRegistry(paths.registryPath);
         } catch {
             return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
         }
-        if (registry.conversations.length === 0) return next();
 
         const userKey = digest(String(request.user.profile?.handle ?? paths.roots[0].path));
         const release = await acquireUserLock(userKey);
