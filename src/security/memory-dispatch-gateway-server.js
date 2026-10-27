@@ -1,8 +1,10 @@
 import { createServer } from 'node:http';
-import { timingSafeEqual } from 'node:crypto';
-import { Readable } from 'node:stream';
-import { pipeline } from 'node:stream/promises';
-import { verifyDispatchRequestSignature } from './memory-dispatch-gateway.js';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import {
+  createDispatchPermitSignature,
+  verifyDispatchOutcomeSignature,
+  verifyDispatchRequestSignature,
+} from './memory-dispatch-gateway.js';
 
 const loopbackHosts = new Set(['127.0.0.1', '::1']);
 
@@ -12,7 +14,6 @@ function tokenMatches(expected, received) {
   const right = Buffer.from(received);
   return left.length === right.length && left.length >= 32 && timingSafeEqual(left, right);
 }
-
 
 async function readJsonBody(request, limit) {
   const chunks = [];
@@ -25,28 +26,37 @@ async function readJsonBody(request, limit) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
+function sendJson(response, status, payload) {
+  response.writeHead(status, {
+    'content-type': 'application/json',
+    'cache-control': 'no-store',
+    'x-content-type-options': 'nosniff',
+  });
+  response.end(JSON.stringify(payload));
+}
+
 export async function createMemoryDispatchGatewayServer({
   gateway,
   hostToken,
   hostSigningKey,
   host = '127.0.0.1',
   port = 0,
-  maxBodyBytes = 5_000_000,
+  maxBodyBytes = 65536,
 }) {
   if (!gateway || typeof gateway.dispatchProtectedRequest !== 'function'
+    || typeof gateway.recordDispatchOutcome !== 'function'
     || typeof hostToken !== 'string' || hostToken.length < 32
     || typeof hostSigningKey !== 'string' || hostSigningKey.length < 32
     || hostToken === hostSigningKey
     || !loopbackHosts.has(host)
     || !Number.isInteger(port) || port < 0 || port > 65535
-    || !Number.isInteger(maxBodyBytes) || maxBodyBytes < 1024) {
+    || !Number.isInteger(maxBodyBytes) || maxBodyBytes < 1024 || maxBodyBytes > 1048576) {
     throw new TypeError('Invalid Memory dispatch Gateway server configuration.');
   }
 
   const server = createServer(async (request, response) => {
-    if (request.method !== 'POST' || request.url !== '/v1/dispatch') {
-      response.writeHead(404, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ error: 'NOT_FOUND' }));
+    if (request.method !== 'POST' || !['/v1/dispatch', '/v1/dispatch/outcome'].includes(request.url)) {
+      sendJson(response, 404, { error: 'NOT_FOUND' });
       return;
     }
 
@@ -54,8 +64,7 @@ export async function createMemoryDispatchGatewayServer({
     const receivedToken = typeof authorization === 'string' && authorization.startsWith('Bearer ')
       ? authorization.slice(7) : '';
     if (!tokenMatches(hostToken, receivedToken)) {
-      response.writeHead(403, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ error: 'DENIED' }));
+      sendJson(response, 403, { error: 'DENIED' });
       return;
     }
 
@@ -63,9 +72,26 @@ export async function createMemoryDispatchGatewayServer({
     try {
       payload = await readJsonBody(request, maxBodyBytes);
     } catch {
-      if (!response.headersSent) {
-        response.writeHead(400, { 'content-type': 'application/json' });
-        response.end(JSON.stringify({ error: 'INVALID_REQUEST' }));
+      sendJson(response, 400, { error: 'INVALID_REQUEST' });
+      return;
+    }
+
+    if (request.url === '/v1/dispatch/outcome') {
+      const outcome = {
+        requestId: payload?.request_id,
+        requestDigest: payload?.request_digest,
+        outcome: payload?.outcome,
+        outcomeCode: payload?.outcome_code ?? null,
+      };
+      if (!verifyDispatchOutcomeSignature(hostSigningKey, outcome, payload?.signature)) {
+        sendJson(response, 403, { error: 'DENIED' });
+        return;
+      }
+      try {
+        const result = gateway.recordDispatchOutcome(outcome);
+        sendJson(response, 200, { status: result.status, request_id: result.requestId });
+      } catch {
+        sendJson(response, 409, { error: 'OUTCOME_CONFLICT' });
       }
       return;
     }
@@ -75,58 +101,41 @@ export async function createMemoryDispatchGatewayServer({
       route: payload?.route,
       model: payload?.model,
       stream: payload?.stream,
-      body: payload?.body,
+      bodyDigest: payload?.body_digest,
       worldId: payload?.world_id,
       actorId: payload?.actor_id,
       purpose: payload?.purpose,
       sources: payload?.sources,
       candidates: payload?.candidates,
     };
-    if (!verifyDispatchRequestSignature(hostSigningKey, dispatchRequest, payload?.signature)) {
-      response.writeHead(403, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ error: 'DENIED' }));
+    if (Object.hasOwn(payload ?? {}, 'body')
+      || !verifyDispatchRequestSignature(hostSigningKey, dispatchRequest, payload?.signature)) {
+      sendJson(response, 403, { error: 'DENIED' });
       return;
     }
 
-    const controller = new AbortController();
-    response.on('close', () => {
-      if (!response.writableEnded) controller.abort();
-    });
-    const forwardResponse = async (upstream) => {
-      response.statusCode = upstream.status;
-      const contentType = upstream.headers?.get?.('content-type');
-      if (contentType) response.setHeader('content-type', contentType);
-      const retryAfter = upstream.headers?.get?.('retry-after');
-      if (retryAfter) response.setHeader('retry-after', retryAfter);
-      if (upstream.body) {
-        await pipeline(Readable.fromWeb(upstream.body), response);
-      } else {
-        response.end();
-      }
-    };
-
     try {
-      await gateway.dispatchProtectedRequest({
-        ...dispatchRequest,
-        forwardResponse,
-        signal: controller.signal,
+      const permit = await gateway.dispatchProtectedRequest(dispatchRequest);
+      sendJson(response, 200, {
+        permit: {
+          request_id: permit.requestId,
+          request_digest: permit.requestDigest,
+          status: permit.status,
+          core_head: permit.coreHead,
+          provider_head: permit.providerHead,
+          signature: createDispatchPermitSignature(hostSigningKey, permit),
+        },
       });
     } catch (error) {
-      if (response.headersSent || response.destroyed) {
-        response.destroy();
-        return;
-      }
-      const code = error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID' ? 409
-        : error?.message === 'MEMORY_DISPATCH_OUTCOME_UNKNOWN' ? 502 : 503;
-      response.writeHead(code, { 'content-type': 'application/json', 'cache-control': 'no-store' });
-      response.end(JSON.stringify({
-        error: code === 409 ? 'DUPLICATE_REQUEST' : code === 502 ? 'OUTCOME_UNKNOWN' : 'NOT_READY',
-      }));
+      const code = error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID'
+        || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED' ? 409 : 503;
+      sendJson(response, code, {
+        error: code === 409 ? 'DUPLICATE_OR_UNRESOLVED_REQUEST' : 'NOT_READY',
+      });
     }
   });
 
-  // Own the bind operation: callers cannot accidentally expose this endpoint
-  // by listening on 0.0.0.0 or another non-loopback interface.
+  // Own the bind operation: callers cannot expose this listener on a public interface.
   await new Promise((resolve, reject) => {
     const onError = (error) => reject(error);
     server.once('error', onError);
@@ -140,8 +149,6 @@ export async function createMemoryDispatchGatewayServer({
       resolve();
     });
   });
-  // The returned handle is for observing/closing the listener only. Prevent
-  // a caller from closing it and rebinding the same server to a public interface.
   server.listen = () => { throw new Error('MEMORY_GATEWAY_REBIND_DENIED'); };
   return server;
 }
