@@ -1897,6 +1897,73 @@ test('mechanic proposal policy boundary stays closed without a trusted validator
 });
 
 
+test('Host inventory reconciliation is adapter-authenticated, server-scope-bound, digest-only, and preserves the ledger trust gate', async (t) => {
+  let received = null;
+  const hostVersionLedger = {
+    async reconcileConversation(snapshot) {
+      received = snapshot;
+      return { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' };
+    },
+  };
+  const base = await setup(t, { hostVersionLedger });
+  assert.equal((await createWorld(base, 'host-reconcile-world')).status, 201);
+  const binding = await fetch(base + '/v1/host-conversation-bindings', {
+    method: 'POST',
+    headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({ adapter_id: 'adapter-a', conversation_id: 'chat-reconcile-bound', world_id: 'host-reconcile-world' }),
+  });
+  assert.equal(binding.status, 201);
+
+  const payload = {
+    conversation_id: 'chat-reconcile-bound',
+    complete: true,
+    versions: [{
+      message_id: 'message-a',
+      version_id: 'version-a',
+      content_sha256: 'b'.repeat(64),
+      active: true,
+      deleted: false,
+    }],
+  };
+  const response = await fetch(base + '/v1/host-version-ledger/reconcile', {
+    method: 'POST', headers, body: json(payload),
+  });
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), {
+    reconciliation: { status: 'non_ready', code: 'HOST_INVENTORY_NOT_AUTHORIZED' },
+    inventory_status: 'NON_READY',
+  });
+  assert.deepEqual(received, {
+    world_id: 'host-reconcile-world',
+    conversation_id: 'chat-reconcile-bound',
+    complete: true,
+    versions: [{
+      world_id: 'host-reconcile-world',
+      conversation_id: 'chat-reconcile-bound',
+      message_id: 'message-a',
+      version_id: 'version-a',
+      content_sha256: 'b'.repeat(64),
+      active: true,
+      deleted: false,
+    }],
+  });
+
+  const callerScope = await fetch(base + '/v1/host-version-ledger/reconcile', {
+    method: 'POST', headers, body: json({ ...payload, world_id: 'attacker-world' }),
+  });
+  assert.equal(callerScope.status, 400);
+  const rawText = await fetch(base + '/v1/host-version-ledger/reconcile', {
+    method: 'POST', headers, body: json({ ...payload, versions: [{ ...payload.versions[0], message_text: 'private text' }] }),
+  });
+  assert.equal(rawText.status, 400);
+  const wrongAdapter = await fetch(base + '/v1/host-version-ledger/reconcile', {
+    method: 'POST',
+    headers: { ...headers, 'x-adapter-id': 'adapter-b', 'x-adapter-token': ADAPTER_B },
+    body: json(payload),
+  });
+  assert.equal(wrongAdapter.status, 403);
+});
+
 test('Core Host inventory readback is adapter-authenticated, binding-scoped, and digest-only', async (t) => {
   const hostVersionLedger = {
     getBoundInventory({ adapterId, conversationId, resolveBinding }) {
