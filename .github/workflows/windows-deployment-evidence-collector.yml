@@ -1,0 +1,39 @@
+name: Windows deployment evidence collector
+on:
+  pull_request:
+    paths:
+      - 'scripts/security/Collect-DeploymentEvidence.ps1'
+      - '.github/workflows/windows-deployment-evidence-collector.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-deployment-evidence-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  powershell-51-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Run collector with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reportPath = Join-Path $env:RUNNER_TEMP 'logic-engine-deployment-evidence-smoke.json'
+          $fixturePath = Join-Path $env:RUNNER_TEMP 'logic-engine-nonexistent-fixture.sqlite'
+          & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath) -BackupPath @($env:RUNNER_TEMP) -ProcessName @('powershell.exe') -OutputPath $reportPath
+          if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "Collector failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Collector did not create the report.' }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.reportType -ne 'Logic Engine deployment security evidence (read-only)') { throw 'Unexpected reportType.' }
+          if (-not $report.os.powershellVersion) { throw 'PowerShell version evidence is missing.' }
+          if ($report.pathAclEvidence.Count -lt 1) { throw 'Expected path ACL evidence for the supplied fixture.' }
+          if (-not $report.limitations -or $report.limitations.Count -lt 1) { throw 'Evidence limitations are missing.' }
+          Remove-Item -LiteralPath $reportPath -Force
+          Write-Output 'PowerShell 5.1 collector smoke test passed; report was validated and removed.'
