@@ -153,7 +153,13 @@ export function evaluateCondition(rule, context, depth = 0) {
   if (op === 'exists' && rule.value !== undefined && typeof rule.value !== 'boolean') {
     throw new EngineError('INVALID_RULE', 'exists value must be boolean when provided.');
   }
-  if (op === 'in') assertDenseDataArray(rule.values, 128, 'INVALID_RULE', 'in values');
+  if (op === 'in') {
+    assertDenseDataArray(rule.values, 128, 'INVALID_RULE', 'in values');
+    for (const value of rule.values) canonicalJson(value);
+  }
+  // Validate comparison data even when the context path is missing. Invalid
+  // rule payloads must not become conditionally acceptable based on world state.
+  if (op === 'eq' || op === 'neq') canonicalJson(rule.value);
 
   const found = readPath(context, rule.path);
   if (op === 'exists') return found.exists === (rule.value ?? true);
@@ -456,7 +462,11 @@ export function collectConditionDependencies(rule) {
     if (op === 'exists' && current.value !== undefined && typeof current.value !== 'boolean') {
       throw new EngineError('INVALID_RULE', 'exists value must be boolean when provided.');
     }
-    if (op === 'in') assertDenseDataArray(current.values, 128, 'INVALID_RULE', 'in values');
+    if (op === 'in') {
+      assertDenseDataArray(current.values, 128, 'INVALID_RULE', 'in values');
+      for (const value of current.values) canonicalJson(value);
+    }
+    if (op === 'eq' || op === 'neq') canonicalJson(current.value);
     paths.add(current.path);
   };
 
