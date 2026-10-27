@@ -38,7 +38,7 @@ test("successful final step completes the plan", () => {
       id: "investigate-rumor",
       status: "completed",
       steps: [
-        { id: "ask-contact", action_id: "ask-contact", status: "active" },
+        { id: "ask-contact", action_id: "ask-contact", status: "completed" },
         { id: "verify-report", action_id: "verify-report", status: "completed" },
       ],
     },
