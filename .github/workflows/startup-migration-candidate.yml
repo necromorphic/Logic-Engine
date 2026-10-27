@@ -1,0 +1,48 @@
+name: Startup migration patch candidate
+
+on:
+  pull_request:
+    paths:
+      - 'host-adapter/prototype/review-candidates/**'
+      - '.github/workflows/startup-migration-candidate.yml'
+  push:
+    branches:
+      - 'review/startup-migration-block-core-conditional-approve'
+
+jobs:
+  validate-pinned-sillytavern-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Logic-Engine candidate at exact workflow HEAD
+        uses: actions/checkout@v4
+
+      - name: Record candidate HEAD
+        run: |
+          echo "Logic-Engine candidate HEAD: $GITHUB_SHA"
+          git rev-parse HEAD
+
+      - name: Checkout pinned SillyTavern source
+        uses: actions/checkout@v4
+        with:
+          repository: SillyTavern/SillyTavern
+          ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          path: SillyTavern
+
+      - name: Verify exact SillyTavern base and apply candidate patch
+        working-directory: SillyTavern
+        run: |
+          test "$(git rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+          git apply --check ../host-adapter/prototype/review-candidates/startup-migration-block.patch
+          git apply ../host-adapter/prototype/review-candidates/startup-migration-block.patch
+
+      - name: Install pinned SillyTavern dependencies
+        working-directory: SillyTavern
+        run: npm ci
+
+      - name: Run startup migration regression tests
+        working-directory: SillyTavern
+        run: node --test tests/startup-migration-block.test.js
+
+      - name: Lint patched SillyTavern source
+        working-directory: SillyTavern
+        run: npm run lint
