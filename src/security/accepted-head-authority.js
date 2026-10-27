@@ -70,6 +70,7 @@ export class AcceptedHeadAuthority {
           domain TEXT NOT NULL CHECK (domain IN ('core','provider')),
           resulting_head INTEGER NOT NULL CHECK (resulting_head > 0),
           operation_digest TEXT NOT NULL,
+          status TEXT NOT NULL CHECK (status IN ('pending','committed')),
           created_at TEXT NOT NULL
         );
       `);
@@ -103,32 +104,74 @@ export class AcceptedHeadAuthority {
     return Object.freeze({ core: heads.core, provider: heads.provider });
   }
 
-  advance({ domain, operationId, operationDigest }) {
+  getPendingDomains() {
+    const rows = this.#db.prepare("SELECT domain FROM authority_operations WHERE status='pending' GROUP BY domain").all();
+    const pending = { core: false, provider: false };
+    for (const row of rows) {
+      if (!DOMAINS.has(row.domain)) throw new Error('ACCEPTED_HEAD_STATE_INVALID');
+      pending[row.domain] = true;
+    }
+    return Object.freeze(pending);
+  }
+
+  advance({ domain, operationId, operationDigest, expectedHead }) {
     if (!DOMAINS.has(domain) || !validText(operationId, 200)
-      || typeof operationDigest !== 'string' || !/^[a-f0-9]{64}$/.test(operationDigest)) {
+      || typeof operationDigest !== 'string' || !/^[a-f0-9]{64}$/.test(operationDigest)
+      || !Number.isSafeInteger(expectedHead) || expectedHead < 0) {
       throw new TypeError('Invalid accepted-head advance request.');
     }
     this.#db.exec('BEGIN IMMEDIATE;');
     try {
       const existing = this.#db.prepare(
-        'SELECT domain, resulting_head, operation_digest FROM authority_operations WHERE operation_id=?',
+        'SELECT domain, resulting_head, operation_digest, status FROM authority_operations WHERE operation_id=?',
       ).get(operationId);
       if (existing) {
         if (existing.domain !== domain || existing.operation_digest !== operationDigest) throw new Error('ACCEPTED_HEAD_OPERATION_ID_CONFLICT');
+        if (existing.status !== 'committed') throw new Error('ACCEPTED_HEAD_OPERATION_PENDING');
         this.#db.exec('COMMIT;');
-        return Object.freeze({ domain, head: existing.resulting_head, operation_id: operationId, replayed: true });
+        return Object.freeze({ domain, head: existing.resulting_head, operation_id: operationId, replayed: true, status: 'committed' });
       }
       const row = this.#db.prepare('SELECT head FROM authority_domain_heads WHERE domain=?').get(domain);
       if (!row || !Number.isSafeInteger(row.head) || row.head < 0 || row.head >= Number.MAX_SAFE_INTEGER) {
         throw new Error('ACCEPTED_HEAD_STATE_INVALID');
       }
+      if (row.head !== expectedHead) throw new Error('ACCEPTED_HEAD_HEAD_MISMATCH');
+      const pending = this.#db.prepare("SELECT operation_id FROM authority_operations WHERE domain=? AND status='pending' LIMIT 1").get(domain);
+      if (pending) throw new Error('ACCEPTED_HEAD_OPERATION_PENDING');
       const next = row.head + 1;
       this.#db.prepare('UPDATE authority_domain_heads SET head=? WHERE domain=?').run(next, domain);
       this.#db.prepare(
-        'INSERT INTO authority_operations(operation_id, domain, resulting_head, operation_digest, created_at) VALUES(?,?,?,?,?)',
-      ).run(operationId, domain, next, operationDigest, new Date().toISOString());
+        'INSERT INTO authority_operations(operation_id, domain, resulting_head, operation_digest, status, created_at) VALUES(?,?,?,?,?,?)',
+      ).run(operationId, domain, next, operationDigest, 'pending', new Date().toISOString());
       this.#db.exec('COMMIT;');
-      return Object.freeze({ domain, head: next, operation_id: operationId, replayed: false });
+      return Object.freeze({ domain, head: next, operation_id: operationId, replayed: false, status: 'pending' });
+    } catch (error) {
+      try { this.#db.exec('ROLLBACK;'); } catch {}
+      throw error;
+    }
+  }
+
+  finalize({ domain, operationId, operationDigest }) {
+    if (!DOMAINS.has(domain) || !validText(operationId, 200)
+      || typeof operationDigest !== 'string' || !/^[a-f0-9]{64}$/.test(operationDigest)) {
+      throw new TypeError('Invalid accepted-head finalize request.');
+    }
+    this.#db.exec('BEGIN IMMEDIATE;');
+    try {
+      const row = this.#db.prepare(
+        'SELECT domain, operation_digest, status, resulting_head FROM authority_operations WHERE operation_id=?',
+      ).get(operationId);
+      if (!row || row.domain !== domain || row.operation_digest !== operationDigest) {
+        throw new Error('ACCEPTED_HEAD_OPERATION_ID_CONFLICT');
+      }
+      if (row.status === 'pending') {
+        this.#db.prepare("UPDATE authority_operations SET status='committed' WHERE operation_id=?").run(operationId);
+      }
+      this.#db.exec('COMMIT;');
+      return Object.freeze({
+        domain, head: row.resulting_head, operation_id: operationId,
+        replayed: row.status === 'committed', status: 'committed',
+      });
     } catch (error) {
       try { this.#db.exec('ROLLBACK;'); } catch {}
       throw error;
@@ -181,13 +224,13 @@ export function createAcceptedHeadAuthorityServer({
     response.setTimeout(2000, () => response.destroy());
     if (request.method === 'GET' && request.url === '/v1/heads') {
       try {
-        reply(response, 200, { heads: authority.getHeads() });
+        reply(response, 200, { heads: authority.getHeads(), pending: authority.getPendingDomains() });
       } catch {
         reply(response, 503, { error: 'AUTHORITY_UNAVAILABLE' });
       }
       return;
     }
-    if (request.method !== 'POST' || request.url !== '/v1/advance') {
+    if (request.method !== 'POST' || !['/v1/advance', '/v1/finalize'].includes(request.url)) {
       reply(response, 404, { error: 'NOT_FOUND' });
       return;
     }
@@ -218,11 +261,17 @@ export function createAcceptedHeadAuthorityServer({
         return;
       }
       try {
-        const result = authority.advance({ domain, operationId: input.operation_id, operationDigest: input.operation_digest });
+        const result = request.url === '/v1/advance'
+          ? authority.advance({ domain, operationId: input.operation_id, operationDigest: input.operation_digest, expectedHead: input.expected_head })
+          : authority.finalize({ domain, operationId: input.operation_id, operationDigest: input.operation_digest });
         reply(response, 200, { result });
       } catch (error) {
         if (error?.message === 'ACCEPTED_HEAD_OPERATION_ID_CONFLICT') {
           reply(response, 409, { error: 'OPERATION_ID_CONFLICT' });
+        } else if (error?.message === 'ACCEPTED_HEAD_OPERATION_PENDING') {
+          reply(response, 409, { error: 'OPERATION_PENDING' });
+        } else if (error?.message === 'ACCEPTED_HEAD_HEAD_MISMATCH') {
+          reply(response, 409, { error: 'HEAD_MISMATCH' });
         } else if (error instanceof TypeError) {
           reply(response, 400, { error: 'INVALID_REQUEST' });
         } else {
