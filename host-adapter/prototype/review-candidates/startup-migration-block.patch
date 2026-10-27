@@ -1,0 +1,155 @@
+diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
+index 0000000..0000000 100644
+--- a/src/endpoints/groups.js
++++ b/src/endpoints/groups.js
+@@
+ export const router = express.Router();
+ 
++const HOST_STATE_DIRECTORY = '.logic-engine-host';
++const HOST_ENROLLMENT_REGISTRY = 'enrollments.json';
++
++function startupMigrationBlocked(cause) {
++    const error = new Error('HOST_STARTUP_MIGRATION_BLOCKED');
++    error.code = 'HOST_STARTUP_MIGRATION_BLOCKED';
++    if (cause) error.cause = cause;
++    return error;
++}
++
++async function readStartupEnrollmentRegistry(userDirs) {
++    const stateDirectory = path.join(userDirs.root, HOST_STATE_DIRECTORY);
++    const registryPath = path.join(stateDirectory, HOST_ENROLLMENT_REGISTRY);
++    let stateStat;
++
++    try {
++        stateStat = await fsPromises.lstat(stateDirectory);
++    } catch (error) {
++        // No Host state directory means this user has not created Host state.
++        if (error?.code === 'ENOENT') return null;
++        throw startupMigrationBlocked(error);
++    }
++
++    if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) {
++        throw startupMigrationBlocked(new Error('HOST_STATE_DIRECTORY_UNSAFE'));
++    }
++
++    let registryStat;
++    try {
++        registryStat = await fsPromises.lstat(registryPath);
++    } catch (error) {
++        // An existing Host state directory with no registry is ambiguous, not unenrolled.
++        throw startupMigrationBlocked(error);
++    }
++
++    if (!registryStat.isFile() || registryStat.isSymbolicLink()) {
++        throw startupMigrationBlocked(new Error('HOST_REGISTRY_UNSAFE'));
++    }
++
++    try {
++        const registry = JSON.parse(await fsPromises.readFile(registryPath, 'utf8'));
++        if (registry?.version !== 1 || !Array.isArray(registry.conversations)) {
++            throw new Error('HOST_REGISTRY_INVALID');
++        }
++        for (const entry of registry.conversations) {
++            if (!entry || typeof entry.conversationId !== 'string'
++                || typeof entry.sourceLocator !== 'string'
++                || !['chats', 'group_chats'].includes(entry.domain)) {
++                throw new Error('HOST_REGISTRY_ENTRY_INVALID');
++            }
++        }
++        return registry;
++    } catch (error) {
++        throw startupMigrationBlocked(error);
++    }
++}
++
++/**
++ * Preflight the complete startup migration before the legacy migration writes
++ * backups or rewrites any group/chat file. This deliberately fails closed when
++ * Host state exists but cannot be validated.
++ */
++async function preflightGroupChatsMetadataMigration(userDirectories) {
++    const plans = [];
++
++    for (const userDirs of userDirectories) {
++        let groupFiles;
++        let groupChatFiles;
++        try {
++            groupFiles = await fsPromises.readdir(userDirs.groups, { withFileTypes: true });
++            groupChatFiles = await fsPromises.readdir(userDirs.groupChats, { withFileTypes: true });
++        } catch (error) {
++            throw startupMigrationBlocked(error);
++        }
++
++        const chatFileNames = new Set(groupChatFiles.filter(file => file.isFile()).map(file => file.name));
++        const potentiallyAffected = [];
++        let hasMigrationCandidate = false;
++
++        for (const groupFile of groupFiles) {
++            if (!groupFile.isFile() || path.extname(groupFile.name) !== '.json') continue;
++            const groupFilePath = path.join(userDirs.groups, groupFile.name);
++            let groupData;
++            try {
++                const raw = await fsPromises.readFile(groupFilePath, 'utf8');
++                groupData = tryParse(raw);
++                if (!groupData || typeof groupData !== 'object' || Array.isArray(groupData)) {
++                    throw new Error('HOST_STARTUP_MIGRATION_GROUP_DATA_UNVERIFIABLE');
++                }
++            } catch (error) {
++                throw startupMigrationBlocked(error);
++            }
++
++            const needsMigration = ['chat_metadata', 'past_metadata'].some(key => Object.hasOwn(groupData, key));
++            if (!needsMigration) continue;
++            hasMigrationCandidate = true;
++            if (!Array.isArray(groupData.chats)) continue;
++
++            for (const chatId of groupData.chats) {
++                const chatFileName = sanitize(`${chatId}.jsonl`);
++                if (!chatFileNames.has(chatFileName)) continue;
++                const chatFilePath = path.join(userDirs.groupChats, chatFileName);
++                let chatData;
++                try {
++                    const raw = await fsPromises.readFile(chatFilePath, 'utf8');
++                    chatData = raw.split('\\n').filter(line => line.trim()).map(line => tryParse(line)).filter(Boolean);
++                } catch (error) {
++                    throw startupMigrationBlocked(error);
++                }
++                const alreadyHasMetadata = chatData.length > 0 && Object.hasOwn(chatData[0], 'chat_metadata');
++                if (!alreadyHasMetadata) {
++                    potentiallyAffected.push({
++                        chatId: String(chatId),
++                        chatFileName,
++                        chatFilePath,
++                    });
++                }
++            }
++        }
++
++        if (!hasMigrationCandidate) continue;
++        const registry = await readStartupEnrollmentRegistry(userDirs);
++        plans.push({ registry, potentiallyAffected });
++    }
++
++    for (const plan of plans) {
++        if (!plan.registry) continue;
++        for (const chat of plan.potentiallyAffected) {
++            const enrolled = plan.registry.conversations.some(entry =>
++                entry.domain === 'group_chats'
++                && (entry.sourceLocator === chat.chatId
++                    || entry.sourceLocator === chat.chatFileName
++                    || entry.sourcePath === chat.chatFilePath));
++            if (enrolled) throw startupMigrationBlocked(new Error('HOST_ENROLLED_GROUP_CHAT_WOULD_CHANGE'));
++        }
++    }
++}
++
+ /**
+  * Warns if group data contains deprecated metadata keys and removes them.
+  * @param {object} groupData Group data object
+@@
+ export async function migrateGroupChatsMetadataFormat(userDirectories) {
++    // All users and candidate group-chat writes are inspected before the first
++    // backup directory, backup file, group file, or chat file is written.
++    await preflightGroupChatsMetadataMigration(userDirectories);
++
+     for (const userDirs of userDirectories) {
