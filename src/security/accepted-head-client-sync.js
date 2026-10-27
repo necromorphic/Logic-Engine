@@ -141,33 +141,43 @@ export function finalizeAcceptedHeadSync({
  * Synchronously reads current heads. Any unresolved operation makes the
  * authority non-ready; callers must not dispatch until explicit recovery.
  */
-export function getAcceptedHeadStatusSync({ port, timeoutMs = 1500 }) {
-  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+export function getAcceptedHeadStatusSync({ port, token, timeoutMs = 1500 }) {
+  if (typeof token !== 'string' || token.length < 32 || !Number.isInteger(port) || port < 1 || port > 65535) {
     throw new TypeError('Invalid accepted-head client configuration.');
   }
   const response = invoke({
     action: 'heads',
+    token,
     port,
     timeout_ms: timeoutMs,
   }, timeoutMs);
   const heads = response?.heads;
   const pending = response?.pending;
+  const operations = response?.operations;
   const enrolled = response?.enrolled;
+  const validOperation = (operation) => operation === null
+    || (operation && typeof operation.operation_id === 'string'
+      && Number.isSafeInteger(operation.head) && operation.head > 0
+      && validDigest(operation.operation_digest)
+      && ['enroll', 'mutation'].includes(operation.operation_kind));
   if (response?.ok !== true || !Number.isSafeInteger(heads?.core) || heads.core < 0
     || !Number.isSafeInteger(heads?.provider) || heads.provider < 0
     || typeof pending?.core !== 'boolean' || typeof pending?.provider !== 'boolean'
+    || !operations || !validOperation(operations.core) || !validOperation(operations.provider)
+    || pending.core !== (operations.core !== null) || pending.provider !== (operations.provider !== null)
     || typeof enrolled?.core !== 'boolean' || typeof enrolled?.provider !== 'boolean') {
     throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
   }
   return Object.freeze({
     heads: Object.freeze({ core: heads.core, provider: heads.provider }),
     pending: Object.freeze({ core: pending.core, provider: pending.provider }),
+    operations: Object.freeze({ core: operations.core, provider: operations.provider }),
     enrolled: Object.freeze({ core: enrolled.core, provider: enrolled.provider }),
   });
 }
 
-export function getAcceptedHeadsSync({ port, timeoutMs = 1500 }) {
-  const status = getAcceptedHeadStatusSync({ port, timeoutMs });
+export function getAcceptedHeadsSync({ port, token, timeoutMs = 1500 }) {
+  const status = getAcceptedHeadStatusSync({ port, token, timeoutMs });
   if (status.pending.core || status.pending.provider || !status.enrolled.core || !status.enrolled.provider) {
     throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
   }
