@@ -35,6 +35,63 @@ export function createDispatchRequestSignature(secret, request) {
   return createHmac('sha256', secret).update(canonical, 'utf8').digest('hex');
 }
 
+export function createDispatchPermitSignature(secret, permit) {
+  if (typeof secret !== 'string' || secret.length < 32
+    || !permit || typeof permit !== 'object'
+    || permit.status !== 'DISPATCH_STARTED'
+    || !validText(permit.requestId, 200)
+    || !/^[a-f0-9]{64}$/.test(permit.requestDigest)
+    || !Number.isSafeInteger(permit.coreHead) || permit.coreHead < 1
+    || !Number.isSafeInteger(permit.providerHead) || permit.providerHead < 1) {
+    throw new TypeError('Invalid dispatch permit.');
+  }
+  const canonical = JSON.stringify({
+    request_id: permit.requestId,
+    request_digest: permit.requestDigest,
+    status: permit.status,
+    core_head: permit.coreHead,
+    provider_head: permit.providerHead,
+  });
+  return createHmac('sha256', secret).update(canonical, 'utf8').digest('hex');
+}
+
+export function verifyDispatchPermitSignature(secret, permit, signature) {
+  if (typeof signature !== 'string' || !/^[a-f0-9]{64}$/.test(signature)) return false;
+  let expected;
+  try { expected = createDispatchPermitSignature(secret, permit); } catch { return false; }
+  const left = Buffer.from(expected, 'hex');
+  const right = Buffer.from(signature, 'hex');
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+export function createDispatchOutcomeSignature(secret, outcome) {
+  if (typeof secret !== 'string' || secret.length < 32
+    || !outcome || typeof outcome !== 'object'
+    || !validText(outcome.requestId, 200)
+    || !/^[a-f0-9]{64}$/.test(outcome.requestDigest)
+    || !['COMPLETED', 'UNKNOWN'].includes(outcome.outcome)
+    || (outcome.outcomeCode !== null && outcome.outcomeCode !== undefined
+      && (!Number.isInteger(outcome.outcomeCode) || outcome.outcomeCode < 100 || outcome.outcomeCode > 599))) {
+    throw new TypeError('Invalid dispatch outcome.');
+  }
+  const canonical = JSON.stringify({
+    request_id: outcome.requestId,
+    request_digest: outcome.requestDigest,
+    outcome: outcome.outcome,
+    outcome_code: outcome.outcomeCode ?? null,
+  });
+  return createHmac('sha256', secret).update(canonical, 'utf8').digest('hex');
+}
+
+export function verifyDispatchOutcomeSignature(secret, outcome, signature) {
+  if (typeof signature !== 'string' || !/^[a-f0-9]{64}$/.test(signature)) return false;
+  let expected;
+  try { expected = createDispatchOutcomeSignature(secret, outcome); } catch { return false; }
+  const left = Buffer.from(expected, 'hex');
+  const right = Buffer.from(signature, 'hex');
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
 export function verifyDispatchRequestSignature(secret, request, signature) {
   if (typeof signature !== 'string' || !/^[a-f0-9]{64}$/.test(signature)) return false;
   let expected;
@@ -214,7 +271,6 @@ export class MemoryDispatchGateway {
     readToken,
     readCoreEvidence,
     readProviderEvidence,
-    sendUpstream,
   }) {
     if (typeof ledgerPath !== 'string' || !isAbsolute(ledgerPath)
       || typeof coordinatorPath !== 'string' || !isAbsolute(coordinatorPath)
@@ -223,7 +279,7 @@ export class MemoryDispatchGateway {
       || typeof readCoreEvidence !== 'function'
       || typeof readProviderEvidence !== 'function'
       ) {
-      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a transport.');
+      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, and trusted synchronous readers.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
       throw new Error('DISPATCH_LEDGER_COORDINATOR_PATH_ALIAS');
