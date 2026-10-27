@@ -18,11 +18,11 @@ Inventory baseline from GitHub REST API on 2026-10-28; see the operational clean
 4. **Archive/close PR only after comparison:** if a newer PR truly supersedes an older one, record which unique changes/tests were carried forward, then close the superseded PR; delete its branch only after verifying it is not a base for another open PR.
 5. **Issues:** keep one portfolio issue and one integration register; do not close independent block gates just because their titles overlap.
 
-## Classification counts (heuristic, 512 unique branches and 85 open PRs)
+## Classification counts (heuristic, 512 unique branches and 82 open PRs)
 
 - `WORKSTREAM_UNCLASSIFIED`: 214
 - `DUPLICATE_CANDIDATE`: 112
-- `OPEN_PR_HEAD`: 85
+- `OPEN_PR_HEAD`: 82
 - `DOC_OR_AUDIT_CANDIDATE`: 60
 - `SAFETY_OR_TEST_REQUIRES_REVIEW`: 39
 - `CANONICAL_MAIN`: 1
@@ -37,7 +37,7 @@ Meanings:
 
 ## Open PRs and branch ownership — current REST inventory
 
-GitHub REST API returned **85 open PRs**. All current open PRs are listed below, including the last page omitted by the earlier 80-PR inventory.
+GitHub REST API returned **82 open PRs**. All current open PRs are listed below, including the last page omitted by the earlier 80-PR inventory.
 
 | PR | Head branch | Base | State | Title |
 |---|---|---|---|---|
@@ -47,7 +47,6 @@ GitHub REST API returned **85 open PRs**. All current open PRs are listed below,
 | [#273](https://github.com/necromorphic/Logic-Engine/pull/273) | `feat/local-coordinator-pc` | main | Draft | feat(coordinator): add local PC portfolio monitor |
 | [#297](https://github.com/necromorphic/Logic-Engine/pull/297) | `docs/core-deployment-policy-authority-226` | main | Draft | docs(core): decide deployment-owned mechanic policy authority |
 | [#301](https://github.com/necromorphic/Logic-Engine/pull/301) | `feat/core-mechanic-vertical-slice-226` | main | Draft | feat(core): start current-main mechanic execution slice (#226) |
-| [#324](https://github.com/necromorphic/Logic-Engine/pull/324) | `docs/issue-73-current-main-test-crosswalk` | main | Ready | docs(personality): refresh Issue #73 executable test crosswalk |
 | [#326](https://github.com/necromorphic/Logic-Engine/pull/326) | `work/mechanics-docs-drift-correction-2026-10-25` | main | Draft | docs(mechanics): reconcile executor source presence with deployment wiring |
 | [#328](https://github.com/necromorphic/Logic-Engine/pull/328) | `core/proposal-stale-commit-regression` | main | Draft | test(core): cover stale approved proposal commit |
 | [#330](https://github.com/necromorphic/Logic-Engine/pull/330) | `core/authorized-read-rollback-race-regression` | main | Draft | test(core): cover rollback race during authorized read |
@@ -69,7 +68,6 @@ GitHub REST API returned **85 open PRs**. All current open PRs are listed below,
 | [#450](https://github.com/necromorphic/Logic-Engine/pull/450) | `core/characterize-host-binding-rollback` | main | Draft | [Core] Characterize Host binding resurrection after Core restore |
 | [#451](https://github.com/necromorphic/Logic-Engine/pull/451) | `security/windows-deployment-evidence-collector` | main | Draft | [Security] Add read-only Windows deployment evidence collector |
 | [#456](https://github.com/necromorphic/Logic-Engine/pull/456) | `host/lifecycle-mainline-integration-2026-10-27` | main | Draft | host: integrate lifecycle inventory gate on current main |
-| [#458](https://github.com/necromorphic/Logic-Engine/pull/458) | `refresh/447-world-pack-version-semantics-2026-10-27` | main | Ready | docs(relationships): refresh World Pack version semantics on current main |
 | [#459](https://github.com/necromorphic/Logic-Engine/pull/459) | `refresh/448-relationship-interaction-evidence-2026-10-27` | main | Ready | feat(relationships): refresh interaction evidence helpers on current main |
 | [#460](https://github.com/necromorphic/Logic-Engine/pull/460) | `refresh/443-provider-input-snapshot-hardening-2026-10-27` | main | Ready | fix(memory): refresh Provider input hardening on current main |
 | [#465](https://github.com/necromorphic/Logic-Engine/pull/465) | `core/source-trust-conflict-acceptance` | main | Ready | Core: add cross-world source trust acceptance test |
@@ -77,7 +75,6 @@ GitHub REST API returned **85 open PRs**. All current open PRs are listed below,
 | [#467](https://github.com/necromorphic/Logic-Engine/pull/467) | `coord/e2e-host-provider-core-npc-fail-closed-2026-10-27` | host/lifecycle-mainline-integration-2026-10-27 | Draft | test: exercise Host → Core → Memory/NPC fail-closed path |
 | [#468](https://github.com/necromorphic/Logic-Engine/pull/468) | `security/core-db-acl-boundary-2026-10-27` | main | Draft | [Security] Guarded Core SQLite ACL boundary candidate |
 | [#469](https://github.com/necromorphic/Logic-Engine/pull/469) | `security/accepted-head-authority-acl-2026-10-27` | main | Draft | [Security] Accepted-head authority storage ACL candidate |
-| [#470](https://github.com/necromorphic/Logic-Engine/pull/470) | `docs/remove-google-branding` | main | Ready | Docs: remove Google/Gemini branding from core audit brief |
 | [#471](https://github.com/necromorphic/Logic-Engine/pull/471) | `security/target-pc-acceptance-runbook` | main | Ready | Security: prepare target-PC acceptance runbook |
 | [#473](https://github.com/necromorphic/Logic-Engine/pull/473) | `fix/world-scoped-event-identity` | main | Ready | Fix world-scoped event identity in SQLite |
 | [#474](https://github.com/necromorphic/Logic-Engine/pull/474) | `docs/plain-language-user-guidance` | main | Draft | docs: define plain-language collaboration requirements |
@@ -306,8 +303,7 @@ Each branch includes its current head SHA, heuristic class, and current open-PR 
 | `docs/fact-set-identity-semantics` | `41a7917de1ff6861ae11d51dfc0ff67a78afadbf` | DOC_OR_AUDIT_CANDIDATE | — |
 | `docs/host-adapter-st-lifecycle-evidence` | `00cbf17497765b6e2058482f3b22b0517e5f36db` | DOC_OR_AUDIT_CANDIDATE | — |
 | `docs/host-log-redaction-evidence-2026-10-27` | `957f2c0deb282ca2f6e3a10e7fb3946725de7fd5` | DOC_OR_AUDIT_CANDIDATE | — |
-| `docs/issue-73-current-main-test-crosswalk` | `7c9cfeeed244ab1ab26e22040526eca0ae9c0cbb` | OPEN_PR_HEAD | [#324](https://github.com/necromorphic/Logic-Engine/pull/324) |
-| `docs/mechanic-effect-support-matrix` | `d3454a5e4223cb16b4b6e2894138d499e6b903f5` | DOC_OR_AUDIT_CANDIDATE | — |
+| `docs/issue-73-current-main-test-crosswalk` | `7c9cfeeed244ab1ab26e22040526eca0ae9c0cbb` | OPEN_PR_HEAD | `docs/mechanic-effect-support-matrix` | `d3454a5e4223cb16b4b6e2894138d499e6b903f5` | DOC_OR_AUDIT_CANDIDATE | — |
 | `docs/mechanic-effect-translator-contract` | `fb9cf14cb260bf8916fc014ce1574b1f3c85b94f` | DOC_OR_AUDIT_CANDIDATE | — |
 | `docs/mechanic-intent-proposal-boundary` | `0cf145bab662be59edd036be0657e9c5e1c6c33e` | DOC_OR_AUDIT_CANDIDATE | — |
 | `docs/mechanics-registry-runtime-status` | `749428c71d3754f2df72ba0007181b84e8f0c9da` | DOC_OR_AUDIT_CANDIDATE | — |
@@ -333,8 +329,7 @@ Each branch includes its current head SHA, heuristic class, and current open-PR 
 | `docs/relationships-current-main-evidence-v2` | `5f5e9a75bce6275feaf073d75514acd0fe0b6e3b` | DUPLICATE_CANDIDATE | — |
 | `docs/relationships-current-main-evidence-v3` | `ac49c6b71790be294bf0f369ea214f8bce259f11` | DUPLICATE_CANDIDATE | — |
 | `docs/relationships-refresh-after-core-107-108` | `e1d30d8e3a8bbe719abac4a978121c44704c472c` | DUPLICATE_CANDIDATE | — |
-| `docs/remove-google-branding` | `4dec965ef9a6eed14684699819d9fd622ea8c290` | OPEN_PR_HEAD | [#470](https://github.com/necromorphic/Logic-Engine/pull/470) |
-| `docs/repository-front-page-status` | `8ab0e650a9c2fb033b5c99e6a83108a5bdccd0f1` | DOC_OR_AUDIT_CANDIDATE | — |
+| `docs/remove-google-branding` | `4dec965ef9a6eed14684699819d9fd622ea8c290` | OPEN_PR_HEAD | `docs/repository-front-page-status` | `8ab0e650a9c2fb033b5c99e6a83108a5bdccd0f1` | DOC_OR_AUDIT_CANDIDATE | — |
 | `docs/security-single-writer-boundary-current-main` | `69af1ad12c21f726843f9c251961ef29811bbfef` | DUPLICATE_CANDIDATE | — |
 | `docs/spatial-position-contract-proposal-2026-10-28` | `19fc2505ce326b2b651c9b39bb529be928f31acd` | OPEN_PR_HEAD | [#533](https://github.com/necromorphic/Logic-Engine/pull/533) |
 | `docs/storage-schema-lifecycle-contract` | `bb830aa119280d04655dffdcefac59fcd6720280` | DOC_OR_AUDIT_CANDIDATE | — |
@@ -564,8 +559,7 @@ Each branch includes its current head SHA, heuristic class, and current open-PR 
 | `provider/harden-host-ledger-startup-current-main` | `8038b6feda145bf4578f2fdb207647575149c0f9` | DUPLICATE_CANDIDATE | — |
 | `provider/invalidate-ready-on-ledger-mutation-2026-10-26` | `f4da57a7c38ea9e27ab27aedd6d0a4bbb45d0ec0` | WORKSTREAM_UNCLASSIFIED | — |
 | `refresh/443-provider-input-snapshot-hardening-2026-10-27` | `577b4e95d88c14178eb4b3c7f4f07f156446b00b` | OPEN_PR_HEAD | [#460](https://github.com/necromorphic/Logic-Engine/pull/460) |
-| `refresh/447-world-pack-version-semantics-2026-10-27` | `e1f9710797d3d1eb9f9306b9f48b75086404d27e` | OPEN_PR_HEAD | [#458](https://github.com/necromorphic/Logic-Engine/pull/458) |
-| `refresh/448-relationship-interaction-evidence-2026-10-27` | `e9d3b188b79434ba962b76bb99405cdac362c4d9` | OPEN_PR_HEAD | [#459](https://github.com/necromorphic/Logic-Engine/pull/459) |
+| `refresh/447-world-pack-version-semantics-2026-10-27` | `e1f9710797d3d1eb9f9306b9f48b75086404d27e` | OPEN_PR_HEAD | `refresh/448-relationship-interaction-evidence-2026-10-27` | `e9d3b188b79434ba962b76bb99405cdac362c4d9` | OPEN_PR_HEAD | [#459](https://github.com/necromorphic/Logic-Engine/pull/459) |
 | `refresh/449-npc-interpretation-boundary-2026-10-27` | `a9f2923a4f0df7a0fd84e8a7a964896428204621` | WORKSTREAM_UNCLASSIFIED | — |
 | `relationships/interaction-evidence-adversarial-cases` | `61a99287b09a2058fec976b6678ad7cabdd6ded3` | WORKSTREAM_UNCLASSIFIED | — |
 | `relationships/issue-130-typed-transition-handoff` | `85f9305d327ee1dda654798a5629ab2fe9bbf2d2` | WORKSTREAM_UNCLASSIFIED | — |
@@ -1233,11 +1227,11 @@ Current lifecycle classification uses the latest open-PR API response. Open PR h
 | `work/recalculation-oracle-integration` | `cea76df9a037f3e334688838aa39ec72dbf859a5` | CLOSED_UNMERGED_REVIEW | — | #225 | Closed without merge: #225; inspect unique commits/tests and whether another open PR depends on it |
 | `work/sillytavern-diagnostic-extension` | `c494830d85fea7201053ff08da598316e5747937` | KEEP_OPEN_PR | — | — | Head of current open PR(s): #492 |
 
-### Status counts — corrected for 85 open PRs
+### Status counts — corrected for 82 open PRs
 
-- `MERGED_PR_BRANCH_REVIEW`: 198
+- `MERGED_PR_BRANCH_REVIEW`: 201
 - `CLOSED_UNMERGED_REVIEW`: 187
-- `KEEP_OPEN_PR`: 86
+- `KEEP_OPEN_PR`: 82
 - `UNCLASSIFIED_REVIEW`: 22
 - `UNMAPPED_CANDIDATE`: 17
 - `KEEP_MAIN`: 1
@@ -1283,7 +1277,7 @@ GitHub compare API checks were run against current main for selected duplicate-l
 
 ### What can be acted on now vs. what cannot
 
-- **Actionable without code loss:** update the portfolio issue with the 15 currently open Issues and the 85 open PRs; cross-link the three control Issues #252/#251/#264; stop creating new current-main, clean, v2, or final branches until the canonical branch for that workstream is chosen.
+- **Actionable without code loss:** update the portfolio issue with the 15 currently open Issues and the 82 open PRs; cross-link the three control Issues #252/#251/#264; stop creating new current-main, clean, v2, or final branches until the canonical branch for that workstream is chosen.
 - **Candidates for manual cleanup review:** branches associated with merged PRs (198 refs) and closed-unmerged PRs (187 refs). These are not automatically safe to delete.
 - **Not yet proven safe to delete:** any branch whose head is not identical to main, whose unique content has not been compared with current main, or which is a base for an open PR.
 - **No destructive cleanup performed:** this audit only updated the documentation branch. It did not delete branches, close Issues/PRs, merge code, or change runtime behavior.
@@ -1292,7 +1286,9 @@ GitHub compare API checks were run against current main for selected duplicate-l
 ## Operational cleanup delta — 2026-10-28
 
 - **PR #490 closed without merge** as a superseded parallel source-version implementation. The canonical staged path is #509 → #521 → #504: #509 owns the durable persistence migration/transactional ledger, #521 adds Core readback and validation, and #504 consumes that contract. A closing comment records the reason and confirms the branch was not deleted.
-- Current GitHub search after that action returned **85 open PRs** and **19 open Issues**. The 512-branch count above is the inventory snapshot from the audit run, not a newly verified post-cleanup branch count.
+- Current GitHub search after that action returned **82 open PRs** and **19 open Issues**. The 512-branch count above is the inventory snapshot from the audit run, not a newly verified post-cleanup branch count.
 - **PR #355 remains open**: it has unique additions in `tests/causality-contract.test.js` and a benchmark test edit not present in the current-main replacement PR #368. Do not close it until those changes are transferred or explicitly abandoned.
-- **PR #523 remains a draft and is not mergeable** because GitHub reports a merge conflict. It is not merged; its README/report snapshot should be refreshed before it is treated as current.
+- **PR #523 remains a draft**. Its README was refreshed from current `main` and updated with the verified cleanup delta; mergeability and CI must be rechecked before merging.
 - No runtime PR was merged. No branches were deleted. Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+- **Merged after inventory baseline:** #470 (provider-neutral Core audit brief), #458 (Relationships World Pack semantics docs), and #324 (Personality acceptance crosswalk). Each was non-draft, clean/mergeable, and all reported exact-head checks passed before squash merge.
