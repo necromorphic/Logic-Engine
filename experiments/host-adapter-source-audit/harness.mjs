@@ -117,7 +117,7 @@ test('Core digest proxy sends only allowlisted digests to a fixed configured end
     resolve(root, 'src/endpoints/logic-engine-lifecycle-proxy.mjs'),
   ).href);
   const env = {
-    LOGIC_ENGINE_CORE_URL: 'http://192.168.1.10:8787/ignored/path',
+    LOGIC_ENGINE_CORE_URL: 'http://192.168.1.10:8787',
     LOGIC_ENGINE_API_TOKEN: 'a'.repeat(24),
     LOGIC_ENGINE_ADAPTER_ID: 'st-desktop',
     LOGIC_ENGINE_ADAPTER_TOKEN: 'b'.repeat(24),
