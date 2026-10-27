@@ -805,6 +805,177 @@ export class SQLiteMemoryProvider {
     return true;
   }
 
+  /**
+   * Trusted synchronous Provider evidence read for the final Memory dispatch gate.
+   *
+   * This method returns identities/provenance only, never Memory text. It is
+   * intentionally synchronous and must be called while the shared coordinator
+   * lock is held by MemoryDispatchGateway. A Promise-returning Core validator,
+   * missing accepted-head enrollment, stale index, ambiguous lineage, or any
+   * grant/source mismatch is NON_READY, not an empty result.
+   */
+  readDispatchEvidence(input) {
+    const allowedKeys = new Set([
+      'world_id', 'subject_id', 'purpose', 'candidates',
+    ]);
+    if (!object(input) || Object.keys(input).some((key) => !allowedKeys.has(key))
+      || !validId(input.world_id) || !validId(input.subject_id) || !validId(input.purpose)
+      || !Array.isArray(input.candidates) || input.candidates.length < 1 || input.candidates.length > 50
+      || !this.acceptedHeadConfig) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    if (this.transactionDepth !== 0) throw new Error('MEMORY_DISPATCH_NOT_READY');
+
+    const candidates = input.candidates.map((candidate) => {
+      if (!object(candidate)
+        || Object.keys(candidate).some((key) => ![
+          'record_ref', 'record_version', 'source_kind', 'source_entity_id', 'source_version',
+        ].includes(key))
+        || !validId(candidate.record_ref) || !validId(candidate.record_version)
+        || candidate.source_kind !== 'canonical_entity'
+        || !validId(candidate.source_entity_id) || !validId(candidate.source_version)) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      return Object.freeze({
+        record_ref: candidate.record_ref,
+        record_version: candidate.record_version,
+        source_kind: candidate.source_kind,
+        source_entity_id: candidate.source_entity_id,
+        source_version: candidate.source_version,
+      });
+    });
+    const compare = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+    candidates.sort((a, b) => compare(a.record_ref, b.record_ref)
+      || compare(a.record_version, b.record_version));
+    for (let i = 1; i < candidates.length; i += 1) {
+      if (candidates[i - 1].record_ref === candidates[i].record_ref
+        && candidates[i - 1].record_version === candidates[i].record_version) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+    }
+
+    const assertCurrentAuthority = () => {
+      const authority = getAcceptedHeadStatusSync({
+        port: this.acceptedHeadConfig.port,
+        token: this.acceptedHeadConfig.token,
+      });
+      const local = this.db.prepare(
+        'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+      ).get();
+      const pendingCore = authority.pending?.core ?? authority.operations?.core;
+      const pendingProvider = authority.pending?.provider ?? authority.operations?.provider;
+      if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1
+        || !authority.enrolled?.core || !authority.enrolled?.provider
+        || pendingCore || pendingProvider || authority.heads?.provider !== local.head) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      return local.head;
+    };
+
+    let head;
+    let dataVersion;
+    let result;
+    try {
+      head = assertCurrentAuthority();
+      dataVersion = this.#dataVersion();
+      this.db.exec('BEGIN');
+      const queryGrant = this.db.prepare(`SELECT allowed FROM memory_query_grants
+        WHERE world_id=? AND subject_id=? AND purpose=?`)
+        .get(input.world_id, input.subject_id, input.purpose);
+      if (queryGrant?.allowed !== 1) throw new Error('MEMORY_DISPATCH_NOT_READY');
+
+      const state = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
+        .get(input.world_id);
+      if (!state || state.index_health !== 'ready' || state.source_reconciliation !== 'current') {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      const currentSnapshot = this.getSnapshot(input.world_id);
+      if (!object(currentSnapshot) || typeof currentSnapshot.then === 'function'
+        || (String(currentSnapshot.world_revision) !== String(state.snapshot_revision))
+        || (String(currentSnapshot.commit_sequence) !== String(state.snapshot_sequence))) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+
+      const sources = [];
+      for (const candidate of candidates) {
+        const grant = this.db.prepare(`SELECT allowed FROM memory_record_grants
+          WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
+          .get(input.world_id, input.subject_id, input.purpose, candidate.record_ref, candidate.record_version);
+        if (grant?.allowed !== 1) throw new Error('MEMORY_DISPATCH_NOT_READY');
+
+        const row = this.db.prepare(`SELECT * FROM memory_records
+          WHERE world_id=? AND record_ref=? AND record_version=?`)
+          .get(input.world_id, candidate.record_ref, candidate.record_version);
+        if (!row || row.subject_id !== input.subject_id || row.purpose !== input.purpose
+          || row.source_kind !== candidate.source_kind
+          || row.source_entity_id !== candidate.source_entity_id
+          || row.source_version !== candidate.source_version
+          || row.content_kind === 'summary') {
+          throw new Error('MEMORY_DISPATCH_NOT_READY');
+        }
+        const indexed = this.db.prepare(`SELECT 1 AS found FROM memory_index_entries
+          WHERE world_id=? AND record_ref=? AND record_version=?`)
+          .get(input.world_id, candidate.record_ref, candidate.record_version);
+        if (!indexed) throw new Error('MEMORY_DISPATCH_NOT_READY');
+
+        let lineage;
+        try { lineage = decode(row.lineage_json); } catch {
+          throw new Error('MEMORY_DISPATCH_NOT_READY');
+        }
+        if (!validDirectLineage(row, lineage)) throw new Error('MEMORY_DISPATCH_NOT_READY');
+        const validationInput = Object.freeze({
+          world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
+          record_ref: row.record_ref, record_version: row.record_version,
+          source_kind: row.source_kind, source_entity_id: row.source_entity_id,
+          source_version: row.source_version, lineage: Object.freeze(lineage),
+        });
+        let sourceValid;
+        try { sourceValid = this.validateSourceVersion(validationInput); } catch {
+          throw new Error('MEMORY_DISPATCH_NOT_READY');
+        }
+        if (typeof sourceValid?.then === 'function' || sourceValid !== true) {
+          throw new Error('MEMORY_DISPATCH_NOT_READY');
+        }
+        sources.push(Object.freeze({
+          source_kind: row.source_kind,
+          source_entity_id: row.source_entity_id,
+          source_version: row.source_version,
+        }));
+      }
+      const uniqueSources = [...new Map(sources.map((source) => [
+        JSON.stringify([source.source_kind, source.source_entity_id, source.source_version]), source,
+      ])).values()].sort((left, right) =>
+        (left.source_entity_id < right.source_entity_id ? -1 : left.source_entity_id > right.source_entity_id ? 1 : 0)
+        || (left.source_version < right.source_version ? -1 : left.source_version > right.source_version ? 1 : 0));
+
+      const finalState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
+        .get(input.world_id);
+      if (!finalState || finalState.index_health !== 'ready'
+        || finalState.source_reconciliation !== 'current'
+        || finalState.snapshot_revision !== state.snapshot_revision
+        || finalState.snapshot_sequence !== state.snapshot_sequence
+        || this.#dataVersion() !== dataVersion
+        || assertCurrentAuthority() !== head) {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
+      this.db.exec('COMMIT');
+      result = Object.freeze({
+        head,
+        world_id: input.world_id,
+        actor_id: input.subject_id,
+        purpose: input.purpose,
+        granted: true,
+        readiness: 'READY',
+        sources: Object.freeze(uniqueSources),
+        candidates: Object.freeze(candidates),
+      });
+    } catch {
+      try { this.db.exec('ROLLBACK'); } catch {}
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    return result;
+  }
+
   putRecord(record) {
     // Serialize identity lookup and both durable record/index phases as one
     // coordinator window. The local record transaction still commits before
