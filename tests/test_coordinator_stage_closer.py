@@ -1,6 +1,7 @@
 import importlib.util
 import pathlib
 import unittest
+from unittest.mock import call, patch
 
 MODULE_PATH = pathlib.Path(__file__).resolve().parents[1] / "scripts" / "coordinator-stage-closer.py"
 SPEC = importlib.util.spec_from_file_location("coordinator_stage_closer", MODULE_PATH)
@@ -93,6 +94,24 @@ class CoordinatorStageCloserTests(unittest.TestCase):
         eligible, reason = closer.issue_ready(issue(state="CLOSED"), {501: merged_pr()})
         self.assertFalse(eligible)
         self.assertIn("not open", reason)
+
+
+    def test_closes_eligible_stage_and_records_evidence_in_close_command(self):
+        with patch.object(closer, "gh", side_effect=[[issue()], merged_pr(), None]) as mocked_gh:
+            closed = closer.close_eligible_stages()
+        self.assertEqual(closed, [900])
+        close_args = mocked_gh.call_args_list[-1].args[0]
+        self.assertEqual(close_args[:3], ["issue", "close", "900"])
+        self.assertIn("PR #501 head " + "a" * 40, close_args[-1])
+        self.assertIn("does not enable Memory→NPC", close_args[-1])
+
+    def test_unready_stage_is_not_closed(self):
+        blocked_issue = issue(body="- [x] Code merged\nhttps://github.com/necromorphic/Logic-Engine/pull/501")
+        with patch.object(closer, "gh", side_effect=[[blocked_issue], merged_pr()]) as mocked_gh:
+            closed = closer.close_eligible_stages()
+        self.assertEqual(closed, [])
+        self.assertEqual(mocked_gh.call_count, 2)
+        self.assertFalse(any(args.args[0][:2] == ["issue", "close"] for args in mocked_gh.call_args_list))
 
 
 if __name__ == "__main__":
