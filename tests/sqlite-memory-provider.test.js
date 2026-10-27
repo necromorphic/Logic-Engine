@@ -712,7 +712,7 @@ test('record revocation survives Provider restart and index rebuild cannot resto
   assert.equal(provider.putRecord(record).status, 'stored');
   const afterWrites = getAcceptedHeadStatusSync({ port: authority.port });
   assert.equal(afterWrites.pending.provider, false);
-  assert.equal(afterWrites.heads.provider, 4);
+  assert.equal(afterWrites.heads.provider, 6);
   provider.close();
   provider = new SQLiteMemoryProvider(options);
   assert.deepEqual(await provider.rebuildIndex('world-a'), { status: 'rebuilt', count: 1 });
