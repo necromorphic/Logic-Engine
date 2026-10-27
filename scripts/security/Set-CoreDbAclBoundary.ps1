@@ -66,11 +66,13 @@ function Assert-SafeParentPathMutationRights {
     # explicit or inherited ALLOW ACE granting a dangerous right to a non-trusted
     # principal blocks this candidate. This is not a substitute for target-PC
     # effective-access testing (nested groups/privileges still matter).
+    # FullControl is a composite mask; its bits overlap ordinary read/write rights.
+    # Testing it with -band would therefore falsely classify benign ACEs as dangerous.
+    # A FullControl ACE necessarily contains each of the specific rights listed below.
     $dangerous = [System.Security.AccessControl.FileSystemRights]::Delete -bor
         [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles -bor
         [System.Security.AccessControl.FileSystemRights]::ChangePermissions -bor
-        [System.Security.AccessControl.FileSystemRights]::TakeOwnership -bor
-        [System.Security.AccessControl.FileSystemRights]::FullControl
+        [System.Security.AccessControl.FileSystemRights]::TakeOwnership
 
     $current = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($ProtectedDirectory).TrimEnd('\'))
     while ($current) {
