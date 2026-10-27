@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const root = process.env.SILLYTAVERN_DIR ?? resolve(process.cwd(), 'SillyTavern');
 const targetSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
@@ -97,4 +98,100 @@ test('server-side chat mutation routes remain an explicit NON_READY boundary (st
     'pinned chats.js has no Host enrollment/bridge guard; do not claim direct server API calls are intercepted');
   assert.doesNotMatch(backupRoutes, /logic-engine-host-lifecycle|guardOperation\(/,
     'pinned backups.js has no Host enrollment/bridge guard; backup deletion remains outside browser protection');
+});
+
+
+test('server-side Core digest proxy exists and never exposes its credentials to browser code', async () => {
+  const proxyPath = resolve(root, 'src/endpoints/logic-engine-lifecycle-proxy.mjs');
+  const { createHostDigestProxyHandler } = await import(pathToFileURL(proxyPath).href);
+  assert.equal(typeof createHostDigestProxyHandler, 'function');
+  const proxySource = await readFile(proxyPath, 'utf8');
+  assert.match(proxySource, /authorization:\s*'Bearer '\s*\+\s*config\.apiToken/);
+  assert.match(proxySource, /'x-adapter-token':\s*config\.adapterToken/);
+  assert.match(proxySource, /redirect:\s*'error'/);
+  assert.doesNotMatch(script, /LOGIC_ENGINE_(?:API_TOKEN|ADAPTER_TOKEN)/);
+});
+
+test('Core digest proxy sends only allowlisted digests to a fixed configured endpoint', async () => {
+  const { createHostDigestProxyHandler } = await import(pathToFileURL(
+    resolve(root, 'src/endpoints/logic-engine-lifecycle-proxy.mjs'),
+  ).href);
+  const env = {
+    LOGIC_ENGINE_CORE_URL: 'http://192.168.1.10:8787/ignored/path',
+    LOGIC_ENGINE_API_TOKEN: 'a'.repeat(24),
+    LOGIC_ENGINE_ADAPTER_ID: 'st-desktop',
+    LOGIC_ENGINE_ADAPTER_TOKEN: 'b'.repeat(24),
+  };
+  const calls = [];
+  const handler = createHostDigestProxyHandler({
+    env,
+    fetchImpl: async (url, options) => {
+      calls.push({ url, options });
+      return { ok: true, status: 201, json: async () => ({ capture: { status: 'captured' } }) };
+    },
+  });
+  const response = {
+    statusCode: null,
+    body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  };
+  const entry = {
+    conversation_id: 'conversation-1',
+    message_id: 'message-1',
+    version_id: 'version-1',
+    content_sha256: 'c'.repeat(64),
+    active: true,
+    deleted: false,
+  };
+  await handler({ body: entry }, response);
+  assert.equal(response.statusCode, 200);
+  assert.deepEqual(response.body, { ok: true, inventory_status: 'NON_READY' });
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].url, 'http://192.168.1.10:8787/v1/host-version-ledger/capture');
+  assert.equal(calls[0].options.method, 'POST');
+  assert.equal(calls[0].options.redirect, 'error');
+  assert.equal(calls[0].options.headers.authorization, 'Bearer ' + env.LOGIC_ENGINE_API_TOKEN);
+  assert.equal(calls[0].options.headers['x-adapter-id'], env.LOGIC_ENGINE_ADAPTER_ID);
+  assert.equal(calls[0].options.headers['x-adapter-token'], env.LOGIC_ENGINE_ADAPTER_TOKEN);
+  assert.deepEqual(JSON.parse(calls[0].options.body), entry);
+  assert.doesNotMatch(calls[0].options.body, /raw|text_body|message_body/i);
+});
+
+test('Core digest proxy rejects caller-supplied authority and hides upstream diagnostics', async () => {
+  const { createHostDigestProxyHandler } = await import(pathToFileURL(
+    resolve(root, 'src/endpoints/logic-engine-lifecycle-proxy.mjs'),
+  ).href);
+  const env = {
+    LOGIC_ENGINE_CORE_URL: 'http://127.0.0.1:8787',
+    LOGIC_ENGINE_API_TOKEN: 'a'.repeat(24),
+    LOGIC_ENGINE_ADAPTER_ID: 'st-desktop',
+    LOGIC_ENGINE_ADAPTER_TOKEN: 'b'.repeat(24),
+  };
+  let calls = 0;
+  const handler = createHostDigestProxyHandler({
+    env,
+    fetchImpl: async () => { calls++; return { ok: false, status: 403, json: async () => ({ message: 'sensitive upstream detail' }) }; },
+  });
+  const makeResponse = () => ({
+    statusCode: null, body: null,
+    status(code) { this.statusCode = code; return this; },
+    json(body) { this.body = body; return this; },
+  });
+  const invalid = makeResponse();
+  await handler({ body: {
+    conversation_id: 'conversation-1', message_id: 'message-1', version_id: 'version-1',
+    content_sha256: 'c'.repeat(64), active: true, deleted: false, world_id: 'caller-controlled',
+  } }, invalid);
+  assert.equal(invalid.statusCode, 400);
+  assert.equal(calls, 0);
+
+  const rejected = makeResponse();
+  await handler({ body: {
+    conversation_id: 'conversation-1', message_id: 'message-1', version_id: 'version-1',
+    content_sha256: 'c'.repeat(64), active: true, deleted: false,
+  } }, rejected);
+  assert.equal(rejected.statusCode, 403);
+  assert.deepEqual(rejected.body, { error: { code: 'CORE_CAPTURE_REJECTED' } });
+  assert.doesNotMatch(JSON.stringify(rejected.body), /sensitive upstream detail/);
 });
