@@ -31,7 +31,7 @@ async function readStableFile(absolutePath, fs) {
     if (!sameStat(opened, afterHandle) || !sameStat(opened, afterPath) || bytes.length !== afterHandle.size) {
       throw Error('ARTIFACT_CHANGED_DURING_READ');
     }
-    return bytes.toString('utf8');
+    return { text: bytes.toString('utf8'), stat: afterPath };
   } finally {
     await handle.close().catch(() => {});
   }
@@ -82,6 +82,7 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
   if (allowedRoots.size !== 2) return fail('BOTH_CHAT_DOMAINS_REQUIRED');
 
   const matchedFiles = new Map();
+  const observedFiles = [];
   const parseErrors = [];
   for (const [domain, rootPath] of allowedRoots) {
     const walk = async directory => {
@@ -110,7 +111,9 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
         if (path.extname(entry.name).toLowerCase() !== '.jsonl') continue;
         let parsed;
         try {
-          const text = await readStableFile(absolutePath, fs);
+          const read = await readStableFile(absolutePath, fs);
+          const text = read.text;
+          observedFiles.push({ absolutePath, domain, stat: read.stat });
           const lines = text.split(/\r?\n/).filter(line => line.trim().length > 0);
           if (!lines.length) {
             parseErrors.push('CHAT_JSONL_EMPTY_OR_HEADER_MISSING:' + domain);
@@ -150,6 +153,14 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
       } catch { parseErrors.push('DIRECTORY_UNAVAILABLE_AFTER_ENUMERATION:' + domain); }
     };
     await walk(rootPath);
+  }
+  for (const observed of observedFiles) {
+    try {
+      const current = await fs.lstat(observed.absolutePath);
+      if (current.isSymbolicLink() || !current.isFile() || !sameStat(observed.stat, current)) {
+        parseErrors.push('CHAT_ARTIFACT_CHANGED_AFTER_SCAN:' + observed.domain);
+      }
+    } catch { parseErrors.push('CHAT_ARTIFACT_UNAVAILABLE_AFTER_SCAN:' + observed.domain); }
   }
   if (parseErrors.length) return fail(...[...new Set(parseErrors)].sort());
 
