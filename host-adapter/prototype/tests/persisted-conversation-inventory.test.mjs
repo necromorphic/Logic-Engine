@@ -123,7 +123,7 @@ test('persisted snapshot rejects a chat file modified after its individual read'
         if (directory === nested && !changed) {
           changed = true;
           const current = await fsPromises.readFile(chatFile, 'utf8');
-          await writeFile(chatFile, current + '\\n');
+          await writeFile(chatFile, current + '\n');
         }
         return entries;
       },
