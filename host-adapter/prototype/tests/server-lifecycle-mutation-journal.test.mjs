@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
-import { createHostLifecycleMutationMiddleware, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
+import { createHostLifecycleMutationMiddleware, getHostMutationJournalStatus, reconcileHostMutation, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
 
 async function fixture() {
     const root = await fsMkdtemp();
@@ -202,6 +202,49 @@ test('replayed operation ID is rejected before a second mutation', async () => {
         assert.match(String(second.body), /HOST_OPERATION_ALREADY_RECORDED/);
         const ledger = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
         assert.doesNotMatch(ledger, /private text/);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('explicit reconciliation records uncertainty and permits future journaling without claiming completeness', async () => {
+    const { root, directories, request } = await fixture();
+    try {
+        const chatPath = path.join(directories.chats, 'chat-1.jsonl');
+        await writeFile(chatPath, '{"mes":"before"}\\n');
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        const response = responseMock();
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            await writeFile(chatPath, '{"mes":"mutated"}\\n');
+            await rm(directories.backups, { recursive: true, force: true });
+            response.json({ ok: true });
+        });
+        await response.finished;
+        assert.equal(response.statusCode, 503);
+
+        const ledgerPath = path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl');
+        const records = (await readFile(ledgerPath, 'utf8')).trim().split('\\n').map(line => JSON.parse(line));
+        const intent = records.find(record => record.kind === 'intent');
+        assert.ok(intent);
+        assert.equal((await getHostMutationJournalStatus(request)).status, 'RECONCILIATION_REQUIRED');
+
+        await mkdir(directories.backups, { recursive: true });
+        const reconciled = await reconcileHostMutation(request, {
+            operationId: intent.operationId,
+            acknowledge: 'I_ACCEPT_UNKNOWN_MUTATION_OUTCOME',
+            reason: 'Operator reviewed uncertain persisted state',
+        });
+        assert.equal(reconciled.status, 'RECONCILED_WITH_GAP');
+        const status = await getHostMutationJournalStatus(request);
+        assert.equal(status.status, 'NON_READY_HISTORY_GAP');
+        assert.equal(status.authority, 'NON_AUTHORITATIVE');
+        assert.equal(status.historicalCompleteness, 'UNKNOWN');
+        assert.equal(status.pendingOperations.length, 0);
+        assert.equal(status.degraded, true);
     } finally {
         await rm(root, { recursive: true, force: true });
     }
