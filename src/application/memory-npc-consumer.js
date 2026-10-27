@@ -208,7 +208,8 @@ export class MemoryNpcConsumer {
       }
       if (candidate.content_kind === 'summary'
         || candidate.source?.kind !== 'canonical_entity'
-        || !validId(candidate.source?.entity_id)) {
+        || !validId(candidate.source?.entity_id)
+        || !validId(candidate.source?.version)) {
         // Do not report item-level rejection reasons or counts to the caller.
         continue;
       }
@@ -333,6 +334,7 @@ export class MemoryNpcConsumer {
       const identity = recordIdentityKey(candidate.record.ref, candidate.record.version);
       const signature = {
         source_entity_id: candidate.source.entity_id,
+        source_version: candidate.source.version,
         content_kind: candidate.content_kind,
         epistemic_kind: candidate.epistemic_kind,
         producer_kind: candidate.producer?.kind,
@@ -444,6 +446,7 @@ export class MemoryNpcConsumer {
         record_ref: candidate.record.ref,
         record_version: candidate.record.version,
         source_entity_id: candidate.source.entity_id,
+        source_version: candidate.source.version,
         epistemic_kind: candidate.epistemic_kind,
         evidence_assessment: candidate.lifecycle?.evidence_assessment,
         content: Object.fromEntries(this.contentFields.map((field) => [field, source[field]])),
