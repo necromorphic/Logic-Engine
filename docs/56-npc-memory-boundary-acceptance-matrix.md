@@ -222,6 +222,16 @@ This section maps NPC handoff claims to the current Core test suite without chan
 | Delivery, receipt, acquisition and belief | `tests/npc-memory-candidate-eligibility.test.js`: “candidate admission never implies delivery, receipt, acquisition, or belief”; the existing synthetic fixture also checks later lifecycle properties remain absent | Admission output is reference-only and does not accept caller-supplied lifecycle markers as proof of downstream state | Core + Host still need authoritative render/receipt evidence and an approved persistence/idempotency boundary before any positive delivery/acquisition/belief test |
 | Stale derived summary after revocation/reconciliation | Current oracle test “a derived summary requires complete lineage and current authorized sources”; Provider raw-archive tests are separate and do not currently index these raw messages as NPC summaries | Memory/Core: test an actual derived record whose source is revoked/retracted and verify no content/snippet leaks before serialization; define any allowed independent-support/declassification rule first. No approved lineage/reconciliation authority means the production test is not yet faithful. |
 
+### Explicit empty/denied/non-ready semantics — TЗ-4
+
+The executable MemoryNpcConsumer fixture tests must keep these outcomes separate:
+
+- **Authorized complete-empty:** return ready with empty admitted and candidates only after query authorization, complete/current Memory result metadata, and a matching current Core snapshot read.
+- **Record-level denial:** do not reveal the denied record's identity, reason, count, freshness, or content. Its externally observable result must match a genuine authorized complete-empty result when all other trusted envelope conditions are equal.
+- **Query denied/withheld, retrieval unavailable, or incomplete result:** return non_ready with no admitted references or candidates. This means the consumer cannot verify the result; it does not mean no matching memory exists.
+- **Malformed, stale, mismatched, or unavailable canonical snapshot:** return non_ready; never downgrade the result to ready-empty by filtering rows.
+- **Interpretation rule:** empty search results are not evidence that an event did not happen, that a source does not exist, or that the NPC never learned something. These tests use injected provider callbacks and establish consumer behavior only; they do not authenticate a production provider or prove Memory→NPC dispatch.
+
 ### Acceptance rule and next actions
 
 1. Keep NPC code limited to the pure admission consumer and its tests. The clean mainline baseline is PR #157 + PR #159; review NPC draft fixes #174, #175, #177 independently and do not describe them as merged.
