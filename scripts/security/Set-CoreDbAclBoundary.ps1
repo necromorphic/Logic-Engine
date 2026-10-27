@@ -168,7 +168,7 @@ try {
     $report.status = 'PARTIAL_OR_FAILED_APPLY'
     $report.error = $_.Exception.GetType().Name
     $rollbackErrors = @()
-    foreach ($prior in @($before | Select-Object -Reverse)) {
+    foreach ($prior in $before) {
         try {
             $restoreAcl = Get-Acl -LiteralPath $prior.path
             $restoreAcl.SetSecurityDescriptorSddlForm([string]$prior.sddl)
