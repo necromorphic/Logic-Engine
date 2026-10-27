@@ -1,7 +1,7 @@
 diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 --- a/src/endpoints/groups.js
 +++ b/src/endpoints/groups.js
-@@
+@@ -12,5 +12,143 @@
  export const router = express.Router();
  
 +const HOST_STATE_DIRECTORY = '.logic-engine-host';
@@ -145,7 +145,7 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
  /**
   * Warns if group data contains deprecated metadata keys and removes them.
   * @param {object} groupData Group data object
-@@ -12,5 +12,143 @@
+@@ -34,2 +172,6 @@
  export async function migrateGroupChatsMetadataFormat(userDirectories) {
 +    // All users and candidate group-chat writes are inspected before the first
 +    // backup directory, backup file, group file, or chat file is written.
