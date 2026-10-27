@@ -511,7 +511,7 @@ new file mode 100644
 +            authority: 'NON_AUTHORITATIVE',
 +            artifacts: [],
 +            artifactCount: null,
-+            errors: ['Host chat/backup storage roots are unavailable'],
++            errors: ['Host chat/group/backup storage roots are unavailable'],
 +        });
 +    }
 +    try {
