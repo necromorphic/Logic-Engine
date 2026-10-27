@@ -6,6 +6,9 @@ import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 
 function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandidate = true, completeness = 'complete' } = {}) {
   let contentVisible = allowContent;
@@ -904,7 +907,11 @@ test('malformed Memory snapshot cursor values are non-ready, including matching 
 
 
 
-test('real SQLiteMemoryProvider revalidates a revoked earlier candidate while a later candidate is awaited', async (t) => {
+
+test('real file-backed SQLiteMemoryProvider revalidates revocation races and preserves grants across restart', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-real-provider-consumer-'));
+  const providerPath = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const bindings = new ActorBindingService(engine);
@@ -939,8 +946,9 @@ test('real SQLiteMemoryProvider revalidates a revoked earlier candidate while a 
   let releaseSecondValidation;
   const secondValidationEntered = new Promise((resolve) => { signalSecondValidation = resolve; });
   const secondValidationRelease = new Promise((resolve) => { releaseSecondValidation = resolve; });
-  const provider = new SQLiteMemoryProvider({
-    path: ':memory:',
+  const providerOptions = {
+    path: providerPath,
+    coordinatorPath,
     getSnapshot: async () => {
       const snapshot = engine.getSnapshot('real-provider-world');
       return {
@@ -957,10 +965,12 @@ test('real SQLiteMemoryProvider revalidates a revoked earlier candidate while a 
         && record.source_version === 'source-real-v1';
     },
     validateInventory: async () => true,
-  });
+  };
+  let provider = new SQLiteMemoryProvider(providerOptions);
   t.after(() => {
-    provider.close();
+    try { provider?.close(); } catch {}
     store.close();
+    rmSync(directory, { recursive: true, force: true });
   });
 
   const scope = { world_id: 'real-provider-world', subject_id: 'npc-real', purpose: 'npc_decision' };
@@ -995,12 +1005,13 @@ test('real SQLiteMemoryProvider revalidates a revoked earlier candidate while a 
   assert.deepEqual(await provider.rebuildIndex(scope.world_id), { status: 'rebuilt', count: 2 });
   assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
 
-  const consumer = new MemoryNpcConsumer({
+  const createConsumer = () => new MemoryNpcConsumer({
     authorizedReadService,
     actorBindingService: bindings,
     memoryProvider: provider,
     contentFields: ['attributes.public_note'],
   });
+  let consumer = createConsumer();
   const retrieve = () => consumer.retrieveForNpc({
     worldId: scope.world_id,
     adapterId: 'adapter-real',
@@ -1035,10 +1046,18 @@ test('real SQLiteMemoryProvider revalidates a revoked earlier candidate while a 
   assert.equal(allRevoked.status, 'non_ready');
   assert.deepEqual(allRevoked.candidates, []);
 
+  // Reopen the durable Provider database. Revocations must survive restart.
+  provider.close();
+  provider = new SQLiteMemoryProvider(providerOptions);
+  consumer = createConsumer();
+  holdSecondValidation = false;
+  const afterRestart = await retrieve();
+  assert.equal(afterRestart.status, 'non_ready');
+  assert.deepEqual(afterRestart.candidates, []);
+
   // Re-grants are explicit new authorization; only a fresh retrieval may use them.
   provider.grantRecord(scope, record.record_ref, record.record_version, true);
   provider.grantRecord(scope, secondRecord.record_ref, secondRecord.record_version, true);
-  holdSecondValidation = false;
   const afterExplicitRegrant = await retrieve();
   assert.equal(afterExplicitRegrant.status, 'ready', JSON.stringify(afterExplicitRegrant));
   assert.deepEqual(afterExplicitRegrant.candidates.map((item) => item.record_ref), [
