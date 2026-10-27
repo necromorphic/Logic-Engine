@@ -5,6 +5,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
+import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
 function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandidate = true, completeness = 'complete' } = {}) {
   let contentVisible = allowContent;
@@ -899,4 +900,108 @@ test('malformed Memory snapshot cursor values are non-ready, including matching 
     assert.deepEqual(result.candidates, []);
     assert.equal(JSON.stringify(result).includes(JSON.stringify(malformedSnapshot)), false);
   }
+});
+
+
+test('real SQLiteMemoryProvider is consumed through the existing Core MemoryNpcConsumer seam', async (t) => {
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
+  const bindings = new ActorBindingService(engine);
+  engine.createWorld({
+    world_id: 'real-provider-world',
+    world_pack_id: 'test.real-provider',
+    world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('real-provider-world', {
+    idempotency_key: 'seed-real-provider-world',
+    turn_id: 'seed-real-provider-world',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [
+      { kind: 'entity.create', entity_id: 'npc-real', entity_type: 'character' },
+      { kind: 'entity.create', entity_id: 'source-real', entity_type: 'character', attributes: {
+        public_note: 'read from canonical Core state',
+        private_note: 'never expose this field',
+      } },
+    ],
+  });
+  bindings.bind('real-provider-world', 'adapter-real', 'npc-real');
+  const authorizedReadService = new AuthorizedReadService(
+    engine,
+    bindings,
+    (_context, _entity, field) => field === 'entity_id' || field === 'attributes.public_note',
+  );
+  const provider = new SQLiteMemoryProvider({
+    path: ':memory:',
+    getSnapshot: async () => {
+      const snapshot = engine.getSnapshot('real-provider-world');
+      return {
+        world_revision: snapshot.world_revision,
+        commit_sequence: snapshot.commit_sequence,
+      };
+    },
+    validateSourceVersion: async (record) => record.source_entity_id === 'source-real'
+      && record.source_version === 'source-real-v1',
+    validateInventory: async () => true,
+  });
+  t.after(() => {
+    provider.close();
+    store.close();
+  });
+
+  const scope = { world_id: 'real-provider-world', subject_id: 'npc-real', purpose: 'npc_decision' };
+  const record = {
+    ...scope,
+    record_ref: 'memory:real-provider-1',
+    record_version: 'record-v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'source-real',
+    source_version: 'source-real-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'real-sqlite-provider-test',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{
+      source_kind: 'canonical_entity',
+      entity_id: 'source-real',
+      source_version: 'source-real-v1',
+    }],
+  };
+  provider.grantQuery(scope, true);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  assert.equal(provider.putRecord(record).status, 'stored');
+  assert.deepEqual(await provider.rebuildIndex(scope.world_id), { status: 'rebuilt', count: 1 });
+  assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
+
+  const consumer = new MemoryNpcConsumer({
+    authorizedReadService,
+    actorBindingService: bindings,
+    memoryProvider: provider,
+    contentFields: ['attributes.public_note'],
+  });
+  const result = await consumer.retrieveForNpc({
+    worldId: scope.world_id,
+    adapterId: 'adapter-real',
+    actorEntityId: scope.subject_id,
+  });
+
+  assert.equal(result.status, 'ready', JSON.stringify(result));
+  assert.equal(result.candidates.length, 1);
+  assert.equal(result.candidates[0].record_ref, record.record_ref);
+  assert.equal(result.candidates[0].record_version, record.record_version);
+  assert.deepEqual(result.candidates[0].content, {
+    'attributes.public_note': 'read from canonical Core state',
+  });
+  assert.equal(JSON.stringify(result).includes('never expose this field'), false);
+
+  provider.revokeRecord(scope, record.record_ref, record.record_version);
+  const deniedAfterRevoke = await consumer.retrieveForNpc({
+    worldId: scope.world_id,
+    adapterId: 'adapter-real',
+    actorEntityId: scope.subject_id,
+  });
+  assert.equal(deniedAfterRevoke.status, 'ready');
+  assert.deepEqual(deniedAfterRevoke.candidates, []);
 });
