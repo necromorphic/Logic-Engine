@@ -255,15 +255,28 @@ export function evaluateConditionResult(rule, context, options = {}) {
   };
 }
 
+function validateEffectJson(value, label) {
+  try {
+    canonicalJson(value);
+  } catch (error) {
+    throw new EngineError('INVALID_EFFECT', label + ' must contain bounded, accessor-free JSON data.', 400, {
+      cause: error?.code ?? 'INVALID_JSON_DATA',
+    });
+  }
+}
+
 export function validateEffects(effects, options = {}) {
-  if (!Array.isArray(effects) || effects.length > 200) {
-    throw new EngineError('INVALID_EFFECTS', 'effects must contain at most 200 entries.');
+  assertDenseDataArray(effects, 200, 'INVALID_EFFECTS', 'effects');
+  assertPlainDataObject(options, 'INVALID_EFFECT_OPTIONS', 'Effect validation options');
+  if (Object.keys(options).some((key) => key !== 'allowRelationshipTransition')) {
+    throw new EngineError('INVALID_EFFECT_OPTIONS', 'Effect validation options contain an unsupported field.');
+  }
+  if (options.allowRelationshipTransition !== undefined && typeof options.allowRelationshipTransition !== 'boolean') {
+    throw new EngineError('INVALID_EFFECT_OPTIONS', 'allowRelationshipTransition must be boolean.');
   }
 
   for (const effect of effects) {
-    if (!effect || typeof effect !== 'object' || Array.isArray(effect)) {
-      throw new EngineError('INVALID_EFFECT', 'Each effect must be an object.');
-    }
+    assertPlainDataObject(effect, 'INVALID_EFFECT', 'Effect');
 
     const allowedFields = {
       'entity.create': ['kind', 'entity_id', 'entity_type', 'status', 'attributes'],
@@ -363,6 +376,19 @@ export function validateEffects(effects, options = {}) {
       if (typeof effect.instance_id !== 'string' || !effect.instance_id.trim() || effect.instance_id.length > 200) throw new EngineError('INVALID_MECHANIC_INSTANCE_EFFECT', effect.kind + ' requires a non-empty instance_id of at most 200 characters.');
     } else {
       throw new EngineError('UNSUPPORTED_EFFECT', 'Unsupported effect kind: ' + String(effect.kind));
+    }
+
+    for (const key of ['attributes', 'patch', 'parameters', 'state']) {
+      if (Object.hasOwn(effect, key)) validateEffectJson(effect[key], effect.kind + '.' + key);
+    }
+    if (effect.kind === 'fact.set' && Object.hasOwn(effect, 'value')) {
+      validateEffectJson(effect.value, 'fact.set.value');
+    }
+    if (effect.kind === 'relationship.transition') {
+      assertDenseDataArray(effect.evidence_refs, 128, 'INVALID_RELATIONSHIP_TRANSITION', 'evidence_refs');
+    }
+    if (effect.kind === 'entity.update' && effect.remove_attributes !== undefined) {
+      assertDenseDataArray(effect.remove_attributes, 200, 'INVALID_EFFECT', 'remove_attributes');
     }
   }
 }
