@@ -1002,6 +1002,7 @@ test('real SQLiteMemoryProvider is consumed through the existing Core MemoryNpcC
     adapterId: 'adapter-real',
     actorEntityId: scope.subject_id,
   });
-  assert.equal(deniedAfterRevoke.status, 'ready');
+  assert.equal(deniedAfterRevoke.status, 'non_ready');
   assert.deepEqual(deniedAfterRevoke.candidates, []);
+  assert.equal(deniedAfterRevoke.reason, 'memory_retrieval_unavailable');
 });
