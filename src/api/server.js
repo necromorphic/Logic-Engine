@@ -197,6 +197,50 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         });
         return send(res, 200, { inventory });
       }
+      if (url.pathname === '/v1/host-version-ledger/reconcile') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host inventory reconciliation operation.' } });
+        if (!hostVersionLedger || typeof hostVersionLedger.reconcileConversation !== 'function') {
+          return send(res, 503, { error: { code: 'HOST_VERSION_LEDGER_UNAVAILABLE', message: 'Host version ledger is not configured.' } });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req);
+        const versionKeys = ['message_id', 'version_id', 'content_sha256', 'active', 'deleted'];
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => !['conversation_id', 'complete', 'versions'].includes(key))
+          || typeof body.conversation_id !== 'string' || body.conversation_id !== body.conversation_id.trim()
+          || body.conversation_id.length < 1 || body.conversation_id.length > 200
+          || [...body.conversation_id].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)
+          || typeof body.complete !== 'boolean' || !Array.isArray(body.versions)
+          || body.versions.some((version) => !version || typeof version !== 'object' || Array.isArray(version)
+            || Object.keys(version).some((key) => !versionKeys.includes(key))
+            || !['message_id', 'version_id'].every((key) => typeof version[key] === 'string')
+            || typeof version.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(version.content_sha256)
+            || typeof version.active !== 'boolean' || typeof version.deleted !== 'boolean')) {
+          throw new EngineError('INVALID_HOST_INVENTORY_RECONCILIATION',
+            'Reconciliation accepts only a completeness flag and version IDs, digests and lifecycle flags; raw content and caller-supplied world IDs are forbidden.', 400);
+        }
+        const binding = hostConversationBindings.resolve({ adapterId, conversationId: body.conversation_id });
+        const result = await hostVersionLedger.reconcileConversation({
+          world_id: binding.world_id,
+          conversation_id: binding.conversation_id,
+          complete: body.complete,
+          versions: body.versions.map((version) => ({
+            world_id: binding.world_id,
+            conversation_id: binding.conversation_id,
+            message_id: version.message_id,
+            version_id: version.version_id,
+            content_sha256: version.content_sha256,
+            active: version.active,
+            deleted: version.deleted,
+          })),
+        });
+        const ready = result?.status === 'ready';
+        return send(res, ready ? 200 : 409, {
+          reconciliation: result,
+          inventory_status: ready ? 'READY' : 'NON_READY',
+        });
+      }
       if (url.pathname === '/v1/host-conversation-bindings') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host conversation binding operation.' } });
         if (!secretMatches(req.headers['x-admin-token'], adminToken)) {
