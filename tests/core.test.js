@@ -75,11 +75,11 @@ test('event IDs are scoped to worlds and same-ID events remain isolated', (t) =>
   assert.deepEqual(h.engine.getEvents('other-world').map((event) => event.event_id), ['shared-event-id']);
   assert.equal(h.engine.getState('w').entities[0].entity_id, 'local-only');
   assert.equal(h.engine.getState('other-world').entities[0].entity_id, 'foreign-only');
-
-  assert.throws(
-    () => h.engine.commitEvent('w', cmd({ idempotency_key: 'foreign-reference-to-shared-id', caused_by: ['shared-event-id'] })),
-    (error) => error.code === 'INVALID_CAUSAL_REFERENCE',
-  );
+  const primaryKey = h.store.db.prepare('PRAGMA table_info(world_events)').all()
+    .filter((column) => column.pk > 0)
+    .sort((a, b) => a.pk - b.pk)
+    .map((column) => column.name);
+  assert.deepEqual(primaryKey, ['world_id', 'event_id']);
 });
 
 test('causal references must resolve to valid prior events in the same world', (t) => {
