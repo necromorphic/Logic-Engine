@@ -5,6 +5,10 @@ param(
     [Parameter(Mandatory = $true)][string]$ProviderServiceName,
     [Parameter(Mandatory = $true)][string]$GatewayServiceName,
     [Parameter(Mandatory = $true)][string]$AuthorityDbPath,
+    [Parameter(Mandatory = $true)][string]$CoreDbPath,
+    [Parameter(Mandatory = $true)][string]$ProviderDbPath,
+    [Parameter(Mandatory = $true)][string]$CoordinatorDbPath,
+    [Parameter(Mandatory = $true)][string[]]$BackupRoots,
     [Parameter(Mandatory = $true)][string]$EvidencePath,
     [switch]$Apply
 )
@@ -85,6 +89,47 @@ $directory = [System.IO.Path]::GetDirectoryName($dbPath)
 $dirItem = Get-Item -LiteralPath $directory -Force
 if (($dirItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
     throw 'Authority database directory is a reparse point; refusing to modify ACLs.'
+}
+
+function Test-PathOverlap {
+    param([string]$Left, [string]$Right)
+    $leftPath = [System.IO.Path]::GetFullPath($Left).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $rightPath = [System.IO.Path]::GetFullPath($Right).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $comparison = [System.StringComparison]::OrdinalIgnoreCase
+    return $leftPath.Equals($rightPath, $comparison) -or
+        $leftPath.StartsWith($rightPath + [System.IO.Path]::DirectorySeparatorChar, $comparison) -or
+        $rightPath.StartsWith($leftPath + [System.IO.Path]::DirectorySeparatorChar, $comparison)
+}
+
+$authorityDirectory = [System.IO.Path]::GetFullPath($directory)
+$protectedStores = @(
+    @{ label = 'Core database directory'; path = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($CoreDbPath)) },
+    @{ label = 'Provider database directory'; path = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($ProviderDbPath)) },
+    @{ label = 'Coordinator database directory'; path = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($CoordinatorDbPath)) }
+)
+foreach ($store in $protectedStores) {
+    if (-not (Test-Path -LiteralPath $store.path -PathType Container)) {
+        throw "$($store.label) does not exist; refusing to claim restore-domain separation."
+    }
+    if (Test-PathOverlap -Left $authorityDirectory -Right $store.path) {
+        throw "Authority directory overlaps $($store.label); restore-domain separation is not established."
+    }
+}
+if (-not $BackupRoots -or $BackupRoots.Count -eq 0) {
+    throw 'At least one explicit Core/Provider/coordinator backup or restore root is required.'
+}
+foreach ($backupRoot in $BackupRoots) {
+    $backupPath = [System.IO.Path]::GetFullPath($backupRoot)
+    if (-not (Test-Path -LiteralPath $backupPath -PathType Container)) {
+        throw "Backup/restore root does not exist: $backupPath"
+    }
+    $backupItem = Get-Item -LiteralPath $backupPath -Force
+    if (($backupItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Backup/restore root is a reparse point: $backupPath"
+    }
+    if (Test-PathOverlap -Left $authorityDirectory -Right $backupPath) {
+        throw "Authority directory overlaps a supplied backup/restore root: $backupPath"
+    }
 }
 $allowedNames = @(
     [System.IO.Path]::GetFileName($dbPath),
