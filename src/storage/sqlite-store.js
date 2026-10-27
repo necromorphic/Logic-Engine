@@ -264,6 +264,13 @@ export class SQLiteStore {
         status TEXT NOT NULL, attributes_json TEXT NOT NULL, created_by_event_id TEXT NOT NULL,
         updated_revision INTEGER NOT NULL, PRIMARY KEY(world_id,entity_id)
       );
+      CREATE TABLE IF NOT EXISTS entity_source_versions(
+        world_id TEXT NOT NULL REFERENCES worlds(world_id),
+        entity_id TEXT NOT NULL,
+        source_version INTEGER NOT NULL CHECK(source_version >= 1),
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(world_id,entity_id)
+      );
       CREATE TABLE IF NOT EXISTS relationships(
         world_id TEXT NOT NULL REFERENCES worlds(world_id),
         subject_id TEXT NOT NULL,
