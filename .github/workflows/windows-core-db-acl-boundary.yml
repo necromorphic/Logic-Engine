@@ -88,8 +88,8 @@ jobs:
             New-Item -ItemType Directory -Path $unsafeDirectory -Force | Out-Null
             $unsafeDb = Join-Path $unsafeDirectory 'core.sqlite'
             Set-Content -LiteralPath $unsafeDb -Value 'temporary non-sensitive parent ACL fixture'
+            $originalUnsafeParentAcl = Get-Acl -LiteralPath $unsafeParent
             $unsafeParentAcl = Get-Acl -LiteralPath $unsafeParent
-            $providerSid = (New-Object System.Security.Principal.NTAccount("$env:COMPUTERNAME\$($testAccounts[1])")).Translate([System.Security.Principal.SecurityIdentifier]).Value
             $providerRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
               "$env:COMPUTERNAME\$($testAccounts[1])",
               ([System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles),
@@ -104,7 +104,7 @@ jobs:
               } catch { $rejected = $true }
               if (-not $rejected) { throw 'A writable parent path for Provider was not rejected.' }
             } finally {
-              Set-Acl -LiteralPath $unsafeParent -AclObject $unsafeParentAcl
+              Set-Acl -LiteralPath $unsafeParent -AclObject $originalUnsafeParentAcl
               if (Test-Path -LiteralPath $unsafeEvidence) { Remove-Item -LiteralPath $unsafeEvidence -Force }
               if (Test-Path -LiteralPath $unsafeParent) { Remove-Item -LiteralPath $unsafeParent -Recurse -Force }
             }
