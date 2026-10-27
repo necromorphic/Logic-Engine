@@ -6,13 +6,14 @@
  * from an interpretation, resolve World Pack versions, authorize evidence, or
  * write canonical state. Input/output are internal module shapes, not an API.
  */
+import { isProxy } from "node:util/types";
 import { assessInteractionInterpretations } from "./assess-interaction-interpretations.js";
 import { evaluateRelationshipCandidate } from "./evaluate-candidate.js";
 
 const own = (object, key) => Object.prototype.hasOwnProperty.call(object, key);
 
 const isRecord = (value) => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  if (value === null || typeof value !== "object" || Array.isArray(value) || isProxy(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
   return Reflect.ownKeys(value).every((key) => {
