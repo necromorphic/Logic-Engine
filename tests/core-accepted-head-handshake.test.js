@@ -120,24 +120,40 @@ test('Core commits only when accepted-head authority is current and aborts mutat
       game_time: '2026-01-01T00:00:00Z',
     });
     assert.equal(created.world_id, 'accepted-head-world-one');
-    assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 2, provider: 1 });
-    const localHead = store.db.prepare(
-      'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+    const firstOperation = store.db.prepare(
+      'SELECT head,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get();
-    assert.equal(localHead.head, 2);
-    assert.equal(localHead.enrolled, 1);
+    assert.equal(firstOperation.head, 2);
+    assert.match(firstOperation.last_operation_digest, /^[a-f0-9]{64}$/);
+    assert.equal(firstOperation.last_operation_id, 'core-' + firstOperation.last_operation_digest);
+
+    store.createWorld({
+      world_id: 'accepted-head-world-two',
+      world_pack_id: 'test-pack',
+      world_pack_version: '1',
+      game_time: '2026-01-01T00:00:30Z',
+    });
+    const secondOperation = store.db.prepare(
+      'SELECT head,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
+    ).get();
+    assert.equal(secondOperation.head, 3);
+    assert.match(secondOperation.last_operation_digest, /^[a-f0-9]{64}$/);
+    assert.equal(secondOperation.last_operation_id, 'core-' + secondOperation.last_operation_digest);
+    assert.notEqual(secondOperation.last_operation_digest, firstOperation.last_operation_digest);
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 3, provider: 1 });
+    assert.equal(secondOperation.head, 3);
 
     child.stdin.end('stop');
     await once(child, 'exit');
     child = null;
 
     assert.throws(() => store.createWorld({
-      world_id: 'accepted-head-world-two',
+      world_id: 'accepted-head-world-three',
       world_pack_id: 'test-pack',
       world_pack_version: '1',
       game_time: '2026-01-01T00:01:00Z',
     }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
-    assert.equal(store.world('accepted-head-world-two') ?? null, null);
+    assert.equal(store.world('accepted-head-world-three') ?? null, null);
   } finally {
     try { store?.close(); } catch {}
     if (child) {
