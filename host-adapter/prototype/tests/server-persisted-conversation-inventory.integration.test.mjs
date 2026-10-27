@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { getHostConversationInventory, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
+import { getHostConversationInventory, recordHostCaptureAcknowledgement, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
 
 const digest = value => createHash('sha256').update(JSON.stringify(String(value))).digest('hex');
 
@@ -39,14 +39,17 @@ test('server inventory reads registered persisted chat and returns only version 
     }),
   ].join('\n') + '\n');
   try {
+    const conversationId = randomUUID() + ':' + uuid;
     await registerHostConversation(request, {
-      conversationId: randomUUID() + ':' + uuid,
+      conversationId,
       sourceLocator: 'chat-a',
       sourcePath: 'chat-a.jsonl',
       domain: 'chats',
     });
+    await recordHostCaptureAcknowledgement(request, { conversation_id: conversationId, message_id: messageId, version_id: oldVersionId, content_sha256: digest('old secret'), active: false, deleted: false });
+    await recordHostCaptureAcknowledgement(request, { conversation_id: conversationId, message_id: messageId, version_id: activeVersionId, content_sha256: digest('active secret'), active: true, deleted: false });
     const result = await getHostConversationInventory(request);
-    assert.equal(result.status, 'CURRENT_PERSISTED_SNAPSHOT_NON_AUTHORITATIVE');
+    assert.equal(result.status, 'ENROLLMENT_FORWARD_ONLY_OBSERVED_INVENTORY_NON_AUTHORITATIVE');
     assert.equal(result.complete, true);
     assert.equal(result.conversationCount, 1);
     assert.equal(result.messageCount, 1);
