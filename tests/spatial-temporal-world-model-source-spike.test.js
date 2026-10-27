@@ -68,8 +68,10 @@ function readStableSource(engine, worldId) {
   let priorSequence = 0;
   for (const event of events) {
     assert.equal(event.validity, 'valid');
-    assert.ok(Number.isSafeInteger(event.commit_sequence) && event.commit_sequence > priorSequence,
-      'valid events must have a unique, strictly increasing Core commit sequence');
+    assert.ok(Number.isSafeInteger(event.commit_sequence)
+      && event.commit_sequence > priorSequence
+      && event.commit_sequence <= after.commit_sequence,
+    'valid events must have a unique, strictly increasing Core commit sequence no greater than the snapshot cursor');
     priorSequence = event.commit_sequence;
   }
   return { marker: marker(after), state: after, events };
