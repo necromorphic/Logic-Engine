@@ -90,6 +90,21 @@ This is the Core architectural decision, not a claim that the required journal/r
 The current Core implementation does contain canonical `world_events` records and rollback validity/metadata writes, and the rollback path updates event validity, the rollback row, world revision, source-version counters, projection rebuild, and audit within the Core transaction. However, the reviewed surface does **not** expose a complete Memory-facing journal contract with a stable replay cursor that covers both newly committed events and rollback-only validity changes. `commit_sequence` alone is insufficient; the composite snapshot marker detects a rollback-only revision change but is not itself an incremental journal.
 
 **Disposition today:** the existing tables are authoritative source material, but they have **not passed the proof gate for use as the hybrid's incremental primary signal**. Do not wire a consumer to infer journal completeness from table existence. Full reconciliation remains a required recovery path; its real consumer, complete source inventory, staleness bound, and failure/restart behavior must be implemented and tested by the owning integration work before use. This finding does not authorize a parallel outbox or change-feed API in PR #521.
+### Full-inventory API audit (2026-10-28)
+
+The existing Core snapshot API does **not** currently provide the complete entity inventory required by reconciliation. In `SQLiteStore.readSnapshot(id, request)`, omitted `entityIds` normalizes to an empty list, and the entity query runs only when the resulting list is non-empty. Therefore `getSnapshot(worldId)` returns the world marker but no entity rows; it is not an all-entities snapshot. Explicit entity reads are also bounded to 200 IDs per request and fail if any requested ID is missing.
+
+The current Provider `validateInventory(worldId, records)` callback receives the Provider's own persisted record inventory. It can attest to that supplied set, but by itself it cannot prove that the set contains every current Core source or discover Core entities/revocations that have no corresponding Provider record. Test fixtures that return `true` do not establish that production guarantee.
+
+**Minimum missing interface contract — specify and review before implementation:**
+
+- A trusted Core-owned enumeration of all source entities in the agreed supported source domain for one world, including the state needed to distinguish active, deleted/destroyed, and unverifiable sources.
+- A consistent snapshot marker binding the entire enumeration to one Core state; pages (if needed) must be pinned to the same marker and detect truncation, duplicates, gaps, or cursor loss.
+- An explicit completeness result. Empty inventory must be distinguishable from unavailable, partial, malformed, or unauthorized inventory.
+- A comparison/reconciliation rule that invalidates Provider records whose sources are absent, inactive, revoked, or version-mismatched, and that does not publish `current` until enumeration and Provider state are rechecked.
+- Tests for more than 200 entities, multi-page consistency, empty versus unavailable inventory, concurrent mutation/rollback, deleted source with an existing Provider record, missing Provider records, interrupted restart/reconciliation, and idempotent retry.
+
+This is a contract gap, not permission to add a public API, cursor table, outbox, or new schema in PR #521. Until the interface is separately reviewed and implemented with tests, full authoritative reconciliation is **not implementable through the current snapshot API**, and Memory→NPC stays **NON_READY / FAIL-CLOSED**.
 
 ## 6. Acceptance gate
 
