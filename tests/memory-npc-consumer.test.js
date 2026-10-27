@@ -649,6 +649,64 @@ test('Core mutation during asynchronous Memory authorization invalidates the cap
   assert.equal(JSON.stringify(result).includes('authorized source text'), false);
 });
 
+test('Core mutation during the final record authorization check invalidates content-bearing results', async (t) => {
+  const { consumer, provider, engine } = setup(t);
+  let checks = 0;
+  provider.authorizeCandidate = async () => {
+    checks += 1;
+    if (checks === 3) {
+      const current = engine.getState('memory-npc-world').world_revision;
+      const committed = engine.commitEvent('memory-npc-world', {
+        idempotency_key: 'mutate-during-final-npc-auth',
+        turn_id: 'mutate-during-final-npc-auth',
+        event_type: 'action.completed',
+        expected_revision: current,
+        effects: [{ kind: 'entity.create', entity_id: 'during-final-auth', entity_type: 'object' }],
+      });
+      assert.equal(committed.accepted, true);
+    }
+    return true;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+
+  assert.equal(checks, 3);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_snapshot_stale');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+});
+
+test('Core mutation during final query recheck invalidates complete-empty results', async (t) => {
+  const { consumer, provider, engine, setCandidates } = setup(t);
+  setCandidates([]);
+  let queryChecks = 0;
+  provider.authorizeQuery = async () => {
+    queryChecks += 1;
+    if (queryChecks === 2) {
+      const current = engine.getState('memory-npc-world').world_revision;
+      const committed = engine.commitEvent('memory-npc-world', {
+        idempotency_key: 'mutate-during-final-empty-query-auth',
+        turn_id: 'mutate-during-final-empty-query-auth',
+        event_type: 'action.completed',
+        expected_revision: current,
+        effects: [{ kind: 'entity.create', entity_id: 'during-empty-final-auth', entity_type: 'object' }],
+      });
+      assert.equal(committed.accepted, true);
+    }
+    return true;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+
+  assert.equal(queryChecks, 2);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_snapshot_stale');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+});
+
 test('missing or non-object host request fails closed without throwing or calling Memory', async (t) => {
   const { consumer, provider } = setup(t);
   let queryCalled = false;
