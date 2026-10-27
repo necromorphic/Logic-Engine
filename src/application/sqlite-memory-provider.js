@@ -958,6 +958,7 @@ export class SQLiteMemoryProvider {
     let inventoryComplete = false;
     try {
       inventoryComplete = await this.validateInventory(worldId, Object.freeze(records.map((row) => Object.freeze({
+        world_id: row.world_id,
         record_ref: row.record_ref, record_version: row.record_version,
         source_kind: row.source_kind, source_entity_id: row.source_entity_id,
         source_version: row.source_version,
