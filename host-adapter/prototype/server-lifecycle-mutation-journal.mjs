@@ -25,6 +25,7 @@ const MUTATIONS = new Map([
     ['POST /api/groups/delete', 'group-delete'],
     ['POST /api/backups/chat/delete', 'backup-delete'],
     ['POST /api/data-maid/delete', 'data-maid-delete'],
+    ['POST /api/users/delete', 'user-delete'],
 
 ]);
 
@@ -442,6 +443,12 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
         const operation = MUTATIONS.get(request.method + ' ' + request.baseUrl + request.path)
             ?? MUTATIONS.get(request.method + ' ' + request.originalUrl?.split('?')[0]);
         if (!operation || !request.user) return next();
+        // User deletion with directory purge is a cross-user destructive path.
+        // Until it has a target-bound tombstone/reconciliation handler, reject it
+        // before the native route can remove a user's entire data directory.
+        if (operation === 'user-delete' && requireCoreInventory && Boolean(request.body?.purge)) {
+            return fail(response, 'HOST_CROSS_USER_PURGE_NOT_SUPPORTED', 503);
+        }
 
         let paths;
         let registry;
