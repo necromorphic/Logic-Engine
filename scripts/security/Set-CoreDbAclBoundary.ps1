@@ -59,7 +59,7 @@ function New-BoundaryAcl {
 $core = Get-ServiceIdentity -Name $CoreServiceName
 $provider = Get-ServiceIdentity -Name $ProviderServiceName
 $gateway = Get-ServiceIdentity -Name $GatewayServiceName
-if (@($core.sid, $provider.sid, $gateway.sid | Select-Object -Unique).Count -ne 3) {
+if (@(@($core.sid, $provider.sid, $gateway.sid) | Select-Object -Unique).Count -ne 3) {
     throw 'Core, Provider, and gateway must run under three distinct Windows service identities. No ACL changes were made.'
 }
 if ($core.sid -in @('S-1-5-18', 'S-1-5-19', 'S-1-5-20')) {
@@ -167,6 +167,18 @@ try {
 } catch {
     $report.status = 'PARTIAL_OR_FAILED_APPLY'
     $report.error = $_.Exception.GetType().Name
+    $rollbackErrors = @()
+    foreach ($prior in @($before | Select-Object -Reverse)) {
+        try {
+            $restoreAcl = Get-Acl -LiteralPath $prior.path
+            $restoreAcl.SetSecurityDescriptorSddlForm([string]$prior.sddl)
+            Set-Acl -LiteralPath $prior.path -AclObject $restoreAcl
+        } catch {
+            $rollbackErrors += [pscustomobject]@{ path = $prior.path; error = $_.Exception.GetType().Name }
+        }
+    }
+    $report.rollback = if ($rollbackErrors.Count -eq 0) { 'RESTORED_PRIOR_SDDL' } else { 'ROLLBACK_INCOMPLETE' }
+    $report.rollbackErrors = $rollbackErrors
     $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidenceFullPath -Encoding UTF8
     throw
 }
