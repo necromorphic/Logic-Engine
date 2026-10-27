@@ -298,7 +298,7 @@ Use only these existing methods (`getState` and `getEvents`); add no API, schema
 
 1. Read a baseline state snapshot from `getState(worldId)`. It returns `world_id`, `world_revision`, `commit_sequence`, `game_time_coordinate`, entities, and facts together in one SQLite read transaction.
 2. Read the current valid event list from `getEvents(worldId, false)`. Its canonical order is `commit_sequence`; never reorder by game time alone.
-3. Read `getState(worldId)` again. Accept the input batch only if all four marker fields equal the baseline and every event belongs to the same world, has `validity === 'valid'`, and has a unique, strictly increasing `commit_sequence`. Otherwise discard the entire derived result and retry from the beginning or return unresolved.
+3. Read `getState(worldId)` again. Accept the input batch only if all four marker fields equal the baseline and every event returned by the world-scoped `getEvents(worldId, false)` call has `validity === 'valid'`, a `commit_sequence` no greater than the marker, and a unique, strictly increasing `commit_sequence`. Otherwise discard the entire derived result and retry from the beginning or return unresolved.
 4. Build a fresh in-memory projection deterministically from the accepted event list. Do not persist the projection and do not write to Core.
 5. Before returning any derived result, compare the current marker to the projection's build marker again. A mismatch means stale: rebuild or refuse. Never serve the old result as current.
 6. On process restart, discard the projection and reconstruct from Core. A rollback that changes `world_revision` invalidates the previous projection even if `commit_sequence` or game-time coordinate does not advance.
@@ -326,11 +326,11 @@ The first isolated spike must exercise the real existing methods, not mocks, and
 - stale data is refused at result publication;
 - no writes are made to Core and no output is routed to Host, Memory, or NPC.
 
-These are acceptance criteria for the proposed disposable experiment; **they have not yet been run**.
+The first test-only spike was added at `tests/spatial-temporal-world-model-source-spike.test.js` on 2026-10-28. Its exact-head CI result is pending; the remaining acceptance criteria must be assessed against the actual test assertions, not inferred from the test filename.
 
 ### 14.5 Core decision and remaining boundary
 
-**Core decision:** use existing `engine.getSnapshot` + `engine.getEvents` as the source for the bounded internal feasibility spike under the read protocol above. Do not create a separate read API for the spike.
+**Core decision:** use existing `engine.getState` + `engine.getEvents` as the source for the bounded internal feasibility spike under the read protocol above. Do not create a separate read API for the spike.
 
 The decision does not approve a typed spatial event vocabulary, arbitrary historical-time queries, persistent spatial storage, a public consumer contract, or production integration. If the spike requires an atomic event-list-plus-marker read, a new event type/schema, or full-restore anti-rollback, stop and submit that narrower requirement for a separate review rather than silently adding a mechanism.
 
