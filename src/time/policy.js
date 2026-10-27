@@ -32,6 +32,23 @@ function assertPlainDataRecord(value, allowed, name) {
   }
 }
 
+function isPlainDataRecord(value, allowed) {
+  try {
+    if (!obj(value)) return false;
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    for (const key of Reflect.ownKeys(value)) {
+      if (typeof key !== 'string' || !allowed.includes(key)) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')
+        || descriptor.value === undefined) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 function denseArrayValues(value, name, max) {
   if (!Array.isArray(value) || value.length > max || Object.getPrototypeOf(value) !== Array.prototype) {
     fail('INVALID_TIME_POLICY', name + ' must be a plain array with at most ' + max + ' entries.');
@@ -136,14 +153,16 @@ export function resolveDurationDecision(policyInput, eventType, proposal = null,
       if (proposal == null) {
         return { status: 'needs_author', min_duration_ms: rule.min_duration_ms, max_duration_ms: rule.max_duration_ms, policy_id: policy.policy_id, policy_version: policy.version };
       }
-      if (!obj(proposal) || Object.keys(proposal).length !== 1 || !Object.hasOwn(proposal, 'duration_ms')
+      if (!isPlainDataRecord(proposal, ['duration_ms']) || !Object.hasOwn(proposal, 'duration_ms')
         || !Number.isSafeInteger(proposal.duration_ms)) {
         return { status: 'rejected', reason: 'INVALID_AUTHOR_DURATION_PROPOSAL', policy_id: policy.policy_id, policy_version: policy.version };
       }
       if (proposal.duration_ms < rule.min_duration_ms || proposal.duration_ms > rule.max_duration_ms) {
         return { status: 'rejected', reason: 'AUTHOR_DURATION_OUT_OF_RANGE', min_duration_ms: rule.min_duration_ms, max_duration_ms: rule.max_duration_ms, proposed_duration_ms: proposal.duration_ms, policy_id: policy.policy_id, policy_version: policy.version };
       }
-      if (options.authorApproved !== true) {
+      const authorApproved = isPlainDataRecord(options, ['authorApproved'])
+        && options.authorApproved === true;
+      if (!authorApproved) {
         return { status: 'needs_author', min_duration_ms: rule.min_duration_ms, max_duration_ms: rule.max_duration_ms, proposed_duration_ms: proposal.duration_ms, policy_id: policy.policy_id, policy_version: policy.version };
       }
       return {
@@ -155,7 +174,8 @@ export function resolveDurationDecision(policyInput, eventType, proposal = null,
     return { status: 'resolved', certainty: 'range', duration_ms: rule.min_duration_ms + Math.floor((rule.max_duration_ms - rule.min_duration_ms) / 2), min_duration_ms: rule.min_duration_ms, max_duration_ms: rule.max_duration_ms, source: 'world_rule_midpoint', policy_id: policy.policy_id, policy_version: policy.version };
   }
   if (proposal == null) return { status: 'needs_author', reason: 'CATEGORY_PROPOSAL_REQUIRED', policy_id: policy.policy_id, policy_version: policy.version };
-  if (!obj(proposal) || Object.keys(proposal).some((key) => key !== 'category') || typeof proposal.category !== 'string') return { status: 'rejected', reason: 'INVALID_CATEGORY_PROPOSAL' };
+  if (!isPlainDataRecord(proposal, ['category']) || !Object.hasOwn(proposal, 'category')
+    || typeof proposal.category !== 'string') return { status: 'rejected', reason: 'INVALID_CATEGORY_PROPOSAL' };
   const selected = rule.categories.find((entry) => entry.category === proposal.category.trim());
   if (!selected) return { status: 'rejected', reason: 'CATEGORY_NOT_ALLOWED', policy_id: policy.policy_id, policy_version: policy.version };
   return { status: 'resolved', certainty: 'fixed', duration_ms: selected.duration_ms, category: selected.category, source: 'world_rule_category', policy_id: policy.policy_id, policy_version: policy.version };
