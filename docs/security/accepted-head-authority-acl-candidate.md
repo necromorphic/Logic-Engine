@@ -12,7 +12,7 @@ Provide a plan-first Windows ACL candidate for the dedicated file-backed store o
 - Core, Provider, gateway, and authority use four distinct Windows service identities.
 - The authority database is a dedicated file in a dedicated directory. The script refuses reparse points and unexpected directory entries.
 - Actual Core, Provider and coordinator DB paths plus every known backup/restore root must be supplied. The script refuses overlapping authority/store or authority/backup paths; an omitted backup root still remains an evidence gap.
-- Evidence output is outside the protected directory.
+- Evidence output is outside the protected directory. Its parent directory must already exist and contain no reparse points; the target evidence filename must be new. The script refuses to overwrite existing security evidence.
 - The operator has reviewed the exact target paths, backup paths, service identities, and rollback plan.
 
 The script does not create the authority service, define the authority protocol, create the accepted-head state machine, or configure backups/firewall/egress.
