@@ -19,8 +19,8 @@ test('pinned ST patch mounts lifecycle middleware before user-data route handler
 
 test('pinned ST patch exposes server-derived persisted inventory, not caller-supplied inventory', async () => {
   const patch = await readFile(patchPath, 'utf8');
-  assert.match(patch, /router\.post\('\/host-conversation-inventory\/scan',[\s\S]*?getHostConversationInventory\(request\)/);
-  assert.match(patch, /export async function getHostConversationInventory\(request\)[\s\S]*?readRegistry\(paths\.registryPath\)[\s\S]*?scanPersistedConversationInventories\(/);
+  assert.match(patch, /router\.post\('\/host-conversation-inventory\/scan',[\s\S]*?getHostConversationInventory\(request, \{ requireCoreInventory: true \}\)/);
+  assert.match(patch, /export async function getHostConversationInventory\(request, \{ requireCoreInventory = false \} = \{\}\)[\s\S]*?readRegistry\(paths\.registryPath\)[\s\S]*?scanPersistedConversationInventories\(/);
   assert.match(patch, /CURRENT_PERSISTED_SNAPSHOT_NON_AUTHORITATIVE/);
   assert.match(patch, /historicalCompleteness: 'UNKNOWN'/);
 });
