@@ -83,6 +83,7 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
 
   const matchedFiles = new Map();
   const observedFiles = [];
+  const observedDirectories = [];
   const parseErrors = [];
   for (const [domain, rootPath] of allowedRoots) {
     const walk = async directory => {
@@ -95,6 +96,7 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
         }
         entries = await fs.readdir(directory, { withFileTypes: true });
       } catch { parseErrors.push('DIRECTORY_ENUMERATION_FAILED:' + domain); return; }
+      observedDirectories.push({ directory, domain, stat: beforeDirectory });
       entries.sort((a, b) => a.name.localeCompare(b.name, 'en'));
       for (const entry of entries) {
         const absolutePath = path.join(directory, entry.name);
@@ -153,6 +155,14 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
       } catch { parseErrors.push('DIRECTORY_UNAVAILABLE_AFTER_ENUMERATION:' + domain); }
     };
     await walk(rootPath);
+  }
+  for (const observed of observedDirectories) {
+    try {
+      const current = await fs.lstat(observed.directory);
+      if (current.isSymbolicLink() || !current.isDirectory() || !sameStat(observed.stat, current)) {
+        parseErrors.push('CHAT_DIRECTORY_CHANGED_AFTER_SCAN:' + observed.domain);
+      }
+    } catch { parseErrors.push('CHAT_DIRECTORY_UNAVAILABLE_AFTER_SCAN:' + observed.domain); }
   }
   for (const observed of observedFiles) {
     try {
