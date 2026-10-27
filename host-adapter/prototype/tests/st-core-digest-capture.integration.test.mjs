@@ -47,7 +47,7 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
         versions: [{ versionId, payloadDigest: digest(persistedText), parentVersionId: null }],
       },
     }),
-  ].join('\\n') + '\\n');
+  ].join('\n') + '\n');
   await registerHostConversation(hostRequest, {
     conversationId, sourceLocator: 'chat-a', sourcePath: 'chat-a.jsonl', domain: 'chats',
   });
