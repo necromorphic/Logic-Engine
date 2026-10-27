@@ -289,8 +289,42 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             return fail(response, 'HOST_JOURNAL_PREPARE_FAILED');
         }
 
+        // Buffer the complete response until the post-mutation inventory and
+        // durable outcome are known. Buffering only end() is insufficient:
+        // handlers can call writeHead(), write(), or flushHeaders() first,
+        // irreversibly committing a success response before the scan completes.
         const originalEnd = response.end.bind(response);
+        const originalWrite = response.write.bind(response);
+        const originalWriteHead = response.writeHead.bind(response);
+        const originalFlushHeaders = typeof response.flushHeaders === 'function'
+            ? response.flushHeaders.bind(response) : null;
+        const bufferedWrites = [];
+        let bufferedWriteHead = null;
         let ending = false;
+        response.writeHead = function (...args) {
+            bufferedWriteHead = args;
+            if (args.length && Number.isInteger(args[0])) response.statusCode = args[0];
+            return response;
+        };
+        response.write = function (...args) {
+            bufferedWrites.push(args);
+            return true;
+        };
+        if (originalFlushHeaders) response.flushHeaders = function () { return response; };
+
+        const commitBufferedResponse = (endArgs, override) => {
+            if (override) {
+                bufferedWrites.length = 0;
+                bufferedWriteHead = null;
+                response.statusCode = override.status;
+                response.setHeader('Content-Type', 'application/json; charset=utf-8');
+                return originalEnd(override.body);
+            }
+            if (bufferedWriteHead) originalWriteHead(...bufferedWriteHead);
+            for (const writeArgs of bufferedWrites) originalWrite(...writeArgs);
+            return originalEnd(...endArgs);
+        };
+
         response.end = function (...args) {
             if (ending) return response;
             ending = true;
@@ -298,7 +332,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 try {
                     const after = await scanHostArtifactRoots(paths.roots);
                     if (!after.complete) {
-                        const hash = await appendRecord(paths.journalPath, chain.lastHash, {
+                        await appendRecord(paths.journalPath, chain.lastHash, {
                             version: 1,
                             kind: 'outcome',
                             operationId,
@@ -307,13 +341,10 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                             httpStatus: response.statusCode,
                             afterSnapshotStatus: after.status,
                         });
-                        chain.lastHash = hash;
-                        if (!response.headersSent) {
-                            response.statusCode = 503;
-                            response.setHeader('Content-Type', 'application/json; charset=utf-8');
-                            return originalEnd(JSON.stringify({ error: { code: 'HOST_POST_MUTATION_SCAN_INCOMPLETE' } }));
-                        }
-                        return originalEnd(...args);
+                        return commitBufferedResponse(args, {
+                            status: 503,
+                            body: JSON.stringify({ error: { code: 'HOST_POST_MUTATION_SCAN_INCOMPLETE' } }),
+                        });
                     }
                     const changes = diffSnapshots(before, after);
                     const status = response.statusCode >= 200 && response.statusCode < 300 ? 'COMMITTED' : 'UNRESOLVED';
@@ -329,14 +360,12 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                         changes,
                     });
                     chain.lastHash = hash;
-                    return originalEnd(...args);
+                    return commitBufferedResponse(args, null);
                 } catch {
-                    if (!response.headersSent) {
-                        response.statusCode = 503;
-                        response.setHeader('Content-Type', 'application/json; charset=utf-8');
-                        return originalEnd(JSON.stringify({ error: { code: 'HOST_JOURNAL_COMMIT_FAILED' } }));
-                    }
-                    return originalEnd(...args);
+                    return commitBufferedResponse(args, {
+                        status: 503,
+                        body: JSON.stringify({ error: { code: 'HOST_JOURNAL_COMMIT_FAILED' } }),
+                    });
                 } finally {
                     release();
                 }
