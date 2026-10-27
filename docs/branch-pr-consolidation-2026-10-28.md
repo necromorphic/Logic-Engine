@@ -68,9 +68,9 @@ Relevant PRs:
 - [#516 — Reject accessor-backed and malformed mechanic effect inputs](https://github.com/necromorphic/Logic-Engine/pull/516)
 - [#522 — Reject executable and malformed rule inputs](https://github.com/necromorphic/Logic-Engine/pull/522)
 
-The scope of #522 overlaps the narrower rule PRs and also overlaps effect-input validation in #516; #522 appears intended to combine these protections. This is the clearest candidate for PR consolidation outside the Memory → NPC stack. However, the sampled PRs had no submitted review records, and this review did not establish exact-head CI for #522.
+File-level comparison narrows the overlap: #522 and #514/#515 both change `src/core/rules.js` and `tests/tri-state-rules.test.js`; #517 also changes those files but uniquely adds `tests/condition-dependencies.test.js`, which #522 does not include. #516 changes `src/core/mechanic-effect-translator.js` and `tests/mechanic-effect-translator.test.js`; it is a separate module and is **not** subsumed by #522 despite the similarity in PR descriptions. This is the clearest candidate for PR consolidation outside the Memory → NPC stack. However, the sampled PRs had no submitted review records, and this review did not establish exact-head CI for #522.
 
-**Next action:** have one reviewer compare #522 against #514, #515, #517, and #516 and verify exact-head Runtime CI. If #522 fully subsumes them, mark #514/#515/#517/#516 superseded and close them only after confirming no unique required change is lost. Do not merge #522 solely because GitHub reports it mergeable.
+**Next action:** review #522 against #514/#515 and reconcile their overlapping tests into one canonical rule-hardening diff. Preserve the unique #517 condition-dependency tests, either by adding them to the consolidated branch or keeping #517 as a separate dependent PR. Keep #516 separate because it changes the mechanic-effect translator. No PR should be marked superseded or closed until unique test coverage is accounted for and exact-head Runtime CI passes. Do not merge #522 solely because GitHub reports it mergeable.
 
 ### E. SillyTavern diagnostic UI overlap
 
@@ -124,7 +124,7 @@ The current review only classified the major overlapping workstreams above; it d
 3. Prove exact final serialized request-body binding and the real sole-egress/revocation boundary.
 4. Finish target-PC deployment/ACL/restore evidence; do not infer it from CI.
 5. Review the deployment security candidates (#451/#468/#469/#471) together; do not apply them without explicit permission.
-6. Consolidate overlapping rule/effect-hardening PRs after exact diff review and current-head CI.
+6. Consolidate only the overlapping rule-hardening diffs (#514/#515/#517/#522); keep mechanic-effect translator #516 separate unless a real code dependency proves otherwise.
 7. Audit branch ancestry and clean up only branches proven merged or superseded.
 
 **Final disposition:** no PR was merged or closed by this review. No runtime changes were made. Memory → NPC remains **DISABLED / FAIL-CLOSED**; raw Host message-text retention remains unauthorized; the existing Ollama/vectorization path remains untouched.
