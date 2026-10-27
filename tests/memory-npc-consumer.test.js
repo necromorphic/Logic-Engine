@@ -44,7 +44,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   );
   const scope = { world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' };
   const snapshot = engine.getSnapshot('memory-npc-world');
-  const sourceVersion = 'entity-revision-' + engine.getSnapshot('memory-npc-world', { entityIds: ['source-a'] }).entities[0].updated_revision;
+  const sourceVersion = String(engine.getSnapshot('memory-npc-world', { entityIds: ['source-a'] }).entities[0].updated_revision);
   const candidate = (overrides = {}) => ({
     record: { ref: 'memory:claim-1', version: 'v1' },
     source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: sourceVersion },
@@ -189,7 +189,7 @@ test('canonical Memory candidate without an exact source version fails closed', 
 test('Memory candidate with a stale canonical source revision fails closed', async (t) => {
   const { consumer, setCandidates, candidate } = setup(t);
   setCandidates([candidate({
-    source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: 'entity-revision-999' },
+    source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: '999' },
   })]);
   const result = await consumer.retrieveForNpc(request());
   assert.equal(result.status, 'non_ready');
