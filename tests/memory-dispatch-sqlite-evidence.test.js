@@ -392,96 +392,31 @@ test('gateway wired to real SQLite evidence readers blocks dispatch when Host in
 });
 
 
-test('real Core/Provider SQLite readers block the outbound transport while Host inventory is unproven', async () => {
-  const directory = mkdtempSync(join(tmpdir(), 'logic-real-evidence-dispatch-gate-'));
-  const coreDatabasePath = join(directory, 'core.sqlite');
-  const providerDatabasePath = join(directory, 'provider.sqlite');
-  const authorityPath = join(directory, 'authority.sqlite');
-  const coordinatorPath = join(directory, 'coordinator.sqlite');
-  const ledgerPath = join(directory, 'dispatch-ledger.sqlite');
-  let service;
-  let gateway;
-  let closed = false;
-  let transportCalls = 0;
-
+test('Core evidence reader rejects every non-active actor or source status', () => {
+  const f = fixture();
   try {
-    seedCore(coreDatabasePath);
-    seedProvider(providerDatabasePath);
-    for (const path of [coreDatabasePath, providerDatabasePath]) {
-      const db = new DatabaseSync(path);
-      try {
-        db.prepare('UPDATE accepted_head_state SET head=1 WHERE singleton=1').run();
-      } finally {
-        db.close();
-      }
-    }
+    let db = new DatabaseSync(f.coreDatabasePath);
+    db.prepare('UPDATE entities SET status=? WHERE world_id=? AND entity_id=?')
+      .run('inactive', scope.worldId, scope.actorId);
+    db.close();
+    assert.equal(f.readCoreEvidence(scope).readiness, 'NOT_READY');
 
-    service = await startAuthorityProcess(authorityPath);
-    for (const [domain, token, digest] of [
-      ['core', coreToken, digestA],
-      ['provider', providerToken, digestB],
-    ]) {
-      const enrolled = enrollAcceptedHeadSync({
-        domain,
-        operationId: domain + '-real-reader-baseline',
-        operationDigest: digest,
-        token,
-        port: service.port,
-      });
-      finalizeAcceptedHeadSync({
-        domain,
-        operationId: enrolled.operation_id,
-        operationDigest: digest,
-        token,
-        port: service.port,
-      });
-    }
+    db = new DatabaseSync(f.coreDatabasePath);
+    db.prepare('UPDATE entities SET status=? WHERE world_id=? AND entity_id=?')
+      .run('active', scope.worldId, scope.actorId);
+    db.prepare('UPDATE entities SET status=? WHERE world_id=? AND entity_id=?')
+      .run('deleted', scope.worldId, source.source_entity_id);
+    db.close();
+    assert.equal(f.readCoreEvidence(scope).readiness, 'NOT_READY');
 
-    gateway = new MemoryDispatchGateway({
-      ledgerPath,
-      coordinatorPath,
-      authorityPort: service.port,
-      readToken,
-      coreDatabasePath,
-      providerDatabasePath,
-      sendUpstream: () => {
-        transportCalls += 1;
-        return { started: true, response: Promise.resolve({ status: 200 }) };
-      },
-    });
-
-    await assert.rejects(
-      gateway.dispatchProtectedRequest({
-        requestId: 'real-reader-inventory-not-ready',
-        route: 'host-managed-chat-completions',
-        model: 'host-owned-model-id',
-        stream: false,
-        body: JSON.stringify({ messages: [{ role: 'user', content: 'DO_NOT_DISCLOSE' }] }),
-        adapterId: scope.adapterId,
-        conversationId: scope.conversationId,
-        worldId: scope.worldId,
-        actorId: scope.actorId,
-        purpose: scope.purpose,
-        sources: scope.sources,
-        candidates: [candidate],
-      }),
-      /MEMORY_DISPATCH_NOT_READY/,
-    );
-    assert.equal(transportCalls, 0, 'unproven Host inventory must prevent all outbound transport calls');
-
-    const db = new DatabaseSync(ledgerPath);
-    try {
-      const started = db.prepare('SELECT request_id FROM dispatch_ledger LIMIT 1').get();
-      assert.equal(started, undefined, 'a denied request must not create a dispatch-start ledger entry');
-    } finally {
-      db.close();
-    }
+    db = new DatabaseSync(f.coreDatabasePath);
+    db.prepare('UPDATE entities SET status=? WHERE world_id=? AND entity_id=?')
+      .run('active', scope.worldId, source.source_entity_id);
+    db.prepare('UPDATE entities SET status=? WHERE world_id=? AND entity_id=?')
+      .run('quarantined', scope.worldId, source.source_entity_id);
+    db.close();
+    assert.equal(f.readCoreEvidence(scope).readiness, 'NOT_READY');
   } finally {
-    try { gateway?.close(); } catch {}
-    if (service?.child && service.child.exitCode === null && service.child.signalCode === null) {
-      service.child.stdin.end('stop');
-      await once(service.child, 'exit');
-    }
-    rmSync(directory, { recursive: true, force: true });
+    f.close();
   }
 });
