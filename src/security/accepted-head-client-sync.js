@@ -156,13 +156,15 @@ export function getAcceptedHeadStatusSync({ port, timeoutMs = 1500 }) {
   if (response?.ok !== true || !Number.isSafeInteger(heads?.core) || heads.core < 0
     || !Number.isSafeInteger(heads?.provider) || heads.provider < 0
     || typeof pending?.core !== 'boolean' || typeof pending?.provider !== 'boolean'
-    || typeof enrolled?.core !== 'boolean' || typeof enrolled?.provider !== 'boolean') {
+    || typeof enrolled?.core !== 'boolean' || typeof enrolled?.provider !== 'boolean'
+    || !Array.isArray(response?.pending_operations) || response.pending_operations.length > 2) {
     throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
   }
   return Object.freeze({
     heads: Object.freeze({ core: heads.core, provider: heads.provider }),
     pending: Object.freeze({ core: pending.core, provider: pending.provider }),
     enrolled: Object.freeze({ core: enrolled.core, provider: enrolled.provider }),
+    pendingOperations: Object.freeze(response.pending_operations.map((operation) => Object.freeze({ ...operation }))),
   });
 }
 
