@@ -13,6 +13,7 @@ import {
 } from '../src/security/accepted-head-client-sync.js';
 import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
 import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
+import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
@@ -527,5 +528,59 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
     }
   } finally {
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('shared coordinator serializes real Provider revocation against synchronous outbound dispatch start', async () => {
+  let fixture;
+  let provider;
+  let revocationBlockedByDispatchLease = false;
+  let transportInitiated = false;
+  const scope = { world_id: 'world-1', subject_id: 'npc-1', purpose: 'recall' };
+  const recordRef = 'record-42';
+  const recordVersion = 'record-version-3';
+
+  fixture = await createFixture({
+    sendUpstream: () => {
+      try {
+        provider.revokeRecord(scope, recordRef, recordVersion);
+      } catch (error) {
+        revocationBlockedByDispatchLease = /locked|busy/i.test(String(error?.message || error));
+      }
+      transportInitiated = true;
+      return { started: true, response: Promise.resolve({ status: 200, body: 'started-before-revoke' }) };
+    },
+  });
+
+  try {
+    provider = new SQLiteMemoryProvider({
+      path: join(fixture.directory, 'provider.sqlite'),
+      coordinatorPath: fixture.coordinatorPath,
+      getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+      validateSourceVersion: async () => true,
+      validateInventory: async () => true,
+    });
+    provider.grantQuery(scope, true);
+    provider.grantRecord(scope, recordRef, recordVersion, true);
+    // Make the contention assertion immediate and deterministic; production
+    // deployments use the normal bounded SQLite busy timeout.
+    provider.coordinatorDb.exec('PRAGMA busy_timeout=0;');
+
+    const response = await fixture.gateway.dispatchProtectedRequest(validRequest('provider-revoke-race'));
+    assert.equal(response.status, 200);
+    assert.equal(revocationBlockedByDispatchLease, true,
+      'Provider revocation must not commit while the Gateway holds the dispatch-start lease');
+    assert.equal(transportInitiated, true);
+
+    // Once dispatch start has left the critical section, the same real Provider
+    // mutation must succeed; the test does not permanently disable revocation.
+    provider.revokeRecord(scope, recordRef, recordVersion);
+    assert.equal(provider.db.prepare(
+      'SELECT allowed FROM memory_record_grants WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?',
+    ).get(scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion).allowed, 0);
+  } finally {
+    try { provider?.close(); } catch {}
+    await fixture.close();
   }
 });
