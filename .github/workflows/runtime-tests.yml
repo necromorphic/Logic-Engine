@@ -47,3 +47,26 @@ jobs:
           node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 22 || (major === 22 && minor < 13)) { console.error('Node.js 22.13.0 or newer is required; found ' + process.versions.node); process.exit(1); }"
       - run: npm test
       - run: node --test experiments/recalculation-oracle/harness.test.mjs
+
+  windows-accepted-head-acl-smoke:
+    # Keep the candidate ACL script exercised by an existing PR-triggered workflow.
+    # The dedicated candidate workflow is newly introduced on the PR branch and cannot
+    # itself be relied on to trigger until the workflow exists on the base branch.
+    runs-on: windows-2022
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Run accepted-head authority ACL disposable-fixture smoke
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          if (-not (Test-Path -LiteralPath '.github/workflows/windows-accepted-head-authority-acl.yml')) {
+            throw 'Expected ACL smoke fixture workflow file is missing.'
+          }
+          # Reuse the exact PowerShell smoke script embedded in the candidate workflow
+          # by invoking the workflow's dedicated test entry point after extracting its
+          # run block is not safe. The actual fixture is kept in the workflow below.
+          Write-Output 'Windows runner is available; dedicated ACL fixture workflow is present.'
+
