@@ -1035,10 +1035,23 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
   assert.deepEqual(await provider.rebuildIndex(scope.world_id), { status: 'rebuilt', count: 2 });
   assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
 
+  let lastProviderAuthorizationError = null;
+  const consumerProvider = {
+    authorizeQuery: (...args) => provider.authorizeQuery(...args),
+    retrieveCandidates: (...args) => provider.retrieveCandidates(...args),
+    authorizeCandidate: async (...args) => {
+      try {
+        return await provider.authorizeCandidate(...args);
+      } catch (error) {
+        lastProviderAuthorizationError = error?.message ?? 'unknown';
+        throw error;
+      }
+    },
+  };
   const createConsumer = () => new MemoryNpcConsumer({
     authorizedReadService,
     actorBindingService: bindings,
-    memoryProvider: provider,
+    memoryProvider: consumerProvider,
     contentFields: ['attributes.public_note'],
   });
   let consumer = createConsumer();
@@ -1049,7 +1062,7 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
   });
 
   const initial = await retrieve();
-  assert.equal(initial.status, 'ready', JSON.stringify(initial));
+  assert.equal(initial.status, 'ready', JSON.stringify({ result: initial, lastProviderAuthorizationError }));
   assert.deepEqual(initial.candidates.map((item) => item.record_ref), [
     record.record_ref, secondRecord.record_ref,
   ]);
