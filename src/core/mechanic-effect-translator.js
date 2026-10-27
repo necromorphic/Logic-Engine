@@ -248,13 +248,15 @@ function translateOne(effect, index, jsonBudget) {
  * Pure and all-or-nothing: this function never reads or mutates world state.
  */
 export function translateMechanicEffectIntents(intents) {
-  if (!Array.isArray(intents) || intents.length === 0 || intents.length > MAX_BATCH) {
+  jsonArray(intents, 'intents', MAX_BATCH);
+  if (intents.length === 0) {
     fail('INVALID_MECHANIC_EFFECT_INTENT', 'intents must be a non-empty array of at most ' + MAX_BATCH + ' items.');
   }
 
   const seenIds = new Set();
-  for (const [index, intent] of intents.entries()) {
-    if (!isObject(intent) || typeof intent.effect_id !== 'string' || !intent.effect_id.trim()) {
+  for (let index = 0; index < intents.length; index += 1) {
+    const intent = object(Object.getOwnPropertyDescriptor(intents, String(index)).value, 'intents[' + index + ']');
+    if (typeof intent.effect_id !== 'string' || !intent.effect_id.trim()) {
       fail('INVALID_MECHANIC_EFFECT_INTENT', 'intents[' + index + '] must have a non-empty effect_id.');
     }
     const id = intent.effect_id.trim();
