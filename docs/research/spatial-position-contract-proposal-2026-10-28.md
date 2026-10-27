@@ -174,3 +174,35 @@ Core does **not** select product-level spatial semantics without an explicit spa
 - Keep the product/spatial choices explicitly open until their owner supplies requirements.
 - Before any implementation request, cite the exact current-main source and tests that establish the composite-marker/read consistency and rollback/rebuild guarantees, and record the executed verification output at the exact tested SHA. Existing PR #529 results may be cited only for the bounded experiment and its stated limits.
 - Do not describe the draft as an approved contract, and do not start runtime/schema/API/event/adapter work under this approval.
+
+## 10. Core source review and decision — 2026-10-28
+
+**Decision: the existing bounded read seam is acceptable for future read-only investigation; a supported spatial position contract and production implementation remain BLOCKED.**
+
+### Evidence checked on current `main`
+
+- `src/storage/sqlite-store.js`, blob `c528805d40d77ac23c3adae866c97d9b97b606e8`: `readSnapshot()` reads the world revision, commit cursor and selected rows inside one SQLite read transaction. Its contract warns that returned data is raw internal data, not actor-authorized or model-safe.
+- `src/application/engine.js`, blob `dcb8b84e54b29e8697f14eb7e709cc6e0cd65a13`: `getSnapshot()` delegates to `readSnapshot()`. Do not substitute `getState()` for this bounded read contract.
+- `tests/snapshot-read.test.js`, blob `df92d1b88da2a5780f36cbce5358264e2661a9f0`: test source covers bounded world-scoped reads, a coherent SQLite read view under a concurrent/uncommitted writer, and rollback where `world_revision` changes while `commit_sequence` does not.
+- `docs/architecture/core-source-authority-audit.md`, blob `cb3c58b2290f2f33c6d81c40975ca61805c3f8e6`: records the composite cursor as a freshness marker, not a source journal.
+- `docs/13-event-type-contract.md`, blob `6bd40bd7afa9ecdc8f5e6a55ac1b830237352311`: event type is descriptive metadata, not authority or provenance.
+
+This was source/test review only; **I did not execute tests during this review and do not claim a fresh CI pass**.
+
+### Core decisions
+
+1. **Read seam:** future read-only work may use `getSnapshot/readSnapshot`, retaining the complete pair `(world_revision, commit_sequence)`. This does not establish spatial meaning or authorize a new API.
+2. **Freshness:** commit sequence alone is insufficient. Rollback may change world revision without increasing commit sequence.
+3. **Derived/cache policy:** no persistent or cached spatial projection is approved. Until invalidation/rebuild for that projection is implemented and tested, recompute from the current snapshot or return unknown/stale.
+4. **Position authority:** no typed, committed spatial source was established. Generic attributes, event labels and model-generated values are not proof. Core must return unknown/unsupported.
+5. **Time:** Core revision/cursor is not game time. Historical position and interpolation are unsupported without a proven TimeEngine mapping.
+6. **Entity lifecycle:** current evidence does not establish an incarnation/generation guarantee for delete-and-recreate identity reuse. Do not assume continuity.
+7. **Disclosure:** no observation or NPC knowledge authority is granted. Memory→NPC remains `DISABLED / FAIL-CLOSED`.
+
+### Explicitly unresolved (not guessable from current source)
+
+The repository does not determine 2D vs 3D, axes/handedness, units/discrete scale, position anchor, local-frame support, or entity incarnation semantics. These require explicit spatial/product requirements. Until a typed committed source and these semantics are approved, no position may be treated as supported.
+
+### Gate before any implementation proposal
+
+A separate implementation request may be considered only after: (a) product semantics are defined; (b) typed source, provenance and lifecycle are identified; (c) Core/TimeEngine temporal binding is specified; and (d) tests are executed at an exact SHA for snapshot binding, rollback/rebuild and spatial validation. No runtime, schema, API, event, adapter, cache, or Memory/NPC change is approved here.
