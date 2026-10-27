@@ -250,6 +250,26 @@ export class SQLiteMemoryProvider {
     return getAcceptedHeadStatusSync({ port: this.acceptedHead.port, timeoutMs: this.acceptedHead.timeoutMs });
   }
 
+  #validAcceptedHeadJournal(local) {
+    if (!local || !Number.isSafeInteger(Number(local.accepted_head))
+      || !Number.isSafeInteger(Number(local.bootstrap_head))) return false;
+    const head = Number(local.accepted_head);
+    const bootstrapHead = Number(local.bootstrap_head);
+    if (head < bootstrapHead) return false;
+    const rows = this.db.prepare(`SELECT operation_id,operation_digest,expected_head,resulting_head
+      FROM provider_authority_operations
+      WHERE resulting_head>? AND resulting_head<=? ORDER BY resulting_head`)
+      .all(bootstrapHead, head);
+    if (rows.length !== head - bootstrapHead) return false;
+    let expected = bootstrapHead + 1;
+    for (const row of rows) {
+      if (row.resulting_head !== expected || row.expected_head !== expected - 1
+        || row.operation_id !== `provider-mutation-v1:${row.operation_digest}`) return false;
+      expected += 1;
+    }
+    return expected === head + 1;
+  }
+
   #initializeAcceptedHead() {
     const status = this.#acceptedHeadStatus();
     if (!status.enrolled.core || !status.enrolled.provider || status.pending.core) {
@@ -285,13 +305,8 @@ export class SQLiteMemoryProvider {
     const latest = this.#acceptedHeadStatus();
     const checkpoint = this.db.prepare('SELECT accepted_head,bootstrap_head FROM provider_authority_state WHERE singleton=1').get();
     const head = Number(checkpoint?.accepted_head);
-    const bootstrapHead = Number(checkpoint?.bootstrap_head);
-    const headOperation = head === bootstrapHead ? null
-      : this.db.prepare("SELECT * FROM provider_authority_operations WHERE resulting_head=? AND status='committed'").get(head);
     if (latest.pending.provider || latest.pending.core || !latest.enrolled.core || !latest.enrolled.provider
-      || !checkpoint || head !== latest.heads.provider
-      || (head !== bootstrapHead && (!headOperation || headOperation.expected_head + 1 !== head
-        || headOperation.operation_id !== `provider-mutation-v1:${headOperation.operation_digest}`))) {
+      || !checkpoint || head !== latest.heads.provider || !this.#validAcceptedHeadJournal(checkpoint)) {
       throw new Error('MEMORY_ACCEPTED_HEAD_MISMATCH');
     }
     this.db.prepare("UPDATE provider_authority_state SET status='ready' WHERE singleton=1").run();
@@ -307,15 +322,7 @@ export class SQLiteMemoryProvider {
       || Number(local.accepted_head) !== status.heads.provider) {
       throw new Error('MEMORY_ACCEPTED_HEAD_NOT_READY');
     }
-    const head = Number(local.accepted_head);
-    const bootstrapHead = Number(local.bootstrap_head);
-    if (head !== bootstrapHead) {
-      const op = this.db.prepare("SELECT * FROM provider_authority_operations WHERE resulting_head=? AND status='committed'").get(head);
-      if (!op || op.expected_head + 1 !== head
-        || op.operation_id !== `provider-mutation-v1:${op.operation_digest}`) {
-        throw new Error('MEMORY_ACCEPTED_HEAD_NOT_READY');
-      }
-    }
+    if (!this.#validAcceptedHeadJournal(local)) throw new Error('MEMORY_ACCEPTED_HEAD_NOT_READY');
   }
 
   #withImmediateTransaction(work) {
