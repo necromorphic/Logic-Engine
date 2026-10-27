@@ -142,7 +142,10 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
   assert.equal(acceptedCaptures[0].message_id, messageId);
   assert.equal(acceptedCaptures[0].deleted, false);
   const currentInventory = await getHostConversationInventory(hostRequest);
-  assert.equal(currentInventory.complete, true);
+  assert.equal(currentInventory.complete, false);
+  assert.equal(currentInventory.status, 'INVENTORY_INCOMPLETE');
+  assert.ok(currentInventory.errors.includes('CORE_HOST_INVENTORY_NOT_READY'));
+  assert.equal(currentInventory.inventories.length, 0);
   assert.equal(currentInventory.versionCount, 1);
 
   const stored = ledger.db.prepare(
