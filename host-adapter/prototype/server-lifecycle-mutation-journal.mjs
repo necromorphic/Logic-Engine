@@ -109,7 +109,7 @@ async function readAndValidateJournal(journalPath) {
     let previousHash = '0'.repeat(64);
     const pending = new Set();
     let degraded = false;
-    for (const line of text.split('\\n').filter(Boolean)) {
+    for (const line of text.split('\n').filter(Boolean)) {
         const record = JSON.parse(line);
         const { recordHash, ...unsigned } = record;
         if (record.previousHash !== previousHash || digest(canonical(unsigned)) !== recordHash) {
