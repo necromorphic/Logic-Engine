@@ -135,6 +135,9 @@ test('authority server exposes current heads and requires domain-specific token 
       domain: 'core', operationId: 'sync-core-op-1', operationDigest: digestA, token: coreToken, port,
     }), { domain: 'core', head: 1, operation_id: 'sync-core-op-1', replayed: false, status: 'committed' });
     assert.deepEqual(advanceAcceptedHeadSync({
+      domain: 'core', operationId: 'sync-core-op-1', operationDigest: digestA, expectedHead: 1, token: coreToken, port,
+    }), { domain: 'core', head: 1, operation_id: 'sync-core-op-1', replayed: true, status: 'committed' });
+    assert.deepEqual(advanceAcceptedHeadSync({
       domain: 'provider', operationId: 'sync-provider-op-1', operationDigest: digestB, expectedHead: 0, token: providerToken, port,
     }), { domain: 'provider', head: 1, operation_id: 'sync-provider-op-1', replayed: false, status: 'pending' });
     assert.deepEqual(finalizeAcceptedHeadSync({
