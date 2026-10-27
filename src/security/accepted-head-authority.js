@@ -147,6 +147,29 @@ export class AcceptedHeadAuthority {
     return Object.freeze(pending);
   }
 
+  getPendingOperations() {
+    const rows = this.#db.prepare(`
+      SELECT domain, operation_id, resulting_head, operation_digest, operation_kind
+      FROM authority_operations
+      WHERE status='pending'
+      ORDER BY domain
+    `).all();
+    const operations = { core: null, provider: null };
+    for (const row of rows) {
+      if (!DOMAINS.has(row.domain) || operations[row.domain] !== null
+        || !Number.isSafeInteger(row.resulting_head) || !/^[a-f0-9]{64}$/.test(row.operation_digest)) {
+        throw new Error('ACCEPTED_HEAD_STATE_INVALID');
+      }
+      operations[row.domain] = Object.freeze({
+        operation_id: row.operation_id,
+        head: row.resulting_head,
+        operation_digest: row.operation_digest,
+        operation_kind: row.operation_kind,
+      });
+    }
+    return Object.freeze(operations);
+  }
+
   getEnrollmentStatus() {
     const rows = this.#db.prepare('SELECT domain, enrolled FROM authority_domain_heads ORDER BY domain').all();
     const enrolled = Object.fromEntries(rows.map((row) => [row.domain, row.enrolled === 1]));
@@ -311,7 +334,7 @@ export function createAcceptedHeadAuthorityServer({
         return;
       }
       try {
-        reply(response, 200, { heads: authority.getHeads(), pending: authority.getPendingDomains(), enrolled: authority.getEnrollmentStatus() });
+        reply(response, 200, { heads: authority.getHeads(), pending: authority.getPendingDomains(), operations: authority.getPendingOperations(), enrolled: authority.getEnrollmentStatus() });
       } catch {
         reply(response, 503, { error: 'AUTHORITY_UNAVAILABLE' });
       }
