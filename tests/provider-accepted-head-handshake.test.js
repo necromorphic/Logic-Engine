@@ -7,7 +7,6 @@ import { once } from 'node:events';
 import { spawn } from 'node:child_process';
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
-import { beginCoordinatorLock, openCoordinatorDatabase } from '../src/storage/coordinator-lock.js';
 import {
   enrollAcceptedHeadSync,
   finalizeAcceptedHeadSync,
@@ -83,29 +82,22 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     child = service.child;
     const port = service.port;
 
-    const coordinatorDb = openCoordinatorDatabase(coordinatorPath);
-    const release = beginCoordinatorLock(coordinatorDb);
-    try {
-      const enrolledCore = enrollAcceptedHeadSync({
-        domain: 'core', operationId: 'core-baseline-enrollment', operationDigest: digestA, token: coreToken, port,
-      });
-      finalizeAcceptedHeadSync({
-        domain: 'core', operationId: enrolledCore.operation_id, operationDigest: digestA, token: coreToken, port,
-      });
+    const enrolledCore = enrollAcceptedHeadSync({
+      domain: 'core', operationId: 'core-baseline-enrollment', operationDigest: digestA, token: coreToken, port,
+    });
+    finalizeAcceptedHeadSync({
+      domain: 'core', operationId: enrolledCore.operation_id, operationDigest: digestA, token: coreToken, port,
+    });
 
-      enrollAcceptedHeadDomain({
-        domain: 'provider',
-        databasePath: providerPath,
-        coordinatorPath,
-        port,
-        token: providerToken,
-        approvalId: 'approval-provider-test',
-        baselineDigest: digestB,
-      });
-    } finally {
-      release();
-      coordinatorDb.close();
-    }
+    enrollAcceptedHeadDomain({
+      domain: 'provider',
+      databasePath: providerPath,
+      coordinatorPath,
+      port,
+      token: providerToken,
+      approvalId: 'approval-provider-test',
+      baselineDigest: digestB,
+    });
 
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', String(port), previousEnv);
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', providerToken, previousEnv);
