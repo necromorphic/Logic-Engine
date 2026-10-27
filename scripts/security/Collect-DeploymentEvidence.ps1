@@ -228,6 +228,7 @@ try {
 }
 
 $outboundFirewallRules = @()
+$outboundFirewallRulesAvailable = $true
 try {
     $outboundFirewallRules = @(
         Get-NetFirewallRule -PolicyStore ActiveStore -Direction Outbound -Enabled True -ErrorAction Stop |
@@ -252,6 +253,7 @@ try {
         }
     )
 } catch {
+    $outboundFirewallRulesAvailable = $false
     $outboundFirewallRules = @([pscustomobject]@{ unavailable = "Outbound firewall rule query failed or is unavailable" })
 }
 $firewallAllowRules = @($outboundFirewallRules | Where-Object { $_.action -eq "Allow" })
@@ -274,11 +276,12 @@ $report = [ordered]@{
     pathAclEvidence = $pathEvidence
     establishedTcpConnections = $tcpEvidence
     firewallProfiles = $firewallProfiles
+    outboundFirewallRulesAvailable = $outboundFirewallRulesAvailable
     enabledOutboundAllowRules = $firewallAllowRules
     enabledOutboundBlockRules = $firewallBlockRules
     limitations = @(
         "Read-only inventory only; no settings or files were changed.",
-        "An inaccessible path is reported as unknown, not as absent; validate all unknown/error entries manually."
+        "An inaccessible path is reported as unknown, not as absent; validate all unknown/error entries manually.",
         "Firewall profile defaults and enabled outbound allow/block rules are inventory evidence only and do not prove exclusive egress or restore resistance.",
         "No connection tests, authorization bypass tests, backup restores or protected requests were executed.",
         "Review and redact machine names, account names, local paths and remote endpoints before sharing."
