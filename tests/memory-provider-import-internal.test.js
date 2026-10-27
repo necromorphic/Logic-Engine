@@ -161,3 +161,45 @@ test('provider rejects lineage arrays when Array.prototype serialization hooks a
     else delete Array.prototype.toJSON;
   }
 });
+
+
+test('provider rejects input when Object.prototype inherits an executable serialization hook', (t) => {
+  const { provider, record, scope, db } = setup(t);
+  const input = Object.assign(Object.create(null), record);
+  const previous = Object.getPrototypeOf(Object.prototype);
+  let toJSONCalled = false;
+  try {
+    Object.setPrototypeOf(Object.prototype, {
+      toJSON() { toJSONCalled = true; return this; },
+    });
+    assert.throws(
+      () => provider.putRecord(input),
+      /Invalid direct-source Memory record/,
+    );
+    assert.equal(toJSONCalled, false);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+      .get(scope.world_id).count, 0);
+  } finally {
+    Object.setPrototypeOf(Object.prototype, previous);
+  }
+});
+
+test('provider rejects lineage arrays with a polluted prototype chain', (t) => {
+  const { provider, record, scope, db } = setup(t);
+  const previous = Object.getPrototypeOf(Array.prototype);
+  let toJSONCalled = false;
+  try {
+    Object.setPrototypeOf(Array.prototype, {
+      toJSON() { toJSONCalled = true; return this; },
+    });
+    assert.throws(
+      () => provider.putRecord(record),
+      /Invalid direct-source Memory record/,
+    );
+    assert.equal(toJSONCalled, false);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+      .get(scope.world_id).count, 0);
+  } finally {
+    Object.setPrototypeOf(Array.prototype, previous);
+  }
+});
