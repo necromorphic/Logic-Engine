@@ -153,6 +153,7 @@ test('authority IPC requires explicit enrollment, enforces domain tokens, and fa
       heads: { core: 0, provider: 0 },
       pending: { core: false, provider: false },
       enrolled: { core: false, provider: false },
+      pendingOperations: [],
     });
     assert.throws(() => getAcceptedHeadsSync({ port }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
 
