@@ -644,7 +644,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1369 @@
+@@ -0,0 +1,1376 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -672,6 +672,7 @@ new file mode 100644
 +    ['POST /api/groups/delete', 'group-delete'],
 +    ['POST /api/backups/chat/delete', 'backup-delete'],
 +    ['POST /api/data-maid/delete', 'data-maid-delete'],
++    ['POST /api/users/delete', 'user-delete'],
 +
 +]);
 +
@@ -1089,6 +1090,12 @@ new file mode 100644
 +        const operation = MUTATIONS.get(request.method + ' ' + request.baseUrl + request.path)
 +            ?? MUTATIONS.get(request.method + ' ' + request.originalUrl?.split('?')[0]);
 +        if (!operation || !request.user) return next();
++        // User deletion with directory purge is a cross-user destructive path.
++        // Until it has a target-bound tombstone/reconciliation handler, reject it
++        // before the native route can remove a user's entire data directory.
++        if (operation === 'user-delete' && requireCoreInventory && Boolean(request.body?.purge)) {
++            return fail(response, 'HOST_CROSS_USER_PURGE_NOT_SUPPORTED', 503);
++        }
 +
 +        let paths;
 +        let registry;
