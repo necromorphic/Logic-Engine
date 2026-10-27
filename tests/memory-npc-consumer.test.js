@@ -91,7 +91,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   });
   t.after(() => store.close());
   return {
-    store, engine, bindings, consumer, provider, scope, snapshot,
+    store, engine, bindings, consumer, provider, authorizedReadService, scope, snapshot,
     setCandidates(next) { candidateList = next; },
     getLastCandidateAuthorization() { return lastCandidateAuthorization; },
     revokeContent() { contentVisible = false; },
@@ -975,8 +975,8 @@ test('rechecks earlier Memory candidates after a later async authorization revok
   assert.equal(result.status, 'ready');
   assert.deepEqual(result.admitted.map((entry) => entry.record_ref), ['memory:claim-2']);
   assert.deepEqual(result.candidates.map((entry) => entry.record_ref), ['memory:claim-2']);
-  assert.equal(calls.get('memory:claim-1'), 2);
-  assert.equal(calls.get('memory:claim-2'), 2);
+  assert.equal(calls.get('memory:claim-1'), 3);
+  assert.equal(calls.get('memory:claim-2'), 3);
 });
 
 function candidateForMutation(provider, setCandidates) {
