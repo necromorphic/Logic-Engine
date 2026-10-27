@@ -169,3 +169,40 @@ test('non-2xx mutation response is journaled UNRESOLVED and blocks subsequent mu
     }
 });
 
+test('replayed operation ID is rejected before a second mutation', async () => {
+    const { root, directories, request } = await fixture();
+    try {
+        const chatPath = path.join(directories.chats, 'chat-1.jsonl');
+        await writeFile(chatPath, '{"mes":"initial"}\\n');
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        request.headers = { 'x-logic-engine-operation-id': 'operation-1' };
+        request.body = { chat: 'chat-1', payload: 'private text' };
+        const middleware = createHostLifecycleMutationMiddleware();
+        const first = responseMock();
+        await middleware(request, first, async () => {
+            await writeFile(chatPath, '{"mes":"first mutation"}\\n');
+            first.json({ ok: true });
+        });
+        await first.finished;
+
+        const second = responseMock();
+        let reachedHandler = false;
+        await middleware(request, second, async () => {
+            reachedHandler = true;
+            await writeFile(chatPath, '{"mes":"duplicate mutation"}\\n');
+            second.json({ ok: true });
+        });
+        await second.finished;
+        assert.equal(reachedHandler, false);
+        assert.equal(second.statusCode, 409);
+        assert.match(String(second.body), /HOST_OPERATION_ALREADY_RECORDED/);
+        const ledger = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
+        assert.doesNotMatch(ledger, /private text/);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
