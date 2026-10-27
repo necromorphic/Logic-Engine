@@ -523,7 +523,7 @@ diff --git a/src/endpoints/logic-engine-lifecycle.js b/src/endpoints/logic-engin
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-lifecycle.js
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,1422 @@
 +import express from 'express';
 +import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
 +import { scanHostArtifactRoots } from './logic-engine-host-inventory.mjs';
@@ -743,7 +743,8 @@ new file mode 100644
 +        if (typeof userDirectories?.chats !== 'string' || !path.isAbsolute(userDirectories.chats)) {
 +            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNAVAILABLE');
 +        }
-+        const chatRoot = await realpath(userDirectories.chats);
++        const chatRoot = path.resolve(userDirectories.chats);
++        if (path.basename(chatRoot) !== 'chats') throw new Error('HOST_STARTUP_MIGRATION_STATE_UNAVAILABLE');
 +        const userRoot = path.dirname(chatRoot);
 +        const userStat = await lstat(userRoot);
 +        if (!userStat.isDirectory() || userStat.isSymbolicLink()) {
