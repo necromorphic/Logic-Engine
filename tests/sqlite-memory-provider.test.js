@@ -1158,6 +1158,17 @@ test('identical duplicate ingest repairs a missing index entry after raw-first f
   ).get(s.scope.world_id, s.record.record_ref, s.record.record_version).count, 0);
 
   s.db.exec('DROP TRIGGER fail_ingest_index_insert');
+  s.db.exec(`CREATE TRIGGER fail_duplicate_repair BEFORE INSERT ON memory_index_entries
+    BEGIN SELECT RAISE(ABORT, 'injected duplicate repair index failure'); END;`);
+  assert.throws(() => s.provider.putRecord(s.record), /injected duplicate repair index failure/);
+  assert.deepEqual(s.provider.getIndexStatusForDiagnostics(s.scope.world_id), {
+    index_health: 'unavailable',
+    source_reconciliation: 'stale',
+    snapshot: null,
+    failure_code: 'INDEX_WRITE_FAILED',
+  });
+
+  s.db.exec('DROP TRIGGER fail_duplicate_repair');
   assert.deepEqual(s.provider.putRecord(s.record), {
     status: 'duplicate',
     record_ref: s.record.record_ref,
@@ -1172,5 +1183,7 @@ test('identical duplicate ingest repairs a missing index entry after raw-first f
     'SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?',
   ).get(s.scope.world_id, s.record.record_ref, s.record.record_version).count, 1);
   assert.equal(s.provider.getIndexStatusForDiagnostics(s.scope.world_id).failure_code, 'INDEX_ENTRY_MISSING');
+  s.provider.grantQuery(s.scope, true);
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
 });
