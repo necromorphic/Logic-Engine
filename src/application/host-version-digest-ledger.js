@@ -472,11 +472,11 @@ export class HostVersionDigestLedger {
       // first baseline is allowed only before any READY snapshot has been published.
       const hasEstablishedBaseline = known.length > 0 || preVerification.state?.status === 'READY';
       if (hasEstablishedBaseline) {
+        const knownKeys = new Set(known.map(row => JSON.stringify([
+          row.world_id, row.conversation_id, row.message_id, row.version_id,
+        ])));
         for (const v of snapshot.versions) {
-          if (!known.some(row => row.world_id === v.world_id
-            && row.conversation_id === v.conversation_id
-            && row.message_id === v.message_id
-            && row.version_id === v.version_id)) {
+          if (!knownKeys.has(JSON.stringify(tuple(v)))) {
             this.#markNonReady(snapshot.world_id, snapshot.conversation_id,
               'HOST_VERSION_UNENROLLED_OR_UNCAPTURED', now, snapshotDigest);
             return { status: 'non_ready', code: 'HOST_VERSION_UNENROLLED_OR_UNCAPTURED' };
