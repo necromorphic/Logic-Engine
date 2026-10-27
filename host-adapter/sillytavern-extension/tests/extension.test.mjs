@@ -7,7 +7,7 @@ import { normalizeEngineUrl, fetchHealth } from '../bridge-core.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
-const repo = resolve(root, '../../..');
+const repo = resolve(root, '../..');
 
 test('engine URL accepts only a bare HTTP(S) origin', () => {
   assert.equal(normalizeEngineUrl('http://127.0.0.1:8787/'), 'http://127.0.0.1:8787');
