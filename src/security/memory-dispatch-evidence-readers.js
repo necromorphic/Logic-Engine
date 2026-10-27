@@ -98,7 +98,7 @@ export function createTrustedMemoryDispatchEvidenceReaders({
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     if (!snapshot || typeof snapshot !== 'object' || typeof snapshot.then === 'function'
-      || !Array.isArray(snapshot.entities)
+      || snapshot.world_id !== worldId || !Array.isArray(snapshot.entities)
       || !(typeof snapshot.world_revision === 'number' || typeof snapshot.world_revision === 'string')
       || !(typeof snapshot.commit_sequence === 'number' || typeof snapshot.commit_sequence === 'string')) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
