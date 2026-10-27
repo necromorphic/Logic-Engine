@@ -139,6 +139,7 @@ test('real HTTP response cannot leak a success body when post-scan is incomplete
             request.user = fixtureRequest.user;
             request.baseUrl = '';
             request.path = '/api/chats/save';
+            request.originalUrl = '/api/chats/save';
             void middleware(request, response, async () => {
                 await rm(directories.backups, { recursive: true, force: true });
                 response.statusCode = 200;
@@ -148,6 +149,9 @@ test('real HTTP response cannot leak a success body when post-scan is incomplete
                 response.writeHead(200);
                 response.write('{"ok":true}');
                 response.end();
+            }, () => {
+                response.statusCode = 599;
+                response.end('lifecycle middleware bypassed');
             });
         });
         server.listen(0, '127.0.0.1');
