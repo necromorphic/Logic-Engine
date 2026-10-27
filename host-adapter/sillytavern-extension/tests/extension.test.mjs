@@ -59,8 +59,9 @@ test('health request can be cancelled when the extension disables', async () => 
   let receivedSignal;
   const request = fetchHealth('http://127.0.0.1:8787', async (_url, options) => {
     receivedSignal = options.signal;
-    if (options.signal.aborted) throw new Error('aborted');
-    return { ok: true, json: async () => ({ ok: true, service: 'logic-engine', protocol_version: 'v1' }) };
+    return new Promise((_resolve, reject) => {
+      options.signal.addEventListener('abort', () => reject(new Error('aborted')), { once: true });
+    });
   }, controller.signal);
   controller.abort();
   assert.ok(receivedSignal?.aborted);
