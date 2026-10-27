@@ -82,7 +82,9 @@ export function createHostDigestProxyHandler({
         redirect: 'error',
         signal: AbortSignal.timeout(timeoutMs),
       });
-      if (!upstream.ok) {
+      const upstreamOk = typeof upstream.ok === 'boolean'
+        ? upstream.ok : upstream.status >= 200 && upstream.status < 300;
+      if (!upstreamOk) {
         const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
         return response.status(status).json({
           error: { code: 'LOGIC_ENGINE_CAPTURE_REJECTED', message: 'Logic-Engine did not accept the digest capture.' },
