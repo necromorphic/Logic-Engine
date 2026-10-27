@@ -2420,7 +2420,7 @@ diff --git a/src/server-main.js b/src/server-main.js
 +import { assertHostStartupMigrationSafe } from './endpoints/logic-engine-host-journal.mjs';
  
  // Work around a node v20.0.0, v20.1.0, and v20.2.0 bug. The issue was fixed in v20.3.0.
-@@ -299,6 +300,7 @@ async function preSetupTasks() {
+@@ -299,8 +300,9 @@ async function preSetupTasks() {
      console.log();
  
      const directories = await getUserDirectoriesList();
