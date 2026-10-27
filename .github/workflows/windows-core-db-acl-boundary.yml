@@ -26,20 +26,63 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $services = @(Get-CimInstance Win32_Service | Where-Object { $_.StartName -notin @('LocalSystem', 'NT AUTHORITY\LocalService', 'NT AUTHORITY\NetworkService') })
-          $unique = @{}
-          foreach ($service in $services) {
-            try {
-              $sid = (New-Object System.Security.Principal.NTAccount([string]$service.StartName)).Translate(
-                [System.Security.Principal.SecurityIdentifier]
-              ).Value
-              if ($sid -notin @('S-1-5-18', 'S-1-5-19', 'S-1-5-20') -and -not $unique.ContainsKey($sid)) {
-                $unique[$sid] = $service
+          $ErrorActionPreference = 'Stop'
+          $suffix = [guid]::NewGuid().ToString('N').Substring(0, 10)
+          $testAccounts = @()
+          $testServices = @()
+          $password = ([guid]::NewGuid().ToString('N') + 'Aa1!')
+          $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+          try {
+            foreach ($role in @('Core', 'Provider', 'Gateway')) {
+              $account = "leAcl$role$suffix"
+              $service = "LEAcl$role$suffix"
+              New-LocalUser -Name $account -Password $securePassword -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
+              $testAccounts += $account
+              $accountName = "$env:COMPUTERNAME\$account"
+              & sc.exe create $service binPath= "$env:WINDIR\System32\cmd.exe /c exit" obj= $accountName password= $password start= demand | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "Failed to create disposable service identity fixture for $role." }
+              $testServices += $service
+            }
+            $root = Join-Path $env:RUNNER_TEMP ('core-db-acl-smoke-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $root | Out-Null
+            $db = Join-Path $root 'core.sqlite'
+            $evidence = Join-Path $env:RUNNER_TEMP ('core-db-acl-evidence-' + [guid]::NewGuid().ToString('N') + '.json')
+            Set-Content -LiteralPath $db -Value 'temporary non-sensitive ACL fixture'
+            & .\scripts\security\Set-CoreDbAclBoundary.ps1 -CoreServiceName $testServices[0] -ProviderServiceName $testServices[1] -GatewayServiceName $testServices[2] -CoreDbPath $db -EvidencePath $evidence -Apply -Confirm:$false
+            $report = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
+            if ($report.status -ne 'APPLIED_AND_ACL_SHAPE_VERIFIED') {
+              throw "Unexpected ACL smoke status: $($report.status)"
+            }
+            if ($report.services.core.sid -eq $report.services.provider.sid -or
+                $report.services.core.sid -eq $report.services.gateway.sid -or
+                $report.services.provider.sid -eq $report.services.gateway.sid) {
+              throw 'Fixture service identities were not distinct.'
+            }
+            $acl = Get-Acl -LiteralPath $root
+            $identities = @($acl.Access | ForEach-Object { [string]$_.IdentityReference })
+            if ($identities -notcontains [string]$report.services.core.account) {
+              throw 'Core service identity is missing from the fixture directory ACL.'
+            }
+            if ($identities -contains [string]$report.services.provider.account -or
+                $identities -contains [string]$report.services.gateway.account) {
+              throw 'Provider or gateway has an explicit fixture directory ACE.'
+            }
+            Write-Output 'ACL shape smoke passed on disposable local accounts/services; this is not a target deployment access test.'
+          } finally {
+            if ($evidence -and (Test-Path -LiteralPath $evidence)) { Remove-Item -LiteralPath $evidence -Force }
+            if ($root -and (Test-Path -LiteralPath $root)) {
+              $acl = Get-Acl -LiteralPath $root
+              $acl.SetAccessRuleProtection($false, $true)
+              Set-Acl -LiteralPath $root -AclObject $acl
+              Remove-Item -LiteralPath $root -Recurse -Force
+            }
+            foreach ($service in $testServices) { & sc.exe delete $service | Out-Null }
+            foreach ($account in $testAccounts) {
+              if (Get-LocalUser -Name $account -ErrorAction SilentlyContinue) {
+                Remove-LocalUser -Name $account
               }
-            } catch {}
+            }
           }
-          $candidates = @($unique.Values)
-          if ($candidates.Count -lt 3) { throw 'Runner lacks three distinct non-built-in service identities for the isolated ACL smoke fixture.' }
           $root = Join-Path $env:RUNNER_TEMP ('core-db-acl-smoke-' + [guid]::NewGuid().ToString('N'))
           New-Item -ItemType Directory -Path $root | Out-Null
           $db = Join-Path $root 'core.sqlite'
