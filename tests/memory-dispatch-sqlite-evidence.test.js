@@ -4,7 +4,51 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { once } from 'node:events';
+import { spawn } from 'node:child_process';
+import {
+  enrollAcceptedHeadSync,
+  finalizeAcceptedHeadSync,
+} from '../src/security/accepted-head-client-sync.js';
+import { MemoryDispatchGateway } from '../src/security/memory-dispatch-gateway.js';
 import { createSqliteMemoryDispatchEvidenceReaders } from '../src/security/memory-dispatch-sqlite-evidence.js';
+
+const coreToken = 'core-token-for-sqlite-evidence-tests-00000000000000000000000000000001';
+const providerToken = 'provider-token-for-sqlite-evidence-tests-00000000000000000000000000000002';
+const readToken = 'gateway-read-token-for-sqlite-evidence-tests-00000000000000000000000000000003';
+const digestA = 'a'.repeat(64);
+const digestB = 'b'.repeat(64);
+
+async function startAuthorityProcess(path) {
+  const authorityUrl = new URL('../src/security/accepted-head-authority.js', import.meta.url).href;
+  const script = [
+    'import { AcceptedHeadAuthority, createAcceptedHeadAuthorityServer } from ' + JSON.stringify(authorityUrl) + ';',
+    'const args = process.argv.slice(1);',
+    'const authority = new AcceptedHeadAuthority({ path: args[0], installationId: "sqlite-evidence-test-installation" });',
+    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN, readToken: process.env.LE_TEST_READ_TOKEN });',
+    'server.listen(0, "127.0.0.1", () => process.stdout.write("LISTENING:" + server.address().port + "\\n"));',
+    'process.stdin.on("data", () => server.close(() => { authority.close(); process.exit(0); }));',
+  ].join('\\n');
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script, path], {
+    stdio: ['pipe', 'pipe', 'pipe'],
+    windowsHide: true,
+    env: {
+      PATH: process.env.PATH || '',
+      SystemRoot: process.env.SystemRoot || '',
+      WINDIR: process.env.WINDIR || '',
+      LE_TEST_CORE_TOKEN: coreToken,
+      LE_TEST_PROVIDER_TOKEN: providerToken,
+      LE_TEST_READ_TOKEN: readToken,
+    },
+  });
+  const [chunk] = await once(child.stdout, 'data');
+  const match = String(chunk).match(/LISTENING:(\\d+)/);
+  if (!match) {
+    child.kill();
+    throw new Error('Accepted-head test service did not start.');
+  }
+  return { child, port: Number(match[1]) };
+}
 
 const source = {
   source_kind: 'canonical_entity',
@@ -228,5 +272,85 @@ test('evidence readers open databases read-only and refuse Core/Provider path al
     }), /DISPATCH_EVIDENCE_DATABASE_PATH_ALIAS/);
   } finally {
     f.close();
+  }
+});
+
+test('gateway wired to real SQLite evidence readers blocks dispatch when Host inventory is unproven', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-dispatch-real-readers-'));
+  const coreDatabasePath = join(directory, 'core.sqlite');
+  const providerDatabasePath = join(directory, 'provider.sqlite');
+  const authorityPath = join(directory, 'authority.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const ledgerPath = join(directory, 'ledger.sqlite');
+  let service;
+  let gateway;
+  try {
+    seedCore(coreDatabasePath);
+    seedProvider(providerDatabasePath);
+    for (const [path, table] of [[coreDatabasePath, 'accepted_head_state'], [providerDatabasePath, 'accepted_head_state']]) {
+      const db = new DatabaseSync(path);
+      try { db.prepare('UPDATE accepted_head_state SET head=1,enrolled=1 WHERE singleton=1').run(); }
+      finally { db.close(); }
+    }
+
+    service = await startAuthorityProcess(authorityPath);
+    const coreEnrolled = enrollAcceptedHeadSync({
+      domain: 'core', operationId: 'core-real-reader-baseline', operationDigest: digestA,
+      token: coreToken, port: service.port,
+    });
+    finalizeAcceptedHeadSync({
+      domain: 'core', operationId: coreEnrolled.operation_id, operationDigest: digestA,
+      token: coreToken, port: service.port,
+    });
+    const providerEnrolled = enrollAcceptedHeadSync({
+      domain: 'provider', operationId: 'provider-real-reader-baseline', operationDigest: digestB,
+      token: providerToken, port: service.port,
+    });
+    finalizeAcceptedHeadSync({
+      domain: 'provider', operationId: providerEnrolled.operation_id, operationDigest: digestB,
+      token: providerToken, port: service.port,
+    });
+
+    let sends = 0;
+    gateway = new MemoryDispatchGateway({
+      ledgerPath,
+      coordinatorPath,
+      authorityPort: service.port,
+      readToken,
+      coreDatabasePath,
+      providerDatabasePath,
+      sendUpstream: () => {
+        sends += 1;
+        return { started: true, response: Promise.resolve({ status: 200 }) };
+      },
+    });
+    await assert.rejects(gateway.dispatchProtectedRequest({
+      requestId: 'real-readers-must-fail-closed',
+      route: 'host-managed-chat-completions',
+      model: 'opaque-host-model',
+      stream: false,
+      body: '{"messages":[]}',
+      adapterId: scope.adapterId,
+      conversationId: scope.conversationId,
+      worldId: scope.worldId,
+      actorId: scope.actorId,
+      purpose: scope.purpose,
+      sources: [source],
+      candidates: [candidate],
+    }), /MEMORY_DISPATCH_NOT_READY/);
+    assert.equal(sends, 0);
+    const ledger = new DatabaseSync(ledgerPath);
+    try {
+      assert.equal(ledger.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0);
+    } finally {
+      ledger.close();
+    }
+  } finally {
+    try { gateway?.close(); } catch {}
+    if (service?.child) {
+      service.child.stdin.end('stop');
+      await once(service.child, 'exit');
+    }
+    rmSync(directory, { recursive: true, force: true });
   }
 });
