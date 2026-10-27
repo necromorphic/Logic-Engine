@@ -102,6 +102,31 @@ test('node identifiers are not accepted as changed-input coordinates', () => {
   );
 });
 
+
+test('A full recomputation drops stale values for nodes absent from the current graph', () => {
+  const result = runRecalculation({
+    inputs: { hp: 10 },
+    nodes: [{ id: 'effect', dependsOn: ['hp'], evaluate: ({ read }) => read('hp') - 1 }],
+    strategy: 'A',
+    previousValues: { effect: -999, deleted_node: 'stale', unrelated: 123 },
+  });
+  assert.equal(result.status, 'ready');
+  assertProjection(result.values, { effect: 9 });
+});
+
+test('C fallback rebuild drops stale values rather than merging the incremental cache', () => {
+  const result = runRecalculation({
+    inputs: { hp: 10 },
+    nodes: [{ id: 'effect', dependsOn: ['hp'], evaluate: ({ read }) => read('hp') - 1 }],
+    strategy: 'C',
+    changedInputs: [],
+    previousValues: { effect: -999, deleted_node: 'stale', unrelated: 123 },
+    invariants: [() => false],
+  });
+  assert.equal(result.fallback.used, true);
+  assertProjection(result.values, { effect: 9 });
+});
+
 test('cycles fail closed rather than choosing an arbitrary evaluation order', () => {
   const nodes = [
     { id: 'a', dependsOn: ['b'], evaluate: ({ read }) => read('b') + 1 },
