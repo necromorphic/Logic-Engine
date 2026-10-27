@@ -73,6 +73,8 @@ async function atomicWriteJson(filePath, value) {
 
 async function readRegistry(registryPath) {
     try {
+        const stat = await lstat(registryPath);
+        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_REGISTRY_UNSAFE');
         const value = JSON.parse(await readFile(registryPath, 'utf8'));
         if (value?.version !== 1 || !Array.isArray(value.conversations)) throw new Error('HOST_REGISTRY_INVALID');
         return value;
@@ -85,6 +87,8 @@ async function readRegistry(registryPath) {
 async function readAndValidateJournal(journalPath) {
     let text;
     try {
+        const stat = await lstat(journalPath);
+        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_JOURNAL_UNSAFE');
         text = await readFile(journalPath, 'utf8');
     } catch (error) {
         if (error?.code === 'ENOENT') return { records: [], unresolved: false, lastHash: '0'.repeat(64) };
@@ -116,7 +120,8 @@ async function appendRecord(journalPath, priorHash, record) {
     const unsigned = { ...record, previousHash: priorHash };
     const recordHash = digest(canonical(unsigned));
     const line = canonical({ ...unsigned, recordHash }) + '\n';
-    const handle = await open(journalPath, constants.O_CREAT | constants.O_APPEND | constants.O_WRONLY, 0o600);
+    const noFollow = constants.O_NOFOLLOW ?? 0;
+    const handle = await open(journalPath, constants.O_CREAT | constants.O_APPEND | constants.O_WRONLY | noFollow, 0o600);
     try {
         await handle.writeFile(line, 'utf8');
         await handle.sync();
