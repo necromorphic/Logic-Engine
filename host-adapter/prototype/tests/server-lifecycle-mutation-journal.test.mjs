@@ -95,7 +95,7 @@ test('explicit enrollment enables durable before/after journal around direct ser
 test('incomplete post-scan overrides a pre-flushed success response before headers reach the client', async () => {
     const { root, directories, request } = await fixture();
     try {
-        await writeFile(path.join(directories.chats, 'chat-1.jsonl'), '{"mes":"before"}\\n');
+        await writeFile(path.join(directories.chats, 'chat-1.jsonl'), '{"mes":"before"}\n');
         await registerHostConversation(request, {
             conversationId: 'conversation-1',
             sourceLocator: 'chat-1',
