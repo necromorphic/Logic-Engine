@@ -126,3 +126,67 @@ test('TimePolicy normalization uses locale-independent code-unit ordering', () =
     ['Z', 'a', 'é'],
   );
 });
+
+
+test('time policies reject symbol keys and accessors without invoking getters', () => {
+  let getterCalled = false;
+  const input = policy();
+  Object.defineProperty(input, 'version', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return '1.0.0'; },
+  });
+  assert.throws(() => createTimePolicy(input), (error) => error.code === 'INVALID_TIME_POLICY');
+  assert.equal(getterCalled, false);
+
+  const withSymbol = policy();
+  withSymbol[Symbol('hidden')] = true;
+  assert.throws(() => createTimePolicy(withSymbol), (error) => error.code === 'INVALID_TIME_POLICY');
+});
+
+test('time policy arrays reject sparse entries, accessors, and extra properties', () => {
+  const sparseRules = [];
+  sparseRules.length = 1;
+  assert.throws(
+    () => createTimePolicy(policy({ duration_rules: sparseRules })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+
+  const accessorRules = [];
+  accessorRules.length = 1;
+  let getterCalled = false;
+  Object.defineProperty(accessorRules, '0', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return { event_type: 'x', rule: { kind: 'fixed', duration_ms: 1 } }; },
+  });
+  assert.throws(
+    () => createTimePolicy(policy({ duration_rules: accessorRules })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+  assert.equal(getterCalled, false);
+
+  const extraPropertyRules = [{ event_type: 'x', rule: { kind: 'fixed', duration_ms: 1 } }];
+  extraPropertyRules.unexpected = true;
+  assert.throws(
+    () => createTimePolicy(policy({ duration_rules: extraPropertyRules })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+});
+
+test('nested duration rule records reject non-enumerable and custom-prototype fields', () => {
+  const rule = { kind: 'fixed', duration_ms: 1000 };
+  Object.defineProperty(rule, 'hidden', { value: true, enumerable: false });
+  assert.throws(
+    () => createTimePolicy(policy({ duration_rules: [{ event_type: 'x', rule }] })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+
+  const customPrototype = Object.create({ inherited: true });
+  customPrototype.kind = 'fixed';
+  customPrototype.duration_ms = 1000;
+  assert.throws(
+    () => createTimePolicy(policy({ duration_rules: [{ event_type: 'x', rule: customPrototype }] })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+});
