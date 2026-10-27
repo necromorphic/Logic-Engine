@@ -47,8 +47,8 @@ function readPath(root, path) {
   for (const key of path.split('.')) {
     if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) return { exists: false };
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
-    if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
-      throw new EngineError('INVALID_RULE_CONTEXT', 'Rule context must not expose accessor-backed properties.');
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new EngineError('INVALID_RULE_CONTEXT', 'Rule context paths must resolve through enumerable own data properties.');
     }
     value = descriptor.value;
   }
