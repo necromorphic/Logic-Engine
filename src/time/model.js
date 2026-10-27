@@ -292,6 +292,12 @@ function dayIndexForDate(calendar, date) {
     'year_cycle_index', 'month_id', 'month_name', 'day_of_month',
     'weekday_index', 'weekday', 'time_of_day_ms', 'holidays',
   ], 'INVALID_CALENDAR_DATE', 'Calendar date', ['year_number', 'month_id', 'day_of_month']);
+  if (Object.hasOwn(date, 'calendar_id') && date.calendar_id !== calendar.calendar_id) {
+    fail('CALENDAR_ID_MISMATCH', 'Calendar date belongs to a different calendar.');
+  }
+  if (Object.hasOwn(date, 'calendar_version') && date.calendar_version !== calendar.version) {
+    fail('CALENDAR_VERSION_MISMATCH', 'Calendar date was projected with a different calendar version.');
+  }
   const yearNumber = safeInteger(date.year_number, 'date.year_number');
   const yearOffset = yearNumber - calendar.epoch.year_number;
   safeInteger(yearOffset, 'Year offset');
@@ -396,5 +402,9 @@ export function calendarDateToCoordinate(definition, date) {
   const daysFromEpochDate = day.days - epochDayOfYear(calendar);
   const elapsedMs = checkedMultiply(daysFromEpochDate, calendar.day_length_ms, 'Calendar date coordinate');
   const withTime = checkedAdd(elapsedMs, targetTime - calendar.epoch.time_of_day_ms, 'Calendar date coordinate');
-  return checkedAdd(calendar.epoch.coordinate, withTime, 'Calendar date coordinate');
+  const coordinate = checkedAdd(calendar.epoch.coordinate, withTime, 'Calendar date coordinate');
+  if (Object.hasOwn(date, 'coordinate') && date.coordinate !== coordinate) {
+    fail('CALENDAR_DATE_COORDINATE_MISMATCH', 'Projected coordinate does not match the supplied calendar date fields.');
+  }
+  return coordinate;
 }
