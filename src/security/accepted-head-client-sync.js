@@ -58,7 +58,7 @@ export function advanceAcceptedHeadSync({
     timeout_ms: timeoutMs,
   }, timeoutMs);
   if (!response || response.ok !== true || response.result?.domain !== domain
-    || response.result?.operation_id !== operationId
+    || response.result?.operation_id !== operationId || response.result?.operation_digest !== operationDigest
     || !Number.isSafeInteger(response.result?.head) || response.result.head < 1
     || !['pending', 'committed'].includes(response.result.status)) {
     throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
@@ -67,6 +67,7 @@ export function advanceAcceptedHeadSync({
     domain,
     head: response.result.head,
     operation_id: operationId,
+    operation_digest: operationDigest,
     replayed: response.result.replayed === true,
     status: response.result.status,
   });
@@ -91,7 +92,7 @@ export function enrollAcceptedHeadSync({
     timeout_ms: timeoutMs,
   }, timeoutMs);
   if (!response || response.ok !== true || response.result?.domain !== domain
-    || response.result?.operation_id !== operationId
+    || response.result?.operation_id !== operationId || response.result?.operation_digest !== operationDigest
     || response.result?.head !== 1
     || !['pending', 'committed'].includes(response.result.status)) {
     throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
@@ -100,6 +101,7 @@ export function enrollAcceptedHeadSync({
     domain,
     head: response.result.head,
     operation_id: operationId,
+    operation_digest: operationDigest,
     replayed: response.result.replayed === true,
     status: response.result.status,
   });
@@ -123,7 +125,7 @@ export function finalizeAcceptedHeadSync({
     timeout_ms: timeoutMs,
   }, timeoutMs);
   if (!response || response.ok !== true || response.result?.domain !== domain
-    || response.result?.operation_id !== operationId
+    || response.result?.operation_id !== operationId || response.result?.operation_digest !== operationDigest
     || !Number.isSafeInteger(response.result?.head) || response.result.head < 1
     || response.result.status !== 'committed') {
     throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
@@ -132,6 +134,7 @@ export function finalizeAcceptedHeadSync({
     domain,
     head: response.result.head,
     operation_id: operationId,
+    operation_digest: operationDigest,
     replayed: response.result.replayed === true,
     status: 'committed',
   });
