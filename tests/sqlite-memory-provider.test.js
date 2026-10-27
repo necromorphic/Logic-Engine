@@ -678,7 +678,8 @@ test('record revocation survives Provider restart and index rebuild cannot resto
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
 });
-\ntest('accepted-head guard advances with Provider mutations and survives reopen', async (t) => {
+
+test('accepted-head guard advances with Provider mutations and survives reopen', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-authority-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const providerPath = join(directory, 'provider.sqlite');
