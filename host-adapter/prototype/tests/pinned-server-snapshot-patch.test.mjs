@@ -78,3 +78,12 @@ test('production inventory scan compares against the last committed local mutati
   assert.match(patch, /DIVERGES_FROM_LAST_LOCAL_CHECKPOINT/);
   assert.match(patch, /CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT/);
 });
+
+
+test('pinned ST patch journals Core-accepted captures and requires tombstone evidence for disappeared versions', async () => {
+  const patch = await readFile(patchPath, 'utf8');
+  assert.match(patch, /onAcceptedCapture: recordHostCaptureAcknowledgement/);
+  assert.match(patch, /kind: 'capture_ack'/);
+  assert.match(patch, /VERSION_DISAPPEARED_WITHOUT_ACCEPTED_TOMBSTONE/);
+  assert.match(patch, /ENROLLMENT_FORWARD_ONLY_OBSERVED_INVENTORY_NON_AUTHORITATIVE/);
+});
