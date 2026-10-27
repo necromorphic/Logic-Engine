@@ -1024,6 +1024,9 @@ async function readCoreHostVersionInventory(conversationId) {
 async function assertCoreInventoryMatchesSnapshot(conversationInventory, registry) {
     const remoteInventories = await Promise.all(registry.conversations.map(item =>
         readCoreHostVersionInventory(item.conversationId)));
+    if (remoteInventories.some(inventory => inventory.inventory_status !== 'READY')) {
+        throw new Error('CORE_HOST_INVENTORY_NOT_READY');
+    }
     const local = new Map();
     for (const conversation of conversationInventory.inventories ?? []) {
         for (const version of conversation.versions ?? []) {
