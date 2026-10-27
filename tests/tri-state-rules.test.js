@@ -275,3 +275,13 @@ test('rule paths enforce the declarative schema length limit', () => {
     (error) => error.code === 'INVALID_RULE_PATH',
   );
 });
+
+
+test('rule context paths reject non-enumerable own properties', () => {
+  const actor = {};
+  Object.defineProperty(actor, 'secret', { value: 'hidden', enumerable: false });
+  assert.throws(
+    () => evaluateCondition({ op: 'eq', path: 'actor.secret', value: 'hidden' }, { actor }),
+    (error) => error.code === 'INVALID_RULE_CONTEXT',
+  );
+});
