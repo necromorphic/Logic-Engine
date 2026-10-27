@@ -50,6 +50,35 @@ test('scanner rejects a directory that changes while entries are being enumerate
   }
 });
 
+test('scanner rejects an artifact modified after its individual read', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'host-inventory-file-race-'));
+  try {
+    const first = path.join(root, 'a.jsonl');
+    const nested = path.join(root, 'z');
+    await mkdir(nested);
+    await writeFile(first, '{"mes":"original"}\\n');
+    let changed = false;
+    const fs = {
+      lstat, open, realpath,
+      readdir: async (directory, options) => {
+        const entries = await readdir(directory, options);
+        if (directory === nested && !changed) {
+          changed = true;
+          await writeFile(first, '{"mes":"modified later"}\\n');
+        }
+        return entries;
+      },
+    };
+    const result = await scanHostArtifactRoots([{ domain: 'chats', path: root }], { fs });
+    assert.equal(result.status, 'INVENTORY_INCOMPLETE');
+    assert.equal(result.complete, false);
+    assert.deepEqual(result.artifacts, []);
+    assert.ok(result.errors.includes('Artifact changed after scan: chats'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test('scanner returns no partial inventory when a root is unavailable', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-inventory-'));
   try {
