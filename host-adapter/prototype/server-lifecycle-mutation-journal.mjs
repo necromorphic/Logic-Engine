@@ -317,6 +317,12 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 bufferedWrites.length = 0;
                 bufferedWriteHead = null;
                 response.statusCode = override.status;
+                // Express may already have calculated headers for the discarded
+                // success body before end() was intercepted. Never retain a stale
+                // Content-Length, ETag, encoding, or digest for the replacement 503.
+                for (const header of ['Content-Length', 'ETag', 'Content-MD5', 'Content-Encoding', 'Transfer-Encoding']) {
+                    response.removeHeader?.(header);
+                }
                 response.setHeader('Content-Type', 'application/json; charset=utf-8');
                 return originalEnd(override.body);
             }
