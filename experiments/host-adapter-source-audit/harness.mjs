@@ -76,6 +76,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   const dataMaidRoutes = await readFile(resolve(root, 'src/endpoints/data-maid.js'), 'utf8');
   const characterRoutes = await readFile(resolve(root, 'src/endpoints/characters.js'), 'utf8');
   const startup = await readFile(resolve(root, 'src/server-startup.js'), 'utf8');
+  const serverMain = await readFile(resolve(root, 'src/server-main.js'), 'utf8');
   const hostJournal = await readFile(resolve(root, 'src/endpoints/logic-engine-host-journal.mjs'), 'utf8');
   const lifecycleRoutes = await readFile(resolve(root, 'src/endpoints/logic-engine-lifecycle.js'), 'utf8');
 
@@ -94,6 +95,8 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   }
 
   assert.match(startup, /app\.use\(createHostLifecycleMutationMiddleware\((?:\{[^}]*\})?\)\);[\s\S]*?app\.use\('\/', userDataRouter\)/);
+  assert.ok(serverMain.indexOf('app.use(setUserDataMiddleware);') >= 0 && serverMain.indexOf('app.use(setUserDataMiddleware);') < serverMain.indexOf('setupPrivateEndpoints(app);'), 'global user binding must precede private endpoint registration');
+  assert.ok(serverMain.indexOf('app.use(requireLoginMiddleware);') >= 0 && serverMain.indexOf('app.use(requireLoginMiddleware);') < serverMain.indexOf('setupPrivateEndpoints(app);'), 'global login guard must precede private endpoint registration');
   assert.match(startup, /createHostLifecycleMutationMiddleware/);
   for (const route of [
     "'POST /api/chats/save'", "'POST /api/chats/rename'", "'POST /api/chats/delete'",
