@@ -167,7 +167,7 @@ test('denies by default and immediately honors record revocation', async (t) => 
   assert.equal((await s.provider.reconcile('world-a')).status, 'current');
   assert.equal(await s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: s.record.source_version,
   }), true);
   s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
   assert.equal(await s.provider.authorizeCandidate({
