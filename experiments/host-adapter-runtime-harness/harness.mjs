@@ -8,10 +8,30 @@ import { pathToFileURL } from 'node:url';
 const stRoot = resolve(process.env.SILLYTAVERN_DIR ?? 'SillyTavern');
 const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 
-// Prevent the upstream route's debug log from serializing request bodies.
-// The fake provider below only drains bytes; it never parses or stores them.
-const originalDebug = console.debug;
-console.debug = () => {};
+// Capture console output without forwarding it to CI. The pinned upstream
+// handler has a console.debug path that serializes the request body, so debug
+// output is suppressed and separately counted rather than retained as text.
+const loggedOutput = [];
+let suppressedDebugCalls = 0;
+const originalConsoleMethods = Object.fromEntries(
+  ['debug', 'info', 'log', 'warn', 'error'].map(name => [name, console[name]]),
+);
+for (const name of Object.keys(originalConsoleMethods)) {
+  console[name] = (...args) => {
+    if (name === 'debug') {
+      suppressedDebugCalls += 1;
+      return;
+    }
+    const rendered = args.map(arg => {
+      try {
+        return typeof arg === 'string' ? arg : JSON.stringify(arg);
+      } catch {
+        return String(arg);
+      }
+    }).join(' ');
+    loggedOutput.push({ method: name, rendered });
+  };
+}
 
 const requireFromST = createRequire(resolve(stRoot, 'package.json'));
 const express = requireFromST('express');
@@ -66,7 +86,9 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
       new Promise(resolveClose => stHarnessServer.close(resolveClose)),
       new Promise(resolveClose => fakeProvider.close(resolveClose)),
     ]);
-    console.debug = originalDebug;
+    for (const [name, method] of Object.entries(originalConsoleMethods)) {
+      console[name] = method;
+    }
   });
 
   const response = await fetch(`http://127.0.0.1:${stAddress.port}/api/backends/chat-completions/generate`, {
@@ -90,4 +112,10 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
   assert.equal(requestCount, 1, 'exactly one outbound request should arrive at the fake provider');
   assert.deepEqual(arrivals, [{ method: 'POST', path: '/v1/chat/completions' }]);
   assert.equal(JSON.stringify(arrivals).includes('HARNESS_SENTINEL_DO_NOT_LOG'), false);
+  assert.ok(suppressedDebugCalls > 0, 'the upstream body-serializing debug path must be suppressed');
+  assert.equal(
+    loggedOutput.some(entry => entry.rendered.includes('HARNESS_SENTINEL_DO_NOT_LOG')),
+    false,
+    'request-body sentinel must not appear in any forwarded/captured non-debug console output',
+  );
 });
