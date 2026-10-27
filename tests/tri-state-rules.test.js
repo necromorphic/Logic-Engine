@@ -104,3 +104,42 @@ test('result API preserves the existing validation errors for malformed rules', 
     (error) => error.code === 'UNSUPPORTED_RULE_OPERATOR',
   );
 });
+
+test('rule definitions reject getters and malformed arrays without executing getters', () => {
+  let getterCalls = 0;
+  const accessorRule = { path: 'flag', value: true };
+  Object.defineProperty(accessorRule, 'op', {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return 'eq';
+    },
+  });
+  assert.throws(
+    () => evaluateCondition(accessorRule, { flag: true }),
+    (error) => error.code === 'INVALID_RULE',
+  );
+
+  const accessorValues = [];
+  Object.defineProperty(accessorValues, '0', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      return true;
+    },
+  });
+  accessorValues.length = 1;
+  assert.throws(
+    () => evaluateCondition({ op: 'in', path: 'flag', values: accessorValues }, { flag: true }),
+    (error) => error.code === 'INVALID_RULE',
+  );
+
+  const sparseRules = [];
+  sparseRules.length = 1;
+  assert.throws(
+    () => evaluateCondition({ op: 'all', rules: sparseRules }, { flag: true }),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  assert.equal(getterCalls, 0);
+});
