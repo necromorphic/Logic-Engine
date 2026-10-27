@@ -447,11 +447,59 @@ export async function getHostMutationJournalStatus(request) {
     };
 }
 
+
+async function validateEnrolledSourcePath(paths, { conversationId, sourceLocator, domain, sourcePath }) {
+    if (typeof sourcePath !== 'string' || !sourcePath || sourcePath.length > 512
+        || path.isAbsolute(sourcePath) || sourcePath.includes(String.fromCharCode(92))
+        || sourcePath.split('/').some(part => !part || part === '.' || part === '..')
+        || path.parse(sourcePath).name !== sourceLocator || path.extname(sourcePath) !== '.jsonl') {
+        throw new Error('HOST_ENROLLMENT_SOURCE_PATH_INVALID');
+    }
+    const identityParts = conversationId.split(':');
+    if (identityParts.length !== 2
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identityParts[0])
+        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(identityParts[1])) {
+        throw new Error('HOST_ENROLLMENT_IDENTITY_INVALID');
+    }
+    const root = paths.roots.find(item => item.domain === domain);
+    if (!root) throw new Error('HOST_ENROLLMENT_SOURCE_PATH_INVALID');
+    const canonicalRoot = await realpath(root.path);
+    let cursor = canonicalRoot;
+    const segments = sourcePath.split('/');
+    for (let index = 0; index < segments.length; index++) {
+        cursor = path.join(cursor, segments[index]);
+        const stat = await lstat(cursor);
+        if (stat.isSymbolicLink() || (index < segments.length - 1 ? !stat.isDirectory() : !stat.isFile())) {
+            throw new Error('HOST_ENROLLMENT_SOURCE_PATH_UNSAFE');
+        }
+    }
+    const handle = await open(cursor, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+        const before = await handle.stat();
+        const bytes = await handle.readFile();
+        const after = await handle.stat();
+        const pathAfter = await lstat(cursor);
+        if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino
+            || before.size !== after.size || before.mtimeMs !== after.mtimeMs
+            || before.ctimeMs !== after.ctimeMs || before.dev !== pathAfter.dev
+            || before.ino !== pathAfter.ino || bytes.length !== after.size) {
+            throw new Error('HOST_ENROLLMENT_SOURCE_CHANGED');
+        }
+        const firstLine = bytes.toString('utf8').split(/\\r?\\n/).find(line => line.trim().length > 0);
+        const header = firstLine ? JSON.parse(firstLine) : null;
+        if (header?.chat_metadata?.logic_engine_conversation_id !== identityParts[1]) {
+            throw new Error('HOST_ENROLLMENT_SOURCE_IDENTITY_MISMATCH');
+        }
+    } finally {
+        await handle.close().catch(() => {});
+    }
+}
+
 /**
  * Explicit Host enrollment registration. The registry is local Host state, not
  * an external anti-rollback authority and not a Core authorization contract.
  */
-export async function registerHostConversation(request, { conversationId, sourceLocator, domain }) {
+export async function registerHostConversation(request, { conversationId, sourceLocator, sourcePath, domain }) {
     if (typeof conversationId !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(conversationId)) {
         throw new Error('HOST_ENROLLMENT_INVALID');
     }
@@ -461,6 +509,7 @@ export async function registerHostConversation(request, { conversationId, source
     }
     if (!['chats', 'group_chats'].includes(domain)) throw new Error('HOST_ENROLLMENT_INVALID');
     const paths = await statePaths(request);
+    if (sourcePath !== undefined) await validateEnrolledSourcePath(paths, { conversationId, sourceLocator, domain, sourcePath });
     let registryExists = true;
     try {
         const stat = await lstat(paths.registryPath);
@@ -479,9 +528,10 @@ export async function registerHostConversation(request, { conversationId, source
         }
     }
     const existing = registry.conversations.find(item => item.conversationId === conversationId);
-    const candidate = { conversationId, sourceLocator, domain, enrolledAt: new Date().toISOString() };
+    const candidate = { conversationId, sourceLocator, ...(sourcePath === undefined ? {} : { sourcePath }), domain, enrolledAt: new Date().toISOString() };
     if (existing) {
-        if (existing.sourceLocator !== sourceLocator || existing.domain !== domain) throw new Error('HOST_ENROLLMENT_IDENTITY_CONFLICT');
+        if (existing.sourceLocator !== sourceLocator || existing.domain !== domain
+            || (sourcePath !== undefined && existing.sourcePath !== sourcePath)) throw new Error('HOST_ENROLLMENT_IDENTITY_CONFLICT');
         return { status: 'ALREADY_ENROLLED' };
     }
     if (!registryExists) {
