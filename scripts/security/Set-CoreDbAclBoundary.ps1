@@ -79,6 +79,9 @@ function Assert-SafeParentPathMutationRights {
         $acl = Get-Acl -LiteralPath $current -ErrorAction Stop
         foreach ($rule in @($acl.Access)) {
             if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) { continue }
+            # InheritOnly ACEs are not effective on this ancestor itself; they may
+            # still be evaluated when that descendant is checked in the loop.
+            if (($rule.PropagationFlags -band [System.Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
             $sid = $null
             try {
                 $sid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
@@ -87,7 +90,7 @@ function Assert-SafeParentPathMutationRights {
             }
             if ($sid -in $TrustedSids) { continue }
             if (($rule.FileSystemRights -band $dangerous) -ne 0) {
-                throw "Parent-path ACL grants delete/rename/ACL-control rights to non-trusted principal '$($rule.IdentityReference)' on '$current'; refusing ACL operation."
+                throw "Parent-path ACL grants delete/rename/ACL-control rights ($($rule.FileSystemRights); inheritance=$($rule.InheritanceFlags); propagation=$($rule.PropagationFlags)) to non-trusted principal '$($rule.IdentityReference)' on '$current'; refusing ACL operation."
             }
         }
 
