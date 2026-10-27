@@ -465,6 +465,24 @@ export class HostVersionDigestLedger {
           return { status: 'non_ready', code: 'HOST_TOMBSTONE_REAPPEARED' };
         }
       }
+      // After a conversation has an established ledger, reconciliation may confirm
+      // known identities but must not silently enroll an unseen identity. New versions
+      // must arrive through the authenticated capture path; otherwise an unobserved
+      // write/import/restore could be mistaken for a valid new source. A truly empty
+      // first baseline is allowed only before any READY snapshot has been published.
+      const hasEstablishedBaseline = known.length > 0 || preVerification.state?.status === 'READY';
+      if (hasEstablishedBaseline) {
+        const knownKeys = new Set(known.map(row => JSON.stringify([
+          row.world_id, row.conversation_id, row.message_id, row.version_id,
+        ])));
+        for (const v of snapshot.versions) {
+          if (!knownKeys.has(JSON.stringify(tuple(v)))) {
+            this.#markNonReady(snapshot.world_id, snapshot.conversation_id,
+              'HOST_VERSION_UNENROLLED_OR_UNCAPTURED', now, snapshotDigest);
+            return { status: 'non_ready', code: 'HOST_VERSION_UNENROLLED_OR_UNCAPTURED' };
+          }
+        }
+      }
       // The verified snapshot is authoritative for active pointers: remove stale
       // pointers for this conversation, then rebuild them from the validated inventory.
       this.db.prepare('DELETE FROM host_version_active_pointer WHERE world_id=? AND conversation_id=?')

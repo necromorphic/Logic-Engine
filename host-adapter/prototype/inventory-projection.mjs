@@ -111,7 +111,8 @@ export function projectHostCaptureLedgerForComparison(ledger) {
     return nonReady('CAPTURE_LEDGER_UNAVAILABLE_OR_INVALID');
   }
   const records = ledger.records;
-  if (records[0]?.operation !== 'baseline' || records[0]?.conversationId !== ledger.conversationId) {
+  if (records[0]?.operation !== 'baseline' || records[0]?.sequence !== 1
+    || records[0]?.conversationId !== ledger.conversationId) {
     return nonReady('CAPTURE_LEDGER_BASELINE_MISSING');
   }
 
