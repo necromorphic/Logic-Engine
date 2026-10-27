@@ -198,11 +198,33 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).index_health, 'ready');
     assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'current');
 
+    // A candidate read succeeds only while the accepted-head authority is
+    // current and available, even when local grants/readiness remain positive.
+    provider.grantQuery(scope, true);
+    provider.grantRecord(scope, record.record_ref, record.record_version, true);
+    const candidateRequest = {
+      ...scope,
+      record_ref: record.record_ref,
+      record_version: record.record_version,
+      source_kind: record.source_kind,
+      source_entity_id: record.source_entity_id,
+    };
+    assert.equal(await provider.authorizeCandidate(candidateRequest), true);
+    assert.equal((await provider.retrieveCandidates(scope)).candidates.length, 1);
+
     child.stdin.end('stop');
     await once(child, 'exit');
     child = null;
 
     assert.throws(() => provider.grantQuery(scope, false), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
+    await assert.rejects(
+      provider.authorizeCandidate(candidateRequest),
+      /PROVIDER_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/,
+    );
+    await assert.rejects(
+      provider.retrieveCandidates(scope),
+      /PROVIDER_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/,
+    );
     assert.equal(provider.authorizeQuery(scope), true);
   } finally {
     try { provider?.close(); } catch {}

@@ -310,6 +310,28 @@ export class SQLiteMemoryProvider {
     return this.db.prepare('PRAGMA data_version').get().data_version;
   }
 
+  #assertAcceptedHeadReady() {
+    if (!this.acceptedHeadConfig) return;
+    let status;
+    try {
+      status = getAcceptedHeadStatusSync({
+        port: this.acceptedHeadConfig.port,
+        token: this.acceptedHeadConfig.token,
+      });
+    } catch {
+      throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
+    }
+    const local = this.db.prepare(
+      'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+    ).get();
+    if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head)
+      || status.pending.core || status.pending.provider
+      || !status.enrolled.core || !status.enrolled.provider
+      || status.heads.provider !== local.head) {
+      throw new Error('PROVIDER_ACCEPTED_HEAD_NOT_READY');
+    }
+  }
+
   #withImmediateTransaction(work) {
     return this.#withCoordinatorLock(() => {
       this.db.exec('BEGIN IMMEDIATE');
@@ -709,6 +731,7 @@ export class SQLiteMemoryProvider {
   }
 
   async authorizeCandidate(input) {
+    this.#assertAcceptedHeadReady();
     // Take the cross-connection epoch before reading any authorization state.
     // Otherwise a revoke/re-grant committed between the initial grant read and
     // the later epoch capture would be invisible to this request.
@@ -800,6 +823,7 @@ export class SQLiteMemoryProvider {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
     if (this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
+    this.#assertAcceptedHeadReady();
     return true;
   }
 
@@ -1037,6 +1061,7 @@ export class SQLiteMemoryProvider {
   }
 
   async retrieveCandidates(scope) {
+    this.#assertAcceptedHeadReady();
     // Capture before checking the query grant or readiness. Capturing after
     // those reads can miss a cross-connection revoke/re-grant ABA that finishes
     // just before the first await.
@@ -1148,6 +1173,7 @@ export class SQLiteMemoryProvider {
     // result was being assembled. This remains Provider-local protection; it
     // cannot make a later model dispatch atomic with revocation.
     if (this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_INDEX_NOT_READY');
+    this.#assertAcceptedHeadReady();
     return {
       completeness: rows.length > 50 ? 'partial' : 'complete',
       index_health: latestState.index_health,
