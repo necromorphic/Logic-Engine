@@ -4,6 +4,39 @@ export const SUPPORTED_RULE_OPERATORS = Object.freeze(['eq', 'neq', 'exists', 'g
 const OPS = new Set(SUPPORTED_RULE_OPERATORS);
 const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 
+function assertPlainDataObject(value, code = 'INVALID_RULE', label = 'Rule') {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new EngineError(code, label + ' must be an object.');
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    throw new EngineError(code, label + ' must be a plain data object.');
+  }
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > 1000) throw new EngineError(code, label + ' contains too many fields.');
+  for (const key of keys) {
+    if (typeof key !== 'string') throw new EngineError(code, label + ' must not contain symbol keys.');
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new EngineError(code, label + ' must contain only enumerable data properties.');
+    }
+  }
+}
+
+function assertDenseDataArray(value, maxLength, code, label) {
+  if (!Array.isArray(value) || value.length > maxLength) {
+    throw new EngineError(code, label + ' must be an array of at most ' + maxLength + ' items.');
+  }
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1) throw new EngineError(code, label + ' must be dense and contain no extra properties.');
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      throw new EngineError(code, label + ' must contain only dense data items.');
+    }
+  }
+}
+
 function readPath(root, path) {
   if (typeof path !== 'string' || !path || path.split('.').some((key) => !key || UNSAFE_PATH_SEGMENTS.has(key))) {
     throw new EngineError('INVALID_RULE_PATH', 'Unsafe or empty rule path.');
@@ -12,7 +45,11 @@ function readPath(root, path) {
   let value = root;
   for (const key of path.split('.')) {
     if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) return { exists: false };
-    value = value[key];
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
+      throw new EngineError('INVALID_RULE_CONTEXT', 'Rule context must not expose accessor-backed properties.');
+    }
+    value = descriptor.value;
   }
   return { exists: true, value };
 }
@@ -40,12 +77,12 @@ function nestedRules(rule, op) {
   }
 
   if (hasRules) {
-    if (!Array.isArray(rule.rules)) throw new EngineError('INVALID_RULE', op + ' requires a rules array.');
+    assertDenseDataArray(rule.rules, 64, 'INVALID_RULE', op + ' rules');
     return rule.rules;
   }
   if (op === 'not' && hasLegacy) return [rule.condition];
   if (op !== 'not' && hasLegacy) {
-    if (!Array.isArray(rule.conditions)) throw new EngineError('INVALID_RULE', op + ' requires a conditions array.');
+    assertDenseDataArray(rule.conditions, 64, 'INVALID_RULE', op + ' conditions');
     return rule.conditions;
   }
   throw new EngineError('INVALID_RULE', op === 'not' ? 'not requires exactly one nested rule.' : op + ' requires a rules array.');
@@ -53,9 +90,7 @@ function nestedRules(rule, op) {
 
 export function evaluateCondition(rule, context, depth = 0) {
   if (depth > 24) throw new EngineError('RULE_DEPTH_EXCEEDED', 'Rule nesting exceeds 24 levels.');
-  if (!rule || typeof rule !== 'object' || Array.isArray(rule)) {
-    throw new EngineError('INVALID_RULE', 'Condition must be an object.');
-  }
+  assertPlainDataObject(rule, 'INVALID_RULE', 'Condition');
 
   const op = rule.op;
   if (!OPS.has(op)) throw new EngineError('UNSUPPORTED_RULE_OPERATOR', 'Unsupported operator: ' + String(op));
@@ -96,9 +131,7 @@ export function evaluateCondition(rule, context, depth = 0) {
   if (op === 'exists' && rule.value !== undefined && typeof rule.value !== 'boolean') {
     throw new EngineError('INVALID_RULE', 'exists value must be boolean when provided.');
   }
-  if (op === 'in' && (!Array.isArray(rule.values) || rule.values.length > 128)) {
-    throw new EngineError('INVALID_RULE', 'in requires at most 128 values.');
-  }
+  if (op === 'in') assertDenseDataArray(rule.values, 128, 'INVALID_RULE', 'in values');
 
   const found = readPath(context, rule.path);
   if (op === 'exists') return found.exists === (rule.value ?? true);
@@ -140,17 +173,15 @@ export function evaluateCondition(rule, context, depth = 0) {
  * never populate it directly from model- or user-supplied claims.
  */
 export function evaluateConditionResult(rule, context, options = {}) {
-  if (!options || typeof options !== 'object' || Array.isArray(options)) {
-    throw new EngineError('INVALID_RULE_RESULT_OPTIONS', 'Condition result options must be an object.');
-  }
+  assertPlainDataObject(options, 'INVALID_RULE_RESULT_OPTIONS', 'Condition result options');
   const allowedOptionKeys = new Set(['knownAbsentPaths']);
   if (Object.keys(options).some((key) => !allowedOptionKeys.has(key))) {
     throw new EngineError('INVALID_RULE_RESULT_OPTIONS', 'Condition result options contain an unsupported field.');
   }
   const rawKnownAbsent = options.knownAbsentPaths ?? [];
-  if (!Array.isArray(rawKnownAbsent) || rawKnownAbsent.length > 1000
-    || !rawKnownAbsent.every((path) => typeof path === 'string' && path.trim())) {
-    throw new EngineError('INVALID_RULE_RESULT_OPTIONS', 'knownAbsentPaths must be an array of at most 1000 non-empty paths.');
+  assertDenseDataArray(rawKnownAbsent, 1000, 'INVALID_RULE_RESULT_OPTIONS', 'knownAbsentPaths');
+  if (!rawKnownAbsent.every((path) => typeof path === 'string' && path.trim())) {
+    throw new EngineError('INVALID_RULE_RESULT_OPTIONS', 'knownAbsentPaths must contain only non-empty paths.');
   }
   const knownAbsentPaths = new Set(rawKnownAbsent);
   for (const path of knownAbsentPaths) {
@@ -328,9 +359,7 @@ export function collectConditionDependencies(rule) {
   const paths = new Set();
   const visit = (current, depth = 0) => {
     if (depth > 24) throw new EngineError('RULE_DEPTH_EXCEEDED', 'Rule nesting exceeds 24 levels.');
-    if (!current || typeof current !== 'object' || Array.isArray(current)) {
-      throw new EngineError('INVALID_RULE', 'Condition must be an object.');
-    }
+    assertPlainDataObject(current, 'INVALID_RULE', 'Condition');
 
     const op = current.op;
     if (!OPS.has(op)) throw new EngineError('UNSUPPORTED_RULE_OPERATOR', 'Unsupported operator: ' + String(op));
@@ -372,9 +401,7 @@ export function collectConditionDependencies(rule) {
     if (op === 'exists' && current.value !== undefined && typeof current.value !== 'boolean') {
       throw new EngineError('INVALID_RULE', 'exists value must be boolean when provided.');
     }
-    if (op === 'in' && (!Array.isArray(current.values) || current.values.length > 128)) {
-      throw new EngineError('INVALID_RULE', 'in requires at most 128 values.');
-    }
+    if (op === 'in') assertDenseDataArray(current.values, 128, 'INVALID_RULE', 'in values');
     paths.add(current.path);
   };
 
