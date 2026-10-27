@@ -18,7 +18,13 @@ function configuredTarget(env) {
 
   let url;
   try { url = new URL(coreUrl); } catch { return null; }
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password
+  const isLoopbackHost = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname.toLowerCase());
+  // Never send reusable credentials to a remote Core endpoint over plaintext HTTP.
+  // Remote phone→PC deployments require TLS (or an independently secured transport
+  // terminated at an HTTPS endpoint); private LAN addresses are not a trust boundary.
+  if (!['http:', 'https:'].includes(url.protocol)
+    || (url.protocol === 'http:' && !isLoopbackHost)
+    || url.username || url.password
     || url.search || url.hash || !['', '/'].includes(url.pathname)
     || adapterToken === apiToken) return null;
   url.pathname = '/v1/host-version-ledger/capture';
