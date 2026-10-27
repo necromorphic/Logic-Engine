@@ -184,7 +184,7 @@ test('matching persisted enrolled chat receives success only after the version i
     };
     try {
       await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
-        await writeFile(chatPath, request.body.chat.map(JSON.stringify).join('\\n') + '\\n');
+        await writeFile(chatPath, request.body.chat.map(value => JSON.stringify(value)).join('\\n') + '\\n');
         response.json({ ok: true });
       });
       await response.finished;
@@ -327,7 +327,7 @@ test('enrolled save fails closed when Core cannot durably capture the digest inv
     });
     const response = responseMock();
     await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
-      await writeFile(chatPath, request.body.chat.map(JSON.stringify).join('\\n') + '\\n');
+      await writeFile(chatPath, request.body.chat.map(value => JSON.stringify(value)).join('\\n') + '\\n');
       response.json({ ok: true });
     });
     await response.finished;
