@@ -376,6 +376,12 @@ export class SQLiteStore {
           || !Number.isSafeInteger(localAcceptedHead.head) || localAcceptedHead.head < 1) {
           throw new Error('CORE_ACCEPTED_HEAD_NOT_ENROLLED');
         }
+        const sourceVersionMigration = this.db.prepare(
+          'SELECT version FROM schema_migrations WHERE version=12',
+        ).get();
+        if (!sourceVersionMigration) {
+          throw new Error('CORE_SOURCE_VERSION_MIGRATION_REQUIRED');
+        }
       }
       this.db.exec(schemaSql);
       if (!this.acceptedHeadConfig) {
