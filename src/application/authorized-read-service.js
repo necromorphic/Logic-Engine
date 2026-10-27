@@ -236,7 +236,8 @@ export class AuthorizedReadService {
       }
       // Do not return a partial target set: missing and fully withheld targets
       // share one external failure shape, preventing simple existence probing.
-      if (Object.keys(disclosed).length === 0) throw unavailable();
+      // Provenance-only metadata must not turn a fully withheld target into an existence oracle.
+      if (Object.keys(disclosed).length === 0 || Object.keys(disclosed).every((field) => field === 'source_version')) throw unavailable();
       entities.push(disclosed);
     }
 
