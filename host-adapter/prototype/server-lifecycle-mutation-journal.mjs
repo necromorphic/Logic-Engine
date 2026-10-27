@@ -214,7 +214,14 @@ function verifyEnrolledChatSavePersistence(request, registry, after) {
 
     const body = request.body;
     const cardName = String(body?.avatar_url ?? '').replace('.png', '');
-    const fileName = String(body?.file_name ?? '') + '.jsonl';
+    // Match SillyTavern's sanitize-filename behavior for the route target before
+    // comparing it with the enrollment registry. This is a lookup only; the
+    // native route remains responsible for path validation and the persisted
+    // scanner remains the source of observed state.
+    const sanitizedFileName = String(body?.file_name ?? '')
+        .replace(/[<>:"/\\|?*\\u0000-\\u001F]/g, '')
+        .replace(/[. ]+$/g, '');
+    const fileName = sanitizedFileName + '.jsonl';
     const sourcePath = cardName + '/' + fileName;
     const headerUuid = body?.chat?.[0]?.chat_metadata?.logic_engine_conversation_id;
     // Match both the requested target and the stable enrolled UUID. The native
