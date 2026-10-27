@@ -1,14 +1,16 @@
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash } from 'node:crypto';
 import {
   advanceAcceptedHeadSync,
   finalizeAcceptedHeadSync,
+  getAcceptedHeadStatusSync,
   getAcceptedHeadsSync,
 } from '../security/accepted-head-client-sync.js';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
+import { hashRequest } from '../core/request-hash.js';
 
 const acceptedHeadConfigFromEnv = () => {
   const required = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED === '1';
@@ -63,6 +65,15 @@ const sameSnapshot = (a, b) => !!snapshotOf(a) && !!snapshotOf(b)
 const decode = (value) => JSON.parse(value);
 const encode = (value) => JSON.stringify(value);
 const rawDigest = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
+
+function databaseSchemaDigest(db) {
+  return hashRequest(db.prepare(`
+    SELECT type, name, tbl_name, sql
+    FROM sqlite_master
+    WHERE name NOT LIKE 'sqlite_%'
+    ORDER BY type, name
+  `).all());
+}
 
 const validDirectLineage = (row, lineage) => row.source_kind === 'canonical_entity'
   && validId(row.source_entity_id)
@@ -128,7 +139,7 @@ export class SQLiteMemoryProvider {
     try {
       releaseStartupLock = this.#acquireCoordinatorLock();
       this.db = new DatabaseSync(path);
-      this.db.exec(`
+      const schemaSql = `
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS memory_records (
         world_id TEXT NOT NULL, subject_id TEXT NOT NULL, purpose TEXT NOT NULL,
@@ -195,10 +206,69 @@ export class SQLiteMemoryProvider {
           REFERENCES memory_raw_captures(world_id, conversation_id, message_id, version_id)
           ON DELETE CASCADE
       );
-    `);
-      this.db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
+    `;
+      if (this.acceptedHeadConfig) {
+        const existingObjects = new Set(this.db.prepare(
+          "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+        ).all().map((row) => row.object_name));
+        const requiredObjects = [...schemaSql.matchAll(/CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)/gi)]
+          .map((match) => match[1].toLowerCase() + ':' + match[2]);
+        if (requiredObjects.some((objectName) => !existingObjects.has(objectName))) {
+          throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
+        }
+        const local = this.db.prepare(
+          'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+        ).get();
+        if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1) {
+          throw new Error('PROVIDER_ACCEPTED_HEAD_NOT_ENROLLED');
+        }
+        const stateColumnsBefore = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
+        if (!stateColumnsBefore.some((column) => column.name === 'failure_code')) {
+          throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
+        }
+      }
+      this.db.exec(schemaSql);
+      if (!this.acceptedHeadConfig) {
+        this.db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
+      }
       const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
-      if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+      if (!stateColumns.some((column) => column.name === 'failure_code')) {
+        if (this.acceptedHeadConfig) throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
+        this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+      }
+      if (this.acceptedHeadConfig) {
+        let status = getAcceptedHeadStatusSync({
+          port: this.acceptedHeadConfig.port,
+          token: this.acceptedHeadConfig.token,
+        });
+        const local = this.db.prepare(
+          'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
+        ).get();
+        const pending = status.operations.provider;
+        if (pending) {
+          const localMatchesPending = local
+            && local.head === pending.head
+            && local.last_operation_id === pending.operation_id
+            && local.last_operation_digest === pending.operation_digest
+            && local.enrolled === 1;
+          if (!localMatchesPending) throw new Error('PROVIDER_ACCEPTED_HEAD_RECOVERY_REQUIRED');
+          finalizeAcceptedHeadSync({
+            domain: 'provider',
+            operationId: pending.operation_id,
+            operationDigest: pending.operation_digest,
+            token: this.acceptedHeadConfig.token,
+            port: this.acceptedHeadConfig.port,
+          });
+          status = getAcceptedHeadStatusSync({
+            port: this.acceptedHeadConfig.port,
+            token: this.acceptedHeadConfig.token,
+          });
+        }
+        if (status.pending.core || status.pending.provider
+          || status.heads.provider !== local.head || !status.enrolled.provider) {
+          throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
+        }
+      }
     } catch (error) {
       startupError = error;
     } finally {
@@ -235,6 +305,8 @@ export class SQLiteMemoryProvider {
     return this.#withCoordinatorLock(() => {
       this.db.exec('BEGIN IMMEDIATE');
       this.transactionDepth += 1;
+      const beforeSchemaDigest = this.acceptedHeadConfig ? databaseSchemaDigest(this.db) : null;
+      let acceptedHeadSession = this.acceptedHeadConfig ? this.db.createSession() : null;
       const changesBefore = this.db.prepare('SELECT total_changes() AS count').get().count;
       try {
         const result = work();
@@ -245,12 +317,22 @@ export class SQLiteMemoryProvider {
           if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1) {
             throw new Error('PROVIDER_ACCEPTED_HEAD_NOT_ENROLLED');
           }
-          const heads = getAcceptedHeadsSync({ port: this.acceptedHeadConfig.port });
+          const heads = getAcceptedHeadsSync({
+            port: this.acceptedHeadConfig.port,
+            token: this.acceptedHeadConfig.token,
+          });
           if (heads.provider !== local.head) throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
-          const operationId = randomUUID();
-          const operationDigest = createHash('sha256')
-            .update(JSON.stringify({ domain: 'provider', operation_id: operationId, expected_head: local.head }))
-            .digest('hex');
+          const changeset = acceptedHeadSession.changeset();
+          acceptedHeadSession.close();
+          acceptedHeadSession = null;
+          const operationDigest = hashRequest({
+            domain: 'provider',
+            expected_head: local.head,
+            before_schema_digest: beforeSchemaDigest,
+            after_schema_digest: databaseSchemaDigest(this.db),
+            changeset_digest: createHash('sha256').update(changeset).digest('hex'),
+          });
+          const operationId = 'provider-' + operationDigest;
           const advanced = advanceAcceptedHeadSync({
             domain: 'provider',
             operationId,
@@ -286,6 +368,7 @@ export class SQLiteMemoryProvider {
         try { this.db.exec('ROLLBACK'); } catch {}
         throw error;
       } finally {
+        try { acceptedHeadSession?.close(); } catch {}
         this.transactionDepth -= 1;
       }
     });
