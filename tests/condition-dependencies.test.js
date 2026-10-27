@@ -298,3 +298,27 @@ test('mechanic action condition preflight rejects contradictory trusted absence 
     (error) => error.code === 'CONTRADICTORY_KNOWN_ABSENCE',
   );
 });
+
+test('dependency collection rejects accessor-backed rules and sparse rule arrays', () => {
+  let getterCalls = 0;
+  const accessorRule = { path: 'flag', value: true };
+  Object.defineProperty(accessorRule, 'op', {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return 'eq';
+    },
+  });
+  assert.throws(
+    () => collectConditionDependencies(accessorRule),
+    (error) => error.code === 'INVALID_RULE',
+  );
+
+  const sparseRules = [];
+  sparseRules.length = 1;
+  assert.throws(
+    () => collectConditionDependencies({ op: 'all', rules: sparseRules }),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  assert.equal(getterCalls, 0);
+});
