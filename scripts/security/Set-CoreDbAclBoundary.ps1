@@ -18,8 +18,8 @@ function Get-ServiceIdentity {
         Select-Object -First 1
     if (-not $service) { throw "Required Windows service not found: $Name" }
     $account = [string]$service.StartName
-    if ($account.StartsWith('.\\', [System.StringComparison]::Ordinal)) {
-        $account = "$env:COMPUTERNAME\\$($account.Substring(2))"
+    if ($account.StartsWith('.\', [System.StringComparison]::Ordinal)) {
+        $account = "$env:COMPUTERNAME\$($account.Substring(2))"
     }
     try {
         $sid = (New-Object System.Security.Principal.NTAccount($account)).Translate(
