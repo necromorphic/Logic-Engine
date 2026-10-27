@@ -166,7 +166,7 @@ function translateOne(effect, index, jsonBudget) {
   }
 
   for (const key of ['source_refs', 'caused_by']) {
-    if (effect[key] !== undefined) stringList(effect[key], label + '.' + key);
+    if (Object.hasOwn(effect, key)) stringList(effect[key], label + '.' + key);
     if (effect[key]?.length) {
       fail('TRANSLATION_REQUIRES_PROVENANCE_MAPPING', 'Non-empty ' + key + ' requires an approved event-level provenance mapping.', { effect_id: effect.effect_id, field: key });
     }
