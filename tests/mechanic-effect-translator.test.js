@@ -434,3 +434,26 @@ test('effect translation rejects symbol and non-enumerable object properties', (
     );
   }
 });
+
+test('nested JSON rejects prototype-pollution keys and symbol-bearing arrays', () => {
+  const unsafe = {};
+  Object.defineProperty(unsafe, '__proto__', {
+    value: { polluted: true },
+    enumerable: true,
+    configurable: true,
+  });
+  const symbolArray = [1];
+  symbolArray[Symbol('hidden')] = true;
+
+  for (const value of [unsafe, symbolArray]) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({
+        kind: 'assert_fact',
+        target_ref: 'fact.example',
+        payload: { predicate: 'p', value },
+      })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+  assert.equal(Object.prototype.polluted, undefined);
+});
