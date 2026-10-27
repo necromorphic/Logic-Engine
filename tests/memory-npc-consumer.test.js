@@ -92,7 +92,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   });
   t.after(() => store.close());
   return {
-    store, engine, bindings, consumer, provider, scope, snapshot,
+    store, engine, bindings, consumer, provider, scope, snapshot, sourceVersion,
     setCandidates(next) { candidateList = next; },
     getLastCandidateAuthorization() { return lastCandidateAuthorization; },
     revokeContent() { contentVisible = false; },
@@ -107,7 +107,7 @@ const request = () => ({
 });
 
 test('joins trusted Memory record authorization, Core authorized source read, and NPC admission without exposing provider content', async (t) => {
-  const { consumer, engine, store, getLastCandidateAuthorization } = setup(t);
+  const { consumer, engine, store, getLastCandidateAuthorization, sourceVersion } = setup(t);
   const before = {
     revision: engine.getState('memory-npc-world').world_revision,
     sequence: store.currentCommitSequence('memory-npc-world'),
@@ -427,7 +427,7 @@ test('actor binding is checked before query authorization even for complete-empt
 });
 
 test('duplicate Memory identity/version cannot be rebound to a different canonical source', async (t) => {
-  const { consumer, setCandidates, candidate } = setup(t);
+  const { consumer, setCandidates, candidate, sourceVersion } = setup(t);
   setCandidates([
     candidate(),
     candidate({ source: { kind: 'canonical_entity', entity_id: 'source-b', source_version: sourceVersion } }),
