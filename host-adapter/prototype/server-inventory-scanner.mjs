@@ -23,6 +23,7 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
 
   const artifacts = [];
   const observedFiles = [];
+  const observedDirectories = [];
   const errors = [];
   const domains = new Set();
   const rootPaths = [];
@@ -66,6 +67,7 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
         errors.push('Directory enumeration failed: ' + root.domain);
         return;
       }
+      observedDirectories.push({ directory, domain: root.domain, stat: beforeDirectory });
       entries.sort((a, b) => a.name.localeCompare(b.name, 'en'));
       for (const entry of entries) {
         const absolutePath = path.join(directory, entry.name);
@@ -133,6 +135,17 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
       }
     };
     await walk(root.path);
+  }
+
+  for (const observed of observedDirectories) {
+    try {
+      const current = await fs.lstat(observed.directory);
+      if (current.isSymbolicLink() || !current.isDirectory() || !sameStat(observed.stat, current)) {
+        errors.push('Directory changed after scan: ' + observed.domain);
+      }
+    } catch {
+      errors.push('Directory unavailable after scan: ' + observed.domain);
+    }
   }
 
   for (const observed of observedFiles) {
