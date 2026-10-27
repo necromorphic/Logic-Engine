@@ -193,7 +193,7 @@ export class SQLiteMemoryProvider {
       if (!authorityStateColumns.some((column) => column.name === 'bootstrap_head')) {
         this.db.exec('ALTER TABLE provider_authority_state ADD COLUMN bootstrap_head INTEGER');
       }
-            const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
+      const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
       if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
       if (this.acceptedHead) this.#initializeAcceptedHead();
     } catch (error) {
@@ -262,8 +262,8 @@ export class SQLiteMemoryProvider {
         'memory_raw_captures','memory_raw_active_versions','memory_raw_derived_copies','provider_authority_operations',
       ].some((table) => Number(this.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n) > 0);
       if (existing || status.pending.provider) throw new Error('MEMORY_ACCEPTED_HEAD_BOOTSTRAP_REQUIRED');
-      this.db.prepare("INSERT INTO provider_authority_state(singleton,accepted_head,status) VALUES(1,?,'ready')")
-        .run(status.heads.provider);
+      this.db.prepare("INSERT INTO provider_authority_state(singleton,accepted_head,bootstrap_head,status) VALUES(1,?,?,'ready')")
+        .run(status.heads.provider, status.heads.provider);
       return;
     }
     if (local.bootstrap_head === null || local.bootstrap_head === undefined) {
