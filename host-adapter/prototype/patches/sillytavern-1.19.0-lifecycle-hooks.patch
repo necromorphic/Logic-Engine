@@ -486,7 +486,7 @@ diff --git a/src/endpoints/logic-engine-lifecycle.js b/src/endpoints/logic-engin
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-lifecycle.js
-@@ -0,0 +1,40 @@
+@@ -0,0 +1,41 @@
 +import express from 'express';
 +import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
 +import { scanHostArtifactRoots } from './logic-engine-host-inventory.mjs';
