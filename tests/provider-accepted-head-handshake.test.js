@@ -13,6 +13,7 @@ import {
   enrollAcceptedHeadSync,
   finalizeAcceptedHeadSync,
   getAcceptedHeadsSync,
+  getAcceptedHeadStatusSync,
 } from '../src/security/accepted-head-client-sync.js';
 
 const coreToken = 'core-token-for-provider-handshake-tests-00000000000000000000000000000001';
@@ -203,6 +204,76 @@ test('Provider mutations advance accepted head before commit and fail closed whe
 
     assert.throws(() => provider.grantQuery(scope, false), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
     assert.equal(provider.authorizeQuery(scope), true);
+  } finally {
+    try { provider?.close(); } catch {}
+    if (child) {
+      child.stdin.end('stop');
+      await once(child, 'exit');
+    }
+    for (const [name, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('Provider fails closed when authority advances but the local checkpoint transaction rolls back', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-provider-accepted-head-orphaned-pending-'));
+  const providerPath = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const authorityPath = join(directory, 'authority.sqlite');
+  const previousEnv = {};
+  let child;
+  let provider;
+  try {
+    setEnv('LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', undefined, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', undefined, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', undefined, previousEnv);
+    const bootstrap = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
+    bootstrap.close();
+
+    const service = await startAuthorityProcess(authorityPath);
+    child = service.child;
+    const port = service.port;
+    const coreEnrollment = enrollAcceptedHeadSync({
+      domain: 'core', operationId: 'core-orphaned-pending-baseline',
+      operationDigest: digestA, token: coreToken, port,
+    });
+    finalizeAcceptedHeadSync({
+      domain: 'core', operationId: coreEnrollment.operation_id,
+      operationDigest: digestA, token: coreToken, port,
+    });
+    enrollAcceptedHeadDomain({
+      domain: 'provider', databasePath: providerPath, coordinatorPath, port,
+      token: providerToken, approvalId: 'approval-orphaned-pending-test', baselineDigest: digestB,
+    });
+
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', String(port), previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', providerToken, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', '1', previousEnv);
+    provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
+    provider.db.exec(`CREATE TRIGGER fail_accepted_head_checkpoint
+      BEFORE UPDATE ON accepted_head_state
+      BEGIN SELECT RAISE(ABORT, 'injected checkpoint failure'); END;`);
+
+    assert.throws(() => provider.grantQuery({
+      world_id: 'world-orphaned', subject_id: 'npc-orphaned', purpose: 'recall',
+    }, true), /injected checkpoint failure/);
+    assert.equal(provider.authorizeQuery({
+      world_id: 'world-orphaned', subject_id: 'npc-orphaned', purpose: 'recall',
+    }), false);
+    const status = getAcceptedHeadStatusSync({ port, token: readToken });
+    assert.equal(status.pending.provider, true);
+    assert.equal(status.heads.provider, 2);
+
+    provider.close();
+    provider = null;
+    assert.throws(
+      () => new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath)),
+      /PROVIDER_ACCEPTED_HEAD_RECOVERY_REQUIRED/,
+    );
   } finally {
     try { provider?.close(); } catch {}
     if (child) {
