@@ -104,7 +104,7 @@ The current Provider `validateInventory(worldId, records)` callback receives the
 - A comparison/reconciliation rule that invalidates Provider records whose sources are absent, inactive, revoked, or version-mismatched, and that does not publish `current` until enumeration and Provider state are rechecked.
 - Tests for more than 200 entities, multi-page consistency, empty versus unavailable inventory, concurrent mutation/rollback, deleted source with an existing Provider record, missing Provider records, interrupted restart/reconciliation, and idempotent retry.
 
-This is a contract gap, not permission to add a public API, cursor table, outbox, or new schema in PR #521. Until the interface is separately reviewed and implemented with tests, full authoritative reconciliation is **not implementable through the current snapshot API**, and Memory→NPC stays **NON_READY / FAIL-CLOSED**.
+This is a contract gap, not permission to add a public API, cursor table, outbox, or new schema in PR #521. The former inventory gap is closed at the Core entity-inventory API level in this draft branch, with pagination and validator tests. Full reconciliation is still **not production-ready** until the actual reconciliation lifecycle (including Provider-record invalidation, interruption/restart, idempotent retry, and publication gating) is implemented and tested. Memory→NPC stays **NON_READY / FAIL-CLOSED**.
 
 ## 6. Acceptance gate
 
@@ -116,8 +116,8 @@ This is a contract gap, not permission to add a public API, cursor table, outbox
 | Non-disclosing denial | **PARTIAL** | Real route/service tests for protected content, snippets, counts, target-existence probing, and diagnostic leakage |
 | Restart | **TESTED for ordinary process restart in draft candidate** | Keep restart test on exact combined head |
 | Full-database restore / authority rollback | **BLOCKED** | Approved restore/accepted-head protocol, separate authority evidence, and restore-from-old-backup tests |
-| Provider notification/reconciliation strategy | **CORE DECISION: HYBRID; IMPLEMENTATION BLOCKED** | Prove existing journal contract or review a Core-owned change-feed contract; agree consumer freshness bound and pass interruption/recovery/idempotency tests with Memory/NPC owners |
-| Host final serialized-body and send-time enforcement | **BLOCKED / NOT PROVEN** | Stable trusted Host identity, complete source inventory, actual serializer/transport test, and revocation race test |
+| Provider notification/reconciliation strategy | **CORE DECISION: HYBRID; PARTIAL IMPLEMENTATION** | Prove existing journal contract or review a Core-owned change-feed contract; implement and test reconciliation lifecycle, agree consumer freshness bound, and pass interruption/recovery/idempotency tests with Memory/NPC owners |
+| Host final serialized-body and send-time enforcement | **BLOCKED / NOT PROVEN** | Stable trusted Host identity, actual serializer/transport test, and revocation race test |
 | Production Memory→NPC | **DISABLED / FAIL-CLOSED** | All required gates approved and passing against the actual end-to-end path |
 
 ## 7. Non-goals and safety boundary
