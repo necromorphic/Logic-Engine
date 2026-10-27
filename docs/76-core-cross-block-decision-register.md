@@ -49,3 +49,10 @@ Issue #140 remains open until each required boundary is either tied to an existi
 The current snapshot API cannot serve as the full-reconciliation inventory: `getSnapshot(worldId)` returns the world marker with an empty `entities` array when `entityIds` is omitted, because `readSnapshot` queries entity rows only for explicitly supplied IDs. Explicit reads are limited to 200 IDs. Provider's `validateInventory(worldId, records)` callback receives Provider-owned records, not an authoritative enumeration from Core; a successful fixture callback is not evidence of completeness.
 
 **Disposition:** full authoritative reconciliation cannot yet be implemented safely using the existing interface. Before implementation, Core/Memory/Host must review a trusted, complete, snapshot-consistent inventory contract, including pagination/cursor integrity (if required), empty-versus-unavailable distinction, deleted/revoked sources, and mutation/restart tests. No new API/schema/outbox is authorized by this audit. Until then, the selected hybrid remains an architecture decision only, and Memory→NPC stays **NON_READY / FAIL-CLOSED**. See [TЗ-3 source authority and rollback contract](77-core-source-authority-rollback-contract.md).
+
+
+## 2026-10-28 implementation update — complete Core inventory candidate
+
+The missing inventory contract has now been implemented as a candidate on the TЗ-3 branch: `getCanonicalEntityInventory` provides bounded pages pinned to `world_revision + commit_sequence`, includes active and destroyed entities, and fails closed on stale continuation cursors. `createCanonicalEntityInventoryValidator` traverses the full inventory and validates every Provider record against the exact active Core source token. Integration tests now use this real validator instead of a permissive fixture.
+
+**Disposition:** code-level blocker addressed in the draft branch, pending exact-head CI and independent review. The incremental journal proof gate, full-database restore anti-rollback, and Host send-time enforcement remain blocked/unproven. Memory→NPC remains **NON_READY / FAIL-CLOSED**. No new database schema or outbox was introduced.
