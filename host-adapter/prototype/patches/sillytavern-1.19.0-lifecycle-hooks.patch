@@ -24,7 +24,7 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,146 @@
+@@ -1583,23 +1593,150 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -115,6 +115,9 @@ diff --git a/public/script.js b/public/script.js
 +            const sourceLocator = getCurrentChatId();
 +            const conversationId = await getLogicEngineConversationId();
 +            if (!conversationId || !sourceLocator) throw Error('NON_READY: no active Host conversation');
++            const sourcePath = selected_group
++                ? sourceLocator + '.jsonl'
++                : String(characters[this_chid]?.avatar ?? '').replace(/\.png$/i, '') + '/' + sourceLocator + '.jsonl';
 +            localStorage.setItem('logic-engine-host-lifecycle-locator:' + sourceLocator, conversationId);
 +            const marker = 'logic-engine-host-lifecycle:' + conversationId;
 +            localStorage.setItem(marker, 'enrolling:' + sourceLocator);
@@ -125,6 +128,7 @@ diff --git a/public/script.js b/public/script.js
 +                    body: JSON.stringify({
 +                        conversationId,
 +                        sourceLocator,
++                        sourcePath,
 +                        domain: selected_group ? 'group_chats' : 'chats',
 +                    }),
 +                });
@@ -498,7 +502,7 @@ diff --git a/src/endpoints/logic-engine-lifecycle.js b/src/endpoints/logic-engin
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-lifecycle.js
-@@ -0,0 +1,94 @@
+@@ -0,0 +1,97 @@
 +import express from 'express';
 +import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
 +import { scanHostArtifactRoots } from './logic-engine-host-inventory.mjs';
@@ -510,6 +514,9 @@ new file mode 100644
 +// Explicit server-side enrollment; browser-local markers are not server authority.
 +router.post('/host-lifecycle/enroll', async (request, response) => {
 +    try {
++        if (typeof request.body?.sourcePath !== 'string') {
++            return response.status(400).json({ error: { code: 'HOST_ENROLLMENT_SOURCE_PATH_REQUIRED' } });
++        }
 +        const result = await registerHostConversation(request, request.body ?? {});
 +        return response.status(200).json(result);
 +    } catch (error) {
@@ -541,7 +548,7 @@ new file mode 100644
 +    }
 +});
 +
-+// Authenticated current snapshot of the persisted identities/swipes for enrolled chats.
++// Authenticated current snapshot of persisted identities/swipes for enrolled chats.
 +// This reports current state only; it is not an all-time history or authorization proof.
 +router.post('/host-conversation-inventory/scan', async (request, response) => {
 +    try {
@@ -613,7 +620,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,524 @@
+@@ -0,0 +1,574 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -1063,11 +1070,59 @@ new file mode 100644
 +    };
 +}
 +
++
++async function validateEnrolledSourcePath(paths, { conversationId, sourceLocator, domain, sourcePath }) {
++    if (typeof sourcePath !== 'string' || !sourcePath || sourcePath.length > 512
++        || path.isAbsolute(sourcePath) || sourcePath.includes(String.fromCharCode(92))
++        || sourcePath.split('/').some(part => !part || part === '.' || part === '..')
++        || path.parse(sourcePath).name !== sourceLocator || path.extname(sourcePath) !== '.jsonl') {
++        throw new Error('HOST_ENROLLMENT_SOURCE_PATH_INVALID');
++    }
++    const identityParts = conversationId.split(':');
++    if (identityParts.length !== 2
++        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identityParts[0])
++        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(identityParts[1])) {
++        throw new Error('HOST_ENROLLMENT_IDENTITY_INVALID');
++    }
++    const root = paths.roots.find(item => item.domain === domain);
++    if (!root) throw new Error('HOST_ENROLLMENT_SOURCE_PATH_INVALID');
++    const canonicalRoot = await realpath(root.path);
++    let cursor = canonicalRoot;
++    const segments = sourcePath.split('/');
++    for (let index = 0; index < segments.length; index++) {
++        cursor = path.join(cursor, segments[index]);
++        const stat = await lstat(cursor);
++        if (stat.isSymbolicLink() || (index < segments.length - 1 ? !stat.isDirectory() : !stat.isFile())) {
++            throw new Error('HOST_ENROLLMENT_SOURCE_PATH_UNSAFE');
++        }
++    }
++    const handle = await open(cursor, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
++    try {
++        const before = await handle.stat();
++        const bytes = await handle.readFile();
++        const after = await handle.stat();
++        const pathAfter = await lstat(cursor);
++        if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino
++            || before.size !== after.size || before.mtimeMs !== after.mtimeMs
++            || before.ctimeMs !== after.ctimeMs || before.dev !== pathAfter.dev
++            || before.ino !== pathAfter.ino || bytes.length !== after.size) {
++            throw new Error('HOST_ENROLLMENT_SOURCE_CHANGED');
++        }
++        const firstLine = bytes.toString('utf8').split(/\\r?\\n/).find(line => line.trim().length > 0);
++        const header = firstLine ? JSON.parse(firstLine) : null;
++        if (header?.chat_metadata?.logic_engine_conversation_id !== identityParts[1]) {
++            throw new Error('HOST_ENROLLMENT_SOURCE_IDENTITY_MISMATCH');
++        }
++    } finally {
++        await handle.close().catch(() => {});
++    }
++}
++
 +/**
 + * Explicit Host enrollment registration. The registry is local Host state, not
 + * an external anti-rollback authority and not a Core authorization contract.
 + */
-+export async function registerHostConversation(request, { conversationId, sourceLocator, domain }) {
++export async function registerHostConversation(request, { conversationId, sourceLocator, sourcePath, domain }) {
 +    if (typeof conversationId !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(conversationId)) {
 +        throw new Error('HOST_ENROLLMENT_INVALID');
 +    }
@@ -1077,6 +1132,7 @@ new file mode 100644
 +    }
 +    if (!['chats', 'group_chats'].includes(domain)) throw new Error('HOST_ENROLLMENT_INVALID');
 +    const paths = await statePaths(request);
++    if (sourcePath !== undefined) await validateEnrolledSourcePath(paths, { conversationId, sourceLocator, domain, sourcePath });
 +    let registryExists = true;
 +    try {
 +        const stat = await lstat(paths.registryPath);
@@ -1095,9 +1151,10 @@ new file mode 100644
 +        }
 +    }
 +    const existing = registry.conversations.find(item => item.conversationId === conversationId);
-+    const candidate = { conversationId, sourceLocator, domain, enrolledAt: new Date().toISOString() };
++    const candidate = { conversationId, sourceLocator, ...(sourcePath === undefined ? {} : { sourcePath }), domain, enrolledAt: new Date().toISOString() };
 +    if (existing) {
-+        if (existing.sourceLocator !== sourceLocator || existing.domain !== domain) throw new Error('HOST_ENROLLMENT_IDENTITY_CONFLICT');
++        if (existing.sourceLocator !== sourceLocator || existing.domain !== domain
++            || (sourcePath !== undefined && existing.sourcePath !== sourcePath)) throw new Error('HOST_ENROLLMENT_IDENTITY_CONFLICT');
 +        return { status: 'ALREADY_ENROLLED' };
 +    }
 +    if (!registryExists) {
@@ -1282,7 +1339,7 @@ diff --git a/src/endpoints/logic-engine-persisted-conversation-inventory.mjs b/s
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-persisted-conversation-inventory.mjs
-@@ -0,0 +1,194 @@
+@@ -0,0 +1,197 @@
 +import { createHash } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { lstat, open, readdir, realpath } from 'node:fs/promises';
@@ -1339,6 +1396,8 @@ new file mode 100644
 +  const enrollmentByUuid = new Map();
 +  for (const enrollment of enrollments) {
 +    if (!enrollment || !validId(enrollment.conversationId) || !validId(enrollment.sourceLocator)
++      || !validId(enrollment.sourcePath) || path.isAbsolute(enrollment.sourcePath)
++      || enrollment.sourcePath.includes(String.fromCharCode(92)) || enrollment.sourcePath.split('/').some(part => !part || part === '.' || part === '..')
 +      || !['chats', 'group_chats'].includes(enrollment.domain)) return fail('ENROLLMENT_INVALID');
 +    const identityParts = enrollment.conversationId.split(':');
 +    if (identityParts.length !== 2 || !validUuid(identityParts[0]) || !validUuid(identityParts[1])) return fail('ENROLLMENT_IDENTITY_INVALID');
@@ -1401,7 +1460,8 @@ new file mode 100644
 +        if (typeof headerId !== 'string') continue;
 +        const enrollment = enrollmentByUuid.get(headerId);
 +        if (!enrollment) continue;
-+        if (enrollment.domain !== domain || path.parse(relativePath).name !== enrollment.sourceLocator) {
++        if (enrollment.domain !== domain || path.parse(relativePath).name !== enrollment.sourceLocator
++          || relativePath !== enrollment.sourcePath) {
 +          parseErrors.push('ENROLLED_CONVERSATION_LOCATOR_OR_DOMAIN_MISMATCH');
 +          continue;
 +        }
