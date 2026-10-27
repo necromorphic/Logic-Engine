@@ -1,4 +1,5 @@
 import { EngineError, assert } from '../core/errors.js';
+import { canonicalEntitySourceVersion } from './canonical-entity-source-version.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = (value) => typeof value === 'string' && value === value.trim() && value.length > 0 && value.length <= 200;
@@ -10,14 +11,6 @@ const unavailable = () => new EngineError(
   'The requested read is not available.',
   404,
 );
-
-/** Stable version token for one canonical entity revision. This is provenance metadata, not disclosed content. */
-export function canonicalEntitySourceVersion(entity) {
-  if (!object(entity) || !Number.isSafeInteger(entity.updated_revision) || entity.updated_revision < 0) {
-    throw unavailable();
-  }
-  return 'entity-revision-' + entity.updated_revision;
-}
 
 /**
  * Internal, fail-closed read boundary.
@@ -213,7 +206,9 @@ export class AuthorizedReadService {
         // The source version is provenance metadata used to reject stale Memory
         // candidates; it is not a content field and does not grant field access.
         if (field === 'source_version') {
-          disclosed.source_version = canonicalEntitySourceVersion(entity);
+          const sourceVersion = canonicalEntitySourceVersion(entity);
+          if (sourceVersion === null) throw unavailable();
+          disclosed.source_version = sourceVersion;
           continue;
         }
         let allowed = false;
