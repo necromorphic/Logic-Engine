@@ -56,7 +56,7 @@ test('scanner rejects an artifact modified after its individual read', async () 
     const first = path.join(root, 'a.jsonl');
     const nested = path.join(root, 'z');
     await mkdir(nested);
-    await writeFile(first, '{"mes":"original"}\\n');
+    await writeFile(first, '{"mes":"original"}\n');
     let changed = false;
     const fs = {
       lstat, open, realpath,
@@ -64,7 +64,7 @@ test('scanner rejects an artifact modified after its individual read', async () 
         const entries = await readdir(directory, options);
         if (directory === nested && !changed) {
           changed = true;
-          await writeFile(first, '{"mes":"modified later"}\\n');
+          await writeFile(first, '{"mes":"modified later"}\n');
         }
         return entries;
       },
