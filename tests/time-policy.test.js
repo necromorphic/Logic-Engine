@@ -299,3 +299,12 @@ test('inherited author approval cannot resolve an author-required duration', () 
     else delete Object.prototype.authorApproved;
   }
 });
+
+
+test('TimePolicy enforces the seven-day action ceiling but permits longer skip ceilings', () => {
+  assert.throws(
+    () => createTimePolicy(policy({ max_action_duration_ms: 900000000 })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+  assert.equal(createTimePolicy(policy({ max_skip_duration_ms: 900000000 })).max_skip_duration_ms, 900000000);
+});
