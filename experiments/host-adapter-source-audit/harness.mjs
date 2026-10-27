@@ -98,6 +98,11 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.ok(serverMain.indexOf('app.use(setUserDataMiddleware);') >= 0 && serverMain.indexOf('app.use(setUserDataMiddleware);') < serverMain.indexOf('setupPrivateEndpoints(app);'), 'global user binding must precede private endpoint registration');
   assert.ok(serverMain.indexOf('app.use(requireLoginMiddleware);') >= 0 && serverMain.indexOf('app.use(requireLoginMiddleware);') < serverMain.indexOf('setupPrivateEndpoints(app);'), 'global login guard must precede private endpoint registration');
   assert.match(startup, /createHostLifecycleMutationMiddleware/);
+  assert.match(
+    startup,
+    /createHostLifecycleMutationMiddleware\\(\\{\\s*requirePersistedInventory:\\s*true,\\s*requireCoreInventory:\\s*true\\s*\\}\\)/,
+    'the pinned Host startup must require both persisted-save receipts and independent Core inventory',
+  );
   for (const route of [
     "'POST /api/chats/save'", "'POST /api/chats/rename'", "'POST /api/chats/delete'",
     "'POST /api/chats/group/import'", "'POST /api/chats/import'",
