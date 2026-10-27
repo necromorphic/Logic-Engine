@@ -83,9 +83,10 @@ export function selectNpcIntention(input) {
 
     seenActionIds.add(action.id);
     const goal = goalById.get(action.goal_id);
+    // A dangling goal reference is malformed input, not a valid reason to idle.
+    if (!goal) return invalidDecision();
     if (
-      !goal
-      || goal.status !== "active"
+      goal.status !== "active"
       || action.allowed !== true
       || action.preconditions_met !== true
     ) continue;
