@@ -121,6 +121,7 @@ test('persists raw record identity/version and rebuilds its derived index after 
   assert.equal(result.candidates[0].record.ref, 'memory:record-a');
   assert.equal(result.candidates[0].record.version, 'record-v1');
   assert.equal(result.candidates[0].source.entity_id, 'entity-source-a');
+  assert.equal(result.candidates[0].source.version, 'source-v1');
 });
 
 test('durable record survives ingest index-write failure and recovers after restart/rebuild', async (t) => {
@@ -224,6 +225,28 @@ test('does not turn duplicate ingest into a second record or permit identity reb
   assert.throws(() => s.provider.putRecord({ ...s.record, source_version: 'source-v2',
     lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-source-a', source_version: 'source-v2' }] }),
   /MEMORY_IDENTITY_CONFLICT/);
+});
+
+test('candidate authorization rejects a changed or prefix-stripped source token', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  assert.equal(s.provider.putRecord(s.record).status, 'stored');
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  const base = {
+    ...s.scope,
+    record_ref: s.record.record_ref,
+    record_version: s.record.record_version,
+    source_kind: s.record.source_kind,
+    source_entity_id: s.record.source_entity_id,
+  };
+  assert.equal(await s.provider.authorizeCandidate({ ...base, source_version: 'source-v1' }), true);
+  await assert.rejects(
+    () => s.provider.authorizeCandidate({ ...base, source_version: 'source-v2' }),
+    /MEMORY_SOURCE_VERSION_UNVERIFIABLE/,
+  );
 });
 
 test('rechecks provider grants after asynchronous source validation', async (t) => {
