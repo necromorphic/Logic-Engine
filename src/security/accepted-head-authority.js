@@ -115,8 +115,27 @@ export class AcceptedHeadAuthority {
         const inconsistent = this.#db.prepare(`
           SELECT h.domain FROM authority_domain_heads h
           WHERE h.head <> COALESCE((SELECT MAX(o.resulting_head) FROM authority_operations o WHERE o.domain=h.domain), 0)
-             OR (h.enrolled=0 AND h.head<>0)
+             OR (h.enrolled=0 AND NOT (
+               (h.head=0 AND NOT EXISTS (
+                 SELECT 1 FROM authority_operations o WHERE o.domain=h.domain
+               ))
+               OR (h.head=1
+                 AND (SELECT COUNT(*) FROM authority_operations o WHERE o.domain=h.domain)=1
+                 AND (SELECT COUNT(*) FROM authority_operations o WHERE o.domain=h.domain AND o.status='pending')=1
+                 AND EXISTS (
+                   SELECT 1 FROM authority_operations o
+                   WHERE o.domain=h.domain AND o.resulting_head=1
+                     AND o.operation_kind='enroll' AND o.status='pending'
+                 ))
+             ))
              OR (h.enrolled=1 AND h.head=0)
+             OR (SELECT COUNT(*) FROM authority_operations o WHERE o.domain=h.domain AND o.status='pending') > 1
+             OR (EXISTS (
+               SELECT 1 FROM authority_operations o WHERE o.domain=h.domain AND o.status='pending'
+             ) AND NOT EXISTS (
+               SELECT 1 FROM authority_operations o
+               WHERE o.domain=h.domain AND o.status='pending' AND o.resulting_head=h.head
+             ))
           LIMIT 1
         `).get();
         if (inconsistent) throw new Error('ACCEPTED_HEAD_STATE_INVALID');
