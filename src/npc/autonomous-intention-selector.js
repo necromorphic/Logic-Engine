@@ -29,6 +29,10 @@ function validBoundedNumber(value, max) {
   return Number.isFinite(value) && value >= 0 && value <= max;
 }
 
+function compareLexically(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
 function isDenseArray(value) {
   if (!Array.isArray(value)) return false;
   for (let i = 0; i < value.length; i += 1) {
@@ -69,7 +73,7 @@ export function selectNpcIntention(input) {
     if (
       !isPlainDataObject(goal)
       || !nonEmptyString(goal.id)
-      || !["active", "blocked", "completed"].includes(goal.status)
+      || !["active", "blocked", "completed", "abandoned"].includes(goal.status)
       || !validBoundedNumber(goal.priority, MAX_PRIORITY)
       || goalById.has(goal.id)
     ) return invalidDecision();
@@ -114,8 +118,8 @@ export function selectNpcIntention(input) {
   eligible.sort((a, b) =>
     b.goal_priority - a.goal_priority
     || a.action_cost - b.action_cost
-    || a.goal_id.localeCompare(b.goal_id)
-    || a.action_id.localeCompare(b.action_id));
+    || compareLexically(a.goal_id, b.goal_id)
+    || compareLexically(a.action_id, b.action_id));
 
   const highestPriority = eligible[0].goal_priority;
   const retained = current == null ? undefined : eligible.find((candidate) =>
