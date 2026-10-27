@@ -110,7 +110,7 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 +                let chatData;
 +                try {
 +                    const raw = await fsPromises.readFile(chatFilePath, 'utf8');
-+                    chatData = raw.split('\\n').filter(line => line.trim()).map(line => tryParse(line)).filter(Boolean);
++                    chatData = raw.split('\n').filter(line => line.trim()).map(line => tryParse(line)).filter(Boolean);
 +                } catch {
 +                    // The legacy migration skips a chat it cannot read.
 +                    continue;
