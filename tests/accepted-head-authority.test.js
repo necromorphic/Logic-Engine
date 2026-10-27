@@ -150,6 +150,8 @@ test('authority IPC requires explicit enrollment, enforces domain tokens, and fa
   const path = join(dir, 'authority.sqlite');
   const { child, port } = await startAuthorityProcess(path);
   try {
+    const anonymousRead = await fetch('http://127.0.0.1:' + port + '/v1/heads');
+    assert.equal(anonymousRead.status, 403);
     assert.deepEqual(getAcceptedHeadStatusSync({ port, token: coreToken }), {
       heads: { core: 0, provider: 0 },
       pending: { core: false, provider: false },
