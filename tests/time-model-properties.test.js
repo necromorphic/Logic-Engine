@@ -58,12 +58,28 @@ function deterministicCoordinates() {
     coordinates.add((state - 0x80000000) * 1_000);
   }
 
-  // Cover each day boundary around many repeated year-cycle boundaries.
-  const yearCycleDays = 31 + 28 + 31 + 31 + 29 + 31 + 30 + 27 + 30;
-  const cycleMs = yearCycleDays * calendar.day_length_ms;
-  for (let cycle = -12; cycle <= 12; cycle += 1) {
-    const boundary = calendar.epoch.coordinate + cycle * cycleMs;
-    for (const offset of [-1, 0, 1]) coordinates.add(boundary + offset);
+  // Locate the start of the epoch year, then visit actual year boundaries
+  // in both directions through the unequal-length repeating year cycle.
+  const epochYear = calendar.year_cycle[calendar.epoch.year_cycle_index];
+  const epochMonthOffset = epochYear.months
+    .slice(0, epochYear.months.findIndex((month) => month.id === calendar.epoch.month_id))
+    .reduce((sum, month) => sum + month.days, 0);
+  const epochDayOffset = epochMonthOffset + calendar.epoch.day_of_month - 1;
+  const epochYearStart = calendar.epoch.coordinate
+    - epochDayOffset * calendar.day_length_ms
+    - calendar.epoch.time_of_day_ms;
+  const yearLengthDays = calendar.year_cycle.map((year) =>
+    year.months.reduce((sum, month) => sum + month.days, 0));
+  let forwardBoundary = epochYearStart;
+  let backwardBoundary = epochYearStart;
+  for (let offset = 0; offset <= 12; offset += 1) {
+    for (const edge of [forwardBoundary, backwardBoundary]) {
+      for (const delta of [-1, 0, 1]) coordinates.add(edge + delta);
+    }
+    const forwardYearIndex = (calendar.epoch.year_cycle_index + offset) % yearLengthDays.length;
+    forwardBoundary += yearLengthDays[forwardYearIndex] * calendar.day_length_ms;
+    const backwardYearIndex = (calendar.epoch.year_cycle_index - offset - 1 + yearLengthDays.length * 5) % yearLengthDays.length;
+    backwardBoundary -= yearLengthDays[backwardYearIndex] * calendar.day_length_ms;
   }
 
   return [...coordinates].filter(Number.isSafeInteger);
