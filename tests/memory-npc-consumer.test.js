@@ -978,8 +978,11 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
         signalSecondValidation();
         await secondValidationRelease;
       }
-      return record.source_entity_id === 'source-real'
-        && record.source_version === 'source-real-v1';
+      const sourceSnapshot = engine.getSnapshot(record.world_id, {
+        entityIds: [record.source_entity_id],
+      });
+      const source = sourceSnapshot.entities.find((entity) => entity.entity_id === record.source_entity_id);
+      return Boolean(source) && record.source_version === String(source.updated_revision);
     },
     validateInventory: async () => true,
   };
@@ -997,7 +1000,7 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
     record_version: 'record-v1',
     source_kind: 'canonical_entity',
     source_entity_id: 'source-real',
-    source_version: 'source-real-v1',
+    source_version: '1',
     content_kind: 'claim',
     epistemic_kind: 'acquired_report',
     producer_kind: 'real-sqlite-provider-test',
@@ -1006,7 +1009,7 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
     lineage: [{
       source_kind: 'canonical_entity',
       entity_id: 'source-real',
-      source_version: 'source-real-v1',
+      source_version: '1',
     }],
   };
   const secondRecord = {
@@ -1043,7 +1046,7 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
   assert.deepEqual(initial.candidates[0].content, {
     'attributes.public_note': 'read from canonical Core state',
   });
-  assert.equal(initial.candidates[0].source_version, 'source-real-v1');
+  assert.equal(initial.candidates[0].source_version, '1');
   assert.equal(JSON.stringify(initial).includes('never expose this field'), false);
 
   // Pause the later candidate's real Provider source validator after the earlier
