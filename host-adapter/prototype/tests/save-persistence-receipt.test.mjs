@@ -168,3 +168,13 @@ test('matching persisted enrolled chat receives success only after the version i
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test('pinned browser bridge verifies persisted chat before committing its lifecycle checkpoint', async () => {
+  const patchUrl = new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url);
+  const patch = await readFile(patchUrl, 'utf8');
+  assert.match(patch, /saveChat: async \(\) => \{/);
+  assert.match(patch, /await saveChatConditional\(\);[\s\S]*?\/api\/chats\/group\/get[\s\S]*?\/api\/chats\/get/);
+  assert.match(patch, /persistedChat\.length !== chat\.length \+ 1/);
+  assert.match(patch, /persisted Host chat differs from the current message\/version state/);
+});
