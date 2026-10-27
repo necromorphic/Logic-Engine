@@ -30,6 +30,18 @@ test('server mutation journal covers character routes that can alter chat identi
   const journalPath = fileURLToPath(new URL('../server-lifecycle-mutation-journal.mjs', import.meta.url));
   const journal = await readFile(journalPath, 'utf8');
   for (const route of [
+    'POST /api/chats/save',
+    'POST /api/chats/rename',
+    'POST /api/chats/delete',
+    'POST /api/chats/group/import',
+    'POST /api/chats/import',
+    'POST /api/chats/group/delete',
+    'POST /api/chats/group/save',
+    'POST /api/groups/create',
+    'POST /api/groups/edit',
+    'POST /api/groups/delete',
+    'POST /api/backups/chat/delete',
+    'POST /api/data-maid/delete',
     'POST /api/characters/rename',
     'POST /api/characters/edit',
     'POST /api/characters/edit-attribute',
