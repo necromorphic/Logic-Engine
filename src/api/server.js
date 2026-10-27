@@ -6,7 +6,6 @@ import { ProposalService } from '../application/proposals.js';
 import { ActorBindingService } from '../application/actor-bindings.js';
 import { AuthorizedReadService } from '../application/authorized-read-service.js';
 import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
-import { MemoryNpcConsumer } from '../application/memory-npc-consumer.js';
 
 const MAX = 1048576;
 
