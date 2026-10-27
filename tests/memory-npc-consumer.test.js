@@ -133,6 +133,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     record_version: 'v1',
     source_kind: 'canonical_entity',
     source_entity_id: 'source-a',
+    source_version: 'source-v1',
   });
   assert.equal(JSON.stringify(result).includes('must never leak'), false);
   assert.equal(JSON.stringify(result).includes('private_note'), false);
@@ -423,7 +424,7 @@ test('duplicate Memory identity/version cannot be rebound to a different canonic
   const { consumer, setCandidates, candidate } = setup(t);
   setCandidates([
     candidate(),
-    candidate({ source: { kind: 'canonical_entity', entity_id: 'source-b' } }),
+    candidate({ source: { kind: 'canonical_entity', entity_id: 'source-b', version: 'source-v1' } }),
   ]);
 
   const result = await consumer.retrieveForNpc(request());
