@@ -249,14 +249,14 @@ No tests were run as part of recording this decision. ST-01–ST-16 remain NOT T
   - The `entities` table stores `world_id`, `entity_id`, `entity_type`, `status`, generic `attributes_json`, `created_by_event_id`, and `updated_revision`. There is no dedicated typed coordinate/frame/unit/anchor column in this table definition.
   - `currentEntityProjection(worldId)` returns decoded generic attributes; it does not validate spatial meaning.
   - `applyEntityEffects` applies `entity.create` / `entity.upsert` / `entity.update` / `entity.delete` using generic attributes. It does not establish a typed position contract, coordinate-frame validation, or entity-incarnation token.
-  - The entity primary key is `(world_id, entity_id)`; the inspected table shape does not independently distinguish two incarnations that reuse the same ID.
+  - The entity primary key is `(world_id, entity_id)`; the inspected table shape does not independently distinguish two incarnations that reuse the same ID. `docs/21-stage1-causality-contract.md`, current `main` blob `0eba61944a8569c1092c567ee1c555e3fe4ed3f5`, explicitly says identity reuse/resurrection and version-based preconditions remain deferred. `entity.create` rejects an identity already present in the projection, including a destroyed tombstone, but the legacy `entity.upsert` is a full replacement for compatibility. Neither fact provides a general incarnation token.
   - `readSnapshot(id, request)` reads the world, cursor, and selected entity/fact/event rows in one SQLite read view. Its entity result includes generic attributes and revision metadata. Its selected event projection includes identity, validity, causal metadata, and commit/time metadata, but not `effects_json`; it is not itself a typed spatial-event reader.
   - `entityProjectionAtCursor(worldId, beforeSequence, invalidEventIds)` replays valid event `effects_json` through generic entity-effect application. It uses a sequence boundary and does not itself define spatial semantics or a TimeEngine mapping.
-- `src/time/model.js`, current `main` blob `ab7f8cf09cd35ae5f74b41c5063c3d8bc5ad68b2`, and `docs/60-time-coordinate-runtime-slice.md`, current `main` blob `ab7f8cf09cd35ae5f74b41c5063c3d8bc5ad68b2`:
+- `src/time/model.js`, current `main` blob `10fd5a0488cb4300634433df52983399b36afef0`, and `docs/60-time-coordinate-runtime-slice.md`, current `main` blob `ab7f8cf09cd35ae5f74b41c5063c3d8bc5ad68b2`:
   - Core has a canonical integer-millisecond game-time coordinate and event time-coordinate support.
   - A time coordinate is not a spatial coordinate. These time primitives do not supply an entity's position, frame, unit, anchor, or identity incarnation.
 - `src/core/rules.js`, current `main` blob `d2a1953679f3f14d0f425857447a81190278cd10`:
-  - The inspected rule evaluator supports generic path/value predicates. It does not establish the authority or spatial meaning of a field merely because a path such as `attributes.position` or `attributes.x` exists.
+  - The canonical effect validator in `src/core/rules.js`, current `main` blob `d2a1953679f3f14d0f425857447a81190278cd10`, accepts generic `attributes` objects for `entity.create`, `entity.update`, and legacy `entity.upsert`; it does not define a dedicated position effect or validate coordinate frame, axes, units, anchor, or numeric tuple as spatial semantics. The rule evaluator supports generic path/value predicates. It does not establish the authority or spatial meaning of a field merely because a path such as `attributes.position` or `attributes.x` exists.
 - `docs/07-knowledge-and-narrative-boundaries.md`, current `main` blob `9ec34438d14dab245fa3aca8de4ea735c7c9bf17`, §12:
   - The documented architecture already permits a future spatial-temporal model as a derived subsystem over approved Core evidence, while explicitly leaving its exact interface and implementation unapproved.
   - The document directs a bounded feasibility track using existing store/event paths and says unsupported positions must remain unknown/conflicting rather than be guessed.
@@ -267,7 +267,7 @@ No tests were run as part of recording this decision. ST-01–ST-16 remain NOT T
 1. There is a usable world-scoped, coherent Core snapshot read seam.
 2. Generic entity attributes and committed event effects can be read/replayed through existing internal code.
 3. The current entity storage/effect path does not, in the inspected definitions, enforce the coordinator-approved spatial v1 semantics.
-4. The current schema shape does not prove an entity-incarnation distinction for delete/recreate with reused IDs.
+4. The current schema/effect shape does not prove an entity-incarnation distinction for delete/recreate with reused IDs; the documented identity reuse/resurrection guarantee is deferred.
 5. Canonical game time exists, but it is not a substitute for spatial evidence.
 
 **Not established:**
