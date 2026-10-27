@@ -155,3 +155,21 @@ test("unsupported and explicit-conflict assessments stop before transition evalu
     assert.equal(Object.hasOwn(result, "transitionStatus"), false);
   }
 });
+
+
+test("rejects Proxy-backed top-level and candidate records without invoking traps", () => {
+  let trapCalls = 0;
+  const unsafeCandidate = new Proxy(candidate, {
+    get(target, key, receiver) { trapCalls += 1; return Reflect.get(target, key, receiver); },
+  });
+  const candidateResult = evaluateInteractionDrivenRelationshipCandidate({ ...base, candidate: unsafeCandidate });
+  assert.equal(candidateResult.status, "invalid_candidate");
+  assert.equal(trapCalls, 0);
+
+  const unsafeInput = new Proxy(base, {
+    get(target, key, receiver) { trapCalls += 1; return Reflect.get(target, key, receiver); },
+  });
+  const inputResult = evaluateInteractionDrivenRelationshipCandidate(unsafeInput);
+  assert.equal(inputResult.status, "invalid_candidate");
+  assert.equal(trapCalls, 0);
+});
