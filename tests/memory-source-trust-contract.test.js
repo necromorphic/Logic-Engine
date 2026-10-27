@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
@@ -148,4 +151,51 @@ test('authorized read rejects the pre-rollback snapshot when sequence is unchang
       && error.status === 409
       && !String(error.message).includes('Must not be returned'),
   );
+});
+
+test('source retraction and unchanged event cursor survive Core SQLite restart', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-source-trust-'));
+  const databasePath = join(directory, 'core.sqlite');
+  let store = new SQLiteStore(databasePath);
+  let engine = new LogicEngine(store);
+  engine.createWorld({
+    world_id: 'source-trust-restart-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  const source = engine.commitEvent('source-trust-restart-world', {
+    idempotency_key: 'source-trust-restart-source',
+    turn_id: 'source-trust-restart-source',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [{
+      kind: 'entity.create',
+      entity_id: 'source-trust-restart-marker',
+      entity_type: 'object',
+      attributes: { marker: 'source' },
+    }],
+  });
+  assert.equal(source.accepted, true);
+  const sequenceBefore = store.currentCommitSequence('source-trust-restart-world');
+  const rollback = engine.rollbackEvent('source-trust-restart-world', {
+    root_event_id: source.event_id,
+    idempotency_key: 'source-trust-restart-rollback',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.equal(store.currentCommitSequence('source-trust-restart-world'), sequenceBefore);
+  const revisionAfterRollback = engine.getState('source-trust-restart-world').world_revision;
+  store.close();
+
+  store = new SQLiteStore(databasePath);
+  engine = new LogicEngine(store);
+  const row = store.db.prepare(
+    'SELECT validity FROM world_events WHERE world_id=? AND event_id=?',
+  ).get('source-trust-restart-world', source.event_id);
+  assert.equal(row.validity, 'retracted');
+  assert.equal(store.currentCommitSequence('source-trust-restart-world'), sequenceBefore);
+  assert.equal(engine.getState('source-trust-restart-world').world_revision, revisionAfterRollback);
+  store.close();
+  rmSync(directory, { recursive: true, force: true });
+  t.after(() => rmSync(directory, { recursive: true, force: true }));
 });
