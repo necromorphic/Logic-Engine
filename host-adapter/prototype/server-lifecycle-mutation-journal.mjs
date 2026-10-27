@@ -224,8 +224,10 @@ function verifyEnrolledChatSavePersistence(request, registry, after) {
     // filename alias from skipping the persistence receipt check.
     const enrollment = registry.conversations.find(item =>
         item.domain === 'chats' && item.sourcePath === sourcePath)
-        ?? registry.conversations.find(item =>
-            item.domain === 'chats' && item.conversationId.split(':')[1] === headerUuid);
+        ?? (typeof headerUuid === 'string' && headerUuid.length > 0
+            ? registry.conversations.find(item =>
+                item.domain === 'chats' && item.conversationId.split(':')[1] === headerUuid)
+            : undefined);
     if (!enrollment) return null;
 
     if (!Array.isArray(body?.chat) || body.chat.length < 2) {
