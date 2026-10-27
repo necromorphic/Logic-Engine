@@ -12,9 +12,9 @@ import sys
 REPO = "necromorphic/Logic-Engine"
 AUTO_LABEL = "stage:auto-close"
 READY_MARKER = "<!-- stage-status: READY_TO_CLOSE -->"
-PR_URL = re.compile(r"https://github\\.com/necromorphic/Logic-Engine/pull/(\\d+)(?:[/?#][^\\s)]*)?")
-CHECKED = re.compile(r"^\\s*[-*]\\s+\\[[xX]\\]", re.MULTILINE)
-UNCHECKED = re.compile(r"^\\s*[-*]\\s+\\[\\s\\]", re.MULTILINE)
+PR_URL = re.compile(r"https://github\.com/necromorphic/Logic-Engine/pull/(\d+)(?:[/?#][^\s)]*)?")
+CHECKED = re.compile(r"^\s*[-*]\s+\[[xX]\]", re.MULTILINE)
+UNCHECKED = re.compile(r"^\s*[-*]\s+\[\s\]", re.MULTILINE)
 
 
 def gh(args):
@@ -107,7 +107,7 @@ def close_eligible_stages():
             print(f"KEEP OPEN #{issue.get('number')}: {reason}")
             continue
         commits = ", ".join(
-            f"PR #{number} `{evidence[number].get('headRefOid', 'unknown-head')}`"
+            f"PR #{number} head {evidence[number].get('headRefOid', 'unknown-head')}"
             for number in numbers
         )
         comment = (
