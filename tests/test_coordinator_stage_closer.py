@@ -67,6 +67,7 @@ class CoordinatorStageCloserTests(unittest.TestCase):
     def test_missing_pending_failed_or_skipped_checks_block_closure(self):
         for checks in (None, [], [{"name": "Runtime tests", "conclusion": "FAILURE"}],
                        [{"name": "Runtime tests", "conclusion": "SKIPPED"}],
+                       [{"name": "Runtime tests", "state": "SUCCESS", "conclusion": "SKIPPED"}],
                        [{"name": "Runtime tests", "state": "PENDING"}]):
             with self.subTest(checks=checks):
                 self.assertFalse(closer.check_rollup_is_green(checks))
