@@ -80,6 +80,9 @@ jobs:
           node --check public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check src/endpoints/logic-engine-lifecycle-proxy.mjs
           node --check src/endpoints/logic-engine-lifecycle.js
+          node --check src/endpoints/logic-engine-host-journal.mjs
+          node --check src/endpoints/logic-engine-persisted-conversation-inventory.mjs
+          node --check src/endpoints/logic-engine-host-inventory.mjs
         working-directory: ${{ runner.temp }}/st
       - name: Upload pinned outbound audit report
         if: always()
