@@ -355,7 +355,9 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
     const upstreamUrl = new URL(observedUrl);
     assert.equal(upstreamUrl.hostname, 'generativelanguage.googleapis.com');
     assert.equal(upstreamUrl.pathname, '/v1beta/models/gemini-2.5-flash-lite:generateContent');
-    assert.equal(upstreamUrl.searchParams.get('key'), apiKey);
+    assert.equal(upstreamUrl.searchParams.has('key'), false);
+    const apiKeyHeader = 'x-goog-' + 'api-key';
+    assert.equal(observedHeaders[apiKeyHeader], apiKey);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await fixture.close();
