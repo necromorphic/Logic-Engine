@@ -100,7 +100,8 @@ export async function assertHostStartupMigrationSafe(directories) {
         if (typeof userDirectories?.chats !== 'string' || !path.isAbsolute(userDirectories.chats)) {
             throw new Error('HOST_STARTUP_MIGRATION_STATE_UNAVAILABLE');
         }
-        const chatRoot = await realpath(userDirectories.chats);
+        const chatRoot = path.resolve(userDirectories.chats);
+        if (path.basename(chatRoot) !== 'chats') throw new Error('HOST_STARTUP_MIGRATION_STATE_UNAVAILABLE');
         const userRoot = path.dirname(chatRoot);
         const userStat = await lstat(userRoot);
         if (!userStat.isDirectory() || userStat.isSymbolicLink()) {
