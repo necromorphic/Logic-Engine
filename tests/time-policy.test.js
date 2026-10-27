@@ -95,6 +95,12 @@ test('duration resolver rejects malformed requested durations regardless of rule
   }
   assert.equal(resolveDurationDecision(noRule, 'unknown.event', null, 0).duration_ms, 0);
   assert.equal(resolveDurationDecision(noRule, 'unknown.event', null, null).status, 'rejected');
+  for (const invalidEventType of [null, undefined, 12, '']) {
+    assert.throws(
+      () => resolveDurationDecision(noRule, invalidEventType, null, 0),
+      (error) => error.code === 'INVALID_TIME_POLICY',
+    );
+  }
   assert.equal(resolveDurationDecision(value, 'travel.completed', null, 0).duration_ms, 60000);
   // Explicit null retains the legacy sentinel behavior; omitted/undefined uses the default zero.
   assert.equal(resolveDurationDecision(value, 'travel.completed', null, null).duration_ms, 60000);
