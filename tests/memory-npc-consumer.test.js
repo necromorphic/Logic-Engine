@@ -123,6 +123,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     'attributes.public_note': 'authorized source text',
   });
   assert.equal(result.candidates[0].record_ref, 'memory:claim-1');
+  assert.equal(result.candidates[0].source_version, sourceVersion, 'admitted content must carry the exact Core-authorized source version');
   assert.deepEqual(getLastCandidateAuthorization(), {
     ...{ world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' },
     record_ref: 'memory:claim-1',
