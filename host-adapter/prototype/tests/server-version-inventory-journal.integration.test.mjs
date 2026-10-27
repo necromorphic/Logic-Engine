@@ -106,6 +106,31 @@ test('enforced server mutation journal records before/after persisted version in
     assert.equal(checkpoint.complete, true);
     assert.equal(checkpoint.mutationJournal.snapshotConsistency, 'MATCHES_LAST_COMMITTED_LOCAL_CHECKPOINT');
 
+    // Remove a swipe through the guarded save path, then require an explicit
+    // Core-accepted tombstone before the observed inventory can stay complete.
+    const deleteResponse = responseMock();
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, deleteResponse, async () => {
+      await writeChat([makeMessage({
+        messageId,
+        versions: [{ versionId: version2, text: 'private-after', parentVersionId: version1 }],
+        activeVersionIndex: 0,
+      })]);
+      deleteResponse.json({ ok: true });
+    });
+    await deleteResponse.finished;
+    assert.equal(deleteResponse.statusCode, 200);
+    await recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId, message_id: messageId, version_id: version1,
+      content_sha256: digest('private-before'), active: false, deleted: true,
+    });
+    const tombstoneSnapshot = await getHostConversationInventory(request);
+    assert.equal(tombstoneSnapshot.complete, true);
+    assert.equal(tombstoneSnapshot.historicalCompleteness, 'ENROLLMENT_FORWARD_ONLY');
+    assert.equal(tombstoneSnapshot.currentVersionCount, 1);
+    assert.equal(tombstoneSnapshot.versionCount, 2);
+    assert.equal(tombstoneSnapshot.inventories[0].versions.find(v => v.version_id === version1).deleted, true);
+    assert.equal(tombstoneSnapshot.inventories[0].versions.find(v => v.version_id === version2).active, true);
+
     // A locally restored older chat file must diverge from the last committed
     // version inventory and fail closed. The local journal itself still shares
     // the Host restore domain, so this is detection evidence, not anti-rollback authority.
