@@ -11,19 +11,60 @@ const integer = (v, name, positive = false) => {
   return v;
 };
 const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
-const exactKeys = (value, allowed, name) => {
-  if (Object.keys(value).some((key) => !allowed.includes(key))) {
-    fail('INVALID_TIME_POLICY', name + ' contains an unsupported field.');
+
+function assertPlainDataRecord(value, allowed, name) {
+  if (!obj(value)) fail('INVALID_TIME_POLICY', name + ' must be an object.');
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    fail('INVALID_TIME_POLICY', name + ' must be a plain data object.');
   }
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string' || !allowed.includes(key)) {
+      fail('INVALID_TIME_POLICY', name + ' contains an unsupported field.');
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      fail('INVALID_TIME_POLICY', name + ' fields must be own enumerable data properties.');
+    }
+    if (descriptor.value === undefined) {
+      fail('INVALID_TIME_POLICY', name + ' fields must not be explicitly undefined.');
+    }
+  }
+}
+
+function denseArrayValues(value, name, max) {
+  if (!Array.isArray(value) || value.length > max || Object.getPrototypeOf(value) !== Array.prototype) {
+    fail('INVALID_TIME_POLICY', name + ' must be a plain array with at most ' + max + ' entries.');
+  }
+  const values = [];
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index)) {
+      fail('INVALID_TIME_POLICY', name + ' cannot contain sparse entries.');
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      fail('INVALID_TIME_POLICY', name + ' entries must be own enumerable data properties.');
+    }
+    values.push(descriptor.value);
+  }
+  const allowedKeys = new Set(['length', ...values.map((_, index) => String(index))]);
+  if (Reflect.ownKeys(value).some((key) => typeof key !== 'string' || !allowedKeys.has(key))) {
+    fail('INVALID_TIME_POLICY', name + ' cannot contain extra array properties.');
+  }
+  return values;
+}
+
+const exactKeys = (value, allowed, name) => {
+  assertPlainDataRecord(value, allowed, name);
 };
 
 function ruleOf(input, limit) {
-  if (!obj(input)) fail('INVALID_TIME_POLICY', 'Duration rule must be an object.');
   const allowedByKind = {
     fixed: ['kind', 'duration_ms'],
     range: ['kind', 'min_duration_ms', 'max_duration_ms', 'resolution'],
     category_map: ['kind', 'categories'],
   };
+  assertPlainDataRecord(input, ['kind', 'duration_ms', 'min_duration_ms', 'max_duration_ms', 'resolution', 'categories'], 'Duration rule');
   if (!allowedByKind[input.kind]) fail('INVALID_TIME_POLICY', 'Unsupported duration rule kind.');
   exactKeys(input, allowedByKind[input.kind], input.kind + ' duration rule');
   if (input.kind === 'fixed') {
@@ -39,10 +80,10 @@ function ruleOf(input, limit) {
     return { kind: 'range', min_duration_ms, max_duration_ms, resolution: input.resolution };
   }
   if (input.kind === 'category_map') {
-    if (!Array.isArray(input.categories) || !input.categories.length || input.categories.length > 1000) fail('INVALID_TIME_POLICY', 'category_map requires categories.');
+    const categoryEntries = denseArrayValues(input.categories, 'categories', 1000);
+    if (!categoryEntries.length) fail('INVALID_TIME_POLICY', 'category_map requires categories.');
     const seen = new Set();
-    const categories = input.categories.map((entry) => {
-      if (!obj(entry)) fail('INVALID_TIME_POLICY', 'Duration category must be an object.');
+    const categories = categoryEntries.map((entry) => {
       exactKeys(entry, ['category', 'duration_ms'], 'Duration category');
       const category = str(entry.category, 'category');
       const duration_ms = integer(entry.duration_ms, 'category duration_ms');
@@ -55,9 +96,8 @@ function ruleOf(input, limit) {
 }
 
 export function createTimePolicy(input) {
-  if (!obj(input)) fail('INVALID_TIME_POLICY', 'Time policy must be an object.');
   const allowed = ['policy_id', 'version', 'max_action_duration_ms', 'max_skip_duration_ms', 'duration_rules'];
-  if (Object.keys(input).some((key) => !allowed.includes(key))) fail('INVALID_TIME_POLICY', 'Time policy contains an unsupported field.');
+  assertPlainDataRecord(input, allowed, 'Time policy');
   const policy_id = str(input.policy_id, 'policy_id');
   const version = str(input.version, 'version');
   const max_action_duration_ms = integer(input.max_action_duration_ms, 'max_action_duration_ms', true);
@@ -65,10 +105,10 @@ export function createTimePolicy(input) {
   if (max_action_duration_ms % 1000 || max_skip_duration_ms % 1000) {
     fail('INVALID_TIME_POLICY', 'Current runtime durations must be whole seconds.');
   }
-  if (!Array.isArray(input.duration_rules) || input.duration_rules.length > 1000) fail('INVALID_TIME_POLICY', 'duration_rules must be an array.');
+  const ruleEntries = denseArrayValues(input.duration_rules, 'duration_rules', 1000);
   const seen = new Set();
-  const duration_rules = input.duration_rules.map((entry) => {
-    if (!obj(entry) || Object.keys(entry).some((key) => !['event_type', 'rule'].includes(key))) fail('INVALID_TIME_POLICY', 'Invalid duration rule entry.');
+  const duration_rules = ruleEntries.map((entry) => {
+    assertPlainDataRecord(entry, ['event_type', 'rule'], 'Duration rule entry');
     const event_type = str(entry.event_type, 'event_type');
     if (seen.has(event_type)) fail('INVALID_TIME_POLICY', 'event_type duration rules must be unique.');
     seen.add(event_type);
