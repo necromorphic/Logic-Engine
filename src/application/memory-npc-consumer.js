@@ -208,7 +208,7 @@ export class MemoryNpcConsumer {
       }
       if (candidate.content_kind === 'summary'
         || candidate.source?.kind !== 'canonical_entity'
-        || !validId(candidate.source?.entity_id)) {
+        || !validId(candidate.source?.entity_id) || !validId(candidate.source?.version)) {
         // Do not report item-level rejection reasons or counts to the caller.
         continue;
       }
@@ -221,6 +221,7 @@ export class MemoryNpcConsumer {
           record_version: candidate.record.version,
           source_kind: candidate.source.kind,
           source_entity_id: candidate.source.entity_id,
+          source_version: candidate.source.version,
         }) === true;
       } catch {
         // A denial is an ordinary filtered record; an authorization failure is
@@ -333,6 +334,7 @@ export class MemoryNpcConsumer {
       const identity = recordIdentityKey(candidate.record.ref, candidate.record.version);
       const signature = {
         source_entity_id: candidate.source.entity_id,
+        source_version: candidate.source.version,
         content_kind: candidate.content_kind,
         epistemic_kind: candidate.epistemic_kind,
         producer_kind: candidate.producer?.kind,
