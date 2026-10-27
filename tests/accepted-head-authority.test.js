@@ -45,6 +45,10 @@ test('accepted-head authority advances monotonic per-domain heads and makes oper
     });
     assert.deepEqual(authority.getHeads(), { core: 2, provider: 1 });
     assert.throws(
+      () => authority.advance({ domain: 'core', operationId: 'core-op-1', operationDigest: digestB }),
+      /ACCEPTED_HEAD_OPERATION_ID_CONFLICT/,
+    );
+    assert.throws(
       () => authority.advance({ domain: 'provider', operationId: 'core-op-1', operationDigest: digestA }),
       /ACCEPTED_HEAD_OPERATION_ID_CONFLICT/,
     );
@@ -59,7 +63,7 @@ test('accepted-head authority persists across restart and rejects a different in
   const dir = tempDir();
   const path = join(dir, 'authority.sqlite');
   const first = new AcceptedHeadAuthority({ path, installationId: 'installation-A' });
-  first.advance({ domain: 'provider', operationId: 'provider-op-persisted' });
+  first.advance({ domain: 'provider', operationId: 'provider-op-persisted', operationDigest: digestA });
   first.close();
 
   const reopened = new AcceptedHeadAuthority({ path, installationId: 'installation-A' });
