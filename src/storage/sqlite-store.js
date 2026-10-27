@@ -1242,6 +1242,113 @@ export class SQLiteStore {
     }
   }
 
+  readCanonicalEntityInventory(id, request = {}) {
+    if (!request || typeof request !== 'object' || Array.isArray(request)
+      || Object.keys(request).some((key) => !['limit', 'cursor'].includes(key))) {
+      throw new EngineError('INVALID_ENTITY_INVENTORY_REQUEST', 'Inventory request contains unsupported fields.', 400);
+    }
+    const limit = request.limit ?? 200;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
+      throw new EngineError('INVALID_ENTITY_INVENTORY_LIMIT', 'Inventory limit must be an integer from 1 to 200.', 400);
+    }
+    if (this.txDepth > 0) {
+      throw new EngineError('SNAPSHOT_READ_DURING_WRITE_TRANSACTION', 'A canonical inventory cannot be read from inside a store write transaction.', 409);
+    }
+
+    const cursorPayload = request.cursor ?? null;
+    let afterEntityId = '';
+    let expectedRevision = null;
+    let expectedSequence = null;
+    if (cursorPayload !== null) {
+      if (!cursorPayload || typeof cursorPayload !== 'object' || Array.isArray(cursorPayload)
+        || Object.keys(cursorPayload).sort().join(',') !== 'after_entity_id,commit_sequence,cursor_digest,world_revision'
+        || typeof cursorPayload.after_entity_id !== 'string'
+        || !Number.isSafeInteger(cursorPayload.world_revision) || cursorPayload.world_revision < 0
+        || !Number.isSafeInteger(cursorPayload.commit_sequence) || cursorPayload.commit_sequence < 0
+        || typeof cursorPayload.cursor_digest !== 'string') {
+        throw new EngineError('INVALID_ENTITY_INVENTORY_CURSOR', 'Inventory cursor is malformed.', 400);
+      }
+      const unsigned = {
+        world_id: id,
+        world_revision: cursorPayload.world_revision,
+        commit_sequence: cursorPayload.commit_sequence,
+        after_entity_id: cursorPayload.after_entity_id,
+      };
+      if (cursorPayload.cursor_digest !== hashRequest(unsigned)) {
+        throw new EngineError('INVALID_ENTITY_INVENTORY_CURSOR', 'Inventory cursor integrity check failed.', 400);
+      }
+      afterEntityId = cursorPayload.after_entity_id;
+      expectedRevision = cursorPayload.world_revision;
+      expectedSequence = cursorPayload.commit_sequence;
+    }
+
+    this.#assertAcceptedHeadCurrent();
+    let began = false;
+    try {
+      this.db.exec('BEGIN');
+      began = true;
+      const world = this.world(id);
+      if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const commitSequence = this.currentCommitSequence(id);
+      if (expectedRevision !== null
+        && (world.world_revision !== expectedRevision || commitSequence !== expectedSequence)) {
+        throw new EngineError('ENTITY_INVENTORY_SNAPSHOT_STALE', 'Canonical world changed between inventory pages; restart reconciliation from the first page.', 409);
+      }
+
+      const rows = this.db.prepare(`
+        SELECT entities.entity_id, entities.entity_type, entities.status,
+          entities.updated_revision,
+          entity_source_versions.source_version AS source_version_token
+        FROM entities
+        LEFT JOIN entity_source_versions
+          ON entity_source_versions.world_id=entities.world_id
+          AND entity_source_versions.entity_id=entities.entity_id
+        WHERE entities.world_id=? AND entities.entity_id>?
+        ORDER BY entities.entity_id
+        LIMIT ?
+      `).all(id, afterEntityId, limit + 1);
+      const hasMore = rows.length > limit;
+      const pageRows = hasMore ? rows.slice(0, limit) : rows;
+      const entities = pageRows.map((row) => ({
+        entity_id: row.entity_id,
+        entity_type: row.entity_type,
+        status: row.status,
+        updated_revision: row.updated_revision,
+        source_version: Number.isSafeInteger(row.source_version_token) && row.source_version_token > 0
+          ? 'core-entity-v1:' + String(row.source_version_token) : null,
+      }));
+      const lastEntityId = pageRows.length ? pageRows[pageRows.length - 1].entity_id : afterEntityId;
+      const nextCursor = hasMore ? (() => {
+        const unsigned = {
+          world_id: id,
+          world_revision: world.world_revision,
+          commit_sequence: commitSequence,
+          after_entity_id: lastEntityId,
+        };
+        return {
+          ...unsigned,
+          cursor_digest: hashRequest(unsigned),
+        };
+      })() : null;
+      this.db.exec('COMMIT');
+      began = false;
+      this.#assertAcceptedHeadCurrent();
+      return {
+        world_id: id,
+        world_revision: world.world_revision,
+        commit_sequence: commitSequence,
+        entities,
+        complete: !hasMore,
+        next_cursor: nextCursor,
+      };
+    } catch (error) {
+      if (began) {
+        try { this.db.exec('ROLLBACK'); } catch {}
+      }
+      throw error;
+    }
+  }
+
   state(id) {
     const read = () => {
       const w = this.world(id);
