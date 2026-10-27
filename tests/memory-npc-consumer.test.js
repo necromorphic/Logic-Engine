@@ -151,6 +151,33 @@ test('query denial and incomplete Memory results fail closed without returning c
   assert.deepEqual(result.candidates, []);
 });
 
+test('query access revoked during retrieval prevents ready-empty and content-bearing results', async (t) => {
+  const empty = setup(t);
+  empty.setCandidates([]);
+  let emptyChecks = 0;
+  empty.provider.authorizeQuery = async () => ++emptyChecks === 1;
+
+  const emptyResult = await empty.consumer.retrieveForNpc(request());
+
+  assert.equal(emptyChecks, 2);
+  assert.equal(emptyResult.status, 'non_ready');
+  assert.equal(emptyResult.reason, 'query_access_unconfirmed');
+  assert.deepEqual(emptyResult.admitted, []);
+  assert.deepEqual(emptyResult.candidates, []);
+
+  const nonEmpty = setup(t);
+  let nonEmptyChecks = 0;
+  nonEmpty.provider.authorizeQuery = async () => ++nonEmptyChecks === 1;
+
+  const contentResult = await nonEmpty.consumer.retrieveForNpc(request());
+
+  assert.equal(nonEmptyChecks, 2);
+  assert.equal(contentResult.status, 'non_ready');
+  assert.equal(contentResult.reason, 'query_access_unconfirmed');
+  assert.deepEqual(contentResult.admitted, []);
+  assert.deepEqual(contentResult.candidates, []);
+});
+
 test('malformed records in a complete Memory result are non-ready, not authorized-empty', async (t) => {
   const { consumer, setCandidates, candidate } = setup(t);
 
