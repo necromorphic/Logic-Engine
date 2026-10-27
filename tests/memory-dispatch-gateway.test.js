@@ -12,7 +12,7 @@ import {
   enrollAcceptedHeadSync,
   finalizeAcceptedHeadSync,
 } from '../src/security/accepted-head-client-sync.js';
-import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
+import { createDispatchRequestSignature, verifyDispatchRequestSignature, verifyDispatchPermitSignature, createDispatchOutcomeSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
 import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
