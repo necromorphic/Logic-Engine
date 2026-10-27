@@ -32,6 +32,7 @@ async function main() {
     options = { method: 'GET', signal: AbortSignal.timeout(timeoutMs) };
   } else if (action === 'advance' && ['core', 'provider'].includes(input.domain)
     && typeof input.operation_id === 'string' && input.operation_id.length > 0
+    && typeof input.operation_digest === 'string' && /^[a-f0-9]{64}$/.test(input.operation_digest)
     && typeof input.token === 'string' && input.token.length >= 32) {
     url = `http://127.0.0.1:${port}/v1/advance`;
     options = {
@@ -41,7 +42,7 @@ async function main() {
         'content-type': 'application/json',
         'cache-control': 'no-store',
       },
-      body: JSON.stringify({ domain: input.domain, operation_id: input.operation_id }),
+      body: JSON.stringify({ domain: input.domain, operation_id: input.operation_id, operation_digest: input.operation_digest }),
       signal: AbortSignal.timeout(timeoutMs),
     };
   } else {
