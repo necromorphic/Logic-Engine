@@ -27,7 +27,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
           $ErrorActionPreference = 'Stop'
-          $suffix = [guid]::NewGuid().ToString('N').Substring(0, 10)
+          $suffix = [guid]::NewGuid().ToString('N').Substring(0, 5)
           $testAccounts = @()
           $testServices = @()
           $password = ([guid]::NewGuid().ToString('N') + 'Aa1!')
