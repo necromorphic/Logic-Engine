@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { createHash, timingSafeEqual } from 'node:crypto';
 import { EngineError } from '../core/errors.js';
+import { applyHealthCors, parseHealthAllowedOrigins } from './health-cors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { ProposalService } from '../application/proposals.js';
 import { ActorBindingService } from '../application/actor-bindings.js';
@@ -49,8 +50,9 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, healthAllowedOrigins = [] }) {
   if (!engine) throw new TypeError('engine required');
+  const allowedHealthOrigins = parseHealthAllowedOrigins(healthAllowedOrigins);
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
     throw new TypeError('Internal token must be at least 16 characters and differ from API token');
@@ -92,7 +94,10 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   return createServer(async (req, res) => {
     try {
       const url = new URL(req.url || '/', 'http://127.0.0.1');
-      if (req.method === 'GET' && url.pathname === '/health') return send(res, 200, { ok: true, service: 'logic-engine', protocol_version: 'v1' });
+      if (req.method === 'GET' && url.pathname === '/health') {
+        applyHealthCors(req, res, allowedHealthOrigins);
+        return send(res, 200, { ok: true, service: 'logic-engine', protocol_version: 'v1' });
+      }
       const authorization = req.headers.authorization;
       const bearerToken = typeof authorization === 'string' && authorization.startsWith('Bearer ') ? authorization.slice('Bearer '.length) : null;
       if (!secretMatches(bearerToken, token)) return send(res, 401, { error: { code: 'UNAUTHORIZED', message: 'A valid bearer token is required.' } });
