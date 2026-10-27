@@ -33,7 +33,7 @@ test('scanner rejects a directory that changes while entries are being enumerate
       lstat, open, realpath,
       readdir: async (directory, options) => {
         const entries = await readdir(directory, options);
-        if (path.resolve(directory).toLowerCase() === path.resolve(root).toLowerCase() && !injected) {
+        if (!injected) {
           injected = true;
           await writeFile(path.join(root, 'added-during-scan.jsonl'), '{"mes":"late"}\n');
         }
@@ -57,13 +57,12 @@ test('scanner rejects an artifact modified after its individual read', async () 
     const nested = path.join(root, 'z');
     await mkdir(nested);
     await writeFile(first, '{"mes":"original"}\n');
-    let changed = false;
+    let readdirCalls = 0;
     const fs = {
       lstat, open, realpath,
       readdir: async (directory, options) => {
         const entries = await readdir(directory, options);
-        if (path.resolve(directory).toLowerCase() === path.resolve(nested).toLowerCase() && !changed) {
-          changed = true;
+        if (++readdirCalls === 2) {
           await writeFile(first, '{"mes":"modified later"}\n');
         }
         return entries;
