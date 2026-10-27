@@ -103,3 +103,119 @@ test("does not assign relationship deltas, reciprocity, intent, or consent", () 
     assert.equal(Object.hasOwn(result, key), false);
   }
 });
+
+// Consolidated adversarial regression coverage from PR #427.
+test("withheld evidence dominates regardless of assessment order and never leaks a supported reading", () => {
+  const visible = supported("flirtation", ["event:E1"]);
+  const withheld = { interpretation: "sarcasm", status: "withheld", refs: [] };
+  for (const assessments of [[visible, withheld], [withheld, visible]]) {
+    const result = assessInteractionInterpretations({ assessments });
+    assert.deepEqual(result, {
+      status: "withheld",
+      reason: "interaction_assessment_withheld",
+    });
+    assert.equal(Object.hasOwn(result, "interpretation"), false);
+    assert.equal(Object.hasOwn(result, "evidenceRefs"), false);
+  }
+});
+
+test("rejects sparse assessment arrays and arrays with extra properties", () => {
+  const sparse = [];
+  sparse.length = 1;
+  const extended = [supported("flirtation")];
+  extended.note = "unexpected";
+  for (const assessments of [sparse, extended]) {
+    const result = assessInteractionInterpretations({ assessments });
+    assert.equal(result.status, "invalid_input");
+    assert.equal(result.reason, "assessments_required");
+  }
+});
+
+test("rejects accessor-backed assessments without invoking getters", () => {
+  let getterCalls = 0;
+  const unsafe = { status: "supported", refs: ["event:E1"] };
+  Object.defineProperty(unsafe, "interpretation", {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return "flirtation";
+    },
+  });
+  const result = assessInteractionInterpretations({ assessments: [unsafe] });
+  assert.equal(result.status, "invalid_input");
+  assert.equal(result.reason, "assessment_shape_invalid");
+  assert.equal(getterCalls, 0);
+});
+
+test("trims interpretation labels but does not count repeated source references twice", () => {
+  const result = assessInteractionInterpretations({
+    assessments: [
+      supported(" teasing ", ["event:E1", "event:E2"]),
+      supported("teasing", ["event:E1"]),
+    ],
+  });
+  assert.deepEqual(result, {
+    status: "supported",
+    interpretation: "teasing",
+    evidenceRefs: ["event:E1", "event:E2"],
+  });
+});
+
+
+test("status precedence is deterministic for every ordering of valid assessments", () => {
+  const cases = [
+    {
+      items: [
+        { interpretation: "teasing", status: "insufficient", refs: [] },
+        { interpretation: "teasing", status: "conflict", refs: [] },
+        { interpretation: "teasing", status: "unsupported", refs: [] },
+        { interpretation: "teasing", status: "withheld", refs: [] },
+      ],
+      expected: "withheld",
+    },
+    {
+      items: [
+        { interpretation: "teasing", status: "insufficient", refs: [] },
+        { interpretation: "teasing", status: "conflict", refs: [] },
+        { interpretation: "teasing", status: "unsupported", refs: [] },
+      ],
+      expected: "unsupported",
+    },
+    {
+      items: [
+        { interpretation: "teasing", status: "insufficient", refs: [] },
+        { interpretation: "teasing", status: "conflict", refs: [] },
+      ],
+      expected: "conflict_review_required",
+    },
+  ];
+
+  const permutations = (items) => {
+    if (items.length < 2) return [items];
+    return items.flatMap((item, index) =>
+      permutations([...items.slice(0, index), ...items.slice(index + 1)])
+        .map((tail) => [item, ...tail]));
+  };
+
+  for (const { items, expected } of cases) {
+    for (const order of permutations(items)) {
+      assert.equal(
+        assessInteractionInterpretations({ assessments: order }).status,
+        expected,
+      );
+    }
+  }
+});
+
+test("invalid assessment shape is rejected even when another assessment is withheld", () => {
+  const result = assessInteractionInterpretations({
+    assessments: [
+      { interpretation: "teasing", status: "withheld", refs: [] },
+      { interpretation: "sarcasm", status: "supported", refs: ["event:E1"], extra: true },
+    ],
+  });
+  assert.equal(result.status, "invalid_input");
+  assert.equal(result.reason, "assessment_shape_invalid");
+  assert.equal(Object.hasOwn(result, "interpretation"), false);
+  assert.equal(Object.hasOwn(result, "evidenceRefs"), false);
+});
