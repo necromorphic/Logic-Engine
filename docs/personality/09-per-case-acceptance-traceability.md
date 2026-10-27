@@ -181,7 +181,7 @@ These historical CI runs do not validate the current Issue #73 PR head or prove 
 - [NPC consumer compatibility contract on `feat/npc-subsystem`](https://github.com/necromorphic/Logic-Engine/blob/feat/npc-subsystem/docs/52-npc-relationship-consumer-compatibility.md) — documentation-only contract, not an executable test.
 - [Relationship test traceability on `main`](../47-relationship-module-test-traceability.md) (ported by PR #80; source PR #60 is closed unmerged)
 - [Relationship pure evaluation contract on `main`](../48-relationship-pure-evaluation-contract.md) (ported by PR #80; source PR #60 is closed unmerged)
-- [Relationship → Core typed-transition handoff](../49-relationship-to-core-typed-transition-handoff.md) (proposal for Issue #77, not a Core API or implementation)
+- [Relationship → Core typed-transition handoff](../49-relationship-to-core-typed-transition-handoff.md) (domain handoff completed under Issue #130; Core first-slice writer/replay Issue #77 is closed; historical version/migration runtime gate remains tracked in #146 and Relationships semantic compatibility in #143)
 - [Personality Core integration gates in this PR branch](./03-core-decision-and-integration-gates.md)
 - [Issue #73 executable-evidence audit](./10-issue-73-executable-evidence-audit.md)
 
