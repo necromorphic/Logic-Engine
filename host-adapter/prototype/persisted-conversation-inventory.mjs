@@ -54,6 +54,8 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
   const enrollmentByUuid = new Map();
   for (const enrollment of enrollments) {
     if (!enrollment || !validId(enrollment.conversationId) || !validId(enrollment.sourceLocator)
+      || !validId(enrollment.sourcePath) || path.isAbsolute(enrollment.sourcePath)
+      || enrollment.sourcePath.includes('\\\\') || enrollment.sourcePath.split('/').some(part => !part || part === '.' || part === '..')
       || !['chats', 'group_chats'].includes(enrollment.domain)) return fail('ENROLLMENT_INVALID');
     const identityParts = enrollment.conversationId.split(':');
     if (identityParts.length !== 2 || !validUuid(identityParts[0]) || !validUuid(identityParts[1])) return fail('ENROLLMENT_IDENTITY_INVALID');
@@ -116,7 +118,8 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
         if (typeof headerId !== 'string') continue;
         const enrollment = enrollmentByUuid.get(headerId);
         if (!enrollment) continue;
-        if (enrollment.domain !== domain || path.parse(relativePath).name !== enrollment.sourceLocator) {
+        if (enrollment.domain !== domain || path.parse(relativePath).name !== enrollment.sourceLocator
+          || relativePath !== enrollment.sourcePath) {
           parseErrors.push('ENROLLED_CONVERSATION_LOCATOR_OR_DOMAIN_MISMATCH');
           continue;
         }
