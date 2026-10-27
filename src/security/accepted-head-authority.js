@@ -304,6 +304,12 @@ export function createAcceptedHeadAuthorityServer({
   return createServer((request, response) => {
     response.setTimeout(2000, () => response.destroy());
     if (request.method === 'GET' && request.url === '/v1/heads') {
+      const token = request.headers.authorization?.startsWith('Bearer ')
+        ? request.headers.authorization.slice(7) : '';
+      if (!safeTokenEqual(tokens.core, token) && !safeTokenEqual(tokens.provider, token)) {
+        reply(response, 403, { error: 'DENIED' });
+        return;
+      }
       try {
         reply(response, 200, { heads: authority.getHeads(), pending: authority.getPendingDomains(), enrolled: authority.getEnrollmentStatus() });
       } catch {
