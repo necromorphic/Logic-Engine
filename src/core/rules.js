@@ -17,58 +17,54 @@ function readPath(root, path) {
   return { exists: true, value };
 }
 
-// JSON object member order is not semantically meaningful; array order is.
-// Compare JSON values directly so non-JSON JavaScript values (NaN, undefined,
-// Date instances, cycles, etc.) cannot collapse into an unrelated JSON value
-// through JSON.stringify's coercions.
-function jsonEqual(left, right, activeLeft = new WeakSet(), activeRight = new WeakSet()) {
-  if (left === null || right === null) return left === right;
+// Rule values and context values are JSON data. Reject non-JSON JavaScript
+// values instead of allowing JSON.stringify coercions (for example, NaN -> null)
+// to turn malformed state into a successful neq condition.
+function isJsonValue(value, active = new WeakSet()) {
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return true;
+  if (typeof value === 'number') return Number.isFinite(value);
+  if (typeof value !== 'object') return false;
 
-  const leftType = typeof left;
-  const rightType = typeof right;
-  if (leftType !== rightType) return false;
-
-  if (leftType === 'string' || leftType === 'boolean') return left === right;
-  if (leftType === 'number') return Number.isFinite(left) && Number.isFinite(right) && left === right;
-  if (leftType !== 'object') return false;
-
-  const leftIsArray = Array.isArray(left);
-  if (leftIsArray !== Array.isArray(right)) return false;
-  if (!leftIsArray) {
-    const leftPrototype = Object.getPrototypeOf(left);
-    const rightPrototype = Object.getPrototypeOf(right);
-    if (![Object.prototype, null].includes(leftPrototype)
-      || ![Object.prototype, null].includes(rightPrototype)) return false;
+  const isArray = Array.isArray(value);
+  if (!isArray) {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
   }
+  if (Object.getOwnPropertySymbols(value).length > 0 || active.has(value)) return false;
 
-  // Cyclic object graphs are not JSON values. Reject them instead of recursing
-  // indefinitely or treating their serialization failure as a match.
-  if (activeLeft.has(left) || activeRight.has(right)) return false;
-  activeLeft.add(left);
-  activeRight.add(right);
+  active.add(value);
   try {
-    if (leftIsArray) {
-      if (left.length !== right.length) return false;
-      for (let index = 0; index < left.length; index += 1) {
-        if (!jsonEqual(left[index], right[index], activeLeft, activeRight)) return false;
+    if (isArray) {
+      for (let index = 0; index < value.length; index += 1) {
+        if (!Object.hasOwn(value, index) || !isJsonValue(value[index], active)) return false;
       }
-      return true;
+      return Object.keys(value).every((key) => key === 'length' || /^(0|[1-9][0-9]*)$/.test(key));
     }
 
-    const leftKeys = Object.keys(left).sort();
-    const rightKeys = Object.keys(right).sort();
-    if (leftKeys.length !== rightKeys.length) return false;
-    for (let index = 0; index < leftKeys.length; index += 1) {
-      if (leftKeys[index] !== rightKeys[index]
-        || !jsonEqual(left[leftKeys[index]], right[rightKeys[index]], activeLeft, activeRight)) return false;
-    }
-    return true;
+    return Object.keys(value).every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor && Object.hasOwn(descriptor, 'value') && isJsonValue(descriptor.value, active);
+    });
   } finally {
-    activeLeft.delete(left);
-    activeRight.delete(right);
+    active.delete(value);
   }
 }
 
+// JSON object member order is not semantically meaningful; array order is.
+function canonicalJson(value) {
+  if (Array.isArray(value)) return value.map(canonicalJson);
+  if (value && typeof value === 'object') {
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]));
+  }
+  return value;
+}
+
+function jsonEqual(left, right) {
+  if (!isJsonValue(left) || !isJsonValue(right)) {
+    throw new EngineError('RULE_TYPE_MISMATCH', 'Equality comparisons require JSON-compatible values.');
+  }
+  return JSON.stringify(canonicalJson(left)) === JSON.stringify(canonicalJson(right));
+}
 function nestedRules(rule, op) {
   // "rules" is the canonical schema form. The legacy aliases keep existing callers working.
   const hasRules = Object.hasOwn(rule, 'rules');
