@@ -9,6 +9,7 @@
   "version": "0.1.0",
   "homePage": "https://github.com/necromorphic/Logic-Engine",
   "hooks": {
-    "activate": "init"
+    "activate": "init",
+    "disable": "cleanup"
   }
 }
