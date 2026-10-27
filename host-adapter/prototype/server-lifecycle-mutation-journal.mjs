@@ -216,15 +216,23 @@ function verifyEnrolledChatSavePersistence(request, registry, after) {
     const cardName = String(body?.avatar_url ?? '').replace('.png', '');
     const fileName = String(body?.file_name ?? '') + '.jsonl';
     const sourcePath = cardName + '/' + fileName;
+    const headerUuid = body?.chat?.[0]?.chat_metadata?.logic_engine_conversation_id;
+    // Match both the requested target and the stable enrolled UUID. The native
+    // route sanitizes file_name before writing, so raw request fields alone are
+    // not a reliable target identity. The persisted scanner rejects duplicate
+    // UUIDs/copy paths and changed headers; this fallback prevents a sanitized
+    // filename alias from skipping the persistence receipt check.
     const enrollment = registry.conversations.find(item =>
-        item.domain === 'chats' && item.sourcePath === sourcePath);
+        item.domain === 'chats' && item.sourcePath === sourcePath)
+        ?? registry.conversations.find(item =>
+            item.domain === 'chats' && item.conversationId.split(':')[1] === headerUuid);
     if (!enrollment) return null;
 
     if (!Array.isArray(body?.chat) || body.chat.length < 2) {
         return { ok: false, code: 'HOST_SAVE_PAYLOAD_INVALID' };
     }
     const conversationUuid = enrollment.conversationId.split(':')[1];
-    if (body.chat[0]?.chat_metadata?.logic_engine_conversation_id !== conversationUuid) {
+    if (headerUuid !== conversationUuid) {
         return { ok: false, code: 'HOST_SAVE_IDENTITY_MISMATCH' };
     }
 
