@@ -310,6 +310,9 @@ function dayIndexForDate(calendar, date) {
   for (let i = 0; i < remainder; i++) days = checkedAdd(days, years[i].days, 'Calendar day offset');
 
   const yearIndex = mod(calendar.epoch.year_cycle_index + mod(yearOffset, cycleLength), cycleLength);
+  if (Object.hasOwn(date, 'year_cycle_index') && date.year_cycle_index !== yearIndex) {
+    fail('CALENDAR_YEAR_CYCLE_INDEX_MISMATCH', 'Calendar date year_cycle_index does not match year_number.');
+  }
   const targetYear = calendar.year_cycle[yearIndex];
   const monthId = nonEmptyString(date.month_id, 'date.month_id');
   const monthIndex = targetYear.months.findIndex((month) => month.id === monthId);
