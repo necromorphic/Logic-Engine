@@ -4,6 +4,7 @@ import { SQLiteStore } from './storage/sqlite-store.js';
 import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
+import { parseHealthAllowedOrigins } from './api/health-cors.js';
 
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
@@ -81,6 +82,7 @@ const hostVersionLedger = new HostVersionDigestLedger({
 const server = createApiServer({
   engine: new LogicEngine(store), token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
+  healthAllowedOrigins: parseHealthAllowedOrigins(process.env.ENGINE_HEALTH_ALLOWED_ORIGINS || ''),
 });
 server.listen(port, host, () => process.stdout.write(
   'Logic-Engine API listening on http://' + host + ':' + port + '\nDatabase: ' + dbPath +
