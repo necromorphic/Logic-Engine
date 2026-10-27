@@ -1,4 +1,5 @@
 import { EngineError, assert } from '../core/errors.js';
+import { canonicalEntitySourceVersion } from './canonical-entity-source-version.js';
 
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = (value) => typeof value === 'string' && value === value.trim() && value.length > 0 && value.length <= 200;
@@ -184,7 +185,10 @@ export class AuthorizedReadService {
 
     let snapshot;
     try {
-      snapshot = this.engine.getSnapshot(request.worldId, { entityIds: request.entityIds });
+      snapshot = this.engine.getSnapshot(request.worldId, {
+        entityIds: request.entityIds,
+        ...(request.fields.includes('source_version') ? { includeSourceVersions: true } : {}),
+      });
     } catch (error) {
       if (error?.code === 'ENTITY_NOT_FOUND') throw unavailable();
       throw error;
@@ -202,6 +206,14 @@ export class AuthorizedReadService {
     for (const entity of snapshot.entities) {
       const disclosed = {};
       for (const field of request.fields) {
+        // The source version is provenance metadata used to reject stale Memory
+        // candidates; it is not a content field and does not grant field access.
+        if (field === 'source_version') {
+          const sourceVersion = canonicalEntitySourceVersion(entity);
+          if (sourceVersion === null) throw unavailable();
+          disclosed.source_version = sourceVersion;
+          continue;
+        }
         let allowed = false;
         try {
           allowed = this.fieldPolicy(context, Object.freeze({ ...entity }), field) === true;
@@ -209,7 +221,6 @@ export class AuthorizedReadService {
           allowed = false;
         }
         if (!allowed) continue;
-
         if (field === 'entity_id' || field === 'entity_type' || field === 'status') {
           if (Object.hasOwn(entity, field)) disclosed[field] = entity[field];
           continue;
@@ -223,7 +234,8 @@ export class AuthorizedReadService {
       }
       // Do not return a partial target set: missing and fully withheld targets
       // share one external failure shape, preventing simple existence probing.
-      if (Object.keys(disclosed).length === 0) throw unavailable();
+      // Provenance-only metadata must not turn a fully withheld target into an existence oracle.
+      if (Object.keys(disclosed).length === 0 || Object.keys(disclosed).every((field) => field === 'source_version')) throw unavailable();
       entities.push(disclosed);
     }
 
