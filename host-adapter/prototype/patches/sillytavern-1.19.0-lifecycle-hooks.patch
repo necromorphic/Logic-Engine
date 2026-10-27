@@ -644,7 +644,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,912 @@
+@@ -0,0 +1,1041 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
