@@ -40,7 +40,7 @@ function assertDenseDataArray(value, maxLength, code, label) {
 function readPath(root, path) {
   if (typeof path !== 'string' || !path || path.length > 256
     || path.split('.').some((key) => !key || UNSAFE_PATH_SEGMENTS.has(key))) {
-    throw new EngineError('INVALID_RULE_PATH', 'Unsafe, empty, or overlong rule path (maximum 256 characters).');
+    throw new EngineError('INVALID_RULE_PATH', 'Unsafe or empty rule path; paths may not exceed 256 characters.');
   }
 
   let value = root;
