@@ -5,6 +5,7 @@ on:
     branches:
       - work/provider-accepted-head-read-gate-2026-10-27
       - work/provider-accepted-head-read-gate-retest-2026-10-27
+      - work/provider-accepted-head-read-gate-windows-2026-10-27
       - work/core-accepted-head-read-gate-2026-10-27
 
 permissions:
@@ -16,7 +17,7 @@ concurrency:
 
 jobs:
   provider-read-gate:
-    if: contains(fromJSON('["work/provider-accepted-head-read-gate-2026-10-27","work/provider-accepted-head-read-gate-retest-2026-10-27"]'), github.ref_name)
+    if: contains(fromJSON('["work/provider-accepted-head-read-gate-2026-10-27","work/provider-accepted-head-read-gate-retest-2026-10-27","work/provider-accepted-head-read-gate-windows-2026-10-27"]'), github.ref_name)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
