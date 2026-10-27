@@ -644,7 +644,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1346 @@
+@@ -0,0 +1,1349 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -1121,6 +1121,11 @@ new file mode 100644
 +            if (UNSUPPORTED_ENROLLED_MUTATIONS.has(operation)) {
 +                return fail(response, 'HOST_MUTATION_PATH_NOT_PROVEN', 503);
 +            }
++            const coreConfigured = Boolean(process.env.LOGIC_ENGINE_CORE_URL && process.env.LOGIC_ENGINE_API_TOKEN
++                && process.env.LOGIC_ENGINE_ADAPTER_ID && process.env.LOGIC_ENGINE_ADAPTER_TOKEN);
++            if (requirePersistedInventory && !coreConfigured) {
++                return fail(response, 'CORE_HOST_INVENTORY_CONFIGURATION_MISSING', 503);
++            }
 +            paths = await statePaths(request);
 +        } catch {
 +            return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
@@ -1137,8 +1142,6 @@ new file mode 100644
 +                release();
 +                return fail(response, 'HOST_JOURNAL_RECONCILIATION_REQUIRED');
 +            }
-+            const coreConfigured = Boolean(process.env.LOGIC_ENGINE_CORE_URL && process.env.LOGIC_ENGINE_API_TOKEN
-+                && process.env.LOGIC_ENGINE_ADAPTER_ID && process.env.LOGIC_ENGINE_ADAPTER_TOKEN);
 +            before = await scanMutationSnapshot(paths, registry, requirePersistedInventory, coreConfigured);
 +            if (!before.complete) {
 +                release();
