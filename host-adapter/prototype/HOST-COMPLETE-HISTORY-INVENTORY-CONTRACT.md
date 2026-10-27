@@ -79,7 +79,7 @@ For each intercepted operation it requires a complete persisted-state scan and a
 
 The snapshot endpoint enumerates four server-supplied roots: `directories.chats`, `directories.groups`, `directories.groupChats`, and `directories.backups`. Group metadata and group-chat JSONL are separate roots and both are required.
 
-This closes the known browser-only bypass for the listed routes in the pinned patch, but it does **not** establish an authoritative all-time history:
+For an installation that sets `LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE=true`, an allowlisted mutation fails closed if the enrollment state directory or enrollment record is missing; an enrolled journal cannot silently restart as an empty history. Without that explicit strict-mode setting, a missing state directory is treated as an unenrolled installation and the middleware passes through. The state directory and ledger remain in the same Host rollback domain, so strict mode is a fail-closed guard against missing local state, **not** an independent anti-rollback trust anchor. The patch intercepts only the explicit allowlist and does not prove that every mutation route or indirect filesystem side effect is covered. It does **not** establish an authoritative all-time history:
 - The journal is local to the same user storage/rollback domain; the hash chain is not an external anti-rollback trust anchor.
 - A process or storage failure after the underlying mutation but before durable outcome leaves an unresolved intent and blocks later managed mutations; it cannot roll back the underlying filesystem mutation.
 - Character/group renames, imports, copies, restores, and Data Maid deletion are recorded as observed artifact changes; this patch does not claim authenticated parent-child lineage or infer semantic identity across those changes.
@@ -98,6 +98,7 @@ This closes the known browser-only bypass for the listed routes in the pinned pa
 
 - The candidate server middleware maps the listed chat/group/backup/Data Maid mutation routes, but complete coverage of indirect filesystem effects, restore/migration paths, and every server entry point is not proven.
 - No external anti-rollback trust anchor is currently established.
+- Strict enforcement must be enabled by the operator with `LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE=true`; no live installation is configured or verified here. If the operator disables strict mode or rolls back server configuration together with local state, the current Host-only design cannot independently detect that rollback.
 - Current files cannot reconstruct versions deleted before enrollment or before inventory capture.
 - No approved contract presently establishes authenticated lineage for branch/import/restore.
 - No live Android/Termux deployment evidence is claimed.
