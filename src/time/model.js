@@ -180,7 +180,7 @@ export function createCalendarDefinition(input) {
       fail('DUPLICATE_MONTH_ID', 'Month ids must be unique within each year-cycle entry.');
     }
     const days = sumSafe(months.map((month) => month.days), 'Year length');
-    if (year.days !== undefined && year.days !== days) {
+    if (Object.hasOwn(year, 'days') && year.days !== days) {
       fail('INVALID_CALENDAR_YEAR', 'Derived year days must equal the sum of its month lengths.');
     }
     return {
