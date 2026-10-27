@@ -103,6 +103,36 @@ test('node identifiers are not accepted as changed-input coordinates', () => {
 });
 
 
+
+test('B rejects an incomplete prior projection instead of returning ready with missing nodes', () => {
+  assert.throws(
+    () => runRecalculation({
+      inputs: { left: 2, right: 3 },
+      nodes: [
+        { id: 'left_result', dependsOn: ['left'], evaluate: ({ read }) => read('left') * 2 },
+        { id: 'right_result', dependsOn: ['right'], evaluate: ({ read }) => read('right') * 2 },
+      ],
+      strategy: 'B',
+      changedInputs: ['left'],
+      previousValues: { right_result: 6 },
+    }),
+    /MISSING_PREVIOUS_NODE_VALUE:left_result/,
+  );
+});
+
+test('C rejects cache entries for node IDs absent from the current graph', () => {
+  assert.throws(
+    () => runRecalculation({
+      inputs: { hp: 10 },
+      nodes: [{ id: 'effect', dependsOn: ['hp'], evaluate: ({ read }) => read('hp') - 1 }],
+      strategy: 'C',
+      changedInputs: [],
+      previousValues: { effect: 9, deleted_node: 'stale' },
+    }),
+    /UNKNOWN_PREVIOUS_NODE_VALUE:deleted_node/,
+  );
+});
+
 test('A full recomputation drops stale values for nodes absent from the current graph', () => {
   const result = runRecalculation({
     inputs: { hp: 10 },
