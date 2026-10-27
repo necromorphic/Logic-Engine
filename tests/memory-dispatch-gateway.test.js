@@ -464,6 +464,42 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
   }
 });
 
+test('gateway rejects an async transport callback before invoking any transport code', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-dispatch-async-transport-reject-'));
+  try {
+    assert.throws(() => new MemoryDispatchGateway({
+      ledgerPath: join(directory, 'ledger.sqlite'),
+      coordinatorPath: join(directory, 'coordinator.sqlite'),
+      authorityPort: 1,
+      readToken,
+      readCoreEvidence: () => ({}),
+      readProviderEvidence: () => ({}),
+      sendUpstream: async () => ({ status: 200 }),
+    }), /synchronous transport-start callback/);
+    assert.equal(existsSync(join(directory, 'ledger.sqlite')), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('transport initiation occurs synchronously before dispatch returns control to the caller', async () => {
+  const order = [];
+  const fixture = await createFixture({
+    sendUpstream: () => {
+      order.push('transport-start');
+      return { started: true, response: Promise.resolve({ status: 200 }) };
+    },
+  });
+  try {
+    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('sync-start-order'));
+    order.push('caller-resumed');
+    assert.deepEqual(order, ['transport-start', 'caller-resumed']);
+    await pending;
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('existing dispatch ledger with missing schema fails closed without auto-repair', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-dispatch-ledger-schema-'));
   const ledgerPath = join(directory, 'ledger.sqlite');
