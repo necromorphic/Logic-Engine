@@ -194,7 +194,10 @@ export class SQLiteMemoryProvider {
         this.db.exec('ALTER TABLE provider_authority_state ADD COLUMN bootstrap_head INTEGER');
       }
       const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
-      if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+      if (!stateColumns.some((column) => column.name === 'failure_code')) {
+        if (this.acceptedHead) throw new Error('MEMORY_ACCEPTED_HEAD_SCHEMA_MIGRATION_REQUIRED');
+        this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+      }
       if (this.acceptedHead) this.#initializeAcceptedHead();
     } catch (error) {
       startupError = error;
