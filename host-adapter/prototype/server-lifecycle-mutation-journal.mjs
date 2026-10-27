@@ -645,7 +645,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                     }
                     try {
                         await publishCoreInventorySnapshot(before, after, { requirePersistedInventory });
-                        after = await scanMutationSnapshot(paths, registry, requirePersistedInventory, true);
+                        after = await scanMutationSnapshot(paths, registry, requirePersistedInventory, requirePersistedInventory && coreConfigured);
                         if (!after.complete) {
                             const code = after.errors?.[0] ?? after.conversationInventory?.errors?.[0] ?? 'CORE_HOST_INVENTORY_UNAVAILABLE';
                             const hash = await appendRecord(paths.journalPath, chain.lastHash, {
