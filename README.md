@@ -8,7 +8,7 @@
 >
 > **Состояние проекта:** существует исполняемый прототип с HTTP API, SQLite-журналом событий, базовыми сущностями и фактами, идемпотентностью, аудитом, ограниченным причинным откатом, версионируемым реестром механик и базовым жизненным циклом предложений. В репозитории также есть отдельные инфраструктурные срезы для отношений и авторизованного чтения. Это ещё не завершённая автономная симуляция и не готовая интеграция с SillyTavern.
 >
-> **Memory → NPC: есть работающие и протестированные отдельные части, но production-путь не готов.** В draft PR [#487](https://github.com/necromorphic/Logic-Engine/pull/487) на точном HEAD `1089eaaf10c63b3a5378e8eccd46f802ef5d2168` пройдены проверки ветки: Runtime 819/819, recalculation oracle 8/8 и NPC boundary 81/81. Это подтверждает тестируемую защиту привязки кандидатов памяти к версиям источников в этой ветке; тестовый reader остаётся fixture, а PR не влит. Полный Host → Provider → Core → NPC путь, сборка финального тела запроса на стороне сервера SillyTavern, production readers, сериализация отзыва/отправки и целевые Windows ACL/backup/restore доказательства ещё не подтверждены.
+> **Memory → NPC: отдельные части проверены, production-путь не готов.** Core source-version ledger PR [#509](https://github.com/necromorphic/Logic-Engine/pull/509) (`6234deecc7740d0417097df0c827789c76c49061`) прошёл Runtime 812/812, oracle 8/8 и NPC boundary 81/81; consolidated Core readback PR [#521](https://github.com/necromorphic/Logic-Engine/pull/521) (`9efc12e8dacef094851abf3b3b19d9a25d0f081f`) прошёл Runtime + oracle + NPC boundary; Provider→Core PR [#504](https://github.com/necromorphic/Logic-Engine/pull/504) (`791c52eb994011cbb0474ab48895413be3a1aef0`) прошёл Runtime 817/817, oracle 8/8 и NPC boundary. Host inventory PR [#510](https://github.com/necromorphic/Logic-Engine/pull/510) (`4154ce0c6667e49869f4f5bcb165e1d21dcd62bb`) прошёл пять workflow: pinned-source audit, patch validation, browser IndexedDB restart, lifecycle patch check и Runtime. Все эти PR остаются draft и не слиты. Это CI/patch evidence, не доказательство production-интеграции, установленного SillyTavern или Android/Termux.
 >
 > **Production Memory → NPC остаётся DISABLED / FAIL-CLOSED.** Не включать его на основании только Provider-local тестов или успешного CI отдельной ветки. Host authoritative inventory полного набора активных, исторических и удалённых версий пока не доказан; Android/Termux persistence и проверка отзыва доступа непосредственно перед раскрытием также не подтверждены.
 
@@ -31,7 +31,7 @@
 
 | Показатель | Оценка | Что это означает |
 |---|---:|---|
-| Техническая реализация отдельных частей | **55%** | Есть Provider-операции, ограниченные Core/NPC seams и протестированная в PR #487 привязка кандидатов к точным версиям источников. |
+| Техническая реализация отдельных частей | **55% (оценка не пересчитывалась)** | Добавлены Core-owned `core-entity-v1:N` source tokens, Provider-проверка токена на обеих авторизационных границах и регрессия rollback; PR #509/#521/#504 проверены CI, но не слиты. Host inventory PR #510 проверен CI, однако его runtime verifier намеренно всегда возвращает `false`. |
 | Production readiness | **0% — BLOCKED** | Реальный путь от SillyTavern до финальной отправки не доказан; включение запрещено до закрытия обязательных gates. |
 
 Горизонтальная полоса для интеграции:
@@ -42,15 +42,17 @@
 
 **Что уже подтверждено**
 - Provider умеет выполнять ограниченные операции с записями и доступом; соответствующие тесты подтверждают только Provider-local поведение.
-- В PR #487 тестируется привязка точных `record_ref` / `record_version` к каноническому источнику; несовпадение в тестируемом gateway приводит к нулю upstream-вызовов.
-- На указанном HEAD PR #487 пройдены Runtime 819/819, recalculation oracle 8/8 и NPC boundary 81/81.
+- В PR [#509](https://github.com/necromorphic/Logic-Engine/pull/509) и [#521](https://github.com/necromorphic/Logic-Engine/pull/521) реализована кандидатная цепочка Core-owned per-entity source version ledger + readback; CI прошёл на точных HEAD.
+- В PR [#504](https://github.com/necromorphic/Logic-Engine/pull/504) Provider сохраняет и проверяет точный `source_version`; CI прошёл на HEAD `791c52eb994011cbb0474ab48895413be3a1aef0` (817/817 Runtime tests, oracle 8/8, NPC boundary passed).
+- В PR [#510](https://github.com/necromorphic/Logic-Engine/pull/510) прошли пять workflow на HEAD `4154ce0c6667e49869f4f5bcb165e1d21dcd62bb`; это patch/source/fixture evidence, не live-host доказательство.
+- Gateway dispatch prototypes [#500/#505/#508](https://github.com/necromorphic/Logic-Engine/pull/500) проверяют отдельные части подписи, accepted-head и lock ordering, но реальный финальный SillyTavern egress не привязан к gateway.
 
 **Что мешает включению**
 1. Серверная сборка окончательного тела запроса на закреплённом маршруте SillyTavern и доказательство соответствия текста точным кандидатам памяти.
 2. Реальные доверенные read-only readers для Core и Provider вместо тестовых fixtures.
 3. Проверка отзыва/изменения доступа, синхронизированная с началом отправки, и доказательство отсутствия обходного пути.
 4. Доказательства для целевого развёртывания: идентичность службы, ACL базы и файлов WAL/SHM, резервное копирование и восстановление.
-5. Авторитетный Host inventory, включающий версии и изменения, которые уже удалены или не попали в обычные события.
+5. Авторитетный Host inventory, включающий версии и изменения, которые уже удалены или не попали в обычные события. В PR #510 `src/index.js` намеренно передаёт `verifyInventorySnapshot: async () => false`; в runtime нет доказанного пути complete-inventory reconciliation, поэтому Host inventory не может перейти в READY.
 
 Проценты не означают, что соответствующий модуль завершён. Статус **BLOCKED** важнее числовой оценки: production Memory → NPC не включать до закрытия [issue #264](https://github.com/necromorphic/Logic-Engine/issues/264) и проверки доказательств на реальном пути.
 
