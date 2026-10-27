@@ -94,3 +94,24 @@ test('rejected import leaves no record behind', (t) => {
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
     .get(scope.world_id).count, 0);
 });
+
+
+test('provider rejects executable extra lineage fields before persistence', (t) => {
+  const { provider, record, scope, db } = setup(t);
+  let toJSONCalled = false;
+  const lineageEntry = {
+    ...record.lineage[0],
+    toJSON() {
+      toJSONCalled = true;
+      return this;
+    },
+  };
+
+  assert.throws(
+    () => provider.putRecord({ ...record, lineage: [lineageEntry] }),
+    /Invalid direct-source Memory record/,
+  );
+  assert.equal(toJSONCalled, false, 'caller-owned serialization hooks must not execute');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+    .get(scope.world_id).count, 0, 'rejected lineage must not be persisted');
+});
