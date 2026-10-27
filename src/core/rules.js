@@ -26,7 +26,9 @@ function isJsonValue(value, active = new WeakSet()) {
   if (typeof value !== 'object') return false;
 
   const isArray = Array.isArray(value);
-  if (!isArray) {
+  if (isArray) {
+    if (Object.getPrototypeOf(value) !== Array.prototype) return false;
+  } else {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
   }
@@ -36,9 +38,13 @@ function isJsonValue(value, active = new WeakSet()) {
   try {
     if (isArray) {
       for (let index = 0; index < value.length; index += 1) {
-        if (!Object.hasOwn(value, index) || !isJsonValue(value[index], active)) return false;
+        const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+        if (!descriptor || !Object.hasOwn(descriptor, 'value') || !isJsonValue(descriptor.value, active)) return false;
       }
-      return Object.keys(value).every((key) => key === 'length' || /^(0|[1-9][0-9]*)$/.test(key));
+      const keys = Object.keys(value);
+      return keys.length === value.length
+        && keys.every((key) => Number.isInteger(Number(key)) && Number(key) >= 0
+          && Number(key) < value.length && String(Number(key)) === key);
     }
 
     return Object.keys(value).every((key) => {
