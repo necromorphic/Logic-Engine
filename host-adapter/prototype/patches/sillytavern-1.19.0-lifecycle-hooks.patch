@@ -501,7 +501,7 @@ new file mode 100644
 +import express from 'express';
 +import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
 +import { scanHostArtifactRoots } from './logic-engine-host-inventory.mjs';
-+import { registerHostConversation } from './logic-engine-host-journal.mjs';
++import { getHostMutationJournalStatus, reconcileHostMutation, registerHostConversation } from './logic-engine-host-journal.mjs';
 +
 +export const router = express.Router();
 +router.post('/host-version-ledger/capture', createHostDigestProxyHandler());
@@ -516,6 +516,27 @@ new file mode 100644
 +            ? error.message
 +            : 'HOST_ENROLLMENT_UNAVAILABLE';
 +        return response.status(code === 'HOST_ENROLLMENT_UNAVAILABLE' ? 503 : 400).json({ error: { code } });
++    }
++});
+++
++router.post('/host-lifecycle/status', async (request, response) => {
++    try {
++        return response.status(200).json(await getHostMutationJournalStatus(request));
++    } catch {
++        return response.status(503).json({ error: { code: 'HOST_JOURNAL_UNAVAILABLE' } });
++    }
++});
++
++// Explicit human acknowledgement only; this records a gap and never restores READY.
++router.post('/host-lifecycle/reconcile', async (request, response) => {
++    try {
++        const result = await reconcileHostMutation(request, request.body ?? {});
++        return response.status(200).json(result);
++    } catch (error) {
++        const code = typeof error?.message === 'string' && error.message.startsWith('HOST_RECONCILIATION_')
++            ? error.message
++            : 'HOST_RECONCILIATION_UNAVAILABLE';
++        return response.status(code === 'HOST_RECONCILIATION_UNAVAILABLE' ? 503 : 400).json({ error: { code } });
 +    }
 +});
 +
