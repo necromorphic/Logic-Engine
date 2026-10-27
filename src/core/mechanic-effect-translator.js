@@ -82,11 +82,10 @@ function exactKeys(value, allowed, label) {
 }
 
 function stringList(value, label) {
-  if (!Array.isArray(value) || value.length > 128) {
-    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be an array of at most 128 non-empty strings.');
-  }
+  jsonArray(value, label, 128);
   const seen = new Set();
-  for (const item of value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const item = Object.getOwnPropertyDescriptor(value, String(index)).value;
     if (typeof item !== 'string' || !item.trim() || item.length > MAX_ID || seen.has(item.trim())) {
       fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must contain unique, non-empty strings of at most 200 characters.');
     }
@@ -115,21 +114,24 @@ function cloneJson(value, label, active = new Set(), budget = { nodes: 0 }, dept
   active.add(value);
   let result;
   if (Array.isArray(value)) {
-    if (value.length > MAX_CONTAINER_ITEMS) {
-      fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded array length.');
+    jsonArray(value, label, MAX_CONTAINER_ITEMS);
+    result = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const item = Object.getOwnPropertyDescriptor(value, String(index)).value;
+      result.push(cloneJson(item, label + '[' + index + ']', active, budget, depth + 1));
     }
-    result = value.map((item, index) => cloneJson(item, label + '[' + index + ']', active, budget, depth + 1));
   } else {
     object(value, label);
-    const entries = Object.entries(value);
-    if (entries.length > MAX_CONTAINER_ITEMS) {
+    const keys = Object.keys(value);
+    if (keys.length > MAX_CONTAINER_ITEMS) {
       fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded object field count.');
     }
     result = {};
-    for (const [key, item] of entries) {
+    for (const key of keys) {
       if (UNSAFE_OBJECT_KEYS.has(key)) {
         fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' contains an unsafe object key: ' + key + '.');
       }
+      const item = Object.getOwnPropertyDescriptor(value, key).value;
       Object.defineProperty(result, key, { value: cloneJson(item, label + '.' + key, active, budget, depth + 1), enumerable: true, writable: true, configurable: true });
     }
   }
