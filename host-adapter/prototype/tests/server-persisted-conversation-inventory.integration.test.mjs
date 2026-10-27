@@ -64,7 +64,7 @@ test('server inventory reads registered persisted chat and returns only version 
         { message_id: messageId, version_id: activeVersionId, content_sha256: digest('active secret'), active: true, deleted: false },
       ],
     } }) });
-    const result = await getHostConversationInventory(request);
+    const result = await getHostConversationInventory(request, { requireCoreInventory: true });
     assert.equal(result.status, 'ENROLLMENT_FORWARD_ONLY_OBSERVED_INVENTORY_NON_AUTHORITATIVE');
     assert.equal(result.complete, true);
     assert.equal(result.conversationCount, 1);
