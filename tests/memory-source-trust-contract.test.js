@@ -88,21 +88,35 @@ test('rollback invalidates READS_SOURCE dependents even when commit_sequence doe
   assert.equal(dependentRow.validity, 'invalidated');
 });
 
-test('authorized source read rejects the pre-rollback snapshot when sequence is unchanged', (t) => {
+test('authorized read rejects the pre-rollback snapshot when sequence is unchanged', (t) => {
   const { store, engine, bindings } = setup(t);
   const source = engine.commitEvent('source-trust-world', {
-    idempotency_key: 'source-trust-readable-source',
-    turn_id: 'source-trust-readable-source',
+    idempotency_key: 'source-trust-independent-source',
+    turn_id: 'source-trust-independent-source',
+    event_type: 'action.completed',
+    expected_revision: engine.getState('source-trust-world').world_revision,
+    effects: [{
+      kind: 'entity.create',
+      entity_id: 'source-trust-independent-marker',
+      entity_type: 'object',
+      attributes: { marker: 'source version' },
+    }],
+  });
+  assert.equal(source.accepted, true);
+
+  const target = engine.commitEvent('source-trust-world', {
+    idempotency_key: 'source-trust-still-readable-target',
+    turn_id: 'source-trust-still-readable-target',
     event_type: 'action.completed',
     expected_revision: engine.getState('source-trust-world').world_revision,
     effects: [{
       kind: 'entity.create',
       entity_id: 'source-trust-readable-target',
       entity_type: 'character',
-      attributes: { name: 'Must not be returned' },
+      attributes: { name: 'Must not be returned from a stale snapshot' },
     }],
   });
-  assert.equal(source.accepted, true);
+  assert.equal(target.accepted, true);
 
   const snapshot = engine.getSnapshot('source-trust-world', {
     entityIds: ['source-trust-readable-target'],
@@ -113,7 +127,7 @@ test('authorized source read rejects the pre-rollback snapshot when sequence is 
 
   const result = engine.rollbackEvent('source-trust-world', {
     root_event_id: source.event_id,
-    idempotency_key: 'source-trust-readable-rollback',
+    idempotency_key: 'source-trust-independent-rollback',
   });
   assert.equal(result.accepted, true);
   assert.equal(store.currentCommitSequence('source-trust-world'), sequenceBefore);
