@@ -60,13 +60,5 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Run accepted-head authority ACL disposable-fixture smoke
         shell: powershell
-        run: |
-          $ErrorActionPreference = 'Stop'
-          if (-not (Test-Path -LiteralPath '.github/workflows/windows-accepted-head-authority-acl.yml')) {
-            throw 'Expected ACL smoke fixture workflow file is missing.'
-          }
-          # Reuse the exact PowerShell smoke script embedded in the candidate workflow
-          # by invoking the workflow's dedicated test entry point after extracting its
-          # run block is not safe. The actual fixture is kept in the workflow below.
-          Write-Output 'Windows runner is available; dedicated ACL fixture workflow is present.'
+        run: .\scripts\security\Test-AcceptedHeadAuthorityAcl.ps1
 
