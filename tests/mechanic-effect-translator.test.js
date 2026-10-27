@@ -458,6 +458,46 @@ test('nested JSON rejects prototype-pollution keys and symbol-bearing arrays', (
   assert.equal(Object.prototype.polluted, undefined);
 });
 
+test('effect translation rejects array index accessors without executing them', () => {
+  let getterCalls = 0;
+
+  const accessorBatch = [];
+  Object.defineProperty(accessorBatch, '0', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      return intent();
+    },
+  });
+  accessorBatch.length = 1;
+
+  const accessorNestedArray = [];
+  Object.defineProperty(accessorNestedArray, '0', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      return 'value';
+    },
+  });
+  accessorNestedArray.length = 1;
+
+  assert.throws(
+    () => translateMechanicEffectIntents(accessorBatch),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+  assert.throws(
+    () => translateMechanicEffectIntents([intent({
+      kind: 'assert_fact',
+      target_ref: 'fact.example',
+      payload: { predicate: 'p', value: accessorNestedArray },
+    })]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+  assert.equal(getterCalls, 0);
+});
+
 test('nested fact values reject JavaScript values outside the JSON data model', () => {
   const customPrototype = Object.create({ inherited: true });
   customPrototype.own = 'value';
