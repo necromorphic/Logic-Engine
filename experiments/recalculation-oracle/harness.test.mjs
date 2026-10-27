@@ -25,6 +25,7 @@ test('B recomputes the transitive dependent closure for a declared dependency', 
     strategy: 'B',
     changedInputs: ['hp'],
     previousValues: { branch: 'infected', effect: 8, summary: 'result:8' },
+    invariants: [({ inputs, values }) => values.effect === (inputs.infected ? inputs.hp - 2 : inputs.mana + 1)],
     dependencyGraphVerified: true,
   });
   assert.equal(result.status, 'ready');
@@ -187,6 +188,7 @@ test('changing a branch selector recomputes the selector and its full dependent 
     strategy: 'B',
     changedInputs: ['infected'],
     previousValues: { branch: 'infected', effect: 8, summary: 'result:8' },
+    invariants: [({ inputs, values }) => values.effect === (inputs.infected ? inputs.hp - 2 : inputs.mana + 1)],
     dependencyGraphVerified: true,
   });
   assert.deepEqual(result.executed, ['branch', 'effect', 'summary']);
@@ -276,8 +278,23 @@ test('B may report ready only when graph completeness is explicitly attested and
     strategy: 'B',
     changedInputs: ['hp'],
     previousValues: { effect: 9 },
+    invariants: [({ inputs, values }) => values.effect === inputs.hp - 1],
     dependencyGraphVerified: true,
   });
   assert.equal(result.status, 'ready');
   assertProjection(result.values, { effect: 5 });
+});
+
+
+test('B remains needs_review when graph is attested but no independent invariant is supplied', () => {
+  const result = runRecalculation({
+    inputs: { hp: 6 },
+    previousInputs: { hp: 10 },
+    nodes: [{ id: 'effect', dependsOn: ['hp'], evaluate: ({ read }) => read('hp') - 1 }],
+    strategy: 'B',
+    changedInputs: ['hp'],
+    previousValues: { effect: 9 },
+    dependencyGraphVerified: true,
+  });
+  assert.equal(result.status, 'needs_review');
 });
