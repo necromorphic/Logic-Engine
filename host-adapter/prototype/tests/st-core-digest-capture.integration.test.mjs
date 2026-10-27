@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { once } from 'node:events';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { createHash, randomUUID } from 'node:crypto';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { SQLiteStore } from '../../../src/storage/sqlite-store.js';
@@ -10,15 +11,46 @@ import { HostVersionDigestLedger } from '../../../src/application/host-version-d
 import { SQLiteMemoryProvider } from '../../../src/application/sqlite-memory-provider.js';
 import { createApiServer } from '../../../src/api/server.js';
 import { createHostDigestProxyHandler } from '../st-server-digest-proxy.mjs';
+import { getHostConversationInventory, recordHostCaptureAcknowledgement, recordHostCaptureConflict, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
 
 const API_TOKEN = 'integration-api-token-long-enough';
 const ADMIN_TOKEN = 'integration-admin-token-long-enough';
 const ADAPTER_TOKEN = 'integration-adapter-token-long-enough';
-const digest = (character) => character.repeat(64);
+const digest = value => createHash('sha256').update(JSON.stringify(String(value))).digest('hex');
 const json = (value) => JSON.stringify(value);
 
 test('real Host → Core → Provider path preserves digest-only capture and fails closed on non-ready inventory', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'st-core-digest-capture-'));
+  const hostDirectories = {
+    chats: join(directory, 'chats'),
+    groups: join(directory, 'groups'),
+    groupChats: join(directory, 'group_chats'),
+    backups: join(directory, 'backups'),
+  };
+  for (const root of Object.values(hostDirectories)) mkdirSync(root, { recursive: true });
+  const conversationUuid = randomUUID();
+  const installationUuid = randomUUID();
+  const conversationId = installationUuid + ':' + conversationUuid;
+  const messageId = randomUUID();
+  const versionId = randomUUID();
+  const persistedText = 'a';
+  const hostRequest = { user: { profile: { handle: 'host-proxy-integration' }, directories: hostDirectories } };
+  writeFileSync(join(hostDirectories.chats, 'chat-a.jsonl'), [
+    JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }),
+    JSON.stringify({
+      mes: persistedText,
+      swipes: [persistedText],
+      swipe_id: 0,
+      _logicEngineLifecycle: {
+        messageId,
+        activeVersionIndex: 0,
+        versions: [{ versionId, payloadDigest: digest(persistedText), parentVersionId: null }],
+      },
+    }),
+  ].join('\\n') + '\\n');
+  await registerHostConversation(hostRequest, {
+    conversationId, sourceLocator: 'chat-a', sourcePath: 'chat-a.jsonl', domain: 'chats',
+  });
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   engine.createWorld({
@@ -60,7 +92,7 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
     },
     body: json({
       adapter_id: 'st-desktop',
-      conversation_id: 'stable-host-conversation',
+      conversation_id: conversationId,
       world_id: 'host-proxy-integration-world',
     }),
   });
@@ -73,9 +105,17 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
     LOGIC_ENGINE_ADAPTER_TOKEN: ADAPTER_TOKEN,
   };
   const acceptedCaptures = [];
+  const rejectedCaptures = [];
   const handler = createHostDigestProxyHandler({
     env,
-    onAcceptedCapture: async (_request, capture) => { acceptedCaptures.push(capture); },
+    onAcceptedCapture: async (request, capture) => {
+      await recordHostCaptureAcknowledgement(request, capture);
+      acceptedCaptures.push(capture);
+    },
+    onRejectedCapture: async (request, capture, status) => {
+      await recordHostCaptureConflict(request, capture, status);
+      rejectedCaptures.push(capture);
+    },
   });
   const invoke = async (body) => {
     const response = {
@@ -84,23 +124,26 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
       status(code) { this.statusCode = code; return this; },
       json(value) { this.body = value; return this; },
     };
-    await handler({ body }, response);
+    await handler({ ...hostRequest, body }, response);
     return response;
   };
 
   const capture = await invoke({
-    conversation_id: 'stable-host-conversation',
-    message_id: 'message-1',
-    version_id: 'version-1',
-    content_sha256: digest('a'),
+    conversation_id: conversationId,
+    message_id: messageId,
+    version_id: versionId,
+    content_sha256: digest(persistedText),
     active: true,
     deleted: false,
   });
   assert.equal(capture.statusCode, 201);
   assert.deepEqual(capture.body, { ok: true, inventory_status: 'NON_READY' });
   assert.equal(acceptedCaptures.length, 1, 'local journal acknowledgement follows accepted Core capture');
-  assert.equal(acceptedCaptures[0].message_id, 'message-1');
+  assert.equal(acceptedCaptures[0].message_id, messageId);
   assert.equal(acceptedCaptures[0].deleted, false);
+  const currentInventory = await getHostConversationInventory(hostRequest);
+  assert.equal(currentInventory.complete, true);
+  assert.equal(currentInventory.versionCount, 1);
 
   const stored = ledger.db.prepare(
     'SELECT world_id, conversation_id, message_id, version_id, content_sha256, lifecycle FROM host_version_digest_ledger',
@@ -115,9 +158,9 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
   }]);
 
   const conflict = await invoke({
-    conversation_id: 'stable-host-conversation',
-    message_id: 'message-1',
-    version_id: 'version-1',
+    conversation_id: conversationId,
+    message_id: messageId,
+    version_id: versionId,
     content_sha256: digest('b'),
     active: true,
     deleted: false,
@@ -125,6 +168,10 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
   assert.equal(conflict.statusCode, 409);
   assert.equal(conflict.body.error.code, 'LOGIC_ENGINE_CAPTURE_REJECTED');
   assert.equal(acceptedCaptures.length, 1, 'conflicting capture must not be journaled as accepted');
+  assert.equal(rejectedCaptures.length, 1, 'Core conflict must be recorded as a durable blocker');
+  const conflictedInventory = await getHostConversationInventory(hostRequest);
+  assert.equal(conflictedInventory.complete, false);
+  assert.ok(conflictedInventory.errors.includes('CORE_CAPTURE_CONFLICT_RECORDED'));
   assert.equal(ledger.getInventoryState('host-proxy-integration-world', 'stable-host-conversation').status, 'NON_READY');
 
   // Exercise the actual SQLite Memory Provider against the Core-owned Host
@@ -134,7 +181,7 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
     getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
     validateSourceVersion: async () => true,
     validateInventory: async (worldId) =>
-      ledger.getInventoryState(worldId, 'stable-host-conversation')?.status === 'READY',
+      ledger.getInventoryState(worldId, conversationId)?.status === 'READY',
   });
   t.after(() => memoryProvider.close());
   const scope = {
@@ -165,6 +212,6 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
     () => memoryProvider.retrieveCandidates(scope),
     /MEMORY_INDEX_NOT_READY/,
   );
-  assert.equal(JSON.stringify(capture.body).includes('message-1'), false);
+  assert.equal(JSON.stringify(capture.body).includes(messageId), false);
   assert.equal(JSON.stringify(conflict.body).includes('integration-api-token'), false);
 });
