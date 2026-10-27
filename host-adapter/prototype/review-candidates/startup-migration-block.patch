@@ -1,7 +1,7 @@
 diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 --- a/src/endpoints/groups.js
 +++ b/src/endpoints/groups.js
-@@ -12,5 +12,150 @@
+@@ -12,5 +12,166 @@
  export const router = express.Router();
  
 +const HOST_STATE_DIRECTORY = '.logic-engine-host';
@@ -109,14 +109,30 @@ diff --git a/src/endpoints/groups.js b/src/endpoints/groups.js
 +
 +            for (const chatId of groupData.chats) {
 +                const chatFileName = sanitize(`${chatId}.jsonl`);
-+                if (!chatFileNames.has(chatFileName)) continue;
++                if (!chatFileNames.has(chatFileName)) {
++                    // A missing file referenced by a group may still be enrolled;
++                    // treat it as potentially affected until the registry is checked.
++                    potentiallyAffected.push({
++                        chatId: String(chatId),
++                        chatFileName,
++                        chatFilePath: path.join(userDirs.groupChats, chatFileName),
++                    });
++                    continue;
++                }
 +                const chatFilePath = path.join(userDirs.groupChats, chatFileName);
 +                let chatData;
 +                try {
 +                    const raw = await fsPromises.readFile(chatFilePath, 'utf8');
 +                    chatData = raw.split('\n').filter(line => line.trim()).map(line => tryParse(line)).filter(Boolean);
 +                } catch {
-+                    // The legacy migration skips a chat it cannot read.
++                    // Treat unreadable chats conservatively: the legacy path still
++                    // removes group metadata, so an enrolled chat must block it.
++                    potentiallyAffected.push({
++                        chatId: String(chatId),
++                        chatFileName,
++                        chatFilePath,
++                    });
++                    plannedFiles.push(chatFilePath, path.join(userDirs.backups, '_group_metadata_update', chatFileName));
 +                    continue;
 +                }
 +                const alreadyHasMetadata = chatData.length > 0 && Object.hasOwn(chatData[0], 'chat_metadata');
@@ -164,7 +180,7 @@ diff --git a/tests/startup-migration-block.test.js b/tests/startup-migration-blo
 new file mode 100644
 --- /dev/null
 +++ b/tests/startup-migration-block.test.js
-@@ -0,0 +1,124 @@
+@@ -0,0 +1,146 @@
 +import test from 'node:test';
 +import assert from 'node:assert/strict';
 +import os from 'node:os';
@@ -199,6 +215,24 @@ new file mode 100644
 +    await writeFile(path.join(userDirs.groupChats, `${chatId}.jsonl`), JSON.stringify({ mes: 'existing message' }) + '\n');
 +}
 +
++async function snapshotTree(root, relative = '') {
++    const entries = [];
++    const current = path.join(root, relative);
++    for (const entry of await readdir(current, { withFileTypes: true })) {
++        const entryRelative = path.join(relative, entry.name);
++        const entryPath = path.join(root, entryRelative);
++        if (entry.isDirectory()) {
++            entries.push({ path: entryRelative, type: 'directory' });
++            entries.push(...await snapshotTree(root, entryRelative));
++        } else if (entry.isFile()) {
++            entries.push({ path: entryRelative, type: 'file', bytes: await readFile(entryPath) });
++        } else {
++            entries.push({ path: entryRelative, type: 'other' });
++        }
++    }
++    return entries.sort((a, b) => a.path.localeCompare(b.path));
++}
++
 +async function addRegistry(root, conversations) {
 +    const stateDirectory = path.join(root, '.logic-engine-host');
 +    await mkdir(stateDirectory, { recursive: true });
@@ -210,13 +244,9 @@ new file mode 100644
 +    try {
 +        await addMigrationCandidate(userDirs);
 +        await addRegistry(root, [{ conversationId: 'conversation-a', sourceLocator: 'chat-a', domain: 'group_chats' }]);
-+        const groupPath = path.join(userDirs.groups, 'group-a.json');
-+        const chatPath = path.join(userDirs.groupChats, 'chat-a.jsonl');
-+        const before = [await readFile(groupPath), await readFile(chatPath)];
++        const beforeTree = await snapshotTree(root);
 +        await assert.rejects(migrateGroupChatsMetadataFormat([userDirs]), /HOST_STARTUP_MIGRATION_BLOCKED/);
-+        assert.deepEqual(await readFile(groupPath), before[0]);
-+        assert.deepEqual(await readFile(chatPath), before[1]);
-+        assert.deepEqual(await readdir(userDirs.backups), []);
++        assert.deepEqual(await snapshotTree(root), beforeTree);
 +    } finally {
 +        await rm(root, { recursive: true, force: true });
 +    }
@@ -235,6 +265,20 @@ new file mode 100644
 +        assert.deepEqual(await readFile(groupPath), before[0]);
 +        assert.deepEqual(await readFile(chatPath), before[1]);
 +        assert.deepEqual(await readdir(userDirs.backups), []);
++    } finally {
++        await rm(root, { recursive: true, force: true });
++    }
++});
++
++test('registered chat referenced by a migration candidate but missing on disk blocks before any write', async () => {
++    const { root, userDirs } = await fixture();
++    try {
++        await addMigrationCandidate(userDirs);
++        await rm(path.join(userDirs.groupChats, 'chat-a.jsonl'));
++        await addRegistry(root, [{ conversationId: 'conversation-a', sourceLocator: 'chat-a', domain: 'group_chats' }]);
++        const beforeTree = await snapshotTree(root);
++        await assert.rejects(migrateGroupChatsMetadataFormat([userDirs]), /HOST_STARTUP_MIGRATION_BLOCKED/);
++        assert.deepEqual(await snapshotTree(root), beforeTree);
 +    } finally {
 +        await rm(root, { recursive: true, force: true });
 +    }
@@ -272,17 +316,11 @@ new file mode 100644
 +        await addMigrationCandidate(first.userDirs, 'chat-safe');
 +        await addMigrationCandidate(second.userDirs, 'chat-enrolled');
 +        await addRegistry(second.root, [{ conversationId: 'conversation-b', sourceLocator: 'chat-enrolled', domain: 'group_chats' }]);
-+        const paths = [
-+            path.join(first.userDirs.groups, 'group-a.json'),
-+            path.join(first.userDirs.groupChats, 'chat-safe.jsonl'),
-+            path.join(second.userDirs.groups, 'group-a.json'),
-+            path.join(second.userDirs.groupChats, 'chat-enrolled.jsonl'),
-+        ];
-+        const before = await Promise.all(paths.map(file => readFile(file)));
++        const beforeFirstTree = await snapshotTree(first.root);
++        const beforeSecondTree = await snapshotTree(second.root);
 +        await assert.rejects(migrateGroupChatsMetadataFormat([first.userDirs, second.userDirs]), /HOST_STARTUP_MIGRATION_BLOCKED/);
-+        for (let i = 0; i < paths.length; i++) assert.deepEqual(await readFile(paths[i]), before[i]);
-+        assert.deepEqual(await readdir(first.userDirs.backups), []);
-+        assert.deepEqual(await readdir(second.userDirs.backups), []);
++        assert.deepEqual(await snapshotTree(first.root), beforeFirstTree);
++        assert.deepEqual(await snapshotTree(second.root), beforeSecondTree);
 +    } finally {
 +        await rm(first.root, { recursive: true, force: true });
 +        await rm(second.root, { recursive: true, force: true });
