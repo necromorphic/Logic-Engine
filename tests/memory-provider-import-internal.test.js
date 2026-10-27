@@ -115,3 +115,49 @@ test('provider rejects executable extra lineage fields before persistence', (t) 
   assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
     .get(scope.world_id).count, 0, 'rejected lineage must not be persisted');
 });
+
+
+test('provider rejects null-prototype input when inherited serialization hooks are polluted', (t) => {
+  const { provider, record, scope, db } = setup(t);
+  const input = Object.assign(Object.create(null), record);
+  let toJSONCalled = false;
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON');
+  try {
+    Object.defineProperty(Object.prototype, 'toJSON', {
+      configurable: true,
+      value() { toJSONCalled = true; return this; },
+    });
+    assert.throws(
+      () => provider.putRecord(input),
+      /Invalid direct-source Memory record/,
+    );
+    assert.equal(toJSONCalled, false, 'inherited serialization hook must not execute');
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+      .get(scope.world_id).count, 0);
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'toJSON', previous);
+    else delete Object.prototype.toJSON;
+  }
+});
+
+test('provider rejects lineage arrays when Array.prototype serialization hooks are polluted', (t) => {
+  const { provider, record, scope, db } = setup(t);
+  let toJSONCalled = false;
+  const previous = Object.getOwnPropertyDescriptor(Array.prototype, 'toJSON');
+  try {
+    Object.defineProperty(Array.prototype, 'toJSON', {
+      configurable: true,
+      value() { toJSONCalled = true; return this; },
+    });
+    assert.throws(
+      () => provider.putRecord(record),
+      /Invalid direct-source Memory record/,
+    );
+    assert.equal(toJSONCalled, false, 'inherited array serialization hook must not execute');
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+      .get(scope.world_id).count, 0);
+  } finally {
+    if (previous) Object.defineProperty(Array.prototype, 'toJSON', previous);
+    else delete Array.prototype.toJSON;
+  }
+});
