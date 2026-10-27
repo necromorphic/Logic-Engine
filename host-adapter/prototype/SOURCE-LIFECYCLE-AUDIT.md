@@ -187,3 +187,12 @@ A desktop Chromium harness now writes the Host journal to real IndexedDB, closes
 
 Exact current candidate head at this audit update: `5bdbfe2dc75811a6f8857c23d3917e560885ce1d`. The corresponding exact-head workflow results are pending re-check after the latest target-aware guard changes. Production Memory→NPC remains DISABLED / FAIL-CLOSED.
 
+## Startup migration and destructive-route regression coverage (28 Oct 2026)
+
+Pinned-source inspection confirms that `src/server-main.js` calls `migrateGroupChatsMetadataFormat(directories)` in `preSetupTasks()` before the server starts listening. In `src/endpoints/groups.js`, the migration can rewrite group-chat JSONL files and group metadata with `writeFileAtomic`; this path is not an HTTP request and therefore bypasses the Host mutation middleware.
+
+**Status: BLOCKER OPEN.** No startup migration guard has been implemented. The current architecture gate does not permit adding new runtime lifecycle wiring until the exact implementation diff receives the required separate Core approval. The safe behavior to implement after that approval is: detect an existing enrollment registry before any migration write; if an enrolled group chat may be affected, stop startup with an explicit `HOST_STARTUP_MIGRATION_BLOCKED` / `NON_READY` result rather than partially migrating or silently skipping files. Unenrolled legacy migration must remain covered by a positive regression test.
+
+A regression test was added to `tests/server-lifecycle-mutation-journal.test.mjs` for `POST /api/characters/delete` with `delete_chats=true`. It asserts that the enrolled mutation is rejected before the native handler and that the enrolled chat file remains unchanged. This is test coverage for the existing fail-closed guard, not proof of real SillyTavern runtime behavior.
+
+**Current readiness remains:** Host `NON_READY`; Memory→NPC `DISABLED / FAIL-CLOSED`. Do not report the startup migration path as fixed until an approved implementation, exact-head CI, and runtime test demonstrate that enrolled history is not modified.
