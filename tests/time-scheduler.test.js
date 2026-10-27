@@ -205,3 +205,87 @@ test('large same-coordinate trigger sets remain deterministically ordered', () =
   assert.equal(plan.segments[0].trigger_ids[0], 'trigger-0000');
   assert.equal(plan.segments[0].trigger_ids[2499], 'trigger-2499');
 });
+
+
+function allPermutations(items) {
+  if (items.length <= 1) return [items];
+  const result = [];
+  items.forEach((item, index) => {
+    const rest = [...items.slice(0, index), ...items.slice(index + 1)];
+    for (const suffix of allPermutations(rest)) result.push([item, ...suffix]);
+  });
+  return result;
+}
+
+test('due-work plan is invariant to all trigger input permutations and follows the expected order', () => {
+  const triggers = [
+    trigger('z-prerequisite', 5),
+    trigger('a-dependent', 5, { dependencies: ['z-prerequisite'] }),
+    trigger('m-independent', 5),
+    trigger('later', 10),
+  ];
+  const request = (items) => planDueWork({
+    world_id: 'world-a',
+    from_coordinate: 0,
+    to_coordinate: 10,
+    triggers: items,
+  });
+  const expected = request(triggers);
+  assert.deepEqual(expected.segments.map((segment) => segment.trigger_ids), [
+    ['m-independent', 'z-prerequisite'],
+    ['a-dependent'],
+    ['later'],
+  ]);
+  const permutations = allPermutations(triggers);
+  assert.equal(permutations.length, 24);
+  for (const permutation of permutations) {
+    assert.deepEqual(request(permutation), expected);
+  }
+});
+
+test('same-coordinate read/write conflict rejection is invariant to trigger input order', () => {
+  const triggers = [
+    trigger('writer', 5, { write_set: ['entity:shared'] }),
+    trigger('reader', 5, { read_set: ['entity:shared'] }),
+  ];
+  const request = (items) => assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers: items,
+    }),
+    (error) => {
+      assert.equal(error.code, 'TRIGGER_CONFLICT_NEEDS_REVIEW');
+      assert.deepEqual(error.details, {
+        trigger_ids: ['reader', 'writer'],
+        reference: 'entity:shared',
+      });
+      return true;
+    },
+  );
+  for (const permutation of allPermutations(triggers)) request(permutation);
+});
+
+test('interrupt and completed dependencies preserve the plan across trigger permutations', () => {
+  const triggers = [
+    trigger('finished', 3, { status: 'completed' }),
+    trigger('interrupt', 5, { interrupt_after_coordinate: true }),
+    trigger('same-time', 5, { dependencies: ['finished'], processing_mode: 'batch' }),
+    trigger('later', 10),
+  ];
+  const request = (items) => planDueWork({
+    world_id: 'world-a',
+    from_coordinate: 0,
+    to_coordinate: 10,
+    completed_trigger_ids: ['finished'],
+    triggers: items,
+  });
+  const expected = request(triggers);
+  assert.equal(expected.status, 'interrupted');
+  assert.equal(expected.stop_coordinate, 5);
+  assert.equal(expected.planned_until_coordinate, 5);
+  for (const permutation of allPermutations(triggers)) {
+    assert.deepEqual(request(permutation), expected);
+  }
+});
