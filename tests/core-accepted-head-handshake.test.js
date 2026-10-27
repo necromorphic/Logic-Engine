@@ -9,6 +9,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../src/storage/coordinator-lock.js';
 import {
+  advanceAcceptedHeadSync,
   enrollAcceptedHeadSync,
   finalizeAcceptedHeadSync,
   getAcceptedHeadsSync,
@@ -142,6 +143,35 @@ test('Core commits only when accepted-head authority is current and aborts mutat
     assert.notEqual(secondOperation.last_operation_digest, firstOperation.last_operation_digest);
     assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 3, provider: 1 });
     assert.equal(secondOperation.head, 3);
+
+    // Simulate a crash after the local transaction committed but before
+    // authority finalization. Startup may finalize only when durable local
+    // operation identity, digest, and resulting head match the pending record.
+    const recoveryDigest = 'e'.repeat(64);
+    const pendingRecovery = advanceAcceptedHeadSync({
+      domain: 'core',
+      operationId: 'core-recovery-committed-operation',
+      operationDigest: recoveryDigest,
+      expectedHead: 3,
+      token: coreToken,
+      port,
+    });
+    assert.equal(pendingRecovery.status, 'pending');
+    store.close();
+    store = null;
+    const recoveryDb = new DatabaseSync(corePath);
+    try {
+      recoveryDb.prepare(
+        'UPDATE accepted_head_state SET head=?,last_operation_id=?,last_operation_digest=? WHERE singleton=1',
+      ).run(4, pendingRecovery.operation_id, recoveryDigest);
+    } finally {
+      recoveryDb.close();
+    }
+    store = new SQLiteStore(corePath);
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 4, provider: 1 });
+    assert.equal(store.db.prepare(
+      'SELECT head,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
+    ).get().last_operation_id, pendingRecovery.operation_id);
 
     child.stdin.end('stop');
     await once(child, 'exit');
