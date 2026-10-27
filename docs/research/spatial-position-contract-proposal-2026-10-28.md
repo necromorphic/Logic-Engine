@@ -237,3 +237,56 @@ A separate implementation request may be considered only after: (a) product sema
 The permitted next step is documentation-only refinement and evidence gathering against the existing bounded read seam. No production runtime, API, schema, event, adapter, cache, persistent projection, or Memory/NPC change is authorized. This coordinator decision does not authorize implementation.
 
 No tests were run as part of recording this decision. ST-01–ST-16 remain NOT TESTED / NOT PASSED unless actually implemented and executed with recorded evidence.
+
+
+## 12. Coordinate-source audit — 2026-10-28
+
+**Result: BLOCKED — no typed spatial source found in the reviewed Core paths.** This is a bounded static source review, not proof that every repository file or external World Pack has been exhaustively searched. It does not authorize implementation.
+
+### 12.1 Source evidence inspected
+
+- `src/storage/sqlite-store.js`, current `main` blob `c528805d40d77ac23c3adae866c97d9b97b606e8`:
+  - The `entities` table stores `world_id`, `entity_id`, `entity_type`, `status`, generic `attributes_json`, `created_by_event_id`, and `updated_revision`. There is no dedicated typed coordinate/frame/unit/anchor column in this table definition.
+  - `currentEntityProjection(worldId)` returns decoded generic attributes; it does not validate spatial meaning.
+  - `applyEntityEffects` applies `entity.create` / `entity.upsert` / `entity.update` / `entity.delete` using generic attributes. It does not establish a typed position contract, coordinate-frame validation, or entity-incarnation token.
+  - The entity primary key is `(world_id, entity_id)`; the inspected table shape does not independently distinguish two incarnations that reuse the same ID.
+  - `readSnapshot(id, request)` reads the world, cursor, and selected entity/fact/event rows in one SQLite read view. Its entity result includes generic attributes and revision metadata. Its selected event projection includes identity, validity, causal metadata, and commit/time metadata, but not `effects_json`; it is not itself a typed spatial-event reader.
+  - `entityProjectionAtCursor(worldId, beforeSequence, invalidEventIds)` replays valid event `effects_json` through generic entity-effect application. It uses a sequence boundary and does not itself define spatial semantics or a TimeEngine mapping.
+- `src/time/model.js`, current `main` blob `ab7f8cf09cd35ae5f74b41c5063c3d8bc5ad68b2`, and `docs/60-time-coordinate-runtime-slice.md`, current `main` blob `ab7f8cf09cd35ae5f74b41c5063c3d8bc5ad68b2`:
+  - Core has a canonical integer-millisecond game-time coordinate and event time-coordinate support.
+  - A time coordinate is not a spatial coordinate. These time primitives do not supply an entity's position, frame, unit, anchor, or identity incarnation.
+- `src/core/rules.js`, current `main` blob `d2a1953679f3f14d0f425857447a81190278cd10`:
+  - The inspected rule evaluator supports generic path/value predicates. It does not establish the authority or spatial meaning of a field merely because a path such as `attributes.position` or `attributes.x` exists.
+- `docs/07-knowledge-and-narrative-boundaries.md`, current `main` blob `9ec34438d14dab245fa3aca8de4ea735c7c9bf17`, §12:
+  - The documented architecture already permits a future spatial-temporal model as a derived subsystem over approved Core evidence, while explicitly leaving its exact interface and implementation unapproved.
+  - The document directs a bounded feasibility track using existing store/event paths and says unsupported positions must remain unknown/conflicting rather than be guessed.
+
+### 12.2 What this establishes — and what it does not
+
+**Established by the reviewed source:**
+1. There is a usable world-scoped, coherent Core snapshot read seam.
+2. Generic entity attributes and committed event effects can be read/replayed through existing internal code.
+3. The current entity storage/effect path does not, in the inspected definitions, enforce the coordinator-approved spatial v1 semantics.
+4. The current schema shape does not prove an entity-incarnation distinction for delete/recreate with reused IDs.
+5. Canonical game time exists, but it is not a substitute for spatial evidence.
+
+**Not established:**
+- That any existing entity actually has a position stored under a particular attribute name.
+- That any such value is authored as X/Y/Z in the approved right-handed frame, uses abstract logical units, or denotes the approved entity-origin anchor.
+- That generic attribute changes are spatial transitions or have sufficient provenance to serve as a committed spatial source.
+- That delete/recreate identity can be distinguished reliably from current canonical data.
+- That a historical spatial value can be tied to an exact TimeEngine boundary.
+- That a cached or persistent spatial projection can be kept correct under rollback/rebuild.
+
+A field containing numbers that look like coordinates is not sufficient evidence. No attribute-name convention, sample payload, model output, or event-type string may promote it to a supported position.
+
+### 12.3 Next allowed investigation
+
+Continue **read-only, documentation/test-design work** against existing code paths:
+
+1. Trace the canonical entity effect validation and commit path to identify the exact accepted payloads and determine whether any existing committed source carries an explicitly defined position meaning. Do not add fields or reinterpret generic attributes.
+2. Trace entity delete/recreate and rollback/rebuild behavior to establish what identity and provenance survive in current state and valid event history.
+3. Trace event time-coordinate assignment and snapshot/event read boundaries to determine what exact temporal evidence is already available without a new API.
+4. Record concrete source paths, blob SHAs, and existing tests for each finding. If no typed position source is found, close this audit as **NO EXISTING TYPED SOURCE FOUND** and keep current position results unsupported.
+
+No runtime, schema, API, event, adapter, cache, or persistent-projection change is permitted by this audit. No tests were run for this source review. ST-01–ST-16 remain NOT TESTED / NOT PASSED. Memory → NPC remains `DISABLED / FAIL-CLOSED`.
