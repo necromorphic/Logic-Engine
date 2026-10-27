@@ -43,10 +43,28 @@ test('extension manifest and UI use the pinned ST extension contract', async () 
   const html = await readFile(resolve(root, 'settings.html'), 'utf8');
   assert.equal(manifest.js, 'index.js');
   assert.equal(manifest.hooks.activate, 'init');
+  assert.equal(manifest.hooks.disable, 'cleanup');
   assert.match(js, /renderExtensionTemplateAsync/);
   assert.match(js, /logicEngineHostLifecycle/);
+  assert.match(js, /export function cleanup\(\)/);
+  assert.match(js, /new AbortController\(\)/);
+  assert.match(js, /addEventListener\('click',[\s\S]*?\{ signal \}\)/);
   assert.match(html, /logic_engine_check/);
   assert.match(html, /logic_engine_enroll/);
+});
+
+
+test('health request can be cancelled when the extension disables', async () => {
+  const controller = new AbortController();
+  let receivedSignal;
+  const request = fetchHealth('http://127.0.0.1:8787', async (_url, options) => {
+    receivedSignal = options.signal;
+    if (options.signal.aborted) throw new Error('aborted');
+    return { ok: true, json: async () => ({ ok: true, service: 'logic-engine', protocol_version: 'v1' }) };
+  }, controller.signal);
+  controller.abort();
+  assert.ok(receivedSignal?.aborted);
+  await assert.rejects(request, /aborted/);
 });
 
 test('generated Host patch excludes provider routes and includes a digest-only proxy', async () => {
