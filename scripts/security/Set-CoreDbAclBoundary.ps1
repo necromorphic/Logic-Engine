@@ -37,6 +37,63 @@ function Get-ServiceIdentity {
     }
 }
 
+function Assert-NoReparsePath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $current = [System.IO.Path]::GetFullPath($Path)
+    while ($current) {
+        if (Test-Path -LiteralPath $current) {
+            $item = Get-Item -LiteralPath $current -Force -ErrorAction Stop
+            if (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+                throw "Path component is a reparse point; refusing ACL operation: $current"
+            }
+        } else {
+            throw "Path component does not exist; refusing ACL operation: $current"
+        }
+        $parent = [System.IO.Path]::GetDirectoryName($current.TrimEnd('\'))
+        if (-not $parent -or $parent -eq $current) { break }
+        $current = $parent
+    }
+}
+
+function Get-TargetFingerprint {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    [pscustomobject]@{
+        fullName = [string]$item.FullName
+        attributes = [int]$item.Attributes
+        creationTimeUtcTicks = [long]$item.CreationTimeUtc.Ticks
+        lastWriteTimeUtcTicks = [long]$item.LastWriteTimeUtc.Ticks
+        length = if ($item -is [System.IO.FileInfo]) { [long]$item.Length } else { $null }
+    }
+}
+
+function Assert-TargetSetUnchanged {
+    param(
+        [Parameter(Mandatory = $true)][string]$Directory,
+        [Parameter(Mandatory = $true)][string[]]$Targets,
+        [Parameter(Mandatory = $true)][hashtable]$Fingerprints
+    )
+    Assert-NoReparsePath -Path $Directory
+    $actual = @(Get-ChildItem -LiteralPath $Directory -Force | ForEach-Object { [string]$_.FullName } | Sort-Object)
+    $expected = @($Targets | Where-Object { $_ -ne $Directory } | Sort-Object)
+    if (($actual -join "`n") -cne ($expected -join "`n")) {
+        throw 'Core DB directory contents changed after validation; refusing further ACL mutations.'
+    }
+    foreach ($path in $Targets) {
+        Assert-NoReparsePath -Path $path
+        $current = Get-TargetFingerprint -Path $path
+        $prior = $Fingerprints[$path]
+        if (-not $prior -or
+            $current.fullName -cne $prior.fullName -or
+            $current.attributes -ne $prior.attributes -or
+            $current.creationTimeUtcTicks -ne $prior.creationTimeUtcTicks -or
+            $current.lastWriteTimeUtcTicks -ne $prior.lastWriteTimeUtcTicks -or
+            $current.length -ne $prior.length) {
+            throw "Target identity fingerprint changed after validation; refusing further ACL mutations: $path"
+        }
+    }
+}
+
 function New-BoundaryAcl {
     param([System.Security.AccessControl.FileSystemSecurity]$CurrentAcl, [string]$CoreAccount, [switch]$Directory)
     $acl = $CurrentAcl
@@ -77,15 +134,10 @@ if ($provider.sid -eq $core.sid -or $gateway.sid -eq $core.sid) {
 
 $dbPath = [System.IO.Path]::GetFullPath($CoreDbPath)
 if (-not (Test-Path -LiteralPath $dbPath -PathType Leaf)) { throw 'Core database file does not exist.' }
-$dbItem = Get-Item -LiteralPath $dbPath -Force
-if (($dbItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-    throw 'Core database is a reparse point; refusing to modify ACLs.'
-}
 $directory = [System.IO.Path]::GetDirectoryName($dbPath)
-$dirItem = Get-Item -LiteralPath $directory -Force
-if (($dirItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
-    throw 'Core database directory is a reparse point; refusing to modify ACLs.'
-}
+# Reject reparse points in every existing component, not only the leaf and immediate parent.
+Assert-NoReparsePath -Path $dbPath
+Assert-NoReparsePath -Path $directory
 
 $allowedNames = @(
     [System.IO.Path]::GetFileName($dbPath),
@@ -98,7 +150,11 @@ if ($unexpected.Count -gt 0) {
     throw 'Core database directory is not dedicated: unexpected entries exist. No ACL changes were made.'
 }
 
-$targets = @($directory) + @(Get-ChildItem -LiteralPath $directory -Force | ForEach-Object { $_.FullName })
+$targets = @($directory) + @(Get-ChildItem -LiteralPath $directory -Force | ForEach-Object { [string]$_.FullName })
+# Allowed names do not make a sidecar trustworthy: inspect every existing target and ancestor.
+foreach ($target in $targets) { Assert-NoReparsePath -Path $target }
+$targetFingerprints = @{}
+foreach ($target in $targets) { $targetFingerprints[$target] = Get-TargetFingerprint -Path $target }
 $evidenceFullPath = [System.IO.Path]::GetFullPath($EvidencePath)
 if ($evidenceFullPath.StartsWith($directory.TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
     throw 'EvidencePath must be outside the protected Core database directory.'
@@ -126,6 +182,8 @@ $report = [ordered]@{
         'This protects only the dedicated Core DB directory and current SQLite sidecars.',
         'Backup, restore, authority service, firewall, and outbound dispatch boundaries are not changed.',
         'Service account group membership, privileges, service configuration, and target-machine behavior require separate review.',
+        'Path-chain, reparse-point, directory-content, and observable fingerprint checks narrow TOCTOU exposure but do not eliminate hostile concurrent replacement.',
+        'Before applying, stop/quiesce all untrusted processes that can write the DB directory or its ancestors; this script cannot enforce that operational precondition.',
         'This candidate is not production approval; keep protected Memory-to-NPC disabled until all gates pass.'
     )
 }
@@ -150,9 +208,13 @@ if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.Win
 $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidenceFullPath -Encoding UTF8
 try {
     foreach ($target in $targets) {
+        # Revalidate the full path chain, exact directory contents, and observable target fingerprint
+        # immediately before each mutation. This narrows but cannot eliminate a hostile local TOCTOU race.
+        Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints
         $current = Get-Acl -LiteralPath $target
         $isDirectory = ([System.IO.File]::GetAttributes($target) -band [System.IO.FileAttributes]::Directory) -ne 0
         $replacement = New-BoundaryAcl -CurrentAcl $current -CoreAccount $core.account -Directory:$isDirectory
+        Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints
         Set-Acl -LiteralPath $target -AclObject $replacement
     }
     foreach ($target in $targets) {
