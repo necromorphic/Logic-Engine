@@ -5,13 +5,22 @@ const validId = (value) => typeof value === 'string' && value === value.trim()
     const code = character.charCodeAt(0);
     return code < 32 || code === 127;
   });
-const canonicalDecimal = (value) => typeof value === 'string' && /^(0|[1-9][0-9]*)$/.test(value);
+const canonicalSourceVersion = (value) => typeof value === 'string'
+  && /^core-entity-v1:[1-9][0-9]*$/.test(value)
+  && Number.isSafeInteger(Number(value.slice('core-entity-v1:'.length)));
+
+/** Opaque Core-issued token for one active canonical entity projection. */
+export function canonicalEntitySourceVersion(entity) {
+  if (!object(entity) || !canonicalSourceVersion(entity.source_version)) return null;
+  return entity.source_version;
+}
 
 /**
  * Core-owned source-version validation for direct canonical_entity Memory
- * records. This factory returns a trusted Provider callback; it is not a public
- * API and does not authorize Host messages, derived summaries, or production
- * Memory→NPC wiring.
+ * records. The opaque token comes from Core's durable per-entity source-version
+ * counter, not from updated_revision or a world snapshot cursor. This factory
+ * returns a trusted Provider callback; it is not a public API and does not
+ * authorize Host messages, derived summaries, or production Memory→NPC wiring.
  *
  * Only status='active' is accepted until Core defines a broader source-status
  * contract. Unknown/custom statuses fail closed.
@@ -30,7 +39,7 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
         || input.source_kind !== 'canonical_entity'
         || !validId(input.world_id)
         || !validId(input.source_entity_id)
-        || !canonicalDecimal(input.source_version)
+        || !canonicalSourceVersion(input.source_version)
         || !Array.isArray(input.lineage)
         || input.lineage.length !== 1) return false;
 
@@ -49,7 +58,7 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
 
     let snapshot;
     try {
-      snapshot = engine.getSnapshot(worldId, { entityIds: [sourceEntityId] });
+      snapshot = engine.getSnapshot(worldId, { entityIds: [sourceEntityId], includeSourceVersions: true });
     } catch (error) {
       if (error?.code === 'WORLD_NOT_FOUND' || error?.code === 'ENTITY_NOT_FOUND') return false;
       // Preserve Provider's distinction between a stale/denied source and an
@@ -71,12 +80,12 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
       if (!object(entity)
         || entity.entity_id !== sourceEntityId
         || entity.status !== 'active'
-        || !Number.isSafeInteger(entity.updated_revision)
-        || entity.updated_revision < 0) return false;
+        || canonicalEntitySourceVersion(entity) === null) return false;
 
-      // The version is the canonical decimal encoding of this exact entity's
-      // current updated_revision, not the Provider record version or world cursor.
-      return sourceVersion === String(entity.updated_revision);
+      // Compare against the current Core-owned token for this exact entity.
+      // The token survives ordinary projection rebuilds and advances on rollback
+      // when the canonical projection changes; it is not a world cursor.
+      return sourceVersion === canonicalEntitySourceVersion(entity);
     } catch {
       return false;
     }
