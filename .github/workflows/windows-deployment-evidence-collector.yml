@@ -34,6 +34,11 @@ jobs:
           if ($report.reportType -ne 'Logic Engine deployment security evidence (read-only)') { throw 'Unexpected reportType.' }
           if (-not $report.os.powershellVersion) { throw 'PowerShell version evidence is missing.' }
           if ($report.pathAclEvidence.Count -lt 1) { throw 'Expected path ACL evidence for the supplied fixture.' }
+          if (-not ($report.PSObject.Properties.Name -contains 'firewallProfiles')) { throw 'Firewall profile evidence field is missing.' }
+          if (-not ($report.PSObject.Properties.Name -contains 'enabledOutboundAllowRules')) { throw 'Outbound allow-rule evidence field is missing.' }
+          if (-not ($report.PSObject.Properties.Name -contains 'enabledOutboundBlockRules')) { throw 'Outbound block-rule evidence field is missing.' }
+          $fixtureEvidence = @($report.pathAclEvidence | Where-Object { $_.requestedPath -eq $fixturePath -and $_.path -eq [System.IO.Path]::GetFullPath($fixturePath) })
+          if (-not $fixtureEvidence -or $fixtureEvidence[0].exists -ne $false) { throw 'A known-missing fixture must be reported as absent, not unknown.' }
           if (-not $report.limitations -or $report.limitations.Count -lt 1) { throw 'Evidence limitations are missing.' }
           Remove-Item -LiteralPath $reportPath -Force
           Write-Output 'PowerShell 5.1 collector smoke test passed; report was validated and removed.'
