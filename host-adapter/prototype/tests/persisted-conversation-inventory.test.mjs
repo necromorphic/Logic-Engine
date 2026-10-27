@@ -106,6 +106,40 @@ test('persisted snapshot fails closed when a directory changes during enumeratio
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 
+test('persisted snapshot rejects a chat file modified after its individual read', async () => {
+  const f = await fixture();
+  try {
+    const uuid = randomUUID();
+    const chatFile = await writeChat(f.chats, 'enrolled', uuid, [makeMessage('known')]);
+    const nested = path.join(f.chats, 'z');
+    await mkdir(nested);
+    let changed = false;
+    const fs = {
+      lstat: fsPromises.lstat,
+      open: fsPromises.open,
+      realpath: fsPromises.realpath,
+      readdir: async (directory, options) => {
+        const entries = await fsPromises.readdir(directory, options);
+        if (directory === nested && !changed) {
+          changed = true;
+          const current = await fsPromises.readFile(chatFile, 'utf8');
+          await writeFile(chatFile, current + '\\n');
+        }
+        return entries;
+      },
+    };
+    const result = await scanPersistedConversationInventories(f.roots, [{
+      conversationId: randomUUID() + ':' + uuid,
+      sourceLocator: 'enrolled',
+      sourcePath: 'enrolled.jsonl',
+      domain: 'chats',
+    }], { fs });
+    assert.equal(result.status, 'INVENTORY_INCOMPLETE');
+    assert.deepEqual(result.inventories, []);
+    assert.ok(result.errors.includes('CHAT_ARTIFACT_CHANGED_AFTER_SCAN:chats'));
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
 test('persisted snapshot inventories every current swipe by stable identity and digest without exposing text', async () => {
   const f = await fixture();
   try {
