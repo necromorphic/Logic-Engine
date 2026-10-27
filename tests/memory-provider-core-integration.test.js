@@ -457,3 +457,58 @@ test('real Core entity revision change makes Provider reconciliation stale throu
   assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('changed after indexing'), false);
 });
+
+
+test('reconciliation recovers after an interrupted inventory check and is idempotent', async (t) => {
+  const s = setup(t);
+  const trustedInventoryValidator = s.provider.validateInventory;
+  s.provider.validateInventory = async () => { throw new Error('simulated inventory interruption'); };
+
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+
+  s.provider.validateInventory = trustedInventoryValidator;
+  const recovered = await s.provider.reconcile(s.scope.world_id);
+  assert.equal(recovered.status, 'current');
+  assert.equal(recovered.records_checked, 1);
+
+  const counts = () => ({
+    records: s.provider.db.prepare('SELECT COUNT(*) AS n FROM memory_records WHERE world_id=?').get(s.scope.world_id).n,
+    entries: s.provider.db.prepare('SELECT COUNT(*) AS n FROM memory_index_entries WHERE world_id=?').get(s.scope.world_id).n,
+  });
+  const beforeRetry = counts();
+  const repeated = await s.provider.reconcile(s.scope.world_id);
+  assert.equal(repeated.status, 'current');
+  assert.deepEqual(counts(), beforeRetry);
+  assert.equal((await s.provider.retrieveCandidates(s.scope)).completeness, 'complete');
+});
+
+test('reconciliation never publishes current when Core snapshot changes during inventory validation', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+
+  const trustedInventoryValidator = s.provider.validateInventory;
+  let mutateOnce = true;
+  s.provider.validateInventory = async (worldId, records) => {
+    const result = await trustedInventoryValidator(worldId, records);
+    if (mutateOnce) {
+      mutateOnce = false;
+      const before = s.engine.getSnapshot(worldId);
+      const changed = s.engine.commitEvent(worldId, {
+        event_id: 'provider-e2e-mutation-during-reconcile',
+        idempotency_key: 'provider-e2e-mutation-during-reconcile',
+        turn_id: 'provider-e2e-mutation-during-reconcile',
+        event_type: 'action.completed',
+        expected_revision: before.world_revision,
+        effects: [{ kind: 'entity.update', entity_id: 'source-a', attributes: { public_note: 'changed during reconcile' } }],
+      });
+      assert.equal(changed.accepted, true);
+    }
+    return result;
+  };
+
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+});
