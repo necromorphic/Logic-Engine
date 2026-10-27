@@ -106,8 +106,8 @@ test('server-side Core digest proxy exists and never exposes its credentials to 
   const { createHostDigestProxyHandler } = await import(pathToFileURL(proxyPath).href);
   assert.equal(typeof createHostDigestProxyHandler, 'function');
   const proxySource = await readFile(proxyPath, 'utf8');
-  assert.match(proxySource, /authorization:\s*'Bearer '\s*\+\s*config\.apiToken/);
-  assert.match(proxySource, /'x-adapter-token':\s*config\.adapterToken/);
+  assert.match(proxySource, /authorization:\s*'Bearer '\s*\+\s*target\.apiToken/);
+  assert.match(proxySource, /'x-adapter-token':\s*target\.adapterToken/);
   assert.match(proxySource, /redirect:\s*'error'/);
   assert.doesNotMatch(script, /LOGIC_ENGINE_(?:API_TOKEN|ADAPTER_TOKEN)/);
 });
