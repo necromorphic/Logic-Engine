@@ -720,3 +720,36 @@ test('accepted-head guard advances with Provider mutations and survives reopen',
   assert.equal(getAcceptedHeadStatusSync({ port: authority.port }).pending.provider, false);
 });
 
+
+test('accepted-head pending operation without a committed local journal fails closed on restart', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-authority-pending-'));
+  const authority = await startAcceptedHeadAuthority(join(directory, 'authority.sqlite'));
+  const providerPath = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  let provider;
+  t.after(async () => {
+    try { provider?.close(); } catch {}
+    authority.child.stdin.end('stop');
+    await once(authority.child, 'exit');
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const options = {
+    path: providerPath, coordinatorPath,
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+    acceptedHead: { port: authority.port, token: providerToken },
+  };
+  provider = new SQLiteMemoryProvider(options);
+  provider.db.exec(`CREATE TRIGGER fail_authority_journal BEFORE INSERT ON provider_authority_operations
+    BEGIN SELECT RAISE(ABORT, 'injected journal failure'); END;`);
+  assert.throws(() => provider.grantQuery(
+    { world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' }, true,
+  ), /injected journal failure/);
+  assert.equal(provider.authorizeQuery({ world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' }), false);
+  assert.equal(getAcceptedHeadStatusSync({ port: authority.port }).pending.provider, true);
+  provider.close();
+  provider = null;
+  assert.throws(() => new SQLiteMemoryProvider(options), /MEMORY_ACCEPTED_HEAD_RECOVERY_REQUIRED/);
+});
+
