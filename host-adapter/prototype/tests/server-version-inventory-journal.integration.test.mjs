@@ -146,7 +146,7 @@ test('enforced server mutation journal records before/after persisted version in
     coreInventoryStatus = 'NON_READY';
     const notReadyResponse = responseMock();
     let notReadyHandlerCalled = false;
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, notReadyResponse, async () => {
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true })(request, notReadyResponse, async () => {
       notReadyHandlerCalled = true;
       notReadyResponse.json({ ok: true });
     });
@@ -160,7 +160,7 @@ test('enforced server mutation journal records before/after persisted version in
     // Core-accepted tombstone before the observed inventory can stay complete.
     request.body = { avatar_url: 'avatar.png', file_name: 'chat-a', chat: [{ chat_metadata: { logic_engine_conversation_id: conversationUuid } }, makeMessage({ messageId, versions: [{ versionId: version2, text: 'private-after', parentVersionId: version1 }], activeVersionIndex: 0 })] };
     const deleteResponse = responseMock();
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, deleteResponse, async () => {
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true })(request, deleteResponse, async () => {
       await writeChat([makeMessage({
         messageId,
         versions: [{ versionId: version2, text: 'private-after', parentVersionId: version1 }],
