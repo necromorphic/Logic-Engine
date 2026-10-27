@@ -382,3 +382,22 @@ test('explicitly undefined provenance fields are rejected as non-JSON input', ()
     );
   }
 });
+
+test('object field counts are bounded before intent and payload interpretation', () => {
+  const oversizedIntent = intent();
+  for (let index = 0; index < 1001; index += 1) {
+    oversizedIntent['extra_' + index] = index;
+  }
+  const oversizedPayload = Object.fromEntries(
+    Array.from({ length: 1001 }, (_, index) => ['extra_' + index, index]),
+  );
+
+  assert.throws(
+    () => translateMechanicEffectIntents([oversizedIntent]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+  assert.throws(
+    () => translateMechanicEffectIntents([intent({ payload: oversizedPayload })]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+});
