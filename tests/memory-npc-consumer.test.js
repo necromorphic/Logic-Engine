@@ -44,9 +44,12 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   );
   const scope = { world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' };
   const snapshot = engine.getSnapshot('memory-npc-world');
+  const sourceVersion = engine.getSnapshot('memory-npc-world', {
+    entityIds: ['source-a'], includeSourceVersions: true,
+  }).entities[0].source_version;
   const candidate = (overrides = {}) => ({
     record: { ref: 'memory:claim-1', version: 'v1' },
-    source: { kind: 'canonical_entity', entity_id: 'source-a' },
+    source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: sourceVersion },
     world_id: scope.world_id,
     subject_id: scope.subject_id,
     purpose: scope.purpose,
@@ -91,7 +94,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   });
   t.after(() => store.close());
   return {
-    store, engine, bindings, consumer, provider, scope, snapshot,
+    store, engine, bindings, consumer, provider, scope, snapshot, sourceVersion,
     setCandidates(next) { candidateList = next; },
     getLastCandidateAuthorization() { return lastCandidateAuthorization; },
     revokeContent() { contentVisible = false; },
@@ -106,7 +109,7 @@ const request = () => ({
 });
 
 test('joins trusted Memory record authorization, Core authorized source read, and NPC admission without exposing provider content', async (t) => {
-  const { consumer, engine, store, getLastCandidateAuthorization } = setup(t);
+  const { consumer, engine, store, getLastCandidateAuthorization, sourceVersion } = setup(t);
   const before = {
     revision: engine.getState('memory-npc-world').world_revision,
     sequence: store.currentCommitSequence('memory-npc-world'),
@@ -122,12 +125,14 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     'attributes.public_note': 'authorized source text',
   });
   assert.equal(result.candidates[0].record_ref, 'memory:claim-1');
+  assert.equal(result.candidates[0].source_version, sourceVersion, 'admitted content must carry the exact Core-authorized source version');
   assert.deepEqual(getLastCandidateAuthorization(), {
     ...{ world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' },
     record_ref: 'memory:claim-1',
     record_version: 'v1',
     source_kind: 'canonical_entity',
     source_entity_id: 'source-a',
+    source_version: sourceVersion,
   });
   assert.equal(JSON.stringify(result).includes('must never leak'), false);
   assert.equal(JSON.stringify(result).includes('private_note'), false);
@@ -169,6 +174,30 @@ test('malformed records in a complete Memory result are non-ready, not authorize
   assert.equal(wrongScope.status, 'non_ready');
   assert.equal(wrongScope.reason, 'memory_candidate_invalid_or_scope_mismatch');
   assert.deepEqual(wrongScope.candidates, []);
+});
+
+test('canonical Memory candidate without an exact source version fails closed', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
+  setCandidates([candidate({
+    source: { kind: 'canonical_entity', entity_id: 'source-a' },
+  })]);
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_candidate_source_identity_invalid');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+});
+
+test('Memory candidate with a stale canonical source revision fails closed', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
+  setCandidates([candidate({
+    source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: '999' },
+  })]);
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_source_version_stale');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
 });
 
 test('authorized candidate with missing or unknown semantic metadata is non-ready, not authorized-empty', async (t) => {
@@ -400,10 +429,10 @@ test('actor binding is checked before query authorization even for complete-empt
 });
 
 test('duplicate Memory identity/version cannot be rebound to a different canonical source', async (t) => {
-  const { consumer, setCandidates, candidate } = setup(t);
+  const { consumer, setCandidates, candidate, sourceVersion } = setup(t);
   setCandidates([
     candidate(),
-    candidate({ source: { kind: 'canonical_entity', entity_id: 'source-b' } }),
+    candidate({ source: { kind: 'canonical_entity', entity_id: 'source-b', source_version: sourceVersion } }),
   ]);
 
   const result = await consumer.retrieveForNpc(request());
