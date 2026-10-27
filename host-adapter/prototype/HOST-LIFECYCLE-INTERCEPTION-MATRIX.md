@@ -38,7 +38,7 @@ Pinned source context: `06bde939fb1e9c4c8d8641d810f0a916b5bce127`; patch file: `
 
 Previous snapshot: `cc4373575c17b947efc1f73de77e912bb0317980`. That snapshot is historical and must not be treated as validation of the current PR head.
 
-Current reviewed PR head (27 Oct 2026): `88da5046e4acd3198bcff9a9f50efd22143d1cce`. The following five workflows passed on that exact head:
+Last fully validated prior PR head (27 Oct 2026): `88da5046e4acd3198bcff9a9f50efd22143d1cce`. The following five workflows passed on that exact prior head:
 
 - [Runtime tests](https://github.com/necromorphic/Logic-Engine/actions/runs/40427555565)
 - [Host browser IndexedDB restart](https://github.com/necromorphic/Logic-Engine/actions/runs/40427555566)
@@ -46,7 +46,7 @@ Current reviewed PR head (27 Oct 2026): `88da5046e4acd3198bcff9a9f50efd22143d1cc
 - [Host Adapter pinned-source audit](https://github.com/necromorphic/Logic-Engine/actions/runs/40427555567)
 - [Host lifecycle patch validation](https://github.com/necromorphic/Logic-Engine/actions/runs/40427555585)
 
-These results do not prove route completeness, Android/Termux behavior, source authenticity, complete inventory, rollback resistance, authenticated lineage, or final-send enforcement. This snapshot applies only to the listed SHA; any later commit requires new exact-HEAD validation.
+These results do not prove route completeness, Android/Termux behavior, source authenticity, complete inventory, rollback resistance, authenticated lineage, or final-send enforcement. This snapshot applies only to the listed prior SHA. The matrix refresh commit is newer; its own exact-HEAD workflows must be checked independently before relying on the updated document.
 
 ## Branch freshness status
 
