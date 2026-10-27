@@ -28,14 +28,11 @@ jobs:
           cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           cp host-adapter/prototype/conversation-identity.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           cp host-adapter/prototype/st-server-digest-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
-          cp host-adapter/prototype/diagnostic-health-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-diagnostic-health.mjs
       - name: Apply-check and apply the pinned-source patch
         run: |
           cd sillytavern-host-checkout
           git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
           git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
-          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-diagnostic-status.patch"
-          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-diagnostic-status.patch"
       - name: Syntax-check patched host and prototype modules
         run: |
           node --check sillytavern-host-checkout/public/script.js
@@ -44,10 +41,6 @@ jobs:
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
-          node --check sillytavern-host-checkout/src/endpoints/logic-engine-diagnostic-health.mjs
-          node --check sillytavern-host-checkout/src/endpoints/logic-engine-diagnostic.js
-          node --check sillytavern-host-checkout/src/endpoints/extensions.js
-          node --check host-adapter/prototype/diagnostic-extension/index.js
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js
           node --check sillytavern-host-checkout/src/endpoints/backends/chat-completions.js
       - name: Ensure MakerSuite request body is not logged
@@ -59,3 +52,30 @@ jobs:
           grep -F 'request metadata:' sillytavern-host-checkout/src/endpoints/backends/chat-completions.js >/dev/null
       - name: Run all Host prototype tests
         run: node --test host-adapter/prototype/tests/*.test.mjs
+
+  pinned-st-diagnostic-patch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Logic-Engine branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Checkout exact approved SillyTavern revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: SillyTavern/SillyTavern
+          ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          path: sillytavern-diagnostic-checkout
+      - name: Install health proxy helper
+        run: cp host-adapter/prototype/diagnostic-health-proxy.mjs sillytavern-diagnostic-checkout/src/endpoints/logic-engine-diagnostic-health.mjs
+      - name: Apply-check and apply diagnostic route patch
+        run: |
+          cd sillytavern-diagnostic-checkout
+          git apply --check "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-diagnostic-status.patch"
+          git apply "$GITHUB_WORKSPACE/host-adapter/prototype/patches/sillytavern-1.19.0-diagnostic-status.patch"
+      - name: Syntax-check diagnostic route and extension
+        run: |
+          node --check sillytavern-diagnostic-checkout/src/server-startup.js
+          node --check sillytavern-diagnostic-checkout/src/endpoints/logic-engine-diagnostic.js
+          node --check sillytavern-diagnostic-checkout/src/endpoints/logic-engine-diagnostic-health.mjs
+          node --check host-adapter/prototype/diagnostic-extension/index.js
+      - name: Test fail-closed health probe
+        run: node --test host-adapter/prototype/tests/diagnostic-health-proxy.test.mjs
