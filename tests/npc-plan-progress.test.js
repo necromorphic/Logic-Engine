@@ -30,6 +30,7 @@ test("successful step advances the next pending step without mutating input", ()
 
 test("successful final step completes the plan", () => {
   const current = plan();
+  current.steps[0].status = "completed";
   current.steps[1].status = "active";
   assert.deepEqual(advanceNpcPlan(current, { type: "step_succeeded", step_id: "verify-report" }), {
     status: "advanced",
