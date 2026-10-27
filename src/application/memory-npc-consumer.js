@@ -45,12 +45,15 @@ const nonReady = (reason) => Object.freeze({
  * access: Core source fields are re-read through AuthorizedReadService.
  */
 export class MemoryNpcConsumer {
-  constructor({ authorizedReadService, actorBindingService, memoryProvider, contentFields }) {
+  constructor({ authorizedReadService, actorBindingService, hostConversationWorldBindingService, memoryProvider, contentFields }) {
     if (typeof authorizedReadService?.readEntityFields !== 'function') {
       throw new TypeError('MemoryNpcConsumer requires AuthorizedReadService');
     }
     if (typeof actorBindingService?.resolve !== 'function') {
       throw new TypeError('MemoryNpcConsumer requires Core ActorBindingService');
+    }
+    if (typeof hostConversationWorldBindingService?.resolve !== 'function') {
+      throw new TypeError('MemoryNpcConsumer requires Core HostConversationWorldBindingService');
     }
     if (typeof memoryProvider?.authorizeQuery !== 'function'
       || typeof memoryProvider?.retrieveCandidates !== 'function'
@@ -68,26 +71,58 @@ export class MemoryNpcConsumer {
     }
     this.authorizedReadService = authorizedReadService;
     this.actorBindingService = actorBindingService;
+    this.hostConversationWorldBindingService = hostConversationWorldBindingService;
     this.memoryProvider = memoryProvider;
     this.contentFields = Object.freeze([...contentFields]);
   }
 
+  #scopeStillAuthorized(worldId, adapterId, conversationId, actorEntityId) {
+    try {
+      const conversation = this.hostConversationWorldBindingService.resolve({ adapterId, conversationId });
+      if (!object(conversation) || conversation.active !== true
+        || conversation.adapter_id !== adapterId
+        || conversation.conversation_id !== conversationId
+        || conversation.world_id !== worldId) return false;
+      const actor = this.actorBindingService.resolve(worldId, adapterId, actorEntityId);
+      return object(actor) && actor.world_id === worldId
+        && actor.adapter_id === adapterId && actor.actor?.entity_id === actorEntityId;
+    } catch {
+      return false;
+    }
+  }
+
   async retrieveForNpc(request) {
-    let worldId;
     let adapterId;
+    let conversationId;
     let actorEntityId;
     try {
-      if (object(request)) ({ worldId, adapterId, actorEntityId } = request);
+      if (!object(request)) return nonReady('trusted_scope_incomplete');
+      if (Object.hasOwn(request, 'worldId') || Object.hasOwn(request, 'world_id')) {
+        return nonReady('caller_world_not_authoritative');
+      }
+      ({ adapterId, conversationId, actorEntityId } = request);
     } catch {
       return nonReady('trusted_scope_incomplete');
     }
-    if (!validId(worldId) || !validId(adapterId) || !validId(actorEntityId)) {
+    if (!validId(adapterId) || !validId(conversationId) || !validId(actorEntityId)) {
       return nonReady('trusted_scope_incomplete');
     }
 
-    // Bind the caller to a canonical actor before querying Memory. This must
-    // happen even for complete-empty results, which otherwise bypass the later
-    // AuthorizedReadService call entirely.
+    // Core, not the request, resolves the canonical world from the authenticated
+    // adapter and stable Host conversation identity. This check must happen even
+    // for complete-empty results, which otherwise bypass later source reads.
+    let worldId;
+    try {
+      const binding = this.hostConversationWorldBindingService.resolve({ adapterId, conversationId });
+      if (!object(binding) || binding.active !== true
+        || binding.adapter_id !== adapterId || binding.conversation_id !== conversationId
+        || !validId(binding.world_id)) return nonReady('host_conversation_binding_unavailable');
+      worldId = binding.world_id;
+    } catch {
+      return nonReady('host_conversation_binding_unavailable');
+    }
+
+    // Bind the authenticated adapter to a canonical actor in the resolved world.
     try {
       const binding = this.actorBindingService.resolve(worldId, adapterId, actorEntityId);
       if (!object(binding)
@@ -172,6 +207,9 @@ export class MemoryNpcConsumer {
           commit_sequence: emptySnapshotRead.commit_sequence,
         })) {
         return nonReady('memory_snapshot_stale');
+      }
+      if (!this.#scopeStillAuthorized(worldId, adapterId, conversationId, actorEntityId)) {
+        return nonReady('trusted_scope_changed');
       }
       return Object.freeze({
         status: 'ready',
@@ -312,6 +350,9 @@ export class MemoryNpcConsumer {
           commit_sequence: filteredEmptySnapshotRead.commit_sequence,
         })) {
         return nonReady('memory_snapshot_stale');
+      }
+      if (!this.#scopeStillAuthorized(worldId, adapterId, conversationId, actorEntityId)) {
+        return nonReady('trusted_scope_changed');
       }
       return Object.freeze({
         status: 'ready',
@@ -480,6 +521,9 @@ export class MemoryNpcConsumer {
       .map((item) => contentByIdentity.get(recordIdentityKey(item.record_ref, item.record_version)))
       .filter(Boolean);
 
+    if (!this.#scopeStillAuthorized(worldId, adapterId, conversationId, actorEntityId)) {
+      return nonReady('trusted_scope_changed');
+    }
     return Object.freeze({
       status: 'ready',
       admitted: decision.admitted,
