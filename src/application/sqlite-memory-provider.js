@@ -740,8 +740,7 @@ export class SQLiteMemoryProvider {
     // Bind the consumer's exact source token to the immutable persisted record.
     // The Core validator independently checks that same opaque token against the
     // authoritative active source; no prefix stripping or revision substitution.
-    if (input.source_version !== undefined
-      && (!validId(input.source_version) || input.source_version !== row.source_version)) {
+    if (!validId(input.source_version) || input.source_version !== row.source_version) {
       throw new Error('MEMORY_SOURCE_VERSION_UNVERIFIABLE');
     }
     let lineage;
