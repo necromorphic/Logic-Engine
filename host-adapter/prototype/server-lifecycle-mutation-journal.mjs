@@ -3,6 +3,7 @@ import { constants } from 'node:fs';
 import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { scanHostArtifactRoots } from './server-inventory-scanner.mjs';
+import { scanPersistedConversationInventories } from './persisted-conversation-inventory.mjs';
 
 const MUTATIONS = new Map([
     ['POST /api/chats/save', 'chat-save'],
@@ -492,4 +493,29 @@ export async function registerHostConversation(request, { conversationId, source
     registry.conversations.sort((a, b) => a.conversationId.localeCompare(b.conversationId));
     await atomicWriteJson(paths.registryPath, registry);
     return { status: 'ENROLLED' };
+}
+
+
+/**
+ * Read the persisted JSONL source for every explicitly enrolled conversation.
+ * This reports current identities/swipes only; it never upgrades Host trust,
+ * historical completeness, or rollback resistance.
+ */
+export async function getHostConversationInventory(request) {
+    const paths = await statePaths(request);
+    const registry = await readRegistry(paths.registryPath);
+    if (!registry.conversations.length) {
+        return {
+            status: 'INVENTORY_INCOMPLETE',
+            complete: false,
+            authority: 'NON_AUTHORITATIVE',
+            historicalCompleteness: 'UNKNOWN',
+            inventories: [],
+            errors: ['NO_ENROLLED_CONVERSATIONS'],
+        };
+    }
+    return scanPersistedConversationInventories(
+        paths.roots.filter(root => root.domain === 'chats' || root.domain === 'group_chats'),
+        registry.conversations,
+    );
 }
