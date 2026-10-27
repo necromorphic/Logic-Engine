@@ -94,7 +94,7 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       inventory_status: 'READY',
       sources,
     }),
-    readProviderEvidence: ({ worldId, actorId, purpose, sources }) => ({
+    readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({
       head: providerHead,
       world_id: worldId,
       actor_id: actorId,
@@ -102,6 +102,7 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       granted: providerGranted,
       readiness: 'READY',
       sources,
+      candidates,
     }),
     sendUpstream: async (request) => {
       calls.push(request);
@@ -144,6 +145,13 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   actorId: 'npc-1',
   purpose: 'recall',
   sources: sourceSet,
+  candidates: [{
+    record_ref: 'record-42',
+    record_version: 'record-version-3',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'entity-42',
+    source_version: 'version-7',
+  }],
   ...overrides,
 });
 
@@ -153,16 +161,27 @@ test('Host dispatch signature binds the exact body, route, model, identity, and 
   const signature = createDispatchRequestSignature(secret, request);
   assert.equal(verifyDispatchRequestSignature(secret, request, signature), true);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, body: request.body + 'tampered' }, signature), false);
+  assert.equal(verifyDispatchRequestSignature(secret, { ...request, candidates: [{ ...request.candidates[0], record_version: 'record-version-4' }] }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, sources: [{
     source_kind: 'canonical_entity',
     source_entity_id: 'entity-42',
     source_version: 'version-8',
   }] }, signature), false);
-  const reordered = { ...request, sources: [
-    { source_kind: 'canonical_entity', source_entity_id: 'z-entity', source_version: 'v1' },
-    { source_kind: 'canonical_entity', source_entity_id: 'ä-entity', source_version: 'v1' },
-  ] };
-  const reverseOrder = { ...reordered, sources: [...reordered.sources].reverse() };
+  const reordered = { ...request,
+    sources: [
+      { source_kind: 'canonical_entity', source_entity_id: 'z-entity', source_version: 'v1' },
+      { source_kind: 'canonical_entity', source_entity_id: 'ä-entity', source_version: 'v1' },
+    ],
+    candidates: [
+      { record_ref: 'record-z', record_version: 'rv1', source_kind: 'canonical_entity', source_entity_id: 'z-entity', source_version: 'v1' },
+      { record_ref: 'record-a', record_version: 'rv1', source_kind: 'canonical_entity', source_entity_id: 'ä-entity', source_version: 'v1' },
+    ],
+  };
+  const reverseOrder = {
+    ...reordered,
+    sources: [...reordered.sources].reverse(),
+    candidates: [...reordered.candidates].reverse(),
+  };
   assert.equal(
     createDispatchRequestSignature(secret, reordered),
     createDispatchRequestSignature(secret, reverseOrder),
@@ -346,6 +365,7 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       actor_id: request.actorId,
       purpose: request.purpose,
       sources: request.sources,
+      candidates: request.candidates,
       signature: createDispatchRequestSignature(signingKey, request),
     };
 
