@@ -104,3 +104,22 @@ test('result API preserves the existing validation errors for malformed rules', 
     (error) => error.code === 'UNSUPPORTED_RULE_OPERATOR',
   );
 });
+
+test('JSON equality preserves value types and does not equate non-JSON values with JSON values', () => {
+  const equal = (contextValue, ruleValue) => evaluateCondition(
+    { op: 'eq', path: 'value', value: ruleValue },
+    { value: contextValue },
+  );
+
+  assert.equal(equal({ b: 2, a: 1 }, { a: 1, b: 2 }), true);
+  assert.equal(equal([1, 2], [2, 1]), false);
+  assert.equal(equal(Number.NaN, null), false);
+  assert.equal(equal(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY), false);
+  assert.equal(equal(undefined, undefined), false);
+  assert.equal(equal({ nested: undefined }, {}), false);
+  assert.equal(equal(new Date('2026-01-01T00:00:00.000Z'), {}), false);
+
+  const cyclic = {};
+  cyclic.self = cyclic;
+  assert.equal(equal(cyclic, cyclic), false);
+});
