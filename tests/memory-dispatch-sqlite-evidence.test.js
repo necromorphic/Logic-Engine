@@ -256,6 +256,42 @@ test('trusted Provider reader fails closed for stale index, wrong lineage, or un
   }
 });
 
+test('trusted readers fail closed for deleted Core sources, removed Provider records, and revoked query grants', () => {
+  const f = fixture();
+  try {
+    let db = new DatabaseSync(f.coreDatabasePath);
+    db.prepare('UPDATE entities SET status=? WHERE world_id=? AND entity_id=?')
+      .run('destroyed', scope.worldId, source.source_entity_id);
+    db.close();
+    assert.equal(f.readCoreEvidence(scope).readiness, 'NOT_READY');
+
+    db = new DatabaseSync(f.coreDatabasePath);
+    db.prepare('UPDATE entities SET status=? WHERE world_id=? AND entity_id=?')
+      .run('active', scope.worldId, source.source_entity_id);
+    db.close();
+    assert.equal(f.readCoreEvidence(scope).readiness, 'READY');
+
+    db = new DatabaseSync(f.providerDatabasePath);
+    db.prepare('DELETE FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?')
+      .run(scope.worldId, candidate.record_ref, candidate.record_version);
+    db.close();
+    assert.equal(f.readProviderEvidence(scope).readiness, 'NOT_READY');
+
+    db = new DatabaseSync(f.providerDatabasePath);
+    db.prepare('INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?)').run(
+      scope.worldId, scope.actorId, scope.purpose, candidate.record_ref, candidate.record_version,
+      candidate.source_kind, candidate.source_entity_id, candidate.source_version, 'usable',
+      JSON.stringify([{ source_kind: 'canonical_entity', entity_id: source.source_entity_id, source_version: source.source_version }]),
+    );
+    db.prepare('UPDATE memory_query_grants SET allowed=0 WHERE world_id=? AND subject_id=? AND purpose=?')
+      .run(scope.worldId, scope.actorId, scope.purpose);
+    db.close();
+    assert.equal(f.readProviderEvidence(scope).readiness, 'NOT_READY');
+  } finally {
+    f.close();
+  }
+});
+
 test('evidence readers open databases read-only and refuse Core/Provider path aliasing', () => {
   const f = fixture();
   try {
