@@ -210,6 +210,12 @@ export class AuthorizedReadService {
     for (const entity of snapshot.entities) {
       const disclosed = {};
       for (const field of request.fields) {
+        // The source version is provenance metadata used to reject stale Memory
+        // candidates; it is not a content field and does not grant field access.
+        if (field === 'source_version') {
+          disclosed.source_version = canonicalEntitySourceVersion(entity);
+          continue;
+        }
         let allowed = false;
         try {
           allowed = this.fieldPolicy(context, Object.freeze({ ...entity }), field) === true;
@@ -217,11 +223,6 @@ export class AuthorizedReadService {
           allowed = false;
         }
         if (!allowed) continue;
-
-        if (field === 'source_version') {
-          disclosed.source_version = canonicalEntitySourceVersion(entity);
-          continue;
-        }
         if (field === 'entity_id' || field === 'entity_type' || field === 'status') {
           if (Object.hasOwn(entity, field)) disclosed[field] = entity[field];
           continue;
