@@ -576,7 +576,7 @@ new file mode 100644
 +// This reports current state only; it is not an all-time history or authorization proof.
 +router.post('/host-conversation-inventory/scan', async (request, response) => {
 +    try {
-+        const result = await getHostConversationInventory(request);
++        const result = await getHostConversationInventory(request, { requireCoreInventory: true });
 +        return response.status(result.complete ? 200 : 503).json(result);
 +    } catch {
 +        return response.status(503).json({
@@ -644,7 +644,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1363 @@
+@@ -0,0 +1,1366 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -1192,6 +1192,9 @@ new file mode 100644
 +            chain.lastHash = recordHash;
 +        } catch (error) {
 +            release();
++            const diagnosticCode = typeof error?.message === 'string' && /^[A-Z0-9_]{1,100}$/.test(error.message)
++                ? error.message : 'UNCLASSIFIED';
++            console.error('[Logic-Engine] Host mutation preflight failed:', diagnosticCode);
 +            const code = typeof error?.message === 'string'
 +                && /^(CORE_HOST_INVENTORY_[A-Z_]+|CORE_HOST_CAPTURE_[A-Z_]+)$/.test(error.message)
 +                ? error.message
