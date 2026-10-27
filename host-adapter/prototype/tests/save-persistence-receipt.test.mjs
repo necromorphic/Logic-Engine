@@ -201,7 +201,7 @@ test('matching persisted enrolled chat receives success only after the version i
     };
     try {
       await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
-        await writeFile(chatPath, request.body.chat.map(value => JSON.stringify(value)).join('\\n') + '\\n');
+        await writeFile(chatPath, request.body.chat.map(value => JSON.stringify(value)).join('\n') + '\n');
         response.json({ ok: true });
       });
       await response.finished;
@@ -271,7 +271,7 @@ test('enrolled destructive mutation is blocked before the native handler runs', 
   const conversationId = randomUUID() + ':' + conversationUuid;
   const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
   const header = { chat_metadata: { logic_engine_conversation_id: conversationUuid } };
-  await writeFile(chatPath, JSON.stringify(header) + '\\n');
+  await writeFile(chatPath, JSON.stringify(header) + '\n');
   const request = {
     method: 'POST', baseUrl: '/api/chats', path: '/delete', originalUrl: '/api/chats/delete',
     body: { file_name: 'chat-a', avatar_url: 'avatar.png' },
@@ -291,7 +291,7 @@ test('enrolled destructive mutation is blocked before the native handler runs', 
     assert.equal(nextCalled, false);
     assert.equal(response.statusCode, 503);
     assert.match(response.body, /HOST_MUTATION_PATH_NOT_PROVEN/);
-    assert.equal(await readFile(chatPath, 'utf8'), JSON.stringify(header) + '\\n');
+    assert.equal(await readFile(chatPath, 'utf8'), JSON.stringify(header) + '\n');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
@@ -315,7 +315,7 @@ test('enrolled save fails closed when Core cannot durably capture the digest inv
   const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
   const header = { chat_metadata: { logic_engine_conversation_id: conversationUuid } };
   const current = message({ messageId, versions: [{ versionId, text: 'private message text' }], activeVersionIndex: 0 });
-  await writeFile(chatPath, [JSON.stringify(header), JSON.stringify(current)].join('\\n') + '\\n');
+  await writeFile(chatPath, [JSON.stringify(header), JSON.stringify(current)].join('\n') + '\n');
   const request = {
     method: 'POST', baseUrl: '/api/chats', path: '/save', originalUrl: '/api/chats/save',
     body: { avatar_url: 'avatar.png', file_name: 'chat-a', chat: [header, current] },
@@ -344,14 +344,14 @@ test('enrolled save fails closed when Core cannot durably capture the digest inv
     });
     const response = responseMock();
     await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
-      await writeFile(chatPath, request.body.chat.map(value => JSON.stringify(value)).join('\\n') + '\\n');
+      await writeFile(chatPath, request.body.chat.map(value => JSON.stringify(value)).join('\n') + '\n');
       response.json({ ok: true });
     });
     await response.finished;
     assert.equal(response.statusCode, 503);
     assert.match(response.body, /CORE_HOST_CAPTURE_FAILED/);
     const journalText = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
-    const outcome = journalText.trim().split('\\n').map(line => JSON.parse(line)).find(record => record.kind === 'outcome');
+    const outcome = journalText.trim().split('\n').map(line => JSON.parse(line)).find(record => record.kind === 'outcome');
     assert.equal(outcome.status, 'UNRESOLVED');
     assert.doesNotMatch(journalText, /private message text/);
   } finally {
@@ -384,7 +384,7 @@ test('preflight blocks a save before mutation when Core retains a newer version 
   const header = { chat_metadata: { logic_engine_conversation_id: conversationUuid } };
   const oldMessage = message({ messageId, versions: [{ versionId: version1, text: 'old state' }], activeVersionIndex: 0 });
   const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
-  await writeFile(chatPath, [JSON.stringify(header), JSON.stringify(oldMessage)].join('\\n') + '\\n');
+  await writeFile(chatPath, [JSON.stringify(header), JSON.stringify(oldMessage)].join('\n') + '\n');
   const request = {
     method: 'POST', baseUrl: '/api/chats', path: '/save', originalUrl: '/api/chats/save',
     body: { avatar_url: 'avatar.png', file_name: 'chat-a', chat: [header, oldMessage] },
@@ -419,7 +419,7 @@ test('preflight blocks a save before mutation when Core retains a newer version 
     assert.equal(nextCalled, false);
     assert.equal(response.statusCode, 503);
     assert.match(response.body, /CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE/);
-    assert.equal(await readFile(chatPath, 'utf8'), [JSON.stringify(header), JSON.stringify(oldMessage)].join('\\n') + '\\n');
+    assert.equal(await readFile(chatPath, 'utf8'), [JSON.stringify(header), JSON.stringify(oldMessage)].join('\n') + '\n');
   } finally {
     globalThis.fetch = originalFetch;
     for (const key of envKeys) {
@@ -449,7 +449,7 @@ test('enrolled save is blocked before mutation when external Core anchoring is n
   const header = { chat_metadata: { logic_engine_conversation_id: conversationUuid } };
   const current = message({ messageId, versions: [{ versionId, text: 'unchanged' }], activeVersionIndex: 0 });
   const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
-  const original = [JSON.stringify(header), JSON.stringify(current)].join('\\n') + '\\n';
+  const original = [JSON.stringify(header), JSON.stringify(current)].join('\n') + '\n';
   await writeFile(chatPath, original);
   const request = {
     method: 'POST', baseUrl: '/api/chats', path: '/save', originalUrl: '/api/chats/save',
