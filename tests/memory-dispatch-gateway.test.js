@@ -13,7 +13,6 @@ import {
 } from '../src/security/accepted-head-client-sync.js';
 import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
 import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
-import { createGoogleAiStudioTransport } from '../src/security/memory-dispatch-google-transport.js';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
@@ -137,8 +136,8 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
 
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
-  route: 'google-ai-studio-chat-completions',
-  model: 'gemini-2.5-flash-lite',
+  route: 'host-managed-chat-completions',
+  model: 'host-owned-model-id',
   stream: false,
   body: JSON.stringify({ messages: [{ role: 'user', content: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' }] }),
   worldId: 'world-1',
@@ -247,7 +246,7 @@ test('dispatch validates current heads and grants, records one content-free star
       const row = db.prepare('SELECT status,request_digest,model,sources_json FROM dispatch_ledger WHERE request_id=?')
         .get('request-001');
       assert.equal(row.status, 'COMPLETED');
-      assert.equal(row.model, 'gemini-2.5-flash-lite');
+      assert.equal(row.model, 'host-owned-model-id');
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
@@ -323,7 +322,7 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
         .get('ambiguous-request');
       assert.equal(row.status, 'UNKNOWN');
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
-      assert.equal(row.route, 'google-ai-studio-chat-completions');
+      assert.equal(row.route, 'host-managed-chat-completions');
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
       db.close();
@@ -343,27 +342,24 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
   }
 });
 
-test('loopback Gateway endpoint requires Host authentication and a body-bound signature before Google egress', async () => {
-  const apiKey = 'google-ai-studio-test-key-not-real';
+test('loopback Gateway endpoint authenticates Host and delegates only to the injected Host-owned transport', async () => {
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
   const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
   let upstreamCalls = 0;
-  let observedUrl;
+  let observedRoute;
+  let observedModel;
   let observedBody;
-  let observedHeaders;
-  const transport = createGoogleAiStudioTransport({
-    apiKey,
-    fetchImpl: async (url, options) => {
-      upstreamCalls += 1;
-      observedUrl = String(url);
-      observedBody = options.body;
-      observedHeaders = options.headers;
-      return new Response('{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}', {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    },
-  });
+  const transport = async ({ route, model, body, forwardResponse }) => {
+    upstreamCalls += 1;
+    observedRoute = route;
+    observedModel = model;
+    observedBody = body;
+    await forwardResponse(new Response('{"result":"host-owned-test-transport"}', {
+      status: 200,
+      headers: { 'content-type': 'application/json' },
+    }));
+    return { status: 200 };
+  };
   const fixture = await createFixture({ sendUpstream: transport });
   const server = await createMemoryDispatchGatewayServer({
     gateway: fixture.gateway,
@@ -412,15 +408,11 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       body: JSON.stringify(payload),
     });
     assert.equal(response.status, 200);
-    assert.match(await response.text(), /"candidates"/);
+    assert.match(await response.text(), /host-owned-test-transport/);
     assert.equal(upstreamCalls, 1);
     assert.equal(observedBody, request.body);
-    const upstreamUrl = new URL(observedUrl);
-    assert.equal(upstreamUrl.hostname, 'generativelanguage.googleapis.com');
-    assert.equal(upstreamUrl.pathname, '/v1beta/models/gemini-2.5-flash-lite:generateContent');
-    assert.equal(upstreamUrl.searchParams.has('key'), false);
-    const apiKeyHeader = 'x-goog-' + 'api-key';
-    assert.equal(observedHeaders[apiKeyHeader], apiKey);
+    assert.equal(observedRoute, 'host-managed-chat-completions');
+    assert.equal(observedModel, 'host-owned-model-id');
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await fixture.close();
