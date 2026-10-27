@@ -544,14 +544,81 @@ export class SQLiteStore {
             ON host_conversation_world_bindings(world_id,active);`);
         },
       },
+      {
+        version: 12,
+        apply: () => {
+          // event_id is a world-local identity. Rebuild the table so the
+          // primary key matches the (world_id,event_id) identity contract.
+          this.db.exec(`CREATE TABLE world_events_new(
+            event_id TEXT NOT NULL,
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            turn_id TEXT NOT NULL,
+            generation_id TEXT,
+            context_manifest_id TEXT,
+            event_type TEXT NOT NULL,
+            game_time TEXT NOT NULL,
+            committed_revision INTEGER NOT NULL,
+            commit_sequence INTEGER NOT NULL,
+            validity TEXT NOT NULL CHECK(validity IN ('valid','retracted','invalidated')),
+            caused_by_json TEXT NOT NULL,
+            depends_on_json TEXT NOT NULL,
+            read_set_json TEXT NOT NULL,
+            causal_links_json TEXT NOT NULL DEFAULT '[]',
+            effects_json TEXT NOT NULL,
+            time_advance_seconds INTEGER NOT NULL DEFAULT 0,
+            source_message_id TEXT,
+            created_at TEXT NOT NULL,
+            rollback_id TEXT,
+            mechanic_execution_json TEXT,
+            game_time_coordinate INTEGER NOT NULL DEFAULT 0,
+            time_advance_ms INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY(world_id,event_id)
+          );
+          INSERT INTO world_events_new(
+            event_id,world_id,turn_id,generation_id,context_manifest_id,event_type,game_time,
+            committed_revision,commit_sequence,validity,caused_by_json,depends_on_json,read_set_json,
+            causal_links_json,effects_json,time_advance_seconds,source_message_id,created_at,rollback_id,
+            mechanic_execution_json,game_time_coordinate,time_advance_ms
+          )
+          SELECT
+            event_id,world_id,turn_id,generation_id,context_manifest_id,event_type,game_time,
+            committed_revision,commit_sequence,validity,caused_by_json,depends_on_json,read_set_json,
+            causal_links_json,effects_json,time_advance_seconds,source_message_id,created_at,rollback_id,
+            mechanic_execution_json,game_time_coordinate,time_advance_ms
+          FROM world_events;
+          DROP TABLE world_events;
+          ALTER TABLE world_events_new RENAME TO world_events;
+          CREATE INDEX events_revision ON world_events(world_id,committed_revision);
+          CREATE UNIQUE INDEX events_world_commit_sequence ON world_events(world_id,commit_sequence);
+          CREATE UNIQUE INDEX events_world_event_id ON world_events(world_id,event_id);
+          `);
+          const violations = this.db.prepare('PRAGMA foreign_key_check').all();
+          if (violations.length) {
+            throw new Error('WORLD_EVENT_IDENTITY_MIGRATION_FOREIGN_KEY_CHECK_FAILED: ' + JSON.stringify(violations));
+          }
+        },
+      },
     ];
     for (const migration of migrations) {
       const applied = this.db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
       if (applied) continue;
-      this.tx(() => {
+      const applyMigration = () => {
         migration.apply();
         this.db.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(?,?)').run(migration.version, now());
-      });
+      };
+      if (migration.version === 12) {
+        // SQLite cannot change a referenced primary key while FK enforcement
+        // is enabled. Disable it only around this transactional table rebuild,
+        // validate every FK before commit, then always restore enforcement.
+        this.db.exec('PRAGMA foreign_keys=OFF');
+        try {
+          this.tx(applyMigration);
+        } finally {
+          this.db.exec('PRAGMA foreign_keys=ON');
+        }
+      } else {
+        this.tx(applyMigration);
+      }
     }
   }
 
@@ -1059,9 +1126,12 @@ export class SQLiteStore {
   }
 
   validateEventReference(worldId, eventId, nextRevision, fieldName) {
-    const row = this.db.prepare('SELECT world_id,committed_revision,validity FROM world_events WHERE event_id=?').get(eventId);
-    if (!row) throw new EngineError('INVALID_CAUSAL_REFERENCE', fieldName + ' references an event that does not exist: ' + eventId, 400, { field: fieldName, reference: eventId });
-    if (row.world_id !== worldId) throw new EngineError('CROSS_WORLD_REFERENCE', fieldName + ' cannot reference an event from another world.', 400, { field: fieldName, reference: eventId });
+    const row = this.db.prepare('SELECT committed_revision,validity FROM world_events WHERE world_id=? AND event_id=?').get(worldId, eventId);
+    if (!row) {
+      const foreign = this.db.prepare('SELECT 1 FROM world_events WHERE event_id=? LIMIT 1').get(eventId);
+      if (foreign) throw new EngineError('CROSS_WORLD_REFERENCE', fieldName + ' cannot reference an event from another world.', 400, { field: fieldName, reference: eventId });
+      throw new EngineError('INVALID_CAUSAL_REFERENCE', fieldName + ' references an event that does not exist: ' + eventId, 400, { field: fieldName, reference: eventId });
+    }
     if (row.validity !== 'valid') throw new EngineError('INVALID_CAUSAL_REFERENCE', fieldName + ' references an invalid event: ' + eventId, 400, { field: fieldName, reference: eventId });
     if (row.committed_revision >= nextRevision) throw new EngineError('INVALID_CAUSAL_REFERENCE', fieldName + ' must reference a prior event.', 400, { field: fieldName, reference: eventId });
   }
@@ -1307,7 +1377,7 @@ export class SQLiteStore {
         });
       }
       const eventId = x.event_id || randomUUID();
-      if (this.db.prepare('SELECT event_id FROM world_events WHERE event_id=?').get(eventId)) {
+      if (this.db.prepare('SELECT event_id FROM world_events WHERE world_id=? AND event_id=?').get(id, eventId)) {
         throw new EngineError('EVENT_ALREADY_EXISTS', 'Event ID already exists.', 409);
       }
       const revision = w.world_revision + 1;
