@@ -114,6 +114,17 @@ export class MemoryNpcConsumer {
     }
     if (!queryAllowed) return nonReady('query_access_unconfirmed');
 
+    // Query permission can be revoked while retrieval, record checks, or the
+    // canonical source read are in flight. Recheck before any READY result;
+    // this narrows the race but does not claim an atomic disclosure guarantee.
+    const queryStillAllowed = async () => {
+      try {
+        return await this.memoryProvider.authorizeQuery(scope) === true;
+      } catch {
+        return false;
+      }
+    };
+
     let memoryResult;
     try {
       // Freeze a stable data snapshot before any per-record authorization
@@ -173,6 +184,7 @@ export class MemoryNpcConsumer {
         })) {
         return nonReady('memory_snapshot_stale');
       }
+      if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
       return Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
@@ -307,6 +319,7 @@ export class MemoryNpcConsumer {
         })) {
         return nonReady('memory_snapshot_stale');
       }
+      if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
       return Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
@@ -472,6 +485,7 @@ export class MemoryNpcConsumer {
       .map((item) => contentByIdentity.get(recordIdentityKey(item.record_ref, item.record_version)))
       .filter(Boolean);
 
+    if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
     return Object.freeze({
       status: 'ready',
       admitted: decision.admitted,
