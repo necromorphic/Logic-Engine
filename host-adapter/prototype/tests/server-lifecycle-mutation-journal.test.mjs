@@ -2,6 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
+import { createServer } from 'node:http';
+import { once } from 'node:events';
 import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
 import { createHostLifecycleMutationMiddleware, getHostMutationJournalStatus, reconcileHostMutation, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
 
@@ -118,6 +120,51 @@ test('incomplete post-scan overrides a pre-flushed success response before heade
         assert.equal(response.headers['content-length'], undefined, 'discarded success length must not be reused for the 503 body');
         assert.equal(response.headers.etag, undefined, 'discarded success ETag must not be reused for the 503 body');
     } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('real HTTP response cannot leak a success body when post-scan is incomplete', async () => {
+    const { root, directories, request: fixtureRequest } = await fixture();
+    let server;
+    try {
+        await writeFile(path.join(directories.chats, 'chat-1.jsonl'), '{"mes":"before"}\\n');
+        await registerHostConversation(fixtureRequest, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        const middleware = createHostLifecycleMutationMiddleware();
+        server = createServer((request, response) => {
+            request.user = fixtureRequest.user;
+            request.baseUrl = '';
+            request.path = '/api/chats/save';
+            void middleware(request, response, async () => {
+                await rm(directories.backups, { recursive: true, force: true });
+                response.statusCode = 200;
+                response.setHeader('Content-Type', 'application/json');
+                response.setHeader('Content-Length', '11');
+                response.setHeader('ETag', '"success-body"');
+                response.writeHead(200);
+                response.write('{"ok":true}');
+                response.end();
+            });
+        });
+        server.listen(0, '127.0.0.1');
+        await once(server, 'listening');
+        const address = server.address();
+        const response = await fetch(`http://127.0.0.1:${address.port}/api/chats/save`, { method: 'POST' });
+        const body = await response.text();
+        assert.equal(response.status, 503);
+        assert.match(body, /HOST_POST_MUTATION_SCAN_INCOMPLETE/);
+        assert.doesNotMatch(body, /"ok":true/);
+        assert.equal(response.headers.get('content-length'), null);
+        assert.equal(response.headers.get('etag'), null);
+    } finally {
+        if (server?.listening) {
+            server.close();
+            await once(server, 'close');
+        }
         await rm(root, { recursive: true, force: true });
     }
 });
