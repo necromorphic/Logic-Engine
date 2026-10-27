@@ -103,10 +103,10 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       sources,
       candidates: providerCandidatesOverride ?? candidates,
     }),
-    sendUpstream: async (request) => {
+    sendUpstream: (request) => {
       calls.push(request);
       if (sendUpstream) return sendUpstream(request);
-      return { status: 200, body: 'accepted' };
+      return { started: true, response: Promise.resolve({ status: 200, body: 'accepted' }) };
     },
   });
   gateway = makeGateway();
@@ -306,9 +306,9 @@ test('unsupported route, denied Provider grant, and pending authority all produc
 test('ambiguous transport outcome is recorded UNKNOWN and the request identity cannot be replayed', async () => {
   let sends = 0;
   const fixture = await createFixture({
-    sendUpstream: async () => {
+    sendUpstream: () => {
       sends += 1;
-      throw new Error('simulated timeout after dispatch start');
+      return { started: true, response: Promise.reject(new Error('simulated timeout after dispatch start')) };
     },
   });
   try {
@@ -351,16 +351,18 @@ test('loopback Gateway endpoint authenticates Host and delegates only to the inj
   let observedRoute;
   let observedModel;
   let observedBody;
-  const transport = async ({ route, model, body, forwardResponse }) => {
+  const transport = ({ route, model, body, forwardResponse }) => {
     upstreamCalls += 1;
     observedRoute = route;
     observedModel = model;
     observedBody = body;
-    await forwardResponse(new Response('{"result":"host-owned-test-transport"}', {
-      status: 200,
-      headers: { 'content-type': 'application/json' },
-    }));
-    return { status: 200 };
+    return {
+      started: true,
+      response: forwardResponse(new Response('{"result":"host-owned-test-transport"}', {
+        status: 200,
+        headers: { 'content-type': 'application/json' },
+      })).then(() => ({ status: 200 })),
+    };
   };
   const fixture = await createFixture({ sendUpstream: transport });
   const server = await createMemoryDispatchGatewayServer({
@@ -476,7 +478,7 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
-      sendUpstream: async () => ({ status: 200 }),
+      sendUpstream: () => ({ started: true, response: Promise.resolve({ status: 200 }) }),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {
