@@ -144,3 +144,12 @@ The Provider integration suite now explicitly verifies:
 These tests passed on PR head `0b869680e165ac72cd28081bc591553cce4f04d2` in Runtime + NPC-boundary CI run [#40587584663](https://github.com/necromorphic/Logic-Engine/actions/runs/40587584663).
 
 **Still not proven:** process-restart recovery of a partially completed reconciliation; selective invalidation/quarantine of stale Provider records while preserving unrelated valid records; complete incremental journal replay; full-database restore anti-rollback; Host final-send enforcement. The current safe behavior is world-level fail-closed: a stale record can keep that world's Provider index non-ready until the record lifecycle is explicitly defined. Do not add destructive deletion or a new persistence schema implicitly. Memory→NPC remains **NON_READY / FAIL-CLOSED**.
+
+
+### Provider process-restart recovery update (2026-10-28)
+
+The Provider now invalidates persisted ready/current readiness during startup, clears the old snapshot marker, and records PROCESS_RESTART_RECONCILIATION_REQUIRED. Existing failure states such as INDEX_REBUILD_FAILED and SOURCE_VALIDATION_FAILED are preserved rather than overwritten. Retrieval remains blocked until a fresh full reconciliation succeeds.
+
+A file-backed restart regression now closes and reopens the actual SQLite Provider, proves retrieval fails before reconciliation, and proves the persisted record can be reconciled and retrieved afterward. Related persistence tests were updated to require reconciliation after restart. Exact-head CI passed at 5095adf7aed447678dff5212f16b6f4450be9d89, Runtime run [#40588294420](https://github.com/necromorphic/Logic-Engine/actions/runs/40588294420): Runtime npm test 823/823, recalculation-oracle harness 8/8, and NPC-boundary passed.
+
+**Scope of this evidence:** this tests a Provider process restart while the canonical Core engine remains available. It is not a Core process restart, a full-database restore test, or proof of restore-resistant anti-rollback. Selective stale-record quarantine is still not implemented; the current behavior remains world-level fail-closed to avoid deleting or silently changing persisted records without an approved lifecycle contract. Incremental journal replay, full-database restore anti-rollback, and Host final-send enforcement remain blocked/unproven. Memory→NPC stays **NON_READY / FAIL-CLOSED**.
