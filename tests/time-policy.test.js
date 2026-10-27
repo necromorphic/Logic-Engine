@@ -256,3 +256,27 @@ test('time policy required fields must be own properties even if Object.prototyp
     else delete Object.prototype.policy_id;
   }
 });
+
+
+test('duration rule kinds reject prototype keys and non-string values without coercion', () => {
+  for (const kind of ['toString', 'constructor', '__proto__']) {
+    assert.throws(
+      () => createTimePolicy(policy({
+        duration_rules: [{ event_type: 'unsafe.kind', rule: { kind } }],
+      })),
+      (error) => error.code === 'INVALID_TIME_POLICY',
+    );
+  }
+
+  let coercionCalled = false;
+  const kind = {
+    toString() { coercionCalled = true; return 'fixed'; },
+  };
+  assert.throws(
+    () => createTimePolicy(policy({
+      duration_rules: [{ event_type: 'unsafe.kind', rule: { kind } }],
+    })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+  assert.equal(coercionCalled, false);
+});
