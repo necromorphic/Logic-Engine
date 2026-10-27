@@ -50,7 +50,7 @@ Relevant PRs:
 
 ### C. Provider accepted-head and dispatch chain
 
-Relevant PRs include [#480](https://github.com/necromorphic/Logic-Engine/pull/480), [#484](https://github.com/necromorphic/Logic-Engine/pull/484), [#486](https://github.com/necromorphic/Logic-Engine/pull/486), [#498](https://github.com/necromorphic/Logic-Engine/pull/498), [#499](https://github.com/necromorphic/Logic-Engine/pull/499), [#500](https://github.com/necromorphic/Logic-Engine/pull/500), [#505](https://github.com/necromorphic/Logic-Engine/pull/505), and [#508](https://github.com/necromorphic/Logic-Engine/pull/508).
+Relevant PRs include [#480](https://github.com/necromorphic/Logic-Engine/pull/480), [#483](https://github.com/necromorphic/Logic-Engine/pull/483), [#484](https://github.com/necromorphic/Logic-Engine/pull/484), [#485](https://github.com/necromorphic/Logic-Engine/pull/485), [#486](https://github.com/necromorphic/Logic-Engine/pull/486), [#498](https://github.com/necromorphic/Logic-Engine/pull/498), [#499](https://github.com/necromorphic/Logic-Engine/pull/499), [#500](https://github.com/necromorphic/Logic-Engine/pull/500), [#505](https://github.com/necromorphic/Logic-Engine/pull/505), and [#508](https://github.com/necromorphic/Logic-Engine/pull/508).
 
 These PRs implement different layers: authority persistence, Provider mutation/read gates, a Host-owned transport contract, admission-derived dispatch evidence, and revoke/dispatch ordering tests. They are not interchangeable and must not be merged as a batch.
 
@@ -65,11 +65,12 @@ Relevant PRs:
 - [#514 — Harden Core rule equality against non-JSON values](https://github.com/necromorphic/Logic-Engine/pull/514)
 - [#515 — Prevent rule evaluation from executing context getters](https://github.com/necromorphic/Logic-Engine/pull/515)
 - [#517 — Validate declarative rule objects before evaluation](https://github.com/necromorphic/Logic-Engine/pull/517)
+- [#516 — Reject accessor-backed and malformed mechanic effect inputs](https://github.com/necromorphic/Logic-Engine/pull/516)
 - [#522 — Reject executable and malformed rule inputs](https://github.com/necromorphic/Logic-Engine/pull/522)
 
-The scope of #522 overlaps the three narrower PRs and appears intended to combine their protections with effect-input validation. This is the clearest candidate for PR consolidation outside the Memory → NPC stack. However, the sampled PRs had no submitted review records, and this review did not establish exact-head CI for #522.
+The scope of #522 overlaps the narrower rule PRs and also overlaps effect-input validation in #516; #522 appears intended to combine these protections. This is the clearest candidate for PR consolidation outside the Memory → NPC stack. However, the sampled PRs had no submitted review records, and this review did not establish exact-head CI for #522.
 
-**Next action:** have one reviewer compare #522 against all three narrower diffs and verify exact-head Runtime CI. If #522 fully subsumes them, mark #514/#515/#517 superseded and close them only after confirming no unique required change is lost. Do not merge #522 solely because GitHub reports it mergeable.
+**Next action:** have one reviewer compare #522 against #514, #515, #517, and #516 and verify exact-head Runtime CI. If #522 fully subsumes them, mark #514/#515/#517/#516 superseded and close them only after confirming no unique required change is lost. Do not merge #522 solely because GitHub reports it mergeable.
 
 ### E. SillyTavern diagnostic UI overlap
 
@@ -77,7 +78,15 @@ The scope of #522 overlaps the three narrower PRs and appears intended to combin
 
 **Next action:** perform a file-by-file overlap review, retain one canonical UI implementation if appropriate, and keep protected dispatch separate. Do not merge both by default.
 
-### F. Local coordinator and stage auto-closure
+### F. Deployment security artifacts
+
+Relevant PRs: [#451 — read-only Windows deployment evidence collector](https://github.com/necromorphic/Logic-Engine/pull/451), [#468 — guarded Core SQLite ACL boundary candidate](https://github.com/necromorphic/Logic-Engine/pull/468), [#469 — accepted-head authority storage ACL candidate](https://github.com/necromorphic/Logic-Engine/pull/469), and [#471 — target-PC acceptance runbook](https://github.com/necromorphic/Logic-Engine/pull/471).
+
+These are open candidate artifacts, not part of installed `main` unless merged. The user-provided target-PC report says the #471 runbook was not locally available and real identity/ACL, backup/restore, and reconciliation checks remained blocked. Do not apply candidate ACL scripts or install services automatically. Review the exact scripts against actual target paths and identities before any deployment change.
+
+**Next action:** review the candidate scripts/runbook as a single deployment package; validate them against the installed single-process architecture rather than assuming separate Authority/Core/Provider services exist. Keep all changes plan-first and require explicit permission before applying ACL/service changes.
+
+### G. Local coordinator and stage auto-closure
 
 [#273](https://github.com/necromorphic/Logic-Engine/pull/273) is a read-only local Windows portfolio monitor. [#506](https://github.com/necromorphic/Logic-Engine/pull/506) adds evidence-gated stage auto-closure on top of the coordinator branch. The latter must not be treated as a substitute for human/Core approval or be enabled against production gates. The local monitor's Windows execution still needs explicit evidence before claiming it works on the user's PC.
 
@@ -114,7 +123,8 @@ The current review only classified the major overlapping workstreams above; it d
 2. Continue Host inventory and mutation coverage under #264/#258; keep uncovered cases NON_READY.
 3. Prove exact final serialized request-body binding and the real sole-egress/revocation boundary.
 4. Finish target-PC deployment/ACL/restore evidence; do not infer it from CI.
-5. Consolidate overlapping rule-hardening PRs after exact diff review and current-head CI.
-6. Audit branch ancestry and clean up only branches proven merged or superseded.
+5. Review the deployment security candidates (#451/#468/#469/#471) together; do not apply them without explicit permission.
+6. Consolidate overlapping rule/effect-hardening PRs after exact diff review and current-head CI.
+7. Audit branch ancestry and clean up only branches proven merged or superseded.
 
 **Final disposition:** no PR was merged or closed by this review. No runtime changes were made. Memory → NPC remains **DISABLED / FAIL-CLOSED**; raw Host message-text retention remains unauthorized; the existing Ollama/vectorization path remains untouched.
