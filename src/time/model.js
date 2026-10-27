@@ -89,8 +89,33 @@ export function createTimeInterval(from, to) {
   return Object.freeze({ from, to, boundary: '(from, to]' });
 }
 
+function assertIntervalRecord(interval) {
+  if (!interval || typeof interval !== 'object' || Array.isArray(interval)) {
+    fail('INVALID_INTERVAL', 'interval must be an object.');
+  }
+  const prototype = Object.getPrototypeOf(interval);
+  if (prototype !== Object.prototype && prototype !== null) {
+    fail('INVALID_INTERVAL', 'interval must be a plain data object.');
+  }
+  for (const field of ['from', 'to']) {
+    if (!Object.hasOwn(interval, field)) {
+      fail('INVALID_INTERVAL', 'interval must contain own from/to coordinates.');
+    }
+  }
+  for (const key of Reflect.ownKeys(interval)) {
+    if (!['from', 'to', 'boundary'].includes(key)) {
+      fail('INVALID_INTERVAL', 'interval contains an unsupported field.');
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(interval, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')
+        || descriptor.value === undefined) {
+      fail('INVALID_INTERVAL', 'interval fields must be own enumerable data properties.');
+    }
+  }
+}
+
 export function intervalContainsTime(interval, coordinate) {
-  assertPlainDataRecord(interval, ['from', 'to', 'boundary'], 'INVALID_INTERVAL', 'interval', ['from', 'to']);
+  assertIntervalRecord(interval);
   if (!Number.isSafeInteger(interval.from) || !Number.isSafeInteger(interval.to)
       || interval.to < interval.from
       || (interval.boundary !== undefined && interval.boundary !== '(from, to]')) {
