@@ -4,6 +4,7 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 import { getAcceptedHeadStatusSync } from './accepted-head-client-sync.js';
+import { createSqliteMemoryDispatchEvidenceReaders } from './memory-dispatch-sqlite-evidence.js';
 
 export function createDispatchRequestSignature(secret, request) {
   if (typeof secret !== 'string' || secret.length < 32
@@ -212,17 +213,22 @@ export class MemoryDispatchGateway {
     readToken,
     readCoreEvidence,
     readProviderEvidence,
+    coreDatabasePath,
+    providerDatabasePath,
     sendUpstream,
   }) {
+    const injectedReaders = typeof readCoreEvidence === 'function' && typeof readProviderEvidence === 'function';
+    const configuredReaderPaths = typeof coreDatabasePath === 'string' && typeof providerDatabasePath === 'string';
     if (typeof ledgerPath !== 'string' || !isAbsolute(ledgerPath)
       || typeof coordinatorPath !== 'string' || !isAbsolute(coordinatorPath)
       || !Number.isInteger(authorityPort) || authorityPort < 1 || authorityPort > 65535
       || typeof readToken !== 'string' || readToken.length < 32
-      || typeof readCoreEvidence !== 'function'
-      || typeof readProviderEvidence !== 'function'
+      || injectedReaders === configuredReaderPaths
+      || (!injectedReaders && (readCoreEvidence !== undefined || readProviderEvidence !== undefined))
+      || (!configuredReaderPaths && (coreDatabasePath !== undefined || providerDatabasePath !== undefined))
       || typeof sendUpstream !== 'function'
       || sendUpstream.constructor?.name === 'AsyncFunction') {
-      throw new TypeError('MemoryDispatchGateway requires file-backed stores, trusted synchronous readers, and a synchronous transport-start callback returning { started: true, response: Promise }.');
+      throw new TypeError('MemoryDispatchGateway requires exactly one pair of trusted Core/Provider readers (injected functions or read-only database paths) and a synchronous transport-start callback returning { started: true, response: Promise }.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
       throw new Error('DISPATCH_LEDGER_COORDINATOR_PATH_ALIAS');
@@ -232,8 +238,11 @@ export class MemoryDispatchGateway {
     this.coordinatorPath = resolve(coordinatorPath);
     this.authorityPort = authorityPort;
     this.readToken = readToken;
-    this.readCoreEvidence = readCoreEvidence;
-    this.readProviderEvidence = readProviderEvidence;
+    this.evidenceReaders = configuredReaderPaths
+      ? createSqliteMemoryDispatchEvidenceReaders({ coreDatabasePath, providerDatabasePath })
+      : null;
+    this.readCoreEvidence = this.evidenceReaders?.readCoreEvidence ?? readCoreEvidence;
+    this.readProviderEvidence = this.evidenceReaders?.readProviderEvidence ?? readProviderEvidence;
     this.sendUpstream = sendUpstream;
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
@@ -477,6 +486,8 @@ export class MemoryDispatchGateway {
   }
 
   close() {
-    try { this.db?.close(); } finally { this.coordinatorDb.close(); }
+    try { this.db?.close(); } finally {
+      try { this.evidenceReaders?.close(); } finally { this.coordinatorDb.close(); }
+    }
   }
 }
