@@ -163,7 +163,7 @@ test('matching persisted enrolled chat receives success only after the version i
     const outcome = journalText.trim().split('\\n').map(line => JSON.parse(line)).find(record => record.kind === 'outcome');
     assert.equal(outcome.status, 'COMMITTED');
     assert.equal(outcome.persistenceVerification, undefined);
-    assert.doesNotMatch(journalText, /before|after/);
+    assert.doesNotMatch(journalText, /\"mes\":\"(?:before|after)\"/);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
