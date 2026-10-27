@@ -55,12 +55,34 @@ function readPath(root, path) {
 }
 
 // JSON object member order is not semantically meaningful; array order is.
-function canonicalJson(value) {
-  if (Array.isArray(value)) return value.map(canonicalJson);
-  if (value && typeof value === 'object') {
-    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key])]));
+// Accept only bounded JSON data so equality never executes getters or recurses forever.
+function canonicalJson(value, state = { depth: 0, nodes: 0, ancestors: new WeakSet() }) {
+  state.nodes += 1;
+  if (state.nodes > 10000 || state.depth > 32) {
+    throw new EngineError('INVALID_RULE_VALUE', 'Rule comparison values exceed the supported JSON complexity limit.');
   }
-  return value;
+  if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
+  if (typeof value === 'number' && Number.isFinite(value)) return value;
+  if (!value || typeof value !== 'object') {
+    throw new EngineError('INVALID_RULE_VALUE', 'Rule comparison values must be JSON data.');
+  }
+  if (state.ancestors.has(value)) {
+    throw new EngineError('INVALID_RULE_VALUE', 'Rule comparison values must not contain cycles.');
+  }
+
+  state.ancestors.add(value);
+  state.depth += 1;
+  try {
+    if (Array.isArray(value)) {
+      assertDenseDataArray(value, 10000, 'INVALID_RULE_VALUE', 'Comparison array');
+      return value.map((item) => canonicalJson(item, state));
+    }
+    assertPlainDataObject(value, 'INVALID_RULE_VALUE', 'Comparison object');
+    return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key], state)]));
+  } finally {
+    state.depth -= 1;
+    state.ancestors.delete(value);
+  }
 }
 
 function jsonEqual(left, right) {
