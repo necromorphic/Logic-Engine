@@ -974,6 +974,32 @@ export class SQLiteMemoryProvider {
       return { status: 'stale', reason: 'INVENTORY_INCOMPLETE_OR_UNAVAILABLE' };
     }
 
+    // Inventory validation is an awaited boundary. A canonical source can change
+    // after the first per-record pass but before the inventory callback returns.
+    // Revalidate every exact persisted source token after that callback so a
+    // mutation during inventory validation cannot publish a current marker.
+    for (const row of records) {
+      let lineage;
+      try { lineage = decode(row.lineage_json); } catch {
+        this.#setState(worldId, 'stale', 'stale', null, 'LINEAGE_INVALID');
+        return { status: 'stale', reason: 'LINEAGE_INVALID' };
+      }
+      let valid = false;
+      try {
+        valid = await this.validateSourceVersion(Object.freeze({
+          world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
+          record_ref: row.record_ref, record_version: row.record_version,
+          source_kind: row.source_kind, source_entity_id: row.source_entity_id,
+          source_version: row.source_version, lineage: Object.freeze(lineage),
+        })) === true;
+      } catch { valid = false; }
+      if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
+      if (!valid) {
+        this.#setState(worldId, 'stale', 'stale', null, 'SOURCE_VALIDATION_FAILED_AFTER_INVENTORY');
+        return { status: 'stale', reason: 'SOURCE_VALIDATION_FAILED_AFTER_INVENTORY' };
+      }
+    }
+
     // Provider-local writes can occur while source validation/inventory callbacks
     // are awaited. Do not publish a current marker for a record set that was not
     // the one reconciled; the Core snapshot alone cannot detect provider writes.
