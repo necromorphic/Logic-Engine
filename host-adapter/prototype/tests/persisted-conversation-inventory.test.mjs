@@ -87,7 +87,7 @@ test('persisted snapshot fails closed when a directory changes during enumeratio
       realpath: fsPromises.realpath,
       readdir: async (directory, options) => {
         const entries = await fsPromises.readdir(directory, options);
-        if (directory === f.chats && !injected) {
+        if (path.resolve(directory).toLowerCase() === path.resolve(f.chats).toLowerCase() && !injected) {
           injected = true;
           await writeFile(path.join(f.chats, 'added-during-scan.jsonl'), '');
         }
@@ -120,7 +120,7 @@ test('persisted snapshot rejects a chat file modified after its individual read'
       realpath: fsPromises.realpath,
       readdir: async (directory, options) => {
         const entries = await fsPromises.readdir(directory, options);
-        if (directory === nested && !changed) {
+        if (path.resolve(directory).toLowerCase() === path.resolve(nested).toLowerCase() && !changed) {
           changed = true;
           const current = await fsPromises.readFile(chatFile, 'utf8');
           await writeFile(chatFile, current + '\n');
