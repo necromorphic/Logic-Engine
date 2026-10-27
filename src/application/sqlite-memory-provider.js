@@ -1,5 +1,6 @@
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
+import { isProxy } from 'node:util/types';
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
@@ -29,12 +30,74 @@ const aliasesSameFile = (left, right) => {
   return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
 };
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
+const intrinsicObjectPrototypeKeys = new Set([
+  'constructor', '__defineGetter__', '__defineSetter__', 'hasOwnProperty', '__lookupGetter__',
+  '__lookupSetter__', 'isPrototypeOf', 'propertyIsEnumerable', 'toString', 'valueOf',
+  '__proto__', 'toLocaleString',
+]);
+const hasSafeObjectPrototype = () => {
+  try {
+    const keys = Reflect.ownKeys(Object.prototype);
+    if (keys.length !== intrinsicObjectPrototypeKeys.size) return false;
+    for (let index = 0; index < keys.length; index += 1) {
+      const key = keys[index];
+      if (typeof key !== 'string' || !intrinsicObjectPrototypeKeys.has(key)) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, key);
+      if (!descriptor) return false;
+      if (key === '__proto__') {
+        if (!Object.hasOwn(descriptor, 'get') || !Object.hasOwn(descriptor, 'set')) return false;
+      } else if (!Object.hasOwn(descriptor, 'value')) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+};
+const isPlainDataRecord = (value) => {
+  if (!object(value) || isProxy(value)) return false;
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype === Object.prototype && !hasSafeObjectPrototype()) return false;
+  if (prototype !== Object.prototype && prototype !== null) return false;
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string') return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
+  }
+  return true;
+};
+const isPlainDataArray = (value) => {
+  if (!Array.isArray(value) || isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1 || !keys.includes('length')) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) return false;
+  }
+  return true;
+};
+const copyDataRecord = (value) => Object.fromEntries(
+  Reflect.ownKeys(value).map((key) => [key, Object.getOwnPropertyDescriptor(value, key).value]),
+);
+const snapshotProviderRecord = (value) => {
+  if (!isPlainDataRecord(value)) return null;
+  const snapshot = copyDataRecord(value);
+  if (!isPlainDataArray(snapshot.lineage) || snapshot.lineage.length !== 1
+    || !isPlainDataRecord(snapshot.lineage[0])) return null;
+  snapshot.lineage = [copyDataRecord(snapshot.lineage[0])];
+  return snapshot;
+};
 const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((c) => c.charCodeAt(0) < 32 || c.charCodeAt(0) === 127);
-const snapshotOf = (value) => object(value)
-  && (typeof value.world_revision === 'number' || (typeof value.world_revision === 'string' && value.world_revision.length > 0))
-  && (typeof value.commit_sequence === 'number' || (typeof value.commit_sequence === 'string' && value.commit_sequence.length > 0))
+const validSnapshotPart = (value) => (typeof value === 'number' && Number.isFinite(value))
+  || (typeof value === 'string' && value.trim().length > 0);
+const snapshotOf = (value) => isPlainDataRecord(value)
+  && Object.hasOwn(value, 'world_revision')
+  && Object.hasOwn(value, 'commit_sequence')
+  && validSnapshotPart(value.world_revision)
+  && validSnapshotPart(value.commit_sequence)
   ? { world_revision: value.world_revision, commit_sequence: value.commit_sequence } : null;
 const sameSnapshot = (a, b) => !!snapshotOf(a) && !!snapshotOf(b)
   && a.world_revision === b.world_revision && a.commit_sequence === b.commit_sequence;
@@ -64,18 +127,48 @@ const validDirectLineage = (row, lineage) => row.source_kind === 'canonical_enti
  * refuses retrieval until rebuild + reconciliation complete.
  */
 export class SQLiteMemoryProvider {
-  constructor({ path = ':memory:', coordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH ?? null, getSnapshot, validateSourceVersion, validateInventory, authorizeRawRead = null }) {
+  #db;
+  #coordinatorDb;
+  #getSnapshot;
+  #validateSourceVersion;
+  #validateInventory;
+  #authorizeRawRead;
+  #reconcileGeneration;
+  #transactionDepth;
+  #coordinatorDepth;
+  #stateGeneration;
+  #queryAuthorizationGeneration;
+  #recordAuthorizationGeneration;
+
+  constructor(options = {}) {
+    if (!isPlainDataRecord(options)) throw new TypeError('SQLiteMemoryProvider requires plain data options');
+    const {
+      path = ':memory:',
+      coordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH ?? null,
+      getSnapshot,
+      validateSourceVersion,
+      validateInventory,
+      authorizeRawRead = null,
+    } = options;
+    // Reject non-string paths before Node path helpers can coerce caller-owned
+    // objects and execute their Symbol.toPrimitive/valueOf hooks.
+    if (typeof path !== 'string' || path.length === 0) {
+      throw new TypeError('SQLiteMemoryProvider path must be a non-empty string');
+    }
+    if (coordinatorPath !== null && typeof coordinatorPath !== 'string') {
+      throw new TypeError('SQLiteMemoryProvider coordinatorPath must be a string or null');
+    }
     if (typeof getSnapshot !== 'function') throw new TypeError('SQLiteMemoryProvider requires trusted getSnapshot');
     if (typeof validateSourceVersion !== 'function') {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateSourceVersion');
     }
-    this.getSnapshot = getSnapshot;
-    this.validateSourceVersion = validateSourceVersion;
+    this.#getSnapshot = getSnapshot;
+    this.#validateSourceVersion = validateSourceVersion;
     if (typeof validateInventory !== 'function') {
       throw new TypeError('SQLiteMemoryProvider requires trusted validateInventory');
     }
-    this.validateInventory = validateInventory;
-    this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
+    this.#validateInventory = validateInventory;
+    this.#authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
     // In-memory instances are deliberately isolated test stores and do not
     // join a process-global coordinator merely because the test runner set one.
     const sharedCoordinatorPath = path === ':memory:' ? null : coordinatorPath;
@@ -88,21 +181,21 @@ export class SQLiteMemoryProvider {
     if (path !== ':memory:' && sharedCoordinatorPath && aliasesSameFile(path, sharedCoordinatorPath)) {
       throw new Error('Coordinator DB must be separate from the Memory Provider DB, including filesystem aliases.');
     }
-    this.reconcileGeneration = new Map();
-    this.transactionDepth = 0;
-    this.coordinatorDepth = 0;
-    this.stateGeneration = new Map();
-    this.queryAuthorizationGeneration = new Map();
-    this.recordAuthorizationGeneration = new Map();
+    this.#reconcileGeneration = new Map();
+    this.#transactionDepth = 0;
+    this.#coordinatorDepth = 0;
+    this.#stateGeneration = new Map();
+    this.#queryAuthorizationGeneration = new Map();
+    this.#recordAuthorizationGeneration = new Map();
     // Open the coordinator first so a failed coordinator open cannot leak a Provider DB handle.
-    this.coordinatorDb = sharedCoordinatorPath ? openCoordinatorDatabase(sharedCoordinatorPath) : null;
-    this.db = null;
+    this.#coordinatorDb = sharedCoordinatorPath ? openCoordinatorDatabase(sharedCoordinatorPath) : null;
+    this.#db = null;
     let releaseStartupLock = () => {};
     let startupError = null;
     try {
       releaseStartupLock = this.#acquireCoordinatorLock();
-      this.db = new DatabaseSync(path);
-      this.db.exec(`
+      this.#db = new DatabaseSync(path);
+      this.#db.exec(`
       PRAGMA foreign_keys = ON;
       CREATE TABLE IF NOT EXISTS memory_records (
         world_id TEXT NOT NULL, subject_id TEXT NOT NULL, purpose TEXT NOT NULL,
@@ -163,53 +256,57 @@ export class SQLiteMemoryProvider {
           ON DELETE CASCADE
       );
     `);
-      const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
-      if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+      const stateColumns = this.#db.prepare('PRAGMA table_info(memory_index_state)').all();
+      if (!stateColumns.some((column) => column.name === 'failure_code')) this.#db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
     } catch (error) {
       startupError = error;
     } finally {
       try { releaseStartupLock(); } catch (error) { startupError ??= error; }
     }
     if (startupError) {
-      try { this.db.close(); } catch {}
-      try { this.coordinatorDb?.close(); } catch {}
+      try { this.#db.close(); } catch {}
+      try { this.#coordinatorDb?.close(); } catch {}
       throw startupError;
     }
+    // The Provider is a capability boundary: callers may invoke its public
+    // methods but cannot shadow authorization/retrieval methods or attach
+    // writable state to the instance. Private fields remain mutable internally.
+    Object.preventExtensions(this);
   }
 
   #acquireCoordinatorLock() {
-    if (!this.coordinatorDb) return () => {};
-    return beginCoordinatorLock(this.coordinatorDb);
+    if (!this.#coordinatorDb) return () => {};
+    return beginCoordinatorLock(this.#coordinatorDb);
   }
 
   #withCoordinatorLock(work) {
-    if (this.coordinatorDepth > 0) return work();
+    if (this.#coordinatorDepth > 0) return work();
     const release = this.#acquireCoordinatorLock();
-    this.coordinatorDepth += 1;
+    this.#coordinatorDepth += 1;
     try { return work(); }
     finally {
-      this.coordinatorDepth -= 1;
+      this.#coordinatorDepth -= 1;
       release();
     }
   }
 
   #dataVersion() {
-    return this.db.prepare('PRAGMA data_version').get().data_version;
+    return this.#db.prepare('PRAGMA data_version').get().data_version;
   }
 
   #withImmediateTransaction(work) {
     return this.#withCoordinatorLock(() => {
-      this.db.exec('BEGIN IMMEDIATE');
-      this.transactionDepth += 1;
+      this.#db.exec('BEGIN IMMEDIATE');
+      this.#transactionDepth += 1;
       try {
         const result = work();
-        this.db.exec('COMMIT');
+        this.#db.exec('COMMIT');
         return result;
       } catch (error) {
-        try { this.db.exec('ROLLBACK'); } catch {}
+        try { this.#db.exec('ROLLBACK'); } catch {}
         throw error;
       } finally {
-        this.transactionDepth -= 1;
+        this.#transactionDepth -= 1;
       }
     });
   }
@@ -218,7 +315,7 @@ export class SQLiteMemoryProvider {
   // share SQLite's writer serialization order. Existing compound transactions
   // reuse their transaction instead of attempting a nested BEGIN IMMEDIATE.
   #withSerializedWrite(work) {
-    if (this.transactionDepth > 0) return work();
+    if (this.#transactionDepth > 0) return work();
     return this.#withImmediateTransaction(work);
   }
 
@@ -244,7 +341,7 @@ export class SQLiteMemoryProvider {
     const digest = rawDigest(input.content);
     const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
     return this.#withImmediateTransaction(() => {
-      const existing = this.db.prepare(`SELECT * FROM memory_raw_captures
+      const existing = this.#db.prepare(`SELECT * FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
       if (existing) {
         if (existing.role !== input.role || existing.content_text !== input.content
@@ -253,7 +350,7 @@ export class SQLiteMemoryProvider {
         }
         return { status: 'duplicate', content_sha256: digest };
       }
-      this.db.prepare(`INSERT INTO memory_raw_captures
+      this.#db.prepare(`INSERT INTO memory_raw_captures
         (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,
          metadata_json,captured_at,deleted_at)
         VALUES(?,?,?,?,?,?,?,?,?,NULL)`)
@@ -263,9 +360,9 @@ export class SQLiteMemoryProvider {
   }
 
   async #assertRawReadAllowed(request) {
-    if (!this.authorizeRawRead) throw new Error('MEMORY_RAW_READ_DENIED');
+    if (!this.#authorizeRawRead) throw new Error('MEMORY_RAW_READ_DENIED');
     let allowed = false;
-    try { allowed = await this.authorizeRawRead(Object.freeze({ ...request })) === true; } catch { allowed = false; }
+    try { allowed = await this.#authorizeRawRead(Object.freeze({ ...request })) === true; } catch { allowed = false; }
     if (!allowed) throw new Error('MEMORY_RAW_READ_DENIED');
   }
 
@@ -282,7 +379,7 @@ export class SQLiteMemoryProvider {
     }
     const request = { ...input, action: 'read_version' };
     await this.#assertRawReadAllowed(request);
-    let row = this.db.prepare(`SELECT * FROM memory_raw_captures
+    let row = this.#db.prepare(`SELECT * FROM memory_raw_captures
       WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
       .get(input.world_id, input.conversation_id, input.message_id, input.version_id);
     if (!row || row.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
@@ -291,7 +388,7 @@ export class SQLiteMemoryProvider {
     // Recheck at the disclosure boundary after the database read. This narrows
     // authorization/deletion races but is not a cross-store atomicity guarantee.
     await this.#assertRawReadAllowed(request);
-    row = this.db.prepare(`SELECT * FROM memory_raw_captures
+    row = this.#db.prepare(`SELECT * FROM memory_raw_captures
       WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
       .get(input.world_id, input.conversation_id, input.message_id, input.version_id);
     if (!row || row.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
@@ -316,7 +413,7 @@ export class SQLiteMemoryProvider {
     }
     const request = { ...input, action: 'read_active' };
     await this.#assertRawReadAllowed(request);
-    const readRows = () => this.db.prepare(`SELECT c.* FROM memory_raw_active_versions a
+    const readRows = () => this.#db.prepare(`SELECT c.* FROM memory_raw_active_versions a
       JOIN memory_raw_captures c ON c.world_id=a.world_id
         AND c.conversation_id=a.conversation_id AND c.message_id=a.message_id
         AND c.version_id=a.version_id
@@ -352,10 +449,10 @@ export class SQLiteMemoryProvider {
     }
     return this.#withImmediateTransaction(() => {
       const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
-      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+      const source = this.#db.prepare(`SELECT deleted_at FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
       if (!source || source.deleted_at !== null) throw new Error('MEMORY_RAW_VERSION_UNAVAILABLE');
-      this.db.prepare(`INSERT INTO memory_raw_active_versions
+      this.#db.prepare(`INSERT INTO memory_raw_active_versions
         (world_id,conversation_id,message_id,version_id,selected_at) VALUES(?,?,?,?,?)
         ON CONFLICT(world_id,conversation_id,message_id) DO UPDATE SET
         version_id=excluded.version_id,selected_at=excluded.selected_at`)
@@ -380,11 +477,11 @@ export class SQLiteMemoryProvider {
     const values = [input.world_id, input.conversation_id, input.message_id, input.source_version_id,
       input.copy_ref, input.copy_version, input.copy_kind, input.content, digest];
     return this.#withImmediateTransaction(() => {
-      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+      const source = this.#db.prepare(`SELECT deleted_at FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
         .get(input.world_id, input.conversation_id, input.message_id, input.source_version_id);
       if (!source || source.deleted_at !== null) throw new Error('MEMORY_RAW_SOURCE_UNAVAILABLE');
-      const existing = this.db.prepare(`SELECT * FROM memory_raw_derived_copies
+      const existing = this.#db.prepare(`SELECT * FROM memory_raw_derived_copies
         WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?
           AND copy_ref=? AND copy_version=?`).get(...values.slice(0, 6));
       if (existing) {
@@ -392,7 +489,7 @@ export class SQLiteMemoryProvider {
           || existing.content_sha256 !== digest) throw new Error('MEMORY_RAW_COPY_CONFLICT');
         return { status: 'duplicate', content_sha256: digest };
       }
-      this.db.prepare(`INSERT INTO memory_raw_derived_copies
+      this.#db.prepare(`INSERT INTO memory_raw_derived_copies
         (world_id,conversation_id,message_id,source_version_id,copy_ref,copy_version,copy_kind,
          content_text,content_sha256,status,created_at,invalidated_at)
         VALUES(?,?,?,?,?,?,?,?,?,'current',?,NULL)`)
@@ -407,21 +504,21 @@ export class SQLiteMemoryProvider {
    * copies. Permanent purge is a separate explicit operation.
    */
   markRawSourceDeleted(input) {
-    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+    if (!isPlainDataRecord(input) || !validId(input.world_id) || !validId(input.conversation_id)
       || !validId(input.message_id) || !validId(input.version_id)) {
       throw new TypeError('Invalid raw Memory deletion target');
     }
     const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
     return this.#withImmediateTransaction(() => {
-      const source = this.db.prepare(`SELECT deleted_at FROM memory_raw_captures
+      const source = this.#db.prepare(`SELECT deleted_at FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
       if (!source) return { status: 'missing', invalidated_copies: 0 };
       const now = new Date().toISOString();
-      this.db.prepare(`UPDATE memory_raw_captures SET deleted_at=COALESCE(deleted_at,?)
+      this.#db.prepare(`UPDATE memory_raw_captures SET deleted_at=COALESCE(deleted_at,?)
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(now, ...key);
-      this.db.prepare(`DELETE FROM memory_raw_active_versions
+      this.#db.prepare(`DELETE FROM memory_raw_active_versions
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
-      const result = this.db.prepare(`UPDATE memory_raw_derived_copies
+      const result = this.#db.prepare(`UPDATE memory_raw_derived_copies
         SET status='invalidated', invalidated_at=COALESCE(invalidated_at,?)
         WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?
           AND status='current'`).run(now, input.world_id, input.conversation_id, input.message_id, input.version_id);
@@ -435,21 +532,21 @@ export class SQLiteMemoryProvider {
    * managed by this provider-local operation and must not be claimed purged.
    */
   purgeRawSource(input) {
-    if (!object(input) || !validId(input.world_id) || !validId(input.conversation_id)
+    if (!isPlainDataRecord(input) || !validId(input.world_id) || !validId(input.conversation_id)
       || !validId(input.message_id) || !validId(input.version_id)) {
       throw new TypeError('Invalid raw Memory purge target');
     }
     const key = [input.world_id, input.conversation_id, input.message_id, input.version_id];
     return this.#withImmediateTransaction(() => {
-      const source = this.db.prepare(`SELECT 1 AS found FROM memory_raw_captures
+      const source = this.#db.prepare(`SELECT 1 AS found FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).get(...key);
       if (!source) return { status: 'missing', purged_copies: 0 };
-      const copies = this.db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_derived_copies
+      const copies = this.#db.prepare(`SELECT COUNT(*) AS count FROM memory_raw_derived_copies
         WHERE world_id=? AND conversation_id=? AND message_id=? AND source_version_id=?`)
         .get(input.world_id, input.conversation_id, input.message_id, input.version_id).count;
-      this.db.prepare(`DELETE FROM memory_raw_active_versions
+      this.#db.prepare(`DELETE FROM memory_raw_active_versions
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
-      this.db.prepare(`DELETE FROM memory_raw_captures
+      this.#db.prepare(`DELETE FROM memory_raw_captures
         WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`).run(...key);
       return { status: 'purged', purged_copies: copies };
     });
@@ -457,19 +554,19 @@ export class SQLiteMemoryProvider {
 
 
   close() {
-    try { this.db.close(); }
-    finally { this.coordinatorDb?.close(); }
+    try { this.#db.close(); }
+    finally { this.#coordinatorDb?.close(); }
   }
 
   #scope(scope) {
-    if (!object(scope) || !validId(scope.world_id) || !validId(scope.subject_id)
+    if (!isPlainDataRecord(scope) || !validId(scope.world_id) || !validId(scope.subject_id)
       || !validId(scope.purpose)) throw new TypeError('Invalid Memory scope');
     return scope;
   }
 
   #setState(worldId, indexHealth, reconciliation, snapshot = null, failureCode = null) {
     this.#withSerializedWrite(() => {
-      this.db.prepare(`INSERT INTO memory_index_state
+      this.#db.prepare(`INSERT INTO memory_index_state
         (world_id,index_health,source_reconciliation,snapshot_revision,snapshot_sequence,failure_code,updated_at)
         VALUES(?,?,?,?,?,?,?)
         ON CONFLICT(world_id) DO UPDATE SET index_health=excluded.index_health,
@@ -479,13 +576,13 @@ export class SQLiteMemoryProvider {
         snapshot ? String(snapshot.world_revision) : null,
         snapshot ? String(snapshot.commit_sequence) : null, failureCode, new Date().toISOString());
     });
-    this.stateGeneration.set(worldId, (this.stateGeneration.get(worldId) ?? 0) + 1);
+    this.#stateGeneration.set(worldId, (this.#stateGeneration.get(worldId) ?? 0) + 1);
   }
 
   /** Provider-internal diagnostics; never project this state into NPC-facing results. */
   getIndexStatusForDiagnostics(worldId) {
     if (!validId(worldId)) throw new TypeError('Invalid world_id');
-    const row = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(worldId);
+    const row = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(worldId);
     if (!row) return Object.freeze({
       index_health: 'unavailable', source_reconciliation: 'stale',
       snapshot: null, failure_code: 'INDEX_STATE_MISSING',
@@ -504,42 +601,58 @@ export class SQLiteMemoryProvider {
     this.#scope(scope);
     if (typeof allowed !== 'boolean') throw new TypeError('allowed must be boolean');
     this.#withSerializedWrite(() => {
-      this.db.prepare(`INSERT INTO memory_query_grants VALUES(?,?,?,?)
+      this.#db.prepare(`INSERT INTO memory_query_grants VALUES(?,?,?,?)
         ON CONFLICT(world_id,subject_id,purpose) DO UPDATE SET allowed=excluded.allowed`)
         .run(scope.world_id, scope.subject_id, scope.purpose, allowed ? 1 : 0);
     });
     const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose]);
-    this.queryAuthorizationGeneration.set(key, (this.queryAuthorizationGeneration.get(key) ?? 0) + 1);
+    this.#queryAuthorizationGeneration.set(key, (this.#queryAuthorizationGeneration.get(key) ?? 0) + 1);
   }
 
   grantRecord(scope, recordRef, recordVersion, allowed) {
+    return this.#grantRecord(scope, recordRef, recordVersion, allowed);
+  }
+
+  #grantRecord(scope, recordRef, recordVersion, allowed) {
     this.#scope(scope);
     if (!validId(recordRef) || !validId(recordVersion) || typeof allowed !== 'boolean') {
       throw new TypeError('Invalid record grant');
     }
     this.#withSerializedWrite(() => {
-      this.db.prepare(`INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)
+      this.#db.prepare(`INSERT INTO memory_record_grants VALUES(?,?,?,?,?,?)
         ON CONFLICT(world_id,subject_id,purpose,record_ref,record_version)
         DO UPDATE SET allowed=excluded.allowed`)
         .run(scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion, allowed ? 1 : 0);
     });
     const key = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose, recordRef, recordVersion]);
-    this.recordAuthorizationGeneration.set(key, (this.recordAuthorizationGeneration.get(key) ?? 0) + 1);
+    this.#recordAuthorizationGeneration.set(key, (this.#recordAuthorizationGeneration.get(key) ?? 0) + 1);
   }
 
   revokeRecord(scope, recordRef, recordVersion) {
-    this.grantRecord(scope, recordRef, recordVersion, false);
+    this.#grantRecord(scope, recordRef, recordVersion, false);
   }
 
   authorizeQuery(scope) {
+    return this.#authorizeQuery(scope);
+  }
+
+  #authorizeQuery(scope) {
     this.#scope(scope);
-    const row = this.db.prepare(`SELECT allowed FROM memory_query_grants
+    const row = this.#db.prepare(`SELECT allowed FROM memory_query_grants
       WHERE world_id=? AND subject_id=? AND purpose=?`)
       .get(scope.world_id, scope.subject_id, scope.purpose);
     return row?.allowed === 1;
   }
 
   async authorizeCandidate(input) {
+    // Snapshot request identity before the first await. Caller mutation during
+    // source validation must not rebind the final grant/readiness checks.
+    if (!isPlainDataRecord(input)) return false;
+    input = {
+      world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose,
+      record_ref: input.record_ref, record_version: input.record_version,
+      source_kind: input.source_kind, source_entity_id: input.source_entity_id,
+    };
     // Take the cross-connection epoch before reading any authorization state.
     // Otherwise a revoke/re-grant committed between the initial grant read and
     // the later epoch capture would be invisible to this request.
@@ -547,12 +660,12 @@ export class SQLiteMemoryProvider {
     if (!object(input) || !validId(input.world_id) || !validId(input.subject_id)
       || !validId(input.purpose) || !validId(input.record_ref) || !validId(input.record_version)) return false;
     const scope = { world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose };
-    if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
-    const grant = this.db.prepare(`SELECT allowed FROM memory_record_grants
+    if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+    const grant = this.#db.prepare(`SELECT allowed FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
     if (grant?.allowed !== 1) return false;
-    const row = this.db.prepare(`SELECT * FROM memory_records
+    const row = this.#db.prepare(`SELECT * FROM memory_records
       WHERE world_id=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.record_ref, input.record_version);
     if (!row || row.subject_id !== input.subject_id || row.purpose !== input.purpose
@@ -566,28 +679,28 @@ export class SQLiteMemoryProvider {
     // Candidate authorization is only valid against a ready Provider index.
     // Capture a Provider-local generation so a write/rebuild/reconciliation
     // transition during the awaited source check cannot reuse a prior ready row.
-    const initialState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
+    const initialState = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
       .get(input.world_id);
     if (!initialState || initialState.index_health !== 'ready'
       || initialState.source_reconciliation !== 'current') {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
-    const stateGeneration = this.stateGeneration.get(input.world_id) ?? 0;
+    const stateGeneration = this.#stateGeneration.get(input.world_id) ?? 0;
     const queryGrantKey = JSON.stringify([input.world_id, input.subject_id, input.purpose]);
     const recordGrantKey = JSON.stringify([
       input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version,
     ]);
-    const queryAuthorizationGeneration = this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0;
-    const recordAuthorizationGeneration = this.recordAuthorizationGeneration.get(recordGrantKey) ?? 0;
+    const queryAuthorizationGeneration = this.#queryAuthorizationGeneration.get(queryGrantKey) ?? 0;
+    const recordAuthorizationGeneration = this.#recordAuthorizationGeneration.get(recordGrantKey) ?? 0;
     const providerDataVersion = requestDataVersion;
 
     let sourceValid = false;
     try {
-      sourceValid = await this.validateSourceVersion(Object.freeze({
+      sourceValid = await this.#validateSourceVersion(Object.freeze({
         world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
         record_ref: row.record_ref, record_version: row.record_version,
         source_kind: row.source_kind, source_entity_id: row.source_entity_id,
-        source_version: row.source_version, lineage: Object.freeze(lineage),
+        source_version: row.source_version, lineage: Object.freeze(lineage.map((entry) => Object.freeze({ ...entry }))),
       })) === true;
     } catch {
       // Host/Core validator outage is unavailable, not an ordinary denial.
@@ -600,11 +713,14 @@ export class SQLiteMemoryProvider {
       throw new Error('MEMORY_SOURCE_VERSION_UNVERIFIABLE');
     }
 
-    // Source validation may await a host/Core read. Recheck that Provider
-    // readiness did not change while suspended, as well as the grants below.
-    // This is Provider-local consistency, not cross-store dispatch atomicity.
-    if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
-    const currentGrant = this.db.prepare(`SELECT allowed FROM memory_record_grants
+    // The external source-version validator above may await and therefore must
+    // never hold the shared lock. Final Provider-side grant, revocation, and
+    // readiness checks run synchronously under both the coordinator lease and
+    // SQLite writer reservation. This narrows the race but cannot make a later
+    // model dispatch atomic with revocation.
+    return this.#withImmediateTransaction(() => {
+    if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+    const currentGrant = this.#db.prepare(`SELECT allowed FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.subject_id, input.purpose, input.record_ref, input.record_version);
     if (currentGrant?.allowed !== 1) {
@@ -616,40 +732,46 @@ export class SQLiteMemoryProvider {
     // If a grant was revoked and re-granted during the await, the final Boolean
     // alone loses that lifecycle transition. Fail this in-flight authorization;
     // a later request can use the new grant after a fresh retrieval.
-    if ((this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration
-      || (this.recordAuthorizationGeneration.get(recordGrantKey) ?? 0) !== recordAuthorizationGeneration
+    if ((this.#queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration
+      || (this.#recordAuthorizationGeneration.get(recordGrantKey) ?? 0) !== recordAuthorizationGeneration
       || this.#dataVersion() !== providerDataVersion) {
       // PRAGMA data_version detects commits from other SQLite connections, whose
       // in-memory grant generations are not shared with this Provider instance.
       throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     }
-    const latestState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
+    const latestState = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
       .get(input.world_id);
-    if ((this.stateGeneration.get(input.world_id) ?? 0) !== stateGeneration
+    if ((this.#stateGeneration.get(input.world_id) ?? 0) !== stateGeneration
       || !latestState || latestState.index_health !== 'ready'
       || latestState.source_reconciliation !== 'current') {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
     if (this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     return true;
+      });
   }
 
   putRecord(record) {
+    // Reject executable caller objects and snapshot nested lineage before any
+    // identity validation or persistence. The method is synchronous, so this
+    // immutable local copy remains stable through the complete write sequence.
+    const snapshot = snapshotProviderRecord(record);
+    if (!snapshot) throw new TypeError('Invalid direct-source Memory record; complete single-source lineage is required');
     // Serialize identity lookup and both durable record/index phases as one
     // coordinator window. The local record transaction still commits before
     // the separate index transaction so index failure remains recoverable.
-    return this.#withCoordinatorLock(() => this.#putRecordUnderLock(record));
+    return this.#withCoordinatorLock(() => this.#putRecordUnderLock(snapshot));
   }
 
   #putRecordUnderLock(record) {
-    if (!object(record) || !validId(record.world_id) || !validId(record.subject_id)
+    if (!isPlainDataRecord(record) || !validId(record.world_id) || !validId(record.subject_id)
       || !validId(record.purpose) || !validId(record.record_ref) || !validId(record.record_version)
       || record.source_kind !== 'canonical_entity' || !validId(record.source_entity_id)
       || !validId(record.source_version) || !validId(record.content_kind) || record.content_kind === 'summary'
       || !validId(record.epistemic_kind) || !validId(record.producer_kind)
       || !validId(record.content_disposition) || !validId(record.evidence_assessment)
-      || !Array.isArray(record.lineage) || record.lineage.length !== 1
-      || !object(record.lineage[0]) || record.lineage[0].source_kind !== 'canonical_entity'
+      || !isPlainDataArray(record.lineage) || record.lineage.length !== 1
+      || !isPlainDataRecord(record.lineage[0]) || record.lineage[0].source_kind !== 'canonical_entity'
       || record.lineage[0].entity_id !== record.source_entity_id
       || record.lineage[0].source_version !== record.source_version) {
       throw new TypeError('Invalid direct-source Memory record; complete single-source lineage is required');
@@ -658,7 +780,7 @@ export class SQLiteMemoryProvider {
       record.record_version, record.source_kind, record.source_entity_id, record.source_version,
       record.content_kind, record.epistemic_kind, record.producer_kind, record.content_disposition,
       record.evidence_assessment, encode(record.lineage), new Date().toISOString()];
-    const existing = this.db.prepare(`SELECT * FROM memory_records
+    const existing = this.#db.prepare(`SELECT * FROM memory_records
       WHERE world_id=? AND record_ref=? AND record_version=?`)
       .get(record.world_id, record.record_ref, record.record_version);
     if (existing) {
@@ -674,13 +796,13 @@ export class SQLiteMemoryProvider {
       // An earlier ingest may have committed the durable record but failed while
       // writing its derived index entry. An identical replay must not report a
       // fully ordinary duplicate while silently leaving that entry absent.
-      const indexed = this.db.prepare(`SELECT 1 AS ok FROM memory_index_entries
+      const indexed = this.#db.prepare(`SELECT 1 AS ok FROM memory_index_entries
         WHERE world_id=? AND record_ref=? AND record_version=?`)
         .get(record.world_id, record.record_ref, record.record_version);
       if (!indexed) {
         this.#setState(record.world_id, 'rebuilding', 'stale', null, 'INDEX_ENTRY_MISSING');
         try {
-          this.#withSerializedWrite(() => this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
+          this.#withSerializedWrite(() => this.#db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
             .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString()));
         } catch (error) {
           this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
@@ -697,9 +819,9 @@ export class SQLiteMemoryProvider {
     // Invalidate the readiness marker before any ingest mutation. If either the raw
     // write or index write fails, retrieval cannot reuse a prior ready marker.
     this.#setState(record.world_id, 'rebuilding', 'stale');
-    this.#withSerializedWrite(() => this.db.prepare(`INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values));
+    this.#withSerializedWrite(() => this.#db.prepare(`INSERT INTO memory_records VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`).run(...values));
     try {
-      this.#withSerializedWrite(() => this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
+      this.#withSerializedWrite(() => this.#db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
         .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString()));
     } catch (error) {
       this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
@@ -713,10 +835,10 @@ export class SQLiteMemoryProvider {
     this.#setState(worldId, 'rebuilding', 'stale');
     try {
       const count = this.#withImmediateTransaction(() => {
-        this.db.prepare('DELETE FROM memory_index_entries WHERE world_id=?').run(worldId);
-        const records = this.db.prepare('SELECT record_ref,record_version FROM memory_records WHERE world_id=?')
+        this.#db.prepare('DELETE FROM memory_index_entries WHERE world_id=?').run(worldId);
+        const records = this.#db.prepare('SELECT record_ref,record_version FROM memory_records WHERE world_id=?')
           .all(worldId);
-        const insert = this.db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)');
+        const insert = this.#db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)');
         for (const record of records) {
           insert.run(worldId, record.record_ref, record.record_version, new Date().toISOString());
         }
@@ -731,28 +853,28 @@ export class SQLiteMemoryProvider {
 
   async reconcile(worldId) {
     if (!validId(worldId)) throw new TypeError('Invalid world_id');
-    const generation = (this.reconcileGeneration.get(worldId) ?? 0) + 1;
-    this.reconcileGeneration.set(worldId, generation);
-    const superseded = () => this.reconcileGeneration.get(worldId) !== generation;
+    const generation = (this.#reconcileGeneration.get(worldId) ?? 0) + 1;
+    this.#reconcileGeneration.set(worldId, generation);
+    const superseded = () => this.#reconcileGeneration.get(worldId) !== generation;
     this.#setState(worldId, 'rebuilding', 'stale');
     // Capture the Provider-local mutation epoch after this reconciliation marks
     // the index non-ready. Any ingest, rebuild, or competing state transition
     // during an awaited Core validation invalidates this reconciliation attempt.
-    const providerStateGeneration = this.stateGeneration.get(worldId) ?? 0;
+    const providerStateGeneration = this.#stateGeneration.get(worldId) ?? 0;
     const providerDataVersion = this.#dataVersion();
     const providerStateChanged = () =>
-      (this.stateGeneration.get(worldId) ?? 0) !== providerStateGeneration
+      (this.#stateGeneration.get(worldId) ?? 0) !== providerStateGeneration
       || this.#dataVersion() !== providerDataVersion;
     let before;
-    try { before = snapshotOf(await this.getSnapshot(worldId)); } catch { before = null; }
+    try { before = snapshotOf(await this.#getSnapshot(worldId)); } catch { before = null; }
     if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
     if (!before) {
       this.#setState(worldId, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
       return { status: 'unavailable', reason: 'CORE_SNAPSHOT_UNAVAILABLE' };
     }
-    const records = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
+    const records = this.#db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
     for (const row of records) {
-      const entry = this.db.prepare(`SELECT 1 AS ok FROM memory_index_entries
+      const entry = this.#db.prepare(`SELECT 1 AS ok FROM memory_index_entries
         WHERE world_id=? AND record_ref=? AND record_version=?`)
         .get(worldId, row.record_ref, row.record_version);
       if (!entry) {
@@ -770,11 +892,11 @@ export class SQLiteMemoryProvider {
       }
       let valid = false;
       try {
-        valid = await this.validateSourceVersion(Object.freeze({
+        valid = await this.#validateSourceVersion(Object.freeze({
           world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
           record_ref: row.record_ref, record_version: row.record_version,
           source_kind: row.source_kind, source_entity_id: row.source_entity_id,
-          source_version: row.source_version, lineage: Object.freeze(lineage),
+          source_version: row.source_version, lineage: Object.freeze(lineage.map((entry) => Object.freeze({ ...entry }))),
         })) === true;
       } catch { valid = false; }
       if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
@@ -788,7 +910,7 @@ export class SQLiteMemoryProvider {
     // world/source domain before the provider can publish a current marker.
     let inventoryComplete = false;
     try {
-      inventoryComplete = await this.validateInventory(worldId, Object.freeze(records.map((row) => Object.freeze({
+      inventoryComplete = await this.#validateInventory(worldId, Object.freeze(records.map((row) => Object.freeze({
         record_ref: row.record_ref, record_version: row.record_version,
         source_kind: row.source_kind, source_entity_id: row.source_entity_id,
         source_version: row.source_version,
@@ -813,14 +935,14 @@ export class SQLiteMemoryProvider {
     const recordSet = (rows) => rows.map(({ created_at, ...record }) => record)
       .sort((a, b) => a.record_ref.localeCompare(b.record_ref)
         || a.record_version.localeCompare(b.record_version));
-    const latestRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
+    const latestRecords = this.#db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
     if (!isDeepStrictEqual(recordSet(records), recordSet(latestRecords))) {
       this.#setState(worldId, 'stale', 'stale');
       return { status: 'stale' };
     }
 
     let after;
-    try { after = snapshotOf(await this.getSnapshot(worldId)); } catch { after = null; }
+    try { after = snapshotOf(await this.#getSnapshot(worldId)); } catch { after = null; }
     if (superseded()) return { status: 'stale', reason: 'RECONCILIATION_SUPERSEDED' };
     if (!sameSnapshot(before, after)) {
       this.#setState(worldId, 'stale', 'stale');
@@ -835,7 +957,7 @@ export class SQLiteMemoryProvider {
           this.#setState(worldId, 'stale', 'stale', null, 'PROVIDER_STATE_CHANGED');
           return { status: 'stale', reason: 'PROVIDER_STATE_CHANGED' };
         }
-        const finalRecords = this.db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
+        const finalRecords = this.#db.prepare('SELECT * FROM memory_records WHERE world_id=?').all(worldId);
         if (!isDeepStrictEqual(recordSet(records), recordSet(finalRecords))) {
           this.#setState(worldId, 'stale', 'stale');
           return { status: 'stale', reason: 'PROVIDER_RECORD_SET_CHANGED' };
@@ -846,7 +968,7 @@ export class SQLiteMemoryProvider {
         // under the same write lock before publishing ready/current.
         const compareIdentity = (a, b) => a.record_ref.localeCompare(b.record_ref)
           || a.record_version.localeCompare(b.record_version);
-        const finalIndex = this.db.prepare('SELECT record_ref, record_version FROM memory_index_entries WHERE world_id=?')
+        const finalIndex = this.#db.prepare('SELECT record_ref, record_version FROM memory_index_entries WHERE world_id=?')
           .all(worldId)
           .map((row) => ({ record_ref: row.record_ref, record_version: row.record_version }))
           .sort(compareIdentity);
@@ -868,32 +990,36 @@ export class SQLiteMemoryProvider {
   }
 
   async retrieveCandidates(scope) {
+    // Snapshot the scope before the first await. Reusing a mutable caller object
+    // after getSnapshot() would let the eventual SQL query switch subjects.
+    if (!isPlainDataRecord(scope)) throw new TypeError('Invalid Memory scope');
+    scope = { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose };
     // Capture before checking the query grant or readiness. Capturing after
     // those reads can miss a cross-connection revoke/re-grant ABA that finishes
     // just before the first await.
     const requestDataVersion = this.#dataVersion();
     this.#scope(scope);
-    if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+    if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const queryGrantKey = JSON.stringify([scope.world_id, scope.subject_id, scope.purpose]);
-    const queryAuthorizationGeneration = this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0;
-    const state = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
+    const queryAuthorizationGeneration = this.#queryAuthorizationGeneration.get(queryGrantKey) ?? 0;
+    const state = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
     if (!state || state.index_health !== 'ready' || state.source_reconciliation !== 'current') {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
-    const stateGeneration = this.stateGeneration.get(scope.world_id) ?? 0;
+    const stateGeneration = this.#stateGeneration.get(scope.world_id) ?? 0;
     const providerDataVersion = requestDataVersion;
-    const scopedRecords = this.db.prepare(`SELECT record_ref, record_version FROM memory_records
+    const scopedRecords = this.#db.prepare(`SELECT record_ref, record_version FROM memory_records
       WHERE world_id=? AND subject_id=? AND purpose=?`)
       .all(scope.world_id, scope.subject_id, scope.purpose);
     const recordAuthorizationGenerations = new Map(scopedRecords.map((row) => {
       const key = JSON.stringify([
         scope.world_id, scope.subject_id, scope.purpose, row.record_ref, row.record_version,
       ]);
-      return [key, this.recordAuthorizationGeneration.get(key) ?? 0];
+      return [key, this.#recordAuthorizationGeneration.get(key) ?? 0];
     }));
     let current;
     try {
-      current = snapshotOf(await this.getSnapshot(scope.world_id));
+      current = snapshotOf(await this.#getSnapshot(scope.world_id));
     } catch {
       this.#setState(scope.world_id, 'unavailable', 'stale', null, 'CORE_SNAPSHOT_UNAVAILABLE');
       throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
@@ -909,15 +1035,15 @@ export class SQLiteMemoryProvider {
     }
     // Snapshot lookup is awaited. A query grant revoked while it was in flight
     // must not authorize this retrieval using the pre-await allow.
-    if (!this.authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
-    if ((this.queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration) {
+    if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+    if ((this.#queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration) {
       throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     }
 
     // A Provider write can invalidate readiness while getSnapshot() is awaited.
     // Re-read the readiness marker after the await; the earlier state object is
     // only a snapshot of readiness before that asynchronous boundary.
-    const latestState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
+    const latestState = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
     if (!latestState || latestState.index_health !== 'ready'
       || latestState.source_reconciliation !== 'current') {
       throw new Error('MEMORY_INDEX_NOT_READY');
@@ -930,62 +1056,83 @@ export class SQLiteMemoryProvider {
     // A readiness transition away and back to ready/current during the await is
     // an ABA change. Fail closed rather than treating the final Boolean state as
     // proof that the same Provider snapshot remained valid throughout retrieval.
-    if ((this.stateGeneration.get(scope.world_id) ?? 0) !== stateGeneration
+    if ((this.#stateGeneration.get(scope.world_id) ?? 0) !== stateGeneration
       || this.#dataVersion() !== providerDataVersion) {
       throw new Error('MEMORY_INDEX_NOT_READY');
     }
 
-    const rows = this.db.prepare(`SELECT r.* FROM memory_records r
-      JOIN memory_index_entries i USING(world_id,record_ref,record_version)
-      JOIN memory_record_grants g ON g.world_id=r.world_id AND g.record_ref=r.record_ref
-        AND g.record_version=r.record_version AND g.subject_id=? AND g.purpose=? AND g.allowed=1
-      WHERE r.world_id=? AND r.subject_id=? AND r.purpose=?
-      ORDER BY r.record_ref,r.record_version LIMIT 51`)
-      .all(scope.subject_id, scope.purpose, scope.world_id, scope.subject_id, scope.purpose);
-    // Grant state is durable, but grant generations are process-local. Compare
-    // the generations captured before the await so revoke/re-grant cannot make
-    // an in-flight retrieval appear continuously authorized.
-    for (const [key, generation] of recordAuthorizationGenerations) {
-      if ((this.recordAuthorizationGeneration.get(key) ?? 0) !== generation) {
-        throw new Error('MEMORY_AUTHORIZATION_CHANGED');
-      }
-    }
-    // A query-authorized empty result is meaningful only when no indexed
-    // records exist in this scope. If scoped records exist but none are
-    // authorized for this subject/purpose, report a typed withheld failure
-    // rather than collapsing denial into successful complete-empty. No record
-    // identity, count, or content is included in the failure.
-    if (rows.length === 0) {
-      const withheld = this.db.prepare(`SELECT 1 AS found FROM memory_records r
-        JOIN memory_index_entries i USING(world_id,record_ref,record_version)
-        WHERE r.world_id=? AND r.subject_id=? AND r.purpose=? LIMIT 1`)
-        .get(scope.world_id, scope.subject_id, scope.purpose);
-      if (withheld) throw new Error('MEMORY_RECORDS_WITHHELD');
-    }
+    // Re-enter the shared synchronous lock after getSnapshot() has returned.
+    // Query permission, readiness, candidate grants and candidate projection are
+    // rechecked/read in one serialized window; no await is permitted inside it.
+    let lockedResult;
+    try {
+      lockedResult = this.#withImmediateTransaction(() => {
+        if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
+        if ((this.#queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration
+          || this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
+        const lockedState = this.#db.prepare('SELECT * FROM memory_index_state WHERE world_id=?').get(scope.world_id);
+        if (!lockedState || lockedState.index_health !== 'ready'
+          || lockedState.source_reconciliation !== 'current') throw new Error('MEMORY_INDEX_NOT_READY');
+        if (String(current.world_revision) !== lockedState.snapshot_revision
+          || String(current.commit_sequence) !== lockedState.snapshot_sequence) throw new Error('MEMORY_SNAPSHOT_STALE');
+        if ((this.#stateGeneration.get(scope.world_id) ?? 0) !== stateGeneration
+          || this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_INDEX_NOT_READY');
+        const rows = this.#db.prepare(`SELECT r.* FROM memory_records r
+          JOIN memory_index_entries i USING(world_id,record_ref,record_version)
+          JOIN memory_record_grants g ON g.world_id=r.world_id AND g.record_ref=r.record_ref
+            AND g.record_version=r.record_version AND g.subject_id=? AND g.purpose=? AND g.allowed=1
+          WHERE r.world_id=? AND r.subject_id=? AND r.purpose=?
+          ORDER BY r.record_ref,r.record_version LIMIT 51`)
+          .all(scope.subject_id, scope.purpose, scope.world_id, scope.subject_id, scope.purpose);
+        // Grant state is durable, but grant generations are process-local. Compare
+        // the generations captured before the await so revoke/re-grant cannot make
+        // an in-flight retrieval appear continuously authorized.
+        for (const [key, generation] of recordAuthorizationGenerations) {
+          if ((this.#recordAuthorizationGeneration.get(key) ?? 0) !== generation) {
+            throw new Error('MEMORY_AUTHORIZATION_CHANGED');
+          }
+        }
+        // A query-authorized empty result is meaningful only when no indexed
+        // records exist in this scope. If scoped records exist but none are
+        // authorized for this subject/purpose, report a typed withheld failure
+        // rather than collapsing denial into successful complete-empty. No record
+        // identity, count, or content is included in the failure.
+        if (rows.length === 0) {
+          const withheld = this.#db.prepare(`SELECT 1 AS found FROM memory_records r
+            JOIN memory_index_entries i USING(world_id,record_ref,record_version)
+            WHERE r.world_id=? AND r.subject_id=? AND r.purpose=? LIMIT 1`)
+            .get(scope.world_id, scope.subject_id, scope.purpose);
+          if (withheld) throw new Error('MEMORY_RECORDS_WITHHELD');
+        }
 
-    const candidates = rows.slice(0, 50).map((row) => ({
-      record: { ref: row.record_ref, version: row.record_version },
-      source: { kind: row.source_kind, entity_id: row.source_entity_id },
-      world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
-      content_kind: row.content_kind, epistemic_kind: row.epistemic_kind,
-      producer: { kind: row.producer_kind },
-      lifecycle: { content_disposition: row.content_disposition,
-        source_reconciliation: latestState.source_reconciliation,
-        evidence_assessment: row.evidence_assessment, index_health: latestState.index_health },
-      freshness: { status: 'current' },
-      snapshot: current,
-    }));
-    // Detect commits from another Provider connection that happened while this
-    // result was being assembled. This remains Provider-local protection; it
-    // cannot make a later model dispatch atomic with revocation.
-    if (this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_INDEX_NOT_READY');
-    return {
-      completeness: rows.length > 50 ? 'partial' : 'complete',
-      index_health: latestState.index_health,
-      source_reconciliation: latestState.source_reconciliation,
-      scope: { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose },
-      snapshot: current,
-      candidates,
-    };
+        const candidates = rows.slice(0, 50).map((row) => ({
+          record: { ref: row.record_ref, version: row.record_version },
+          source: { kind: row.source_kind, entity_id: row.source_entity_id },
+          world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
+          content_kind: row.content_kind, epistemic_kind: row.epistemic_kind,
+          producer: { kind: row.producer_kind },
+          lifecycle: { content_disposition: row.content_disposition,
+            source_reconciliation: lockedState.source_reconciliation,
+            evidence_assessment: row.evidence_assessment, index_health: lockedState.index_health },
+          freshness: { status: 'current' },
+          snapshot: current,
+        }));
+        return {
+          completeness: rows.length > 50 ? 'partial' : 'complete',
+          index_health: lockedState.index_health,
+          source_reconciliation: lockedState.source_reconciliation,
+          scope: { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose },
+          snapshot: current,
+          candidates,
+        };
+
+      });
+    } catch (error) {
+      if (error?.message === 'MEMORY_SNAPSHOT_STALE') {
+        this.#setState(scope.world_id, 'stale', 'stale', null, 'SNAPSHOT_STALE');
+      }
+      throw error;
+    }
+    return lockedResult;
   }
 }
