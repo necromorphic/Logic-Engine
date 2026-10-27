@@ -173,6 +173,30 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         }
         return send(res, result.status === 'captured' ? 201 : 200, { capture: result });
       }
+      if (url.pathname === '/v1/host-version-ledger/inventory') {
+        if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host inventory operation.' } });
+        if (!hostVersionLedger || typeof hostVersionLedger.getBoundInventory !== 'function') {
+          return send(res, 503, { error: { code: 'HOST_VERSION_LEDGER_UNAVAILABLE', message: 'Host version ledger is not configured.' } });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
+        const body = await readBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => key !== 'conversation_id')
+          || typeof body.conversation_id !== 'string' || body.conversation_id !== body.conversation_id.trim()
+          || body.conversation_id.length < 1 || body.conversation_id.length > 200
+          || [...body.conversation_id].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127)) {
+          throw new EngineError('INVALID_HOST_INVENTORY_REQUEST',
+            'Inventory request accepts only a stable conversation_id; message text and caller-supplied world IDs are forbidden.', 400);
+        }
+        const inventory = hostVersionLedger.getBoundInventory({
+          adapterId,
+          conversationId: body.conversation_id,
+          resolveBinding: ({ adapterId: authenticatedAdapterId, conversationId }) =>
+            hostConversationBindings.resolve({ adapterId: authenticatedAdapterId, conversationId }),
+        });
+        return send(res, 200, { inventory });
+      }
       if (url.pathname === '/v1/host-conversation-bindings') {
         if (req.method !== 'POST') return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Host conversation binding operation.' } });
         if (!secretMatches(req.headers['x-admin-token'], adminToken)) {
