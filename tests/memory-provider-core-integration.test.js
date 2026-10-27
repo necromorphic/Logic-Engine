@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
@@ -8,7 +9,12 @@ import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 import { createCanonicalEntitySourceVersionValidator } from '../src/application/canonical-entity-source-version.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
-function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
+function setup(t, { twoRecords = false, providerPath = null } = {}) {
+  const testDb = createProviderTestDb(t, {
+    path: providerPath && providerPath !== ':memory:' ? providerPath : null,
+    prefix: 'logic-memory-core-integration-',
+  });
+  const effectiveProviderPath = testDb.path;
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const bindings = new ActorBindingService(engine);
@@ -33,6 +39,8 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
   let provider;
   let triggerRace = false;
   let triggerQueryRevocation = false;
+  let sourceValidatorOverride = null;
+  let inventoryValidatorOverride = null;
   const snapshotReader = async (id) => {
     const snapshot = engine.getSnapshot(id);
     return { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence };
@@ -49,14 +57,16 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
       triggerQueryRevocation = false;
       provider.grantQuery(scope, false);
     }
-    return canonicalSourceValidator(record);
+    return sourceValidatorOverride ? sourceValidatorOverride(record) : canonicalSourceValidator(record);
   };
+  const inventoryValidator = async (...args) => inventoryValidatorOverride
+    ? inventoryValidatorOverride(...args) : true;
   provider = new SQLiteMemoryProvider({
-    path: providerPath,
-    coordinatorPath: providerPath === ':memory:' ? null : `${providerPath}.coordinator.sqlite`,
+    path: effectiveProviderPath,
+    coordinatorPath: `${effectiveProviderPath}.coordinator.sqlite`,
     getSnapshot: snapshotReader,
     validateSourceVersion: sourceVersionValidator,
-    validateInventory: async () => true,
+    validateInventory: inventoryValidator,
   });
   const scope = { world_id: worldId, subject_id: actorId, purpose: 'npc_decision' };
   provider.grantQuery(scope, true);
@@ -85,20 +95,23 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
     authorizedReadService, actorBindingService: bindings, memoryProvider: provider,
     contentFields: ['attributes.public_note'],
   });
-  t.after(() => { provider.close(); store.close(); });
+  t.after(() => { provider.close(); store.close(); testDb.close(); testDb.cleanup(); });
   return {
     engine, provider, consumer, scope, records,
+    db: testDb.db,
     async prepare() {
       await provider.rebuildIndex(worldId);
       return provider.reconcile(worldId);
     },
     triggerRace() { triggerRace = true; },
     triggerQueryRevocation() { triggerQueryRevocation = true; },
+    setSourceValidator(fn) { sourceValidatorOverride = fn; },
+    setInventoryValidator(fn) { inventoryValidatorOverride = fn; },
     reopenProvider() {
       provider.close();
-      provider = new SQLiteMemoryProvider({ path: providerPath, getSnapshot: snapshotReader,
+      provider = new SQLiteMemoryProvider({ path: effectiveProviderPath, coordinatorPath: `${effectiveProviderPath}.coordinator.sqlite`, getSnapshot: snapshotReader,
         validateSourceVersion: sourceVersionValidator,
-        validateInventory: async () => true, // test-only; not Host completeness evidence
+        validateInventory: inventoryValidator, // test-only; not Host completeness evidence
       });
     },
   };
@@ -163,7 +176,7 @@ test('Core source-version mismatch is non-ready even when the canonical entity e
 
   // Exercise the validator's fail-closed mismatch path without treating entity
   // existence or a composite world snapshot cursor as source-version authority.
-  s.provider.validateSourceVersion = async () => false;
+  s.setSourceValidator(async () => false);
   assert.equal((await s.prepare()).status, 'stale');
 
   const result = await s.consumer.retrieveForNpc({
@@ -194,7 +207,7 @@ test('direct Core source validator rejects unknown status and negative revisions
 
 test('real SQLite provider stays non-current when the source inventory boundary cannot attest completeness', async (t) => {
   const s = setup(t);
-  s.provider.validateInventory = async () => false;
+  s.setInventoryValidator(async () => false);
   assert.equal((await s.prepare()).status, 'stale');
 
   const result = await s.consumer.retrieveForNpc({
@@ -210,7 +223,7 @@ test('source version becoming unverifiable after indexing invalidates prior prov
 
   // The current host cannot provide an authoritative durable version proof;
   // when revalidation can no longer establish validity, old readiness is revoked.
-  s.provider.validateSourceVersion = async () => false;
+  s.setSourceValidator(async () => false);
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   const result = await s.consumer.retrieveForNpc({
@@ -224,7 +237,7 @@ test('inventory completeness becoming unavailable invalidates previously current
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
 
-  s.provider.validateInventory = async () => false;
+  s.setInventoryValidator(async () => false);
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
   const result = await s.consumer.retrieveForNpc({
@@ -273,7 +286,7 @@ test('retrieval and context inclusion do not persist delivery, receipt, acquisit
   const counts = () => Object.fromEntries([
     'memory_records', 'memory_index_entries', 'memory_query_grants',
     'memory_record_grants', 'memory_index_state',
-  ].map((table) => [table, s.provider.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count]));
+  ].map((table) => [table, s.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count]));
   const before = counts();
   const first = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
@@ -284,7 +297,7 @@ test('retrieval and context inclusion do not persist delivery, receipt, acquisit
   assert.equal(first.status, 'ready');
   assert.equal(second.status, 'ready');
   assert.deepEqual(counts(), before);
-  const tables = s.provider.db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all()
+  const tables = s.db.prepare(`SELECT name FROM sqlite_master WHERE type='table'`).all()
     .map((row) => row.name);
   assert.equal(tables.some((name) => /delivery|receipt|acquisition|belief/i.test(name)), false);
 });
@@ -292,7 +305,7 @@ test('retrieval and context inclusion do not persist delivery, receipt, acquisit
 test('source validator outage makes the real Core/NPC consumer non-ready instead of ready-empty', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
-  s.provider.validateSourceVersion = async () => { throw new Error('private host validator details'); };
+  s.setSourceValidator(async () => { throw new Error('private host validator details'); });
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
@@ -308,7 +321,7 @@ test('source validator outage makes the real Core/NPC consumer non-ready instead
 test('query authorization outage is non-ready and does not become complete-empty', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
-  s.provider.authorizeQuery = async () => { throw new Error('private query authorization detail'); };
+  s.db.exec('DROP TABLE memory_query_grants');
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
@@ -323,7 +336,7 @@ test('query authorization outage is non-ready and does not become complete-empty
 test('source becoming stale after reconciliation is non-ready, not a filtered ready-empty result', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
-  s.provider.validateSourceVersion = async () => false;
+  s.setSourceValidator(async () => false);
 
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
@@ -377,11 +390,11 @@ test('single record revoked during NPC candidate validation returns non-ready, n
   let started;
   const validationStarted = new Promise((resolve) => { started = resolve; });
   const validationGate = new Promise((resolve) => { release = resolve; });
-  s.provider.validateSourceVersion = async () => {
+  s.setSourceValidator(async () => {
     started();
     await validationGate;
     return true;
-  };
+  });
 
   const pending = s.consumer.retrieveForNpc({
     worldId: s.scope.world_id,
