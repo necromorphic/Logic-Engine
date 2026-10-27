@@ -24,7 +24,7 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,122 @@
+@@ -1583,23 +1593,130 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -49,6 +49,14 @@ diff --git a/public/script.js b/public/script.js
 +            journal,
 +            getConversationId: getLogicEngineConversationId,
 +            getSourceLocator: getCurrentChatId,
++            // Fingerprint native ST lineage metadata with the message/version inventory.
++            // main_chat is a mutable name and integrity is local metadata, not trusted authority.
++            getSourceLineage: () => ({
++                mainChat: chat_metadata?.main_chat ?? null,
++                integrity: chat_metadata?.integrity ?? null,
++                sessionName: getCurrentChatDetails()?.sessionName ?? null,
++                groupId: selected_group ?? null,
++            }),
 +            getChat: () => chat,
 +            saveChat: () => saveChatConditional(),
 +            publishDigest: async entry => {
@@ -185,11 +193,11 @@ diff --git a/public/script.js b/public/script.js
          this_edit_mes_id = undefined;
      }
 @@ -5905,16 +6001,21 @@
-     chat_metadata.tainted = true;
- 
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('message-send', []);
 +
+     chat_metadata.tainted = true;
+ 
      if (typeof insertAt === 'number' && insertAt >= 0 && insertAt <= chat.length) {
          chat.splice(insertAt, 0, message);
          await saveChatConditional();
@@ -206,7 +214,7 @@ diff --git a/public/script.js b/public/script.js
          addOneMessage(message);
          await eventSource.emit(event_types.USER_MESSAGE_RENDERED, chat_id);
      }
-@@ -6653,3 +6754,12 @@
+@@ -6653,3 +6754,11 @@
          type = 'normal';
      }
 +
@@ -215,9 +223,8 @@ diff --git a/public/script.js b/public/script.js
 +    const lifecycleOperation = ['swipe', 'regenerate'].includes(type) ? 'create-swipe'
 +        : ['append', 'continue', 'appendFinal'].includes(type) ? 'edit-message'
 +            : 'create-message';
-+    if (chat.length && lifecycleOperation !== 'create-message') {
-+        await lifecycleBridge.beforeMutation(lifecycleOperation, [chat.length - 1]);
-+    }
++    const lifecycleMessageIndexes = chat.length && lifecycleOperation !== 'create-message' ? [chat.length - 1] : [];
++    await lifecycleBridge.beforeMutation(lifecycleOperation, lifecycleMessageIndexes);
  
 @@ -6827,3 +6937,6 @@
  
