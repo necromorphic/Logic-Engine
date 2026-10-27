@@ -55,8 +55,10 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
   for (const enrollment of enrollments) {
     if (!enrollment || !validId(enrollment.conversationId) || !validId(enrollment.sourceLocator)
       || !['chats', 'group_chats'].includes(enrollment.domain)) return fail('ENROLLMENT_INVALID');
-    const uuid = enrollment.conversationId.slice(enrollment.conversationId.lastIndexOf(':') + 1);
-    if (!validUuid(uuid) || enrollmentByUuid.has(uuid)) return fail('ENROLLMENT_IDENTITY_AMBIGUOUS');
+    const identityParts = enrollment.conversationId.split(':');
+    if (identityParts.length !== 2 || !validUuid(identityParts[0]) || !validUuid(identityParts[1])) return fail('ENROLLMENT_IDENTITY_INVALID');
+    const uuid = identityParts[1];
+    if (enrollmentByUuid.has(uuid)) return fail('ENROLLMENT_IDENTITY_AMBIGUOUS');
     enrollmentByUuid.set(uuid, enrollment);
   }
 
