@@ -74,12 +74,16 @@ The Core authorized-read service is a bounded seam, not blanket authorization fo
 
 The current source-version contract supports point validation of a canonical entity token. It does not provide a durable change feed or guarantee that Provider learns about every change immediately.
 
-Candidate approaches:
-1. **Revision-triggered full reconciliation:** compare/reconcile source records when a trusted Core revision changes. Simpler initial contract, but potentially expensive and requires a defined maximum stale interval.
-2. **Durable Core journal/outbox:** gives consumers a durable change sequence, but requires a new persistence/API contract and atomic publication semantics.
-3. **Hybrid:** use a durable change signal plus full reconciliation after gaps, restart, or cursor uncertainty; more complexity and still needs a cursor/recovery contract.
+### Core decision: hybrid, with a fail-closed reconciliation baseline
 
-**No option is selected here.** The required inputs are still the concrete consumer operation, source classes, acceptable stale-time bound, expected volume, retraction semantics, and restart/partial-failure recovery behavior. Until Core + Memory + NPC owners approve one option and its acceptance tests, do not implement a new outbox, cursor, store, schema, or public API. Regardless of eventual strategy, Provider must validate the exact current token before content is accepted for use; a change feed is not a substitute for authorization.
+Core selects a **hybrid strategy** for the architecture:
+
+1. **Primary change signal:** consume an existing durable Core-owned change journal only if implementation review proves it records every relevant committed mutation/revocation in order, supports replay after a cursor, and is transactionally coupled to the canonical mutation. Do not assume the current event/projection tables already satisfy this contract.
+2. **Recovery path:** run a full reconciliation against current authoritative Core state at startup/restart, after a detected sequence gap, after cursor loss/uncertainty, and after any recovery operation that can invalidate consumer state.
+3. **Point-of-use authority check:** regardless of journal or reconciliation status, validate the exact current Core-issued source token and authorization before protected content is accepted. If validation is unavailable, stale, or ambiguous, reject it.
+4. **No silent fallback:** if the existing journal cannot meet the proof requirements, do not create a parallel unreviewed outbox. Keep the consumer **NON_READY / FAIL-CLOSED** until the Core/Memory interface contract and storage/API change are reviewed.
+
+This is the Core architectural decision, not a claim that the required journal/reconciliation runtime already exists. A production integration still needs the consumer operation, source classes, maximum stale-time bound, expected volume, retraction semantics, and restart/partial-failure acceptance tests agreed with Memory and NPC owners. Those details gate implementation and rollout, not the choice of the hybrid safety model. Do not implement a new outbox, cursor, store, schema, or public API merely from this decision. Provider token validation remains mandatory; a change feed is not authorization.
 
 ## 6. Acceptance gate
 
@@ -91,7 +95,7 @@ Candidate approaches:
 | Non-disclosing denial | **PARTIAL** | Real route/service tests for protected content, snippets, counts, target-existence probing, and diagnostic leakage |
 | Restart | **TESTED for ordinary process restart in draft candidate** | Keep restart test on exact combined head |
 | Full-database restore / authority rollback | **BLOCKED** | Approved restore/accepted-head protocol, separate authority evidence, and restore-from-old-backup tests |
-| Provider notification/reconciliation strategy | **BLOCKED — no option selected** | Consumer-specific freshness requirement and owner-approved option; interruption/recovery/idempotency tests |
+| Provider notification/reconciliation strategy | **CORE DECISION: HYBRID; IMPLEMENTATION BLOCKED** | Prove existing journal contract or review a Core-owned change-feed contract; agree consumer freshness bound and pass interruption/recovery/idempotency tests with Memory/NPC owners |
 | Host final serialized-body and send-time enforcement | **BLOCKED / NOT PROVEN** | Stable trusted Host identity, complete source inventory, actual serializer/transport test, and revocation race test |
 | Production Memory→NPC | **DISABLED / FAIL-CLOSED** | All required gates approved and passing against the actual end-to-end path |
 
