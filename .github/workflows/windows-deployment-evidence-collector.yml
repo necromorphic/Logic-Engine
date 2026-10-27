@@ -27,7 +27,11 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $reportPath = Join-Path $env:RUNNER_TEMP 'logic-engine-deployment-evidence-smoke.json'
           $fixturePath = Join-Path $env:RUNNER_TEMP 'logic-engine-nonexistent-fixture.sqlite'
-          & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath) -BackupPath @($env:RUNNER_TEMP) -ProcessName @('powershell.exe') -OutputPath $reportPath
+          $backupFixture = Join-Path $env:RUNNER_TEMP 'logic-engine-backup-fixture'
+          $backupChild = Join-Path $backupFixture 'nested'
+          New-Item -ItemType Directory -Path $backupChild -Force | Out-Null
+          Set-Content -LiteralPath (Join-Path $backupChild 'fixture.bak') -Value 'non-sensitive test fixture'
+          & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath) -BackupPath @($backupFixture) -ProcessName @('powershell.exe') -OutputPath $reportPath
           if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "Collector failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Collector did not create the report.' }
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
@@ -39,6 +43,10 @@ jobs:
           if (-not ($report.PSObject.Properties.Name -contains 'enabledOutboundBlockRules')) { throw 'Outbound block-rule evidence field is missing.' }
           $fixtureEvidence = @($report.pathAclEvidence | Where-Object { $_.requestedPath -eq $fixturePath -and $_.path -eq [System.IO.Path]::GetFullPath($fixturePath) })
           if (-not $fixtureEvidence -or $fixtureEvidence[0].exists -ne $false) { throw 'A known-missing fixture must be reported as absent, not unknown.' }
+          $backupChildPath = [System.IO.Path]::GetFullPath((Join-Path $backupChild 'fixture.bak'))
+          $backupChildEvidence = @($report.pathAclEvidence | Where-Object { $_.path -eq $backupChildPath -and $_.exists -eq $true })
+          if (-not $backupChildEvidence) { throw 'A nested backup file must have ACL evidence.' }
           if (-not $report.limitations -or $report.limitations.Count -lt 1) { throw 'Evidence limitations are missing.' }
           Remove-Item -LiteralPath $reportPath -Force
+          Remove-Item -LiteralPath $backupFixture -Recurse -Force
           Write-Output 'PowerShell 5.1 collector smoke test passed; report was validated and removed.'
