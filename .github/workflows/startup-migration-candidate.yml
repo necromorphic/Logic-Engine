@@ -7,7 +7,7 @@ on:
       - '.github/workflows/startup-migration-candidate.yml'
   push:
     branches:
-      - 'review/startup-migration-block-core-conditional-approve'
+      - 'review/startup-migration-patch-candidate'
 
 jobs:
   validate-pinned-sillytavern-patch:
