@@ -387,6 +387,32 @@ test('deleting an enrolled journal fails closed instead of starting a new empty 
     }
 });
 
+test('a complete 4xx rejection with no persisted change does not poison the journal', async () => {
+    const { root, request } = await fixture();
+    try {
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        const response = responseMock();
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            response.status(400).json({ error: 'invalid mutation request' });
+        });
+        await response.finished;
+        assert.equal(response.statusCode, 400);
+        assert.deepEqual(JSON.parse(response.body), { error: 'invalid mutation request' });
+        const status = await getHostMutationJournalStatus(request);
+        assert.equal(status.status, 'RECORDING');
+        assert.deepEqual(status.pendingOperations, []);
+        const ledger = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
+        const records = ledger.trim().split('\\n').map(line => JSON.parse(line));
+        assert.equal(records[1].status, 'REJECTED_NO_MUTATION');
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test('strict lifecycle mode blocks mutation when enrollment state directory disappears', async () => {
     const { root, request } = await fixture();
     try {
