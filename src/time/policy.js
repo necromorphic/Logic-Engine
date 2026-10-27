@@ -10,6 +10,7 @@ const integer = (v, name, positive = false) => {
   if (!Number.isSafeInteger(v) || v < (positive ? 1 : 0)) fail('INVALID_TIME_POLICY', name + ' must be a safe integer in range.');
   return v;
 };
+const compareText = (left, right) => left < right ? -1 : left > right ? 1 : 0;
 const exactKeys = (value, allowed, name) => {
   if (Object.keys(value).some((key) => !allowed.includes(key))) {
     fail('INVALID_TIME_POLICY', name + ' contains an unsupported field.');
@@ -48,7 +49,7 @@ function ruleOf(input, limit) {
       if (duration_ms > limit || seen.has(category)) fail('INVALID_TIME_POLICY', 'Duration categories must be unique and within policy limits.');
       seen.add(category);
       return { category, duration_ms };
-    }).sort((a, b) => a.category.localeCompare(b.category));
+    }).sort((a, b) => compareText(a.category, b.category));
     return { kind: 'category_map', categories };
   }
 }
@@ -72,7 +73,7 @@ export function createTimePolicy(input) {
     if (seen.has(event_type)) fail('INVALID_TIME_POLICY', 'event_type duration rules must be unique.');
     seen.add(event_type);
     return { event_type, rule: ruleOf(entry.rule, max_action_duration_ms) };
-  }).sort((a, b) => a.event_type.localeCompare(b.event_type));
+  }).sort((a, b) => compareText(a.event_type, b.event_type));
   return { policy_id, version, max_action_duration_ms, max_skip_duration_ms, duration_rules };
 }
 
