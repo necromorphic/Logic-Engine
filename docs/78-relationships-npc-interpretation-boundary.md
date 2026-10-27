@@ -1,14 +1,14 @@
 # Relationships — NPC interpretation boundary and uncertainty semantics
 
-Status: domain-side clarification for the NPC → Relationships v0.2 review. This document does not define a transport contract, runtime API, persistence schema, or new state model. It describes the existing pure helper proposal in PR #448 and marks the remaining cross-block gaps explicitly.
+Status: domain-side clarification for the NPC → Relationships v0.2 review. This document does not define a transport contract, runtime API, persistence schema, or new state model. It describes the existing pure helper proposal in PR #459 and marks the remaining cross-block gaps explicitly.
 
 Related sources:
 - `docs/76-relationships-social-interaction-evidence-assessment.md`
 - `docs/77-relationships-interaction-gated-transition-candidate.md`
-- `src/relationship/assess-interaction-interpretations.js` (PR #448)
-- `src/relationship/evaluate-interaction-driven-candidate.js` (PR #448)
-- `tests/relationship-assess-interaction-interpretations.test.js` (PR #448)
-- `tests/relationship-evaluate-interaction-driven-candidate.test.js` (PR #448)
+- `src/relationship/assess-interaction-interpretations.js` (PR #459)
+- `src/relationship/evaluate-interaction-driven-candidate.js` (PR #459)
+- `tests/relationship-assess-interaction-interpretations.test.js` (PR #459)
+- `tests/relationship-evaluate-interaction-driven-candidate.test.js` (PR #459)
 - Core provenance/source-invalidation ownership: Issue #260
 - World Pack/history boundary: `docs/75-relationships-world-pack-version-semantics.md`
 
@@ -99,7 +99,7 @@ The examples align with Core PR #339's examples and consumer boundary. They are 
 
 | Case | Current evidence | Status / owner |
 |---|---|---|
-| One supported interpretation with references | `accepts one unambiguous NPC-supplied interpretation with evidence references` | Pure helper covered in PR #448; not production integration. |
+| One supported interpretation with references | `accepts one unambiguous NPC-supplied interpretation with evidence references` | Pure helper covered in PR #459; not production integration. |
 | Competing supported readings | `does not vote between different supported interpretations`; `does not resolve ambiguity by majority vote` | Pure helper covered; result remains conflict. |
 | Same normalized reading across assessments | `same interpretation from multiple assessments aggregates unique evidence refs` | Pure helper covered; duplicate refs do not increase evidence count. |
 | Different labels that might be semantically compatible | No compatibility relation or ontology exists in the current helper contract. | **BLOCKED — Relationships domain decision** if this behavior is needed; do not infer synonymy. |
