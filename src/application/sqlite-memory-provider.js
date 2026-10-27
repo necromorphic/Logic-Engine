@@ -26,7 +26,11 @@ const aliasesSameFile = (left, right) => {
   if (!existsSync(canonicalLeft) || !existsSync(canonicalRight)) return false;
   const leftStat = statSync(canonicalLeft);
   const rightStat = statSync(canonicalRight);
-  return leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
+  // Some Windows/filesystem combinations report zero inode identifiers for
+  // unrelated files. Treat those identifiers as unavailable instead of
+  // falsely declaring the Provider DB and coordinator DB to be the same file.
+  return leftStat.ino !== 0 && rightStat.ino !== 0
+    && leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
 };
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 const validId = (value) => typeof value === 'string' && value === value.trim()
