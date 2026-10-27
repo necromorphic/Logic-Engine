@@ -1278,7 +1278,7 @@ diff --git a/src/endpoints/logic-engine-persisted-conversation-inventory.mjs b/s
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-persisted-conversation-inventory.mjs
-@@ -0,0 +1,192 @@
+@@ -0,0 +1,194 @@
 +import { createHash } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { lstat, open, readdir, realpath } from 'node:fs/promises';
@@ -1336,8 +1336,10 @@ new file mode 100644
 +  for (const enrollment of enrollments) {
 +    if (!enrollment || !validId(enrollment.conversationId) || !validId(enrollment.sourceLocator)
 +      || !['chats', 'group_chats'].includes(enrollment.domain)) return fail('ENROLLMENT_INVALID');
-+    const uuid = enrollment.conversationId.slice(enrollment.conversationId.lastIndexOf(':') + 1);
-+    if (!validUuid(uuid) || enrollmentByUuid.has(uuid)) return fail('ENROLLMENT_IDENTITY_AMBIGUOUS');
++    const identityParts = enrollment.conversationId.split(':');
++    if (identityParts.length !== 2 || !validUuid(identityParts[0]) || !validUuid(identityParts[1])) return fail('ENROLLMENT_IDENTITY_INVALID');
++    const uuid = identityParts[1];
++    if (enrollmentByUuid.has(uuid)) return fail('ENROLLMENT_IDENTITY_AMBIGUOUS');
 +    enrollmentByUuid.set(uuid, enrollment);
 +  }
 +
