@@ -485,7 +485,7 @@ async function validateEnrolledSourcePath(paths, { conversationId, sourceLocator
             || before.ino !== pathAfter.ino || bytes.length !== after.size) {
             throw new Error('HOST_ENROLLMENT_SOURCE_CHANGED');
         }
-        const firstLine = bytes.toString('utf8').split(/\\r?\\n/).find(line => line.trim().length > 0);
+        const firstLine = bytes.toString('utf8').split(/\r?\n/).find(line => line.trim().length > 0);
         const header = firstLine ? JSON.parse(firstLine) : null;
         if (header?.chat_metadata?.logic_engine_conversation_id !== identityParts[1]) {
             throw new Error('HOST_ENROLLMENT_SOURCE_IDENTITY_MISMATCH');
