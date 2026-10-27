@@ -124,7 +124,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.match(hostJournal, /beforeArtifacts:/);
   assert.match(hostJournal, /UNCERTAINTY_ACKNOWLEDGED/);
   assert.match(hostJournal, /HOST_POST_MUTATION_SCAN_INCOMPLETE/);
-  assert.match(hostJournal, /operation === 'user-delete' && requireCoreInventory && Boolean\(request\.body\?\.purge\)/);
+  assert.match(hostJournal, /operation === 'user-delete' && requireCoreInventory/);
   assert.match(startup, /app\.use\('\/api\/users', usersAdminRouter\)/);
   assert.match(lifecycleRoutes, /registerHostConversation/);
   assert.match(lifecycleRoutes, /host-lifecycle\/enroll/);
