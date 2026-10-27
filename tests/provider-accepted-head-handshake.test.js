@@ -107,10 +107,22 @@ test('Provider mutations advance accepted head before commit and fail closed whe
 
     provider.grantQuery(scope, true);
     assert.equal(provider.authorizeQuery(scope), true);
-    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 2 });
-    const localHead = provider.db.prepare('SELECT head,enrolled FROM accepted_head_state WHERE singleton=1').get();
-    assert.equal(localHead.head, 2);
-    assert.equal(localHead.enrolled, 1);
+    const firstOperation = provider.db.prepare(
+      'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
+    ).get();
+    assert.equal(firstOperation.head, 2);
+    assert.equal(firstOperation.enrolled, 1);
+    assert.match(firstOperation.last_operation_digest, /^[a-f0-9]{64}$/);
+    assert.equal(firstOperation.last_operation_id, 'provider-' + firstOperation.last_operation_digest);
+
+    provider.grantQuery({ world_id: 'world-1', subject_id: 'npc-2', purpose: 'recall' }, true);
+    const secondOperation = provider.db.prepare(
+      'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
+    ).get();
+    assert.equal(secondOperation.head, 3);
+    assert.equal(secondOperation.last_operation_id, 'provider-' + secondOperation.last_operation_digest);
+    assert.notEqual(secondOperation.last_operation_digest, firstOperation.last_operation_digest);
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 3 });
 
     child.stdin.end('stop');
     await once(child, 'exit');
