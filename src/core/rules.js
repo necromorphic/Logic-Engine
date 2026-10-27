@@ -12,7 +12,13 @@ function readPath(root, path) {
   let value = root;
   for (const key of path.split('.')) {
     if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) return { exists: false };
-    value = value[key];
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    // Rule evaluation must inspect data snapshots, not execute caller-controlled
+    // getters while resolving a path.
+    if (!descriptor || !Object.hasOwn(descriptor, 'value')) {
+      throw new EngineError('RULE_TYPE_MISMATCH', 'Rule context paths must resolve through own data properties.');
+    }
+    value = descriptor.value;
   }
   return { exists: true, value };
 }
