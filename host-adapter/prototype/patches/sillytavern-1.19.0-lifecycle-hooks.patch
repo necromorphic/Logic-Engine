@@ -644,7 +644,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1366 @@
+@@ -0,0 +1,1369 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -1671,6 +1671,9 @@ new file mode 100644
 +async function assertCoreInventoryMatchesSnapshot(conversationInventory, registry) {
 +    const remoteInventories = await Promise.all(registry.conversations.map(item =>
 +        readCoreHostVersionInventory(item.conversationId)));
++    if (remoteInventories.some(inventory => inventory.inventory_status !== 'READY')) {
++        throw new Error('CORE_HOST_INVENTORY_NOT_READY');
++    }
 +    const local = new Map();
 +    for (const conversation of conversationInventory.inventories ?? []) {
 +        for (const version of conversation.versions ?? []) {
