@@ -245,3 +245,20 @@ test('dependency collection validates comparison payloads consistently with eval
     (error) => error.code === 'INVALID_RULE_VALUE',
   );
 });
+
+
+test('known-absent attribute dependencies must be reevaluated when the attribute appears', () => {
+  const rule = { op: 'exists', path: 'actor.injury', value: false };
+  const absent = evaluateConditionResult(rule, { actor: {} }, { knownAbsentPaths: ['actor.injury'] });
+  assert.equal(absent.status, 'true');
+  assert.deepEqual(absent.unknown_paths, []);
+
+  const nowPresent = evaluateConditionResult(rule, { actor: { injury: 'broken-arm' } });
+  assert.equal(nowPresent.status, 'false');
+  assert.deepEqual(nowPresent.unknown_paths, []);
+
+  assert.throws(
+    () => evaluateConditionResult(rule, { actor: { injury: 'broken-arm' } }, { knownAbsentPaths: ['actor.injury'] }),
+    (error) => error.code === 'CONTRADICTORY_KNOWN_ABSENCE',
+  );
+});
