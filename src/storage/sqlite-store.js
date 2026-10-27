@@ -910,6 +910,35 @@ export class SQLiteStore {
     }));
   }
 
+  #assertAcceptedHeadCurrent() {
+    if (!this.acceptedHeadConfig) return;
+    let status;
+    try {
+      status = getAcceptedHeadStatusSync({
+        port: this.acceptedHeadConfig.port,
+        token: this.acceptedHeadConfig.token,
+      });
+    } catch {
+      throw new EngineError(
+        'CORE_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE',
+        'Canonical snapshot is not available.',
+        503,
+      );
+    }
+    const local = this.db.prepare(
+      'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+    ).get();
+    if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1
+      || !status.enrolled.core || !Number.isSafeInteger(status.heads.core)
+      || status.heads.core !== local.head || status.pending.core || status.operations.core) {
+      throw new EngineError(
+        'CORE_ACCEPTED_HEAD_MISMATCH',
+        'Canonical snapshot is not available.',
+        503,
+      );
+    }
+  }
+
   /**
    * Read a bounded canonical snapshot from one SQLite read view.
    * Returned attributes/facts and context manifests are raw internal source data,
@@ -1154,6 +1183,7 @@ export class SQLiteStore {
     if (this.txDepth > 0) {
       throw new EngineError('SNAPSHOT_READ_DURING_WRITE_TRANSACTION', 'A canonical snapshot cannot be read from inside a store write transaction.', 409);
     }
+    this.#assertAcceptedHeadCurrent();
     // Create one read transaction; never fall back to assembling the snapshot
     // from independent autocommit SELECT statements.
     let began = false;
@@ -1163,6 +1193,7 @@ export class SQLiteStore {
       const snapshot = read();
       this.db.exec('COMMIT');
       began = false;
+      this.#assertAcceptedHeadCurrent();
       return snapshot;
     } catch (error) {
       if (began) {
