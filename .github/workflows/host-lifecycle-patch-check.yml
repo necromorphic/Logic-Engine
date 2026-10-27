@@ -77,4 +77,4 @@ jobs:
           node --check sillytavern-diagnostic-checkout/src/endpoints/logic-engine-diagnostic-health.mjs
           node --check host-adapter/prototype/diagnostic-extension/index.js
       - name: Test fail-closed health probe
-        run: node --test host-adapter/prototype/tests/diagnostic-health-proxy.test.mjs
+        run: node --test host-adapter/prototype/tests/diagnostic-health-proxy.test.mjs host-adapter/prototype/tests/diagnostic-extension.test.mjs

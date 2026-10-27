@@ -1,6 +1,6 @@
 const STATUS_ENDPOINT = '/api/extensions/logic-engine-diagnostics/status';
 
-function describeStatus(response, payload) {
+export function describeStatus(response, payload) {
     if (response.status === 404) return { text: 'Серверный диагностический маршрут не установлен.', state: 'warning' };
     const code = payload?.error?.code;
     if (code === 'LOGIC_ENGINE_PROXY_UNCONFIGURED') return { text: 'Не настроен адрес Logic-Engine на сервере SillyTavern.', state: 'warning' };
@@ -55,5 +55,7 @@ function mountDiagnosticPanel() {
     host.append(panel);
 }
 
-if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountDiagnosticPanel, { once: true });
-else mountDiagnosticPanel();
+if (typeof document !== 'undefined') {
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mountDiagnosticPanel, { once: true });
+    else mountDiagnosticPanel();
+}
