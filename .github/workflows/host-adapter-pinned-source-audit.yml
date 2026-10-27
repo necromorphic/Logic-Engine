@@ -6,6 +6,8 @@ on:
       - ".github/workflows/host-adapter-pinned-source-audit.yml"
       - "experiments/host-adapter-source-audit/harness.mjs"
       - "experiments/host-adapter-runtime-harness/harness.mjs"
+      - "host-adapter/prototype/**"
+      - "host-adapter/prototype/tools/audit-pinned-st-outbound.sh"
   workflow_dispatch:
 
 permissions:
