@@ -963,6 +963,15 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
   let releaseSecondValidation;
   const secondValidationEntered = new Promise((resolve) => { signalSecondValidation = resolve; });
   const secondValidationRelease = new Promise((resolve) => { releaseSecondValidation = resolve; });
+  let holdSourceMutationValidation = false;
+  let signalSourceMutationValidation;
+  let releaseSourceMutationValidation;
+  const sourceMutationValidationEntered = new Promise((resolve) => {
+    signalSourceMutationValidation = resolve;
+  });
+  const sourceMutationValidationRelease = new Promise((resolve) => {
+    releaseSourceMutationValidation = resolve;
+  });
   const providerOptions = {
     path: providerPath,
     coordinatorPath,
@@ -977,6 +986,10 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
       if (holdSecondValidation && record.record_ref === 'memory:real-provider-2') {
         signalSecondValidation();
         await secondValidationRelease;
+      }
+      if (holdSourceMutationValidation && record.record_ref === 'memory:real-provider-2') {
+        signalSourceMutationValidation();
+        await sourceMutationValidationRelease;
       }
       const sourceSnapshot = engine.getSnapshot(record.world_id, {
         entityIds: [record.source_entity_id],
@@ -1084,4 +1097,25 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
   assert.deepEqual(afterExplicitRegrant.candidates.map((item) => item.record_ref), [
     record.record_ref, secondRecord.record_ref,
   ]);
+
+  // Mutate the canonical Core source while the later candidate's source-version
+  // check is suspended. A previously indexed version must not be disclosed.
+  holdSourceMutationValidation = true;
+  const staleSourceInFlight = retrieve();
+  await sourceMutationValidationEntered;
+  engine.commitEvent(scope.world_id, {
+    idempotency_key: 'update-source-during-memory-validation',
+    turn_id: 'update-source-during-memory-validation',
+    event_type: 'action.completed',
+    expected_revision: 1,
+    effects: [{
+      kind: 'entity.update',
+      entity_id: 'source-real',
+      attributes: { public_note: 'updated canonical source' },
+    }],
+  });
+  releaseSourceMutationValidation();
+  const staleSourceResult = await staleSourceInFlight;
+  assert.equal(staleSourceResult.status, 'non_ready');
+  assert.deepEqual(staleSourceResult.candidates, []);
 });
