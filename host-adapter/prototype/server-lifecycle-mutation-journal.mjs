@@ -1015,6 +1015,92 @@ export async function getHostConversationInventory(request) {
     );
     if (!snapshot.complete) return { ...snapshot, mutationJournal: { ...journalSummary, snapshotConsistency: 'CURRENT_INVENTORY_INCOMPLETE' } };
 
+    // Compare against Core's independently persisted digest ledger. Local chat
+    // files and the local journal can be restored together; the Core ledger
+    // must therefore be checked before local acknowledgements are trusted.
+    let coreInventories;
+    try {
+        coreInventories = await Promise.all(registry.conversations.map(item =>
+            readCoreHostVersionInventory(item.conversationId)));
+    } catch {
+        return {
+            ...snapshot,
+            status: 'INVENTORY_INCOMPLETE',
+            complete: false,
+            authority: 'NON_AUTHORITATIVE',
+            historicalCompleteness: 'UNKNOWN',
+            inventories: [],
+            mutationJournal: { ...journalSummary, snapshotConsistency: 'CORE_ANCHOR_UNAVAILABLE' },
+            errors: ['CORE_HOST_INVENTORY_UNAVAILABLE'],
+        };
+    }
+    const localCoreCompare = new Map();
+    for (const conversation of snapshot.inventories) {
+        for (const version of conversation.versions) {
+            const key = JSON.stringify([conversation.conversation_id, version.message_id, version.version_id]);
+            localCoreCompare.set(key, { conversation_id: conversation.conversation_id, ...version, deleted: false });
+        }
+    }
+    const remoteCoreCompare = new Map();
+    let coreInventoryNotReady = false;
+    for (let index = 0; index < coreInventories.length; index++) {
+        const inventory = coreInventories[index];
+        if (inventory.inventory_status !== 'READY') coreInventoryNotReady = true;
+        for (const version of inventory.versions) {
+            const item = { conversation_id: inventory.conversation_id, ...version, payload_sha256: version.content_sha256 };
+            const key = JSON.stringify([item.conversation_id, item.message_id, item.version_id]);
+            if (remoteCoreCompare.has(key)) {
+                return {
+                    ...snapshot, status: 'INVENTORY_INCOMPLETE', complete: false,
+                    authority: 'NON_AUTHORITATIVE', historicalCompleteness: 'UNKNOWN', inventories: [],
+                    mutationJournal: { ...journalSummary, snapshotConsistency: 'CORE_ANCHOR_IDENTITY_CONFLICT' },
+                    errors: ['CORE_HOST_INVENTORY_IDENTITY_CONFLICT'],
+                };
+            }
+            remoteCoreCompare.set(key, item);
+        }
+    }
+    let coreInventoryMismatch = false;
+    for (const [key, remote] of remoteCoreCompare) {
+        const local = localCoreCompare.get(key);
+        if (remote.deleted) {
+            if (local) coreInventoryMismatch = true;
+        } else if (!local || local.payload_sha256 !== remote.payload_sha256 || local.active !== remote.active) {
+            coreInventoryMismatch = true;
+        }
+    }
+    for (const [key, local] of localCoreCompare) {
+        const remote = remoteCoreCompare.get(key);
+        if (!remote || remote.deleted || remote.payload_sha256 !== local.payload_sha256 || remote.active !== local.active) {
+            coreInventoryMismatch = true;
+        }
+    }
+    if (coreInventoryMismatch) {
+        return {
+            ...snapshot,
+            status: 'INVENTORY_INCOMPLETE',
+            complete: false,
+            authority: 'NON_AUTHORITATIVE',
+            historicalCompleteness: 'UNKNOWN',
+            inventories: [],
+            mutationJournal: { ...journalSummary, snapshotConsistency: 'CORE_ANCHOR_DIVERGENCE' },
+            errors: ['CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE'],
+        };
+    }
+    if (coreInventoryNotReady) {
+        return {
+            ...snapshot,
+            status: 'INVENTORY_INCOMPLETE',
+            complete: false,
+            authority: 'NON_AUTHORITATIVE',
+            historicalCompleteness: 'UNKNOWN',
+            inventories: [],
+            mutationJournal: { ...journalSummary, snapshotConsistency: 'CORE_ANCHOR_NOT_READY' },
+            errors: ['CORE_HOST_INVENTORY_NOT_READY'],
+        };
+    }
+
+
     const lastCommittedInventory = [...journal.records].reverse().find(record =>
         record.kind === 'outcome' && record.status === 'COMMITTED'
         && typeof record.afterConversationInventoryDigest === 'string');
