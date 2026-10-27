@@ -145,3 +145,26 @@ Until those answers are evidenced, mark unresolved dependencies **UNCONFIRMED / 
 - No changes to Host/Adapter, Core, Memory Provider, shared APIs, schemas, storage, Personality or Relationships.
 - No enablement of Memory → NPC; it remains **DISABLED / FAIL-CLOSED**.
 - No merge of PR #532, #535 or #536 is requested or implied.
+
+
+## 10. Coordinator decision and next implementation gate (2026-10-28)
+
+The coordinator has answered the three questions in [PR #537 comment](https://github.com/necromorphic/Logic-Engine/pull/537#issuecomment-6455273246):
+
+- **Approved for design:** use the existing MechanicExecutor.evaluate(...) → ProposalService.createFromMechanicEvaluation(...) seam as the first *technical candidate*. This does not select a semantic NPC action family and does not authorize runtime implementation.
+- **Still blocked:** the trusted NPC caller/action-authorization contract. Existing adapter-to-actor binding and purpose-filtered reads are useful primitives, but they do not by themselves prove that this NPC is permitted to request this particular action for this purpose.
+- **Result boundary confirmed:** read-only evaluation and creation of an ordinary pending proposal only. No automatic approve/commit, canonical world mutation, or automatic NPC plan update. Plan reconciliation would require a separate future contract based on an authoritative result.
+- **Unchanged guardrails:** no runtime implementation, new API/schema/storage, dispatcher/worker/scheduler, or cross-boundary changes. Memory → NPC remains DISABLED / FAIL-CLOSED.
+
+### Action-family inventory result
+
+The source search found the generic translator currently supports only create_entity, update_attribute, and assert_fact mechanic intents in this execution slice. The executor test fixture's action_id: "wait" creates a new character entity; it is a test fixture, not evidence of a meaningful production NPC action. No production World Pack/mechanic template with a semantically defined NPC action was identified in the reviewed repository paths.
+
+Therefore **do not choose an action ID or effect target by guessing from test fixtures**. Before implementation, the next evidence package must name one actual enabled/pinned template and one declared action, then trace:
+1. its authored source and intended in-world meaning;
+2. its exact preconditions and same-snapshot context dependencies;
+3. its supported effect intent and target semantics;
+4. the trusted actor/purpose authorization decision for this NPC;
+5. the pending-proposal handoff and the authoritative result source after a separately authorized commit.
+
+Until that concrete template/action and the NPC action-authorization contract are evidenced, the first technical seam is approved for design but the first semantic action slice and runtime implementation remain **BLOCKED**.
