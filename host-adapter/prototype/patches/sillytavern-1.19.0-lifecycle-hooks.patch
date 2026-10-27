@@ -574,12 +574,12 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,308 @@
+@@ -0,0 +1,312 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
 +import path from 'node:path';
-+import { scanHostArtifactRoots } from './logic-engine-host-inventory.mjs';
++import { scanHostArtifactRoots } from './server-inventory-scanner.mjs';
 +
 +const MUTATIONS = new Map([
 +    ['POST /api/chats/save', 'chat-save'],
@@ -589,6 +589,10 @@ new file mode 100644
 +    ['POST /api/chats/import', 'chat-import'],
 +    ['POST /api/chats/group/delete', 'group-chat-delete'],
 +    ['POST /api/chats/group/save', 'group-chat-save'],
++    ['POST /api/characters/rename', 'character-rename'],
++    ['POST /api/characters/delete', 'character-delete'],
++    ['POST /api/characters/import', 'character-import'],
++    ['POST /api/characters/duplicate', 'character-duplicate'],
 +    ['POST /api/groups/create', 'group-create'],
 +    ['POST /api/groups/edit', 'group-edit'],
 +    ['POST /api/groups/delete', 'group-delete'],
