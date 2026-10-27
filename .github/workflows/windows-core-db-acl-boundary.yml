@@ -26,7 +26,6 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $ErrorActionPreference = 'Stop'
           $suffix = [guid]::NewGuid().ToString('N').Substring(0, 5)
           $testAccounts = @()
           $testServices = @()
