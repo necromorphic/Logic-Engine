@@ -103,7 +103,7 @@ test('causal references must resolve to valid prior events in the same world', (
   assert.equal(foreign.accepted, true);
   assert.throws(
     () => h.engine.commitEvent('w', cmd({ idempotency_key: 'cross-world', caused_by: ['foreign-event'] })),
-    (error) => error.code === 'CROSS_WORLD_REFERENCE',
+    (error) => error.code === 'INVALID_CAUSAL_REFERENCE',
   );
 });
 
