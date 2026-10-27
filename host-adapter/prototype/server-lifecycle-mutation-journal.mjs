@@ -82,7 +82,7 @@ async function atomicWriteJson(filePath, value) {
     await rename(temporaryPath, filePath);
 }
 
-async function readRegistry(registryPath) {
+async function readRegistry(registryPath, { allowMissing = false } = {}) {
     try {
         const stat = await lstat(registryPath);
         if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_REGISTRY_UNSAFE');
@@ -90,7 +90,7 @@ async function readRegistry(registryPath) {
         if (value?.version !== 1 || !Array.isArray(value.conversations)) throw new Error('HOST_REGISTRY_INVALID');
         return value;
     } catch (error) {
-        if (error?.code === 'ENOENT') return { version: 1, conversations: [] };
+        if (error?.code === 'ENOENT' && allowMissing) return { version: 1, conversations: [] };
         throw error;
     }
 }
@@ -102,7 +102,7 @@ async function readAndValidateJournal(journalPath) {
         if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_JOURNAL_UNSAFE');
         text = await readFile(journalPath, 'utf8');
     } catch (error) {
-        if (error?.code === 'ENOENT') return { records: [], unresolved: false, pendingOperations: [], degraded: false, lastHash: '0'.repeat(64) };
+        if (error?.code === 'ENOENT') throw new Error('HOST_JOURNAL_MISSING');
         throw error;
     }
     const records = [];
@@ -403,12 +403,36 @@ export async function registerHostConversation(request, { conversationId, source
     }
     if (!['chats', 'group_chats'].includes(domain)) throw new Error('HOST_ENROLLMENT_INVALID');
     const paths = await statePaths(request);
-    const registry = await readRegistry(paths.registryPath);
+    let registryExists = true;
+    try {
+        const stat = await lstat(paths.registryPath);
+        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_REGISTRY_UNSAFE');
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+        registryExists = false;
+    }
+    const registry = await readRegistry(paths.registryPath, { allowMissing: true });
+    if (!registryExists) {
+        try {
+            const journalText = await readFile(paths.journalPath, 'utf8');
+            if (journalText.length > 0) throw new Error('HOST_REGISTRY_MISSING_WITH_HISTORY');
+        } catch (error) {
+            if (error?.code !== 'ENOENT') throw error;
+        }
+    }
     const existing = registry.conversations.find(item => item.conversationId === conversationId);
     const candidate = { conversationId, sourceLocator, domain, enrolledAt: new Date().toISOString() };
     if (existing) {
         if (existing.sourceLocator !== sourceLocator || existing.domain !== domain) throw new Error('HOST_ENROLLMENT_IDENTITY_CONFLICT');
         return { status: 'ALREADY_ENROLLED' };
+    }
+    if (!registryExists) {
+        const journalHandle = await open(paths.journalPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+        try {
+            await journalHandle.sync();
+        } finally {
+            await journalHandle.close();
+        }
     }
     registry.conversations.push(candidate);
     registry.conversations.sort((a, b) => a.conversationId.localeCompare(b.conversationId));
