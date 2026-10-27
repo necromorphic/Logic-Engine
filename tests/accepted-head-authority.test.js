@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
+import { DatabaseSync } from 'node:sqlite';
 import { AcceptedHeadAuthority } from '../src/security/accepted-head-authority.js';
 import {
   advanceAcceptedHeadSync,
@@ -216,4 +217,60 @@ test('authority client fails closed when the service is unavailable', () => {
     port: 65534,
     timeoutMs: 200,
   }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
+});
+
+
+test('authority refuses to recreate a missing operations table after initialization', () => {
+  const dir = tempDir();
+  const path = join(dir, 'authority.sqlite');
+  const authority = new AcceptedHeadAuthority({ path, installationId: 'schema-test-installation' });
+  authority.close();
+
+  const db = new DatabaseSync(path);
+  try {
+    db.exec('DROP TABLE authority_operations');
+  } finally {
+    db.close();
+  }
+
+  assert.throws(
+    () => new AcceptedHeadAuthority({ path, installationId: 'schema-test-installation' }),
+    /ACCEPTED_HEAD_SCHEMA_INCOMPLETE/,
+  );
+
+  const verify = new DatabaseSync(path);
+  try {
+    const tables = verify.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name);
+    assert.equal(tables.includes('authority_operations'), false);
+  } finally {
+    verify.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('authority refuses to seed a missing domain row after initialization', () => {
+  const dir = tempDir();
+  const path = join(dir, 'authority.sqlite');
+  const authority = new AcceptedHeadAuthority({ path, installationId: 'domain-row-test-installation' });
+  authority.close();
+
+  const db = new DatabaseSync(path);
+  try {
+    db.prepare("DELETE FROM authority_domain_heads WHERE domain='provider'").run();
+  } finally {
+    db.close();
+  }
+
+  assert.throws(
+    () => new AcceptedHeadAuthority({ path, installationId: 'domain-row-test-installation' }),
+    /ACCEPTED_HEAD_STATE_INVALID/,
+  );
+
+  const verify = new DatabaseSync(path);
+  try {
+    assert.equal(verify.prepare("SELECT COUNT(*) AS count FROM authority_domain_heads WHERE domain='provider'").get().count, 0);
+  } finally {
+    verify.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
