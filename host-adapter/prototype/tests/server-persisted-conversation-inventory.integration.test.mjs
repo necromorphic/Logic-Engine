@@ -50,7 +50,8 @@ test('server inventory reads registered persisted chat and returns only version 
     assert.equal(result.conversationCount, 1);
     assert.equal(result.messageCount, 1);
     assert.equal(result.versionCount, 2);
-    assert.deepEqual(result.inventories[0].versions.map(v => v.active), [false, true]);
+    assert.equal(result.inventories[0].versions.filter(v => v.active).length, 1);
+    assert.equal(result.inventories[0].versions.find(v => v.active).version_id, activeVersionId);
     assert.doesNotMatch(JSON.stringify(result), /active secret|old secret/);
   } finally {
     await rm(root, { recursive: true, force: true });
