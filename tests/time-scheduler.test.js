@@ -334,7 +334,7 @@ test('known registry metadata also rejects explicitly undefined values', () => {
       to_coordinate: 5,
       triggers: [trigger('metadata-undefined', 5, { content_hash: undefined })],
     }),
-    (error) => error.code === 'INVALID_TRIGGER',
+    (error) => error.code === 'INVALID_TRIGGER_FIELD_VALUE',
   );
 });
 
