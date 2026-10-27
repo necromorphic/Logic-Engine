@@ -66,13 +66,13 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
     record_version: 'record-v1',
     source_kind: 'canonical_entity',
     source_entity_id: sourceId,
-    source_version: String(engine.getSnapshot(worldId, { entityIds: [sourceId] }).entities[0]?.updated_revision ?? 'unverifiable'),
+    source_version: engine.getSnapshot(worldId, { entityIds: [sourceId], includeSourceVersions: true }).entities[0]?.source_version ?? 'unverifiable',
     content_kind: 'claim',
     epistemic_kind: 'acquired_report',
     producer_kind: 'memory-index',
     content_disposition: 'usable',
     evidence_assessment: 'unassessed',
-    lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: String(engine.getSnapshot(worldId, { entityIds: [sourceId] }).entities[0]?.updated_revision ?? 'unverifiable') }],
+    lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: engine.getSnapshot(worldId, { entityIds: [sourceId], includeSourceVersions: true }).entities[0]?.source_version ?? 'unverifiable' }],
   }));
   for (const record of records) {
     provider.putRecord(record);
@@ -174,10 +174,10 @@ test('Core source-version mismatch is non-ready even when the canonical entity e
 });
 
 
-test('direct Core source validator rejects unknown status and negative revisions', async (t) => {
+test('direct Core source validator rejects unknown status and malformed source tokens', async (t) => {
   for (const [label, mutate] of [
     ['unknown status', (entity) => ({ ...entity, status: 'pending_unknown' })],
-    ['negative revision', (entity) => ({ ...entity, updated_revision: -1 })],
+    ['malformed source token', (entity) => ({ ...entity, source_version: 'not-a-core-token' })],
   ]) {
     const s = setup(t);
     assert.equal((await s.prepare()).status, 'current');
