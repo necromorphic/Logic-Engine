@@ -1378,7 +1378,7 @@ export class SQLiteStore {
       }
       const eventId = x.event_id || randomUUID();
       if (this.db.prepare('SELECT event_id FROM world_events WHERE world_id=? AND event_id=?').get(id, eventId)) {
-        throw new EngineError('EVENT_ALREADY_EXISTS', 'Event ID already exists.', 409);
+        throw new EngineError('EVENT_ALREADY_EXISTS', 'Event ID already exists in this world.', 409);
       }
       const revision = w.world_revision + 1;
       const relationshipEffects = x.effects.filter((effect) => effect.kind === 'relationship.transition');
