@@ -298,3 +298,27 @@ test('deleting an enrolled journal fails closed instead of starting a new empty 
     }
 });
 
+test('strict lifecycle mode blocks mutation when enrollment state directory disappears', async () => {
+    const { root, request } = await fixture();
+    try {
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        await rm(path.join(root, '.logic-engine-host'), { recursive: true, force: true });
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware({ enforce: true })(request, response, async () => {
+            reachedHandler = true;
+            response.json({ ok: true });
+        });
+        await response.finished;
+        assert.equal(reachedHandler, false);
+        assert.equal(response.statusCode, 503);
+        assert.match(String(response.body), /HOST_JOURNAL_UNAVAILABLE/);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
