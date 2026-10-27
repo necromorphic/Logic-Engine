@@ -25,12 +25,86 @@ function nonEmptyString(value, name) {
   return value.trim();
 }
 
+function denseArrayValues(value, name, max, errorCode) {
+  if (!Array.isArray(value) || value.length > max) {
+    fail(errorCode, name + ' must be an array with at most ' + max + ' entries.');
+  }
+  const values = [];
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index)) {
+      fail(errorCode, name + ' cannot contain sparse array entries.', { index });
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      fail(errorCode, name + ' entries must be own enumerable data properties.', { index });
+    }
+    values.push(descriptor.value);
+  }
+  const allowedKeys = new Set(['length', ...values.map((_, index) => String(index))]);
+  if (Reflect.ownKeys(value).some((key) => typeof key !== 'string' || !allowedKeys.has(key))) {
+    fail(errorCode, name + ' cannot contain extra array properties.');
+  }
+  return values;
+}
+
 function stringSet(value, name, max = 1000) {
   if (value === undefined) return [];
-  if (!Array.isArray(value) || value.length > max) fail('INVALID_REFERENCE_LIST', name + ' must be an array with at most ' + max + ' entries.');
-  const normalized = value.map((item, index) => nonEmptyString(item, name + '[' + index + ']'));
+  const entries = denseArrayValues(value, name, max, 'INVALID_REFERENCE_LIST');
+  const normalized = entries.map((item, index) => nonEmptyString(item, name + '[' + index + ']'));
   if (new Set(normalized).size !== normalized.length) fail('DUPLICATE_REFERENCE', name + ' cannot contain duplicate entries.');
   return normalized.sort();
+}
+
+function assertDueWorkRequest(input) {
+  const allowed = new Set([
+    'world_id', 'from_coordinate', 'to_coordinate', 'triggers', 'completed_trigger_ids',
+  ]);
+  const invalid = () => fail('INVALID_DUE_WORK_REQUEST', 'Due-work request fields must be own enumerable data properties on a plain object.');
+  const prototype = Object.getPrototypeOf(input);
+  if (prototype !== Object.prototype && prototype !== null) invalid();
+  for (const key of Reflect.ownKeys(input)) {
+    if (typeof key !== 'string' || !allowed.has(key)) {
+      fail('INVALID_DUE_WORK_FIELD', 'Due-work request contains an unsupported field.', {
+        field: typeof key === 'string' ? key : String(key),
+      });
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) invalid();
+    if (descriptor.value === undefined) invalid();
+  }
+  for (const field of ['world_id', 'from_coordinate', 'to_coordinate', 'triggers']) {
+    if (!Object.hasOwn(input, field)) invalid();
+  }
+}
+
+function assertTriggerRecord(input) {
+  // The durable registry returns lifecycle metadata alongside the immutable
+  // trigger definition. These fields are accepted only as known registry
+  // metadata; the pure planner does not use them to determine scheduling.
+  const allowed = new Set([
+    'trigger_id', 'world_id', 'due_coordinate', 'status', 'dependencies',
+    'read_set', 'write_set', 'processing_mode', 'interrupt_after_coordinate', 'payload',
+    'content_hash', 'claimed_by_operation_id', 'completed_operation_id',
+    'cancellation_reason', 'created_revision', 'created_at', 'updated_at',
+  ]);
+  const invalid = () => fail('INVALID_TRIGGER', 'Trigger fields must be own enumerable data properties on a plain object.');
+  const prototype = Object.getPrototypeOf(input);
+  if (prototype !== Object.prototype && prototype !== null) invalid();
+  for (const field of ['trigger_id', 'world_id', 'due_coordinate']) {
+    if (!Object.hasOwn(input, field)) invalid();
+  }
+  for (const key of Reflect.ownKeys(input)) {
+    if (typeof key !== 'string' || !allowed.has(key)) {
+      fail('INVALID_TRIGGER_FIELD', 'Trigger contains an unsupported field.', {
+        field: typeof key === 'string' ? key : String(key),
+      });
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(input, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) invalid();
+    if (descriptor.value === undefined) {
+      fail('INVALID_TRIGGER_FIELD_VALUE', key + ' must not be explicitly undefined.');
+    }
+  }
 }
 
 function cloneJson(value, name) {
@@ -143,19 +217,29 @@ function heapPop(heap) {
   return root;
 }
 
-export function normalizeTimeTrigger(input, worldId) {
+export function optionalTriggerValue(input, field, defaultValue) {
+  if (!Object.hasOwn(input, field)) return defaultValue;
+  const value = input[field];
+  if (value === undefined) {
+    fail('INVALID_TRIGGER_FIELD_VALUE', field + ' must not be explicitly undefined.');
+  }
+  return value;
+}
+
+function normalizeTimeTrigger(input, worldId) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('INVALID_TRIGGER', 'Every trigger must be an object.');
+  assertTriggerRecord(input);
   const trigger = {
     trigger_id: nonEmptyString(input.trigger_id, 'trigger_id'),
     world_id: nonEmptyString(input.world_id, 'world_id'),
     due_coordinate: safeInteger(input.due_coordinate, 'due_coordinate'),
-    status: input.status ?? 'pending',
-    dependencies: stringSet(input.dependencies, 'dependencies'),
-    read_set: validateReferenceKinds(stringSet(input.read_set, 'read_set'), 'read_set', false),
-    write_set: validateReferenceKinds(stringSet(input.write_set, 'write_set'), 'write_set', true),
-    processing_mode: input.processing_mode ?? 'exact',
-    interrupt_after_coordinate: input.interrupt_after_coordinate ?? false,
-    payload: cloneJson(input.payload ?? null, 'payload'),
+    status: optionalTriggerValue(input, 'status', 'pending'),
+    dependencies: stringSet(optionalTriggerValue(input, 'dependencies', []), 'dependencies'),
+    read_set: validateReferenceKinds(stringSet(optionalTriggerValue(input, 'read_set', []), 'read_set'), 'read_set', false),
+    write_set: validateReferenceKinds(stringSet(optionalTriggerValue(input, 'write_set', []), 'write_set'), 'write_set', true),
+    processing_mode: optionalTriggerValue(input, 'processing_mode', 'exact'),
+    interrupt_after_coordinate: optionalTriggerValue(input, 'interrupt_after_coordinate', false),
+    payload: cloneJson(optionalTriggerValue(input, 'payload', null), 'payload'),
   };
   if (trigger.world_id !== worldId) fail('CROSS_WORLD_TRIGGER', 'A due-work plan cannot mix triggers from different worlds.', { trigger_id: trigger.trigger_id });
   if (!['pending', 'completed', 'cancelled'].includes(trigger.status)) fail('INVALID_TRIGGER_STATUS', 'Trigger status must be pending, completed, or cancelled.');
@@ -318,13 +402,15 @@ function segmentAtCoordinate(triggers, dependencies) {
  */
 export function planDueWork(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) fail('INVALID_DUE_WORK_REQUEST', 'Due-work request must be an object.');
+  assertDueWorkRequest(input);
   const worldId = nonEmptyString(input.world_id, 'world_id');
   const from = safeInteger(input.from_coordinate, 'from_coordinate');
   const to = safeInteger(input.to_coordinate, 'to_coordinate');
   if (to < from) fail('REVERSED_INTERVAL', 'Due-work interval end must not precede its start.');
   if (!Array.isArray(input.triggers) || input.triggers.length > 10000) fail('INVALID_TRIGGER_LIST', 'triggers must be an array of at most 10000 entries.');
   const completedIds = new Set(stringSet(input.completed_trigger_ids, 'completed_trigger_ids', 10000));
-  const triggers = input.triggers.map((trigger) => normalizeTimeTrigger(trigger, worldId));
+  const triggerEntries = denseArrayValues(input.triggers, 'triggers', 10000, 'INVALID_TRIGGER_LIST');
+  const triggers = triggerEntries.map((trigger) => normalizeTimeTrigger(trigger, worldId));
   const allById = new Map();
   for (const trigger of triggers) {
     if (allById.has(trigger.trigger_id)) fail('DUPLICATE_TRIGGER_ID', 'Trigger IDs must be unique.');
