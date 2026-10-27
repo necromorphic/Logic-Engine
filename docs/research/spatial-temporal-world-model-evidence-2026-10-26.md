@@ -385,3 +385,37 @@ Searches for position/orientation/pose/movement/teleport/coordinates did not sur
 
 Continue evidence mapping without changing production runtime: identify any explicit, committed, typed source for each of position, movement, orientation and pose; record exact file/symbol/line range, semantics, tests and SHA. If a concept has no such source, mark it UNKNOWN/unsupported and list the smallest separate contract decision required. Only then define a test-only spatial fixture from supported evidence and execute applicable acceptance checks. Do not create production schema/API or infer spatial values to make the tests pass.
 
+
+
+## 16. World Pack typed-attribute source audit after position contract approval (2026-10-28)
+
+**Question:** Can the existing World Pack attribute-schema mechanism provide the missing committed typed position source without a Core runtime/schema change?
+
+**Finding: not on the inspected current `main`.** World Pack files describe per-entity-type `attributes_schema`, but the reviewed Core runtime files do not reference or enforce that property in canonical entity commit/projection. The inspected example packs do not define position/orientation/movement/pose semantics.
+
+### Evidence matrix
+
+| Claim | Evidence (current-main blob SHA; lines) | Class | Result |
+|---|---|---|---|
+| World Pack manifest schema allows an `attributes_schema` object | `schemas/world-pack-manifest.schema.json`, blob `73b59694280ebf4e6c5affd98a41c09e4da6031c`, line 117 onward | Schema-file evidence | The manifest format can describe an entity-type attribute schema. This alone does not prove runtime loading or enforcement. |
+| World Pack format documentation shows the attribute-schema shape | `docs/04-world-pack-format.md`, blob `4380845db7f3b266a26b692c26a6b37fdea2634f`, lines 55–78 | Documentation-only | The document explicitly labels the example a proposed shape, says it is not a finalized schema, does not prove current runtime acceptance, and does not specify a complete executable pack loader. |
+| Example biological pack defines spatial fields | `examples/world-packs/biological-world.json`, blob `ffde27a0f80ea5bbfe538df103e196c94bcf1753`, lines 10–40 | Code/data inspection | `person` has `alive` and `health_state`; `place` has `name`; `located_at` has `since`. No position, frame, units, orientation, pose or movement contract is present. |
+| Example digital pack defines spatial fields | `examples/world-packs/digital-world.json`, blob `8c1b5f78cab3842e0d4100a07135e9dbabf34ca6`, lines 10 onward | Code/data inspection | Example attributes describe service availability/permissions and message payload/integrity; no typed spatial representation is present. |
+| Core canonical commit validates entity attributes against World Pack `attributes_schema` | `src/storage/sqlite-store.js`, blob `c528805d40d77ac23c3adae866c97d9b97b606e8`; `src/core/rules.js`, blob `d2a1953679f3f14d0f425857447a81190278cd10`, lines 215–275 | Bounded negative source search | No `attributes_schema` reference was found in either inspected runtime file. Entity effect validation checks that attributes are an object; it does not resolve a World Pack entity-type schema or enforce typed spatial fields. This is a bounded source finding, not proof about every possible uninspected module. |
+| Position/movement/orientation/pose have an existing typed source | Current-main searches for `attributes.position`, `position_x`, `position.z`, `orientation`, `movement`, and `teleport`; plus `src/core/rules.js` and `src/storage/sqlite-store.js` above | Bounded repository search + source inspection | No committed typed source/transition semantics found in the reviewed results. `event_type` remains descriptive metadata, not authority. |
+
+### Interpretation
+
+The World Pack schema file is **not currently a proven route** to typed spatial evidence. A JSON schema declaration in a pack cannot be assumed to validate committed entity effects when the inspected Core commit path does not consume that declaration. Likewise, the `located_at` relation example only has a `since` string; it does not specify a location reference, spatial frame, units, movement, or temporal validity contract.
+
+The coordinator-approved position specification now settles the target interpretation for a future v1 position (3D world-relative logical coordinates, right-handed frame, +Z up, abstract units, entity-origin anchor, fail-closed identity/history rules). It does **not** convert arbitrary current attributes or World Pack examples into a committed typed source. Movement, orientation and pose still lack their own approved typed source representations and transitions.
+
+### Disposition and next gate
+
+- **DONE:** bounded Core read/replay/freshness seam is already test-verified in §14.6. The duplicate experiment PR #539 was closed without merging; the existing source-boundary spike remains the canonical experiment.
+- **DONE:** current-main World Pack examples/schema path inspected; no spatial attribute contract is both runtime-enforced and committed.
+- **BLOCKED:** no existing typed spatial source for position, movement, orientation or pose was found in the reviewed paths.
+- **NO-GO:** do not implement a World Pack loader, add spatial fields to Core, or reinterpret generic attributes under this task.
+- **Decision needed before implementation:** Core must decide whether a future typed spatial source is to be provided by a separately approved World Pack runtime validation/commit contract or by another existing approved Core source. This is a new runtime/contract decision; the current feasibility approval does not choose it.
+
+The smallest next action is to ask Core to select/identify the authorized source mechanism for typed position semantics, with exact validation and commit-path evidence. Until that decision and implementation exist, production spatial state remains `UNKNOWN / UNSUPPORTED`; ST-01–ST-16 remain `NOT TESTED / NOT PASSED`; Memory→NPC remains `DISABLED / FAIL-CLOSED`.
