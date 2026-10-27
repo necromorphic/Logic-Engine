@@ -39,6 +39,7 @@ function responseMock() {
         body: undefined,
         status(code) { this.statusCode = code; return this; },
         setHeader(name, value) { this.headers[name.toLowerCase()] = value; },
+        removeHeader(name) { delete this.headers[name.toLowerCase()]; },
         writeHead(code, headers = {}) {
             this.statusCode = code;
             Object.assign(this.headers, headers);
@@ -104,6 +105,8 @@ test('incomplete post-scan overrides a pre-flushed success response before heade
         const response = responseMock();
         await createHostLifecycleMutationMiddleware()(request, response, async () => {
             await rm(directories.backups, { recursive: true, force: true });
+            response.setHeader('Content-Length', '11');
+            response.setHeader('ETag', '"success-body"');
             response.writeHead(200, { 'Content-Type': 'application/json' });
             response.write('{"ok":true}');
             response.end();
@@ -112,6 +115,8 @@ test('incomplete post-scan overrides a pre-flushed success response before heade
         assert.equal(response.statusCode, 503);
         assert.match(String(response.body), /HOST_POST_MUTATION_SCAN_INCOMPLETE/);
         assert.doesNotMatch(String(response.body), /"ok":true/);
+        assert.equal(response.headers['content-length'], undefined, 'discarded success length must not be reused for the 503 body');
+        assert.equal(response.headers.etag, undefined, 'discarded success ETag must not be reused for the 503 body');
     } finally {
         await rm(root, { recursive: true, force: true });
     }
