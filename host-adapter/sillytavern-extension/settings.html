@@ -1,0 +1,24 @@
+<div id="logic_engine_extension" class="logic-engine-extension">
+  <div class="inline-drawer">
+    <div class="inline-drawer-toggle inline-drawer-header">
+      <b>Logic-Engine</b>
+      <div class="inline-drawer-icon fa-solid fa-circle-chevron-down down"></div>
+    </div>
+    <div class="inline-drawer-content">
+      <p class="logic-engine-warning">Режим проверки. Передача Memory → NPC отключена; успешная связь с API не означает готовность к раскрытию Memory.</p>
+      <label for="logic_engine_url">Адрес локального движка</label>
+      <input id="logic_engine_url" class="text_pole" type="url" value="http://127.0.0.1:8787" autocomplete="url" spellcheck="false">
+      <div class="flex-container">
+        <button id="logic_engine_check" class="menu_button">Проверить связь</button>
+        <span id="logic_engine_status" role="status" aria-live="polite">Не проверено</span>
+      </div>
+      <hr>
+      <div class="flex-container">
+        <button id="logic_engine_enroll" class="menu_button" disabled>Подключить текущий чат</button>
+        <button id="logic_engine_sync" class="menu_button" disabled>Сверить дайджесты</button>
+      </div>
+      <p id="logic_engine_host_status" class="logic-engine-muted">Для работы с журналом требуется совместимый Host lifecycle bridge.</p>
+      <p class="logic-engine-muted">Расширение не читает и не отправляет текст сообщений. Журнал хранит идентификаторы и дайджесты. Подключение нового чата — только вручную. История до подключения не считается проверенной.</p>
+    </div>
+  </div>
+</div>
