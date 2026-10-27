@@ -274,3 +274,63 @@ The current-main revalidation does not change the architecture decision:
 - **Next internal task after that decision:** run the disposable candidate-A spike and acceptance tests against the approved seam. Without that decision, a mock interface would test an invented contract and would not satisfy the feasibility requirement.
 
 This revalidation supersedes the original baseline for current-main source identities. It does not retroactively make the original source audit a test run.
+
+
+## 14. Core decision — permitted read boundary and first experiment (2026-10-28)
+
+**Decision owner:** Core. **Status:** approved for a bounded, internal, read-only feasibility experiment; not a production integration approval.
+
+### 14.1 Is there an existing boundary?
+
+**Yes, at the Core application layer for internal read-only consumption; no spatial-specific public/runtime contract exists.** The existing methods are:
+
+- `src/application/engine.js:487` — `getSnapshot(id, request = {})`, delegating to `SQLiteStore.readSnapshot`.
+- `src/application/engine.js:488` — `getEvents(id, includeInvalid = false)`, delegating to `SQLiteStore.events`.
+- `src/storage/sqlite-store.js:747` — `readSnapshot(id, request = {})`; reads world state and returns `world_revision`, `commit_sequence`, game-time coordinate, and requested canonical data. With an empty request it returns the current world snapshot of entities/facts.
+- `src/storage/sqlite-store.js:1025` — `events(id, includeInvalid = false)`; by default filters to `valid` events and orders them by `commit_sequence`.
+
+These are existing Core application/store methods, not a new spatial API. They are suitable for a disposable internal experiment that stays inside Core-owned execution. They are **not** a grant to expose raw snapshot/event payloads to an LLM, Host, NPC, Memory Provider, or external consumer. The snapshot source explicitly labels its raw data as not automatically actor-authorized or model-safe.
+
+### 14.2 Accepted read protocol for the experiment
+
+Use only these existing methods; add no API, schema, table, event type, cursor, adapter, or lifecycle hook.
+
+1. Read a baseline snapshot marker from `getSnapshot(worldId, {})`: `world_id`, `world_revision`, `commit_sequence`, and `game_time_coordinate`.
+2. Read the current valid event list from `getEvents(worldId, false)`. Its canonical order is `commit_sequence`; never reorder by game time alone.
+3. Read a second snapshot marker. Accept the input batch only if all four marker fields equal the baseline and every event belongs to the same world, has `validity === 'valid'`, and has a unique, strictly increasing `commit_sequence`. Otherwise discard the entire derived result and retry from the beginning or return unresolved.
+4. Build a fresh in-memory projection deterministically from the accepted event list. Do not persist the projection and do not write to Core.
+5. Before returning any derived result, compare the current marker to the projection's build marker again. A mismatch means stale: rebuild or refuse. Never serve the old result as current.
+6. On process restart, discard the projection and reconstruct from Core. A rollback that changes `world_revision` invalidates the previous projection even if `commit_sequence` or game-time coordinate does not advance.
+7. Treat `game_time_coordinate` as TimeEngine-owned time, not as a substitute for Core revision or event order. The initial supported query boundary is the latest stable committed snapshot only. Historical or intermediate-coordinate queries are not authorized by this decision.
+
+This double-read marker check is a bounded consistency guard for ordinary Core mutations, not a substitute for a transactionally atomic read API. It assumes relevant Core mutations change the composite marker. It cannot detect restoration of an old database image that reproduces the exact same marker. Full-database restore anti-rollback remains **BLOCKED** and is outside the guarantee of this experiment.
+
+### 14.3 Data and semantics permitted
+
+The experiment may inspect committed event metadata/effects and canonical entities/facts internally, but it may derive a position, movement, orientation, or spatial relation **only when the committed source explicitly contains sufficient, unambiguous evidence under an approved interpretation**. Generic attributes, event names, absent values, and model inference are not spatial proof. If the current source has no agreed spatial semantics for a value, the derived answer must be `unknown` or `conflict`, not an invented coordinate.
+
+No NPC perception, belief, memory, disclosure right, or acquisition authorization may be inferred from a world-side projection. Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+### 14.4 Required acceptance checks
+
+The first isolated spike must exercise the real existing methods, not mocks, and prove:
+
+- only valid committed events are consumed and order is deterministic;
+- a marker change between the two reads rejects the whole batch;
+- rollback/revision-only change invalidates an existing projection;
+- replay and reconstruction after process restart produce equivalent output for the same accepted source;
+- equal game-time coordinates preserve commit order;
+- different worlds cannot share input or derived state;
+- missing/conflicting spatial evidence remains unknown/conflict;
+- stale data is refused at result publication;
+- no writes are made to Core and no output is routed to Host, Memory, or NPC.
+
+These are acceptance criteria for the proposed disposable experiment; **they have not yet been run**.
+
+### 14.5 Core decision and remaining boundary
+
+**Core decision:** use existing `engine.getSnapshot` + `engine.getEvents` as the source for the bounded internal feasibility spike under the read protocol above. Do not create a separate read API for the spike.
+
+The decision does not approve a typed spatial event vocabulary, arbitrary historical-time queries, persistent spatial storage, a public consumer contract, or production integration. If the spike requires an atomic event-list-plus-marker read, a new event type/schema, or full-restore anti-rollback, stop and submit that narrower requirement for a separate review rather than silently adding a mechanism.
+
+**Next action / owner:** Spatial research owner implements only the disposable test harness against the existing Core methods; Core reviews the observed diff and test output. TimeEngine owner reviews the boundary rule for any future historical/intermediate-time query. No production runtime changes are included in this approval.
