@@ -623,8 +623,51 @@ export async function getHostConversationInventory(request) {
             errors: ['NO_ENROLLED_CONVERSATIONS'],
         };
     }
-    return scanPersistedConversationInventories(
+    const journal = await readAndValidateJournal(paths.journalPath);
+    const journalSummary = {
+        integrity: 'LOCAL_HASH_CHAIN_VALID',
+        recordCount: journal.records.length,
+        headHash: journal.lastHash,
+        unresolved: journal.unresolved,
+        degraded: journal.degraded,
+    };
+    if (journal.unresolved || journal.degraded) {
+        return {
+            status: 'INVENTORY_INCOMPLETE',
+            complete: false,
+            authority: 'NON_AUTHORITATIVE',
+            historicalCompleteness: 'UNKNOWN',
+            mutationJournal: { ...journalSummary, snapshotConsistency: 'UNRESOLVED_OR_DEGRADED' },
+            inventories: [],
+            errors: [journal.unresolved ? 'HOST_MUTATION_JOURNAL_HAS_UNRESOLVED_OPERATIONS' : 'HOST_MUTATION_JOURNAL_IS_DEGRADED'],
+        };
+    }
+    const snapshot = await scanPersistedConversationInventories(
         paths.roots.filter(root => root.domain === 'chats' || root.domain === 'group_chats'),
         registry.conversations,
     );
+    if (!snapshot.complete) return { ...snapshot, mutationJournal: { ...journalSummary, snapshotConsistency: 'CURRENT_INVENTORY_INCOMPLETE' } };
+
+    const lastCommittedInventory = [...journal.records].reverse().find(record =>
+        record.kind === 'outcome' && record.status === 'COMMITTED'
+        && typeof record.afterConversationInventoryDigest === 'string');
+    if (lastCommittedInventory && lastCommittedInventory.afterConversationInventoryDigest !== snapshot.inventory_sha256) {
+        return {
+            ...snapshot,
+            status: 'INVENTORY_INCOMPLETE',
+            complete: false,
+            authority: 'NON_AUTHORITATIVE',
+            historicalCompleteness: 'UNKNOWN',
+            inventories: [],
+            mutationJournal: { ...journalSummary, snapshotConsistency: 'DIVERGES_FROM_LAST_LOCAL_CHECKPOINT' },
+            errors: ['CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT'],
+        };
+    }
+    return {
+        ...snapshot,
+        mutationJournal: {
+            ...journalSummary,
+            snapshotConsistency: lastCommittedInventory ? 'MATCHES_LAST_COMMITTED_LOCAL_CHECKPOINT' : 'NO_COMMITTED_INVENTORY_CHECKPOINT',
+        },
+    };
 }
