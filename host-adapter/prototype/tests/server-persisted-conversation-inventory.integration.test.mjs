@@ -71,12 +71,16 @@ test('server inventory fails closed when enrolled persisted identity is absent',
   const request = { user: { profile: { handle: 'test-user' }, directories } };
   try {
     const uuid = randomUUID();
+    await writeFile(path.join(directories.chats, 'missing.jsonl'), JSON.stringify({
+      chat_metadata: { logic_engine_conversation_id: uuid },
+    }) + '\\n');
     await registerHostConversation(request, {
       conversationId: randomUUID() + ':' + uuid,
       sourceLocator: 'missing',
       sourcePath: 'missing.jsonl',
       domain: 'chats',
     });
+    await rm(path.join(directories.chats, 'missing.jsonl'));
     const result = await getHostConversationInventory(request);
     assert.equal(result.status, 'INVENTORY_INCOMPLETE');
     assert.equal(result.complete, false);
