@@ -15,7 +15,7 @@ Set-ExecutionPolicy -Scope Process Bypass
   -OutputPath '.\\security-deployment-audit.json'
 ```
 
-Replace example paths and PIDs with the actual deployment values. The script intentionally does not record process command lines or environment variables because they may contain credentials. It records process executable paths/owners, ACLs and SDDL for supplied paths and parent directories, SQLite sidecars, established TCP connections, and enabled outbound-allow firewall rules.
+Replace example paths and PIDs with the actual deployment values. The script intentionally does not record process command lines or environment variables because they may contain credentials. It records process executable paths/owners; ACLs and SDDL for supplied paths and parent directories; SQLite sidecars; recursive ACL evidence for files and directories under each supplied backup directory; established TCP connections; active firewall profile defaults; and enabled outbound allow/block rules. If a backup tree cannot be fully enumerated or a path/ACL query fails, the report must be treated as incomplete and the affected entry reviewed manually. A path lookup error is represented as unknown, not silently treated as absent.
 
 ## Evidence limits
 
