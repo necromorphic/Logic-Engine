@@ -99,10 +99,10 @@ export class MemoryNpcConsumer {
     let actorEntityId;
     try {
       if (!object(request)) return nonReady('trusted_scope_incomplete');
+      ({ adapterId, conversationId, actorEntityId } = request);
       if (Object.hasOwn(request, 'worldId') || Object.hasOwn(request, 'world_id')) {
         return nonReady('caller_world_not_authoritative');
       }
-      ({ adapterId, conversationId, actorEntityId } = request);
     } catch {
       return nonReady('trusted_scope_incomplete');
     }
