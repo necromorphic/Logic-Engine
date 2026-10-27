@@ -6,7 +6,7 @@ This isolated UI extension checks whether the configured Logic-Engine health end
 
 ## Important boundaries
 
-- The UI calls only the same-origin SillyTavern endpoint `GET /api/logic-engine-diagnostics/status`.
+- The UI calls only the same-origin SillyTavern endpoint `GET /api/extensions/logic-engine-diagnostics/status`.
 - A small server-side patch proxies a fixed `GET /health` request to the root configured by `LOGIC_ENGINE_CORE_URL`.
 - The health probe sends no Bearer token, adapter token, message content, world ID, or caller-supplied URL.
 - `adapter_authorized` is explicitly reported as `not_checked`; a successful health probe is not an adapter-authentication test.

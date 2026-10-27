@@ -1,4 +1,4 @@
-const STATUS_ENDPOINT = '/api/logic-engine-diagnostics/status';
+const STATUS_ENDPOINT = '/api/extensions/logic-engine-diagnostics/status';
 
 function describeStatus(response, payload) {
     if (response.status === 404) return { text: 'Серверный диагностический маршрут не установлен.', state: 'warning' };

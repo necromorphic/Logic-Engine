@@ -454,13 +454,14 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
-@@ -51,4 +51,5 @@
- import { router as dataMaidRouter } from './endpoints/data-maid.js';
+@@ -51,6 +51,7 @@ import { router as dataMaidRouter } from './endpoints/data-maid.js';
  import { router as backupsRouter } from './endpoints/backups.js';
  import { router as imageMetadataRouter } from './endpoints/image-metadata.js';
  import { router as volcengineRouter } from './endpoints/volcengine.js';
 +import { router as logicEngineLifecycleRouter } from './endpoints/logic-engine-lifecycle.js';
-
+ 
+ /**
+  * @typedef {object} ServerStartupResult
 @@ -185,5 +186,6 @@ export function setupPrivateEndpoints(app) {
      app.use('/api/data-maid', dataMaidRouter);
      app.use('/api/backups', backupsRouter);
