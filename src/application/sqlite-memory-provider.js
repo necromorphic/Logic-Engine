@@ -805,7 +805,9 @@ export class SQLiteMemoryProvider {
           this.#withSerializedWrite(() => this.#db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
             .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString()));
         } catch (error) {
-          this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
+          // Preserve the primary index-write failure even if persisting diagnostics
+          // also fails. The prior rebuilding/stale marker remains non-ready.
+          try { this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED'); } catch {}
           throw error;
         }
         return {
@@ -832,7 +834,10 @@ export class SQLiteMemoryProvider {
       this.#withSerializedWrite(() => this.#db.prepare('INSERT INTO memory_index_entries VALUES(?,?,?,?)')
         .run(record.world_id, record.record_ref, record.record_version, new Date().toISOString()));
     } catch (error) {
-      this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED');
+      // A diagnostic-state write can itself fail (for example, a full/locked
+      // database). Never replace the original index-write error with that error;
+      // the pre-write rebuilding/stale marker still blocks retrieval.
+      try { this.#setState(record.world_id, 'unavailable', 'stale', null, 'INDEX_WRITE_FAILED'); } catch {}
       throw error;
     }
     return { status: 'stored', record_ref: record.record_ref, record_version: record.record_version };

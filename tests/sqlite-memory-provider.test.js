@@ -1207,3 +1207,23 @@ test('raw-record write failure publishes unavailable typed state and persists no
     failure_code: 'RECORD_WRITE_FAILED',
   });
 });
+
+test('index write error is preserved when persisting unavailable diagnostics also fails', (t) => {
+  const s = setup(t);
+  s.db.exec(`CREATE TRIGGER fail_ingest_index_insert BEFORE INSERT ON memory_index_entries
+    BEGIN SELECT RAISE(ABORT, 'primary index write failure'); END;`);
+  s.db.exec(`CREATE TRIGGER fail_unavailable_state BEFORE UPDATE ON memory_index_state
+    WHEN NEW.failure_code='INDEX_WRITE_FAILED'
+    BEGIN SELECT RAISE(ABORT, 'secondary diagnostic state failure'); END;`);
+
+  assert.throws(() => s.provider.putRecord(s.record), /primary index write failure/);
+  assert.equal(s.db.prepare(
+    'SELECT COUNT(*) AS count FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?',
+  ).get(s.scope.world_id, s.record.record_ref, s.record.record_version).count, 1);
+  assert.equal(s.db.prepare(
+    'SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?',
+  ).get(s.scope.world_id, s.record.record_ref, s.record.record_version).count, 0);
+  const state = s.provider.getIndexStatusForDiagnostics(s.scope.world_id);
+  assert.equal(state.index_health, 'rebuilding');
+  assert.equal(state.source_reconciliation, 'stale');
+});
