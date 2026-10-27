@@ -249,3 +249,52 @@ test('explicit reconciliation records uncertainty and permits future journaling 
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test('deleting an enrolled registry fails closed instead of disabling the middleware', async () => {
+    const { root, request } = await fixture();
+    try {
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        await rm(path.join(root, '.logic-engine-host', 'enrollments.json'));
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            reachedHandler = true;
+            response.json({ ok: true });
+        });
+        await response.finished;
+        assert.equal(reachedHandler, false);
+        assert.equal(response.statusCode, 503);
+        assert.match(String(response.body), /HOST_JOURNAL_UNAVAILABLE/);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('deleting an enrolled journal fails closed instead of starting a new empty history', async () => {
+    const { root, request } = await fixture();
+    try {
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        await rm(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'));
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            reachedHandler = true;
+            response.json({ ok: true });
+        });
+        await response.finished;
+        assert.equal(reachedHandler, false);
+        assert.equal(response.statusCode, 503);
+        assert.match(String(response.body), /HOST_JOURNAL_PREPARE_FAILED/);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
