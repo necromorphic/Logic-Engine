@@ -207,6 +207,83 @@ function diffConversationInventories(before, after) {
     });
 }
 
+function verifyEnrolledChatSavePersistence(request, registry, after) {
+    if (request.method !== 'POST'
+        || (request.baseUrl + request.path !== '/api/chats/save'
+            && request.originalUrl?.split('?')[0] !== '/api/chats/save')) return null;
+
+    const body = request.body;
+    const cardName = String(body?.avatar_url ?? '').replace('.png', '');
+    const fileName = String(body?.file_name ?? '') + '.jsonl';
+    const sourcePath = cardName + '/' + fileName;
+    const enrollment = registry.conversations.find(item =>
+        item.domain === 'chats' && item.sourcePath === sourcePath);
+    if (!enrollment) return null;
+
+    if (!Array.isArray(body?.chat) || body.chat.length === 0) {
+        return { ok: false, code: 'HOST_SAVE_PAYLOAD_INVALID' };
+    }
+    const conversationUuid = enrollment.conversationId.split(':')[1];
+    if (body.chat[0]?.chat_metadata?.logic_engine_conversation_id !== conversationUuid) {
+        return { ok: false, code: 'HOST_SAVE_IDENTITY_MISMATCH' };
+    }
+
+    const expected = [];
+    const seenMessages = new Set();
+    const seenVersions = new Set();
+    for (const message of body.chat) {
+        const identity = message?._logicEngineLifecycle;
+        const nativeVersions = Array.isArray(message?.swipes) && message.swipes.length
+            ? message.swipes : [message?.mes ?? ''];
+        const activeIndex = message?.swipe_id === undefined ? 0 : message.swipe_id;
+        if (!identity || typeof identity.messageId !== 'string'
+            || seenMessages.has(identity.messageId)
+            || !Array.isArray(identity.versions)
+            || identity.versions.length !== nativeVersions.length
+            || !Number.isInteger(activeIndex) || activeIndex < 0 || activeIndex >= nativeVersions.length
+            || identity.activeVersionIndex !== activeIndex
+            || typeof message.mes !== 'string' || message.mes !== nativeVersions[activeIndex]) {
+            return { ok: false, code: 'HOST_SAVE_IDENTITY_MISMATCH' };
+        }
+        seenMessages.add(identity.messageId);
+        for (let index = 0; index < nativeVersions.length; index++) {
+            const version = identity.versions[index];
+            if (!version || typeof version.versionId !== 'string'
+                || seenVersions.has(version.versionId)
+                || typeof version.payloadDigest !== 'string'
+                || version.payloadDigest !== digest(JSON.stringify(String(nativeVersions[index])))) {
+                return { ok: false, code: 'HOST_SAVE_VERSION_DIGEST_MISMATCH' };
+            }
+            seenVersions.add(version.versionId);
+            expected.push({
+                message_id: identity.messageId,
+                version_id: version.versionId,
+                payload_sha256: version.payloadDigest,
+                parent_version_id: version.parentVersionId ?? null,
+                active: index === activeIndex,
+            });
+        }
+    }
+
+    const persisted = after.conversationInventory?.inventories
+        ?.find(item => item.conversation_id === enrollment.conversationId);
+    if (!persisted) return { ok: false, code: 'HOST_SAVE_PERSISTED_INVENTORY_MISSING' };
+    const actual = (persisted.versions ?? []).map(version => ({
+        message_id: version.message_id,
+        version_id: version.version_id,
+        payload_sha256: version.payload_sha256,
+        parent_version_id: version.parent_version_id ?? null,
+        active: version.active,
+    }));
+    const normalize = values => values
+        .map(value => JSON.stringify(value))
+        .sort();
+    if (JSON.stringify(normalize(expected)) !== JSON.stringify(normalize(actual))) {
+        return { ok: false, code: 'HOST_SAVE_PERSISTENCE_MISMATCH' };
+    }
+    return { ok: true };
+}
+
 function diffSnapshots(before, after) {
     const a = new Map(before.artifacts.map(item => [item.artifactId, item]));
     const b = new Map(after.artifacts.map(item => [item.artifactId, item]));
@@ -419,8 +496,31 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                             body: JSON.stringify({ error: { code: 'HOST_POST_MUTATION_SCAN_INCOMPLETE' } }),
                         });
                     }
+                    const isSuccess = response.statusCode >= 200 && response.statusCode < 300;
+                    const persistence = isSuccess
+                        ? verifyEnrolledChatSavePersistence(request, registry, after)
+                        : null;
+                    if (persistence && !persistence.ok) {
+                        await appendRecord(paths.journalPath, chain.lastHash, {
+                            version: 1,
+                            kind: 'outcome',
+                            operationId,
+                            status: 'UNRESOLVED',
+                            completedAt: new Date().toISOString(),
+                            httpStatus: response.statusCode,
+                            persistenceVerification: persistence.code,
+                            afterSnapshotDigest: snapshotDigest(after),
+                            afterArtifactCount: after.artifactCount,
+                            afterConversationInventoryDigest: after.conversationInventory?.inventory_sha256 ?? null,
+                            afterConversationInventories: after.conversationInventory?.inventories ?? null,
+                        });
+                        return commitBufferedResponse(args, {
+                            status: 503,
+                            body: JSON.stringify({ error: { code: persistence.code } }),
+                        });
+                    }
                     const changes = diffSnapshots(before, after);
-                    const status = response.statusCode >= 200 && response.statusCode < 300 ? 'COMMITTED' : 'UNRESOLVED';
+                    const status = isSuccess ? 'COMMITTED' : 'UNRESOLVED';
                     const hash = await appendRecord(paths.journalPath, chain.lastHash, {
                         version: 1,
                         kind: 'outcome',
