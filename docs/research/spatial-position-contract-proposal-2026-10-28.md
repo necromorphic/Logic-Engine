@@ -10,7 +10,7 @@ This document prepares a reviewable proposal for the minimum semantics of an ent
 
 The current source review found generic entity attributes and committed event/effect records, but did not establish a typed, committed spatial source that defines coordinate frame, units, position anchor, and temporal validity. Generic `attributes_json` and `event_type` are not spatial proof. Existing read/replay tests verify a bounded source boundary, not spatial semantics.
 
-The contract must be approved by Core before any later implementation task is opened. Unresolved choices below must remain explicit; consumers must not infer answers from sample values or naming conventions.
+The spatial semantics for specification v1 are approved by the coordinator as recorded in §11. Technical evidence and implementation gates remain unresolved; consumers must not infer coordinates from sample values or naming conventions.
 
 ## 2. Required semantic definition
 
@@ -60,9 +60,9 @@ The contract proposal must define:
    - Conflicting evidence must not be resolved by arrival order, arbitrary priority, or a guessed interpolation unless a separate approved rule explicitly authorizes it.
    - Failure to validate provenance, identity, frame, units, or temporal binding must fail closed to non-position / unknown.
 
-## 3. Open choices for Core review
+## 3. Original choice set (superseded by coordinator decision in §11)
 
-These are questions, not implicit defaults.
+The candidates below document the questions originally reviewed. The seven product-level rules listed in §11 are now APPROVED for specification v1; this section must not be read as leaving those seven decisions open. Technical mechanisms and evidence remain blocked.
 
 | Decision | Candidate directions | Required decision criterion |
 |---|---|---|
@@ -75,7 +75,7 @@ These are questions, not implicit defaults.
 | Entity lifecycle | Entity ID alone within world; ID plus an incarnation/generation rule | Must prevent position from leaking across delete/recreate boundaries |
 | Conflict policy | Preserve conflict/unknown; owner-approved deterministic precedence where justified | Must not silently pick a position without an authority rule |
 
-The proposal should recommend a minimal choice only after the repository evidence and Core ownership constraints support it. If evidence cannot select among candidates, the document must leave the decision open for Core.
+The approved v1 choices are recorded in §11. Approval defines intended semantics only; it does not establish that the repository has a typed coordinate source or can safely implement these semantics.
 
 ## 4. Non-goals and explicit exclusions
 
@@ -125,17 +125,15 @@ Current research recorded in PR #529 identifies these existing paths:
 
 These are the evidence boundaries of the current research, not a claim that every repository path has been exhaustively searched. The PR #529 read/replay/freshness spike does not prove coordinate semantics.
 
-## 7. Decisions requested
+## 7. Remaining technical gates (updated by coordinator decision in §11)
 
-The permission to continue documentation-only drafting has already been granted. The remaining decisions are:
+The seven spatial semantics decisions have been approved for specification v1. Remaining blockers are technical, not permission to guess or implement:
 
-1. **Spatial/Product owner:** define the initial supported spatial scope and provide a rationale for dimensionality, coordinate frame(s), axes/handedness, units or discrete scale, and position anchor. If these requirements are not available, explicitly defer the choices and keep all unsupported positions unknown.
-2. **Core owner:** confirm the exact existing committed evidence and coherent read boundary that a future derived projection may consume. If the current seam cannot prove the needed guarantees, record BLOCKED / NO APPROVED SEAM rather than adding an API or adapter in this task.
-3. **Core owner:** specify the minimum identity/lifecycle guarantee needed to prevent cross-world contamination and position inheritance after deletion/recreation. Do not assume entity ID alone is sufficient without source evidence.
-4. **Core + Time owner:** define the supported relationship between a committed Core state boundary and the existing TimeEngine game-time coordinate. Until the mapping is proven, historical reconstruction and interpolation remain unsupported.
-5. **Core owner:** confirm how rollback/rebuild invalidates dependent derived results and what evidence is required to claim a result is fresh.
-6. **Core owner:** retain explicit unknown, stale, conflict, and malformed/unsupported outcomes; do not resolve conflict heuristically.
-7. **Architecture gate:** only after the above decisions and exact-SHA verification, decide whether to open a separate implementation request. This proposal does not authorize that implementation.
+1. **Typed coordinate source:** identify an approved, committed, typed source of coordinates and its verifiable provenance. Until then, positions remain UNKNOWN / UNSUPPORTED.
+2. **Entity incarnation:** prove a reliable way to distinguish a deleted entity from a recreated entity that reuses the same ID. Until then, position after possible ID reuse remains unknown.
+3. **Core ↔ TimeEngine mapping:** establish the approved mapping between a coherent Core snapshot and a confirmed TimeEngine boundary. Until then, historical positions remain unsupported.
+4. **Rollback/rebuild behavior:** prove invalidation or deterministic rebuild for dependent spatial results. Persistent/cached projections remain unapproved; use the current snapshot for read-only investigation or return stale/unknown.
+5. **Architecture gate:** a separate explicit approval is required before any implementation request or runtime changes.
 
 ## 8. Safety and release gates
 
@@ -164,9 +162,9 @@ The permission to continue documentation-only drafting has already been granted.
 
 These decisions align with the bounded existing-read experiment described in PR #529. That experiment validates only its source-read/replay/freshness boundary; it does **not** prove spatial semantics or authorize production integration.
 
-### Decisions not owned by Core
+### Product-level spatial decisions
 
-Core does **not** select product-level spatial semantics without an explicit spatial/product requirement and supporting evidence. The following remain decision-needed: initial dimensionality (2D/3D), coordinate frame(s), axes and handedness, units/discrete scale, position anchor, whether local frames are needed, and whether entity IDs require an incarnation/generation distinction. Do not pick these from convention or from sample values. If the product scope cannot justify a choice, keep it open and do not treat positions as supported.
+The coordinator subsequently approved the seven specification-v1 semantics listed in §11: 3D X/Y/Z; one world-relative frame; right-handed axes with +Z up; abstract logical units; explicit entity-origin anchor; no identity inheritance after delete/recreate; and historical positions only at confirmed TimeEngine boundaries. These are approved specification rules, not facts already implemented in Core. Entity-incarnation evidence and all other technical guarantees remain unproven.
 
 ### Review status
 
@@ -196,10 +194,46 @@ This was source/test review only; **I did not execute tests during this review a
 6. **Entity lifecycle:** current evidence does not establish an incarnation/generation guarantee for delete-and-recreate identity reuse. Do not assume continuity.
 7. **Disclosure:** no observation or NPC knowledge authority is granted. Memory→NPC remains `DISABLED / FAIL-CLOSED`.
 
-### Explicitly unresolved (not guessable from current source)
+### Technical facts still unresolved
 
-The repository does not determine 2D vs 3D, axes/handedness, units/discrete scale, position anchor, local-frame support, or entity incarnation semantics. These require explicit spatial/product requirements. Until a typed committed source and these semantics are approved, no position may be treated as supported.
+The coordinator has approved the spatial semantics for specification v1, but repository source still does not establish a typed committed coordinate source, reliable entity-incarnation identity, or Core-to-TimeEngine historical mapping. These are implementation blockers, not open choices to be guessed. Until a typed committed source and required guarantees are demonstrated, no position may be treated as supported.
 
 ### Gate before any implementation proposal
 
 A separate implementation request may be considered only after: (a) product semantics are defined; (b) typed source, provenance and lifecycle are identified; (c) Core/TimeEngine temporal binding is specified; and (d) tests are executed at an exact SHA for snapshot binding, rollback/rebuild and spatial validation. No runtime, schema, API, event, adapter, cache, or Memory/NPC change is approved here.
+
+
+## 11. Coordinator decision — specification v1 — 2026-10-28
+
+**Decision: APPROVE all seven spatial semantics rules for specification v1. Implementation is NOT authorized.** This decision supersedes the earlier open-choice status for these seven semantics in §§3 and 10. It does not establish that any corresponding runtime mechanism or coordinate source exists.
+
+| # | Approved v1 rule | Required interpretation |
+|---|---|---|
+| 1 | Three-dimensional space: X, Y, Z | v1 uses a 3D model; no separate 2D semantics. |
+| 2 | One world-relative coordinate frame | Local frames and transforms between frames are unsupported in v1. |
+| 3 | Right-handed coordinate system; +Z up | A normative specification rule, not a claim about current Core implementation. |
+| 4 | Abstract logical units | No assumption of metres or other physical units; no automatic conversion or inferred scale. |
+| 5 | Explicit entity-origin anchor | The point must be defined by that entity's spatial definition. Do not substitute centre, feet/contact point, or bounds. If the definition is absent, position is unsupported. |
+| 6 | Delete/recreate starts a new entity incarnation | A recreated entity does not inherit spatial identity even if its ID is reused. Until a reliable incarnation distinction is proven, position remains unknown. |
+| 7 | Historical positions only at confirmed TimeEngine boundaries | Without a proven mapping to the relevant temporal boundary, historical position is unknown. Interpolation and extrapolation are prohibited in v1. |
+
+### Mandatory fail-closed and authority constraints
+
+- Position remains `UNKNOWN / UNSUPPORTED` until an approved typed coordinate source with verifiable provenance exists.
+- Identify a Core snapshot with the complete pair `(world_revision, commit_sequence)`; sequence alone is insufficient.
+- Stale data, transaction rollback, inconsistent snapshots, coordinate conflicts, malformed values, or unsupported semantics must not be guessed through.
+- The spatial block does not modify canonical Core state and does not determine what an NPC has seen, knows, or believes.
+- Memory → NPC remains `DISABLED / FAIL-CLOSED`.
+
+### Remaining blockers
+
+1. No approved typed, committed coordinate source with verifiable provenance has been established.
+2. No reliable entity-incarnation guarantee has been established for delete/recreate with a reused ID.
+3. The mapping between a coherent Core snapshot and the relevant TimeEngine boundary has not been proven.
+4. Rollback/rebuild invalidation or deterministic rebuilding of dependent spatial results has not been demonstrated. Cached or persistent spatial projections remain unapproved.
+
+### Permitted next step and exclusions
+
+The permitted next step is documentation-only refinement and evidence gathering against the existing bounded read seam. No production runtime, API, schema, event, adapter, cache, persistent projection, or Memory/NPC change is authorized. This coordinator decision does not authorize implementation.
+
+No tests were run as part of recording this decision. ST-01–ST-16 remain NOT TESTED / NOT PASSED unless actually implemented and executed with recorded evidence.
