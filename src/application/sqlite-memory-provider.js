@@ -254,7 +254,7 @@ export class SQLiteMemoryProvider {
     if (!local) {
       const existing = [
         'memory_records','memory_index_entries','memory_query_grants','memory_record_grants','memory_index_state',
-        'memory_raw_captures','memory_raw_active_versions','memory_raw_derived_copies',
+        'memory_raw_captures','memory_raw_active_versions','memory_raw_derived_copies','provider_authority_operations',
       ].some((table) => Number(this.db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n) > 0);
       if (existing || status.pending.provider) throw new Error('MEMORY_ACCEPTED_HEAD_BOOTSTRAP_REQUIRED');
       this.db.prepare("INSERT INTO provider_authority_state(singleton,accepted_head,status) VALUES(1,?,'ready')")
