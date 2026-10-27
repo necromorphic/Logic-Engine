@@ -58,7 +58,7 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
-async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
+async function createFixture({ coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -104,11 +104,6 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       sources,
       candidates: providerCandidatesOverride ?? candidates,
     }),
-    sendUpstream: async (request) => {
-      calls.push(request);
-      if (sendUpstream) return sendUpstream(request);
-      return { status: 200, body: 'accepted' };
-    },
   });
   gateway = makeGateway();
 
@@ -461,7 +456,7 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
       fixture.gateway.dispatchProtectedRequest(validRequest('crash-replay-new-id')),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
-    assert.equal(fixture.calls.length, 1);
+    assert.equal(fixture.calls.length, 0);
   } finally {
     await fixture.close();
   }
@@ -481,7 +476,6 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
-      sendUpstream: async () => ({ status: 200 }),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {
