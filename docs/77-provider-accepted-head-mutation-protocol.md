@@ -48,7 +48,7 @@ Schema details and exact column constraints must be reviewed with Core/Security 
 7. Re-read authority status and verify the committed head matches local state before returning the Provider to READY.
 8. Release the coordinator lock.
 
-The current accepted-head client response must be reviewed to ensure the digest is checked end-to-end and returned in a way the caller can verify; the present normalized client result does not expose the digest. Do not claim the above verification is implemented until that contract is closed.
+The accepted-head digest-response gap was addressed in the current draft #480 head (`09cb69a7dc7d5d635c492aa3078f17d90e68fafa`): the authority response now includes the persisted digest, and the synchronous client/IPC child reject a mismatch. No exact-head workflow run is associated with that API-created commit yet, so this is an implementation change awaiting CI, not validated behavior. Provider mutation integration and local operation journaling remain unimplemented.
 
 ## 6. Crash/restart recovery matrix
 
