@@ -54,6 +54,7 @@ const validText = (value, max = 200) => typeof value === 'string'
     const code = character.charCodeAt(0);
     return code < 32 || code === 127;
   });
+const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function canonicalPath(path) {
   const absolute = resolve(path);
