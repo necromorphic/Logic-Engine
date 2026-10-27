@@ -119,6 +119,16 @@ diff --git a/public/script.js b/public/script.js
 +            const marker = 'logic-engine-host-lifecycle:' + conversationId;
 +            localStorage.setItem(marker, 'enrolling:' + sourceLocator);
 +            try {
++                const enrollmentResponse = await fetch('/api/logic-engine/host-lifecycle/enroll', {
++                    method: 'POST',
++                    headers: { 'Content-Type': 'application/json' },
++                    body: JSON.stringify({
++                        conversationId,
++                        sourceLocator,
++                        domain: selected_group ? 'group_chats' : 'chats',
++                    }),
++                });
++                if (!enrollmentResponse.ok) throw Error('NON_READY: server-side Host enrollment failed');
 +                const result = await (await getLogicEngineLifecycleBridge()).enrollCurrentConversation();
 +                if (getCurrentChatId() !== sourceLocator) throw Error('NON_READY: Host conversation changed during enrollment');
 +                localStorage.setItem(marker, 'enrolled:' + sourceLocator);
@@ -467,14 +477,18 @@ diff --git a/public/scripts/slash-commands.js b/public/scripts/slash-commands.js
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
-@@ -51,6 +51,7 @@ import { router as dataMaidRouter } from './endpoints/data-maid.js';
+@@ -51,6 +51,8 @@ import { router as dataMaidRouter } from './endpoints/data-maid.js';
  import { router as backupsRouter } from './endpoints/backups.js';
  import { router as imageMetadataRouter } from './endpoints/image-metadata.js';
  import { router as volcengineRouter } from './endpoints/volcengine.js';
 +import { router as logicEngineLifecycleRouter } from './endpoints/logic-engine-lifecycle.js';
++import { createHostLifecycleMutationMiddleware } from './endpoints/logic-engine-host-journal.mjs';
  
  /**
   * @typedef {object} ServerStartupResult
+@@ -138,2 +138,3 @@ export function setupPrivateEndpoints(app) {
++    app.use(createHostLifecycleMutationMiddleware());
+     app.use('/', userDataRouter);
 @@ -185,5 +186,6 @@ export function setupPrivateEndpoints(app) {
      app.use('/api/data-maid', dataMaidRouter);
      app.use('/api/backups', backupsRouter);
@@ -486,15 +500,29 @@ diff --git a/src/endpoints/logic-engine-lifecycle.js b/src/endpoints/logic-engin
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-lifecycle.js
-@@ -0,0 +1,42 @@
+@@ -0,0 +1,45 @@
 +import express from 'express';
 +import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
 +import { scanHostArtifactRoots } from './logic-engine-host-inventory.mjs';
++import { registerHostConversation } from './logic-engine-host-journal.mjs';
 +
 +export const router = express.Router();
 +router.post('/host-version-ledger/capture', createHostDigestProxyHandler());
 +
-+// Authenticated, digest-only current snapshot of persisted Host chat/backup artifacts.
++// Explicit server-side enrollment; browser-local markers are not server authority.
++router.post('/host-lifecycle/enroll', async (request, response) => {
++    try {
++        const result = await registerHostConversation(request, request.body ?? {});
++        return response.status(200).json(result);
++    } catch (error) {
++        const code = typeof error?.message === 'string' && error.message.startsWith('HOST_ENROLLMENT_')
++            ? error.message
++            : 'HOST_ENROLLMENT_UNAVAILABLE';
++        return response.status(code === 'HOST_ENROLLMENT_UNAVAILABLE' ? 503 : 400).json({ error: { code } });
++    }
++});
++
++// Authenticated, digest-only current snapshot of persisted Host artifacts.
 +// This is not an all-time history proof or an authorization signal.
 +router.post('/host-artifact-inventory/scan', async (request, response) => {
 +    const roots = [
