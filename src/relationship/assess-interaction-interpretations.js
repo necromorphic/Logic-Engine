@@ -140,21 +140,3 @@ export function assessInteractionInterpretations(input) {
     evidenceRefs: Object.freeze(refs),
   });
 }
-
-
-test("rejects Proxy-backed assessment records and arrays without invoking traps", () => {
-  let trapCalls = 0;
-  const assessment = new Proxy(supported("flirtation"), {
-    get(target, key, receiver) { trapCalls += 1; return Reflect.get(target, key, receiver); },
-  });
-  const input = { assessments: [assessment] };
-  const result = assessInteractionInterpretations(input);
-  assert.equal(result.status, "invalid_input");
-  assert.equal(trapCalls, 0);
-
-  const assessments = new Proxy([supported("flirtation")], {
-    get(target, key, receiver) { trapCalls += 1; return Reflect.get(target, key, receiver); },
-  });
-  assert.equal(assessInteractionInterpretations({ assessments }).status, "invalid_input");
-  assert.equal(trapCalls, 0);
-});
