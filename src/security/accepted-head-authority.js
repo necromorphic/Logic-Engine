@@ -63,13 +63,15 @@ export class AcceptedHeadAuthority {
         );
         CREATE TABLE IF NOT EXISTS authority_domain_heads (
           domain TEXT PRIMARY KEY CHECK (domain IN ('core','provider')),
-          head INTEGER NOT NULL CHECK (head >= 0)
+          head INTEGER NOT NULL CHECK (head >= 0),
+          enrolled INTEGER NOT NULL DEFAULT 0 CHECK (enrolled IN (0,1))
         );
         CREATE TABLE IF NOT EXISTS authority_operations (
           operation_id TEXT PRIMARY KEY,
           domain TEXT NOT NULL CHECK (domain IN ('core','provider')),
           resulting_head INTEGER NOT NULL CHECK (resulting_head > 0),
           operation_digest TEXT NOT NULL,
+          operation_kind TEXT NOT NULL CHECK (operation_kind IN ('enroll','mutation')),
           status TEXT NOT NULL CHECK (status IN ('pending','committed')),
           created_at TEXT NOT NULL
         );
@@ -81,8 +83,8 @@ export class AcceptedHeadAuthority {
         if (!stored || stored.installation_id !== installationId) {
           throw new Error('ACCEPTED_HEAD_INSTALLATION_MISMATCH');
         }
-        this.#db.prepare('INSERT OR IGNORE INTO authority_domain_heads(domain, head) VALUES(?, 0)').run('core');
-        this.#db.prepare('INSERT OR IGNORE INTO authority_domain_heads(domain, head) VALUES(?, 0)').run('provider');
+        this.#db.prepare('INSERT OR IGNORE INTO authority_domain_heads(domain, head, enrolled) VALUES(?, 0, 0)').run('core');
+        this.#db.prepare('INSERT OR IGNORE INTO authority_domain_heads(domain, head, enrolled) VALUES(?, 0, 0)').run('provider');
         this.#db.exec('COMMIT;');
       } catch (error) {
         try { this.#db.exec('ROLLBACK;'); } catch {}
@@ -114,6 +116,50 @@ export class AcceptedHeadAuthority {
     return Object.freeze(pending);
   }
 
+  getEnrollmentStatus() {
+    const rows = this.#db.prepare('SELECT domain, enrolled FROM authority_domain_heads ORDER BY domain').all();
+    const enrolled = Object.fromEntries(rows.map((row) => [row.domain, row.enrolled === 1]));
+    if (typeof enrolled.core !== 'boolean' || typeof enrolled.provider !== 'boolean') {
+      throw new Error('ACCEPTED_HEAD_STATE_INVALID');
+    }
+    return Object.freeze({ core: enrolled.core, provider: enrolled.provider });
+  }
+
+  enroll({ domain, operationId, operationDigest, expectedHead }) {
+    if (!DOMAINS.has(domain) || !validText(operationId, 200)
+      || typeof operationDigest !== 'string' || !/^[a-f0-9]{64}$/.test(operationDigest)
+      || expectedHead !== 0) {
+      throw new TypeError('Invalid accepted-head enrollment request.');
+    }
+    this.#db.exec('BEGIN IMMEDIATE;');
+    try {
+      const existing = this.#db.prepare(
+        'SELECT domain, resulting_head, operation_digest, operation_kind, status FROM authority_operations WHERE operation_id=?',
+      ).get(operationId);
+      if (existing) {
+        if (existing.domain !== domain || existing.operation_digest !== operationDigest || existing.operation_kind !== 'enroll') {
+          throw new Error('ACCEPTED_HEAD_OPERATION_ID_CONFLICT');
+        }
+        if (existing.status !== 'committed') throw new Error('ACCEPTED_HEAD_OPERATION_PENDING');
+        this.#db.exec('COMMIT;');
+        return Object.freeze({ domain, head: existing.resulting_head, operation_id: operationId, replayed: true, status: 'committed' });
+      }
+      const row = this.#db.prepare('SELECT head, enrolled FROM authority_domain_heads WHERE domain=?').get(domain);
+      if (!row || row.head !== 0 || row.enrolled !== 0) throw new Error('ACCEPTED_HEAD_ALREADY_ENROLLED');
+      const pending = this.#db.prepare("SELECT operation_id FROM authority_operations WHERE domain=? AND status='pending' LIMIT 1").get(domain);
+      if (pending) throw new Error('ACCEPTED_HEAD_OPERATION_PENDING');
+      this.#db.prepare('UPDATE authority_domain_heads SET head=1 WHERE domain=?').run(domain);
+      this.#db.prepare(
+        'INSERT INTO authority_operations(operation_id, domain, resulting_head, operation_digest, operation_kind, status, created_at) VALUES(?,?,?,?,?,?,?)',
+      ).run(operationId, domain, 1, operationDigest, 'enroll', 'pending', new Date().toISOString());
+      this.#db.exec('COMMIT;');
+      return Object.freeze({ domain, head: 1, operation_id: operationId, replayed: false, status: 'pending' });
+    } catch (error) {
+      try { this.#db.exec('ROLLBACK;'); } catch {}
+      throw error;
+    }
+  }
+
   advance({ domain, operationId, operationDigest, expectedHead }) {
     if (!DOMAINS.has(domain) || !validText(operationId, 200)
       || typeof operationDigest !== 'string' || !/^[a-f0-9]{64}$/.test(operationDigest)
@@ -123,16 +169,17 @@ export class AcceptedHeadAuthority {
     this.#db.exec('BEGIN IMMEDIATE;');
     try {
       const existing = this.#db.prepare(
-        'SELECT domain, resulting_head, operation_digest, status FROM authority_operations WHERE operation_id=?',
+        'SELECT domain, resulting_head, operation_digest, operation_kind, status FROM authority_operations WHERE operation_id=?',
       ).get(operationId);
       if (existing) {
-        if (existing.domain !== domain || existing.operation_digest !== operationDigest) throw new Error('ACCEPTED_HEAD_OPERATION_ID_CONFLICT');
+        if (existing.domain !== domain || existing.operation_digest !== operationDigest || existing.operation_kind !== 'mutation') throw new Error('ACCEPTED_HEAD_OPERATION_ID_CONFLICT');
         if (existing.status !== 'committed') throw new Error('ACCEPTED_HEAD_OPERATION_PENDING');
         this.#db.exec('COMMIT;');
         return Object.freeze({ domain, head: existing.resulting_head, operation_id: operationId, replayed: true, status: 'committed' });
       }
-      const row = this.#db.prepare('SELECT head FROM authority_domain_heads WHERE domain=?').get(domain);
-      if (!row || !Number.isSafeInteger(row.head) || row.head < 0 || row.head >= Number.MAX_SAFE_INTEGER) {
+      const row = this.#db.prepare('SELECT head, enrolled FROM authority_domain_heads WHERE domain=?').get(domain);
+      if (!row || row.enrolled !== 1) throw new Error('ACCEPTED_HEAD_NOT_ENROLLED');
+      if (!Number.isSafeInteger(row.head) || row.head < 0 || row.head >= Number.MAX_SAFE_INTEGER) {
         throw new Error('ACCEPTED_HEAD_STATE_INVALID');
       }
       if (row.head !== expectedHead) throw new Error('ACCEPTED_HEAD_HEAD_MISMATCH');
@@ -141,8 +188,8 @@ export class AcceptedHeadAuthority {
       const next = row.head + 1;
       this.#db.prepare('UPDATE authority_domain_heads SET head=? WHERE domain=?').run(next, domain);
       this.#db.prepare(
-        'INSERT INTO authority_operations(operation_id, domain, resulting_head, operation_digest, status, created_at) VALUES(?,?,?,?,?,?)',
-      ).run(operationId, domain, next, operationDigest, 'pending', new Date().toISOString());
+        'INSERT INTO authority_operations(operation_id, domain, resulting_head, operation_digest, operation_kind, status, created_at) VALUES(?,?,?,?,?,?,?)',
+      ).run(operationId, domain, next, operationDigest, 'mutation', 'pending', new Date().toISOString());
       this.#db.exec('COMMIT;');
       return Object.freeze({ domain, head: next, operation_id: operationId, replayed: false, status: 'pending' });
     } catch (error) {
@@ -159,13 +206,16 @@ export class AcceptedHeadAuthority {
     this.#db.exec('BEGIN IMMEDIATE;');
     try {
       const row = this.#db.prepare(
-        'SELECT domain, operation_digest, status, resulting_head FROM authority_operations WHERE operation_id=?',
+        'SELECT domain, operation_digest, operation_kind, status, resulting_head FROM authority_operations WHERE operation_id=?',
       ).get(operationId);
       if (!row || row.domain !== domain || row.operation_digest !== operationDigest) {
         throw new Error('ACCEPTED_HEAD_OPERATION_ID_CONFLICT');
       }
       if (row.status === 'pending') {
         this.#db.prepare("UPDATE authority_operations SET status='committed' WHERE operation_id=?").run(operationId);
+        if (row.operation_kind === 'enroll') {
+          this.#db.prepare('UPDATE authority_domain_heads SET enrolled=1 WHERE domain=?').run(domain);
+        }
       }
       this.#db.exec('COMMIT;');
       return Object.freeze({
@@ -224,13 +274,13 @@ export function createAcceptedHeadAuthorityServer({
     response.setTimeout(2000, () => response.destroy());
     if (request.method === 'GET' && request.url === '/v1/heads') {
       try {
-        reply(response, 200, { heads: authority.getHeads(), pending: authority.getPendingDomains() });
+        reply(response, 200, { heads: authority.getHeads(), pending: authority.getPendingDomains(), enrolled: authority.getEnrollmentStatus() });
       } catch {
         reply(response, 503, { error: 'AUTHORITY_UNAVAILABLE' });
       }
       return;
     }
-    if (request.method !== 'POST' || !['/v1/advance', '/v1/finalize'].includes(request.url)) {
+    if (request.method !== 'POST' || !['/v1/enroll', '/v1/advance', '/v1/finalize'].includes(request.url)) {
       reply(response, 404, { error: 'NOT_FOUND' });
       return;
     }
@@ -261,9 +311,11 @@ export function createAcceptedHeadAuthorityServer({
         return;
       }
       try {
-        const result = request.url === '/v1/advance'
-          ? authority.advance({ domain, operationId: input.operation_id, operationDigest: input.operation_digest, expectedHead: input.expected_head })
-          : authority.finalize({ domain, operationId: input.operation_id, operationDigest: input.operation_digest });
+        const result = request.url === '/v1/enroll'
+          ? authority.enroll({ domain, operationId: input.operation_id, operationDigest: input.operation_digest, expectedHead: input.expected_head })
+          : request.url === '/v1/advance'
+            ? authority.advance({ domain, operationId: input.operation_id, operationDigest: input.operation_digest, expectedHead: input.expected_head })
+            : authority.finalize({ domain, operationId: input.operation_id, operationDigest: input.operation_digest });
         reply(response, 200, { result });
       } catch (error) {
         if (error?.message === 'ACCEPTED_HEAD_OPERATION_ID_CONFLICT') {
@@ -272,6 +324,10 @@ export function createAcceptedHeadAuthorityServer({
           reply(response, 409, { error: 'OPERATION_PENDING' });
         } else if (error?.message === 'ACCEPTED_HEAD_HEAD_MISMATCH') {
           reply(response, 409, { error: 'HEAD_MISMATCH' });
+        } else if (error?.message === 'ACCEPTED_HEAD_NOT_ENROLLED') {
+          reply(response, 409, { error: 'NOT_ENROLLED' });
+        } else if (error?.message === 'ACCEPTED_HEAD_ALREADY_ENROLLED') {
+          reply(response, 409, { error: 'ALREADY_ENROLLED' });
         } else if (error instanceof TypeError) {
           reply(response, 400, { error: 'INVALID_REQUEST' });
         } else {
