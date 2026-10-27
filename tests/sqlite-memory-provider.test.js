@@ -112,6 +112,9 @@ test('persists raw record identity/version and rebuilds its derived index after 
   assert.deepEqual(await s.provider.rebuildIndex('world-a'), { status: 'rebuilt', count: 1 });
   assert.equal((await s.provider.reconcile('world-a')).status, 'current');
   s.reopen();
+  await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
+  assert.deepEqual(await s.provider.rebuildIndex('world-a'), { status: 'rebuilt', count: 1 });
+  assert.equal((await s.provider.reconcile('world-a')).status, 'current');
   const result = await s.provider.retrieveCandidates(s.scope);
   assert.equal(result.completeness, 'complete');
   assert.equal(result.candidates.length, 1);
