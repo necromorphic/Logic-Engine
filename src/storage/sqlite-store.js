@@ -957,16 +957,49 @@ export class SQLiteStore {
    * also raw internal data. Callers must apply an approved access/knowledge filter
    * before exposing any result to a model, player, or host adapter.
    */
+  #assertAcceptedHeadCurrent() {
+    if (!this.acceptedHeadConfig) return;
+    let status;
+    try {
+      status = getAcceptedHeadStatusSync({
+        port: this.acceptedHeadConfig.port,
+        token: this.acceptedHeadConfig.token,
+      });
+    } catch {
+      throw new EngineError(
+        'CORE_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE',
+        'Canonical snapshot is not available.',
+        503,
+      );
+    }
+    const local = this.db.prepare(
+      'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+    ).get();
+    if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1
+      || !status.enrolled.core || !Number.isSafeInteger(status.heads.core)
+      || status.heads.core !== local.head || status.pending.core || status.operations.core) {
+      throw new EngineError(
+        'CORE_ACCEPTED_HEAD_MISMATCH',
+        'Canonical snapshot is not available.',
+        503,
+      );
+    }
+  }
+
+
   readSnapshot(id, request = {}) {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request must be an object.', 400);
     }
-    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'includeMechanicEvaluationState']);
+    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'includeMechanicEvaluationState', 'includeSourceVersions']);
     if (Object.keys(request).some((key) => !allowedKeys.has(key))) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request contains an unsupported field.', 400);
     }
     if (request.includeMechanicEvaluationState !== undefined && typeof request.includeMechanicEvaluationState !== 'boolean') {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'includeMechanicEvaluationState must be a boolean.', 400);
+    }
+    if (request.includeSourceVersions !== undefined && typeof request.includeSourceVersions !== 'boolean') {
+      throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'includeSourceVersions must be a boolean.', 400);
     }
     const normalizeIds = (value, fieldName) => {
       if (value === undefined) return [];
@@ -1042,12 +1075,19 @@ export class SQLiteStore {
       const snapshotFactIds = combineIds(factIds, derivedFactIds, 'factIds');
       const snapshotEventIds = combineIds(eventIds, derivedEventIds, 'eventIds');
 
-      const entities = snapshotEntityIds.length
-        ? this.db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...snapshotEntityIds).map((r) => ({
-          entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
-          created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
-        }))
+      const entityRows = snapshotEntityIds.length
+        ? (request.includeSourceVersions === true
+          ? this.db.prepare('SELECT entities.*, entity_source_versions.source_version AS source_version_token FROM entities LEFT JOIN entity_source_versions ON entity_source_versions.world_id=entities.world_id AND entity_source_versions.entity_id=entities.entity_id WHERE entities.world_id=? AND entities.entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entities.entity_id').all(id, ...snapshotEntityIds)
+          : this.db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...snapshotEntityIds))
         : [];
+      const entities = entityRows.map((r) => ({
+        entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
+        created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
+        ...(request.includeSourceVersions === true ? {
+          source_version: Number.isSafeInteger(r.source_version_token) && r.source_version_token > 0
+            ? 'core-entity-v1:' + String(r.source_version_token) : null,
+        } : {}),
+      }));
       const missingEntityIds = snapshotEntityIds.filter((entityId) => !entities.some((entity) => entity.entity_id === entityId));
       if (missingEntityIds.length) {
         throw new EngineError('ENTITY_NOT_FOUND', 'One or more requested entities were not found in this world snapshot.', 404, { entity_ids: missingEntityIds });
@@ -1182,6 +1222,7 @@ export class SQLiteStore {
     if (this.txDepth > 0) {
       throw new EngineError('SNAPSHOT_READ_DURING_WRITE_TRANSACTION', 'A canonical snapshot cannot be read from inside a store write transaction.', 409);
     }
+    this.#assertAcceptedHeadCurrent();
     // Create one read transaction; never fall back to assembling the snapshot
     // from independent autocommit SELECT statements.
     let began = false;
@@ -1191,6 +1232,7 @@ export class SQLiteStore {
       const snapshot = read();
       this.db.exec('COMMIT');
       began = false;
+      this.#assertAcceptedHeadCurrent();
       return snapshot;
     } catch (error) {
       if (began) {
