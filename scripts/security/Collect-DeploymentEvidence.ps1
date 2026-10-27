@@ -22,7 +22,10 @@ function Get-OwnerForProcess {
 }
 
 function Get-PathAclEvidence {
-    param([string]$InputPath)
+    param(
+        [string]$InputPath,
+        [switch]$IncludeDescendants
+    )
 
     $resolved = $null
     try {
@@ -38,6 +41,23 @@ function Get-PathAclEvidence {
         $parent = [System.IO.Path]::GetDirectoryName($current)
         if (-not $parent -or $parent -eq $current) { break }
         $current = $parent
+    }
+
+    $descendantEnumerationError = $null
+    if ($IncludeDescendants) {
+        try {
+            $rootItem = Get-Item -LiteralPath $resolved -Force -ErrorAction Stop
+            if ($rootItem.PSIsContainer) {
+                foreach ($child in Get-ChildItem -LiteralPath $resolved -Force -Recurse -ErrorAction Stop) {
+                    if (-not $targets.Contains($child.FullName)) { $targets.Add($child.FullName) }
+                }
+            }
+        } catch {
+            $category = [string]$_.CategoryInfo.Category
+            if ($category -notin @("ObjectNotFound", "PathNotFound")) {
+                $descendantEnumerationError = "Descendant enumeration incomplete: $($_.Exception.GetType().Name)"
+            }
+        }
     }
 
     $results = New-Object System.Collections.Generic.List[object]
@@ -95,6 +115,19 @@ function Get-PathAclEvidence {
                 error = "ACL read failed: $($_.Exception.GetType().Name)"
             })
         }
+    }
+
+    if ($descendantEnumerationError) {
+        $results.Add([pscustomobject]@{
+            requestedPath = $InputPath
+            path = $resolved
+            exists = $null
+            itemType = "Descendant enumeration"
+            owner = $null
+            sddl = $null
+            accessRules = @()
+            error = $descendantEnumerationError
+        })
     }
 
     # SQLite sidecars are siblings of the database and must be checked independently.
@@ -185,7 +218,8 @@ $selectedProcesses = @(
 $pathInputs = @($DataPath) + @($BackupPath) | Where-Object { $_ } | Select-Object -Unique
 $pathEvidence = @(
     foreach ($path in $pathInputs) {
-        Get-PathAclEvidence -InputPath $path
+        $isBackupPath = $BackupPath -contains $path
+        Get-PathAclEvidence -InputPath $path -IncludeDescendants:$isBackupPath
     }
 )
 
@@ -282,6 +316,7 @@ $report = [ordered]@{
     limitations = @(
         "Read-only inventory only; no settings or files were changed.",
         "An inaccessible path is reported as unknown, not as absent; validate all unknown/error entries manually.",
+        "Backup directories are enumerated recursively; any enumeration error means backup ACL evidence is incomplete.",
         "Firewall profile defaults and enabled outbound allow/block rules are inventory evidence only and do not prove exclusive egress or restore resistance.",
         "No connection tests, authorization bypass tests, backup restores or protected requests were executed.",
         "Review and redact machine names, account names, local paths and remote endpoints before sharing."
