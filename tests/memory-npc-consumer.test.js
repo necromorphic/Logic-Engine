@@ -1108,6 +1108,10 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
     turn_id: 'update-source-during-memory-validation',
     event_type: 'action.completed',
     expected_revision: 1,
+    causal_links: [{
+      relation: 'REQUIRES',
+      predicate: { kind: 'entity_exists', entity_id: 'source-real' },
+    }],
     effects: [{
       kind: 'entity.update',
       entity_id: 'source-real',
