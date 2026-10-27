@@ -31,13 +31,10 @@ jobs:
         run: node --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js
 
   test:
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
       contents: read
-    defaults:
-      run:
-        shell: cmd
     steps:
       # Pin actions to reviewed immutable commit SHAs; comments retain release context.
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
