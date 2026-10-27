@@ -20,13 +20,10 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
 
       - name: Verify installed Node.js
-        shell: powershell
+        shell: cmd
         run: |
           node --version
-          $version = [version](node -p "process.versions.node")
-          if ($version -lt [version]"22.13.0") {
-            throw "Node.js 22.13.0 or newer is required; found $version"
-          }
+          node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 22 || (major === 22 && minor < 13)) { console.error('Node.js 22.13.0 or newer is required; found ' + process.versions.node); process.exit(1); }"
 
       - name: Checkout exact SillyTavern target
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -39,13 +36,14 @@ jobs:
         run: npm ci --prefix SillyTavern
 
       - name: Verify pinned checkout
-        shell: powershell
+        shell: cmd
         run: |
-          $actual = (git -C SillyTavern rev-parse HEAD).Trim()
-          if ($actual -ne "06bde939fb1e9c4c8d8641d810f0a916b5bce127") {
-            throw "Unexpected SillyTavern SHA: $actual"
-          }
-          Write-Host "SillyTavern target SHA: $actual"
+          for /f %%H in ('git -C SillyTavern rev-parse HEAD') do set "actual=%%H"
+          if /I not "%actual%"=="06bde939fb1e9c4c8d8641d810f0a916b5bce127" (
+            echo Unexpected SillyTavern SHA: %actual%
+            exit /b 1
+          )
+          echo SillyTavern target SHA: %actual%
 
       - name: Run source-level lifecycle assertions
         env:
