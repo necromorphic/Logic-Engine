@@ -151,6 +151,52 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
     assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 4 });
 
+    // Verify the accepted-head wrapper covers each currently usable Provider
+    // mutation family, not only query grants. Each visible state transition must
+    // advance the external head and persist the same local head before returning.
+    const currentProviderHead = () => provider.db.prepare(
+      'SELECT head FROM accepted_head_state WHERE singleton=1',
+    ).get().head;
+    const assertHeadAdvanced = async (work) => {
+      const before = currentProviderHead();
+      await work();
+      const after = currentProviderHead();
+      assert.ok(after > before, 'Provider-visible mutation must advance the accepted head');
+      assert.equal(getAcceptedHeadsSync({ port, token: providerToken }).provider, after);
+    };
+
+    const record = {
+      world_id: scope.world_id,
+      subject_id: scope.subject_id,
+      purpose: scope.purpose,
+      record_ref: 'memory:accepted-head-record',
+      record_version: 'record-v1',
+      source_kind: 'canonical_entity',
+      source_entity_id: 'entity-source-a',
+      source_version: 'source-v1',
+      content_kind: 'claim',
+      epistemic_kind: 'acquired_report',
+      producer_kind: 'memory-index',
+      content_disposition: 'usable',
+      evidence_assessment: 'unassessed',
+      lineage: [{
+        source_kind: 'canonical_entity',
+        entity_id: 'entity-source-a',
+        source_version: 'source-v1',
+      }],
+    };
+    await assertHeadAdvanced(() => provider.grantRecord(
+      scope, record.record_ref, record.record_version, true,
+    ));
+    await assertHeadAdvanced(() => provider.revokeRecord(
+      scope, record.record_ref, record.record_version,
+    ));
+    await assertHeadAdvanced(() => provider.putRecord(record));
+    await assertHeadAdvanced(() => provider.rebuildIndex(scope.world_id));
+    await assertHeadAdvanced(() => provider.reconcile(scope.world_id));
+    assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).index_health, 'ready');
+    assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'current');
+
     child.stdin.end('stop');
     await once(child, 'exit');
     child = null;
