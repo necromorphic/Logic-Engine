@@ -134,7 +134,7 @@ test('a pending or invalid journal fails closed before the next managed mutation
 test('non-2xx mutation response is journaled UNRESOLVED and blocks subsequent mutations', async () => {
     const { root, directories, request } = await fixture();
     try {
-        await writeFile(path.join(directories.chats, 'chat-1.jsonl'), '{"mes":"before"}\\n');
+        await writeFile(path.join(directories.chats, 'chat-1.jsonl'), '{"mes":"before"}\n');
         await registerHostConversation(request, {
             conversationId: 'conversation-1',
             sourceLocator: 'chat-1',
@@ -149,7 +149,7 @@ test('non-2xx mutation response is journaled UNRESOLVED and blocks subsequent mu
         await response.finished;
 
         const ledger = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
-        const records = ledger.trim().split('\\n').map(line => JSON.parse(line));
+        const records = ledger.trim().split('\n').map(line => JSON.parse(line));
         assert.deepEqual(records.map(record => record.kind), ['intent', 'outcome']);
         assert.equal(records[1].status, 'UNRESOLVED');
         assert.equal(records[1].httpStatus, 400);
