@@ -97,6 +97,7 @@ test('corrupted or missing persisted direct-source lineage fails closed at autho
     record_version: s.record.record_version,
     source_kind: 'canonical_entity',
     source_entity_id: s.record.source_entity_id,
+    source_version: s.record.source_version,
   }), /MEMORY_LINEAGE_INVALID/);
   const corrupt = await s.provider.reconcile(s.scope.world_id);
   assert.deepEqual(corrupt, { status: 'stale', reason: 'LINEAGE_INVALID' });
