@@ -28,7 +28,6 @@ jobs:
           cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
           cp host-adapter/prototype/conversation-identity.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           cp host-adapter/prototype/st-server-digest-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
-          cp host-adapter/prototype/server-lifecycle-mutation-journal.mjs sillytavern-host-checkout/src/endpoints/logic-engine-host-journal.mjs
       - name: Apply-check and apply the pinned-source patch
         run: |
           cd sillytavern-host-checkout
