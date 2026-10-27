@@ -215,6 +215,27 @@ $selectedProcesses = @(
     }
 )
 
+$selectedProcessIds = @($selectedProcesses | ForEach-Object { [int]$_.processId })
+$serviceEvidence = @()
+try {
+    $serviceEvidence = @(
+        Get-CimInstance Win32_Service -ErrorAction Stop |
+        Where-Object { $selectedProcessIds -contains [int]$_.ProcessId -and [int]$_.ProcessId -gt 0 } |
+        ForEach-Object {
+            [pscustomobject]@{
+                serviceName = [string]$_.Name
+                displayName = [string]$_.DisplayName
+                processId = [int]$_.ProcessId
+                startName = [string]$_.StartName
+                state = [string]$_.State
+                startMode = [string]$_.StartMode
+            }
+        }
+    )
+} catch {
+    $serviceEvidence = @([pscustomobject]@{ unavailable = "Windows service identity query failed or is unavailable" })
+}
+
 $pathInputs = @($DataPath) + @($BackupPath) | Where-Object { $_ } | Select-Object -Unique
 $pathEvidence = @(
     foreach ($path in $pathInputs) {
@@ -307,6 +328,7 @@ $report = [ordered]@{
         powershellVersion = [string]$PSVersionTable.PSVersion
     }
     processEvidence = $selectedProcesses
+    serviceEvidence = $serviceEvidence
     pathAclEvidence = $pathEvidence
     establishedTcpConnections = $tcpEvidence
     firewallProfiles = $firewallProfiles
@@ -317,6 +339,7 @@ $report = [ordered]@{
         "Read-only inventory only; no settings or files were changed.",
         "An inaccessible path is reported as unknown, not as absent; validate all unknown/error entries manually.",
         "Backup directories are enumerated recursively; any enumeration error means backup ACL evidence is incomplete.",
+        "Service identity evidence covers Windows services whose process IDs match the selected processes; it does not discover every wrapper/child-process relationship.",
         "Firewall profile defaults and enabled outbound allow/block rules are inventory evidence only and do not prove exclusive egress or restore resistance.",
         "No connection tests, authorization bypass tests, backup restores or protected requests were executed.",
         "Review and redact machine names, account names, local paths and remote endpoints before sharing."
