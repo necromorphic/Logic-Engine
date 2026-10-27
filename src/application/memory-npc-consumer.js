@@ -207,11 +207,12 @@ export class MemoryNpcConsumer {
         return nonReady('memory_snapshot_stale');
       }
       if (candidate.content_kind === 'summary'
-        || candidate.source?.kind !== 'canonical_entity'
-        || !validId(candidate.source?.entity_id)
-        || !validId(candidate.source?.version)) {
+        || candidate.source?.kind !== 'canonical_entity') {
         // Do not report item-level rejection reasons or counts to the caller.
         continue;
+      }
+      if (!validId(candidate.source?.entity_id) || !validId(candidate.source?.version)) {
+        return nonReady('memory_candidate_invalid_or_scope_mismatch');
       }
 
       let recordAllowed;
