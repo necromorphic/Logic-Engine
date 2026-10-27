@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { createHostLifecycleMutationMiddleware, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
+import { createHostLifecycleMutationMiddleware, getHostConversationInventory, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
 
 const digest = value => createHash('sha256').update(JSON.stringify(String(value))).digest('hex');
 const makeMessage = ({ messageId, versions, activeVersionIndex }) => ({
@@ -88,6 +88,23 @@ test('enforced server mutation journal records before/after persisted version in
     assert.ok(records[1].versionChanges.some(change => change.change === 'ADDED' && change.version_id === version2));
     assert.ok(records[1].versionChanges.some(change => change.change === 'ACTIVE_CHANGED' && change.version_id === version1));
     assert.doesNotMatch(journal, /private-before|private-after/);
+
+    const checkpoint = await getHostConversationInventory(request);
+    assert.equal(checkpoint.complete, true);
+    assert.equal(checkpoint.mutationJournal.snapshotConsistency, 'MATCHES_LAST_COMMITTED_LOCAL_CHECKPOINT');
+
+    // A locally restored older chat file must diverge from the last committed
+    // version inventory and fail closed. The local journal itself still shares
+    // the Host restore domain, so this is detection evidence, not anti-rollback authority.
+    await writeChat([makeMessage({
+      messageId,
+      versions: [{ versionId: version1, text: 'private-before' }],
+      activeVersionIndex: 0,
+    })]);
+    const rollback = await getHostConversationInventory(request);
+    assert.equal(rollback.complete, false);
+    assert.ok(rollback.errors.includes('CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT'));
+    assert.equal(rollback.mutationJournal.snapshotConsistency, 'DIVERGES_FROM_LAST_LOCAL_CHECKPOINT');
   } finally {
     await rm(root, { recursive: true, force: true });
   }
