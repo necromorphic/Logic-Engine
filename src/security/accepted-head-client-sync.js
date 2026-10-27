@@ -25,16 +25,24 @@ function invoke(input, timeoutMs) {
   }
 }
 
+function validDigest(value) {
+  return typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
+}
+
+function validDomain(domain) {
+  return domain === 'core' || domain === 'provider';
+}
+
 /**
  * Synchronous client for existing synchronous SQLite mutation boundaries.
- * This intentionally blocks the caller until the authority responds, so the
- * caller can abort its local transaction on failure. Invoke while holding the
- * shared coordinator. The authority service must never acquire that coordinator.
+ * The caller must hold the shared coordinator. The authority service must never
+ * acquire that coordinator. A successful advance remains pending until finalize.
  */
-export function advanceAcceptedHeadSync({ domain, operationId, operationDigest, token, port, timeoutMs = 1500 }) {
-  if (!['core', 'provider'].includes(domain)
-    || typeof operationId !== 'string' || !operationId.trim()
-    || typeof operationDigest !== 'string' || !/^[a-f0-9]{64}$/.test(operationDigest)
+export function advanceAcceptedHeadSync({
+  domain, operationId, operationDigest, expectedHead, token, port, timeoutMs = 1500,
+}) {
+  if (!validDomain(domain) || typeof operationId !== 'string' || !operationId.trim()
+    || !validDigest(operationDigest) || !Number.isSafeInteger(expectedHead) || expectedHead < 0
     || typeof token !== 'string' || token.length < 32
     || !Number.isInteger(port) || port < 1 || port > 65535) {
     throw new TypeError('Invalid accepted-head client configuration.');
@@ -44,13 +52,15 @@ export function advanceAcceptedHeadSync({ domain, operationId, operationDigest, 
     domain,
     operation_id: operationId,
     operation_digest: operationDigest,
+    expected_head: expectedHead,
     token,
     port,
     timeout_ms: timeoutMs,
   }, timeoutMs);
   if (!response || response.ok !== true || response.result?.domain !== domain
     || response.result?.operation_id !== operationId
-    || !Number.isSafeInteger(response.result?.head) || response.result.head < 1) {
+    || !Number.isSafeInteger(response.result?.head) || response.result.head < 1
+    || response.result.status !== 'pending') {
     throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
   }
   return Object.freeze({
@@ -58,12 +68,45 @@ export function advanceAcceptedHeadSync({ domain, operationId, operationDigest, 
     head: response.result.head,
     operation_id: operationId,
     replayed: response.result.replayed === true,
+    status: 'pending',
+  });
+}
+
+export function finalizeAcceptedHeadSync({
+  domain, operationId, operationDigest, token, port, timeoutMs = 1500,
+}) {
+  if (!validDomain(domain) || typeof operationId !== 'string' || !operationId.trim()
+    || !validDigest(operationDigest) || typeof token !== 'string' || token.length < 32
+    || !Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new TypeError('Invalid accepted-head client configuration.');
+  }
+  const response = invoke({
+    action: 'finalize',
+    domain,
+    operation_id: operationId,
+    operation_digest: operationDigest,
+    token,
+    port,
+    timeout_ms: timeoutMs,
+  }, timeoutMs);
+  if (!response || response.ok !== true || response.result?.domain !== domain
+    || response.result?.operation_id !== operationId
+    || !Number.isSafeInteger(response.result?.head) || response.result.head < 1
+    || response.result.status !== 'committed') {
+    throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
+  }
+  return Object.freeze({
+    domain,
+    head: response.result.head,
+    operation_id: operationId,
+    replayed: response.result.replayed === true,
+    status: 'committed',
   });
 }
 
 /**
- * Synchronously reads current heads through the authority's loopback endpoint.
- * Call only inside the same shared coordinator order as mutations/dispatch-start.
+ * Synchronously reads current heads. Any unresolved operation makes the
+ * authority non-ready; callers must not dispatch until explicit recovery.
  */
 export function getAcceptedHeadsSync({ port, timeoutMs = 1500 }) {
   if (!Number.isInteger(port) || port < 1 || port > 65535) {
@@ -75,8 +118,10 @@ export function getAcceptedHeadsSync({ port, timeoutMs = 1500 }) {
     timeout_ms: timeoutMs,
   }, timeoutMs);
   const heads = response?.heads;
+  const pending = response?.pending;
   if (response?.ok !== true || !Number.isSafeInteger(heads?.core) || heads.core < 0
-    || !Number.isSafeInteger(heads?.provider) || heads.provider < 0) {
+    || !Number.isSafeInteger(heads?.provider) || heads.provider < 0
+    || pending?.core !== false || pending?.provider !== false) {
     throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
   }
   return Object.freeze({ core: heads.core, provider: heads.provider });
