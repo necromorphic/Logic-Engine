@@ -104,8 +104,9 @@ function normalizeSources(sources) {
       source_version: source.source_version,
     });
   });
-  normalized.sort((a, b) => a.source_entity_id.localeCompare(b.source_entity_id)
-    || a.source_version.localeCompare(b.source_version));
+  const compareCodeUnits = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+  normalized.sort((a, b) => compareCodeUnits(a.source_entity_id, b.source_entity_id)
+    || compareCodeUnits(a.source_version, b.source_version));
   for (let i = 1; i < normalized.length; i += 1) {
     if (normalized[i - 1].source_entity_id === normalized[i].source_entity_id
       && normalized[i - 1].source_version === normalized[i].source_version) {
@@ -198,12 +199,16 @@ export class MemoryDispatchGateway {
           );
           CREATE INDEX dispatch_ledger_status_started
             ON dispatch_ledger(status, started_at);
+          CREATE UNIQUE INDEX dispatch_ledger_unresolved_digest
+            ON dispatch_ledger(request_digest)
+            WHERE status IN ('DISPATCH_STARTED','UNKNOWN');
         `);
       } else {
         const objects = new Set(this.db.prepare(
           "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
         ).all().map((row) => row.object_name));
-        if (!objects.has('table:dispatch_ledger') || !objects.has('index:dispatch_ledger_status_started')) {
+        if (!objects.has('table:dispatch_ledger') || !objects.has('index:dispatch_ledger_status_started')
+          || !objects.has('index:dispatch_ledger_unresolved_digest')) {
           throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
         }
         const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
@@ -214,6 +219,12 @@ export class MemoryDispatchGateway {
         ];
         if (required.some((column) => !columns.has(column))) throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
       }
+      // A durable STARTED row left by a process crash has an ambiguous outcome.
+      // Never retry it automatically; persist UNKNOWN before accepting new work.
+      this.db.prepare(`
+        UPDATE dispatch_ledger SET status='UNKNOWN', finished_at=?
+        WHERE status='DISPATCH_STARTED'
+      `).run(new Date().toISOString());
     } catch (error) {
       startupError = error;
     } finally {
@@ -235,7 +246,16 @@ export class MemoryDispatchGateway {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     const sourceSet = normalizeSources(sources);
-    const requestDigest = createHash('sha256').update(JSON.stringify({ route, model, stream, body_digest: createHash('sha256').update(body, 'utf8').digest('hex') }), 'utf8').digest('hex');
+    const requestDigest = createHash('sha256').update(JSON.stringify({
+      route,
+      model,
+      stream,
+      body_digest: createHash('sha256').update(body, 'utf8').digest('hex'),
+      world_id: worldId,
+      actor_id: actorId,
+      purpose,
+      sources: sourceSet,
+    }), 'utf8').digest('hex');
     let coreHead;
     let providerHead;
     let release = null;
@@ -275,6 +295,12 @@ export class MemoryDispatchGateway {
 
       this.db.exec('BEGIN IMMEDIATE');
       try {
+        const unresolvedReplay = this.db.prepare(`
+          SELECT request_id FROM dispatch_ledger
+          WHERE request_digest=? AND status IN ('DISPATCH_STARTED','UNKNOWN')
+          LIMIT 1
+        `).get(requestDigest);
+        if (unresolvedReplay) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
         this.db.prepare(`
           INSERT INTO dispatch_ledger(
             request_id,request_digest,route,model,stream,world_id,actor_id,purpose,sources_json,
@@ -303,7 +329,8 @@ export class MemoryDispatchGateway {
         throw error;
       }
     } catch (error) {
-      if (error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID') throw error;
+      if (error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID'
+        || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED') throw error;
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     } finally {
       try { release?.(); } catch {}
