@@ -1102,6 +1102,7 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
   const staleSourceInFlight = retrieve();
   await sourceMutationValidationEntered;
   engine.commitEvent(scope.world_id, {
+    event_id: 'update-source-during-memory-validation',
     idempotency_key: 'update-source-during-memory-validation',
     turn_id: 'update-source-during-memory-validation',
     event_type: 'action.completed',
