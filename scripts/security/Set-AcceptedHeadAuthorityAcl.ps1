@@ -238,8 +238,16 @@ foreach ($target in $targets) { $targetFingerprints[$target] = Get-TargetFingerp
 $trustedParentSids = @($authority.sid, 'S-1-5-18', 'S-1-5-32-544')
 Assert-SafeParentPathMutationRights -ProtectedDirectory $directory -TrustedSids $trustedParentSids
 $evidenceFullPath = [System.IO.Path]::GetFullPath($EvidencePath)
+$evidenceDirectory = [System.IO.Path]::GetDirectoryName($evidenceFullPath)
+if (-not (Test-Path -LiteralPath $evidenceDirectory -PathType Container)) {
+    throw 'EvidencePath parent directory must already exist; refusing to create an unreviewed evidence path.'
+}
+Assert-NoReparsePath -Path $evidenceDirectory
 if ($evidenceFullPath.StartsWith($directory.TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
     throw 'EvidencePath must be outside the protected authority directory.'
+}
+if (Test-Path -LiteralPath $evidenceFullPath) {
+    throw 'EvidencePath already exists; choose a new path to avoid overwriting prior security evidence.'
 }
 $before = @(
     foreach ($target in $targets) {
