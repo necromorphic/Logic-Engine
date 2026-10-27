@@ -139,5 +139,8 @@ export async function createMemoryDispatchGatewayServer({
       resolve();
     });
   });
+  // The returned handle is for observing/closing the listener only. Prevent
+  // a caller from closing it and rebinding the same server to a public interface.
+  server.listen = () => { throw new Error('MEMORY_GATEWAY_REBIND_DENIED'); };
   return server;
 }
