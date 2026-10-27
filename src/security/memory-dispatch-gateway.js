@@ -1,9 +1,39 @@
 import { DatabaseSync } from 'node:sqlite';
-import { createHash } from 'node:crypto';
+import { createHash, createHmac, timingSafeEqual } from 'node:crypto';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 import { getAcceptedHeadStatusSync } from './accepted-head-client-sync.js';
+
+export function createDispatchRequestSignature(secret, request) {
+  if (typeof secret !== 'string' || secret.length < 32
+    || !request || typeof request !== 'object'
+    || typeof request.body !== 'string') {
+    throw new TypeError('Invalid signed dispatch request.');
+  }
+  const sources = normalizeSources(request.sources);
+  const bodyDigest = createHash('sha256').update(request.body, 'utf8').digest('hex');
+  const canonical = JSON.stringify({
+    request_id: request.requestId,
+    route: request.route,
+    model: request.model,
+    body_digest: bodyDigest,
+    world_id: request.worldId,
+    actor_id: request.actorId,
+    purpose: request.purpose,
+    sources,
+  });
+  return createHmac('sha256', secret).update(canonical, 'utf8').digest('hex');
+}
+
+export function verifyDispatchRequestSignature(secret, request, signature) {
+  if (typeof signature !== 'string' || !/^[a-f0-9]{64}$/.test(signature)) return false;
+  let expected;
+  try { expected = createDispatchRequestSignature(secret, request); } catch { return false; }
+  const left = Buffer.from(expected, 'hex');
+  const right = Buffer.from(signature, 'hex');
+  return left.length === right.length && timingSafeEqual(left, right);
+}
 
 export const SUPPORTED_PROTECTED_MEMORY_ROUTES = Object.freeze([
   'google-ai-studio-chat-completions',
@@ -152,6 +182,7 @@ export class MemoryDispatchGateway {
             request_id TEXT PRIMARY KEY,
             request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
             route TEXT NOT NULL CHECK(route='google-ai-studio-chat-completions'),
+            model TEXT NOT NULL,
             world_id TEXT NOT NULL,
             actor_id TEXT NOT NULL,
             purpose TEXT NOT NULL,
@@ -175,7 +206,7 @@ export class MemoryDispatchGateway {
         }
         const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
         const required = [
-          'request_id', 'request_digest', 'route', 'world_id', 'actor_id', 'purpose',
+          'request_id', 'request_digest', 'route', 'model', 'world_id', 'actor_id', 'purpose',
           'sources_json', 'core_head', 'provider_head', 'status', 'outcome_code',
           'started_at', 'finished_at',
         ];
@@ -193,14 +224,15 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, body, worldId, actorId, purpose, sources }) {
+  async dispatchProtectedRequest({ requestId, route, model, body, worldId, actorId, purpose, sources, forwardResponse }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
+      || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
       || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     const sourceSet = normalizeSources(sources);
-    const requestDigest = createHash('sha256').update(body, 'utf8').digest('hex');
+    const requestDigest = createHash('sha256').update(JSON.stringify({ route, model, body_digest: createHash('sha256').update(body, 'utf8').digest('hex') }), 'utf8').digest('hex');
     let coreHead;
     let providerHead;
     let release = null;
@@ -242,13 +274,14 @@ export class MemoryDispatchGateway {
       try {
         this.db.prepare(`
           INSERT INTO dispatch_ledger(
-            request_id,request_digest,route,world_id,actor_id,purpose,sources_json,
+            request_id,request_digest,route,model,world_id,actor_id,purpose,sources_json,
             core_head,provider_head,status,outcome_code,started_at,finished_at
-          ) VALUES(?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
           requestId,
           requestDigest,
           route,
+          model,
           worldId,
           actorId,
           purpose,
@@ -276,7 +309,7 @@ export class MemoryDispatchGateway {
     // Once DISPATCH_STARTED is durable, an ambiguous outcome is never retried.
     let response;
     try {
-      response = await this.sendUpstream({ route, body, requestId, requestDigest });
+      response = await this.sendUpstream({ route, model, body, requestId, requestDigest, forwardResponse });
     } catch {
       this.#recordOutcome(requestId, 'UNKNOWN', null);
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
