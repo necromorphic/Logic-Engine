@@ -205,3 +205,25 @@ test('large same-coordinate trigger sets remain deterministically ordered', () =
   assert.equal(plan.segments[0].trigger_ids[0], 'trigger-0000');
   assert.equal(plan.segments[0].trigger_ids[2499], 'trigger-2499');
 });
+
+
+test('blocked dependency diagnostics are invariant to trigger input order', () => {
+  const triggers = [
+    trigger('z-dependent', 5, { dependencies: ['missing-z', 'missing-a'] }),
+    trigger('a-dependent', 5, { dependencies: ['missing-b'] }),
+  ];
+  const request = (items) => planDueWork({
+    world_id: 'world-a',
+    from_coordinate: 0,
+    to_coordinate: 10,
+    triggers: items,
+  });
+  const expected = request(triggers);
+  const reversed = request([...triggers].reverse());
+  assert.deepEqual(reversed, expected);
+  assert.deepEqual(expected.blocked, [
+    { trigger_id: 'a-dependent', dependency_id: 'missing-b', reason: 'missing_dependency' },
+    { trigger_id: 'z-dependent', dependency_id: 'missing-a', reason: 'missing_dependency' },
+    { trigger_id: 'z-dependent', dependency_id: 'missing-z', reason: 'missing_dependency' },
+  ]);
+});
