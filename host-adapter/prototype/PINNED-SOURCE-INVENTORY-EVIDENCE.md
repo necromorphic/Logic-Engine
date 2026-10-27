@@ -72,3 +72,8 @@ The prototype has explicit guards at selected patched entry points, including ch
 The test named `uncovered server-side lifecycle operations fail closed before a caller mutates source` calls `beforeMutation(operation, ...)` directly for a list of unsupported operation names. This proves the helper rejects those names when invoked; it does **not** prove every SillyTavern route capable of performing those operations is intercepted before mutation. Likewise, a successful patch-validation workflow verifies the patch's expected shape/checks, not complete runtime interception across all server and client routes.
 
 Accordingly, treat interception coverage as **selected entry points verified, complete route coverage unproven**. Until a route-by-route audit and integration evidence exist, alternate entry points, direct server-side API calls, filesystem edits, restore tools, and unpatched plugins must not be treated as covered by the helper's fail-closed behavior.
+
+
+## Route-level lifecycle matrix
+
+The concrete entry-point inventory, current guard behavior, evidence strength, and remaining gaps are tracked in [HOST-LIFECYCLE-INTERCEPTION-MATRIX.md](./HOST-LIFECYCLE-INTERCEPTION-MATRIX.md). The matrix deliberately distinguishes a visible guard in the patch from proof that the actual client/server route cannot bypass it. It does not upgrade the lifecycle or inventory status: selected entry points are guarded, complete interception remains unproven, and Host capture/reconciliation remains `NON_READY`.
