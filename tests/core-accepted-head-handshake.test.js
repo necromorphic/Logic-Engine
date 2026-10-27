@@ -17,6 +17,7 @@ import {
 
 const coreToken = 'core-token-for-core-handshake-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-core-handshake-tests-00000000000000000000000000000002';
+const readToken = 'gateway-read-token-for-core-handshake-tests-00000000000000000000000000000003';
 const digestA = 'a'.repeat(64);
 const digestB = 'b'.repeat(64);
 
@@ -26,7 +27,7 @@ async function startAuthorityProcess(path) {
     'import { AcceptedHeadAuthority, createAcceptedHeadAuthorityServer } from ' + JSON.stringify(authorityUrl) + ';',
     'const args = process.argv.slice(1);',
     'const authority = new AcceptedHeadAuthority({ path: args[0], installationId: "core-handshake-test-installation" });',
-    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN });',
+    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN, readToken: process.env.LE_TEST_READ_TOKEN });',
     'server.listen(0, "127.0.0.1", () => process.stdout.write("LISTENING:" + server.address().port + "\\n"));',
     'process.stdin.on("data", () => server.close(() => { authority.close(); process.exit(0); }));',
   ].join('\n');
@@ -39,6 +40,7 @@ async function startAuthorityProcess(path) {
       WINDIR: process.env.WINDIR || '',
       LE_TEST_CORE_TOKEN: coreToken,
       LE_TEST_PROVIDER_TOKEN: providerToken,
+      LE_TEST_READ_TOKEN: readToken,
     },
   });
   const [chunk] = await once(child.stdout, 'data');
