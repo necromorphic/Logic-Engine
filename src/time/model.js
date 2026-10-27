@@ -285,7 +285,13 @@ function rotatedYears(calendar) {
 }
 
 function dayIndexForDate(calendar, date) {
-  if (!date || typeof date !== 'object' || Array.isArray(date)) fail('INVALID_CALENDAR_DATE', 'date must be an object.');
+  // Accept both minimal date inputs and the known projection shape, while
+  // refusing inherited fields or executable accessors at this boundary.
+  assertPlainDataRecord(date, [
+    'calendar_id', 'calendar_version', 'coordinate', 'year_number',
+    'year_cycle_index', 'month_id', 'month_name', 'day_of_month',
+    'weekday_index', 'weekday', 'time_of_day_ms', 'holidays',
+  ], 'INVALID_CALENDAR_DATE', 'Calendar date', ['year_number', 'month_id', 'day_of_month']);
   const yearNumber = safeInteger(date.year_number, 'date.year_number');
   const yearOffset = yearNumber - calendar.epoch.year_number;
   safeInteger(yearOffset, 'Year offset');
