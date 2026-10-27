@@ -114,6 +114,12 @@ export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs 
   if (!Array.isArray(invariants) || invariants.some((fn) => typeof fn !== 'function')) {
     throw new TypeError('invariants must be an array of functions');
   }
+  // Validate change coordinates against canonical model inputs before selecting
+  // nodes. An unknown coordinate must not become a successful no-op in B/C.
+  assertModel(inputs, nodes);
+  for (const name of changedInputs) {
+    if (!Object.hasOwn(inputs, name)) throw new Error('UNKNOWN_CHANGED_INPUT:' + name);
+  }
   const changed = new Set(changedInputs);
   const selected = strategy === 'A' ? allNodeIds(nodes) : impactedNodes(inputs, nodes, changed);
   const incremental = evaluateSelected(inputs, nodes, selected, previousValues);
