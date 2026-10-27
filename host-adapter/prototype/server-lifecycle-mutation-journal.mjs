@@ -620,7 +620,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                         });
                     }
                     const isSuccess = response.statusCode >= 200 && response.statusCode < 300;
-                    const persistence = isSuccess
+                    const persistence = isSuccess && requirePersistedInventory
                         ? verifyEnrolledChatSavePersistence(request, registry, after)
                         : null;
                     if (persistence && !persistence.ok) {
