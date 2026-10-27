@@ -260,19 +260,19 @@ test('trusted Provider dispatch evidence checks exact candidate, grants, source 
     }]);
     assert.equal(Object.hasOwn(evidence, 'content'), false);
 
+    assert.throws(() => provider.readDispatchEvidence({
+      world_id: scope.world_id,
+      subject_id: scope.subject_id,
+      purpose: scope.purpose,
+      candidates: [{ ...candidate, source_version: 'core-entity-v1:2' }],
+    }), /MEMORY_DISPATCH_NOT_READY/);
+
     provider.grantRecord(scope, candidate.record_ref, candidate.record_version, false);
     assert.throws(() => provider.readDispatchEvidence({
       world_id: scope.world_id,
       subject_id: scope.subject_id,
       purpose: scope.purpose,
       candidates: [candidate],
-    }), /MEMORY_DISPATCH_NOT_READY/);
-
-    assert.throws(() => provider.readDispatchEvidence({
-      world_id: scope.world_id,
-      subject_id: scope.subject_id,
-      purpose: scope.purpose,
-      candidates: [{ ...candidate, source_version: 'core-entity-v1:2' }],
     }), /MEMORY_DISPATCH_NOT_READY/);
   } finally {
     try { provider?.close(); } catch {}
