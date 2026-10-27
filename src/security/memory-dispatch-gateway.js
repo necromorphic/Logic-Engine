@@ -31,6 +31,20 @@ function canonicalPath(path) {
   return resolve(realpathSync(candidate), ...suffix);
 }
 
+export function openReadOnlySqliteDatabase(path) {
+  if (typeof path !== 'string' || !isAbsolute(path) || path === ':memory:' || !existsSync(path)) {
+    throw new TypeError('Read-only SQLite access requires an existing absolute file path.');
+  }
+  const db = new DatabaseSync(resolve(path), { readOnly: true });
+  try {
+    db.exec('PRAGMA busy_timeout=5000; PRAGMA query_only=ON;');
+    return db;
+  } catch (error) {
+    try { db.close(); } catch {}
+    throw error;
+  }
+}
+
 function sameFile(left, right) {
   const a = canonicalPath(left);
   const b = canonicalPath(right);
