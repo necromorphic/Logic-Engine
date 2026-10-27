@@ -46,7 +46,8 @@ test('B exposes stale output when a conditional read was omitted from the declar
     changedInputs: ['hp'],
     previousValues: { branch: 'infected', effect: 8, summary: 'result:8' },
   });
-  assert.equal(result.status, 'ready');
+  assert.equal(result.status, 'needs_review');
+  // No independent graph-completeness proof was supplied, so the stale projection cannot be accepted as ready.
   assertProjection(result.values, { branch: 'infected', effect: 8, summary: 'result:8' });
   // This is the point of the test: incremental graph metadata alone does not prove completeness.
   assert.notEqual(result.values.effect, 4);
@@ -250,4 +251,31 @@ test('B refuses incremental calculation without a prior input snapshot', () => {
     }),
     /MISSING_PREVIOUS_INPUT_SNAPSHOT/,
   );
+});
+
+
+test('B cannot report ready without an explicit graph-completeness proof', () => {
+  const result = runRecalculation({
+    inputs: { hp: 6 },
+    previousInputs: { hp: 10 },
+    nodes: [{ id: 'effect', dependsOn: ['hp'], evaluate: ({ read }) => read('hp') - 1 }],
+    strategy: 'B',
+    changedInputs: ['hp'],
+    previousValues: { effect: 9 },
+  });
+  assert.equal(result.status, 'needs_review');
+});
+
+test('B may report ready only when graph completeness is explicitly attested and no other guard fails', () => {
+  const result = runRecalculation({
+    inputs: { hp: 6 },
+    previousInputs: { hp: 10 },
+    nodes: [{ id: 'effect', dependsOn: ['hp'], evaluate: ({ read }) => read('hp') - 1 }],
+    strategy: 'B',
+    changedInputs: ['hp'],
+    previousValues: { effect: 9 },
+    dependencyGraphVerified: true,
+  });
+  assert.equal(result.status, 'ready');
+  assertProjection(result.values, { effect: 5 });
 });
