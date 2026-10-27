@@ -260,6 +260,35 @@ test('trusted complete snapshot recovers missed capture and publishes readiness'
   assert.equal(ledger.db.prepare('SELECT version_id FROM host_version_active_pointer').get().version_id, tuple.version_id);
 });
 
+test('reconciliation cannot enroll an unseen version after a baseline without authenticated capture', async (t) => {
+  const ledger = setup(t, async (snapshot) => snapshot.complete === true);
+  const baseline = await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry()]
+  });
+  assert.equal(baseline.status, 'ready');
+
+  const unseen = entry({
+    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('uncaptured version'), active: true
+  });
+  const rejected = await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry(), unseen]
+  });
+  assert.deepEqual(rejected, {
+    status: 'non_ready', code: 'HOST_VERSION_UNENROLLED_OR_UNCAPTURED'
+  });
+  assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE message_id='message-b'").get().n, 0);
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+
+  // A newly observed version is accepted only after the authenticated capture path
+  // durably records its identity and digest before reconciliation.
+  assert.deepEqual(ledger.captureVersion(unseen), { status: 'captured' });
+  const recovered = await ledger.reconcileConversation({
+    world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [entry(), unseen]
+  });
+  assert.equal(recovered.status, 'ready');
+  assert.equal(recovered.version_count, 2);
+});
+
 test('known version disappearance from full snapshot fails closed', async (t) => {
   const ledger = setup(t);
   ledger.captureVersion(entry());
