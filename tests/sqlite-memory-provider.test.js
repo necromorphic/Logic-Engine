@@ -23,7 +23,7 @@ function setup(t, options = {}) {
   const scope = { world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' };
   const record = {
     ...scope, record_ref: 'memory:record-a', record_version: 'record-v1',
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1', source_version: 'source-v1',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
     content_kind: 'claim', epistemic_kind: 'acquired_report', producer_kind: 'memory-index',
     content_disposition: 'usable', evidence_assessment: 'unassessed',
     lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-source-a', source_version: 'source-v1' }],
@@ -164,6 +164,10 @@ test('denies by default and immediately honors record revocation', async (t) => 
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
     source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
   }), true);
+  assert.equal(await s.provider.authorizeCandidate({
+    ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v2',
+  }), false, 'a caller cannot rebind the same Memory record to a different canonical source version');
   s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
   assert.equal(await s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
