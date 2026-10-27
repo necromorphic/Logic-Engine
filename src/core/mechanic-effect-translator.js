@@ -43,6 +43,36 @@ function object(value, label) {
   if (!isObject(value) || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
     fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be a plain JSON object.');
   }
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string') {
+      fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must not contain symbol keys.');
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must contain only enumerable data properties.');
+    }
+  }
+  return value;
+}
+
+function jsonArray(value, label, maxItems = MAX_CONTAINER_ITEMS) {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype
+    || value.length > maxItems || Object.getOwnPropertySymbols(value).length > 0) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be a plain JSON array of at most ' + maxItems + ' items.');
+  }
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1 || !keys.includes('length')
+    || !keys.every((key) => key === 'length'
+      || (typeof key === 'string' && /^(0|[1-9][0-9]*)$/.test(key)
+        && Number(key) < value.length && String(Number(key)) === key))) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must not contain holes or custom properties.');
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must contain only enumerable data items.');
+    }
+  }
   return value;
 }
 
