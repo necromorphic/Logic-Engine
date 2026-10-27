@@ -105,7 +105,7 @@ test('enforced server mutation journal records before/after persisted version in
       content_sha256: digest('private-before'), active: true, deleted: false,
     });
     const response = responseMock();
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true })(request, response, async () => {
       await writeChat([makeMessage({
         messageId,
         versions: [
