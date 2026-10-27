@@ -66,13 +66,24 @@ async function main() {
     if (!response.ok) throw new Error('authority rejected request');
     const body = await response.json();
     if (action === 'heads') {
+      const validPendingOperation = (operation) => operation === null
+        || (operation && typeof operation.operation_id === 'string'
+          && Number.isSafeInteger(operation.head) && operation.head > 0
+          && typeof operation.operation_digest === 'string' && /^[a-f0-9]{64}$/.test(operation.operation_digest)
+          && ['enroll', 'mutation'].includes(operation.operation_kind));
       if (!Number.isSafeInteger(body?.heads?.core) || body.heads.core < 0
         || !Number.isSafeInteger(body?.heads?.provider) || body.heads.provider < 0
         || typeof body?.pending?.core !== 'boolean' || typeof body?.pending?.provider !== 'boolean'
-        || typeof body?.enrolled?.core !== 'boolean' || typeof body?.enrolled?.provider !== 'boolean') {
+        || typeof body?.enrolled?.core !== 'boolean' || typeof body?.enrolled?.provider !== 'boolean'
+        || !body.operations || !validPendingOperation(body.operations.core)
+        || !validPendingOperation(body.operations.provider)
+        || body.pending.core !== (body.operations.core !== null)
+        || body.pending.provider !== (body.operations.provider !== null)) {
         throw new Error('invalid response');
       }
-      process.stdout.write(JSON.stringify({ ok: true, heads: body.heads, pending: body.pending, enrolled: body.enrolled }));
+      process.stdout.write(JSON.stringify({
+        ok: true, heads: body.heads, pending: body.pending, operations: body.operations, enrolled: body.enrolled,
+      }));
     } else {
       const result = body?.result;
       const expectedStatuses = action === 'finalize' ? ['committed'] : ['pending', 'committed'];
