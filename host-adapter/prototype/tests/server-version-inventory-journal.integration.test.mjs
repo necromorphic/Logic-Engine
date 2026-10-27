@@ -138,7 +138,7 @@ test('enforced server mutation journal records before/after persisted version in
     assert.ok(mutationRecords[1].versionChanges.some(change => change.change === 'ACTIVE_CHANGED' && change.version_id === version1));
     assert.doesNotMatch(journal, /private-before|private-after/);
 
-    const checkpoint = await getHostConversationInventory(request);
+    const checkpoint = await getHostConversationInventory(request, { requireCoreInventory: true });
     assert.equal(checkpoint.complete, true);
     assert.equal(checkpoint.mutationJournal.snapshotConsistency, 'MATCHES_LAST_COMMITTED_LOCAL_CHECKPOINT');
 
@@ -174,7 +174,7 @@ test('enforced server mutation journal records before/after persisted version in
       conversation_id: conversationId, message_id: messageId, version_id: version1,
       content_sha256: digest('private-before'), active: false, deleted: true,
     });
-    const tombstoneSnapshot = await getHostConversationInventory(request);
+    const tombstoneSnapshot = await getHostConversationInventory(request, { requireCoreInventory: true });
     assert.equal(tombstoneSnapshot.complete, true);
     assert.equal(tombstoneSnapshot.historicalCompleteness, 'ENROLLMENT_FORWARD_ONLY');
     assert.equal(tombstoneSnapshot.currentVersionCount, 1);
@@ -190,7 +190,7 @@ test('enforced server mutation journal records before/after persisted version in
       versions: [{ versionId: version1, text: 'private-before' }],
       activeVersionIndex: 0,
     })]);
-    const rollback = await getHostConversationInventory(request);
+    const rollback = await getHostConversationInventory(request, { requireCoreInventory: true });
     assert.equal(rollback.complete, false);
     assert.ok(rollback.errors.includes('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE'));
     assert.equal(rollback.mutationJournal.snapshotConsistency, 'CORE_ANCHOR_DIVERGENCE');
