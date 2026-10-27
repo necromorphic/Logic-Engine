@@ -185,3 +185,37 @@ test('Core source token is stable across unrelated events and persists across re
     rmSync(directory, { recursive: true, force: true });
   });
 });
+
+
+test('migration backfills Core source tokens for entities already persisted before migration', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-entity-source-version-migration-'));
+  const dbPath = join(directory, 'core.sqlite');
+  let store = new SQLiteStore(dbPath);
+  const engine = new LogicEngine(store);
+  engine.createWorld({
+    world_id: 'source-token-migration-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('source-token-migration-world', {
+    idempotency_key: 'seed-source-token-migration',
+    turn_id: 'seed-source-token-migration',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [{ kind: 'entity.create', entity_id: 'source-a', entity_type: 'character', attributes: { note: 'legacy' } }],
+  });
+  store.db.exec('DROP TABLE entity_source_versions; DELETE FROM schema_migrations WHERE version=12;');
+  store.close();
+
+  store = new SQLiteStore(dbPath);
+  const reopenedEngine = new LogicEngine(store);
+  const snapshot = reopenedEngine.getSnapshot('source-token-migration-world', {
+    entityIds: ['source-a'], includeSourceVersions: true,
+  });
+  assert.equal(snapshot.entities[0].source_version, 'core-entity-v1:1');
+  t.after(() => {
+    try { store.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+});
