@@ -33,6 +33,11 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, readdir, read
     }
     domains.add(root.domain);
     try {
+      const configuredRootStat = await fs.lstat(root.path);
+      if (configuredRootStat.isSymbolicLink() || !configuredRootStat.isDirectory()) {
+        errors.push('Inventory root is not a real directory: ' + root.domain);
+        continue;
+      }
       const canonicalRoot = await fs.realpath(root.path);
       const rootStat = await fs.lstat(canonicalRoot);
       if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
