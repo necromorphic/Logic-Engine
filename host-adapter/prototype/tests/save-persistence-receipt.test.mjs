@@ -39,7 +39,7 @@ function responseMock() {
   return response;
 }
 
-test('enrolled /api/chats/save cannot return 2xx when SillyTavern reports success but persisted JSONL is stale', async () => {
+test('sanitized filename alias cannot bypass the enrolled chat save persistence receipt', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-save-receipt-'));
   const directories = {
     chats: path.join(root, 'chats'),
@@ -66,7 +66,7 @@ test('enrolled /api/chats/save cannot return 2xx when SillyTavern reports succes
     method: 'POST', baseUrl: '/api/chats', path: '/save', originalUrl: '/api/chats/save',
     body: {
       avatar_url: 'avatar.png',
-      file_name: 'chat-a',
+      file_name: 'chat-a?',
       chat: [
         header,
         message({
