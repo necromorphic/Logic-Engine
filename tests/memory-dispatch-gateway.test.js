@@ -11,7 +11,7 @@ import {
   enrollAcceptedHeadSync,
   finalizeAcceptedHeadSync,
 } from '../src/security/accepted-head-client-sync.js';
-import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
+import { createDispatchRequestSignature, verifyDispatchRequestSignature, deriveDispatchEvidenceFromAdmission, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
 import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
@@ -154,6 +154,37 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
     source_version: 'version-7',
   }],
   ...overrides,
+});
+
+
+test('dispatch provenance is derived only from the exact admitted Memory result and excludes content', () => {
+  const admission = {
+    status: 'ready',
+    snapshot: { world_revision: 7, commit_sequence: 12 },
+    admitted: [{ record_ref: 'record-42', record_version: 'record-version-3' }],
+    candidates: [{
+      record_ref: 'record-42',
+      record_version: 'record-version-3',
+      source_entity_id: 'entity-42',
+      source_version: 'version-7',
+      content: { text: 'TRANSIENT_MEMORY_TEXT_MUST_NOT_ENTER_DISPATCH_METADATA' },
+    }],
+  };
+  const evidence = deriveDispatchEvidenceFromAdmission(admission);
+  assert.deepEqual(evidence.sources, sourceSet);
+  assert.deepEqual(evidence.candidates, validRequest().candidates);
+  assert.deepEqual(evidence.snapshot, admission.snapshot);
+  assert.equal(JSON.stringify(evidence).includes('TRANSIENT_MEMORY_TEXT_MUST_NOT_ENTER_DISPATCH_METADATA'), false);
+
+  assert.throws(() => deriveDispatchEvidenceFromAdmission({ ...admission, status: 'non_ready' }), /MEMORY_DISPATCH_NOT_READY/);
+  assert.throws(() => deriveDispatchEvidenceFromAdmission({
+    ...admission,
+    admitted: [{ record_ref: 'other-record', record_version: 'record-version-3' }],
+  }), /MEMORY_DISPATCH_NOT_READY/);
+  assert.throws(() => deriveDispatchEvidenceFromAdmission({
+    ...admission,
+    candidates: [{ ...admission.candidates[0], source_version: undefined }],
+  }), /MEMORY_DISPATCH_NOT_READY/);
 });
 
 test('Host dispatch signature binds the exact body, route, model, identity, and source versions with locale-independent source ordering', () => {
