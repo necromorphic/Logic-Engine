@@ -191,3 +191,29 @@ test('canonical effect validation rejects unsafe nested JSON values and malforme
     (error) => error.code === 'INVALID_EFFECTS',
   );
 });
+
+
+test('canonical effect validation rejects accessor-backed list items before reading them', () => {
+  let reads = 0;
+  const removals = [];
+  Object.defineProperty(removals, '0', {
+    enumerable: true,
+    configurable: true,
+    get() { reads += 1; return 'obsolete'; },
+  });
+  removals.length = 1;
+  assert.throws(
+    () => validateEffects([{ kind: 'entity.update', entity_id: 'entity-1', remove_attributes: removals }]),
+    (error) => error.code === 'INVALID_EFFECT',
+  );
+  assert.equal(reads, 0);
+});
+
+test('rule arrays with overridden prototypes are rejected', () => {
+  const rules = [];
+  Object.setPrototypeOf(rules, { map() { throw new Error('must not run'); } });
+  assert.throws(
+    () => evaluateCondition({ op: 'all', rules }, {}),
+    (error) => error.code === 'INVALID_RULE',
+  );
+});
