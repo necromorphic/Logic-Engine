@@ -35,6 +35,8 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
   const versionId = randomUUID();
   const persistedText = 'a';
   const hostRequest = { user: { profile: { handle: 'host-proxy-integration' }, directories: hostDirectories } };
+  const processEnvKeys = ['LOGIC_ENGINE_CORE_URL', 'LOGIC_ENGINE_API_TOKEN', 'LOGIC_ENGINE_ADAPTER_ID', 'LOGIC_ENGINE_ADAPTER_TOKEN'];
+  const priorProcessEnv = Object.fromEntries(processEnvKeys.map(key => [key, process.env[key]]));
   writeFileSync(join(hostDirectories.chats, 'chat-a.jsonl'), [
     JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }),
     JSON.stringify({
@@ -77,6 +79,10 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
   await once(server, 'listening');
   const coreUrl = 'http://127.0.0.1:' + server.address().port;
   t.after(async () => {
+    for (const key of processEnvKeys) {
+      if (priorProcessEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = priorProcessEnv[key];
+    }
     await new Promise((resolve) => server.close(resolve));
     ledger.close();
     store.close();
@@ -104,6 +110,7 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
     LOGIC_ENGINE_ADAPTER_ID: 'st-desktop',
     LOGIC_ENGINE_ADAPTER_TOKEN: ADAPTER_TOKEN,
   };
+  for (const [key, value] of Object.entries(env)) process.env[key] = value;
   const acceptedCaptures = [];
   const rejectedCaptures = [];
   const handler = createHostDigestProxyHandler({
@@ -141,8 +148,11 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
   assert.equal(acceptedCaptures.length, 1, 'local journal acknowledgement follows accepted Core capture');
   assert.equal(acceptedCaptures[0].message_id, messageId);
   assert.equal(acceptedCaptures[0].deleted, false);
-  const currentInventory = await getHostConversationInventory(hostRequest);
-  assert.equal(currentInventory.complete, true);
+  const currentInventory = await getHostConversationInventory(hostRequest, { requireCoreInventory: true });
+  assert.equal(currentInventory.complete, false);
+  assert.equal(currentInventory.status, 'INVENTORY_INCOMPLETE');
+  assert.ok(currentInventory.errors.includes('CORE_HOST_INVENTORY_NOT_READY'));
+  assert.equal(currentInventory.inventories.length, 0);
   assert.equal(currentInventory.versionCount, 1);
 
   const stored = ledger.db.prepare(

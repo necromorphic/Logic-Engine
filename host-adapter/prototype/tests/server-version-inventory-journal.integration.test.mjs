@@ -56,11 +56,46 @@ test('enforced server mutation journal records before/after persisted version in
   const chatPath = path.join(directories.chats, 'chat-a.jsonl');
   const writeChat = messages => writeFile(chatPath, [
     JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }),
-    ...messages.map(JSON.stringify),
+    ...messages.map(value => JSON.stringify(value)),
   ].join('\n') + '\n');
+  const originalFetch = globalThis.fetch;
+  const envKeys = ['LOGIC_ENGINE_CORE_URL', 'LOGIC_ENGINE_API_TOKEN', 'LOGIC_ENGINE_ADAPTER_ID', 'LOGIC_ENGINE_ADAPTER_TOKEN'];
+  const priorEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
+  const coreVersions = new Map();
+  let coreInventoryStatus = 'READY';
+  process.env.LOGIC_ENGINE_CORE_URL = 'http://127.0.0.1:8787';
+  process.env.LOGIC_ENGINE_API_TOKEN = 'test-core-api-token-long-enough';
+  process.env.LOGIC_ENGINE_ADAPTER_ID = 'adapter-test';
+  process.env.LOGIC_ENGINE_ADAPTER_TOKEN = 'test-adapter-token-long-enough';
+  globalThis.fetch = async (url, options) => {
+    const endpoint = new URL(String(url));
+    const body = JSON.parse(options.body);
+    if (endpoint.pathname === '/v1/host-version-ledger/capture') {
+      const key = JSON.stringify([body.conversation_id, body.message_id, body.version_id]);
+      coreVersions.set(key, { ...body });
+      return { ok: true, status: 201, json: async () => ({ capture: { status: 'captured' } }) };
+    }
+    if (endpoint.pathname === '/v1/host-version-ledger/inventory') {
+      const versions = [...coreVersions.values()]
+        .filter(version => version.conversation_id === body.conversation_id)
+        .map(({ conversation_id, message_id, version_id, content_sha256, active, deleted }) =>
+          ({ conversation_id, message_id, version_id, content_sha256, active, deleted }));
+      return { ok: true, status: 200, json: async () => ({
+        inventory: {
+          authority: 'CORE_HOST_VERSION_LEDGER',
+          conversation_id: body.conversation_id,
+          inventory_status: coreInventoryStatus,
+          versions,
+        },
+      }) };
+    }
+    return { ok: false, status: 404, json: async () => ({}) };
+  };
   try {
     await writeChat([makeMessage({ messageId, versions: [{ versionId: version1, text: 'private-before' }], activeVersionIndex: 0 })]);
     const conversationId = installationUuid + ':' + conversationUuid;
+    request.body = { avatar_url: 'avatar.png', file_name: 'chat-a', chat: [{ chat_metadata: { logic_engine_conversation_id: conversationUuid } }, makeMessage({ messageId, versions: [{ versionId: version1, text: 'private-before' }, { versionId: version2, text: 'private-after', parentVersionId: version1 }], activeVersionIndex: 1 })] };
+    coreVersions.set(JSON.stringify([conversationId, messageId, version1]), { conversation_id: conversationId, message_id: messageId, version_id: version1, content_sha256: digest('private-before'), active: true, deleted: false });
     await registerHostConversation(request, {
       conversationId,
       sourceLocator: 'chat-a', sourcePath: 'chat-a.jsonl', domain: 'chats',
@@ -70,7 +105,7 @@ test('enforced server mutation journal records before/after persisted version in
       content_sha256: digest('private-before'), active: true, deleted: false,
     });
     const response = responseMock();
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true })(request, response, async () => {
       await writeChat([makeMessage({
         messageId,
         versions: [
@@ -103,14 +138,29 @@ test('enforced server mutation journal records before/after persisted version in
     assert.ok(mutationRecords[1].versionChanges.some(change => change.change === 'ACTIVE_CHANGED' && change.version_id === version1));
     assert.doesNotMatch(journal, /private-before|private-after/);
 
-    const checkpoint = await getHostConversationInventory(request);
+    const checkpoint = await getHostConversationInventory(request, { requireCoreInventory: true });
     assert.equal(checkpoint.complete, true);
     assert.equal(checkpoint.mutationJournal.snapshotConsistency, 'MATCHES_LAST_COMMITTED_LOCAL_CHECKPOINT');
 
+    // Matching digests are not sufficient while Core says its inventory is not ready.
+    coreInventoryStatus = 'NON_READY';
+    const notReadyResponse = responseMock();
+    let notReadyHandlerCalled = false;
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true })(request, notReadyResponse, async () => {
+      notReadyHandlerCalled = true;
+      notReadyResponse.json({ ok: true });
+    });
+    await notReadyResponse.finished;
+    assert.equal(notReadyHandlerCalled, false);
+    assert.equal(notReadyResponse.statusCode, 503);
+    assert.match(notReadyResponse.body, /CORE_HOST_INVENTORY_NOT_READY/);
+    coreInventoryStatus = 'READY';
+
     // Remove a swipe through the guarded save path, then require an explicit
     // Core-accepted tombstone before the observed inventory can stay complete.
+    request.body = { avatar_url: 'avatar.png', file_name: 'chat-a', chat: [{ chat_metadata: { logic_engine_conversation_id: conversationUuid } }, makeMessage({ messageId, versions: [{ versionId: version2, text: 'private-after', parentVersionId: version1 }], activeVersionIndex: 0 })] };
     const deleteResponse = responseMock();
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, deleteResponse, async () => {
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true })(request, deleteResponse, async () => {
       await writeChat([makeMessage({
         messageId,
         versions: [{ versionId: version2, text: 'private-after', parentVersionId: version1 }],
@@ -124,7 +174,7 @@ test('enforced server mutation journal records before/after persisted version in
       conversation_id: conversationId, message_id: messageId, version_id: version1,
       content_sha256: digest('private-before'), active: false, deleted: true,
     });
-    const tombstoneSnapshot = await getHostConversationInventory(request);
+    const tombstoneSnapshot = await getHostConversationInventory(request, { requireCoreInventory: true });
     assert.equal(tombstoneSnapshot.complete, true);
     assert.equal(tombstoneSnapshot.historicalCompleteness, 'ENROLLMENT_FORWARD_ONLY');
     assert.equal(tombstoneSnapshot.currentVersionCount, 1);
@@ -140,11 +190,16 @@ test('enforced server mutation journal records before/after persisted version in
       versions: [{ versionId: version1, text: 'private-before' }],
       activeVersionIndex: 0,
     })]);
-    const rollback = await getHostConversationInventory(request);
+    const rollback = await getHostConversationInventory(request, { requireCoreInventory: true });
     assert.equal(rollback.complete, false);
-    assert.ok(rollback.errors.includes('CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT'));
-    assert.equal(rollback.mutationJournal.snapshotConsistency, 'DIVERGES_FROM_LAST_LOCAL_CHECKPOINT');
+    assert.ok(rollback.errors.includes('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE'));
+    assert.equal(rollback.mutationJournal.snapshotConsistency, 'CORE_ANCHOR_DIVERGENCE');
   } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of envKeys) {
+      if (priorEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = priorEnv[key];
+    }
     await rm(root, { recursive: true, force: true });
   }
 });

@@ -2,11 +2,32 @@
 
 **«Логический движ» — проект универсального движка длительной ролевой симуляции.** Цель — хранить авторитетное состояние мира, рассчитывать причинно связанные изменения и игровое время, поддерживать автономность NPC и передавать подтверждённые результаты в повествование через адаптер SillyTavern.
 
-> **Последний полный статусный снимок: 25 октября 2026 года.** На 26 октября ведётся портфельная сверка интеграционных блокеров; этот README и таблица ниже не являются повторной полной проверкой текущего `main`. Подтверждённые изменения и текущие блокеры фиксируются в [центральном портфельном трекере #252](https://github.com/necromorphic/Logic-Engine/issues/252).
->
-> **Снимок на 25 октября:** проект находится на стадии архитектурных контрактов и минимального исполняемого прототипа. В runtime есть HTTP API, SQLite-журнал событий, базовые сущности и факты, идемпотентность, аудит, ограниченный причинный откат, версионируемый реестр механик и базовый жизненный цикл предложений. В `main` также присутствуют ограниченные инфраструктурные срезы: admin-only typed Relationship transition, внутреннее SQLite snapshot-чтение, actor bindings и частичный actor-authorized read endpoint. Это **не** означает, что готова полная модель отношений, знаний, секретов или автономной симуляции.
->
-> **Production Memory → NPC выключен и должен оставаться DISABLED / FAIL-CLOSED.** Проверка Host → Provider → Core → NPC выявила незакрытые доказательные блокеры: Host не имеет подтверждённого механизма авторитетного полного inventory активных, исторических и удалённых версий; end-to-end интеграция и Android/Termux persistence не доказаны; проверка отзыва доступа на реальной границе disclosure перед сериализацией/отправкой не подтверждена. Эти пробелы нельзя считать закрытыми по результатам Provider-local тестов или успешного CI на отдельной ветке.
+> **Статус проверки: 27 октября 2026 года.** Этот снимок отражает конкретные проверки интеграционной ветки, а не готовность проекта к выпуску. Портфельный трекер: [#252](https://github.com/necromorphic/Logic-Engine/issues/252). Главный блокер Host → Provider → Core → NPC: [#264](https://github.com/necromorphic/Logic-Engine/issues/264).
+
+> **Последний полностью проверенный HEAD PR [#510](https://github.com/necromorphic/Logic-Engine/pull/510):** `2a51408616eb923c0d140daab9086115cb072525`. Все пять workflow прошли на этом exact head: Runtime 852/852, recalculation oracle 8/8, NPC boundary 81/81, Host lifecycle patch 120/120, pinned-source audit 12/12 + 2/2 bounded fake-provider tests, patch validation и browser IndexedDB restart. Это patch/fixture evidence, не проверка установленного SillyTavern или Android/Termux.
+
+> **Provider/Core accepted-head read gates:** focused tests passed, and full Runtime/NPC suites passed on CI-only branches whose implementation/test blob SHAs match PR #484 and #490. Provider: Windows Runtime 809/809, oracle 8/8, NPC boundary 81/81. Core: Windows Runtime 823/823, oracle 8/8, NPC boundary 83/83. PRs remain draft; CI is not independent Core approval.
+
+> **Memory → NPC: DISABLED / FAIL-CLOSED.** PR #510 — draft и зависит от PR #507; объединять его до завершения зависимостей и независимого Core review нельзя. Остались доказательные блокеры: полный активный/исторический/удалённый Host inventory; accepted-head authority и устойчивость к восстановлению резервной копии; подтверждённые Windows ACL; привязка финального сериализованного тела запроса к точным допущенным кандидатам; покрытие всех outbound/bypass маршрутов; отзыв доступа в гонке непосредственно перед отправкой с нулём upstream-вызовов при отказе; проверка установленного SillyTavern и Android/Termux. Успешные отдельные тесты не закрывают эти пункты.
+
+> Проценты и таблицы ниже — прежняя ориентировочная оценка архитектурных областей, а не автоматический индикатор текущей готовности. Для точного решения о включении используйте issue #264 и доказательства на конкретном commit.
+
+## Stage 2: Memory → NPC — progress estimate (27.10.2026)
+
+Это **оценка выполненных инженерных задач по чек-листу**, а не вероятность успешного запуска. Проценты не заменяют обязательные release gates.
+
+| Workstream | Progress | Evidence / remaining |
+|---|---:|---|
+| Host lifecycle patch + pinned SillyTavern source audit | `████████░░ 80%` | Patch validation, browser restart fixture and pinned-source assertions passed; live installed ST and full historical inventory are not proven. |
+| Memory Provider accepted-head writes + reads | `████████░░ 80%` | Windows Runtime 809/809 + oracle 8/8 + NPC boundary 81/81 passed on a CI-only branch with identical Provider implementation/test blobs; independent Core review and production gates remain. |
+| Core accepted-head + canonical snapshot reads | `████████░░ 80%` | Windows Runtime 823/823 + oracle 8/8 + NPC boundary 83/83 passed on a CI-only branch with identical Core implementation/test blobs; independent Core review and production gates remain. |
+| Gateway/dispatch ledger prototype | `████░░░░░░ 40%` | Signature, ledger, evidence-reader and synchronous dispatch-start tests exist; production Host route is not wired. |
+| Exact final body ↔ authorized candidate/version binding | `██░░░░░░░░ 20%` | Not proven: current ST request body is client-assembled; trusted server-owned Memory assembly seam is unresolved. |
+| Complete Host inventory + restore-resistant authority | `██░░░░░░░░ 20%` | Previously observed rollback can be detected; all-time active/history/deleted inventory and joint privileged-restore resistance remain NON_READY. |
+| Windows service identities, effective ACLs, backup/restore recovery | `█░░░░░░░░░ 10%` | Requirements identified; target deployment evidence has not been produced. |
+| Installed SillyTavern + Android/Termux runtime | `░░░░░░░░░░ 0%` | Not tested. |
+
+**Production readiness: `0% — NO-GO`.** This is a hard-gated status, not an average of the rows. Keep Memory → NPC `DISABLED / FAIL-CLOSED` until every required gate has evidence and the exact implementation diff receives independent Core approval.
 
 ## Основной принцип
 

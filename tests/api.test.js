@@ -1895,3 +1895,60 @@ test('mechanic proposal policy boundary stays closed without a trusted validator
     store.close();
   }
 });
+
+
+test('Core Host inventory readback is adapter-authenticated, binding-scoped, and digest-only', async (t) => {
+  const hostVersionLedger = {
+    getBoundInventory({ adapterId, conversationId, resolveBinding }) {
+      const binding = resolveBinding({ adapterId, conversationId });
+      return {
+        authority: 'CORE_HOST_VERSION_LEDGER',
+        world_id: binding.world_id,
+        conversation_id: binding.conversation_id,
+        inventory_status: 'NON_READY',
+        snapshot_sha256: null,
+        failure_code: 'HOST_INVENTORY_NEVER_RECONCILED',
+        updated_at: null,
+        inventory_sha256: 'a'.repeat(64),
+        version_count: 1,
+        versions: [{
+          message_id: 'message-a',
+          version_id: 'version-a',
+          content_sha256: 'b'.repeat(64),
+          active: true,
+          deleted: false,
+        }],
+      };
+    },
+  };
+  const base = await setup(t, { hostVersionLedger });
+  assert.equal((await createWorld(base, 'host-inventory-world')).status, 201);
+  const binding = await fetch(base + '/v1/host-conversation-bindings', {
+    method: 'POST',
+    headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({ adapter_id: 'adapter-a', conversation_id: 'chat-anti-rollback', world_id: 'host-inventory-world' }),
+  });
+  assert.equal(binding.status, 201);
+
+  const response = await fetch(base + '/v1/host-version-ledger/inventory', {
+    method: 'POST', headers, body: json({ conversation_id: 'chat-anti-rollback' }),
+  });
+  assert.equal(response.status, 200);
+  const payload = await response.json();
+  assert.equal(payload.inventory.authority, 'CORE_HOST_VERSION_LEDGER');
+  assert.equal(payload.inventory.conversation_id, 'chat-anti-rollback');
+  assert.equal(payload.inventory.versions[0].content_sha256, 'b'.repeat(64));
+  assert.equal(JSON.stringify(payload).includes('raw message'), false);
+
+  const extraScope = await fetch(base + '/v1/host-version-ledger/inventory', {
+    method: 'POST', headers, body: json({ conversation_id: 'chat-anti-rollback', world_id: 'attacker-world' }),
+  });
+  assert.equal(extraScope.status, 400);
+
+  const wrongAdapter = await fetch(base + '/v1/host-version-ledger/inventory', {
+    method: 'POST',
+    headers: { ...headers, 'x-adapter-id': 'adapter-b', 'x-adapter-token': ADAPTER_B },
+    body: json({ conversation_id: 'chat-anti-rollback' }),
+  });
+  assert.equal(wrongAdapter.status, 403);
+});

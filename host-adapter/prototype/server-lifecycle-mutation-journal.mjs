@@ -25,6 +25,18 @@ const MUTATIONS = new Map([
     ['POST /api/groups/delete', 'group-delete'],
     ['POST /api/backups/chat/delete', 'backup-delete'],
     ['POST /api/data-maid/delete', 'data-maid-delete'],
+    ['POST /api/users/delete', 'user-delete'],
+
+]);
+
+// Until identity-preserving, tombstone-aware server handlers exist, these routes
+// can destroy or relocate enrolled chat state. Block them before the native
+// handler runs; a 503 after deletion would be too late.
+const UNSUPPORTED_ENROLLED_MUTATIONS = new Set([
+    'chat-rename', 'chat-delete', 'group-chat-import', 'chat-import', 'group-chat-delete',
+    'character-rename', 'character-edit', 'character-edit-attribute', 'character-merge-attributes',
+    'character-delete', 'character-import', 'character-duplicate',
+    'group-create', 'group-edit', 'group-delete', 'backup-delete', 'data-maid-delete',
 ]);
 
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -159,7 +171,7 @@ function snapshotDigest(scan) {
     }));
 }
 
-async function scanMutationSnapshot(paths, registry, requirePersistedInventory) {
+async function scanMutationSnapshot(paths, registry, requirePersistedInventory, compareCore = false) {
     const artifacts = await scanHostArtifactRoots(paths.roots);
     if (!artifacts.complete || !requirePersistedInventory) return artifacts;
     const conversationInventory = await scanPersistedConversationInventories(
@@ -176,6 +188,25 @@ async function scanMutationSnapshot(paths, registry, requirePersistedInventory) 
             conversationInventory,
             errors: conversationInventory.errors,
         };
+    }
+    if (compareCore) {
+        try {
+            await assertCoreInventoryMatchesSnapshot(conversationInventory, registry);
+        } catch (error) {
+            const code = ['CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE', 'CORE_HOST_INVENTORY_NOT_READY']
+                .includes(error?.message)
+                ? error.message
+                : 'CORE_HOST_INVENTORY_UNAVAILABLE';
+            return {
+                ...artifacts,
+                status: 'INVENTORY_INCOMPLETE',
+                complete: false,
+                artifacts: [],
+                artifactCount: null,
+                conversationInventory: { ...conversationInventory, status: 'INVENTORY_INCOMPLETE', complete: false, inventories: [], errors: [code] },
+                errors: [code],
+            };
+        }
     }
     return { ...artifacts, conversationInventory };
 }
@@ -303,6 +334,73 @@ function verifyEnrolledChatSavePersistence(request, registry, after) {
     return { ok: true };
 }
 
+
+async function publishCoreInventorySnapshot(before, after, { requirePersistedInventory = true } = {}) {
+    // Artifact-only prototype mode is non-authoritative and has no version records to anchor.
+    // Production wiring enables persisted inventory, where missing Core configuration remains a hard failure.
+    if (!requirePersistedInventory) return;
+    const baseUrl = process.env.LOGIC_ENGINE_CORE_URL;
+    const apiToken = process.env.LOGIC_ENGINE_API_TOKEN;
+    const adapterId = process.env.LOGIC_ENGINE_ADAPTER_ID;
+    const adapterToken = process.env.LOGIC_ENGINE_ADAPTER_TOKEN;
+    if (typeof baseUrl !== 'string' || !baseUrl.trim()
+        || typeof apiToken !== 'string' || apiToken.length < 16
+        || typeof adapterId !== 'string' || !adapterId.trim()
+        || typeof adapterToken !== 'string' || adapterToken.length < 16) {
+        throw new Error('CORE_HOST_CAPTURE_CONFIGURATION_MISSING');
+    }
+    const endpoint = new URL('/v1/host-version-ledger/capture', baseUrl);
+    if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) {
+        throw new Error('CORE_HOST_CAPTURE_CONFIGURATION_INVALID');
+    }
+    const flatten = snapshot => (snapshot?.conversationInventory?.inventories ?? []).flatMap(conversation =>
+        (conversation.versions ?? []).map(version => ({
+            conversation_id: conversation.conversation_id,
+            message_id: version.message_id,
+            version_id: version.version_id,
+            content_sha256: version.payload_sha256,
+            active: version.active,
+            deleted: false,
+        })),
+    );
+    const beforeVersions = flatten(before);
+    const afterVersions = flatten(after);
+    const key = version => JSON.stringify([version.conversation_id, version.message_id, version.version_id]);
+    const afterKeys = new Set(afterVersions.map(key));
+    const tombstones = beforeVersions
+        .filter(version => !afterKeys.has(key(version)))
+        .map(version => ({ ...version, active: false, deleted: true }));
+    // Publish every current version, not just the diff: this also repairs a
+    // previously missed idempotent capture. Inactive versions go first so the
+    // active pointer is set last for each message.
+    const entries = [
+        ...afterVersions.sort((a, b) => Number(a.active) - Number(b.active)
+            || a.conversation_id.localeCompare(b.conversation_id)
+            || a.message_id.localeCompare(b.message_id)
+            || a.version_id.localeCompare(b.version_id)),
+        ...tombstones,
+    ];
+    for (const entry of entries) {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            redirect: 'error',
+            headers: {
+                authorization: 'Bearer ' + apiToken,
+                'content-type': 'application/json',
+                'x-adapter-id': adapterId,
+                'x-adapter-token': adapterToken,
+            },
+            body: JSON.stringify(entry),
+            signal: AbortSignal.timeout(5000),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.capture
+            || ['conflict', 'non_ready'].includes(payload.capture.status)) {
+            throw new Error('CORE_HOST_CAPTURE_REJECTED');
+        }
+    }
+}
+
 function diffSnapshots(before, after) {
     const a = new Map(before.artifacts.map(item => [item.artifactId, item]));
     const b = new Map(after.artifacts.map(item => [item.artifactId, item]));
@@ -340,14 +438,20 @@ function fail(response, code, status = 503) {
  * A successful pre-snapshot and fsynced intent are required before the handler.
  * The response is held until a post-snapshot and fsynced outcome are recorded.
  */
-export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false } = {}) {
+export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, requireCoreInventory = false } = {}) {
     return async function hostLifecycleMutationMiddleware(request, response, next) {
         const operation = MUTATIONS.get(request.method + ' ' + request.baseUrl + request.path)
             ?? MUTATIONS.get(request.method + ' ' + request.originalUrl?.split('?')[0]);
         if (!operation || !request.user) return next();
+        // User deletion changes cross-user identity/access scope; purge additionally removes all source files.
+        // No target-bound tombstone/reconciliation handler exists, so reject the route before either action.
+        if (operation === 'user-delete' && requireCoreInventory) {
+            return fail(response, 'HOST_CROSS_USER_DELETE_NOT_SUPPORTED', 503);
+        }
 
         let paths;
         let registry;
+        let coreConfigured = false;
         try {
             const chatRootPath = request.user?.directories?.chats;
             if (typeof chatRootPath !== 'string' || !path.isAbsolute(chatRootPath)) {
@@ -378,6 +482,14 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 if (enforce) return fail(response, 'HOST_ENROLLMENT_REQUIRED', 503);
                 return next();
             }
+            if (UNSUPPORTED_ENROLLED_MUTATIONS.has(operation)) {
+                return fail(response, 'HOST_MUTATION_PATH_NOT_PROVEN', 503);
+            }
+            coreConfigured = Boolean(process.env.LOGIC_ENGINE_CORE_URL && process.env.LOGIC_ENGINE_API_TOKEN
+                && process.env.LOGIC_ENGINE_ADAPTER_ID && process.env.LOGIC_ENGINE_ADAPTER_TOKEN);
+            if (requireCoreInventory && !coreConfigured) {
+                return fail(response, 'CORE_HOST_INVENTORY_CONFIGURATION_MISSING', 503);
+            }
             paths = await statePaths(request);
         } catch {
             return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
@@ -394,10 +506,10 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 release();
                 return fail(response, 'HOST_JOURNAL_RECONCILIATION_REQUIRED');
             }
-            before = await scanMutationSnapshot(paths, registry, requirePersistedInventory);
+            before = await scanMutationSnapshot(paths, registry, requirePersistedInventory, requireCoreInventory && coreConfigured);
             if (!before.complete) {
                 release();
-                return fail(response, 'HOST_INVENTORY_INCOMPLETE');
+                return fail(response, before.errors?.[0] ?? before.conversationInventory?.errors?.[0] ?? 'HOST_INVENTORY_INCOMPLETE');
             }
             const suppliedOperationId = request.headers?.['x-logic-engine-operation-id'];
             if (suppliedOperationId !== undefined
@@ -437,9 +549,16 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 beforeConversationInventories: before.conversationInventory?.inventories ?? null,
             });
             chain.lastHash = recordHash;
-        } catch {
+        } catch (error) {
             release();
-            return fail(response, 'HOST_JOURNAL_PREPARE_FAILED');
+            const diagnosticCode = typeof error?.message === 'string' && /^[A-Z0-9_]{1,100}$/.test(error.message)
+                ? error.message : 'UNCLASSIFIED';
+            console.error('[Logic-Engine] Host mutation preflight failed:', diagnosticCode);
+            const code = typeof error?.message === 'string'
+                && /^(CORE_HOST_INVENTORY_[A-Z_]+|CORE_HOST_CAPTURE_[A-Z_]+)$/.test(error.message)
+                ? error.message
+                : 'HOST_JOURNAL_PREPARE_FAILED';
+            return fail(response, code);
         }
 
         // Buffer the complete response until the post-mutation inventory and
@@ -498,7 +617,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             ending = true;
             void (async () => {
                 try {
-                    const after = await scanMutationSnapshot(paths, registry, requirePersistedInventory);
+                    let after = await scanMutationSnapshot(paths, registry, requirePersistedInventory);
                     if (!after.complete) {
                         await appendRecord(paths.journalPath, chain.lastHash, {
                             version: 1,
@@ -516,7 +635,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                         });
                     }
                     const isSuccess = response.statusCode >= 200 && response.statusCode < 300;
-                    const persistence = isSuccess
+                    const persistence = isSuccess && requirePersistedInventory
                         ? verifyEnrolledChatSavePersistence(request, registry, after)
                         : null;
                     if (persistence && !persistence.ok) {
@@ -536,6 +655,50 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                         return commitBufferedResponse(args, {
                             status: 503,
                             body: JSON.stringify({ error: { code: persistence.code } }),
+                        });
+                    }
+                    try {
+                        await publishCoreInventorySnapshot(before, after, { requirePersistedInventory });
+                        after = await scanMutationSnapshot(paths, registry, requirePersistedInventory, requirePersistedInventory && coreConfigured);
+                        if (!after.complete) {
+                            const code = after.errors?.[0] ?? after.conversationInventory?.errors?.[0] ?? 'CORE_HOST_INVENTORY_UNAVAILABLE';
+                            const hash = await appendRecord(paths.journalPath, chain.lastHash, {
+                                version: 1,
+                                kind: 'outcome',
+                                operationId,
+                                status: 'UNRESOLVED',
+                                completedAt: new Date().toISOString(),
+                                httpStatus: response.statusCode,
+                                coreCaptureStatus: code,
+                                afterSnapshotDigest: snapshotDigest(after),
+                                afterArtifactCount: after.artifactCount,
+                                afterConversationInventoryDigest: after.conversationInventory?.inventory_sha256 ?? null,
+                                afterConversationInventories: after.conversationInventory?.inventories ?? null,
+                            });
+                            chain.lastHash = hash;
+                            return commitBufferedResponse(args, {
+                                status: 503,
+                                body: JSON.stringify({ error: { code } }),
+                            });
+                        }
+                    } catch {
+                        const hash = await appendRecord(paths.journalPath, chain.lastHash, {
+                            version: 1,
+                            kind: 'outcome',
+                            operationId,
+                            status: 'UNRESOLVED',
+                            completedAt: new Date().toISOString(),
+                            httpStatus: response.statusCode,
+                            coreCaptureStatus: 'FAILED',
+                            afterSnapshotDigest: snapshotDigest(after),
+                            afterArtifactCount: after.artifactCount,
+                            afterConversationInventoryDigest: after.conversationInventory?.inventory_sha256 ?? null,
+                            afterConversationInventories: after.conversationInventory?.inventories ?? null,
+                        });
+                        chain.lastHash = hash;
+                        return commitBufferedResponse(args, {
+                            status: 503,
+                            body: JSON.stringify({ error: { code: 'CORE_HOST_CAPTURE_FAILED' } }),
                         });
                     }
                     const changes = diffSnapshots(before, after);
@@ -819,7 +982,99 @@ export async function recordHostCaptureConflict(request, capture, upstreamStatus
  * This reports current identities/swipes only; it never upgrades Host trust,
  * historical completeness, or rollback resistance.
  */
-export async function getHostConversationInventory(request) {
+async function readCoreHostVersionInventory(conversationId) {
+    const baseUrl = process.env.LOGIC_ENGINE_CORE_URL;
+    const apiToken = process.env.LOGIC_ENGINE_API_TOKEN;
+    const adapterId = process.env.LOGIC_ENGINE_ADAPTER_ID;
+    const adapterToken = process.env.LOGIC_ENGINE_ADAPTER_TOKEN;
+    if (typeof baseUrl !== 'string' || !baseUrl.trim()
+        || typeof apiToken !== 'string' || apiToken.length < 16
+        || typeof adapterId !== 'string' || !adapterId.trim()
+        || typeof adapterToken !== 'string' || adapterToken.length < 16) {
+        throw new Error('CORE_HOST_INVENTORY_CONFIGURATION_MISSING');
+    }
+    const endpoint = new URL('/v1/host-version-ledger/inventory', baseUrl);
+    if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) {
+        throw new Error('CORE_HOST_INVENTORY_CONFIGURATION_INVALID');
+    }
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        redirect: 'error',
+        headers: {
+            authorization: 'Bearer ' + apiToken,
+            'content-type': 'application/json',
+            'x-adapter-id': adapterId,
+            'x-adapter-token': adapterToken,
+        },
+        body: JSON.stringify({ conversation_id: conversationId }),
+        signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error('CORE_HOST_INVENTORY_UNAVAILABLE');
+    const payload = await response.json().catch(() => null);
+    const inventory = payload?.inventory;
+    if (!inventory || inventory.authority !== 'CORE_HOST_VERSION_LEDGER'
+        || inventory.conversation_id !== conversationId
+        || !Array.isArray(inventory.versions)
+        || !['READY', 'NON_READY'].includes(inventory.inventory_status)
+        || inventory.versions.some(version => !version
+            || typeof version.message_id !== 'string' || typeof version.version_id !== 'string'
+            || typeof version.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(version.content_sha256)
+            || typeof version.active !== 'boolean' || typeof version.deleted !== 'boolean'
+            || (version.deleted && version.active))) {
+        throw new Error('CORE_HOST_INVENTORY_INVALID');
+    }
+    return inventory;
+}
+
+
+async function assertCoreInventoryMatchesSnapshot(conversationInventory, registry) {
+    const remoteInventories = await Promise.all(registry.conversations.map(item =>
+        readCoreHostVersionInventory(item.conversationId)));
+    if (remoteInventories.some(inventory => inventory.inventory_status !== 'READY')) {
+        throw new Error('CORE_HOST_INVENTORY_NOT_READY');
+    }
+    const local = new Map();
+    for (const conversation of conversationInventory.inventories ?? []) {
+        for (const version of conversation.versions ?? []) {
+            local.set(JSON.stringify([conversation.conversation_id, version.message_id, version.version_id]), {
+                conversation_id: conversation.conversation_id,
+                message_id: version.message_id,
+                version_id: version.version_id,
+                content_sha256: version.payload_sha256,
+                active: version.active,
+                deleted: false,
+            });
+        }
+    }
+    const remote = new Map();
+    for (const inventory of remoteInventories) {
+        for (const version of inventory.versions) {
+            const item = { conversation_id: inventory.conversation_id, ...version };
+            const key = JSON.stringify([item.conversation_id, item.message_id, item.version_id]);
+            if (remote.has(key)) throw new Error('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE');
+            remote.set(key, item);
+        }
+    }
+    for (const [key, item] of remote) {
+        const current = local.get(key);
+        if (item.deleted) {
+            if (current) throw new Error('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE');
+        } else if (!current || current.content_sha256 !== item.content_sha256 || current.active !== item.active) {
+            throw new Error('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE');
+        }
+    }
+    for (const [key, item] of local) {
+        const current = remote.get(key);
+        if (!current || current.deleted || current.content_sha256 !== item.content_sha256 || current.active !== item.active) {
+            throw new Error('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE');
+        }
+    }
+    if (remoteInventories.some(inventory => inventory.inventory_status !== 'READY')) {
+        throw new Error('CORE_HOST_INVENTORY_NOT_READY');
+    }
+}
+
+export async function getHostConversationInventory(request, { requireCoreInventory = false } = {}) {
     const paths = await statePaths(request);
     const registry = await readRegistry(paths.registryPath);
     if (!registry.conversations.length) {
@@ -869,6 +1124,94 @@ export async function getHostConversationInventory(request) {
         registry.conversations,
     );
     if (!snapshot.complete) return { ...snapshot, mutationJournal: { ...journalSummary, snapshotConsistency: 'CURRENT_INVENTORY_INCOMPLETE' } };
+
+    if (requireCoreInventory) {
+        // Compare against Core's independently persisted digest ledger. Local chat
+        // files and the local journal can be restored together; the Core ledger
+        // must therefore be checked before local acknowledgements are trusted.
+        let coreInventories;
+        try {
+            coreInventories = await Promise.all(registry.conversations.map(item =>
+                readCoreHostVersionInventory(item.conversationId)));
+        } catch {
+            return {
+                ...snapshot,
+                status: 'INVENTORY_INCOMPLETE',
+                complete: false,
+                authority: 'NON_AUTHORITATIVE',
+                historicalCompleteness: 'UNKNOWN',
+                inventories: [],
+                mutationJournal: { ...journalSummary, snapshotConsistency: 'CORE_ANCHOR_UNAVAILABLE' },
+                errors: ['CORE_HOST_INVENTORY_UNAVAILABLE'],
+            };
+        }
+        const localCoreCompare = new Map();
+        for (const conversation of snapshot.inventories) {
+            for (const version of conversation.versions) {
+                const key = JSON.stringify([conversation.conversation_id, version.message_id, version.version_id]);
+                localCoreCompare.set(key, { conversation_id: conversation.conversation_id, ...version, deleted: false });
+            }
+        }
+        const remoteCoreCompare = new Map();
+        let coreInventoryNotReady = false;
+        for (let index = 0; index < coreInventories.length; index++) {
+            const inventory = coreInventories[index];
+            if (inventory.inventory_status !== 'READY') coreInventoryNotReady = true;
+            for (const version of inventory.versions) {
+                const item = { conversation_id: inventory.conversation_id, ...version, payload_sha256: version.content_sha256 };
+                const key = JSON.stringify([item.conversation_id, item.message_id, item.version_id]);
+                if (remoteCoreCompare.has(key)) {
+                    return {
+                        ...snapshot, status: 'INVENTORY_INCOMPLETE', complete: false,
+                        authority: 'NON_AUTHORITATIVE', historicalCompleteness: 'UNKNOWN', inventories: [],
+                        mutationJournal: { ...journalSummary, snapshotConsistency: 'CORE_ANCHOR_IDENTITY_CONFLICT' },
+                        errors: ['CORE_HOST_INVENTORY_IDENTITY_CONFLICT'],
+                    };
+                }
+                remoteCoreCompare.set(key, item);
+            }
+        }
+        let coreInventoryMismatch = false;
+        for (const [key, remote] of remoteCoreCompare) {
+            const local = localCoreCompare.get(key);
+            if (remote.deleted) {
+                if (local) coreInventoryMismatch = true;
+            } else if (!local || local.payload_sha256 !== remote.payload_sha256 || local.active !== remote.active) {
+                coreInventoryMismatch = true;
+            }
+        }
+        for (const [key, local] of localCoreCompare) {
+            const remote = remoteCoreCompare.get(key);
+            if (!remote || remote.deleted || remote.payload_sha256 !== local.payload_sha256 || remote.active !== local.active) {
+                coreInventoryMismatch = true;
+            }
+        }
+        if (coreInventoryMismatch) {
+            return {
+                ...snapshot,
+                status: 'INVENTORY_INCOMPLETE',
+                complete: false,
+                authority: 'NON_AUTHORITATIVE',
+                historicalCompleteness: 'UNKNOWN',
+                inventories: [],
+                mutationJournal: { ...journalSummary, snapshotConsistency: 'CORE_ANCHOR_DIVERGENCE' },
+                errors: ['CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE'],
+            };
+        }
+        if (coreInventoryNotReady) {
+            return {
+                ...snapshot,
+                status: 'INVENTORY_INCOMPLETE',
+                complete: false,
+                authority: 'NON_AUTHORITATIVE',
+                historicalCompleteness: 'UNKNOWN',
+                inventories: [],
+                mutationJournal: { ...journalSummary, snapshotConsistency: 'CORE_ANCHOR_NOT_READY' },
+                errors: ['CORE_HOST_INVENTORY_NOT_READY'],
+            };
+        }
+    
+    }
 
     const lastCommittedInventory = [...journal.records].reverse().find(record =>
         record.kind === 'outcome' && record.status === 'COMMITTED'

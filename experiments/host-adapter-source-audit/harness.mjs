@@ -75,6 +75,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   const groupRoutes = await readFile(resolve(root, 'src/endpoints/groups.js'), 'utf8');
   const dataMaidRoutes = await readFile(resolve(root, 'src/endpoints/data-maid.js'), 'utf8');
   const characterRoutes = await readFile(resolve(root, 'src/endpoints/characters.js'), 'utf8');
+  const usersAdminRoutes = await readFile(resolve(root, 'src/endpoints/users-admin.js'), 'utf8');
   const startup = await readFile(resolve(root, 'src/server-startup.js'), 'utf8');
   const serverMain = await readFile(resolve(root, 'src/server-main.js'), 'utf8');
   const hostJournal = await readFile(resolve(root, 'src/endpoints/logic-engine-host-journal.mjs'), 'utf8');
@@ -90,6 +91,8 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
     assert.ok(groupRoutes.includes(route), `pinned group mutation route must be covered: ${route}`);
   }
   assert.ok(dataMaidRoutes.includes("router.post('/delete'"), 'Data Maid deletion route must be covered');
+  assert.match(usersAdminRoutes, /router\.post\('\/delete', requireAdminMiddleware/);
+  assert.match(usersAdminRoutes, /if \(request\.body\.purge\)[\s\S]{0,300}fsPromises\.rm\(directories\.root/);
   for (const route of ["router.post('/rename'", "router.post('/delete'", "router.post('/import'", "router.post('/duplicate'"]) {
     assert.ok(characterRoutes.includes(route), `pinned character mutation route must be covered: ${route}`);
   }
@@ -98,6 +101,11 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.ok(serverMain.indexOf('app.use(setUserDataMiddleware);') >= 0 && serverMain.indexOf('app.use(setUserDataMiddleware);') < serverMain.indexOf('setupPrivateEndpoints(app);'), 'global user binding must precede private endpoint registration');
   assert.ok(serverMain.indexOf('app.use(requireLoginMiddleware);') >= 0 && serverMain.indexOf('app.use(requireLoginMiddleware);') < serverMain.indexOf('setupPrivateEndpoints(app);'), 'global login guard must precede private endpoint registration');
   assert.match(startup, /createHostLifecycleMutationMiddleware/);
+  assert.match(
+    startup,
+    /requirePersistedInventory:\s*true,\s*requireCoreInventory:\s*true/,
+    'the pinned Host startup must require both persisted-save receipts and independent Core inventory',
+  );
   for (const route of [
     "'POST /api/chats/save'", "'POST /api/chats/rename'", "'POST /api/chats/delete'",
     "'POST /api/chats/group/import'", "'POST /api/chats/import'",
@@ -105,7 +113,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
     "'POST /api/groups/create'", "'POST /api/groups/edit'", "'POST /api/groups/delete'",
     "'POST /api/characters/rename'", "'POST /api/characters/delete'",
     "'POST /api/characters/import'", "'POST /api/characters/duplicate'",
-    "'POST /api/backups/chat/delete'", "'POST /api/data-maid/delete'",
+    "'POST /api/backups/chat/delete'", "'POST /api/data-maid/delete'", "'POST /api/users/delete'",
   ]) assert.ok(hostJournal.includes(route), `Host journal must intercept direct route ${route}`);
 
   assert.match(hostJournal, /kind: 'intent'/);
@@ -116,6 +124,8 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.match(hostJournal, /beforeArtifacts:/);
   assert.match(hostJournal, /UNCERTAINTY_ACKNOWLEDGED/);
   assert.match(hostJournal, /HOST_POST_MUTATION_SCAN_INCOMPLETE/);
+  assert.match(hostJournal, /operation === 'user-delete' && requireCoreInventory/);
+  assert.match(startup, /app\.use\('\/api\/users', usersAdminRouter\)/);
   assert.match(lifecycleRoutes, /registerHostConversation/);
   assert.match(lifecycleRoutes, /host-lifecycle\/enroll/);
   assert.match(lifecycleRoutes, /host-lifecycle\/status/);

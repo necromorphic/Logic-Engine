@@ -62,6 +62,70 @@ function responseMock() {
     return response;
 }
 
+test('cross-user account deletion is rejected before the native handler', async () => {
+    for (const purge of [false, true]) {
+        const response = responseMock();
+        let nextCalled = false;
+        const request = {
+            method: 'POST',
+            baseUrl: '/api/users',
+            path: '/delete',
+            originalUrl: '/api/users/delete',
+            body: { handle: 'target-user', purge },
+            user: { profile: { handle: 'admin-user' }, directories: {} },
+        };
+        await createHostLifecycleMutationMiddleware({ requireCoreInventory: true })(
+            request,
+            response,
+            () => { nextCalled = true; },
+        );
+        await response.finished;
+        assert.equal(response.statusCode, 503);
+        assert.equal(nextCalled, false);
+        assert.equal(JSON.parse(response.body).error.code, 'HOST_CROSS_USER_DELETE_NOT_SUPPORTED');
+    }
+});
+
+
+
+test('character deletion with delete_chats=true is rejected before the native handler', async () => {
+    const { root, directories, request: fixtureRequest } = await fixture();
+    try {
+        const enrolledChat = path.join(directories.chats, 'enrolled-character-chat.jsonl');
+        await writeFile(enrolledChat, '{"mes":"must survive rejected delete"}\\n');
+        await registerHostConversation(fixtureRequest, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'enrolled-character-chat',
+            domain: 'chats',
+        });
+
+        const request = {
+            ...fixtureRequest,
+            method: 'POST',
+            baseUrl: '/api/characters',
+            path: '/delete',
+            originalUrl: '/api/characters/delete',
+            body: { avatar: 'character.png', delete_chats: true },
+        };
+        const response = responseMock();
+        let nextCalled = false;
+        await createHostLifecycleMutationMiddleware({ requireCoreInventory: true })(
+            request,
+            response,
+            () => { nextCalled = true; },
+        );
+        await response.finished;
+
+        assert.equal(response.statusCode, 503);
+        assert.equal(nextCalled, false);
+        assert.equal(JSON.parse(response.body).error.code, 'HOST_MUTATION_PATH_NOT_PROVEN');
+        assert.equal(await readFile(enrolledChat, 'utf8'), '{"mes":"must survive rejected delete"}\\n');
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+
 test('explicit enrollment enables durable before/after journal around direct server mutation routes', async () => {
     const { root, directories, request } = await fixture();
     try {
