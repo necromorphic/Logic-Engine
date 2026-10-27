@@ -121,9 +121,11 @@ test('Core commits only when accepted-head authority is current and aborts mutat
     });
     assert.equal(created.world_id, 'accepted-head-world-one');
     assert.deepEqual(getAcceptedHeadsSync({ port }), { core: 2, provider: 1 });
-    assert.deepEqual(store.db.prepare(
+    const localHead = store.db.prepare(
       'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
-    ).get(), { head: 2, enrolled: 1 });
+    ).get();
+    assert.equal(localHead.head, 2);
+    assert.equal(localHead.enrolled, 1);
 
     child.stdin.end('stop');
     await once(child, 'exit');
