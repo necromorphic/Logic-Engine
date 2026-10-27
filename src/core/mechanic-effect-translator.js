@@ -204,16 +204,16 @@ function translateOne(effect, index, jsonBudget) {
       translated.attributes = cloneJson(object(payload.attributes, label + '.payload.attributes'), label + '.payload.attributes', new Set(), jsonBudget);
     }
     if (hasRemovals) {
-      if (!Array.isArray(payload.remove_attributes) || payload.remove_attributes.length > 200) {
-        fail('INVALID_MECHANIC_EFFECT_INTENT', label + '.payload.remove_attributes must be an array of at most 200 attribute names.');
-      }
+      jsonArray(payload.remove_attributes, label + '.payload.remove_attributes', 200);
       const seen = new Set();
-      translated.remove_attributes = payload.remove_attributes.map((key) => {
+      translated.remove_attributes = [];
+      for (let index = 0; index < payload.remove_attributes.length; index += 1) {
+        const key = Object.getOwnPropertyDescriptor(payload.remove_attributes, String(index)).value;
         const normalized = text(key, label + '.payload.remove_attributes[]', 200);
         if (seen.has(normalized)) fail('INVALID_MECHANIC_EFFECT_INTENT', 'remove_attributes must not contain duplicates.');
         seen.add(normalized);
-        return normalized;
-      });
+        translated.remove_attributes.push(normalized);
+      }
       if (hasAttributes && translated.remove_attributes.some((key) => Object.hasOwn(translated.attributes, key))) {
         fail('INVALID_MECHANIC_EFFECT_INTENT', 'An attribute cannot be patched and removed in the same effect.');
       }
