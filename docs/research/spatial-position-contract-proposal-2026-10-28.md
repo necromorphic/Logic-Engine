@@ -251,6 +251,7 @@ No tests were run as part of recording this decision. ST-01–ST-16 remain NOT T
   - `applyEntityEffects` applies `entity.create` / `entity.upsert` / `entity.update` / `entity.delete` using generic attributes. It does not establish a typed position contract, coordinate-frame validation, or entity-incarnation token.
   - The entity primary key is `(world_id, entity_id)`; the inspected table shape does not independently distinguish two incarnations that reuse the same ID. `docs/21-stage1-causality-contract.md`, current `main` blob `0eba61944a8569c1092c567ee1c555e3fe4ed3f5`, explicitly says identity reuse/resurrection and version-based preconditions remain deferred. `entity.create` rejects an identity already present in the projection, including a destroyed tombstone, but the legacy `entity.upsert` is a full replacement for compatibility. Neither fact provides a general incarnation token.
   - `readSnapshot(id, request)` reads the world, cursor, and selected entity/fact/event rows in one SQLite read view. Its entity result includes generic attributes and revision metadata. Its selected event projection includes identity, validity, causal metadata, and commit/time metadata, but not `effects_json`; it is not itself a typed spatial-event reader.
+  - `events(id, includeInvalid)` returns event effects and `game_time_coordinate`, but it is a separate query path, not part of the same `readSnapshot` transaction/result. Combining `getSnapshot()` and `getEvents()` does not by itself prove that the two outputs describe the same coherent snapshot.
   - `entityProjectionAtCursor(worldId, beforeSequence, invalidEventIds)` replays valid event `effects_json` through generic entity-effect application. It uses a sequence boundary and does not itself define spatial semantics or a TimeEngine mapping.
 - `src/time/model.js`, current `main` blob `10fd5a0488cb4300634433df52983399b36afef0`, and `docs/60-time-coordinate-runtime-slice.md`, current `main` blob `ab7f8cf09cd35ae5f74b41c5063c3d8bc5ad68b2`:
   - Core has a canonical integer-millisecond game-time coordinate and event time-coordinate support.
@@ -269,6 +270,7 @@ No tests were run as part of recording this decision. ST-01–ST-16 remain NOT T
 3. The current entity storage/effect path does not, in the inspected definitions, enforce the coordinator-approved spatial v1 semantics.
 4. The current schema/effect shape does not prove an entity-incarnation distinction for delete/recreate with reused IDs; the documented identity reuse/resurrection guarantee is deferred.
 5. Canonical game time exists, but it is not a substitute for spatial evidence.
+6. The full event-effects read and the coherent snapshot read are separate paths; no combined typed spatial read is established by the reviewed interface.
 
 **Not established:**
 - That any existing entity actually has a position stored under a particular attribute name.
@@ -276,6 +278,7 @@ No tests were run as part of recording this decision. ST-01–ST-16 remain NOT T
 - That generic attribute changes are spatial transitions or have sufficient provenance to serve as a committed spatial source.
 - That delete/recreate identity can be distinguished reliably from current canonical data.
 - That a historical spatial value can be tied to an exact TimeEngine boundary.
+- That separate `getSnapshot()` and `getEvents()` results can be combined without an additional proven consistency check.
 - That a cached or persistent spatial projection can be kept correct under rollback/rebuild.
 
 A field containing numbers that look like coordinates is not sufficient evidence. No attribute-name convention, sample payload, model output, or event-type string may promote it to a supported position.
@@ -286,7 +289,7 @@ Continue **read-only, documentation/test-design work** against existing code pat
 
 1. Trace the canonical entity effect validation and commit path to identify the exact accepted payloads and determine whether any existing committed source carries an explicitly defined position meaning. Do not add fields or reinterpret generic attributes.
 2. Trace entity delete/recreate and rollback/rebuild behavior to establish what identity and provenance survive in current state and valid event history.
-3. Trace event time-coordinate assignment and snapshot/event read boundaries to determine what exact temporal evidence is already available without a new API.
+3. Trace event time-coordinate assignment and snapshot/event read boundaries to determine what exact temporal evidence is already available without a new API. Current finding: event history includes `game_time_coordinate` and effects, but the full event list and coherent snapshot are separate reads; do not treat their combination as atomic.
 4. Record concrete source paths, blob SHAs, and existing tests for each finding. If no typed position source is found, close this audit as **NO EXISTING TYPED SOURCE FOUND** and keep current position results unsupported.
 
 No runtime, schema, API, event, adapter, cache, or persistent-projection change is permitted by this audit. No tests were run for this source review. ST-01–ST-16 remain NOT TESTED / NOT PASSED. Memory → NPC remains `DISABLED / FAIL-CLOSED`.
