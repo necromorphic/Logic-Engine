@@ -47,10 +47,24 @@ jobs:
             }
             $root = Join-Path $env:RUNNER_TEMP ('accepted-head-acl-smoke-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $root | Out-Null
-            $db = Join-Path $root 'accepted-head.sqlite'
+            $authorityDir = Join-Path $root 'authority'
+            $coreDir = Join-Path $root 'core'
+            $providerDir = Join-Path $root 'provider'
+            $coordinatorDir = Join-Path $root 'coordinator'
+            $backupRoot = Join-Path $root 'backups'
+            foreach ($dir in @($authorityDir, $coreDir, $providerDir, $coordinatorDir, $backupRoot)) {
+              New-Item -ItemType Directory -Path $dir | Out-Null
+            }
+            $db = Join-Path $authorityDir 'accepted-head.sqlite'
+            $coreDb = Join-Path $coreDir 'core.sqlite'
+            $providerDb = Join-Path $providerDir 'provider.sqlite'
+            $coordinatorDb = Join-Path $coordinatorDir 'coordinator.sqlite'
             $evidence = Join-Path $env:RUNNER_TEMP ('accepted-head-acl-evidence-' + [guid]::NewGuid().ToString('N') + '.json')
             Set-Content -LiteralPath $db -Value 'temporary non-sensitive ACL fixture'
-            & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -EvidencePath $evidence -Apply -Confirm:$false
+            Set-Content -LiteralPath $coreDb -Value 'temporary Core fixture'
+            Set-Content -LiteralPath $providerDb -Value 'temporary Provider fixture'
+            Set-Content -LiteralPath $coordinatorDb -Value 'temporary coordinator fixture'
+            & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $evidence -Apply -Confirm:$false
             $report = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
             if ($report.status -ne 'APPLIED_AND_ACL_SHAPE_VERIFIED') {
               throw "Unexpected ACL smoke status: $($report.status)"
