@@ -166,7 +166,7 @@ test('Core digest proxy sends only allowlisted digests to a fixed configured end
   assert.equal(response.statusCode, 201);
   assert.deepEqual(response.body, { ok: true, inventory_status: 'NON_READY' });
   assert.equal(calls.length, 1);
-  assert.equal(calls[0].url, 'http://192.168.1.10:8787/v1/host-version-ledger/capture');
+  assert.equal(String(calls[0].url), 'http://192.168.1.10:8787/v1/host-version-ledger/capture');
   assert.equal(calls[0].options.method, 'POST');
   assert.equal(calls[0].options.redirect, 'error');
   assert.equal(calls[0].options.headers.authorization, 'Bearer ' + env.LOGIC_ENGINE_API_TOKEN);
