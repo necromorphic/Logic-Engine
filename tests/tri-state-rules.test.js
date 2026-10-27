@@ -104,3 +104,37 @@ test('result API preserves the existing validation errors for malformed rules', 
     (error) => error.code === 'UNSUPPORTED_RULE_OPERATOR',
   );
 });
+
+test('rule path resolution rejects accessors without executing them', () => {
+  let getterCalls = 0;
+  const actor = {};
+  Object.defineProperty(actor, 'secret', {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return 'classified';
+    },
+  });
+  const context = { actor };
+
+  assert.throws(
+    () => evaluateCondition({ op: 'eq', path: 'actor.secret', value: 'classified' }, context),
+    (error) => error.code === 'RULE_TYPE_MISMATCH',
+  );
+  assert.throws(
+    () => evaluateConditionResult({ op: 'exists', path: 'actor.secret' }, context),
+    (error) => error.code === 'RULE_TYPE_MISMATCH',
+  );
+  assert.equal(getterCalls, 0);
+});
+
+test('rule path resolution still supports ordinary own data properties', () => {
+  assert.equal(evaluateCondition(
+    { op: 'eq', path: 'actor.location', value: 'office' },
+    { actor: { location: 'office' } },
+  ), true);
+  assert.deepEqual(evaluateConditionResult(
+    { op: 'eq', path: 'actor.location', value: 'office' },
+    { actor: { location: 'office' } },
+  ), { status: 'true', unknown_paths: [] });
+});
