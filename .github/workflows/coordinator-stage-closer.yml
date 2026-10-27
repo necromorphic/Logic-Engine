@@ -1,0 +1,25 @@
+name: Coordinator stage-closer tests
+
+on:
+  pull_request:
+    paths:
+      - "scripts/coordinator-stage-closer.py"
+      - "scripts/local-coordinator.py"
+      - "tests/test_coordinator_stage_closer.py"
+      - "docs/local-coordinator-pc.md"
+      - ".github/workflows/coordinator-stage-closer.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  stage-closer-tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: "3.11"
+      - name: Run evidence-gate unit tests
+        run: python -m unittest tests.test_coordinator_stage_closer
