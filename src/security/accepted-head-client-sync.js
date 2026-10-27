@@ -153,16 +153,25 @@ export function getAcceptedHeadStatusSync({ port, token, timeoutMs = 1500 }) {
   }, timeoutMs);
   const heads = response?.heads;
   const pending = response?.pending;
+  const operations = response?.operations;
   const enrolled = response?.enrolled;
+  const validOperation = (operation) => operation === null
+    || (operation && typeof operation.operation_id === 'string'
+      && Number.isSafeInteger(operation.head) && operation.head > 0
+      && validDigest(operation.operation_digest)
+      && ['enroll', 'mutation'].includes(operation.operation_kind));
   if (response?.ok !== true || !Number.isSafeInteger(heads?.core) || heads.core < 0
     || !Number.isSafeInteger(heads?.provider) || heads.provider < 0
     || typeof pending?.core !== 'boolean' || typeof pending?.provider !== 'boolean'
+    || !operations || !validOperation(operations.core) || !validOperation(operations.provider)
+    || pending.core !== (operations.core !== null) || pending.provider !== (operations.provider !== null)
     || typeof enrolled?.core !== 'boolean' || typeof enrolled?.provider !== 'boolean') {
     throw new Error('ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE');
   }
   return Object.freeze({
     heads: Object.freeze({ core: heads.core, provider: heads.provider }),
     pending: Object.freeze({ core: pending.core, provider: pending.provider }),
+    operations: Object.freeze({ core: operations.core, provider: operations.provider }),
     enrolled: Object.freeze({ core: enrolled.core, provider: enrolled.provider }),
   });
 }
