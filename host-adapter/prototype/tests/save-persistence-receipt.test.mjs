@@ -429,3 +429,58 @@ test('preflight blocks a save before mutation when Core retains a newer version 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test('enrolled save is blocked before mutation when external Core anchoring is not configured', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'host-core-config-required-'));
+  const directories = {
+    chats: path.join(root, 'chats'),
+    groups: path.join(root, 'groups'),
+    groupChats: path.join(root, 'group_chats'),
+    backups: path.join(root, 'backups'),
+  };
+  const chatDirectory = path.join(directories.chats, 'avatar');
+  await Promise.all([...Object.values(directories), chatDirectory].map(directory =>
+    mkdir(directory, { recursive: true })));
+  const conversationUuid = randomUUID();
+  const conversationId = randomUUID() + ':' + conversationUuid;
+  const messageId = randomUUID();
+  const versionId = randomUUID();
+  const header = { chat_metadata: { logic_engine_conversation_id: conversationUuid } };
+  const current = message({ messageId, versions: [{ versionId, text: 'unchanged' }], activeVersionIndex: 0 });
+  const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
+  const original = [JSON.stringify(header), JSON.stringify(current)].join('\\n') + '\\n';
+  await writeFile(chatPath, original);
+  const request = {
+    method: 'POST', baseUrl: '/api/chats', path: '/save', originalUrl: '/api/chats/save',
+    body: { avatar_url: 'avatar.png', file_name: 'chat-a', chat: [header, current] },
+    user: { profile: { handle: 'core-config-required-test' }, directories },
+  };
+  const envKeys = ['LOGIC_ENGINE_CORE_URL', 'LOGIC_ENGINE_API_TOKEN', 'LOGIC_ENGINE_ADAPTER_ID', 'LOGIC_ENGINE_ADAPTER_TOKEN'];
+  const priorEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  for (const key of envKeys) delete process.env[key];
+  try {
+    await registerHostConversation(request, {
+      conversationId, sourceLocator: 'chat-a', sourcePath: 'avatar/chat-a.jsonl', domain: 'chats',
+    });
+    const response = responseMock();
+    let nextCalled = false;
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
+      nextCalled = true;
+      response.json({ ok: true });
+    });
+    await response.finished;
+    assert.equal(nextCalled, false);
+    assert.equal(response.statusCode, 503);
+    assert.match(response.body, /CORE_HOST_INVENTORY_CONFIGURATION_MISSING/);
+    assert.equal(await readFile(chatPath, 'utf8'), original);
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of envKeys) {
+      if (priorEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = priorEnv[key];
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
