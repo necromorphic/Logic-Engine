@@ -40,7 +40,7 @@ export function verifyDispatchRequestSignature(secret, request, signature) {
 }
 
 export const SUPPORTED_PROTECTED_MEMORY_ROUTES = Object.freeze([
-  'google-ai-studio-chat-completions',
+  'host-managed-chat-completions',
 ]);
 
 const validText = (value, max = 200) => typeof value === 'string'
@@ -198,8 +198,9 @@ function assertSyncResult(value) {
  *
  * The caller must provide trusted synchronous Core/Provider readers that open
  * their databases read-only and validate the exact current source/grant state.
- * The module intentionally has no fallback reader or transport. Only the
- * explicitly allowlisted Google AI Studio chat route is supported.
+ * The module intentionally has no fallback reader or transport. Only the explicitly allowlisted Host-owned route is supported. This module
+ * does not implement or select any external model-provider API; sendUpstream
+ * must be an existing trusted Host transport supplied by the integration.
  */
 export class MemoryDispatchGateway {
   constructor({
@@ -281,6 +282,12 @@ export class MemoryDispatchGateway {
           'started_at', 'finished_at',
         ];
         if (required.some((column) => !columns.has(column))) throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
+        const ledgerSql = this.db.prepare(
+          "SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_ledger'",
+        ).get()?.sql ?? '';
+        if (!/CHECK\s*\(\s*route\s*=\s*'host-managed-chat-completions'\s*\)/i.test(ledgerSql)) {
+          throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPATIBLE');
+        }
       }
       // A durable STARTED row left by a process crash has an ambiguous outcome.
       // Never retry it automatically; persist UNKNOWN before accepting new work.
