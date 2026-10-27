@@ -1,0 +1,39 @@
+name: Stage 2 accepted-head read-gate targeted tests
+
+on:
+  push:
+    branches:
+      - work/provider-accepted-head-read-gate-2026-10-27
+      - work/core-accepted-head-read-gate-2026-10-27
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stage2-read-gates-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  provider-read-gate:
+    if: github.ref_name == 'work/provider-accepted-head-read-gate-2026-10-27'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.13.0'
+      - name: Test Provider accepted-head read gate
+        run: node --test tests/provider-accepted-head-handshake.test.js
+
+  core-read-gate:
+    if: github.ref_name == 'work/core-accepted-head-read-gate-2026-10-27'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.13.0'
+      - name: Test Core accepted-head read gate
+        run: node --test tests/core-accepted-head-handshake.test.js
