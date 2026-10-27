@@ -24,7 +24,7 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,131 @@
+@@ -1583,23 +1593,135 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -136,7 +136,12 @@ diff --git a/public/script.js b/public/script.js
 +}
 +
  export async function clearChat({ clearData = false } = {}) {
-+    await window.logicEngineHostLifecycle?.guardOperation('clear-chat', []);
++    const lifecycleLocator = getCurrentChatId();
++    if (window.logicEngineHostLifecycle?.guardOperation) {
++        await window.logicEngineHostLifecycle.guardOperation('clear-chat', []);
++    } else if (localStorage.getItem('logic-engine-host-lifecycle-locator:' + lifecycleLocator)) {
++        throw Error('NON_READY: Host lifecycle guard unavailable for enrolled chat; clear-chat refused');
++    }
      cancelDebouncedChatSave();
      cancelDebouncedMetadataSave();
      closeMessageEditor();
