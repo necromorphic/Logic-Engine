@@ -7,7 +7,7 @@ Status: Host source audit against the supplied pinned-source archive. This is so
 - Claimed target revision from the archive's first line: `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
 - Claimed target version from the Host prototype: `1.19.0-1-g06bde939f`.
 - SHA-256 of the supplied `SillyTavern-release.zip`: `43c60a0fe9bf52ab42a063796c74a9243b1a7a1cfcedd0b3a0b094cbf9fa50c2`.
-- The archive root identifies the target commit, but the archive checksum only identifies the supplied bytes. It does not independently authenticate that the archive was fetched from the upstream Git repository at that commit. A verified upstream commit/tree comparison remains necessary for provenance.
+- Upstream comparison performed on 27 Oct 2026: GitHub's commit API reports the pinned commit signature as verified (`verification.verified=true`, reason `valid`), with tree SHA `9218207b1e3bfe78224afe10e71ece3b8e79f572`. Git blob SHA-1 values computed from the supplied archive match the pinned upstream tree for the three central files inspected: `public/script.js` = `777a2d5983a6283ef9b26726e75192da1e3f3cea`; `public/scripts/bookmarks.js` = `713b106de27018c999422578d192c3fcc9e9ff91`; `public/scripts/group-chats.js` = `7b82ca84132f2e04ab41ee8ee26a1bf7c1796a1f`. This establishes matching bytes for those files against the verified pinned tree. It is not a full-tree comparison of every archive entry, and the ZIP SHA-256 identifies the supplied archive bytes.
 
 ## Source-confirmed identity semantics
 
@@ -57,4 +57,9 @@ The current Host candidate correctly reports lifecycle completeness, source auth
 2. **Completeness:** not proven; the current getter is not an authoritative global inventory API.
 3. **Safe runtime status:** fail closed whenever a required source path or identity/lineage fact is missing or unverifiable. Do not convert a local fingerprint match into a trust or readiness decision.
 4. **Production:** keep Memory→NPC `DISABLED / FAIL-CLOSED`; Host capture/reconciliation remains `NON_READY`.
-5. **Next evidence needed:** independently verify the archive against the upstream Git tree at the pinned commit; document the exact supported mutation/file-lifecycle coverage; obtain owner approval for how unsupported import/copy/restore/external-edit paths are rejected or remain unavailable. A device experiment is separate and is not claimed here.
+5. **Next evidence needed:** complete the archive-wide comparison if the ZIP is to be treated as an exact source snapshot; document the exact supported mutation/file-lifecycle coverage; obtain owner approval for how unsupported import/copy/restore/external-edit paths are rejected or remain unavailable. A device experiment is separate and is not claimed here.
+
+
+## Upstream pin comparison (27 Oct 2026)
+
+The upstream GitHub commit API returned `verification.verified=true` and `verification.reason=valid` for the pinned commit. The tree identifies the same Git blob IDs as the supplied archive for the three source files that directly support this audit's locator, branch, and group-import conclusions. This reduces provenance uncertainty for the audited files, but does not certify every archive entry or prove any runtime lifecycle guarantee. Repository CI is tracked separately against the Logic-Engine PR's exact HEAD.
