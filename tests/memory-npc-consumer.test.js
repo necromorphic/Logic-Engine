@@ -903,7 +903,8 @@ test('malformed Memory snapshot cursor values are non-ready, including matching 
 });
 
 
-test('real SQLiteMemoryProvider is consumed through the existing Core MemoryNpcConsumer seam', async (t) => {
+
+test('real SQLiteMemoryProvider revalidates a revoked earlier candidate while a later candidate is awaited', async (t) => {
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const bindings = new ActorBindingService(engine);
@@ -932,6 +933,12 @@ test('real SQLiteMemoryProvider is consumed through the existing Core MemoryNpcC
     bindings,
     (_context, _entity, field) => field === 'entity_id' || field === 'attributes.public_note',
   );
+
+  let holdSecondValidation = false;
+  let signalSecondValidation;
+  let releaseSecondValidation;
+  const secondValidationEntered = new Promise((resolve) => { signalSecondValidation = resolve; });
+  const secondValidationRelease = new Promise((resolve) => { releaseSecondValidation = resolve; });
   const provider = new SQLiteMemoryProvider({
     path: ':memory:',
     getSnapshot: async () => {
@@ -941,8 +948,14 @@ test('real SQLiteMemoryProvider is consumed through the existing Core MemoryNpcC
         commit_sequence: snapshot.commit_sequence,
       };
     },
-    validateSourceVersion: async (record) => record.source_entity_id === 'source-real'
-      && record.source_version === 'source-real-v1',
+    validateSourceVersion: async (record) => {
+      if (holdSecondValidation && record.record_ref === 'memory:real-provider-2') {
+        signalSecondValidation();
+        await secondValidationRelease;
+      }
+      return record.source_entity_id === 'source-real'
+        && record.source_version === 'source-real-v1';
+    },
     validateInventory: async () => true,
   });
   t.after(() => {
@@ -969,10 +982,17 @@ test('real SQLiteMemoryProvider is consumed through the existing Core MemoryNpcC
       source_version: 'source-real-v1',
     }],
   };
+  const secondRecord = {
+    ...record,
+    record_ref: 'memory:real-provider-2',
+    record_version: 'record-v2',
+  };
   provider.grantQuery(scope, true);
-  provider.grantRecord(scope, record.record_ref, record.record_version, true);
-  assert.equal(provider.putRecord(record).status, 'stored');
-  assert.deepEqual(await provider.rebuildIndex(scope.world_id), { status: 'rebuilt', count: 1 });
+  for (const item of [record, secondRecord]) {
+    provider.grantRecord(scope, item.record_ref, item.record_version, true);
+    assert.equal(provider.putRecord(item).status, 'stored');
+  }
+  assert.deepEqual(await provider.rebuildIndex(scope.world_id), { status: 'rebuilt', count: 2 });
   assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
 
   const consumer = new MemoryNpcConsumer({
@@ -981,38 +1001,47 @@ test('real SQLiteMemoryProvider is consumed through the existing Core MemoryNpcC
     memoryProvider: provider,
     contentFields: ['attributes.public_note'],
   });
-  const result = await consumer.retrieveForNpc({
+  const retrieve = () => consumer.retrieveForNpc({
     worldId: scope.world_id,
     adapterId: 'adapter-real',
     actorEntityId: scope.subject_id,
   });
 
-  assert.equal(result.status, 'ready', JSON.stringify(result));
-  assert.equal(result.candidates.length, 1);
-  assert.equal(result.candidates[0].record_ref, record.record_ref);
-  assert.equal(result.candidates[0].record_version, record.record_version);
-  assert.deepEqual(result.candidates[0].content, {
+  const initial = await retrieve();
+  assert.equal(initial.status, 'ready', JSON.stringify(initial));
+  assert.deepEqual(initial.candidates.map((item) => item.record_ref), [
+    record.record_ref, secondRecord.record_ref,
+  ]);
+  assert.deepEqual(initial.candidates[0].content, {
     'attributes.public_note': 'read from canonical Core state',
   });
-  assert.equal(JSON.stringify(result).includes('never expose this field'), false);
+  assert.equal(JSON.stringify(initial).includes('never expose this field'), false);
 
+  // Pause the later candidate's real Provider source validator after the earlier
+  // candidate was authorized. Revoke the earlier candidate before releasing it.
+  holdSecondValidation = true;
+  const inFlight = retrieve();
+  await secondValidationEntered;
   provider.revokeRecord(scope, record.record_ref, record.record_version);
-  const deniedAfterRevoke = await consumer.retrieveForNpc({
-    worldId: scope.world_id,
-    adapterId: 'adapter-real',
-    actorEntityId: scope.subject_id,
-  });
-  assert.equal(deniedAfterRevoke.status, 'non_ready');
-  assert.deepEqual(deniedAfterRevoke.candidates, []);
-  assert.equal(deniedAfterRevoke.reason, 'memory_retrieval_unavailable');
+  releaseSecondValidation();
+  const afterRace = await inFlight;
 
+  assert.equal(afterRace.status, 'ready', JSON.stringify(afterRace));
+  assert.deepEqual(afterRace.candidates.map((item) => item.record_ref), [secondRecord.record_ref]);
+  assert.equal(afterRace.candidates.some((item) => item.record_ref === record.record_ref), false);
+
+  provider.revokeRecord(scope, secondRecord.record_ref, secondRecord.record_version);
+  const allRevoked = await retrieve();
+  assert.equal(allRevoked.status, 'non_ready');
+  assert.deepEqual(allRevoked.candidates, []);
+
+  // Re-grants are explicit new authorization; only a fresh retrieval may use them.
   provider.grantRecord(scope, record.record_ref, record.record_version, true);
-  const afterExplicitRegrant = await consumer.retrieveForNpc({
-    worldId: scope.world_id,
-    adapterId: 'adapter-real',
-    actorEntityId: scope.subject_id,
-  });
+  provider.grantRecord(scope, secondRecord.record_ref, secondRecord.record_version, true);
+  holdSecondValidation = false;
+  const afterExplicitRegrant = await retrieve();
   assert.equal(afterExplicitRegrant.status, 'ready', JSON.stringify(afterExplicitRegrant));
-  assert.equal(afterExplicitRegrant.candidates.length, 1);
-  assert.equal(afterExplicitRegrant.candidates[0].record_ref, record.record_ref);
+  assert.deepEqual(afterExplicitRegrant.candidates.map((item) => item.record_ref), [
+    record.record_ref, secondRecord.record_ref,
+  ]);
 });
