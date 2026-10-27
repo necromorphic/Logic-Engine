@@ -290,12 +290,14 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
   let upstreamCalls = 0;
   let observedUrl;
   let observedBody;
+  let observedHeaders;
   const transport = createGoogleAiStudioTransport({
     apiKey,
     fetchImpl: async (url, options) => {
       upstreamCalls += 1;
       observedUrl = String(url);
       observedBody = options.body;
+      observedHeaders = options.headers;
       return new Response('{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}', {
         status: 200,
         headers: { 'content-type': 'application/json' },
