@@ -13,7 +13,6 @@ import {
 } from '../src/security/accepted-head-client-sync.js';
 import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
 import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
-import { createGoogleAiStudioTransport } from '../src/security/memory-dispatch-google-transport.js';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
@@ -104,10 +103,10 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       sources,
       candidates: providerCandidatesOverride ?? candidates,
     }),
-    sendUpstream: async (request) => {
+    sendUpstream: (request) => {
       calls.push(request);
       if (sendUpstream) return sendUpstream(request);
-      return { status: 200, body: 'accepted' };
+      return { started: true, response: Promise.resolve({ status: 200, body: 'accepted' }) };
     },
   });
   gateway = makeGateway();
@@ -137,10 +136,12 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
 
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
-  route: 'google-ai-studio-chat-completions',
-  model: 'gemini-2.5-flash-lite',
+  route: 'host-managed-chat-completions',
+  model: 'host-owned-model-id',
   stream: false,
   body: JSON.stringify({ messages: [{ role: 'user', content: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' }] }),
+  adapterId: 'adapter-1',
+  conversationId: 'conversation-1',
   worldId: 'world-1',
   actorId: 'npc-1',
   purpose: 'recall',
@@ -247,7 +248,7 @@ test('dispatch validates current heads and grants, records one content-free star
       const row = db.prepare('SELECT status,request_digest,model,sources_json FROM dispatch_ledger WHERE request_id=?')
         .get('request-001');
       assert.equal(row.status, 'COMPLETED');
-      assert.equal(row.model, 'gemini-2.5-flash-lite');
+      assert.equal(row.model, 'host-owned-model-id');
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
@@ -305,9 +306,9 @@ test('unsupported route, denied Provider grant, and pending authority all produc
 test('ambiguous transport outcome is recorded UNKNOWN and the request identity cannot be replayed', async () => {
   let sends = 0;
   const fixture = await createFixture({
-    sendUpstream: async () => {
+    sendUpstream: () => {
       sends += 1;
-      throw new Error('simulated timeout after dispatch start');
+      return { started: true, response: Promise.reject(new Error('simulated timeout after dispatch start')) };
     },
   });
   try {
@@ -323,7 +324,7 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
         .get('ambiguous-request');
       assert.equal(row.status, 'UNKNOWN');
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
-      assert.equal(row.route, 'google-ai-studio-chat-completions');
+      assert.equal(row.route, 'host-managed-chat-completions');
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
       db.close();
@@ -343,27 +344,26 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
   }
 });
 
-test('loopback Gateway endpoint requires Host authentication and a body-bound signature before Google egress', async () => {
-  const apiKey = 'google-ai-studio-test-key-not-real';
+test('loopback Gateway endpoint authenticates Host and delegates only to the injected Host-owned transport', async () => {
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
   const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
   let upstreamCalls = 0;
-  let observedUrl;
+  let observedRoute;
+  let observedModel;
   let observedBody;
-  let observedHeaders;
-  const transport = createGoogleAiStudioTransport({
-    apiKey,
-    fetchImpl: async (url, options) => {
-      upstreamCalls += 1;
-      observedUrl = String(url);
-      observedBody = options.body;
-      observedHeaders = options.headers;
-      return new Response('{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}', {
+  const transport = ({ route, model, body, forwardResponse }) => {
+    upstreamCalls += 1;
+    observedRoute = route;
+    observedModel = model;
+    observedBody = body;
+    return {
+      started: true,
+      response: forwardResponse(new Response('{"result":"host-owned-test-transport"}', {
         status: 200,
         headers: { 'content-type': 'application/json' },
-      });
-    },
-  });
+      })).then(() => ({ status: 200 })),
+    };
+  };
   const fixture = await createFixture({ sendUpstream: transport });
   const server = await createMemoryDispatchGatewayServer({
     gateway: fixture.gateway,
@@ -382,6 +382,8 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       model: request.model,
       stream: request.stream,
       body: request.body,
+      adapter_id: request.adapterId,
+      conversation_id: request.conversationId,
       world_id: request.worldId,
       actor_id: request.actorId,
       purpose: request.purpose,
@@ -412,15 +414,11 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       body: JSON.stringify(payload),
     });
     assert.equal(response.status, 200);
-    assert.match(await response.text(), /"candidates"/);
+    assert.match(await response.text(), /host-owned-test-transport/);
     assert.equal(upstreamCalls, 1);
     assert.equal(observedBody, request.body);
-    const upstreamUrl = new URL(observedUrl);
-    assert.equal(upstreamUrl.hostname, 'generativelanguage.googleapis.com');
-    assert.equal(upstreamUrl.pathname, '/v1beta/models/gemini-2.5-flash-lite:generateContent');
-    assert.equal(upstreamUrl.searchParams.has('key'), false);
-    const apiKeyHeader = 'x-goog-' + 'api-key';
-    assert.equal(observedHeaders[apiKeyHeader], apiKey);
+    assert.equal(observedRoute, 'host-managed-chat-completions');
+    assert.equal(observedModel, 'host-owned-model-id');
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await fixture.close();
@@ -466,6 +464,42 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
   }
 });
 
+test('gateway rejects an async transport callback before invoking any transport code', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-dispatch-async-transport-reject-'));
+  try {
+    assert.throws(() => new MemoryDispatchGateway({
+      ledgerPath: join(directory, 'ledger.sqlite'),
+      coordinatorPath: join(directory, 'coordinator.sqlite'),
+      authorityPort: 1,
+      readToken,
+      readCoreEvidence: () => ({}),
+      readProviderEvidence: () => ({}),
+      sendUpstream: async () => ({ status: 200 }),
+    }), /synchronous transport-start callback/);
+    assert.equal(existsSync(join(directory, 'ledger.sqlite')), false);
+  } finally {
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('transport initiation occurs synchronously before dispatch returns control to the caller', async () => {
+  const order = [];
+  const fixture = await createFixture({
+    sendUpstream: () => {
+      order.push('transport-start');
+      return { started: true, response: Promise.resolve({ status: 200 }) };
+    },
+  });
+  try {
+    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('sync-start-order'));
+    order.push('caller-resumed');
+    assert.deepEqual(order, ['transport-start', 'caller-resumed']);
+    await pending;
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('existing dispatch ledger with missing schema fails closed without auto-repair', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-dispatch-ledger-schema-'));
   const ledgerPath = join(directory, 'ledger.sqlite');
@@ -480,7 +514,7 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
-      sendUpstream: async () => ({ status: 200 }),
+      sendUpstream: () => ({ started: true, response: Promise.resolve({ status: 200 }) }),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {

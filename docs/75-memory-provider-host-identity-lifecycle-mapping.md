@@ -593,3 +593,33 @@ The Host report at [#258 comment 6409724737](https://github.com/necromorphic/Log
 Before any cross-block runtime diff, all four owners must comment on the same Core proposal with one of: `ACCEPT`, `REJECT` with a concrete conflict, or `UNSUPPORTED` with exact missing runtime evidence. The coordinator then authorizes only the smallest explicitly listed diff. If the proposal requires a new authority or data shape, stop for a separate decision rather than silently implementing it.
 
 A production release gate additionally requires an actual callable Provider/Core/NPC composition and a real test that pauses after candidate assembly, mutates/revokes the source, resumes, and proves no protected data leaves through each enabled outbound route. Untested routes stay disabled. Sequential validation is not atomicity. Production Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+## 14. Core-side protected-dispatch evidence contract (2026-10-27)
+
+Implementation evidence is in draft [PR #500](https://github.com/necromorphic/Logic-Engine/pull/500), exact head `f25717adf4026cc3c6ba2c9e8764bbae209a3162`. Runtime CI [#40513997226](https://github.com/necromorphic/Logic-Engine/actions/runs/40513997226) passed `npm test` **827/827**, recalculation oracle **8/8**, and NPC boundary **81/81**. This validates the exact tested tree, not a merged or deployed runtime.
+
+### Stable signed Host handoff fields
+
+The signed request binds: `request_id`, `route`, opaque `model` identifier, `stream`, exact request-body digest, `adapter_id`, stable `conversation_id`, `world_id`, `actor_id`, `purpose`, normalized canonical source/version set, and exact candidate `record_ref + record_version + source_kind + source_entity_id + source_version` set. The same adapter/conversation identity is persisted in the content-free dispatch ledger. The Host must derive these identity fields from trusted server-side context; browser-supplied values are not authority.
+
+The only route label in this contract is `host-managed-chat-completions`. Core does not select or implement an external model-provider API. The injected transport callback must be a synchronous start function returning `{ started: true, response: Promise }`; it initiates the already-existing trusted Host transport while the shared coordinator lock is held, then the gateway awaits only the response after releasing the lock. Async transport-start callbacks are rejected. If the transport outcome is ambiguous, the ledger becomes `UNKNOWN`; no automatic retry is allowed.
+
+### Real read-only evidence readers
+
+`src/security/memory-dispatch-sqlite-evidence.js` opens the existing Core and Provider SQLite stores read-only and derives evidence from persisted rows:
+
+- **Core:** enrolled local accepted head; active world; exact active Host conversation→world binding; active adapter→actor binding; actor eligibility; every source entity's exact durable `core-entity-v1:N` source-version token.
+- **Provider:** enrolled local accepted head; query grant; exact record reference/version and scope; record grant; usable disposition; direct one-source lineage matching the candidate; indexed record; ready/current index state.
+- Missing tables, malformed lineage, stale source versions, revoked bindings/grants, unavailable reads, and head/enrollment mismatches return non-ready evidence. The dispatch gateway requires exact Core/Provider head equality with the external accepted-head authority before recording dispatch-start.
+
+**Deliberate hard stop:** Core evidence returns `inventory_status: NOT_READY`. The current repository and pinned SillyTavern source do not prove a complete historical/deleted-message inventory or missed-change/rollback detector. The integrated test confirms the real reader path refuses dispatch and performs **zero transport calls** while this condition remains unproven.
+
+### Remaining gates
+
+- Complete Host inventory and anti-rollback/missed-event detection are not implemented.
+- The actual pinned SillyTavern final-send path is not wired to this gateway; server-side prompt assembly/signing is not yet proven against the second coordinator's code.
+- Windows authority service identity, SQLite DB/WAL/SHM ACLs, backup/restore isolation, and restore-resistant anti-rollback need deployment tests.
+- The in-flight dispatch/revocation policy still requires the project Product/Security decision recorded in issue #356; the current code chooses the stricter transport-start-under-lock ordering but does not authorize production activation.
+
+Memory→NPC remains **DISABLED / FAIL-CLOSED**. No raw Host text is captured, no provider-specific API client is included, and no production request can pass the real reader path while Host inventory remains `NOT_READY`.

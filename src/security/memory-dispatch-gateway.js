@@ -4,6 +4,7 @@ import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, isAbsolute, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
 import { getAcceptedHeadStatusSync } from './accepted-head-client-sync.js';
+import { createSqliteMemoryDispatchEvidenceReaders } from './memory-dispatch-sqlite-evidence.js';
 
 export function createDispatchRequestSignature(secret, request) {
   if (typeof secret !== 'string' || secret.length < 32
@@ -21,6 +22,8 @@ export function createDispatchRequestSignature(secret, request) {
     model: request.model,
     stream: request.stream,
     body_digest: bodyDigest,
+    adapter_id: request.adapterId,
+    conversation_id: request.conversationId,
     world_id: request.worldId,
     actor_id: request.actorId,
     purpose: request.purpose,
@@ -40,7 +43,7 @@ export function verifyDispatchRequestSignature(secret, request, signature) {
 }
 
 export const SUPPORTED_PROTECTED_MEMORY_ROUTES = Object.freeze([
-  'google-ai-studio-chat-completions',
+  'host-managed-chat-completions',
 ]);
 
 const validText = (value, max = 200) => typeof value === 'string'
@@ -51,6 +54,7 @@ const validText = (value, max = 200) => typeof value === 'string'
     const code = character.charCodeAt(0);
     return code < 32 || code === 127;
   });
+const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
 function canonicalPath(path) {
   const absolute = resolve(path);
@@ -198,8 +202,9 @@ function assertSyncResult(value) {
  *
  * The caller must provide trusted synchronous Core/Provider readers that open
  * their databases read-only and validate the exact current source/grant state.
- * The module intentionally has no fallback reader or transport. Only the
- * explicitly allowlisted Google AI Studio chat route is supported.
+ * The module intentionally has no fallback reader or transport. Only the explicitly allowlisted Host-owned route is supported. This module
+ * does not implement or select any external model-provider API; sendUpstream
+ * must be an existing trusted Host transport supplied by the integration.
  */
 export class MemoryDispatchGateway {
   constructor({
@@ -209,16 +214,22 @@ export class MemoryDispatchGateway {
     readToken,
     readCoreEvidence,
     readProviderEvidence,
+    coreDatabasePath,
+    providerDatabasePath,
     sendUpstream,
   }) {
+    const injectedReaders = typeof readCoreEvidence === 'function' && typeof readProviderEvidence === 'function';
+    const configuredReaderPaths = typeof coreDatabasePath === 'string' && typeof providerDatabasePath === 'string';
     if (typeof ledgerPath !== 'string' || !isAbsolute(ledgerPath)
       || typeof coordinatorPath !== 'string' || !isAbsolute(coordinatorPath)
       || !Number.isInteger(authorityPort) || authorityPort < 1 || authorityPort > 65535
       || typeof readToken !== 'string' || readToken.length < 32
-      || typeof readCoreEvidence !== 'function'
-      || typeof readProviderEvidence !== 'function'
-      || typeof sendUpstream !== 'function') {
-      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a transport.');
+      || injectedReaders === configuredReaderPaths
+      || (!injectedReaders && (readCoreEvidence !== undefined || readProviderEvidence !== undefined))
+      || (!configuredReaderPaths && (coreDatabasePath !== undefined || providerDatabasePath !== undefined))
+      || typeof sendUpstream !== 'function'
+      || sendUpstream.constructor?.name === 'AsyncFunction') {
+      throw new TypeError('MemoryDispatchGateway requires exactly one pair of trusted Core/Provider readers (injected functions or read-only database paths) and a synchronous transport-start callback returning { started: true, response: Promise }.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
       throw new Error('DISPATCH_LEDGER_COORDINATOR_PATH_ALIAS');
@@ -228,8 +239,11 @@ export class MemoryDispatchGateway {
     this.coordinatorPath = resolve(coordinatorPath);
     this.authorityPort = authorityPort;
     this.readToken = readToken;
-    this.readCoreEvidence = readCoreEvidence;
-    this.readProviderEvidence = readProviderEvidence;
+    this.evidenceReaders = configuredReaderPaths
+      ? createSqliteMemoryDispatchEvidenceReaders({ coreDatabasePath, providerDatabasePath })
+      : null;
+    this.readCoreEvidence = this.evidenceReaders?.readCoreEvidence ?? readCoreEvidence;
+    this.readProviderEvidence = this.evidenceReaders?.readProviderEvidence ?? readProviderEvidence;
     this.sendUpstream = sendUpstream;
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
@@ -245,9 +259,11 @@ export class MemoryDispatchGateway {
           CREATE TABLE dispatch_ledger (
             request_id TEXT PRIMARY KEY,
             request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
-            route TEXT NOT NULL CHECK(route='google-ai-studio-chat-completions'),
+            route TEXT NOT NULL CHECK(route='host-managed-chat-completions'),
             model TEXT NOT NULL,
             stream INTEGER NOT NULL CHECK(stream IN (0,1)),
+            adapter_id TEXT NOT NULL,
+            conversation_id TEXT NOT NULL,
             world_id TEXT NOT NULL,
             actor_id TEXT NOT NULL,
             purpose TEXT NOT NULL,
@@ -276,11 +292,17 @@ export class MemoryDispatchGateway {
         }
         const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
         const required = [
-          'request_id', 'request_digest', 'route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
+          'request_id', 'request_digest', 'route', 'model', 'stream', 'adapter_id', 'conversation_id', 'world_id', 'actor_id', 'purpose',
           'sources_json', 'candidates_json', 'core_head', 'provider_head', 'status', 'outcome_code',
           'started_at', 'finished_at',
         ];
         if (required.some((column) => !columns.has(column))) throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
+        const ledgerSql = this.db.prepare(
+          "SELECT sql FROM sqlite_master WHERE type='table' AND name='dispatch_ledger'",
+        ).get()?.sql ?? '';
+        if (!/CHECK\s*\(\s*route\s*=\s*'host-managed-chat-completions'\s*\)/i.test(ledgerSql)) {
+          throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPATIBLE');
+        }
       }
       // A durable STARTED row left by a process crash has an ambiguous outcome.
       // Never retry it automatically; persist UNKNOWN before accepting new work.
@@ -300,11 +322,12 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, model, stream, body, worldId, actorId, purpose, sources, candidates, forwardResponse, signal }) {
+  async dispatchProtectedRequest({ requestId, route, model, stream, body, adapterId, conversationId, worldId, actorId, purpose, sources, candidates, forwardResponse, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
+      || !validText(adapterId, 200) || !validText(conversationId, 200)
       || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
@@ -315,6 +338,8 @@ export class MemoryDispatchGateway {
       route,
       model,
       stream,
+      adapter_id: adapterId,
+      conversation_id: conversationId,
       body_digest: createHash('sha256').update(body, 'utf8').digest('hex'),
       world_id: worldId,
       actor_id: actorId,
@@ -325,6 +350,7 @@ export class MemoryDispatchGateway {
     let coreHead;
     let providerHead;
     let release = null;
+    let upstreamHandle = null;
 
     try {
       release = beginCoordinatorLock(this.coordinatorDb);
@@ -338,10 +364,10 @@ export class MemoryDispatchGateway {
       }
 
       const core = assertSyncResult(this.readCoreEvidence({
-        worldId, actorId, purpose, sources: sourceSet,
+        adapterId, conversationId, worldId, actorId, purpose, sources: sourceSet,
       }));
       const provider = assertSyncResult(this.readProviderEvidence({
-        worldId, actorId, purpose, sources: sourceSet, candidates: candidateSet,
+        adapterId, conversationId, worldId, actorId, purpose, sources: sourceSet, candidates: candidateSet,
       }));
       if (core.world_id !== worldId || core.actor_id !== actorId
         || core.readiness !== 'READY' || core.inventory_status !== 'READY'
@@ -374,15 +400,17 @@ export class MemoryDispatchGateway {
         if (unresolvedReplay) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
         this.db.prepare(`
           INSERT INTO dispatch_ledger(
-            request_id,request_digest,route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
+            request_id,request_digest,route,model,stream,adapter_id,conversation_id,world_id,actor_id,purpose,sources_json,candidates_json,
             core_head,provider_head,status,outcome_code,started_at,finished_at
-          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
           requestId,
           requestDigest,
           route,
           model,
           stream ? 1 : 0,
+          adapterId,
+          conversationId,
           worldId,
           actorId,
           purpose,
@@ -393,6 +421,22 @@ export class MemoryDispatchGateway {
           new Date().toISOString(),
         );
         this.db.exec('COMMIT');
+        // The trusted Host transport must synchronously initiate its existing
+        // request and return a handle before the shared coordinator is released.
+        // This serializes transport initiation against Core/Provider revocation;
+        // only waiting for the response happens outside the lock.
+        try {
+          upstreamHandle = this.sendUpstream({
+            route, model, stream, body, requestId, requestDigest, forwardResponse, signal,
+          });
+          if (!object(upstreamHandle) || upstreamHandle.started !== true
+            || !upstreamHandle.response || typeof upstreamHandle.response.then !== 'function') {
+            throw new Error('MEMORY_DISPATCH_TRANSPORT_START_UNCONFIRMED');
+          }
+        } catch {
+          try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
+          throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
+        }
       } catch (error) {
         try { this.db.exec('ROLLBACK'); } catch {}
         if (String(error?.message || '').includes('UNIQUE constraint failed')) {
@@ -402,19 +446,20 @@ export class MemoryDispatchGateway {
       }
     } catch (error) {
       if (error?.message === 'MEMORY_DISPATCH_DUPLICATE_ID'
-        || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED') throw error;
+        || error?.message === 'MEMORY_DISPATCH_REPLAY_BLOCKED'
+        || error?.message === 'MEMORY_DISPATCH_OUTCOME_UNKNOWN') throw error;
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     } finally {
       try { release?.(); } catch {}
     }
 
-    // Never hold the shared coordinator while performing upstream network I/O.
-    // Once DISPATCH_STARTED is durable, an ambiguous outcome is never retried.
+    // Transport initiation is complete and serialized; do not hold the lock
+    // while awaiting the response. Any ambiguous outcome remains non-retryable.
     let response;
     try {
-      response = await this.sendUpstream({ route, model, stream, body, requestId, requestDigest, forwardResponse, signal });
+      response = await upstreamHandle.response;
     } catch {
-      this.#recordOutcome(requestId, 'UNKNOWN', null);
+      try { this.#recordOutcome(requestId, 'UNKNOWN', null); } catch {}
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
     }
 
@@ -442,6 +487,8 @@ export class MemoryDispatchGateway {
   }
 
   close() {
-    try { this.db?.close(); } finally { this.coordinatorDb.close(); }
+    try { this.db?.close(); } finally {
+      try { this.evidenceReaders?.close(); } finally { this.coordinatorDb.close(); }
+    }
   }
 }
