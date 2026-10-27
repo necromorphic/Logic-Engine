@@ -333,6 +333,7 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
   try {
     const boundAddress = server.address();
     assert.equal(boundAddress.address, '127.0.0.1');
+    assert.throws(() => server.listen(0, '0.0.0.0'), /MEMORY_GATEWAY_REBIND_DENIED/);
     const url = 'http://127.0.0.1:' + boundAddress.port + '/v1/dispatch';
     const request = validRequest('http-gateway-request');
     const payload = {
