@@ -105,7 +105,7 @@ test('result API preserves the existing validation errors for malformed rules', 
   );
 });
 
-test('JSON equality preserves value types and does not equate non-JSON values with JSON values', () => {
+test('JSON equality is order-independent for objects and order-sensitive for arrays', () => {
   const equal = (contextValue, ruleValue) => evaluateCondition(
     { op: 'eq', path: 'value', value: ruleValue },
     { value: contextValue },
@@ -113,13 +113,30 @@ test('JSON equality preserves value types and does not equate non-JSON values wi
 
   assert.equal(equal({ b: 2, a: 1 }, { a: 1, b: 2 }), true);
   assert.equal(equal([1, 2], [2, 1]), false);
-  assert.equal(equal(Number.NaN, null), false);
-  assert.equal(equal(Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY), false);
-  assert.equal(equal(undefined, undefined), false);
-  assert.equal(equal({ nested: undefined }, {}), false);
-  assert.equal(equal(new Date('2026-01-01T00:00:00.000Z'), {}), false);
+});
+
+test('rule equality rejects non-JSON context and operands instead of coercing them', () => {
+  const eq = (contextValue, ruleValue) => evaluateCondition(
+    { op: 'eq', path: 'value', value: ruleValue },
+    { value: contextValue },
+  );
+  const neq = (contextValue, ruleValue) => evaluateCondition(
+    { op: 'neq', path: 'value', value: ruleValue },
+    { value: contextValue },
+  );
+
+  for (const [contextValue, ruleValue] of [
+    [Number.NaN, null],
+    [Number.POSITIVE_INFINITY, Number.POSITIVE_INFINITY],
+    [undefined, undefined],
+    [{ nested: undefined }, {}],
+    [new Date('2026-01-01T00:00:00.000Z'), {}],
+  ]) {
+    assert.throws(() => eq(contextValue, ruleValue), (error) => error.code === 'RULE_TYPE_MISMATCH');
+    assert.throws(() => neq(contextValue, ruleValue), (error) => error.code === 'RULE_TYPE_MISMATCH');
+  }
 
   const cyclic = {};
   cyclic.self = cyclic;
-  assert.equal(equal(cyclic, cyclic), false);
+  assert.throws(() => eq(cyclic, cyclic), (error) => error.code === 'RULE_TYPE_MISMATCH');
 });
