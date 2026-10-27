@@ -509,3 +509,103 @@ diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends
 +    });
  
      try {
+
+diff --git a/src/endpoints/logic-engine-lifecycle-proxy.mjs b/src/endpoints/logic-engine-lifecycle-proxy.mjs
+new file mode 100644
+--- /dev/null
++++ b/src/endpoints/logic-engine-lifecycle-proxy.mjs
+@@ -0,0 +1,78 @@
++const ALLOWED_FIELDS = new Set([
++    'conversation_id',
++    'message_id',
++    'version_id',
++    'content_sha256',
++    'active',
++    'deleted',
++]);
++
++function validId(value) {
++    return typeof value === 'string'
++        && value === value.trim()
++        && value.length > 0
++        && value.length <= 200
++        && ![...value].some(character => {
++            const code = character.charCodeAt(0);
++            return code < 32 || code === 127;
++        });
++}
++
++function validEntry(body) {
++    if (!body || typeof body !== 'object' || Array.isArray(body)
++        || Object.keys(body).some(key => !ALLOWED_FIELDS.has(key))
++        || !['conversation_id', 'message_id', 'version_id'].every(key => validId(body[key]))
++        || typeof body.content_sha256 !== 'string'
++        || !/^[a-f0-9]{64}$/.test(body.content_sha256)
++        || typeof body.active !== 'boolean'
++        || typeof body.deleted !== 'boolean'
++        || (body.deleted && body.active)) {
++        return false;
++    }
++    return true;
++}
++
++function configFrom(env) {
++    try {
++        const core = new URL(env.LOGIC_ENGINE_CORE_URL);
++        if (!['http:', 'https:'].includes(core.protocol)
++            || core.username || core.password || core.search || core.hash) return null;
++        const apiToken = env.LOGIC_ENGINE_API_TOKEN;
++        const adapterId = env.LOGIC_ENGINE_ADAPTER_ID;
++        const adapterToken = env.LOGIC_ENGINE_ADAPTER_TOKEN;
++        if (typeof apiToken !== 'string' || apiToken.length < 16
++            || !validId(adapterId)
++            || typeof adapterToken !== 'string' || adapterToken.length < 16) return null;
++        return {
++            endpoint: new URL('/v1/host-version-ledger/capture', core).toString(),
++            apiToken,
++            adapterId,
++            adapterToken,
++        };
++    } catch {
++        return null;
++    }
++}
++
++/**
++ * Server-side, digest-only proxy. Credentials and destination are deployment
++ * configuration; request bodies can neither choose a URL nor supply authority.
++ * Successful capture is not readiness: Core's inventory verifier is deny-only
++ * until an authoritative Host inventory contract is deployed.
++ */
++export function createHostDigestProxyHandler({ env = process.env, fetchImpl = globalThis.fetch } = {}) {
++    return async function hostDigestProxyHandler(req, res) {
++        if (!validEntry(req?.body)) {
++            return res.status(400).json({ error: { code: 'INVALID_HOST_DIGEST_ENTRY' } });
++        }
++        const config = configFrom(env);
++        if (!config || typeof fetchImpl !== 'function') {
++            return res.status(503).json({ error: { code: 'CORE_CAPTURE_UNAVAILABLE' } });
++        }
++        try {
++            const upstream = await fetchImpl(config.endpoint, {
++                method: 'POST',
++                redirect: 'error',
++                headers: {
++                    'content-type': 'application/json',
++                    authorization: 'Bearer ' + config.apiToken,
++                    'x-adapter-id': config.adapterId,
++                    'x-adapter-token': config.adapterToken,
++                },
++                body: JSON.stringify(req.body),
++            });
++            if (!upstream.ok) {
++                return res.status(upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502)
++                    .json({ error: { code: 'CORE_CAPTURE_REJECTED' } });
++            }
++            // Never relay upstream diagnostics or any source content to the browser.
++            return res.status(200).json({ ok: true, inventory_status: 'NON_READY' });
++        } catch {
++            return res.status(503).json({ error: { code: 'CORE_CAPTURE_UNAVAILABLE' } });
++        }
++    };
++}
