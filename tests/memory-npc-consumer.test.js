@@ -193,12 +193,64 @@ test('authorized candidate with missing or unknown semantic metadata is non-read
   assert.deepEqual(missingLifecycle.candidates, []);
 });
 
+test('complete authorized empty retrieval is ready-empty only with a matching current Core snapshot', async (t) => {
+  const empty = setup(t);
+  empty.setCandidates([]);
+
+  const result = await empty.consumer.retrieveForNpc(request());
+
+  assert.equal(result.status, 'ready');
+  assert.equal(result.reason, null);
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.snapshot, {
+    world_revision: empty.snapshot.world_revision,
+    commit_sequence: empty.snapshot.commit_sequence,
+  });
+  assert.equal(JSON.stringify(result).includes('memory-npc-world'), false);
+});
+
+test('empty retrieval that is denied, incomplete, or unavailable is non-ready, not proof of absence', async (t) => {
+  const deniedQuery = setup(t, { authorizeQuery: false });
+  deniedQuery.setCandidates([]);
+  const denied = await deniedQuery.consumer.retrieveForNpc(request());
+  assert.equal(denied.status, 'non_ready');
+  assert.deepEqual(denied.admitted, []);
+  assert.deepEqual(denied.candidates, []);
+
+  const incomplete = setup(t, { completeness: 'partial' });
+  incomplete.setCandidates([]);
+  const partial = await incomplete.consumer.retrieveForNpc(request());
+  assert.equal(partial.status, 'non_ready');
+  assert.deepEqual(partial.admitted, []);
+  assert.deepEqual(partial.candidates, []);
+
+  const unavailable = setup(t);
+  unavailable.setCandidates([]);
+  unavailable.provider.retrieveCandidates = async () => {
+    throw new Error('private provider diagnostic');
+  };
+  const failed = await unavailable.consumer.retrieveForNpc(request());
+  assert.equal(failed.status, 'non_ready');
+  assert.deepEqual(failed.admitted, []);
+  assert.deepEqual(failed.candidates, []);
+  assert.equal(JSON.stringify(failed).includes('private provider diagnostic'), false);
+});
+
 test('Memory record denial is indistinguishable from an authorized empty candidate set, including stale hidden records', async (t) => {
   const denied = setup(t, { authorizeCandidate: false });
   const result = await denied.consumer.retrieveForNpc(request());
   assert.equal(result.status, 'ready');
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
+
+  const genuinelyEmpty = setup(t);
+  genuinelyEmpty.setCandidates([]);
+  const emptyResult = await genuinelyEmpty.consumer.retrieveForNpc(request());
+  assert.equal(emptyResult.status, 'ready');
+  assert.deepEqual(emptyResult.admitted, []);
+  assert.deepEqual(emptyResult.candidates, []);
+  assert.deepEqual(result, emptyResult);
 
   denied.setCandidates([denied.candidate({
     freshness: { status: 'stale' },
