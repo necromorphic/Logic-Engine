@@ -37,6 +37,7 @@ jobs:
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
           if ($report.reportType -ne 'Logic Engine deployment security evidence (read-only)') { throw 'Unexpected reportType.' }
           if (-not $report.os.powershellVersion) { throw 'PowerShell version evidence is missing.' }
+          if (-not ($report.PSObject.Properties.Name -contains 'serviceEvidence')) { throw 'Windows service identity evidence field is missing.' }
           if ($report.pathAclEvidence.Count -lt 1) { throw 'Expected path ACL evidence for the supplied fixture.' }
           if (-not ($report.PSObject.Properties.Name -contains 'firewallProfiles')) { throw 'Firewall profile evidence field is missing.' }
           if (-not ($report.PSObject.Properties.Name -contains 'enabledOutboundAllowRules')) { throw 'Outbound allow-rule evidence field is missing.' }
