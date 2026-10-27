@@ -168,3 +168,20 @@ If no existing NPC-specific path is found, record that fact as **UNCONFIRMED / B
 - No wall-clock scheduler or assumption that time passes between player messages.
 - Memory → NPC remains **DISABLED / FAIL-CLOSED**.
 - PR #532, #535 and #536 remain open/draft unless separately reviewed; no merge is requested or implied.
+
+
+## 10. Coordinator decision and evidence status (2026-10-28)
+
+The coordinator's decision is recorded in [PR #537 comment](https://github.com/necromorphic/Logic-Engine/pull/537#issuecomment-6455273246).
+
+**Approved for design only:** the first technical seam is the existing read-only MechanicExecutor.evaluate(...) followed by ProposalService.createFromMechanicEvaluation(...) to create a normal pending proposal. This does not authorize implementation or choose a semantic action family.
+
+**Still BLOCKED:** no verified NPC-specific authorization path currently establishes that a particular NPC may request a particular action for a particular purpose. The source tests demonstrate that ActorBindingService, AuthorizedReadService, a trusted context provider, and a validateMechanicPolicy callback can be composed in a fixture. That is evidence for narrow reusable primitives and a test scenario—not evidence of a production NPC caller, its owner, or an approved action-purpose policy. Adapter identity and actor binding must not be treated as action permission.
+
+**Concrete-action search result:** the reviewed execution slice supports mechanic intents create_entity, update_attribute, and assert_fact. The test fixture named wait creates a new character entity, so its name is not a semantic action contract. No production World Pack/mechanic template was identified in the reviewed repository paths that could safely serve as the first NPC action. Do not invent one from test data.
+
+### Gate before runtime work
+
+A reviewable evidence package must identify one real enabled instance and exact pinned template version, one declared action ID, its authored meaning, preconditions/context dependencies, supported effect mapping/target, trusted NPC actor-and-purpose authorization owner, and the authoritative result route after separate approval/commit. The result of the initial slice remains read-only evaluation plus ordinary pending proposal creation; no automatic approval, commit, execution, or plan reconciliation.
+
+No dispatcher, scheduler, worker, runtime code, API/schema/storage change, or cross-boundary modification is authorized. Memory → NPC remains **DISABLED / FAIL-CLOSED**. Implementation remains **BLOCKED** until the action-specific evidence and trusted caller/authorization contract are established.
