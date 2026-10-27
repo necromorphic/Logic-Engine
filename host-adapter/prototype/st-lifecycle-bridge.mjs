@@ -1,8 +1,23 @@
 import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 
-const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
+const rawVersions = message => {
+  if (message?.swipes !== undefined && !Array.isArray(message.swipes)) {
+    throw Error('NON_READY: malformed native swipe inventory');
+  }
+  return Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
+};
 const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
-const activeIndex = message => Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+const activeIndex = message => {
+  if (message?.swipe_id !== undefined && !Number.isInteger(message.swipe_id)) {
+    throw Error('NON_READY: malformed native active-swipe index');
+  }
+  const index = message.swipe_id ?? 0;
+  const versions = rawVersions(message);
+  if (index < 0 || index >= versions.length) {
+    throw Error('NON_READY: native active-swipe index is out of range');
+  }
+  return index;
+};
 const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
@@ -13,7 +28,7 @@ const newId = () => {
  * Opt-in adapter boundary for explicit native ST hooks.
  * This is not a complete inventory until every mutation path is wired and tested.
  */
-export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null }) {
+export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getSourceLineage = () => null, getChat, saveChat, publishDigest = null }) {
   if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
   if (publishDigest !== null && typeof publishDigest !== 'function') throw TypeError('publishDigest must be a trusted callback');
   const publishQueues = new Map();
@@ -84,9 +99,47 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     finally { if (publishQueues.get(conversationId) === current) publishQueues.delete(conversationId); }
   }
 
+  function sourceTrustReport(result, identityVersionMapping = 'NOT_CHECKED') {
+    const matched = result.status === 'LOCAL_MATCH_NON_AUTHORITATIVE';
+    const fingerprint = matched ? 'MATCH'
+      : result.reason === 'live source inventory fingerprint mismatch' ? 'MISMATCH' : 'NOT_VERIFIED';
+    return {
+      ...result,
+      trustDecision: 'NON_READY',
+      trustEvidence: {
+        localJournalIntegrity: result.journalIntegrity ?? (matched ? 'VERIFIED' : 'NOT_VERIFIED'),
+        liveSourceFingerprint: fingerprint,
+        identityVersionMapping,
+        sourceAuthenticity: 'UNPROVEN',
+        rollbackResistance: 'UNPROVEN',
+        lifecycleCompleteness: 'UNPROVEN',
+        preEnrollmentHistory: 'UNKNOWN_UNRECOVERABLE',
+        installConversationWorldBranchRestoreBinding: 'UNPROVEN',
+      },
+    };
+  }
+
+  async function verifyCurrentSource() {
+    const conversationId = await getConversationId();
+    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) {
+      return sourceTrustReport({ status: 'NON_READY', reason: 'conversation is not enrolled' });
+    }
+    const chat = getChat();
+    if (!Array.isArray(chat)) return sourceTrustReport({ status: 'NON_READY', reason: 'live Host chat is unavailable' });
+    // Read the current native source only through the injected Host getter;
+    // callers cannot pass an arbitrary message array to this bridge method.
+    try {
+      await assertIdentitySnapshotMatches(conversationId, chat);
+    } catch (error) {
+      return sourceTrustReport({ status: 'NON_READY', reason: 'live Host identity/version inventory mismatch: ' + (error?.message || error) }, 'MISMATCH');
+    }
+    const result = await journal.verifyCurrentSource(conversationId, { messages: chat, sourceLocator: { locator: getSourceLocator(), lineage: getSourceLineage() } });
+    return sourceTrustReport(result, 'MATCH');
+  }
+
   async function currentFingerprint(chat = getChat()) {
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
-    return fingerprintSource(chat, getSourceLocator());
+    return fingerprintSource(chat, { locator: getSourceLocator(), lineage: getSourceLineage() });
   }
 
   async function enrolledOrFailClosed(conversationId) {
@@ -503,6 +556,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
 
   return Object.freeze({
     enrollCurrentConversation,
+    verifyCurrentSource,
     beforeMutation,
     afterMutation,
     syncCurrentDigestInventory,
