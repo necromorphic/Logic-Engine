@@ -725,9 +725,13 @@ export class SQLiteMemoryProvider {
       WHERE world_id=? AND record_ref=? AND record_version=?`)
       .get(input.world_id, input.record_ref, input.record_version);
     if (!row || row.subject_id !== input.subject_id || row.purpose !== input.purpose
-      || row.source_kind !== input.source_kind || row.source_entity_id !== input.source_entity_id
-      || (input.source_version !== undefined
-        && (!validId(input.source_version) || row.source_version !== input.source_version))) return false;
+      || row.source_kind !== input.source_kind || row.source_entity_id !== input.source_entity_id) return false;
+    if (input.source_version !== undefined
+      && (!validId(input.source_version) || row.source_version !== input.source_version)) {
+      // A version mismatch is stale/unverifiable provenance, not an ordinary
+      // access denial. Keep it from collapsing into a ready-empty retrieval.
+      throw new Error('MEMORY_SOURCE_VERSION_UNVERIFIABLE');
+    }
     let lineage;
     try { lineage = decode(row.lineage_json); } catch {
       throw new Error('MEMORY_LINEAGE_INVALID');
