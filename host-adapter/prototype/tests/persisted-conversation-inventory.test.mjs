@@ -28,6 +28,52 @@ const fixture = async () => {
   return { root, chats, groups, roots: [{ domain: 'chats', path: chats }, { domain: 'group_chats', path: groups }] };
 };
 
+test('persisted snapshot rejects any chat artifact that is not enrolled', async () => {
+  const f = await fixture();
+  try {
+    const enrolledUuid = randomUUID();
+    const unEnrolledUuid = randomUUID();
+    await writeChat(f.chats, 'enrolled', enrolledUuid, [makeMessage('known')]);
+    await writeChat(f.chats, 'not-enrolled', unEnrolledUuid, [makeMessage('must not be silently omitted')]);
+    const result = await scanPersistedConversationInventories(f.roots, [{
+      conversationId: randomUUID() + ':' + enrolledUuid,
+      sourceLocator: 'enrolled',
+      sourcePath: 'enrolled.jsonl',
+      domain: 'chats',
+    }]);
+    assert.equal(result.status, 'INVENTORY_INCOMPLETE');
+    assert.deepEqual(result.inventories, []);
+    assert.ok(result.errors.includes('UNENROLLED_CONVERSATION_ARTIFACT:chats'));
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
+
+test('persisted snapshot rejects untagged and empty JSONL artifacts', async () => {
+  for (const kind of ['untagged', 'empty']) {
+    const f = await fixture();
+    try {
+      const uuid = randomUUID();
+      await writeChat(f.chats, 'enrolled', uuid, [makeMessage('known')]);
+      const extraPath = path.join(f.chats, kind + '.jsonl');
+      if (kind === 'untagged') {
+        await writeFile(extraPath, JSON.stringify({ mes: 'unidentified chat header' }) + '\\n');
+      } else {
+        await writeFile(extraPath, '');
+      }
+      const result = await scanPersistedConversationInventories(f.roots, [{
+        conversationId: randomUUID() + ':' + uuid,
+        sourceLocator: 'enrolled',
+        sourcePath: 'enrolled.jsonl',
+        domain: 'chats',
+      }]);
+      assert.equal(result.status, 'INVENTORY_INCOMPLETE', kind);
+      assert.deepEqual(result.inventories, [], kind);
+      assert.ok(result.errors.some(error => error.startsWith(kind === 'empty'
+        ? 'CHAT_JSONL_EMPTY_OR_HEADER_MISSING:'
+        : 'UNENROLLED_CHAT_ARTIFACT:')), kind);
+    } finally { await rm(f.root, { recursive: true, force: true }); }
+  }
+});
+
 test('persisted snapshot inventories every current swipe by stable identity and digest without exposing text', async () => {
   const f = await fixture();
   try {
