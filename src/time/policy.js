@@ -171,6 +171,7 @@ export function resolveDurationDecision(policyInput, eventType, proposal = null,
         return { status: 'rejected', reason: 'AUTHOR_DURATION_OUT_OF_RANGE', min_duration_ms: rule.min_duration_ms, max_duration_ms: rule.max_duration_ms, proposed_duration_ms: proposal.duration_ms, policy_id: policy.policy_id, policy_version: policy.version };
       }
       const authorApproved = isPlainDataRecord(options, ['authorApproved'])
+        && Object.hasOwn(options, 'authorApproved')
         && options.authorApproved === true;
       if (!authorApproved) {
         return { status: 'needs_author', min_duration_ms: rule.min_duration_ms, max_duration_ms: rule.max_duration_ms, proposed_duration_ms: proposal.duration_ms, policy_id: policy.policy_id, policy_version: policy.version };
