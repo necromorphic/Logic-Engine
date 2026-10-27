@@ -220,7 +220,7 @@ function verifyEnrolledChatSavePersistence(request, registry, after) {
         item.domain === 'chats' && item.sourcePath === sourcePath);
     if (!enrollment) return null;
 
-    if (!Array.isArray(body?.chat) || body.chat.length === 0) {
+    if (!Array.isArray(body?.chat) || body.chat.length < 2) {
         return { ok: false, code: 'HOST_SAVE_PAYLOAD_INVALID' };
     }
     const conversationUuid = enrollment.conversationId.split(':')[1];
@@ -231,7 +231,7 @@ function verifyEnrolledChatSavePersistence(request, registry, after) {
     const expected = [];
     const seenMessages = new Set();
     const seenVersions = new Set();
-    for (const message of body.chat) {
+    for (const message of body.chat.slice(1)) {
         const identity = message?._logicEngineLifecycle;
         const nativeVersions = Array.isArray(message?.swipes) && message.swipes.length
             ? message.swipes : [message?.mes ?? ''];
