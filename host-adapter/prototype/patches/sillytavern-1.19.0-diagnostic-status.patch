@@ -1,12 +1,10 @@
 diff --git a/src/endpoints/extensions.js b/src/endpoints/extensions.js
 --- a/src/endpoints/extensions.js
 +++ b/src/endpoints/extensions.js
-@@ -1,2 +1,3 @@
- import path from 'node:path';
- import fs from 'node:fs';
+@@ -10,1 +10,2 @@
+ import { createGitClient } from '../git/client.js';
 +import { createLogicEngineHealthHandler } from './logic-engine-diagnostic-health.mjs';
-@@ -533,3 +534,4 @@
+@@ -533,2 +534,3 @@
      return response.send(allExtensions);
  });
- 
 +router.get('/logic-engine-diagnostics/status', createLogicEngineHealthHandler());
