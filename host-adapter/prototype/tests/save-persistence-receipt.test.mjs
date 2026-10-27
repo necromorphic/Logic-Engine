@@ -249,7 +249,7 @@ test('pinned Host inventory checks the independent Core ledger and fails closed 
   assert.match(patch, /current\.content_sha256 !== item\.content_sha256/);
   assert.match(patch, /remote\.active !== local\.active/);
   assert.match(patch, /redirect: 'error'/);
-  assert.match(patch, /publishCoreInventorySnapshot\(before, after\)/);
+  assert.match(patch, /publishCoreInventorySnapshot\(before, after, \{ requirePersistedInventory \}\)/);
   assert.match(patch, /HOST_MUTATION_PATH_NOT_PROVEN/);
   assert.match(patch, /CORE_HOST_CAPTURE_FAILED/);
   assert.match(patch, /raw content|message text/i);
