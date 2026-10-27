@@ -81,6 +81,34 @@ jobs:
               if (Test-Path -LiteralPath $junction) { & cmd.exe /c rmdir $junction | Out-Null }
               if (Test-Path -LiteralPath ($evidence + '.ancestor')) { Remove-Item -LiteralPath ($evidence + '.ancestor') -Force }
             }
+            # Regression: block directory replacement through a writable parent ACL.
+            $unsafeParent = Join-Path $env:RUNNER_TEMP ('acl-unsafe-parent-' + [guid]::NewGuid().ToString('N'))
+            $unsafeDirectory = Join-Path $unsafeParent 'core-db'
+            $unsafeEvidence = $evidence + '.parent'
+            New-Item -ItemType Directory -Path $unsafeDirectory -Force | Out-Null
+            $unsafeDb = Join-Path $unsafeDirectory 'core.sqlite'
+            Set-Content -LiteralPath $unsafeDb -Value 'temporary non-sensitive parent ACL fixture'
+            $unsafeParentAcl = Get-Acl -LiteralPath $unsafeParent
+            $providerSid = (New-Object System.Security.Principal.NTAccount("$env:COMPUTERNAME\$($testAccounts[1])")).Translate([System.Security.Principal.SecurityIdentifier]).Value
+            $providerRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+              "$env:COMPUTERNAME\$($testAccounts[1])",
+              ([System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles),
+              [System.Security.AccessControl.AccessControlType]::Allow
+            )
+            $unsafeParentAcl.AddAccessRule($providerRule)
+            Set-Acl -LiteralPath $unsafeParent -AclObject $unsafeParentAcl
+            try {
+              $rejected = $false
+              try {
+                & .\scripts\security\Set-CoreDbAclBoundary.ps1 -CoreServiceName $testServices[0] -ProviderServiceName $testServices[1] -GatewayServiceName $testServices[2] -CoreDbPath $unsafeDb -EvidencePath $unsafeEvidence -Apply -Confirm:$false
+              } catch { $rejected = $true }
+              if (-not $rejected) { throw 'A writable parent path for Provider was not rejected.' }
+            } finally {
+              Set-Acl -LiteralPath $unsafeParent -AclObject $unsafeParentAcl
+              if (Test-Path -LiteralPath $unsafeEvidence) { Remove-Item -LiteralPath $unsafeEvidence -Force }
+              if (Test-Path -LiteralPath $unsafeParent) { Remove-Item -LiteralPath $unsafeParent -Recurse -Force }
+            }
+
             & .\scripts\security\Set-CoreDbAclBoundary.ps1 -CoreServiceName $testServices[0] -ProviderServiceName $testServices[1] -GatewayServiceName $testServices[2] -CoreDbPath $db -EvidencePath $evidence -Apply -Confirm:$false
             $report = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
             if ($report.status -ne 'APPLIED_AND_ACL_SHAPE_VERIFIED') {
