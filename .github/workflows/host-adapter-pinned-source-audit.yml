@@ -51,8 +51,13 @@ jobs:
           )
           echo SillyTavern target SHA: %actual%
 
-      # The source audit imports the proxy module introduced by the patch,
-      # so apply the reviewed patch before running the assertions.
+      # The patch imports the reviewed server-side proxy module; stage its
+      # prototype source before applying the patch, matching the patch-check workflow.
+      - name: Stage Host proxy module in the pinned checkout
+        shell: cmd
+        run: copy /Y host-adapter\\prototype\\st-server-digest-proxy.mjs SillyTavern\\src\\endpoints\\logic-engine-lifecycle-proxy.mjs
+
+      # Apply the reviewed patch before running the assertions.
       - name: Apply reviewed Host patch to the pinned checkout
         shell: cmd
         run: |
