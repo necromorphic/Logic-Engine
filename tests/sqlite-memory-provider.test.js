@@ -1227,3 +1227,27 @@ test('index write error is preserved when persisting unavailable diagnostics als
   assert.equal(state.index_health, 'rebuilding');
   assert.equal(state.source_reconciliation, 'stale');
 });
+
+test('rebuild error is preserved when persisting unavailable diagnostics also fails', async (t) => {
+  const s = setup(t);
+  s.provider.putRecord(s.record);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+  s.db.exec(`CREATE TRIGGER fail_rebuild_index_insert BEFORE INSERT ON memory_index_entries
+    BEGIN SELECT RAISE(ABORT, 'primary rebuild insert failure'); END;`);
+  s.db.exec(`CREATE TRIGGER fail_rebuild_diagnostic BEFORE UPDATE ON memory_index_state
+    WHEN NEW.failure_code='INDEX_REBUILD_FAILED'
+    BEGIN SELECT RAISE(ABORT, 'secondary rebuild diagnostic failure'); END;`);
+
+  await assert.rejects(() => s.provider.rebuildIndex(s.scope.world_id), /primary rebuild insert failure/);
+  assert.equal(s.db.prepare(
+    'SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=?',
+  ).get(s.scope.world_id).count, 1);
+  const state = s.provider.getIndexStatusForDiagnostics(s.scope.world_id);
+  assert.equal(state.index_health, 'rebuilding');
+  assert.equal(state.source_reconciliation, 'stale');
+
+  s.db.exec('DROP TRIGGER fail_rebuild_index_insert');
+  s.db.exec('DROP TRIGGER fail_rebuild_diagnostic');
+  assert.deepEqual(await s.provider.rebuildIndex(s.scope.world_id), { status: 'rebuilt', count: 1 });
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+});

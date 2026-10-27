@@ -859,7 +859,9 @@ export class SQLiteMemoryProvider {
       });
       return { status: 'rebuilt', count };
     } catch (error) {
-      this.#setState(worldId, 'unavailable', 'stale', null, 'INDEX_REBUILD_FAILED');
+      // Rebuild failure diagnostics are best-effort: if they fail too, preserve
+      // the actual rebuild error and leave the already-published non-ready state.
+      try { this.#setState(worldId, 'unavailable', 'stale', null, 'INDEX_REBUILD_FAILED'); } catch {}
       throw error;
     }
   }
