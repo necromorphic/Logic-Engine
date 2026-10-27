@@ -7,6 +7,7 @@ import { join } from 'node:path';
 import { SQLiteStore } from '../../../src/storage/sqlite-store.js';
 import { LogicEngine } from '../../../src/application/engine.js';
 import { HostVersionDigestLedger } from '../../../src/application/host-version-digest-ledger.js';
+import { SQLiteMemoryProvider } from '../../../src/application/sqlite-memory-provider.js';
 import { createApiServer } from '../../../src/api/server.js';
 import { createHostDigestProxyHandler } from '../st-server-digest-proxy.mjs';
 
@@ -16,7 +17,7 @@ const ADAPTER_TOKEN = 'integration-adapter-token-long-enough';
 const digest = (character) => character.repeat(64);
 const json = (value) => JSON.stringify(value);
 
-test('real Host digest proxy reaches Core capture API with bound scope and digest-only payload', async (t) => {
+test('real Host → Core → Provider path preserves digest-only capture and fails closed on non-ready inventory', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'st-core-digest-capture-'));
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
@@ -117,6 +118,45 @@ test('real Host digest proxy reaches Core capture API with bound scope and diges
   assert.equal(conflict.statusCode, 409);
   assert.equal(conflict.body.error.code, 'LOGIC_ENGINE_CAPTURE_REJECTED');
   assert.equal(ledger.getInventoryState('host-proxy-integration-world', 'stable-host-conversation').status, 'NON_READY');
+
+  // Exercise the actual SQLite Memory Provider against the Core-owned Host
+  // inventory state. A captured digest/conflict is not sufficient to publish a
+  // current Provider index; the trusted inventory gate must remain closed.
+  const memoryProvider = new SQLiteMemoryProvider({
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async (worldId) =>
+      ledger.getInventoryState(worldId, 'stable-host-conversation')?.status === 'READY',
+  });
+  t.after(() => memoryProvider.close());
+  const scope = {
+    world_id: 'host-proxy-integration-world',
+    subject_id: 'npc-host-proxy-integration',
+    purpose: 'npc_decision',
+  };
+  const record = {
+    ...scope,
+    record_ref: 'memory:host-boundary-record',
+    record_version: 'v1',
+    source_kind: 'canonical_entity',
+    source_entity_id: 'canonical-source',
+    source_version: 'source-v1',
+    content_kind: 'claim',
+    epistemic_kind: 'acquired_report',
+    producer_kind: 'memory-index',
+    content_disposition: 'usable',
+    evidence_assessment: 'unassessed',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'canonical-source', source_version: 'source-v1' }],
+  };
+  memoryProvider.grantQuery(scope, true);
+  memoryProvider.putRecord(record);
+  memoryProvider.grantRecord(scope, record.record_ref, record.record_version, true);
+  await memoryProvider.rebuildIndex(scope.world_id);
+  assert.equal((await memoryProvider.reconcile(scope.world_id)).status, 'stale');
+  await assert.rejects(
+    () => memoryProvider.retrieveCandidates(scope),
+    /MEMORY_INDEX_NOT_READY/,
+  );
   assert.equal(JSON.stringify(capture.body).includes('message-1'), false);
   assert.equal(JSON.stringify(conflict.body).includes('integration-api-token'), false);
 });
