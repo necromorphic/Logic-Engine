@@ -1,0 +1,16 @@
+#logic_engine_extension .logic-engine-warning {
+  border-left: 3px solid var(--warning);
+  padding-left: 0.75em;
+}
+#logic_engine_extension .logic-engine-muted {
+  opacity: 0.8;
+  font-size: 0.9em;
+}
+#logic_engine_extension #logic_engine_status,
+#logic_engine_extension #logic_engine_host_status {
+  overflow-wrap: anywhere;
+}
+#logic_engine_extension button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
