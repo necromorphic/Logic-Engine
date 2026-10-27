@@ -1895,3 +1895,40 @@ test('mechanic proposal policy boundary stays closed without a trusted validator
     store.close();
   }
 });
+
+
+test('health CORS is exact-origin and applies only to GET /health', async (t) => {
+  const allowedOrigin = 'http://127.0.0.1:8000';
+  const base = await setup(t, { healthAllowedOrigins: [allowedOrigin] });
+
+  const allowed = await fetch(base + '/health', { headers: { origin: allowedOrigin } });
+  assert.equal(allowed.status, 200);
+  assert.equal(allowed.headers.get('access-control-allow-origin'), allowedOrigin);
+  assert.match(allowed.headers.get('vary') || '', /(?:^|,\\s*)origin(?:,|$)/i);
+  assert.deepEqual(await allowed.json(), { ok: true, service: 'logic-engine', protocol_version: 'v1' });
+
+  const unlisted = await fetch(base + '/health', { headers: { origin: 'http://attacker.example' } });
+  assert.equal(unlisted.status, 200);
+  assert.equal(unlisted.headers.get('access-control-allow-origin'), null);
+
+  const noOrigin = await fetch(base + '/health');
+  assert.equal(noOrigin.status, 200);
+  assert.equal(noOrigin.headers.get('access-control-allow-origin'), null);
+
+  const protectedRoute = await fetch(base + '/v1/worlds', { headers: { origin: allowedOrigin } });
+  assert.equal(protectedRoute.status, 401);
+  assert.equal(protectedRoute.headers.get('access-control-allow-origin'), null);
+});
+
+test('health CORS rejects wildcard, paths, credentials and non-HTTP origins', async (t) => {
+  const store = new SQLiteStore(':memory:');
+  t.after(() => store.close());
+  for (const healthAllowedOrigins of [
+    ['*'],
+    ['http://127.0.0.1:8000/path'],
+    ['http://user:pass@127.0.0.1:8000'],
+    ['file:///tmp/st'],
+  ]) {
+    assert.throws(() => createApiServer({ engine: new LogicEngine(store), token: TOKEN, healthAllowedOrigins }), /health CORS|Health CORS/i);
+  }
+});
