@@ -140,3 +140,7 @@ Exact-head CI for this code HEAD:
 - [Host lifecycle patch validation #40276125986](https://github.com/necromorphic/Logic-Engine/actions/runs/40276125986) — SUCCESS.
 
 This refresh records repository CI only. It does not establish live browser/Android/Termux behavior, real IndexedDB durability, persisted chat-file before/after evidence, or full lifecycle coverage. PR #323 remains Draft/review-only. Core approval of the Host↔Core/Provider handoff and real persisted-state acceptance evidence are still required; production Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+## Pinned source inventory evidence (27 Oct 2026)
+
+See [`PINNED-SOURCE-INVENTORY-EVIDENCE.md`](./PINNED-SOURCE-INVENTORY-EVIDENCE.md) for the pinned archive identity, native locator/version semantics, branch/import lifecycle evidence, and the explicit conclusion that `getChat()` cannot prove a complete authoritative all-time inventory. The document is source inspection only; it does not claim upstream archive authenticity or a live-device experiment. Host remains `NON_READY`; Memory→NPC remains `DISABLED / FAIL-CLOSED`.
