@@ -390,3 +390,33 @@ test('gateway wired to real SQLite evidence readers blocks dispatch when Host in
     rmSync(directory, { recursive: true, force: true });
   }
 });
+
+
+test('Core evidence reader rejects every non-active actor or source status', () => {
+  const f = fixture();
+  try {
+    let db = new DatabaseSync(f.coreDatabasePath);
+    db.prepare('UPDATE entities SET status=? WHERE world_id=? AND entity_id=?')
+      .run('inactive', scope.worldId, scope.actorId);
+    db.close();
+    assert.equal(f.readCoreEvidence(scope).readiness, 'NOT_READY');
+
+    db = new DatabaseSync(f.coreDatabasePath);
+    db.prepare('UPDATE entities SET status=? WHERE world_id=? AND entity_id=?')
+      .run('active', scope.worldId, scope.actorId);
+    db.prepare('UPDATE entities SET status=? WHERE world_id=? AND entity_id=?')
+      .run('deleted', scope.worldId, source.source_entity_id);
+    db.close();
+    assert.equal(f.readCoreEvidence(scope).readiness, 'NOT_READY');
+
+    db = new DatabaseSync(f.coreDatabasePath);
+    db.prepare('UPDATE entities SET status=? WHERE world_id=? AND entity_id=?')
+      .run('active', scope.worldId, source.source_entity_id);
+    db.prepare('UPDATE entities SET status=? WHERE world_id=? AND entity_id=?')
+      .run('quarantined', scope.worldId, source.source_entity_id);
+    db.close();
+    assert.equal(f.readCoreEvidence(scope).readiness, 'NOT_READY');
+  } finally {
+    f.close();
+  }
+});

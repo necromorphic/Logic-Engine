@@ -164,14 +164,14 @@ export function createSqliteMemoryDispatchEvidenceReaders({ coreDatabasePath, pr
 
       const actor = coreDb.prepare('SELECT status FROM entities WHERE world_id=? AND entity_id=?')
         .get(worldId, actorId);
-      if (!actor || actor.status === 'destroyed') return notReadyCore();
+      if (!actor || actor.status !== 'active') return notReadyCore();
 
       for (const source of normalizedSources) {
         const entity = coreDb.prepare('SELECT e.status,v.source_version '
           + 'FROM entities e JOIN entity_source_versions v '
           + 'ON v.world_id=e.world_id AND v.entity_id=e.entity_id '
           + 'WHERE e.world_id=? AND e.entity_id=?').get(worldId, source.source_entity_id);
-        if (!entity || entity.status === 'destroyed'
+        if (!entity || entity.status !== 'active'
           || !Number.isSafeInteger(entity.source_version)
           || source.source_version !== 'core-entity-v1:' + String(entity.source_version)) {
           return notReadyCore();
