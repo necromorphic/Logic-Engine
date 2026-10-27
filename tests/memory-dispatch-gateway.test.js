@@ -275,6 +275,10 @@ test('unsupported route, denied Provider grant, and pending authority all produc
       fixture.gateway.dispatchProtectedRequest(validRequest('unsupported', { route: 'vertex-ai-chat-completions' })),
       /MEMORY_DISPATCH_NOT_READY/,
     );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('raw-body-forbidden', { body: 'SECRET_MEMORY_TEXT' })),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
     fixture.setProviderGranted(false);
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('denied-grant')),
