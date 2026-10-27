@@ -237,3 +237,22 @@ test('duration proposals reject symbol and non-enumerable fields', () => {
     'INVALID_CATEGORY_PROPOSAL',
   );
 });
+
+
+test('time policy required fields must be own properties even if Object.prototype is polluted', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'policy_id');
+  Object.defineProperty(Object.prototype, 'policy_id', {
+    configurable: true, enumerable: true, writable: true, value: 'inherited-policy',
+  });
+  try {
+    const input = policy();
+    delete input.policy_id;
+    assert.throws(
+      () => createTimePolicy(input),
+      (error) => error.code === 'INVALID_TIME_POLICY',
+    );
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'policy_id', previous);
+    else delete Object.prototype.policy_id;
+  }
+});
