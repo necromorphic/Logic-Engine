@@ -372,3 +372,222 @@ test('completed dependencies cannot violate causal time order', () => {
     (error) => error.code === 'CAUSAL_TIME_ORDER_CONFLICT',
   );
 });
+
+
+test('explicit undefined trigger fields are rejected instead of treated as omitted defaults', () => {
+  const fields = [
+    'status',
+    'dependencies',
+    'read_set',
+    'write_set',
+    'processing_mode',
+    'interrupt_after_coordinate',
+    'payload',
+  ];
+  for (const field of fields) {
+    assert.throws(
+      () => planDueWork({
+        world_id: 'world-a',
+        from_coordinate: 0,
+        to_coordinate: 5,
+        triggers: [trigger('undefined-' + field, 5, { [field]: undefined })],
+      }),
+      (error) => error.code === 'INVALID_TRIGGER_FIELD_VALUE',
+      field,
+    );
+  }
+});
+
+test('explicit null trigger policy fields are rejected rather than defaulted', () => {
+  const cases = [
+    { field: 'status', value: null, code: 'INVALID_TRIGGER_STATUS' },
+    { field: 'processing_mode', value: null, code: 'INVALID_PROCESSING_MODE' },
+    { field: 'interrupt_after_coordinate', value: null, code: 'INVALID_INTERRUPT_POLICY' },
+  ];
+  for (const { field, value, code } of cases) {
+    assert.throws(
+      () => planDueWork({
+        world_id: 'world-a',
+        from_coordinate: 0,
+        to_coordinate: 5,
+        triggers: [trigger('null-' + field, 5, { [field]: value })],
+      }),
+      (error) => error.code === code,
+    );
+  }
+});
+
+test('due-work requests reject unknown fields instead of silently dropping misspelled coordinates', () => {
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinte: 5,
+      triggers: [],
+    }),
+    (error) => error.code === 'INVALID_DUE_WORK_FIELD' && error.details.field === 'to_coordinte',
+  );
+});
+
+test('due-work requests reject explicitly undefined optional fields', () => {
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers: [],
+      completed_trigger_ids: undefined,
+    }),
+    (error) => error.code === 'INVALID_DUE_WORK_REQUEST',
+  );
+});
+
+test('known registry metadata also rejects explicitly undefined values', () => {
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers: [trigger('metadata-undefined', 5, { content_hash: undefined })],
+    }),
+    (error) => error.code === 'INVALID_TRIGGER_FIELD_VALUE',
+  );
+});
+
+test('due-work requests reject accessors without invoking them', () => {
+  let getterCalled = false;
+  const request = {
+    world_id: 'world-a',
+    from_coordinate: 0,
+    to_coordinate: 5,
+    triggers: [],
+  };
+  Object.defineProperty(request, 'to_coordinate', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return 5; },
+  });
+  assert.throws(
+    () => planDueWork(request),
+    (error) => error.code === 'INVALID_DUE_WORK_REQUEST',
+  );
+  assert.equal(getterCalled, false);
+});
+
+test('trigger records reject unknown fields instead of silently dropping misspelled scheduling intent', () => {
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers: [trigger('typo', 5, { interrupt_after_coordiante: true })],
+    }),
+    (error) => error.code === 'INVALID_TRIGGER_FIELD' && error.details.field === 'interrupt_after_coordiante',
+  );
+});
+
+test('trigger records reject accessors without invoking them', () => {
+  let getterCalled = false;
+  const unsafe = trigger('accessor', 5);
+  Object.defineProperty(unsafe, 'interrupt_after_coordinate', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return true; },
+  });
+
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers: [unsafe],
+    }),
+    (error) => error.code === 'INVALID_TRIGGER',
+  );
+  assert.equal(getterCalled, false);
+});
+
+test('sparse trigger arrays fail closed instead of silently dropping scheduled work', () => {
+  const triggers = [];
+  triggers.length = 1;
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers,
+    }),
+    (error) => error.code === 'INVALID_TRIGGER_LIST',
+  );
+});
+
+test('sparse dependency/reference arrays fail closed instead of skipping entries', () => {
+  const dependencies = [];
+  dependencies.length = 1;
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers: [trigger('dependent', 5, { dependencies })],
+    }),
+    (error) => error.code === 'INVALID_REFERENCE_LIST',
+  );
+});
+
+test('scheduler arrays reject accessor entries without invoking them', () => {
+  let getterCalled = false;
+  const triggers = [];
+  triggers.length = 1;
+  Object.defineProperty(triggers, '0', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return trigger('hidden', 5); },
+  });
+
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 5,
+      triggers,
+    }),
+    (error) => error.code === 'INVALID_TRIGGER_LIST',
+  );
+  assert.equal(getterCalled, false);
+});
+
+test('completed prerequisites cannot be scheduled after their dependent trigger', () => {
+  for (const completedIds of [[], ['future-prerequisite']]) {
+    assert.throws(
+      () => planDueWork({
+        world_id: 'world-a',
+        from_coordinate: 0,
+        to_coordinate: 10,
+        completed_trigger_ids: completedIds,
+        triggers: [
+          trigger('future-prerequisite', 8, { status: 'completed' }),
+          trigger('dependent', 5, { dependencies: ['future-prerequisite'] }),
+        ],
+      }),
+      (error) => error.code === 'CAUSAL_TIME_ORDER_CONFLICT'
+        && error.details.trigger_id === 'dependent'
+        && error.details.dependency_id === 'future-prerequisite',
+    );
+  }
+});
+
+test('historically completed prerequisites at earlier coordinates remain satisfied', () => {
+  const plan = planDueWork({
+    world_id: 'world-a',
+    from_coordinate: 0,
+    to_coordinate: 10,
+    completed_trigger_ids: ['past-prerequisite'],
+    triggers: [
+      trigger('past-prerequisite', 3, { status: 'completed' }),
+      trigger('dependent', 5, { dependencies: ['past-prerequisite'] }),
+    ],
+  });
+  assert.equal(plan.status, 'planned');
+  assert.deepEqual(plan.segments.map((segment) => segment.trigger_ids), [['dependent']]);
+});
