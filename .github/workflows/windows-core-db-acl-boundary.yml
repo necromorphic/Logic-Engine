@@ -32,6 +32,8 @@ jobs:
           $testServices = @()
           $password = ([guid]::NewGuid().ToString('N') + 'Aa1!')
           $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+          $root = $null
+          $evidence = $null
           try {
             foreach ($role in @('Core', 'Provider', 'Gateway')) {
               $account = "leAcl$role$suffix"
