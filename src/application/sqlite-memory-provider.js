@@ -174,7 +174,6 @@ export class SQLiteMemoryProvider {
           REFERENCES memory_raw_captures(world_id, conversation_id, message_id, version_id)
           ON DELETE CASCADE
       );
-    `);
       CREATE TABLE IF NOT EXISTS provider_authority_state (
         singleton INTEGER PRIMARY KEY CHECK(singleton=1),
         accepted_head INTEGER NOT NULL CHECK(accepted_head >= 0),
@@ -188,7 +187,8 @@ export class SQLiteMemoryProvider {
         status TEXT NOT NULL CHECK(status IN ('committed')),
         created_at TEXT NOT NULL
       );
-            const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
+    `);
+      const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
       if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
       if (this.acceptedHead) this.#initializeAcceptedHead();
     } catch (error) {
