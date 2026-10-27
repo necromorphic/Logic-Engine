@@ -509,7 +509,7 @@ diff --git a/src/server-startup.js b/src/server-startup.js
  /**
   * @typedef {object} ServerStartupResult
 @@ -141,2 +143,3 @@ export function setupPrivateEndpoints(app) {
-+    app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true }));
++    app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true }));
      app.use('/', userDataRouter);
      app.use('/api/users', usersPrivateRouter);
 @@ -185,5 +186,6 @@ export function setupPrivateEndpoints(app) {
@@ -644,7 +644,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1352 @@
+@@ -0,0 +1,1356 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -839,8 +839,9 @@ new file mode 100644
 +        try {
 +            await assertCoreInventoryMatchesSnapshot(conversationInventory, registry);
 +        } catch (error) {
-+            const code = error?.message === 'CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE'
-+                ? 'CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE'
++            const code = ['CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE', 'CORE_HOST_INVENTORY_NOT_READY']
++                .includes(error?.message)
++                ? error.message
 +                : 'CORE_HOST_INVENTORY_UNAVAILABLE';
 +            return {
 +                ...artifacts,
@@ -1083,7 +1084,7 @@ new file mode 100644
 + * A successful pre-snapshot and fsynced intent are required before the handler.
 + * The response is held until a post-snapshot and fsynced outcome are recorded.
 + */
-+export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false } = {}) {
++export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, requireCoreInventory = false } = {}) {
 +    return async function hostLifecycleMutationMiddleware(request, response, next) {
 +        const operation = MUTATIONS.get(request.method + ' ' + request.baseUrl + request.path)
 +            ?? MUTATIONS.get(request.method + ' ' + request.originalUrl?.split('?')[0]);
@@ -1126,7 +1127,7 @@ new file mode 100644
 +            }
 +            const coreConfigured = Boolean(process.env.LOGIC_ENGINE_CORE_URL && process.env.LOGIC_ENGINE_API_TOKEN
 +                && process.env.LOGIC_ENGINE_ADAPTER_ID && process.env.LOGIC_ENGINE_ADAPTER_TOKEN);
-+            if (requirePersistedInventory && !coreConfigured) {
++            if (requireCoreInventory && !coreConfigured) {
 +                return fail(response, 'CORE_HOST_INVENTORY_CONFIGURATION_MISSING', 503);
 +            }
 +            paths = await statePaths(request);
@@ -1145,7 +1146,7 @@ new file mode 100644
 +                release();
 +                return fail(response, 'HOST_JOURNAL_RECONCILIATION_REQUIRED');
 +            }
-+            before = await scanMutationSnapshot(paths, registry, requirePersistedInventory, coreConfigured);
++            before = await scanMutationSnapshot(paths, registry, requirePersistedInventory, requireCoreInventory && coreConfigured);
 +            if (!before.complete) {
 +                release();
 +                return fail(response, before.errors?.[0] ?? before.conversationInventory?.errors?.[0] ?? 'HOST_INVENTORY_INCOMPLETE');
@@ -1267,7 +1268,7 @@ new file mode 100644
 +                        });
 +                    }
 +                    const isSuccess = response.statusCode >= 200 && response.statusCode < 300;
-+                    const persistence = isSuccess
++                    const persistence = isSuccess && requirePersistedInventory
 +                        ? verifyEnrolledChatSavePersistence(request, registry, after)
 +                        : null;
 +                    if (persistence && !persistence.ok) {
@@ -1291,7 +1292,7 @@ new file mode 100644
 +                    }
 +                    try {
 +                        await publishCoreInventorySnapshot(before, after, { requirePersistedInventory });
-+                        after = await scanMutationSnapshot(paths, registry, requirePersistedInventory, true);
++                        after = await scanMutationSnapshot(paths, registry, requirePersistedInventory, requirePersistedInventory && coreConfigured);
 +                        if (!after.complete) {
 +                            const code = after.errors?.[0] ?? after.conversationInventory?.errors?.[0] ?? 'CORE_HOST_INVENTORY_UNAVAILABLE';
 +                            const hash = await appendRecord(paths.journalPath, chain.lastHash, {
@@ -1697,6 +1698,9 @@ new file mode 100644
 +        if (!current || current.deleted || current.content_sha256 !== item.content_sha256 || current.active !== item.active) {
 +            throw new Error('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE');
 +        }
++    }
++    if (remoteInventories.some(inventory => inventory.inventory_status !== 'READY')) {
++        throw new Error('CORE_HOST_INVENTORY_NOT_READY');
 +    }
 +}
 +
