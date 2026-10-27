@@ -37,7 +37,9 @@ const nonReady = (reason) => Object.freeze({
  *
  * This class deliberately has no default Memory provider or access policy and
  * is not wired into the public API. The host must inject trusted Memory
- * authorization/retrieval functions and the existing Core AuthorizedReadService.
+ * authorization/retrieval functions, Core AuthorizedReadService, ActorBindingService,
+ * and HostConversationWorldBindingService. World scope is resolved from the authenticated
+ * adapter and stable Host conversation binding; callers cannot choose world_id.
  *
  * First slice supports only direct canonical-entity sources. Memory summaries
  * and other source kinds are excluded until their source-lineage authorization
