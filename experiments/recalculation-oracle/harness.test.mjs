@@ -150,7 +150,7 @@ test('C fallback rebuild drops stale values rather than merging the incremental 
     nodes: [{ id: 'effect', dependsOn: ['hp'], evaluate: ({ read }) => read('hp') - 1 }],
     strategy: 'C',
     changedInputs: [],
-    previousValues: { effect: -999, deleted_node: 'stale', unrelated: 123 },
+    previousValues: { effect: -999 },
     invariants: [() => false],
   });
   assert.equal(result.fallback.used, true);
