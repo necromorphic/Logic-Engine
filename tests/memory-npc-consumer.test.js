@@ -44,9 +44,10 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   );
   const scope = { world_id: 'memory-npc-world', subject_id: 'npc-a', purpose: 'npc_decision' };
   const snapshot = engine.getSnapshot('memory-npc-world');
+  const sourceVersion = 'entity-revision-' + engine.getSnapshot('memory-npc-world', { entityIds: ['source-a'] }).entities[0].updated_revision;
   const candidate = (overrides = {}) => ({
     record: { ref: 'memory:claim-1', version: 'v1' },
-    source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: 'source-v1' },
+    source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: sourceVersion },
     world_id: scope.world_id,
     subject_id: scope.subject_id,
     purpose: scope.purpose,
@@ -128,7 +129,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     record_version: 'v1',
     source_kind: 'canonical_entity',
     source_entity_id: 'source-a',
-    source_version: 'source-v1',
+    source_version: sourceVersion,
   });
   assert.equal(JSON.stringify(result).includes('must never leak'), false);
   assert.equal(JSON.stringify(result).includes('private_note'), false);
@@ -180,6 +181,18 @@ test('canonical Memory candidate without an exact source version fails closed', 
   const result = await consumer.retrieveForNpc(request());
   assert.equal(result.status, 'non_ready');
   assert.equal(result.reason, 'memory_candidate_source_identity_invalid');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+});
+
+test('Memory candidate with a stale canonical source revision fails closed', async (t) => {
+  const { consumer, setCandidates, candidate } = setup(t);
+  setCandidates([candidate({
+    source: { kind: 'canonical_entity', entity_id: 'source-a', source_version: 'entity-revision-999' },
+  })]);
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_source_version_stale');
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
 });
@@ -416,7 +429,7 @@ test('duplicate Memory identity/version cannot be rebound to a different canonic
   const { consumer, setCandidates, candidate } = setup(t);
   setCandidates([
     candidate(),
-    candidate({ source: { kind: 'canonical_entity', entity_id: 'source-b', source_version: 'source-v1' } }),
+    candidate({ source: { kind: 'canonical_entity', entity_id: 'source-b', source_version: sourceVersion } }),
   ]);
 
   const result = await consumer.retrieveForNpc(request());
