@@ -27,9 +27,13 @@ async function main() {
   const action = input?.action;
   let url;
   let options;
-  if (action === 'heads') {
+  if (action === 'heads' && typeof input.token === 'string' && input.token.length >= 32) {
     url = 'http://127.0.0.1:' + port + '/v1/heads';
-    options = { method: 'GET', signal: AbortSignal.timeout(timeoutMs) };
+    options = {
+      method: 'GET',
+      headers: { authorization: 'Bearer ' + input.token, 'cache-control': 'no-store' },
+      signal: AbortSignal.timeout(timeoutMs),
+    };
   } else if ((action === 'enroll' || action === 'advance' || action === 'finalize')
     && ['core', 'provider'].includes(input.domain)
     && typeof input.operation_id === 'string' && input.operation_id.length > 0
@@ -62,19 +66,24 @@ async function main() {
     if (!response.ok) throw new Error('authority rejected request');
     const body = await response.json();
     if (action === 'heads') {
+      const validPendingOperation = (operation) => operation === null
+        || (operation && typeof operation.operation_id === 'string'
+          && Number.isSafeInteger(operation.head) && operation.head > 0
+          && typeof operation.operation_digest === 'string' && /^[a-f0-9]{64}$/.test(operation.operation_digest)
+          && ['enroll', 'mutation'].includes(operation.operation_kind));
       if (!Number.isSafeInteger(body?.heads?.core) || body.heads.core < 0
         || !Number.isSafeInteger(body?.heads?.provider) || body.heads.provider < 0
         || typeof body?.pending?.core !== 'boolean' || typeof body?.pending?.provider !== 'boolean'
         || typeof body?.enrolled?.core !== 'boolean' || typeof body?.enrolled?.provider !== 'boolean'
-        || !Array.isArray(body?.pending_operations) || body.pending_operations.length > 2
-        || body.pending_operations.some((operation) => !['core', 'provider'].includes(operation?.domain)
-          || typeof operation?.operation_id !== 'string'
-          || typeof operation?.operation_digest !== 'string' || !/^[a-f0-9]{64}$/.test(operation.operation_digest)
-          || !['enroll', 'mutation'].includes(operation?.operation_kind)
-          || !Number.isSafeInteger(operation?.resulting_head) || operation.resulting_head < 1)) {
+        || !body.operations || !validPendingOperation(body.operations.core)
+        || !validPendingOperation(body.operations.provider)
+        || body.pending.core !== (body.operations.core !== null)
+        || body.pending.provider !== (body.operations.provider !== null)) {
         throw new Error('invalid response');
       }
-      process.stdout.write(JSON.stringify({ ok: true, heads: body.heads, pending: body.pending, pending_operations: body.pending_operations, enrolled: body.enrolled }));
+      process.stdout.write(JSON.stringify({
+        ok: true, heads: body.heads, pending: body.pending, operations: body.operations, enrolled: body.enrolled,
+      }));
     } else {
       const result = body?.result;
       const expectedStatuses = action === 'finalize' ? ['committed'] : ['pending', 'committed'];
