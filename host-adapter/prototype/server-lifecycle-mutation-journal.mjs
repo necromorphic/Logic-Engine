@@ -437,7 +437,7 @@ function fail(response, code, status = 503) {
  * A successful pre-snapshot and fsynced intent are required before the handler.
  * The response is held until a post-snapshot and fsynced outcome are recorded.
  */
-export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false } = {}) {
+export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, requireCoreInventory = false } = {}) {
     return async function hostLifecycleMutationMiddleware(request, response, next) {
         const operation = MUTATIONS.get(request.method + ' ' + request.baseUrl + request.path)
             ?? MUTATIONS.get(request.method + ' ' + request.originalUrl?.split('?')[0]);
@@ -480,7 +480,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             }
             const coreConfigured = Boolean(process.env.LOGIC_ENGINE_CORE_URL && process.env.LOGIC_ENGINE_API_TOKEN
                 && process.env.LOGIC_ENGINE_ADAPTER_ID && process.env.LOGIC_ENGINE_ADAPTER_TOKEN);
-            if (requirePersistedInventory && !coreConfigured) {
+            if (requireCoreInventory && !coreConfigured) {
                 return fail(response, 'CORE_HOST_INVENTORY_CONFIGURATION_MISSING', 503);
             }
             paths = await statePaths(request);
@@ -499,7 +499,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 release();
                 return fail(response, 'HOST_JOURNAL_RECONCILIATION_REQUIRED');
             }
-            before = await scanMutationSnapshot(paths, registry, requirePersistedInventory, coreConfigured);
+            before = await scanMutationSnapshot(paths, registry, requirePersistedInventory, requireCoreInventory && coreConfigured);
             if (!before.complete) {
                 release();
                 return fail(response, before.errors?.[0] ?? before.conversationInventory?.errors?.[0] ?? 'HOST_INVENTORY_INCOMPLETE');
