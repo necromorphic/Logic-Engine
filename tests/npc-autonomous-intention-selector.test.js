@@ -75,6 +75,51 @@ test("fails closed for malformed inputs and ambiguous duplicate IDs", () => {
   }
 });
 
+
+test("retains the current eligible intention unless a strictly higher-priority goal is available", () => {
+  const input = {
+    goals: [goal("steady-goal", 50), goal("same-priority", 50), goal("urgent", 60)],
+    actions: [
+      action("steady-action", "steady-goal", { cost: 20 }),
+      action("cheaper-same-priority", "same-priority", { cost: 1 }),
+      action("urgent-action", "urgent", { cost: 80 }),
+    ],
+    current_intention: { goal_id: "steady-goal", action_id: "steady-action" },
+  };
+  assert.deepEqual(selectNpcIntention(input), {
+    status: "selected",
+    intention: { goal_id: "urgent", action_id: "urgent-action" },
+  });
+
+  input.goals = input.goals.filter((item) => item.id !== "urgent");
+  assert.deepEqual(selectNpcIntention(input), {
+    status: "selected",
+    intention: { goal_id: "steady-goal", action_id: "steady-action" },
+  });
+});
+
+test("abandons a current intention when its action is no longer eligible", () => {
+  assert.deepEqual(selectNpcIntention({
+    goals: [goal("g", 20), goal("other", 10)],
+    actions: [
+      action("old-action", "g", { preconditions_met: false }),
+      action("new-action", "other"),
+    ],
+    current_intention: { goal_id: "g", action_id: "old-action" },
+  }), {
+    status: "selected",
+    intention: { goal_id: "other", action_id: "new-action" },
+  });
+});
+
+test("rejects malformed current intention data", () => {
+  assert.deepEqual(selectNpcIntention({
+    goals: [goal("g", 20)],
+    actions: [action("a", "g")],
+    current_intention: { goal_id: "g" },
+  }), { status: "non_ready", intention: null });
+});
+
 test("does not mutate caller-owned goals or action candidates", () => {
   const input = {
     goals: [goal("g", 5)],
