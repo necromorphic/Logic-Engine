@@ -85,7 +85,9 @@ function ruleOf(input, limit) {
     category_map: ['kind', 'categories'],
   };
   assertPlainDataRecord(input, ['kind', 'duration_ms', 'min_duration_ms', 'max_duration_ms', 'resolution', 'categories'], 'Duration rule', ['kind']);
-  if (!allowedByKind[input.kind]) fail('INVALID_TIME_POLICY', 'Unsupported duration rule kind.');
+  if (typeof input.kind !== 'string' || !Object.hasOwn(allowedByKind, input.kind)) {
+    fail('INVALID_TIME_POLICY', 'Unsupported duration rule kind.');
+  }
   const requiredByKind = {
     fixed: ['kind', 'duration_ms'],
     range: ['kind', 'min_duration_ms', 'max_duration_ms', 'resolution'],
