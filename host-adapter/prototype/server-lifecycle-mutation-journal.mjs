@@ -25,6 +25,17 @@ const MUTATIONS = new Map([
     ['POST /api/groups/delete', 'group-delete'],
     ['POST /api/backups/chat/delete', 'backup-delete'],
     ['POST /api/data-maid/delete', 'data-maid-delete'],
+
+]);
+
+// Until identity-preserving, tombstone-aware server handlers exist, these routes
+// can destroy or relocate enrolled chat state. Block them before the native
+// handler runs; a 503 after deletion would be too late.
+const UNSUPPORTED_ENROLLED_MUTATIONS = new Set([
+    'chat-rename', 'chat-delete', 'group-chat-import', 'chat-import', 'group-chat-delete',
+    'character-rename', 'character-edit', 'character-edit-attribute', 'character-merge-attributes',
+    'character-delete', 'character-import', 'character-duplicate',
+    'group-create', 'group-edit', 'group-delete', 'backup-delete', 'data-maid-delete',
 ]);
 
 const digest = value => createHash('sha256').update(value).digest('hex');
@@ -303,6 +314,70 @@ function verifyEnrolledChatSavePersistence(request, registry, after) {
     return { ok: true };
 }
 
+
+async function publishCoreInventorySnapshot(before, after) {
+    const baseUrl = process.env.LOGIC_ENGINE_CORE_URL;
+    const apiToken = process.env.LOGIC_ENGINE_API_TOKEN;
+    const adapterId = process.env.LOGIC_ENGINE_ADAPTER_ID;
+    const adapterToken = process.env.LOGIC_ENGINE_ADAPTER_TOKEN;
+    if (typeof baseUrl !== 'string' || !baseUrl.trim()
+        || typeof apiToken !== 'string' || apiToken.length < 16
+        || typeof adapterId !== 'string' || !adapterId.trim()
+        || typeof adapterToken !== 'string' || adapterToken.length < 16) {
+        throw new Error('CORE_HOST_CAPTURE_CONFIGURATION_MISSING');
+    }
+    const endpoint = new URL('/v1/host-version-ledger/capture', baseUrl);
+    if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) {
+        throw new Error('CORE_HOST_CAPTURE_CONFIGURATION_INVALID');
+    }
+    const flatten = snapshot => (snapshot?.conversationInventory?.inventories ?? []).flatMap(conversation =>
+        (conversation.versions ?? []).map(version => ({
+            conversation_id: conversation.conversation_id,
+            message_id: version.message_id,
+            version_id: version.version_id,
+            content_sha256: version.payload_sha256,
+            active: version.active,
+            deleted: false,
+        })),
+    );
+    const beforeVersions = flatten(before);
+    const afterVersions = flatten(after);
+    const key = version => JSON.stringify([version.conversation_id, version.message_id, version.version_id]);
+    const afterKeys = new Set(afterVersions.map(key));
+    const tombstones = beforeVersions
+        .filter(version => !afterKeys.has(key(version)))
+        .map(version => ({ ...version, active: false, deleted: true }));
+    // Publish every current version, not just the diff: this also repairs a
+    // previously missed idempotent capture. Inactive versions go first so the
+    // active pointer is set last for each message.
+    const entries = [
+        ...afterVersions.sort((a, b) => Number(a.active) - Number(b.active)
+            || a.conversation_id.localeCompare(b.conversation_id)
+            || a.message_id.localeCompare(b.message_id)
+            || a.version_id.localeCompare(b.version_id)),
+        ...tombstones,
+    ];
+    for (const entry of entries) {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            redirect: 'error',
+            headers: {
+                authorization: 'Bearer ' + apiToken,
+                'content-type': 'application/json',
+                'x-adapter-id': adapterId,
+                'x-adapter-token': adapterToken,
+            },
+            body: JSON.stringify(entry),
+            signal: AbortSignal.timeout(5000),
+        });
+        const payload = await response.json().catch(() => null);
+        if (!response.ok || !payload?.capture
+            || ['conflict', 'non_ready'].includes(payload.capture.status)) {
+            throw new Error('CORE_HOST_CAPTURE_REJECTED');
+        }
+    }
+}
+
 function diffSnapshots(before, after) {
     const a = new Map(before.artifacts.map(item => [item.artifactId, item]));
     const b = new Map(after.artifacts.map(item => [item.artifactId, item]));
@@ -377,6 +452,9 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             if (registry.conversations.length === 0) {
                 if (enforce) return fail(response, 'HOST_ENROLLMENT_REQUIRED', 503);
                 return next();
+            }
+            if (UNSUPPORTED_ENROLLED_MUTATIONS.has(operation)) {
+                return fail(response, 'HOST_MUTATION_PATH_NOT_PROVEN', 503);
             }
             paths = await statePaths(request);
         } catch {
@@ -536,6 +614,28 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                         return commitBufferedResponse(args, {
                             status: 503,
                             body: JSON.stringify({ error: { code: persistence.code } }),
+                        });
+                    }
+                    try {
+                        await publishCoreInventorySnapshot(before, after);
+                    } catch {
+                        const hash = await appendRecord(paths.journalPath, chain.lastHash, {
+                            version: 1,
+                            kind: 'outcome',
+                            operationId,
+                            status: 'UNRESOLVED',
+                            completedAt: new Date().toISOString(),
+                            httpStatus: response.statusCode,
+                            coreCaptureStatus: 'FAILED',
+                            afterSnapshotDigest: snapshotDigest(after),
+                            afterArtifactCount: after.artifactCount,
+                            afterConversationInventoryDigest: after.conversationInventory?.inventory_sha256 ?? null,
+                            afterConversationInventories: after.conversationInventory?.inventories ?? null,
+                        });
+                        chain.lastHash = hash;
+                        return commitBufferedResponse(args, {
+                            status: 503,
+                            body: JSON.stringify({ error: { code: 'CORE_HOST_CAPTURE_FAILED' } }),
                         });
                     }
                     const changes = diffSnapshots(before, after);
