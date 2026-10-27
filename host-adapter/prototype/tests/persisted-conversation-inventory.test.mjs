@@ -34,7 +34,7 @@ test('persisted snapshot inventories every current swipe by stable identity and 
     const uuid = randomUUID();
     const m1 = makeMessage('active answer', ['old answer', 'active answer'], 1);
     await writeChat(f.chats, 'chat-a', uuid, [m1]);
-    const result = await scanPersistedConversationInventories(f.roots, [{ conversationId: 'install:' + uuid, sourceLocator: 'chat-a', domain: 'chats' }]);
+    const result = await scanPersistedConversationInventories(f.roots, [{ conversationId: randomUUID() + ':' + uuid, sourceLocator: 'chat-a', domain: 'chats' }]);
     assert.equal(result.status, 'CURRENT_PERSISTED_SNAPSHOT_NON_AUTHORITATIVE');
     assert.equal(result.complete, true);
     assert.equal(result.historicalCompleteness, 'UNKNOWN');
@@ -51,7 +51,7 @@ test('persisted snapshot rejects missing per-message identity instead of guessin
   try {
     const uuid = randomUUID();
     await writeChat(f.chats, 'chat-a', uuid, [{ mes: 'message without identity' }]);
-    const result = await scanPersistedConversationInventories(f.roots, [{ conversationId: 'install:' + uuid, sourceLocator: 'chat-a', domain: 'chats' }]);
+    const result = await scanPersistedConversationInventories(f.roots, [{ conversationId: randomUUID() + ':' + uuid, sourceLocator: 'chat-a', domain: 'chats' }]);
     assert.equal(result.status, 'INVENTORY_INCOMPLETE');
     assert.deepEqual(result.inventories, []);
     assert.ok(result.errors.includes('MESSAGE_IDENTITY_OR_ACTIVE_POINTER_INVALID'));
@@ -65,7 +65,7 @@ test('persisted snapshot rejects copied/branched artifacts that reuse an enrolle
     const m = makeMessage('hello');
     const file = await writeChat(f.chats, 'chat-a', uuid, [m]);
     await copyFile(file, path.join(f.chats, 'other-name.jsonl'));
-    const result = await scanPersistedConversationInventories(f.roots, [{ conversationId: 'install:' + uuid, sourceLocator: 'chat-a', domain: 'chats' }]);
+    const result = await scanPersistedConversationInventories(f.roots, [{ conversationId: randomUUID() + ':' + uuid, sourceLocator: 'chat-a', domain: 'chats' }]);
     assert.equal(result.status, 'INVENTORY_INCOMPLETE');
     assert.ok(result.errors.includes('ENROLLED_CONVERSATION_LOCATOR_OR_DOMAIN_MISMATCH'));
   } finally { await rm(f.root, { recursive: true, force: true }); }
@@ -78,7 +78,7 @@ test('persisted snapshot rejects digest mismatch and malformed active selection'
     const m = makeMessage('hello');
     m._logicEngineLifecycle.versions[0].payloadDigest = digest('tampered');
     await writeChat(f.chats, 'chat-a', uuid, [m]);
-    const result = await scanPersistedConversationInventories(f.roots, [{ conversationId: 'install:' + uuid, sourceLocator: 'chat-a', domain: 'chats' }]);
+    const result = await scanPersistedConversationInventories(f.roots, [{ conversationId: randomUUID() + ':' + uuid, sourceLocator: 'chat-a', domain: 'chats' }]);
     assert.equal(result.status, 'INVENTORY_INCOMPLETE');
     assert.ok(result.errors.includes('VERSION_IDENTITY_OR_DIGEST_INVALID'));
   } finally { await rm(f.root, { recursive: true, force: true }); }
@@ -88,10 +88,10 @@ test('persisted snapshot rejects a missing enrolled file and invalid root covera
   const f = await fixture();
   try {
     const uuid = randomUUID();
-    const missing = await scanPersistedConversationInventories(f.roots, [{ conversationId: 'install:' + uuid, sourceLocator: 'missing', domain: 'chats' }]);
+    const missing = await scanPersistedConversationInventories(f.roots, [{ conversationId: randomUUID() + ':' + uuid, sourceLocator: 'missing', domain: 'chats' }]);
     assert.equal(missing.status, 'INVENTORY_INCOMPLETE');
     assert.ok(missing.errors.includes('ENROLLED_CONVERSATION_FILE_MISSING'));
-    const noGroups = await scanPersistedConversationInventories([{ domain: 'chats', path: f.chats }], [{ conversationId: 'install:' + uuid, sourceLocator: 'missing', domain: 'chats' }]);
+    const noGroups = await scanPersistedConversationInventories([{ domain: 'chats', path: f.chats }], [{ conversationId: randomUUID() + ':' + uuid, sourceLocator: 'missing', domain: 'chats' }]);
     assert.ok(noGroups.errors.includes('BOTH_CHAT_DOMAINS_REQUIRED'));
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
