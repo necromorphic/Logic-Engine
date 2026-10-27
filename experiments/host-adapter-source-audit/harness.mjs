@@ -72,6 +72,8 @@ test('edit/update notifications use the current host-local edit index', () => {
 test('server-side chat mutation routes remain an explicit NON_READY boundary (static audit, not a runtime guard test)', async () => {
   const chatsRoutes = await readFile(resolve(root, 'src/endpoints/chats.js'), 'utf8');
   const backupRoutes = await readFile(resolve(root, 'src/endpoints/backups.js'), 'utf8');
+  const groupRoutes = await readFile(resolve(root, 'src/endpoints/groups.js'), 'utf8');
+  const dataMaidRoutes = await readFile(resolve(root, 'src/endpoints/data-maid.js'), 'utf8');
 
   // These handlers operate on server-side artifacts and are not called through
   // the browser's localStorage enrollment marker or Host lifecycle bridge.
@@ -88,6 +90,10 @@ test('server-side chat mutation routes remain an explicit NON_READY boundary (st
     assert.ok(chatsRoutes.includes(route), `pinned server mutation route must be reviewed: ${route}`);
   }
   assert.ok(backupRoutes.includes("router.post('/chat/delete'"), 'backup deletion route must be reviewed');
+  for (const route of ["router.post('/create'", "router.post('/edit'", "router.post('/delete'"]) {
+    assert.ok(groupRoutes.includes(route), `pinned group metadata mutation route must be reviewed: ${route}`);
+  }
+  assert.ok(dataMaidRoutes.includes("router.post('/delete'"), 'Data Maid can delete arbitrary files under the user root and must be covered');
 
   assert.match(chatsRoutes, /await trySaveChat\(chatData, chatFilePath/);
   assert.match(chatsRoutes, /tryDeleteFile\(chatFilePath\)/);
