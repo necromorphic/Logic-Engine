@@ -100,7 +100,7 @@ test('sanitized filename alias cannot bypass the enrolled chat save persistence 
     });
 
     const response = responseMock();
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true })(request, response, async () => {
       // Simulate a native save path that reports success but leaves the old
       // persisted JSONL untouched (the failure mode the client helper hides).
       response.json({ ok: true });
@@ -200,7 +200,7 @@ test('matching persisted enrolled chat receives success only after the version i
       return { ok: true, status: 201, json: async () => ({ capture: { status: 'captured' } }) };
     };
     try {
-      await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
+      await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true })(request, response, async () => {
         await writeFile(chatPath, request.body.chat.map(value => JSON.stringify(value)).join('\n') + '\n');
         response.json({ ok: true });
       });
@@ -246,7 +246,7 @@ test('pinned Host inventory checks the independent Core ledger and fails closed 
   assert.match(patch, /\/v1\/host-version-ledger\/inventory/);
   assert.match(patch, /CORE_HOST_INVENTORY_UNAVAILABLE/);
   assert.match(patch, /CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE/);
-  assert.match(patch, /remote\.payload_sha256 !== local\.payload_sha256/);
+  assert.match(patch, /current\.content_sha256 !== item\.content_sha256/);
   assert.match(patch, /remote\.active !== local\.active/);
   assert.match(patch, /redirect: 'error'/);
   assert.match(patch, /publishCoreInventorySnapshot\(before, after\)/);
@@ -343,7 +343,7 @@ test('enrolled save fails closed when Core cannot durably capture the digest inv
       conversationId, sourceLocator: 'chat-a', sourcePath: 'avatar/chat-a.jsonl', domain: 'chats',
     });
     const response = responseMock();
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true })(request, response, async () => {
       await writeFile(chatPath, request.body.chat.map(value => JSON.stringify(value)).join('\n') + '\n');
       response.json({ ok: true });
     });
@@ -411,7 +411,7 @@ test('preflight blocks a save before mutation when Core retains a newer version 
     });
     const response = responseMock();
     let nextCalled = false;
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true })(request, response, async () => {
       nextCalled = true;
       response.json({ ok: true });
     });
@@ -466,7 +466,7 @@ test('enrolled save is blocked before mutation when external Core anchoring is n
     });
     const response = responseMock();
     let nextCalled = false;
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true })(request, response, async () => {
       nextCalled = true;
       response.json({ ok: true });
     });
