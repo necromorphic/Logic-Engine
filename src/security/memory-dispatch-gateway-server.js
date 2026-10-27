@@ -80,6 +80,7 @@ export async function createMemoryDispatchGatewayServer({
       actorId: payload?.actor_id,
       purpose: payload?.purpose,
       sources: payload?.sources,
+      candidates: payload?.candidates,
     };
     if (!verifyDispatchRequestSignature(hostSigningKey, dispatchRequest, payload?.signature)) {
       response.writeHead(403, { 'content-type': 'application/json' });

@@ -12,6 +12,8 @@ export function createDispatchRequestSignature(secret, request) {
     throw new TypeError('Invalid signed dispatch request.');
   }
   const sources = normalizeSources(request.sources);
+  const candidates = normalizeCandidates(request.candidates);
+  assertSameSources(sourcesForCandidates(candidates), sources);
   const bodyDigest = createHash('sha256').update(request.body, 'utf8').digest('hex');
   const canonical = JSON.stringify({
     request_id: request.requestId,
@@ -23,6 +25,7 @@ export function createDispatchRequestSignature(secret, request) {
     actor_id: request.actorId,
     purpose: request.purpose,
     sources,
+    candidates,
   });
   return createHmac('sha256', secret).update(canonical, 'utf8').digest('hex');
 }
@@ -114,6 +117,65 @@ function normalizeSources(sources) {
     }
   }
   return Object.freeze(normalized);
+}
+
+function normalizeCandidates(candidates) {
+  if (!Array.isArray(candidates) || candidates.length === 0 || candidates.length > 256) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
+  const normalized = candidates.map((candidate) => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)
+      || Object.keys(candidate).some((key) => ![
+        'record_ref', 'record_version', 'content_sha256', 'source_kind', 'source_entity_id', 'source_version',
+      ].includes(key))
+      || !validText(candidate.record_ref, 200)
+      || !validText(candidate.record_version, 200)
+      || typeof candidate.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(candidate.content_sha256)
+      || candidate.source_kind !== 'canonical_entity'
+      || !validText(candidate.source_entity_id, 200)
+      || !validText(candidate.source_version, 200)) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    return Object.freeze({
+      record_ref: candidate.record_ref,
+      record_version: candidate.record_version,
+      content_sha256: candidate.content_sha256,
+      source_kind: candidate.source_kind,
+      source_entity_id: candidate.source_entity_id,
+      source_version: candidate.source_version,
+    });
+  });
+  const compareCodeUnits = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+  normalized.sort((a, b) => compareCodeUnits(a.record_ref, b.record_ref)
+    || compareCodeUnits(a.record_version, b.record_version));
+  for (let i = 1; i < normalized.length; i += 1) {
+    if (normalized[i - 1].record_ref === normalized[i].record_ref
+      && normalized[i - 1].record_version === normalized[i].record_version) {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+  }
+  return Object.freeze(normalized);
+}
+
+function sourcesForCandidates(candidates) {
+  const unique = new Map();
+  for (const candidate of candidates) {
+    const key = JSON.stringify([candidate.source_entity_id, candidate.source_version]);
+    unique.set(key, {
+      source_kind: candidate.source_kind,
+      source_entity_id: candidate.source_entity_id,
+      source_version: candidate.source_version,
+    });
+  }
+  return normalizeSources([...unique.values()]);
+}
+
+function assertSameCandidates(actual, expected) {
+  let normalized;
+  try { normalized = normalizeCandidates(actual); } catch { throw new Error('MEMORY_DISPATCH_NOT_READY'); }
+  if (JSON.stringify(normalized) !== JSON.stringify(expected)) {
+    throw new Error('MEMORY_DISPATCH_NOT_READY');
+  }
 }
 
 function assertSameSources(actual, expected) {
@@ -237,7 +299,7 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, model, stream, body, worldId, actorId, purpose, sources, forwardResponse, signal }) {
+  async dispatchProtectedRequest({ requestId, route, model, stream, body, worldId, actorId, purpose, sources, candidates, forwardResponse, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
@@ -246,6 +308,8 @@ export class MemoryDispatchGateway {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
     const sourceSet = normalizeSources(sources);
+    const candidateSet = normalizeCandidates(candidates);
+    assertSameSources(sourcesForCandidates(candidateSet), sourceSet);
     const requestDigest = createHash('sha256').update(JSON.stringify({
       route,
       model,
@@ -255,6 +319,7 @@ export class MemoryDispatchGateway {
       actor_id: actorId,
       purpose,
       sources: sourceSet,
+      candidates: candidateSet,
     }), 'utf8').digest('hex');
     let coreHead;
     let providerHead;
@@ -275,7 +340,7 @@ export class MemoryDispatchGateway {
         worldId, actorId, purpose, sources: sourceSet,
       }));
       const provider = assertSyncResult(this.readProviderEvidence({
-        worldId, actorId, purpose, sources: sourceSet,
+        worldId, actorId, purpose, sources: sourceSet, candidates: candidateSet,
       }));
       if (core.world_id !== worldId || core.actor_id !== actorId
         || core.readiness !== 'READY' || core.inventory_status !== 'READY'
@@ -290,6 +355,8 @@ export class MemoryDispatchGateway {
       }
       assertSameSources(core.sources, sourceSet);
       assertSameSources(provider.sources, sourceSet);
+      assertSameCandidates(provider.candidates, candidateSet);
+      assertSameSources(sourcesForCandidates(provider.candidates), sourceSet);
       coreHead = core.head;
       providerHead = provider.head;
 
@@ -319,7 +386,7 @@ export class MemoryDispatchGateway {
           worldId,
           actorId,
           purpose,
-          JSON.stringify(sourceSet),
+          JSON.stringify({ sources: sourceSet, candidates: candidateSet }),
           coreHead,
           providerHead,
           new Date().toISOString(),

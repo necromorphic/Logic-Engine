@@ -1,3 +1,4 @@
+import { createHash } from 'node:crypto';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
@@ -21,6 +22,15 @@ const readToken = 'gateway-read-token-for-dispatch-gateway-tests-000000000000000
 const digestA = 'a'.repeat(64);
 const digestB = 'b'.repeat(64);
 const digestC = 'c'.repeat(64);
+const candidateContent = 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST';
+const candidateSet = Object.freeze([{
+  record_ref: 'memory-record-17',
+  record_version: 'record-v3',
+  content_sha256: createHash('sha256').update(candidateContent, 'utf8').digest('hex'),
+  source_kind: 'canonical_entity',
+  source_entity_id: 'entity-42',
+  source_version: 'version-7',
+}]);
 const sourceSet = Object.freeze([{
   source_kind: 'canonical_entity',
   source_entity_id: 'entity-42',
@@ -94,7 +104,7 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       inventory_status: 'READY',
       sources,
     }),
-    readProviderEvidence: ({ worldId, actorId, purpose, sources }) => ({
+    readProviderEvidence: ({ worldId, actorId, purpose, sources, candidates }) => ({
       head: providerHead,
       world_id: worldId,
       actor_id: actorId,
@@ -102,6 +112,7 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       granted: providerGranted,
       readiness: 'READY',
       sources,
+      candidates,
     }),
     sendUpstream: async (request) => {
       calls.push(request);
