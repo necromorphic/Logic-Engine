@@ -129,6 +129,9 @@ export function createTimePolicy(input) {
   const version = str(input.version, 'version');
   const max_action_duration_ms = integer(input.max_action_duration_ms, 'max_action_duration_ms', true);
   const max_skip_duration_ms = integer(input.max_skip_duration_ms, 'max_skip_duration_ms', true);
+  if (max_action_duration_ms > 604800000) {
+    fail('INVALID_TIME_POLICY', 'Action duration ceiling cannot exceed seven days.');
+  }
   if (max_action_duration_ms % 1000 || max_skip_duration_ms % 1000) {
     fail('INVALID_TIME_POLICY', 'Current runtime durations must be whole seconds.');
   }
