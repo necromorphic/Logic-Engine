@@ -122,7 +122,9 @@ export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs 
   }
   const changed = new Set(changedInputs);
   const selected = strategy === 'A' ? allNodeIds(nodes) : impactedNodes(inputs, nodes, changed);
-  const incremental = evaluateSelected(inputs, nodes, selected, previousValues);
+  // Full recomputation must not inherit cached values: removed/stale node IDs
+  // are not part of the current projection and must not survive strategy A.
+  const incremental = evaluateSelected(inputs, nodes, selected, strategy === 'A' ? {} : previousValues);
   const invariantFailures = [];
   for (let i = 0; i < invariants.length; i++) {
     let result;
@@ -134,7 +136,8 @@ export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs 
   const mustFallback = strategy === 'C' &&
     (invariantFailures.length > 0 || incremental.violations.some((v) => v.code === 'UNDECLARED_READ'));
   if (mustFallback) {
-    const full = evaluateSelected(inputs, nodes, allNodeIds(nodes));
+    // Fallback A is a true rebuild, not a merge with the incremental cache.
+    const full = evaluateSelected(inputs, nodes, allNodeIds(nodes), {});
     const fallbackFailures = [];
     for (let i = 0; i < invariants.length; i++) {
       let result;
