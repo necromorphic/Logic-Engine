@@ -338,3 +338,8 @@ This is a bounded inventory of the code present in this repository, not a claim 
 ## Core TЗ-3 audit update — 2026-10-28
 
 The current Core snapshot API is not a complete source inventory: omitting `entityIds` returns no entity rows, while explicit reads are bounded to 200 IDs. Provider's inventory-validation callback sees only Provider-owned records and cannot prove that all authoritative Core sources are represented. Consequently, the selected hybrid strategy is not yet executable through existing interfaces: the incremental journal has not passed its proof gate, and the full-reconciliation path lacks a trusted complete-inventory API. Do not add an outbox/API/schema by implication. Keep Memory→NPC **NON_READY / FAIL-CLOSED** until the missing inventory contract is separately reviewed, implemented, and tested. Details: [Core TЗ-3 contract](77-core-source-authority-rollback-contract.md) and [decision register](76-core-cross-block-decision-register.md).
+
+
+## Core TЗ-3 implementation update — 2026-10-28
+
+A candidate complete-inventory contract is now implemented on the TЗ-3 branch: Core enumerates canonical entities in pages of at most 200, binds continuation to `world_revision + commit_sequence`, includes destroyed entities and explicit unverifiable tokens, and rejects stale continuation. The Provider validator walks all pages and requires every stored record to match an active entity's current Core-issued token. Integration tests use the real validator. Exact-head CI and review remain pending. This does not resolve incremental-journal completeness, old-backup restore anti-rollback, or Host send-time enforcement. Keep Memory→NPC **NON_READY / FAIL-CLOSED**.
