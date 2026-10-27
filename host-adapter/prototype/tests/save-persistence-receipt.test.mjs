@@ -399,7 +399,7 @@ test('preflight blocks a save before mutation when Core retains a newer version 
   process.env.LOGIC_ENGINE_ADAPTER_TOKEN = 'test-adapter-token-long-enough';
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ inventory: {
     authority: 'CORE_HOST_VERSION_LEDGER', conversation_id: conversationId,
-    inventory_status: 'NON_READY',
+    inventory_status: 'READY',
     versions: [
       { message_id: messageId, version_id: version1, content_sha256: digest('old state'), active: false, deleted: false },
       { message_id: messageId, version_id: version2, content_sha256: digest('new state'), active: true, deleted: false },
