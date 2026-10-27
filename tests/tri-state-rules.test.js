@@ -139,4 +139,20 @@ test('rule equality rejects non-JSON context and operands instead of coercing th
   const cyclic = {};
   cyclic.self = cyclic;
   assert.throws(() => eq(cyclic, cyclic), (error) => error.code === 'RULE_TYPE_MISMATCH');
+
+  let getterCalled = false;
+  const accessorValue = {};
+  Object.defineProperty(accessorValue, 'secret', {
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return 'value';
+    },
+  });
+  assert.throws(() => eq(accessorValue, { secret: 'value' }), (error) => error.code === 'RULE_TYPE_MISMATCH');
+  assert.equal(getterCalled, false);
+
+  const sparse = [];
+  sparse.length = 1;
+  assert.throws(() => eq(sparse, [null]), (error) => error.code === 'RULE_TYPE_MISMATCH');
 });
