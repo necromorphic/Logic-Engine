@@ -280,3 +280,22 @@ test('duration rule kinds reject prototype keys and non-string values without co
   );
   assert.equal(coercionCalled, false);
 });
+
+
+test('inherited author approval cannot resolve an author-required duration', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'authorApproved');
+  Object.defineProperty(Object.prototype, 'authorApproved', {
+    configurable: true, enumerable: true, writable: true, value: true,
+  });
+  try {
+    const result = resolveDurationDecision(
+      policy(),
+      'rest.completed',
+      { duration_ms: 3600000 },
+    );
+    assert.equal(result.status, 'needs_author');
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'authorApproved', previous);
+    else delete Object.prototype.authorApproved;
+  }
+});
