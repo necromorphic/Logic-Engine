@@ -2,7 +2,7 @@
 
 **Status:** research draft; not a runtime implementation or approved contract.  
 **Repository:** `necromorphic/Logic-Engine`  
-**Audited main HEAD:** `bf35fb8dd13628718dacc11c27654c0929fba0e2` (verified from GitHub `commits/main` during this audit).  
+**Initial audit main HEAD:** `bf35fb8dd13628718dacc11c27654c0929fba0e2`. A later current-main revalidation is recorded in §13; use that section for current source identities.  
 **Scope:** read-only inspection of the canonical SQLite store, temporal primitives, due-work planner, and the knowledge/narrative boundary document. No code or runtime contracts changed. Tests were not run in this connector-only audit.
 
 ## 1. Evidence matrix
@@ -234,3 +234,43 @@ The research spike can be marked **architecture-ready** when the evidence matrix
 
 The smallest next action is for Core to identify whether a supported committed-event read boundary already exists for a derived consumer. If it does, the spike can test candidate A without adding a runtime contract. If it does not, this block must provide the evidence and acceptance tests for a separate owner decision; it must not create the seam itself.
 
+
+
+## 13. Current-main revalidation after repository advancement
+
+**Revalidation baseline:** `main` at `5bc5f0e4434c7573d2754e6cda94786fcb45fca0` (the base SHA returned when draft PR #529 was opened). This baseline is 329 commits ahead of the original audit SHA `bf35fb8dd13628718dacc11c27654c0929fba0e2`; the original source line references must therefore be treated as historical and rechecked against the current files.
+
+### 13.1 Current source identities and findings
+
+| Source | Current main blob SHA | Revalidation result |
+|---|---|---|
+| `src/time/model.js` | `10fd5a0488cb4300634433df52983399b36afef0` | Unchanged from the original audit. Still defines safe integer millisecond coordinates and pure temporal primitives. |
+| `src/time/scheduler.js` | `d7bf89422fc44491877e0aa6ab10ff1197b04c07` | Changed since the original audit. Current module header still states it is a pure planner that does not read/write storage, advance time, execute effects, or grant NPC knowledge. Current tests include same-coordinate dependency ordering and fail-closed plan cases. |
+| `src/storage/sqlite-store.js` | `c528805d40d77ac23c3adae866c97d9b97b606e8` | Changed since the original audit. Current file still contains the canonical event/projection, time-trigger/time-advance, snapshot and rollback/rebuild implementation paths inspected for this study. A spatial projection contract was not identified in the current code search. |
+| `tests/time-advance-operation.test.js` | `7684b2fee1c8a808f506343585948ea478885a4b` | Source still covers due-coordinate execution, operation replay and durable checkpoint recovery. It does not test spatial reconstruction. |
+| `tests/time-segment.test.js` | `ed8d223f11ec5fa9ff8f9ec97f61a5586f2fe960` | Source still covers atomic segments, replay, rebuild and stale revision rejection. It does not test a spatial projection. |
+| `tests/time-scheduler.test.js` | `11d9608175e4f6e86eb68144e5fdbda26483c330` | Changed since the original audit. Current tests explicitly cover `(from,to]`, stable order, same-coordinate dependency ordering, and blocked/invalid plans. They test planning, not spatial history. |
+| `tests/snapshot-read.test.js` | `df92d1b88da2a5780f36cbce5358264e2661a9f0` | Changed since the original audit. Snapshot/currentness coverage remains a relevant prerequisite, but no spatial historical-read contract is established. |
+| `tests/core.test.js` | `0543b8c6cd3aa45d069e1fc4294486a467bbe557` | Same blob as the original audit; rollback/rebuild coverage remains generic Core behavior, not spatial projection coverage. |
+| `docs/63-time-advance-operation-runtime-slice.md` | `eb57ace27c6e1cefa875006a237707a7d016d120` | Current main retains the documented durable TimeAdvance slice, including checkpoint/restart boundaries and explicit non-goals. It does not authorize a spatial consumer to use private internals as a public contract. |
+| `docs/13-event-type-contract.md` | `6bd40bd7afa9ecdc8f5e6a55ac1b830237352311` | Adopted Core contract says `event_type` is descriptive metadata, not authority or provenance proof. A spatial consumer must not trust an event solely because of its name. |
+| `docs/07-knowledge-and-narrative-boundaries.md` | `9ec34438d14dab245fa3aca8de4ea735c7c9bf17` | Current main contains the scene-integrity semantic proposal: spatial relations/motion, uncertainty, provenance and NPC viewpoint must remain distinct. It explicitly does not approve a runtime schema/API or Memory→NPC enablement. |
+
+### 13.2 Current-main search and status check
+
+- Repository code search for `spatial` and for `position location coordinate frame` returned the knowledge/narrative boundary document, but no typed spatial runtime implementation in the searched default-branch results. This is bounded search evidence, not a proof that no relevant code exists anywhere in every branch.
+- The current event trust contract reinforces the fail-closed rule: event names cannot establish source authority, approval, or provenance.
+- Issue #351 has no owner decision in the comments retrieved during this pass; the latest retrieved coordinator instruction remains the request to compare candidate boundaries, define tests, and avoid new runtime contracts.
+- Draft PR #529 was opened with this proposal. The workflow-run lookup for its head SHA `1f3723ebaf720f5374a2c1410fba859a28ab97ca` returned no PR-triggered runs, and the combined commit-status lookup returned no statuses. Therefore **CI is unverified**, not passed.
+- The test files were inspected through GitHub source reads only; no test command was executed. This report does not claim tests passed.
+
+### 13.3 Updated decision
+
+The current-main revalidation does not change the architecture decision:
+
+- **GO:** continue evidence-based design and isolated experiments only when a real approved input boundary exists.
+- **NO-GO:** production spatial runtime, new schema/table/event/API/lifecycle hook, direct dependence on unapproved store internals, and Memory→NPC exposure.
+- **Immediate external dependency:** Core must identify the supported committed-event read boundary (or explicitly decide that a separate contract is required); Core and Time owners must approve the supported reconstruction boundary and stale/rollback behavior.
+- **Next internal task after that decision:** run the disposable candidate-A spike and acceptance tests against the approved seam. Without that decision, a mock interface would test an invented contract and would not satisfy the feasibility requirement.
+
+This revalidation supersedes the original baseline for current-main source identities. It does not retroactively make the original source audit a test run.
