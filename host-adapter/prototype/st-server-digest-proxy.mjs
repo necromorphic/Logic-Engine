@@ -19,7 +19,8 @@ function configuredTarget(env) {
   let url;
   try { url = new URL(coreUrl); } catch { return null; }
   if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password
-    || url.search || url.hash || !['', '/'].includes(url.pathname)) return null;
+    || url.search || url.hash || !['', '/'].includes(url.pathname)
+    || adapterToken === apiToken) return null;
   url.pathname = '/v1/host-version-ledger/capture';
   return { url, apiToken, adapterId, adapterToken };
 }
@@ -78,15 +79,19 @@ export function createHostDigestProxyHandler({
           'x-adapter-token': target.adapterToken,
         },
         body: JSON.stringify(body),
+        redirect: 'error',
         signal: AbortSignal.timeout(timeoutMs),
       });
-      let payload;
-      try { payload = await upstream.json(); } catch {
-        return response.status(502).json({
-          error: { code: 'LOGIC_ENGINE_INVALID_RESPONSE', message: 'Logic-Engine returned an invalid response.' },
+      if (!upstream.ok) {
+        const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
+        return response.status(status).json({
+          error: { code: 'LOGIC_ENGINE_CAPTURE_REJECTED', message: 'Logic-Engine did not accept the digest capture.' },
         });
       }
-      return response.status(upstream.status).json(payload);
+      // Do not relay upstream diagnostics. A successful digest write is not
+      // readiness: Core's inventory verifier remains deny-only until an
+      // authoritative complete-inventory contract is deployed.
+      return response.status(upstream.status).json({ ok: true, inventory_status: 'NON_READY' });
     } catch {
       return response.status(502).json({
         error: { code: 'LOGIC_ENGINE_UNREACHABLE', message: 'Logic-Engine digest capture is unavailable.' },
