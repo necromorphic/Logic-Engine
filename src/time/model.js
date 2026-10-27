@@ -208,8 +208,8 @@ export function createCalendarDefinition(input) {
     month_id: nonEmptyString(epochInput.month_id, 'epoch.month_id'),
     day_of_month: positiveSafeInteger(epochInput.day_of_month, 'epoch.day_of_month'),
     weekday_index: safeInteger(epochInput.weekday_index, 'epoch.weekday_index'),
-    time_of_day_ms: epochInput.time_of_day_ms === undefined
-      ? 0 : safeInteger(epochInput.time_of_day_ms, 'epoch.time_of_day_ms'),
+    time_of_day_ms: Object.hasOwn(epochInput, 'time_of_day_ms')
+      ? safeInteger(epochInput.time_of_day_ms, 'epoch.time_of_day_ms') : 0,
   };
 
   if (epoch.year_cycle_index < 0 || epoch.year_cycle_index >= yearCycle.length) {
@@ -230,7 +230,7 @@ export function createCalendarDefinition(input) {
   }
 
   const monthIds = new Set(yearCycle.flatMap((year) => year.months.map((month) => month.id)));
-  const holidaysInput = input.holidays === undefined ? [] : input.holidays;
+  const holidaysInput = Object.hasOwn(input, 'holidays') ? input.holidays : [];
   const holidayEntries = denseArrayValues(holidaysInput, 10000, 'INVALID_HOLIDAYS', 'holidays');
   const holidayIds = new Set();
   const holidays = holidayEntries.map((holiday, i) => {
@@ -245,7 +245,7 @@ export function createCalendarDefinition(input) {
       fail('INVALID_HOLIDAY_DAY', 'Holiday day_of_month does not exist in any year-cycle entry.');
     }
     const normalized = { id, name: nonEmptyString(holiday.name, 'holidays[' + i + '].name'), month_id: monthId, day_of_month: dayOfMonth };
-    if (holiday.year_number !== undefined) {
+    if (Object.hasOwn(holiday, 'year_number')) {
       normalized.year_number = safeInteger(holiday.year_number, 'holidays[' + i + '].year_number');
       const holidayYearOffset = normalized.year_number - epoch.year_number;
       safeInteger(holidayYearOffset, 'Holiday year offset');
@@ -367,7 +367,7 @@ export function projectCalendarDate(definition, coordinate) {
   const holidays = calendar.holidays
     .filter((holiday) => holiday.month_id === month.id
       && holiday.day_of_month === monthRemaining + 1
-      && (holiday.year_number === undefined || holiday.year_number === yearNumber))
+      && (!Object.hasOwn(holiday, 'year_number') || holiday.year_number === yearNumber))
     .map(({ id, name }) => ({ id, name }));
 
   return {
@@ -389,7 +389,10 @@ export function projectCalendarDate(definition, coordinate) {
 export function calendarDateToCoordinate(definition, date) {
   const calendar = createCalendarDefinition(definition);
   const day = dayIndexForDate(calendar, date);
-  const targetTime = timeOfDay(date.time_of_day_ms, calendar.day_length_ms);
+  const targetTime = timeOfDay(
+    Object.hasOwn(date, 'time_of_day_ms') ? date.time_of_day_ms : undefined,
+    calendar.day_length_ms,
+  );
   const daysFromEpochDate = day.days - epochDayOfYear(calendar);
   const elapsedMs = checkedMultiply(daysFromEpochDate, calendar.day_length_ms, 'Calendar date coordinate');
   const withTime = checkedAdd(elapsedMs, targetTime - calendar.epoch.time_of_day_ms, 'Calendar date coordinate');
