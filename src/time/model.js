@@ -167,17 +167,24 @@ export function createCalendarDefinition(input) {
 
   const yearEntries = denseArrayValues(input.year_cycle, 1000, 'INVALID_YEAR_CYCLE', 'year_cycle', 1);
   const yearCycle = yearEntries.map((year, yearIndex) => {
-    assertPlainDataRecord(year, ['id', 'name', 'months'], 'INVALID_CALENDAR_YEAR', 'Calendar year');
+    // Normalized calendars carry a derived `days` field on each year.
+    // Accept it when revalidating an already-normalized calendar, but verify
+    // it against the canonical month sum instead of trusting the supplied value.
+    assertPlainDataRecord(year, ['id', 'name', 'months', 'days'], 'INVALID_CALENDAR_YEAR', 'Calendar year');
     const monthEntries = denseArrayValues(year.months, 1000, 'INVALID_CALENDAR_MONTHS', 'year-cycle months', 1);
     const months = monthEntries.map((month, monthIndex) => normalizeMonth(month, yearIndex, monthIndex));
     if (new Set(months.map((month) => month.id)).size !== months.length) {
       fail('DUPLICATE_MONTH_ID', 'Month ids must be unique within each year-cycle entry.');
     }
+    const days = sumSafe(months.map((month) => month.days), 'Year length');
+    if (year.days !== undefined && year.days !== days) {
+      fail('INVALID_CALENDAR_YEAR', 'Derived year days must equal the sum of its month lengths.');
+    }
     return {
       id: nonEmptyString(year.id, 'year_cycle[' + yearIndex + '].id'),
       name: nonEmptyString(year.name, 'year_cycle[' + yearIndex + '].name'),
       months,
-      days: sumSafe(months.map((month) => month.days), 'Year length'),
+      days,
     };
   });
 
