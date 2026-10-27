@@ -644,7 +644,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1375 @@
+@@ -0,0 +1,1421 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -731,6 +731,52 @@ new file mode 100644
 +        registryPath: path.join(stateDirectory, 'enrollments.json'),
 +        journalPath: path.join(stateDirectory, 'mutation-ledger.jsonl'),
 +    };
++}
++
++/**
++ * Startup group migration bypasses HTTP middleware. Inspect every user registry
++ * before allowing it to rewrite any group-chat source.
++ */
++export async function assertHostStartupMigrationSafe(directories) {
++    const directoryList = Array.isArray(directories) ? directories : [directories];
++    for (const userDirectories of directoryList) {
++        if (typeof userDirectories?.chats !== 'string' || !path.isAbsolute(userDirectories.chats)) {
++            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNAVAILABLE');
++        }
++        const chatRoot = await realpath(userDirectories.chats);
++        const userRoot = path.dirname(chatRoot);
++        const userStat = await lstat(userRoot);
++        if (!userStat.isDirectory() || userStat.isSymbolicLink()) {
++            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
++        }
++        const stateDirectory = path.join(userRoot, '.logic-engine-host');
++        let stateStat;
++        try {
++            stateStat = await lstat(stateDirectory);
++        } catch (error) {
++            if (error?.code === 'ENOENT') continue;
++            throw error;
++        }
++        if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) {
++            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
++        }
++        const registryPath = path.join(stateDirectory, 'enrollments.json');
++        let registryStat;
++        try {
++            registryStat = await lstat(registryPath);
++        } catch (error) {
++            if (error?.code === 'ENOENT') continue;
++            throw error;
++        }
++        if (!registryStat.isFile() || registryStat.isSymbolicLink()) {
++            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
++        }
++        const registry = await readRegistry(registryPath);
++        if (registry.conversations.some(item => item.domain === 'group_chats')) {
++            throw new Error('HOST_STARTUP_MIGRATION_BLOCKED');
++        }
++    }
++    return { status: 'SAFE_NO_ENROLLED_GROUP_CHATS' };
 +}
 +
 +async function atomicWriteJson(filePath, value) {
@@ -2362,3 +2408,25 @@ new file mode 100644
 +    errors: [],
 +  };
 +}
+
+diff --git a/src/server-main.js b/src/server-main.js
+--- a/src/server-main.js
++++ b/src/server-main.js
+@@ -73,6 +73,7 @@
+ import { redirectDeprecatedEndpoints, ServerStartup, setupPrivateEndpoints } from './server-startup.js';
+ import { diskCache } from './endpoints/characters.js';
+ import { migrateFlatSecrets } from './endpoints/secrets.js';
+ import { migrateGroupChatsMetadataFormat } from './endpoints/groups.js';
++import { assertHostStartupMigrationSafe } from './endpoints/logic-engine-host-journal.mjs';
+ 
+ // Work around a node v20.0.0, v20.1.0, and v20.2.0 bug. The issue was fixed in v20.3.0.
+@@ -299,6 +300,7 @@ async function preSetupTasks() {
+     console.log();
+ 
+     const directories = await getUserDirectoriesList();
++    await assertHostStartupMigrationSafe(directories);
+     await migrateGroupChatsMetadataFormat(directories);
+     await checkForNewContent(directories);
+     await diskCache.verify(directories);
+     migrateFlatSecrets(directories);
+     cleanUploads();
