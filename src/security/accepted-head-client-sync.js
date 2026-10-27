@@ -31,9 +31,10 @@ function invoke(input, timeoutMs) {
  * caller can abort its local transaction on failure. Invoke while holding the
  * shared coordinator. The authority service must never acquire that coordinator.
  */
-export function advanceAcceptedHeadSync({ domain, operationId, token, port, timeoutMs = 1500 }) {
+export function advanceAcceptedHeadSync({ domain, operationId, operationDigest, token, port, timeoutMs = 1500 }) {
   if (!['core', 'provider'].includes(domain)
     || typeof operationId !== 'string' || !operationId.trim()
+    || typeof operationDigest !== 'string' || !/^[a-f0-9]{64}$/.test(operationDigest)
     || typeof token !== 'string' || token.length < 32
     || !Number.isInteger(port) || port < 1 || port > 65535) {
     throw new TypeError('Invalid accepted-head client configuration.');
@@ -42,6 +43,7 @@ export function advanceAcceptedHeadSync({ domain, operationId, token, port, time
     action: 'advance',
     domain,
     operation_id: operationId,
+    operation_digest: operationDigest,
     token,
     port,
     timeout_ms: timeoutMs,
