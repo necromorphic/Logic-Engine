@@ -1128,9 +1128,9 @@ export class SQLiteStore {
   validateEventReference(worldId, eventId, nextRevision, fieldName) {
     const row = this.db.prepare('SELECT committed_revision,validity FROM world_events WHERE world_id=? AND event_id=?').get(worldId, eventId);
     if (!row) {
-      const foreign = this.db.prepare('SELECT 1 FROM world_events WHERE event_id=? LIMIT 1').get(eventId);
-      if (foreign) throw new EngineError('CROSS_WORLD_REFERENCE', fieldName + ' cannot reference an event from another world.', 400, { field: fieldName, reference: eventId });
-      throw new EngineError('INVALID_CAUSAL_REFERENCE', fieldName + ' references an event that does not exist: ' + eventId, 400, { field: fieldName, reference: eventId });
+      // Do not query other worlds to distinguish a foreign ID from an unknown
+      // one: that would expose cross-world event existence through an oracle.
+      throw new EngineError('INVALID_CAUSAL_REFERENCE', fieldName + ' references an event that does not exist in this world: ' + eventId, 400, { field: fieldName, reference: eventId });
     }
     if (row.validity !== 'valid') throw new EngineError('INVALID_CAUSAL_REFERENCE', fieldName + ' references an invalid event: ' + eventId, 400, { field: fieldName, reference: eventId });
     if (row.committed_revision >= nextRevision) throw new EngineError('INVALID_CAUSAL_REFERENCE', fieldName + ' must reference a prior event.', 400, { field: fieldName, reference: eventId });
