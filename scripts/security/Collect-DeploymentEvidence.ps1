@@ -35,7 +35,7 @@ function Get-PathAclEvidence {
     $current = $resolved
     while ($current) {
         if (-not $targets.Contains($current)) { $targets.Add($current) }
-        $parent = Split-Path -LiteralPath $current -Parent
+        $parent = [System.IO.Path]::GetDirectoryName($current)
         if (-not $parent -or $parent -eq $current) { break }
         $current = $parent
     }
@@ -249,7 +249,7 @@ $report = [ordered]@{
 
 $json = $report | ConvertTo-Json -Depth 10
 $fullOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
-$parentDir = Split-Path -LiteralPath $fullOutputPath -Parent
+$parentDir = [System.IO.Path]::GetDirectoryName($fullOutputPath)
 if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
     throw "Output directory does not exist: $parentDir"
 }
