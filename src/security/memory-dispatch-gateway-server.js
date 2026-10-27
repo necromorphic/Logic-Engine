@@ -1,5 +1,5 @@
 import { createServer } from 'node:http';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { timingSafeEqual } from 'node:crypto';
 import {
   createDispatchPermitSignature,
   verifyDispatchOutcomeSignature,
