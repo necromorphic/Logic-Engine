@@ -192,8 +192,9 @@ async function scanMutationSnapshot(paths, registry, requirePersistedInventory, 
         try {
             await assertCoreInventoryMatchesSnapshot(conversationInventory, registry);
         } catch (error) {
-            const code = error?.message === 'CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE'
-                ? 'CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE'
+            const code = ['CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE', 'CORE_HOST_INVENTORY_NOT_READY']
+                .includes(error?.message)
+                ? error.message
                 : 'CORE_HOST_INVENTORY_UNAVAILABLE';
             return {
                 ...artifacts,
@@ -1050,6 +1051,9 @@ async function assertCoreInventoryMatchesSnapshot(conversationInventory, registr
         if (!current || current.deleted || current.content_sha256 !== item.content_sha256 || current.active !== item.active) {
             throw new Error('CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE');
         }
+    }
+    if (remoteInventories.some(inventory => inventory.inventory_status !== 'READY')) {
+        throw new Error('CORE_HOST_INVENTORY_NOT_READY');
     }
 }
 
