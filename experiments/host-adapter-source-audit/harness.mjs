@@ -99,9 +99,15 @@ test('server-side chat mutation routes remain an explicit NON_READY boundary (st
   assert.match(chatsRoutes, /tryDeleteFile\(chatFilePath\)/);
   assert.match(chatsRoutes, /fs\.copyFileSync\(pathToUpload, pathToNewFile\)/);
   assert.match(backupRoutes, /await fsPromises\.unlink\(filePath\)/);
+  assert.match(groupRoutes, /writeFileAtomicSync\\(pathToFile, fileData\\)/);
+  assert.match(dataMaidRoutes, /await fs\\.promises\\.unlink\\(pathToFile\\)/);
 
   assert.doesNotMatch(chatsRoutes, /logic-engine-host-lifecycle|guardOperation\(/,
     'pinned chats.js has no Host enrollment/bridge guard; do not claim direct server API calls are intercepted');
+  assert.doesNotMatch(groupRoutes, /logic-engine-host-lifecycle|guardOperation\\(/,
+    'pinned groups.js has no Host guard; group metadata changes and cascaded group-chat deletion remain uncovered');
+  assert.doesNotMatch(dataMaidRoutes, /logic-engine-host-lifecycle|guardOperation\\(/,
+    'pinned data-maid.js has no Host guard; generic user-file deletion remains uncovered');
   assert.doesNotMatch(backupRoutes, /logic-engine-host-lifecycle|guardOperation\(/,
     'pinned backups.js has no Host enrollment/bridge guard; backup deletion remains outside browser protection');
 });
