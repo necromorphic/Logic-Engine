@@ -282,3 +282,41 @@ test('calendar date required fields must be own properties even if Object.protot
     else delete Object.prototype.year_number;
   }
 });
+
+
+test('optional calendar fields ignore polluted Object.prototype values', () => {
+  const previous = new Map();
+  const polluted = {
+    holidays: [{ id: 'inherited', name: 'Inherited', month_id: 'first', day_of_month: 1 }],
+    time_of_day_ms: 500,
+    year_number: 11,
+  };
+  try {
+    for (const [key, value] of Object.entries(polluted)) {
+      previous.set(key, Object.getOwnPropertyDescriptor(Object.prototype, key));
+      Object.defineProperty(Object.prototype, key, {
+        configurable: true, enumerable: true, writable: true, value,
+      });
+    }
+
+    const definition = calendar();
+    delete definition.holidays;
+    delete definition.epoch.time_of_day_ms;
+    delete definition.holidays;
+    const normalized = createCalendarDefinition(definition);
+    assert.deepEqual(normalized.holidays, []);
+    assert.equal(normalized.epoch.time_of_day_ms, 0);
+
+    const date = { year_number: 10, month_id: 'first', day_of_month: 1 };
+    assert.equal(calendarDateToCoordinate(calendar(), date), 0);
+
+    const recurringDefinition = createCalendarDefinition(calendar());
+    const projection = projectCalendarDate(recurringDefinition, 12000);
+    assert.deepEqual(projection.holidays.map((holiday) => holiday.id), ['annual']);
+  } finally {
+    for (const [key, descriptor] of previous) {
+      if (descriptor) Object.defineProperty(Object.prototype, key, descriptor);
+      else delete Object.prototype[key];
+    }
+  }
+});
