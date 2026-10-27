@@ -3,7 +3,7 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const repo = resolve(here, '../../..');
+const repo = resolve(here, '../..');
 const sourcePatch = resolve(repo, 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch');
 const proxySource = resolve(repo, 'host-adapter/prototype/st-server-digest-proxy.mjs');
 const output = resolve(here, 'patches/sillytavern-1.19.0-logic-engine-bridge.patch');
