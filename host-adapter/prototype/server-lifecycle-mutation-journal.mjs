@@ -545,6 +545,9 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             chain.lastHash = recordHash;
         } catch (error) {
             release();
+            const diagnosticCode = typeof error?.message === 'string' && /^[A-Z0-9_]{1,100}$/.test(error.message)
+                ? error.message : 'UNCLASSIFIED';
+            console.error('[Logic-Engine] Host mutation preflight failed:', diagnosticCode);
             const code = typeof error?.message === 'string'
                 && /^(CORE_HOST_INVENTORY_[A-Z_]+|CORE_HOST_CAPTURE_[A-Z_]+)$/.test(error.message)
                 ? error.message
