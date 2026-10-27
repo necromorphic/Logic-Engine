@@ -4,7 +4,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
-import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, readFile, writeFile, rm, symlink } from 'node:fs/promises';
 import { assertHostStartupMigrationSafe, createHostLifecycleMutationMiddleware, getHostMutationJournalStatus, reconcileHostMutation, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
 
 async function fixture() {
@@ -489,6 +489,22 @@ test('startup guard does not fail just because a user has no chats directory yet
     try {
         await rm(directories.chats, { recursive: true, force: true });
         assert.deepEqual(await assertHostStartupMigrationSafe([directories]), { status: 'SAFE_NO_ENROLLED_GROUP_CHATS' });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('startup migration fails closed when the chats root is a symlink', async () => {
+    const { root, directories } = await fixture();
+    try {
+        await rm(directories.chats, { recursive: true, force: true });
+        const redirectedRoot = path.join(root, 'redirected-chats');
+        await mkdir(redirectedRoot, { recursive: true });
+        await symlink(redirectedRoot, directories.chats, 'dir');
+        await assert.rejects(
+            assertHostStartupMigrationSafe(directories),
+            error => error?.message === 'HOST_STARTUP_MIGRATION_STATE_UNSAFE',
+        );
     } finally {
         await rm(root, { recursive: true, force: true });
     }
