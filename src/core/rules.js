@@ -42,14 +42,19 @@ function isJsonValue(value, active = new WeakSet()) {
         if (!descriptor || !Object.hasOwn(descriptor, 'value') || !isJsonValue(descriptor.value, active)) return false;
       }
       const keys = Object.keys(value);
-      return keys.length === value.length
+      const ownKeys = Reflect.ownKeys(value);
+      return ownKeys.length === value.length + 1 && ownKeys.includes('length')
+        && keys.length === value.length
         && keys.every((key) => Number.isInteger(Number(key)) && Number(key) >= 0
           && Number(key) < value.length && String(Number(key)) === key);
     }
 
-    return Object.keys(value).every((key) => {
+    const keys = Object.keys(value);
+    if (Reflect.ownKeys(value).length !== keys.length) return false;
+    return keys.every((key) => {
       const descriptor = Object.getOwnPropertyDescriptor(value, key);
-      return descriptor && Object.hasOwn(descriptor, 'value') && isJsonValue(descriptor.value, active);
+      return descriptor && descriptor.enumerable && Object.hasOwn(descriptor, 'value')
+        && isJsonValue(descriptor.value, active);
     });
   } finally {
     active.delete(value);
