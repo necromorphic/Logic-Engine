@@ -1700,7 +1700,8 @@ export class SQLiteStore {
       );
       for (const effect of x.effects) {
         if (['entity.create', 'entity.update', 'entity.upsert', 'entity.delete'].includes(effect.kind)) {
-          this.bumpEntitySourceVersion(id, effect.entity_id, createdAt);
+          this.bumpEntitySourceVersion(id, effect.entity_id, createdAt,
+            effect.kind === 'entity.create' || (effect.kind === 'entity.upsert' && !currentEntities.has(effect.entity_id)));
         }
       }
       this.db.prepare('UPDATE worlds SET world_revision=?,game_time=?,game_time_coordinate=? WHERE world_id=?')
@@ -2436,11 +2437,16 @@ export class SQLiteStore {
     }
   }
 
-  bumpEntitySourceVersion(worldId, entityId, stamp = now()) {
+  bumpEntitySourceVersion(worldId, entityId, stamp = now(), allowInitialize = false) {
     const current = this.db.prepare(
       'SELECT source_version FROM entity_source_versions WHERE world_id=? AND entity_id=?',
     ).get(worldId, entityId);
     if (!current) {
+      if (!allowInitialize) {
+        throw new EngineError('ENTITY_SOURCE_VERSION_MISSING', 'Canonical source version is missing for an existing entity.', 500, {
+          world_id: worldId, entity_id: entityId,
+        });
+      }
       this.db.prepare(`INSERT INTO entity_source_versions
         (world_id,entity_id,source_version,updated_at) VALUES(?,?,1,?)`)
         .run(worldId, entityId, stamp);
