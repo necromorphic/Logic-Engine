@@ -118,7 +118,7 @@ async function readAndValidateJournal(journalPath) {
         previousHash = recordHash;
         records.push(record);
         if (record.kind === 'intent') pending.add(record.operationId);
-        if (record.kind === 'outcome' && record.status === 'COMMITTED') pending.delete(record.operationId);
+        if (record.kind === 'outcome' && ['COMMITTED', 'REJECTED_NO_MUTATION'].includes(record.status)) pending.delete(record.operationId);
         if (record.kind === 'reconciliation') {
             pending.delete(record.operationId);
             degraded = true;
@@ -362,7 +362,14 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                         });
                     }
                     const changes = diffSnapshots(before, after);
-                    const status = response.statusCode >= 200 && response.statusCode < 300 ? 'COMMITTED' : 'UNRESOLVED';
+                    const success = response.statusCode >= 200 && response.statusCode < 300;
+                    // A rejected 4xx with a complete post-scan and no observed file
+                    // changes is terminal, not an unknown mutation. Do not poison
+                    // the user's journal for ordinary validation/auth errors.
+                    const rejectedWithoutMutation = response.statusCode >= 400
+                        && response.statusCode < 500
+                        && changes.length === 0;
+                    const status = success ? 'COMMITTED' : rejectedWithoutMutation ? 'REJECTED_NO_MUTATION' : 'UNRESOLVED';
                     const hash = await appendRecord(paths.journalPath, chain.lastHash, {
                         version: 1,
                         kind: 'outcome',
