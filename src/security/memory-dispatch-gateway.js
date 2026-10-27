@@ -220,8 +220,9 @@ export class MemoryDispatchGateway {
       || typeof readToken !== 'string' || readToken.length < 32
       || typeof readCoreEvidence !== 'function'
       || typeof readProviderEvidence !== 'function'
-      || typeof sendUpstream !== 'function') {
-      throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a transport.');
+      || typeof sendUpstream !== 'function'
+      || sendUpstream.constructor?.name === 'AsyncFunction') {
+      throw new TypeError('MemoryDispatchGateway requires file-backed stores, trusted synchronous readers, and a synchronous transport-start callback returning { started: true, response: Promise }.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
       throw new Error('DISPATCH_LEDGER_COORDINATOR_PATH_ALIAS');
