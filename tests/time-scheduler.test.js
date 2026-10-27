@@ -205,3 +205,19 @@ test('large same-coordinate trigger sets remain deterministically ordered', () =
   assert.equal(plan.segments[0].trigger_ids[0], 'trigger-0000');
   assert.equal(plan.segments[0].trigger_ids[2499], 'trigger-2499');
 });
+
+
+test('completed dependencies cannot violate causal time order', () => {
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 10,
+      triggers: [
+        trigger('completed-later', 10, { status: 'completed' }),
+        trigger('dependent-earlier', 5, { dependencies: ['completed-later'] }),
+      ],
+    }),
+    (error) => error.code === 'CAUSAL_TIME_ORDER_CONFLICT',
+  );
+});
