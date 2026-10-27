@@ -11,6 +11,8 @@
  * Multiple distinct supported interpretations are a conflict, not a vote.
  */
 
+import { isProxy } from "node:util/types";
+
 const STATUSES = new Set([
   "supported",
   "withheld",
@@ -23,7 +25,7 @@ const own = (object, key) =>
   Object.prototype.hasOwnProperty.call(object, key);
 
 const isRecord = (value) => {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  if (value === null || typeof value !== "object" || Array.isArray(value) || isProxy(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
   return Reflect.ownKeys(value).every((key) => {
@@ -36,7 +38,7 @@ const isRecord = (value) => {
 };
 
 const isDataArray = (value) => {
-  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
+  if (!Array.isArray(value) || isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
   const keys = Reflect.ownKeys(value);
   if (keys.some((key) => {
     if (key === "length") return false;
@@ -138,3 +140,21 @@ export function assessInteractionInterpretations(input) {
     evidenceRefs: Object.freeze(refs),
   });
 }
+
+
+test("rejects Proxy-backed assessment records and arrays without invoking traps", () => {
+  let trapCalls = 0;
+  const assessment = new Proxy(supported("flirtation"), {
+    get(target, key, receiver) { trapCalls += 1; return Reflect.get(target, key, receiver); },
+  });
+  const input = { assessments: [assessment] };
+  const result = assessInteractionInterpretations(input);
+  assert.equal(result.status, "invalid_input");
+  assert.equal(trapCalls, 0);
+
+  const assessments = new Proxy([supported("flirtation")], {
+    get(target, key, receiver) { trapCalls += 1; return Reflect.get(target, key, receiver); },
+  });
+  assert.equal(assessInteractionInterpretations({ assessments }).status, "invalid_input");
+  assert.equal(trapCalls, 0);
+});
