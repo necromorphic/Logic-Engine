@@ -139,7 +139,7 @@ test('matching persisted enrolled chat receives success only after the version i
     ],
     activeVersionIndex: 1,
   });
-  await writeFile(chatPath, [JSON.stringify(header), JSON.stringify(before)].join('\\n') + '\\n');
+  await writeFile(chatPath, [JSON.stringify(header), JSON.stringify(before)].join('\n') + '\n');
 
   const request = {
     method: 'POST', baseUrl: '/api/chats', path: '/save', originalUrl: '/api/chats/save',
@@ -152,7 +152,7 @@ test('matching persisted enrolled chat receives success only after the version i
     });
     const response = responseMock();
     await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
-      await writeFile(chatPath, request.body.chat.map(JSON.stringify).join('\\n') + '\\n');
+      await writeFile(chatPath, request.body.chat.map(JSON.stringify).join('\n') + '\n');
       response.json({ ok: true });
     });
     await response.finished;
@@ -160,7 +160,7 @@ test('matching persisted enrolled chat receives success only after the version i
     assert.deepEqual(JSON.parse(response.body), { ok: true });
 
     const journalText = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
-    const outcome = journalText.trim().split('\\n').map(line => JSON.parse(line)).find(record => record.kind === 'outcome');
+    const outcome = journalText.trim().split('\n').map(line => JSON.parse(line)).find(record => record.kind === 'outcome');
     assert.equal(outcome.status, 'COMMITTED');
     assert.equal(outcome.persistenceVerification, undefined);
     assert.doesNotMatch(journalText, /\"mes\":\"(?:before|after)\"/);
