@@ -12,7 +12,7 @@ test('pinned ST patch binds authenticated user before lifecycle mutation middlew
   assert.ok(start >= 0 && end > start, 'server-startup patch section exists');
   const section = patch.slice(start, end);
   const userBinding = section.indexOf(" app.use('/', userDataRouter);");
-  const lifecycleGuard = section.indexOf('+    app.use(createHostLifecycleMutationMiddleware());');
+  const lifecycleGuard = section.indexOf('+    app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true }));');
   assert.ok(userBinding >= 0, 'authenticated user-data middleware is mounted');
   assert.ok(lifecycleGuard > userBinding, 'lifecycle guard runs after request.user binding');
 });
@@ -47,4 +47,13 @@ test('pinned ST enrollment binds the exact persisted source path before register
   assert.match(patch, /conversationId,\n\+                        sourceLocator,\n\+                        sourcePath,/);
   assert.match(patch, /HOST_ENROLLMENT_SOURCE_PATH_REQUIRED/);
   assert.match(patch, /validateEnrolledSourcePath\(paths, \{ conversationId, sourceLocator, domain, sourcePath \}\)/);
+});
+
+
+test('production middleware requires persisted version inventory and journals version-level deltas', async () => {
+  const patch = await readFile(patchPath, 'utf8');
+  assert.match(patch, /createHostLifecycleMutationMiddleware\(\{ requirePersistedInventory: true \}\)/);
+  assert.match(patch, /beforeConversationInventories/);
+  assert.match(patch, /afterConversationInventories/);
+  assert.match(patch, /versionChanges: diffConversationInventories\(before, after\)/);
 });
