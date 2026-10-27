@@ -578,7 +578,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,303 @@
+@@ -0,0 +1,308 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -654,6 +654,8 @@ new file mode 100644
 +
 +async function readRegistry(registryPath) {
 +    try {
++        const stat = await lstat(registryPath);
++        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_REGISTRY_UNSAFE');
 +        const value = JSON.parse(await readFile(registryPath, 'utf8'));
 +        if (value?.version !== 1 || !Array.isArray(value.conversations)) throw new Error('HOST_REGISTRY_INVALID');
 +        return value;
@@ -666,6 +668,8 @@ new file mode 100644
 +async function readAndValidateJournal(journalPath) {
 +    let text;
 +    try {
++        const stat = await lstat(journalPath);
++        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_JOURNAL_UNSAFE');
 +        text = await readFile(journalPath, 'utf8');
 +    } catch (error) {
 +        if (error?.code === 'ENOENT') return { records: [], unresolved: false, lastHash: '0'.repeat(64) };
@@ -697,7 +701,8 @@ new file mode 100644
 +    const unsigned = { ...record, previousHash: priorHash };
 +    const recordHash = digest(canonical(unsigned));
 +    const line = canonical({ ...unsigned, recordHash }) + '\n';
-+    const handle = await open(journalPath, constants.O_CREAT | constants.O_APPEND | constants.O_WRONLY, 0o600);
++    const noFollow = constants.O_NOFOLLOW ?? 0;
++    const handle = await open(journalPath, constants.O_CREAT | constants.O_APPEND | constants.O_WRONLY | noFollow, 0o600);
 +    try {
 +        await handle.writeFile(line, 'utf8');
 +        await handle.sync();
