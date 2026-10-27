@@ -120,7 +120,7 @@ test('Core commits only when accepted-head authority is current and aborts mutat
       game_time: '2026-01-01T00:00:00Z',
     });
     assert.equal(created.world_id, 'accepted-head-world-one');
-    assert.deepEqual(getAcceptedHeadsSync({ port }), { core: 2, provider: 1 });
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 2, provider: 1 });
     const localHead = store.db.prepare(
       'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
     ).get();
