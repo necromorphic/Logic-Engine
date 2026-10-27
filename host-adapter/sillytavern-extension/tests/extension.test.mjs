@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { readFile, unlink } from 'node:fs/promises';
+import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
 import { normalizeEngineUrl, fetchHealth } from '../bridge-core.mjs';
@@ -48,13 +49,17 @@ test('extension manifest and UI use the pinned ST extension contract', async () 
   assert.match(html, /logic_engine_enroll/);
 });
 
-test('patch generator strips provider-specific changes and supplies the server proxy', async () => {
-  const generator = await readFile(resolve(root, 'prepare-pinned-st-patch.mjs'), 'utf8');
-  const sourcePatch = await readFile(resolve(repo, 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
-  const proxy = await readFile(resolve(repo, 'host-adapter/prototype/st-server-digest-proxy.mjs'), 'utf8');
-  assert.match(sourcePatch, /src\/endpoints\/backends\/chat-completions\.js/);
-  assert.match(generator, /providerSpecificHunk/);
-  assert.match(generator, /logic-engine-lifecycle-proxy\.mjs/);
-  assert.doesNotMatch(proxy, /Google|Gemini|MakerSuite/);
-  assert.doesNotMatch(proxy, /content_text|raw_message|message_text/);
+test('generated Host patch excludes provider routes and includes a digest-only proxy', async () => {
+  const output = resolve(root, 'patches/sillytavern-1.19.0-logic-engine-bridge.patch');
+  try {
+    execFileSync(process.execPath, [resolve(root, 'prepare-pinned-st-patch.mjs')], { stdio: 'pipe' });
+    const patch = await readFile(output, 'utf8');
+    assert.match(patch, /src\/endpoints\/logic-engine-lifecycle\.js/);
+    assert.match(patch, /src\/endpoints\/logic-engine-lifecycle-proxy\.mjs/);
+    assert.match(patch, /api\/logic-engine\/host-version-ledger\/capture/);
+    assert.doesNotMatch(patch, /chat-completions|MakerSuite|Gemini|Google AI/);
+    assert.doesNotMatch(patch, /content_text|raw_message|message_text/);
+  } finally {
+    await unlink(output).catch(() => {});
+  }
 });
