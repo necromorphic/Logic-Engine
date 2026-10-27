@@ -130,3 +130,42 @@ test('a pending or invalid journal fails closed before the next managed mutation
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test('non-2xx mutation response is journaled UNRESOLVED and blocks subsequent mutations', async () => {
+    const { root, directories, request } = await fixture();
+    try {
+        await writeFile(path.join(directories.chats, 'chat-1.jsonl'), '{"mes":"before"}\\n');
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+
+        const response = responseMock();
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            response.statusCode = 400;
+            response.end('mutation rejected');
+        });
+        await response.finished;
+
+        const ledger = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
+        const records = ledger.trim().split('\\n').map(line => JSON.parse(line));
+        assert.deepEqual(records.map(record => record.kind), ['intent', 'outcome']);
+        assert.equal(records[1].status, 'UNRESOLVED');
+        assert.equal(records[1].httpStatus, 400);
+
+        const second = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware()(request, second, async () => {
+            reachedHandler = true;
+            second.json({ ok: true });
+        });
+        await second.finished;
+        assert.equal(reachedHandler, false);
+        assert.equal(second.statusCode, 503);
+        assert.match(String(second.body), /HOST_JOURNAL_RECONCILIATION_REQUIRED/);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
