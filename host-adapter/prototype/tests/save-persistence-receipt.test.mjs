@@ -91,7 +91,7 @@ test('sanitized filename alias cannot bypass the enrolled chat save persistence 
   process.env.LOGIC_ENGINE_ADAPTER_TOKEN = 'test-adapter-token-long-enough';
   globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ inventory: {
     authority: 'CORE_HOST_VERSION_LEDGER', conversation_id: conversationId,
-    inventory_status: 'NON_READY',
+    inventory_status: 'READY',
     versions: [{ message_id: messageId, version_id: version1, content_sha256: digest('persisted-before'), active: true, deleted: false }],
   } }) });
   try {
@@ -184,7 +184,7 @@ test('matching persisted enrolled chat receives success only after the version i
       if (endpoint.pathname.endsWith('/inventory')) {
         return { ok: true, status: 200, json: async () => ({ inventory: {
           authority: 'CORE_HOST_VERSION_LEDGER', conversation_id: conversationId,
-          inventory_status: 'NON_READY', versions: [...remoteVersions.values()],
+          inventory_status: 'READY', versions: [...remoteVersions.values()],
         } }) };
       }
       const body = JSON.parse(options.body);
@@ -332,7 +332,7 @@ test('enrolled save fails closed when Core cannot durably capture the digest inv
     if (String(url).endsWith('/inventory')) {
       return { ok: true, status: 200, json: async () => ({ inventory: {
         authority: 'CORE_HOST_VERSION_LEDGER', conversation_id: conversationId,
-        inventory_status: 'NON_READY',
+        inventory_status: 'READY',
         versions: [{ message_id: messageId, version_id: versionId, content_sha256: digest('private message text'), active: true, deleted: false }],
       } }) };
     }
