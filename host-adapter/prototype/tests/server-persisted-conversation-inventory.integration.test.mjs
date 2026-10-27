@@ -40,7 +40,7 @@ test('server inventory reads registered persisted chat and returns only version 
   ].join('\n') + '\n');
   try {
     await registerHostConversation(request, {
-      conversationId: 'install:' + uuid,
+      conversationId: randomUUID() + ':' + uuid,
       sourceLocator: 'chat-a',
       domain: 'chats',
     });
@@ -70,7 +70,7 @@ test('server inventory fails closed when enrolled persisted identity is absent',
   try {
     const uuid = randomUUID();
     await registerHostConversation(request, {
-      conversationId: 'install:' + uuid,
+      conversationId: randomUUID() + ':' + uuid,
       sourceLocator: 'missing',
       domain: 'chats',
     });
