@@ -457,3 +457,33 @@ test('nested JSON rejects prototype-pollution keys and symbol-bearing arrays', (
   }
   assert.equal(Object.prototype.polluted, undefined);
 });
+
+test('nested fact values reject JavaScript values outside the JSON data model', () => {
+  const customPrototype = Object.create({ inherited: true });
+  customPrototype.own = 'value';
+
+  const invalidValues = [
+    undefined,
+    1n,
+    Symbol('not-json'),
+    () => 'not-json',
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+    new Date('2026-01-01T00:00:00.000Z'),
+    new Map([['key', 'value']]),
+    new Set(['value']),
+    customPrototype,
+  ];
+
+  for (const value of invalidValues) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({
+        kind: 'assert_fact',
+        target_ref: 'fact.example',
+        payload: { predicate: 'p', value },
+      })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+      String(value),
+    );
+  }
+});
