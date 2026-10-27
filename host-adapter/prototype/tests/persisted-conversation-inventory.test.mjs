@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, writeFile, copyFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import * as fsPromises from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
 import { scanPersistedConversationInventories } from '../persisted-conversation-inventory.mjs';
 
@@ -72,6 +73,37 @@ test('persisted snapshot rejects untagged and empty JSONL artifacts', async () =
         : 'UNENROLLED_CHAT_ARTIFACT:')), kind);
     } finally { await rm(f.root, { recursive: true, force: true }); }
   }
+});
+
+test('persisted snapshot fails closed when a directory changes during enumeration', async () => {
+  const f = await fixture();
+  try {
+    const uuid = randomUUID();
+    await writeChat(f.chats, 'enrolled', uuid, [makeMessage('known')]);
+    let injected = false;
+    const fs = {
+      lstat: fsPromises.lstat,
+      open: fsPromises.open,
+      realpath: fsPromises.realpath,
+      readdir: async (directory, options) => {
+        const entries = await fsPromises.readdir(directory, options);
+        if (directory === f.chats && !injected) {
+          injected = true;
+          await writeFile(path.join(f.chats, 'added-during-scan.jsonl'), '');
+        }
+        return entries;
+      },
+    };
+    const result = await scanPersistedConversationInventories(f.roots, [{
+      conversationId: randomUUID() + ':' + uuid,
+      sourceLocator: 'enrolled',
+      sourcePath: 'enrolled.jsonl',
+      domain: 'chats',
+    }], { fs });
+    assert.equal(result.status, 'INVENTORY_INCOMPLETE');
+    assert.deepEqual(result.inventories, []);
+    assert.ok(result.errors.includes('DIRECTORY_CHANGED_DURING_ENUMERATION:chats'));
+  } finally { await rm(f.root, { recursive: true, force: true }); }
 });
 
 test('persisted snapshot inventories every current swipe by stable identity and digest without exposing text', async () => {
