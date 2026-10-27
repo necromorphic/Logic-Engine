@@ -185,6 +185,34 @@ export class MemoryNpcConsumer {
         return nonReady('memory_snapshot_stale');
       }
       if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+      // Keep the Core snapshot read after asynchronous authorization so a
+      // world change during the recheck cannot make a stale empty result ready.
+      let finalEmptySnapshotRead;
+      try {
+        finalEmptySnapshotRead = this.authorizedReadService.readEntityFields({
+          worldId,
+          adapterId,
+          actorEntityId,
+          recipient: 'model',
+          purpose: 'npc_decision',
+          entityIds: [actorEntityId],
+          fields: ['entity_id'],
+        });
+      } catch {
+        return nonReady('authorized_source_read_unavailable');
+      }
+      if (!object(finalEmptySnapshotRead)
+        || finalEmptySnapshotRead.world_id !== worldId
+        || !validSnapshot({
+          world_revision: finalEmptySnapshotRead.world_revision,
+          commit_sequence: finalEmptySnapshotRead.commit_sequence,
+        })
+        || !sameSnapshot(memoryResult.snapshot, {
+          world_revision: finalEmptySnapshotRead.world_revision,
+          commit_sequence: finalEmptySnapshotRead.commit_sequence,
+        })) {
+        return nonReady('memory_snapshot_stale');
+      }
       return Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
@@ -320,6 +348,34 @@ export class MemoryNpcConsumer {
         return nonReady('memory_snapshot_stale');
       }
       if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+      // Keep the Core snapshot read after asynchronous authorization so a
+      // world change during the recheck cannot make a stale empty result ready.
+      let finalEmptySnapshotRead;
+      try {
+        finalEmptySnapshotRead = this.authorizedReadService.readEntityFields({
+          worldId,
+          adapterId,
+          actorEntityId,
+          recipient: 'model',
+          purpose: 'npc_decision',
+          entityIds: [actorEntityId],
+          fields: ['entity_id'],
+        });
+      } catch {
+        return nonReady('authorized_source_read_unavailable');
+      }
+      if (!object(finalEmptySnapshotRead)
+        || finalEmptySnapshotRead.world_id !== worldId
+        || !validSnapshot({
+          world_revision: finalEmptySnapshotRead.world_revision,
+          commit_sequence: finalEmptySnapshotRead.commit_sequence,
+        })
+        || !sameSnapshot(memoryResult.snapshot, {
+          world_revision: finalEmptySnapshotRead.world_revision,
+          commit_sequence: finalEmptySnapshotRead.commit_sequence,
+        })) {
+        return nonReady('memory_snapshot_stale');
+      }
       return Object.freeze({
         status: 'ready',
         admitted: Object.freeze([]),
@@ -506,6 +562,37 @@ export class MemoryNpcConsumer {
     }
 
     if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+
+    // Revalidate Core's revision after all asynchronous authorization checks.
+    // The content-bearing read must still correspond to the current snapshot
+    // when this consumer finishes; no async checks follow this final read.
+    let finalSourceSnapshotRead;
+    try {
+      finalSourceSnapshotRead = this.authorizedReadService.readEntityFields({
+        worldId,
+        adapterId,
+        actorEntityId,
+        recipient: 'model',
+        purpose: 'npc_decision',
+        entityIds,
+        fields: ['entity_id'],
+      });
+    } catch {
+      return nonReady('authorized_source_read_unavailable');
+    }
+    if (!object(finalSourceSnapshotRead)
+      || finalSourceSnapshotRead.world_id !== worldId
+      || !validSnapshot({
+        world_revision: finalSourceSnapshotRead.world_revision,
+        commit_sequence: finalSourceSnapshotRead.commit_sequence,
+      })
+      || !sameSnapshot(sourceRead, {
+        world_revision: finalSourceSnapshotRead.world_revision,
+        commit_sequence: finalSourceSnapshotRead.commit_sequence,
+      })) {
+      return nonReady('memory_snapshot_stale');
+    }
+
     return Object.freeze({
       status: 'ready',
       admitted: decision.admitted,
