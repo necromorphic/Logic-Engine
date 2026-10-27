@@ -44,7 +44,7 @@ jobs:
               if ($LASTEXITCODE -ne 0) { throw "Failed to create disposable service identity fixture for $role." }
               $testServices += $service
             }
-            $root = Join-Path $env:RUNNER_TEMP ('core-db-acl-smoke-' + [guid]::NewGuid().ToString('N'))
+            $root = Join-Path $env:ProgramData ('core-db-acl-smoke-' + [guid]::NewGuid().ToString('N'))
             New-Item -ItemType Directory -Path $root | Out-Null
             $db = Join-Path $root 'core.sqlite'
             $evidence = Join-Path $env:RUNNER_TEMP ('core-db-acl-evidence-' + [guid]::NewGuid().ToString('N') + '.json')
@@ -82,7 +82,7 @@ jobs:
               if (Test-Path -LiteralPath ($evidence + '.ancestor')) { Remove-Item -LiteralPath ($evidence + '.ancestor') -Force }
             }
             # Regression: block directory replacement through a writable parent ACL.
-            $unsafeParent = Join-Path $env:RUNNER_TEMP ('acl-unsafe-parent-' + [guid]::NewGuid().ToString('N'))
+            $unsafeParent = Join-Path $env:ProgramData ('acl-unsafe-parent-' + [guid]::NewGuid().ToString('N'))
             $unsafeDirectory = Join-Path $unsafeParent 'core-db'
             $unsafeEvidence = $evidence + '.parent'
             New-Item -ItemType Directory -Path $unsafeDirectory -Force | Out-Null
