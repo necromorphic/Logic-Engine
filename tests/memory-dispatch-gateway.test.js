@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
+import { createHash } from 'node:crypto';
 import { existsSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -13,7 +14,6 @@ import {
 } from '../src/security/accepted-head-client-sync.js';
 import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
 import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
-import { createGoogleAiStudioTransport } from '../src/security/memory-dispatch-google-transport.js';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
@@ -137,10 +137,10 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
 
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
-  route: 'google-ai-studio-chat-completions',
-  model: 'gemini-2.5-flash-lite',
+  route: 'sillytavern-chat-completions',
+  model: 'configured-model-1',
   stream: false,
-  body: JSON.stringify({ messages: [{ role: 'user', content: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' }] }),
+  bodyDigest: createHash('sha256').update('FINAL_SERVER_ASSEMBLED_PROMPT', 'utf8').digest('hex'),
   worldId: 'world-1',
   actorId: 'npc-1',
   purpose: 'recall',
@@ -155,12 +155,12 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   ...overrides,
 });
 
-test('Host dispatch signature binds the exact body, route, model, identity, and source versions with locale-independent source ordering', () => {
+test('Host dispatch signature binds the final body digest, route, model, identity, and source versions with locale-independent ordering', () => {
   const request = validRequest('signed-request');
   const secret = 'host-dispatch-signing-secret-00000000000000000000000000000001';
   const signature = createDispatchRequestSignature(secret, request);
   assert.equal(verifyDispatchRequestSignature(secret, request, signature), true);
-  assert.equal(verifyDispatchRequestSignature(secret, { ...request, body: request.body + 'tampered' }, signature), false);
+  assert.equal(verifyDispatchRequestSignature(secret, { ...request, bodyDigest: 'f'.repeat(64) }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, candidates: [{ ...request.candidates[0], record_version: 'record-version-4' }] }, signature), false);
   assert.equal(verifyDispatchRequestSignature(secret, { ...request, sources: [{
     source_kind: 'canonical_entity',
@@ -229,25 +229,27 @@ test('dispatch rejects Provider evidence whose exact candidate record/version se
   }
 });
 
-test('dispatch validates current heads and grants, records one content-free start, and sends once', async () => {
+test('dispatch validates current heads and grants and records one content-free start without sending upstream', async () => {
   const fixture = await createFixture();
   try {
     const response = await fixture.gateway.dispatchProtectedRequest(validRequest());
-    assert.equal(response.status, 200);
-    assert.equal(fixture.calls.length, 1);
-    assert.equal(fixture.calls[0].body, validRequest().body);
+    assert.equal(response.status, 'DISPATCH_STARTED');
+    assert.equal(fixture.calls.length, 0, 'the authority gate never sends to a model provider');
+    fixture.gateway.recordDispatchOutcome({
+      requestId: response.requestId, requestDigest: response.requestDigest, outcome: 'COMPLETED', outcomeCode: 200,
+    });
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest()),
       /MEMORY_DISPATCH_DUPLICATE_ID/,
     );
-    assert.equal(fixture.calls.length, 1);
+    assert.equal(fixture.calls.length, 0);
 
     const db = new DatabaseSync(fixture.ledgerPath);
     try {
       const row = db.prepare('SELECT status,request_digest,model,sources_json FROM dispatch_ledger WHERE request_id=?')
         .get('request-001');
       assert.equal(row.status, 'COMPLETED');
-      assert.equal(row.model, 'gemini-2.5-flash-lite');
+      assert.equal(row.model, 'configured-model-1');
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
@@ -302,20 +304,14 @@ test('unsupported route, denied Provider grant, and pending authority all produc
   }
 });
 
-test('ambiguous transport outcome is recorded UNKNOWN and the request identity cannot be replayed', async () => {
-  let sends = 0;
-  const fixture = await createFixture({
-    sendUpstream: async () => {
-      sends += 1;
-      throw new Error('simulated timeout after dispatch start');
-    },
-  });
+test('ambiguous Host transport outcome is recorded UNKNOWN and the request identity cannot be replayed', async () => {
+  const fixture = await createFixture();
   try {
-    await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request')),
-      /MEMORY_DISPATCH_OUTCOME_UNKNOWN/,
-    );
-    assert.equal(sends, 1);
+    const started = await fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request'));
+    fixture.gateway.recordDispatchOutcome({
+      requestId: started.requestId, requestDigest: started.requestDigest, outcome: 'UNKNOWN', outcomeCode: null,
+    });
+    assert.equal(fixture.calls.length, 0);
 
     const db = new DatabaseSync(fixture.ledgerPath);
     try {
@@ -323,7 +319,7 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
         .get('ambiguous-request');
       assert.equal(row.status, 'UNKNOWN');
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
-      assert.equal(row.route, 'google-ai-studio-chat-completions');
+      assert.equal(row.route, 'sillytavern-chat-completions');
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
       db.close();
@@ -337,34 +333,16 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
       fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-new-id')),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
-    assert.equal(sends, 1);
+    assert.equal(fixture.calls.length, 0);
   } finally {
     await fixture.close();
   }
 });
 
-test('loopback Gateway endpoint requires Host authentication and a body-bound signature before Google egress', async () => {
-  const apiKey = 'google-ai-studio-test-key-not-real';
+test('loopback dispatch authority returns a signed one-use permit and never sends upstream', async () => {
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
   const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
-  let upstreamCalls = 0;
-  let observedUrl;
-  let observedBody;
-  let observedHeaders;
-  const transport = createGoogleAiStudioTransport({
-    apiKey,
-    fetchImpl: async (url, options) => {
-      upstreamCalls += 1;
-      observedUrl = String(url);
-      observedBody = options.body;
-      observedHeaders = options.headers;
-      return new Response('{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}', {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    },
-  });
-  const fixture = await createFixture({ sendUpstream: transport });
+  const fixture = await createFixture();
   const server = await createMemoryDispatchGatewayServer({
     gateway: fixture.gateway,
     hostToken,
@@ -381,7 +359,7 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       route: request.route,
       model: request.model,
       stream: request.stream,
-      body: request.body,
+      body_digest: request.bodyDigest,
       world_id: request.worldId,
       actor_id: request.actorId,
       purpose: request.purpose,
@@ -396,15 +374,15 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       body: JSON.stringify(payload),
     });
     assert.equal(anonymous.status, 403);
-    assert.equal(upstreamCalls, 0);
+    assert.equal(fixture.calls.length, 0);
 
     const tampered = await fetch(url, {
       method: 'POST',
       headers: { authorization: 'Bearer ' + hostToken, 'content-type': 'application/json' },
-      body: JSON.stringify({ ...payload, body: payload.body + 'tampered' }),
+      body: JSON.stringify({ ...payload, body_digest: 'f'.repeat(64) }),
     });
     assert.equal(tampered.status, 403);
-    assert.equal(upstreamCalls, 0);
+    assert.equal(fixture.calls.length, 0);
 
     const response = await fetch(url, {
       method: 'POST',
@@ -412,15 +390,38 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       body: JSON.stringify(payload),
     });
     assert.equal(response.status, 200);
-    assert.match(await response.text(), /"candidates"/);
-    assert.equal(upstreamCalls, 1);
-    assert.equal(observedBody, request.body);
-    const upstreamUrl = new URL(observedUrl);
-    assert.equal(upstreamUrl.hostname, 'generativelanguage.googleapis.com');
-    assert.equal(upstreamUrl.pathname, '/v1beta/models/gemini-2.5-flash-lite:generateContent');
-    assert.equal(upstreamUrl.searchParams.has('key'), false);
-    const apiKeyHeader = 'x-goog-' + 'api-key';
-    assert.equal(observedHeaders[apiKeyHeader], apiKey);
+    const responsePayload = await response.json();
+    const permit = responsePayload.permit;
+    assert.equal(permit.status, 'DISPATCH_STARTED');
+    const permitData = {
+      requestId: permit.request_id,
+      requestDigest: permit.request_digest,
+      status: permit.status,
+      coreHead: permit.core_head,
+      providerHead: permit.provider_head,
+    };
+    assert.equal(verifyDispatchPermitSignature(signingKey, permitData, permit.signature), true);
+    assert.equal(fixture.calls.length, 0, 'the gateway must not perform any provider/model API call');
+
+    const outcome = {
+      requestId: permit.request_id,
+      requestDigest: permit.request_digest,
+      outcome: 'COMPLETED',
+      outcomeCode: 200,
+    };
+    const outcomeResponse = await fetch(url + '/outcome', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + hostToken, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        request_id: outcome.requestId,
+        request_digest: outcome.requestDigest,
+        outcome: outcome.outcome,
+        outcome_code: outcome.outcomeCode,
+        signature: createDispatchOutcomeSignature(signingKey, outcome),
+      }),
+    });
+    assert.equal(outcomeResponse.status, 200);
+    assert.deepEqual(await outcomeResponse.json(), { status: 'COMPLETED', request_id: permit.request_id });
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await fixture.close();
