@@ -443,11 +443,10 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
         const operation = MUTATIONS.get(request.method + ' ' + request.baseUrl + request.path)
             ?? MUTATIONS.get(request.method + ' ' + request.originalUrl?.split('?')[0]);
         if (!operation || !request.user) return next();
-        // User deletion with directory purge is a cross-user destructive path.
-        // Until it has a target-bound tombstone/reconciliation handler, reject it
-        // before the native route can remove a user's entire data directory.
-        if (operation === 'user-delete' && requireCoreInventory && Boolean(request.body?.purge)) {
-            return fail(response, 'HOST_CROSS_USER_PURGE_NOT_SUPPORTED', 503);
+        // User deletion changes cross-user identity/access scope; purge additionally removes all source files.
+        // No target-bound tombstone/reconciliation handler exists, so reject the route before either action.
+        if (operation === 'user-delete' && requireCoreInventory) {
+            return fail(response, 'HOST_CROSS_USER_DELETE_NOT_SUPPORTED', 503);
         }
 
         let paths;
