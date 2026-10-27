@@ -109,3 +109,62 @@ test('sanitized filename alias cannot bypass the enrolled chat save persistence 
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test('matching persisted enrolled chat receives success only after the version inventory matches', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'host-save-receipt-success-'));
+  const directories = {
+    chats: path.join(root, 'chats'),
+    groups: path.join(root, 'groups'),
+    groupChats: path.join(root, 'group_chats'),
+    backups: path.join(root, 'backups'),
+  };
+  const chatDirectory = path.join(directories.chats, 'avatar');
+  await Promise.all([...Object.values(directories), chatDirectory].map(directory =>
+    mkdir(directory, { recursive: true })));
+
+  const conversationUuid = randomUUID();
+  const conversationId = randomUUID() + ':' + conversationUuid;
+  const messageId = randomUUID();
+  const version1 = randomUUID();
+  const version2 = randomUUID();
+  const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
+  const header = { chat_metadata: { logic_engine_conversation_id: conversationUuid } };
+  const before = message({ messageId, versions: [{ versionId: version1, text: 'before' }], activeVersionIndex: 0 });
+  const after = message({
+    messageId,
+    versions: [
+      { versionId: version1, text: 'before' },
+      { versionId: version2, text: 'after', parentVersionId: version1 },
+    ],
+    activeVersionIndex: 1,
+  });
+  await writeFile(chatPath, [JSON.stringify(header), JSON.stringify(before)].join('\\n') + '\\n');
+
+  const request = {
+    method: 'POST', baseUrl: '/api/chats', path: '/save', originalUrl: '/api/chats/save',
+    body: { avatar_url: 'avatar.png', file_name: 'chat-a', chat: [header, after] },
+    user: { profile: { handle: 'save-receipt-success-test' }, directories },
+  };
+  try {
+    await registerHostConversation(request, {
+      conversationId, sourceLocator: 'chat-a', sourcePath: 'avatar/chat-a.jsonl', domain: 'chats',
+    });
+    const response = responseMock();
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
+      await writeFile(chatPath, request.body.chat.map(JSON.stringify).join('\\n') + '\\n');
+      response.json({ ok: true });
+    });
+    await response.finished;
+    assert.equal(response.statusCode, 200);
+    assert.deepEqual(JSON.parse(response.body), { ok: true });
+
+    const journalText = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
+    const outcome = journalText.trim().split('\\n').map(line => JSON.parse(line)).find(record => record.kind === 'outcome');
+    assert.equal(outcome.status, 'COMMITTED');
+    assert.equal(outcome.persistenceVerification, undefined);
+    assert.doesNotMatch(journalText, /before|after/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
