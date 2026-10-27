@@ -205,3 +205,54 @@ test('large same-coordinate trigger sets remain deterministically ordered', () =
   assert.equal(plan.segments[0].trigger_ids[0], 'trigger-0000');
   assert.equal(plan.segments[0].trigger_ids[2499], 'trigger-2499');
 });
+
+
+test('trigger payloads reject lossy or executable non-JSON values without invoking accessors', () => {
+  const plan = (payload) => planDueWork({
+    world_id: 'world-a',
+    from_coordinate: 0,
+    to_coordinate: 5,
+    triggers: [trigger('payload', 5, { payload })],
+  });
+  const invalidPayloads = [
+    { value: Number.NaN },
+    { value: Number.POSITIVE_INFINITY },
+    { value: undefined },
+    { value: () => 'not-json' },
+    new Date(0),
+  ];
+  for (const payload of invalidPayloads) {
+    assert.throws(() => plan(payload), (error) => error.code === 'INVALID_TRIGGER_PAYLOAD');
+  }
+
+  const sparse = [];
+  sparse.length = 1;
+  assert.throws(() => plan(sparse), (error) => error.code === 'INVALID_TRIGGER_PAYLOAD');
+
+  const cyclic = {};
+  cyclic.self = cyclic;
+  assert.throws(() => plan(cyclic), (error) => error.code === 'INVALID_TRIGGER_PAYLOAD');
+
+  let getterCalled = false;
+  const accessorPayload = {};
+  Object.defineProperty(accessorPayload, 'value', {
+    enumerable: true,
+    get() { getterCalled = true; return 'side effect'; },
+  });
+  assert.throws(() => plan(accessorPayload), (error) => error.code === 'INVALID_TRIGGER_PAYLOAD');
+  assert.equal(getterCalled, false);
+});
+
+test('trigger payload normalization copies plain JSON data and canonicalizes negative zero', () => {
+  const payload = { nested: [{ value: -0 }, null, true] };
+  const plan = planDueWork({
+    world_id: 'world-a',
+    from_coordinate: 0,
+    to_coordinate: 5,
+    triggers: [trigger('payload', 5, { payload })],
+  });
+  const normalized = plan.segments[0].triggers[0].payload;
+  assert.deepEqual(normalized, { nested: [{ value: 0 }, null, true] });
+  normalized.nested[0].value = 99;
+  assert.equal(Object.is(payload.nested[0].value, -0), true);
+});
