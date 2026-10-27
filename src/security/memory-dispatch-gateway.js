@@ -21,6 +21,8 @@ export function createDispatchRequestSignature(secret, request) {
     model: request.model,
     stream: request.stream,
     body_digest: bodyDigest,
+    adapter_id: request.adapterId,
+    conversation_id: request.conversationId,
     world_id: request.worldId,
     actor_id: request.actorId,
     purpose: request.purpose,
@@ -249,6 +251,8 @@ export class MemoryDispatchGateway {
             route TEXT NOT NULL CHECK(route='google-ai-studio-chat-completions'),
             model TEXT NOT NULL,
             stream INTEGER NOT NULL CHECK(stream IN (0,1)),
+            adapter_id TEXT NOT NULL,
+            conversation_id TEXT NOT NULL,
             world_id TEXT NOT NULL,
             actor_id TEXT NOT NULL,
             purpose TEXT NOT NULL,
@@ -277,7 +281,7 @@ export class MemoryDispatchGateway {
         }
         const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
         const required = [
-          'request_id', 'request_digest', 'route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
+          'request_id', 'request_digest', 'route', 'model', 'stream', 'adapter_id', 'conversation_id', 'world_id', 'actor_id', 'purpose',
           'sources_json', 'candidates_json', 'core_head', 'provider_head', 'status', 'outcome_code',
           'started_at', 'finished_at',
         ];
@@ -307,11 +311,12 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, model, stream, body, worldId, actorId, purpose, sources, candidates, forwardResponse, signal }) {
+  async dispatchProtectedRequest({ requestId, route, model, stream, body, adapterId, conversationId, worldId, actorId, purpose, sources, candidates, forwardResponse, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
+      || !validText(adapterId, 200) || !validText(conversationId, 200)
       || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
@@ -322,6 +327,8 @@ export class MemoryDispatchGateway {
       route,
       model,
       stream,
+      adapter_id: request.adapterId,
+      conversation_id: request.conversationId,
       body_digest: createHash('sha256').update(body, 'utf8').digest('hex'),
       world_id: worldId,
       actor_id: actorId,
@@ -345,10 +352,10 @@ export class MemoryDispatchGateway {
       }
 
       const core = assertSyncResult(this.readCoreEvidence({
-        worldId, actorId, purpose, sources: sourceSet,
+        adapterId, conversationId, worldId, actorId, purpose, sources: sourceSet,
       }));
       const provider = assertSyncResult(this.readProviderEvidence({
-        worldId, actorId, purpose, sources: sourceSet, candidates: candidateSet,
+        adapterId, conversationId, worldId, actorId, purpose, sources: sourceSet, candidates: candidateSet,
       }));
       if (core.world_id !== worldId || core.actor_id !== actorId
         || core.readiness !== 'READY' || core.inventory_status !== 'READY'
@@ -381,7 +388,7 @@ export class MemoryDispatchGateway {
         if (unresolvedReplay) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
         this.db.prepare(`
           INSERT INTO dispatch_ledger(
-            request_id,request_digest,route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
+            request_id,request_digest,route,model,stream,adapter_id,conversation_id,world_id,actor_id,purpose,sources_json,candidates_json,
             core_head,provider_head,status,outcome_code,started_at,finished_at
           ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
@@ -390,6 +397,8 @@ export class MemoryDispatchGateway {
           route,
           model,
           stream ? 1 : 0,
+          adapterId,
+          conversationId,
           worldId,
           actorId,
           purpose,
