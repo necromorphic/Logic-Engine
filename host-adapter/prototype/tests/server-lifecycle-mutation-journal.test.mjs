@@ -484,6 +484,16 @@ test('startup group-chat migration is allowed when no Host enrollment exists', a
     }
 });
 
+test('startup guard does not fail just because a user has no chats directory yet', async () => {
+    const { root, directories } = await fixture();
+    try {
+        await rm(directories.chats, { recursive: true, force: true });
+        assert.deepEqual(await assertHostStartupMigrationSafe([directories]), { status: 'SAFE_NO_ENROLLED_GROUP_CHATS' });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test('startup group-chat migration is blocked before mutation when a group chat is enrolled', async () => {
     const { root, request, directories } = await fixture();
     try {
