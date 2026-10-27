@@ -1250,3 +1250,41 @@ Current lifecycle classification uses the latest open-PR API response. Open PR h
 2. For `MERGED_PR_BRANCH_REVIEW`, compare branch tip to current `main`, check whether the branch is used as a base by an open PR, then delete only confirmed redundant refs.
 3. For `CLOSED_UNMERGED_REVIEW`, do not assume the work was discarded: check whether its commits were cherry-picked/squash-merged elsewhere and preserve unique tests.
 4. Do not delete `UNMAPPED_CANDIDATE` or `UNCLASSIFIED_REVIEW` branches in bulk.
+
+## Targeted branch ancestry checks
+
+GitHub compare API checks were run against current main for selected duplicate-looking or high-risk branch families. ahead_by is commit ancestry, not proof of unique file content: squash/rebase merges can leave commits unshared even when content landed in main. Therefore none of these results alone authorizes deletion.
+
+| Branch | Compare status | Ahead | Behind | Changed files in branch-side comparison | Disposition |
+|---|---|---:|---:|---:|---|
+| core/atomic-state-snapshot | diverged | 2 | 465 | 2 | Compare all 3 snapshot variants; keep unique tests until file-level equivalence confirmed |
+| core/atomic-state-snapshot-v2 | diverged | 2 | 461 | 2 | Same |
+| core/atomic-state-snapshot-v3 | diverged | 2 | 456 | 2 | Same; PR #114 is merged, but ancestry/diff still needs checking |
+| core/audit-independent-sqlite-writer-bypass | diverged | 62 | 318 | 13 | Closed PR #385; not safe to delete by name; review unique characterization tests |
+| core/audit-independent-sqlite-writer-bypass-clean | diverged | 1 | 318 | 1 | Closed PR #386; compare test coverage with #385 before cleanup |
+| core/operation-1-6-current-main-refresh | diverged | 4 | 400 | 2 | Closed PR #133; compare against v2 and current docs |
+| core/operation-1-6-current-main-refresh-v2 | diverged | 2 | 398 | 2 | Closed PR #134; candidate for consolidation after file comparison |
+| core/time-advance-failure-replay-after-restart | diverged | 1 | 329 | 1 | Closed PR #334; compare with v2 and current replay tests |
+| core/time-advance-failure-replay-after-restart-v2 | diverged | 1 | 329 | 1 | Closed PR #335; likely overlapping test purpose, but preserve unique assertions |
+| host/lifecycle-journal-current-main-fix | diverged | 32 | 330 | 11 | Four closed PRs (#316, #320, #321, #322) share this head branch; inspect PR diffs and retain only needed branch history/tests |
+| fix/time-trigger-resource-bounds-2026-10-24 | diverged | 7 | 366 | 6 | PR #236 merged and #234 closed unmerged on same head; high-confidence cleanup candidate only after checking open-PR dependencies and current-main file equality |
+| feat/time-persisted-triggers-2026-10-24 | diverged | 38 | 367 | 12 | PR #231 merged and #235 closed unmerged on same head; do not delete until checking whether unique work is in main |
+| feat/npc-subsystem | diverged | 255 | 553 | 26 | PR #38/#76 share a branch lineage; very large historical branch, not a simple duplicate—preserve until unique NPC requirements/tests are reconciled |
+| docs/coordinator-integration-status-2026-10-26 | diverged | 3 | 320 | 3 | Closed PR #374; compare with current-main variant |
+| docs/coordinator-integration-status-2026-10-26-current-main | diverged | 4 | 319 | 3 | Closed PR #375; likely preferred evidence refresh, but compare exact doc content before deleting the older variant |
+| relationships/npc-interpretation-boundary | diverged | 10 | 30 | 7 | Closed PR #429; contains runtime/tests as well as docs; not a docs-only duplicate |
+| relationships/npc-interpretation-boundary-refresh | diverged | 2 | 12 | 1 | Closed PR #449; docs-only branch; compare current document content before deletion |
+
+### Duplicate PR groups requiring cleanup review
+
+1. **Host lifecycle journal:** PRs #316, #320, #321, #322 point to the same head branch and are closed without merge. This is redundant PR history, but the branch contains 11 changed files relative to its merge base. Review the exact PR diffs, choose one canonical issue/evidence thread, and delete the branch only after verifying the work is either transferred or intentionally abandoned.
+2. **Time trigger resource bounds:** #236 merged, #234 closed without merge, same head. Compare current main content for the six changed files; if fully represented in main and no open PR depends on the branch, mark the branch as a deletion candidate.
+3. **Persisted time triggers:** #231 merged, #235 closed without merge, same head. This branch has 12 changed files relative to merge base; check all runtime and test files before deciding.
+4. **NPC subsystem:** #38 and #76 reuse feat/npc-subsystem; this is not enough to declare the work duplicated. Reconcile the older contract/docs and admission tests before any deletion.
+
+### What can be acted on now vs. what cannot
+
+- **Actionable without code loss:** update the portfolio issue with the 15 currently open Issues and the 86 open PRs; cross-link the three control Issues #252/#251/#264; stop creating new current-main, clean, v2, or final branches until the canonical branch for that workstream is chosen.
+- **Candidates for manual cleanup review:** branches associated with merged PRs (198 refs) and closed-unmerged PRs (187 refs). These are not automatically safe to delete.
+- **Not yet proven safe to delete:** any branch whose head is not identical to main, whose unique content has not been compared with current main, or which is a base for an open PR.
+- **No destructive cleanup performed:** this audit only updated the documentation branch. It did not delete branches, close Issues/PRs, merge code, or change runtime behavior.
