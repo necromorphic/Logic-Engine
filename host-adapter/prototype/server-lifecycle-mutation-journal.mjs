@@ -542,9 +542,13 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 beforeConversationInventories: before.conversationInventory?.inventories ?? null,
             });
             chain.lastHash = recordHash;
-        } catch {
+        } catch (error) {
             release();
-            return fail(response, 'HOST_JOURNAL_PREPARE_FAILED');
+            const code = typeof error?.message === 'string'
+                && /^(CORE_HOST_INVENTORY_[A-Z_]+|CORE_HOST_CAPTURE_[A-Z_]+)$/.test(error.message)
+                ? error.message
+                : 'HOST_JOURNAL_PREPARE_FAILED';
+            return fail(response, code);
         }
 
         // Buffer the complete response until the post-mutation inventory and
