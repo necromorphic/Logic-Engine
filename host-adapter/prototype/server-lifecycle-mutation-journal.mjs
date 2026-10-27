@@ -456,11 +456,9 @@ async function validateEnrolledSourcePath(paths, { conversationId, sourceLocator
         throw new Error('HOST_ENROLLMENT_SOURCE_PATH_INVALID');
     }
     const identityParts = conversationId.split(':');
-    if (identityParts.length !== 2
-        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(identityParts[0])
-        || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{12}$/i.test(identityParts[1])) {
-        throw new Error('HOST_ENROLLMENT_IDENTITY_INVALID');
-    }
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    const identityValid = identityParts.length === 2 && uuidPattern.test(identityParts[0]) && uuidPattern.test(identityParts[1]);
+    if (!identityValid) throw new Error('HOST_ENROLLMENT_IDENTITY_INVALID:' + identityParts.length + ':' + identityParts.map(part => uuidPattern.test(part) ? 'valid' : 'invalid').join(','));
     const root = paths.roots.find(item => item.domain === domain);
     if (!root) throw new Error('HOST_ENROLLMENT_SOURCE_PATH_INVALID');
     const canonicalRoot = await realpath(root.path);
