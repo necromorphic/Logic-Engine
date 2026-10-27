@@ -240,8 +240,12 @@ test('non-2xx mutation response is journaled UNRESOLVED and blocks subsequent mu
         const ledger = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
         const records = ledger.trim().split('\n').map(line => JSON.parse(line));
         assert.deepEqual(records.map(record => record.kind), ['intent', 'outcome']);
-        assert.equal(records[1].status, 'UNRESOLVED');
+        assert.equal(records[1].status, 'REJECTED_NO_MUTATION');
         assert.equal(records[1].httpStatus, 400);
+
+        const status = await getHostMutationJournalStatus(request);
+        assert.equal(status.status, 'RECORDING');
+        assert.deepEqual(status.pendingOperations, []);
 
         const second = responseMock();
         let reachedHandler = false;
@@ -250,9 +254,8 @@ test('non-2xx mutation response is journaled UNRESOLVED and blocks subsequent mu
             second.json({ ok: true });
         });
         await second.finished;
-        assert.equal(reachedHandler, false);
-        assert.equal(second.statusCode, 503);
-        assert.match(String(second.body), /HOST_JOURNAL_RECONCILIATION_REQUIRED/);
+        assert.equal(reachedHandler, true);
+        assert.equal(second.statusCode, 200);
     } finally {
         await rm(root, { recursive: true, force: true });
     }
@@ -382,32 +385,6 @@ test('deleting an enrolled journal fails closed instead of starting a new empty 
         assert.equal(reachedHandler, false);
         assert.equal(response.statusCode, 503);
         assert.match(String(response.body), /HOST_JOURNAL_PREPARE_FAILED/);
-    } finally {
-        await rm(root, { recursive: true, force: true });
-    }
-});
-
-test('a complete 4xx rejection with no persisted change does not poison the journal', async () => {
-    const { root, request } = await fixture();
-    try {
-        await registerHostConversation(request, {
-            conversationId: 'conversation-1',
-            sourceLocator: 'chat-1',
-            domain: 'chats',
-        });
-        const response = responseMock();
-        await createHostLifecycleMutationMiddleware()(request, response, async () => {
-            response.status(400).json({ error: 'invalid mutation request' });
-        });
-        await response.finished;
-        assert.equal(response.statusCode, 400);
-        assert.deepEqual(JSON.parse(response.body), { error: 'invalid mutation request' });
-        const status = await getHostMutationJournalStatus(request);
-        assert.equal(status.status, 'RECORDING');
-        assert.deepEqual(status.pendingOperations, []);
-        const ledger = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
-        const records = ledger.trim().split('\\n').map(line => JSON.parse(line));
-        assert.equal(records[1].status, 'REJECTED_NO_MUTATION');
     } finally {
         await rm(root, { recursive: true, force: true });
     }
