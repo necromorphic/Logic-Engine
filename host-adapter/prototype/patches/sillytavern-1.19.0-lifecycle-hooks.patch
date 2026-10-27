@@ -622,7 +622,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,729 @@
+@@ -0,0 +1,865 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -1344,8 +1344,144 @@ new file mode 100644
 +            errors: ['CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT'],
 +        };
 +    }
++    const currentInventorySha256 = snapshot.inventory_sha256;
++    const enrolledIds = new Set(registry.conversations.map(item => item.conversationId));
++    const currentVersions = new Map();
++    const observedVersions = new Map();
++    const captureAcks = new Map();
++    const inventoryErrors = [];
++    const versionKey = item => JSON.stringify([item.conversation_id, item.message_id, item.version_id]);
++    const observeVersion = item => {
++        const key = versionKey(item);
++        const prior = observedVersions.get(key);
++        if (prior && (prior.payload_sha256 !== item.payload_sha256
++            || (prior.parent_version_id ?? null) !== (item.parent_version_id ?? null))) {
++            inventoryErrors.push('OBSERVED_VERSION_IDENTITY_CONFLICT');
++            return;
++        }
++        observedVersions.set(key, {
++            conversation_id: item.conversation_id,
++            message_id: item.message_id,
++            version_id: item.version_id,
++            payload_sha256: item.payload_sha256,
++            parent_version_id: item.parent_version_id ?? null,
++        });
++    };
++    for (const record of journal.records) {
++        for (const field of ['beforeConversationInventories', 'afterConversationInventories']) {
++            if (!Array.isArray(record[field])) continue;
++            for (const conversation of record[field]) {
++                for (const version of conversation.versions ?? []) {
++                    observeVersion({
++                        conversation_id: conversation.conversation_id,
++                        message_id: version.message_id,
++                        version_id: version.version_id,
++                        payload_sha256: version.payload_sha256,
++                        parent_version_id: version.parent_version_id,
++                    });
++                }
++            }
++        }
++        if (record.kind !== 'capture_ack') continue;
++        if (!enrolledIds.has(record.conversation_id)
++            || typeof record.message_id !== 'string' || typeof record.version_id !== 'string'
++            || typeof record.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(record.content_sha256)
++            || typeof record.active !== 'boolean' || typeof record.deleted !== 'boolean'
++            || (record.deleted && record.active)) {
++            inventoryErrors.push('CAPTURE_ACK_RECORD_INVALID');
++            continue;
++        }
++        const key = versionKey(record);
++        const prior = captureAcks.get(key);
++        if (prior && prior.content_sha256 !== record.content_sha256) inventoryErrors.push('CAPTURE_ACK_DIGEST_CONFLICT');
++        if (prior?.deleted && !record.deleted) inventoryErrors.push('CAPTURE_ACK_TOMBSTONE_REAPPEARED');
++        if (record.deleted && !prior) inventoryErrors.push('CAPTURE_ACK_TOMBSTONE_WITHOUT_PRIOR_CAPTURE');
++        captureAcks.set(key, record);
++        observeVersion({
++            conversation_id: record.conversation_id,
++            message_id: record.message_id,
++            version_id: record.version_id,
++            payload_sha256: record.content_sha256,
++            parent_version_id: observedVersions.get(key)?.parent_version_id ?? null,
++        });
++    }
++    for (const conversation of snapshot.inventories) {
++        for (const version of conversation.versions) {
++            const key = versionKey({ conversation_id: conversation.conversation_id, ...version });
++            currentVersions.set(key, { conversation_id: conversation.conversation_id, ...version, deleted: false });
++            const ack = captureAcks.get(key);
++            if (!ack) inventoryErrors.push('CURRENT_VERSION_NOT_ACKNOWLEDGED_BY_CORE');
++            else if (ack.deleted) inventoryErrors.push('TOMBSTONED_VERSION_REAPPEARED');
++            else if (ack.content_sha256 !== version.payload_sha256) inventoryErrors.push('CURRENT_VERSION_DIGEST_DIFFERS_FROM_CORE_ACK');
++            else if (ack.active !== version.active) inventoryErrors.push('CURRENT_ACTIVE_POINTER_DIFFERS_FROM_CORE_ACK');
++        }
++    }
++    const completeVersions = [];
++    for (const [key, version] of currentVersions) completeVersions.push(version);
++    for (const [key, ack] of captureAcks) {
++        if (ack.deleted) {
++            if (currentVersions.has(key)) inventoryErrors.push('TOMBSTONED_VERSION_REAPPEARED');
++            const observed = observedVersions.get(key);
++            completeVersions.push({
++                conversation_id: ack.conversation_id,
++                message_id: ack.message_id,
++                version_id: ack.version_id,
++                payload_sha256: ack.content_sha256,
++                parent_version_id: observed?.parent_version_id ?? null,
++                active: false,
++                deleted: true,
++            });
++        } else if (!currentVersions.has(key)) {
++            inventoryErrors.push('VERSION_DISAPPEARED_WITHOUT_ACCEPTED_TOMBSTONE');
++        }
++    }
++    for (const [key, observed] of observedVersions) {
++        if (!currentVersions.has(key) && !captureAcks.get(key)?.deleted) {
++            inventoryErrors.push('OBSERVED_VERSION_DISAPPEARED_WITHOUT_ACCEPTED_TOMBSTONE');
++        }
++    }
++    if (inventoryErrors.length) {
++        return {
++            ...snapshot,
++            status: 'INVENTORY_INCOMPLETE',
++            complete: false,
++            authority: 'NON_AUTHORITATIVE',
++            historicalCompleteness: 'UNKNOWN',
++            current_inventory_sha256: currentInventorySha256,
++            inventories: [],
++            mutationJournal: { ...journalSummary, snapshotConsistency: 'VERSION_HISTORY_INCOMPLETE' },
++            errors: [...new Set(inventoryErrors)].sort(),
++        };
++    }
++
++    completeVersions.sort((a, b) => a.conversation_id.localeCompare(b.conversation_id)
++        || a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id));
++    const inventoryByConversation = new Map(snapshot.inventories.map(item => [item.conversation_id, item]));
++    const allInventories = [];
++    for (const [conversationId, current] of inventoryByConversation) {
++        const inventory = {
++            ...current,
++            current_version_count: current.version_count,
++            versions: completeVersions.filter(version => version.conversation_id === conversationId)
++                .map(({ conversation_id, ...version }) => version),
++        };
++        inventory.version_count = inventory.versions.length;
++        delete inventory.inventory_sha256;
++        inventory.inventory_sha256 = digest(canonical(stableValue(inventory)));
++        allInventories.push(inventory);
++    }
++    allInventories.sort((a, b) => a.conversation_id.localeCompare(b.conversation_id));
 +    return {
 +        ...snapshot,
++        status: 'ENROLLMENT_FORWARD_ONLY_OBSERVED_INVENTORY_NON_AUTHORITATIVE',
++        historicalCompleteness: 'ENROLLMENT_FORWARD_ONLY',
++        preEnrollmentHistory: 'EXCLUDED',
++        current_inventory_sha256: currentInventorySha256,
++        inventory_sha256: digest(canonical(stableValue(allInventories))),
++        currentVersionCount: snapshot.versionCount,
++        versionCount: completeVersions.length,
++        inventories: allInventories,
++        captureAcknowledgements: 'CORE_ACCEPTED_DIGESTS_AND_TOMBSTONES',
 +        mutationJournal: {
 +            ...journalSummary,
 +            snapshotConsistency: lastCommittedInventory ? 'MATCHES_LAST_COMMITTED_LOCAL_CHECKPOINT' : 'NO_COMMITTED_INVENTORY_CHECKPOINT',
