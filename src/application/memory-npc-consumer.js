@@ -206,6 +206,10 @@ export class MemoryNpcConsumer {
       if (!sameSnapshot(candidate.snapshot, memoryResult.snapshot)) {
         return nonReady('memory_snapshot_stale');
       }
+      if (candidate.source?.kind === 'canonical_entity'
+        && (!validId(candidate.source?.entity_id) || !validId(candidate.source?.source_version))) {
+        return nonReady('memory_candidate_source_identity_invalid');
+      }
       if (candidate.content_kind === 'summary'
         || candidate.source?.kind !== 'canonical_entity'
         || !validId(candidate.source?.entity_id)) {
@@ -221,6 +225,7 @@ export class MemoryNpcConsumer {
           record_version: candidate.record.version,
           source_kind: candidate.source.kind,
           source_entity_id: candidate.source.entity_id,
+          source_version: candidate.source.source_version,
         }) === true;
       } catch {
         // A denial is an ordinary filtered record; an authorization failure is
@@ -269,6 +274,7 @@ export class MemoryNpcConsumer {
           record_version: candidate.record.version,
           source_kind: candidate.source.kind,
           source_entity_id: candidate.source.entity_id,
+          source_version: candidate.source.source_version,
         }) === true;
       } catch {
         return nonReady('memory_record_authorization_unavailable');
@@ -444,6 +450,7 @@ export class MemoryNpcConsumer {
         record_ref: candidate.record.ref,
         record_version: candidate.record.version,
         source_entity_id: candidate.source.entity_id,
+        source_version: candidate.source.source_version,
         epistemic_kind: candidate.epistemic_kind,
         evidence_assessment: candidate.lifecycle?.evidence_assessment,
         content: Object.fromEntries(this.contentFields.map((field) => [field, source[field]])),
