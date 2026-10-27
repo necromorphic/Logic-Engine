@@ -218,3 +218,22 @@ test('normalized calendar definitions can be revalidated without trusting derive
     (error) => error.code === 'INVALID_CALENDAR_YEAR',
   );
 });
+
+
+test('calendar required fields must be own properties even if Object.prototype is polluted', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'calendar_id');
+  Object.defineProperty(Object.prototype, 'calendar_id', {
+    configurable: true, enumerable: true, writable: true, value: 'inherited-calendar',
+  });
+  try {
+    const input = calendar();
+    delete input.calendar_id;
+    assert.throws(
+      () => createCalendarDefinition(input),
+      (error) => error.code === 'INVALID_CALENDAR',
+    );
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'calendar_id', previous);
+    else delete Object.prototype.calendar_id;
+  }
+});
