@@ -73,6 +73,35 @@ test('C falls back to A when an invariant catches a missed dependency', () => {
   assert.ok(result.dependencyViolations.some((v) => v.node === 'effect' && v.read === 'hp' && v.code === 'UNDECLARED_READ'));
 });
 
+
+test('unknown changed-input coordinates fail closed instead of returning a ready no-op', () => {
+  for (const strategy of ['A', 'B', 'C']) {
+    assert.throws(
+      () => runRecalculation({
+        inputs: { hp: 10 },
+        nodes: [{ id: 'effect', dependsOn: ['hp'], evaluate: ({ read }) => read('hp') - 1 }],
+        strategy,
+        changedInputs: ['missing'],
+        previousValues: { effect: 9 },
+      }),
+      /UNKNOWN_CHANGED_INPUT:missing/,
+    );
+  }
+});
+
+test('node identifiers are not accepted as changed-input coordinates', () => {
+  assert.throws(
+    () => runRecalculation({
+      inputs: { hp: 10 },
+      nodes: [{ id: 'effect', dependsOn: ['hp'], evaluate: ({ read }) => read('hp') - 1 }],
+      strategy: 'B',
+      changedInputs: ['effect'],
+      previousValues: { effect: 9 },
+    }),
+    /UNKNOWN_CHANGED_INPUT:effect/,
+  );
+});
+
 test('cycles fail closed rather than choosing an arbitrary evaluation order', () => {
   const nodes = [
     { id: 'a', dependsOn: ['b'], evaluate: ({ read }) => read('b') + 1 },
