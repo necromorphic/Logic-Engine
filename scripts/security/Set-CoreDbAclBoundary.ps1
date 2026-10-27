@@ -35,12 +35,15 @@ function Get-ServiceIdentity {
 }
 
 function New-BoundaryAcl {
-    param([System.Security.AccessControl.FileSystemSecurity]$CurrentAcl, [string]$CoreAccount)
+    param([System.Security.AccessControl.FileSystemSecurity]$CurrentAcl, [string]$CoreAccount, [switch]$Directory)
     $acl = $CurrentAcl
     $acl.SetAccessRuleProtection($true, $false)
     foreach ($rule in @($acl.Access)) { [void]$acl.RemoveAccessRuleSpecific($rule) }
     $acl.SetOwner((New-Object System.Security.Principal.NTAccount('BUILTIN\Administrators')))
     $inheritance = [System.Security.AccessControl.InheritanceFlags]::None
+    if ($Directory) {
+        $inheritance = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+    }
     $propagation = [System.Security.AccessControl.PropagationFlags]::None
     foreach ($entry in @(
         @{ Account = 'NT AUTHORITY\SYSTEM'; Rights = [System.Security.AccessControl.FileSystemRights]::FullControl },
@@ -145,7 +148,8 @@ $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidenceFullPath -
 try {
     foreach ($target in $targets) {
         $current = Get-Acl -LiteralPath $target
-        $replacement = New-BoundaryAcl -CurrentAcl $current -CoreAccount $core.account
+        $isDirectory = ([System.IO.File]::GetAttributes($target) -band [System.IO.FileAttributes]::Directory) -ne 0
+        $replacement = New-BoundaryAcl -CurrentAcl $current -CoreAccount $core.account -Directory:$isDirectory
         Set-Acl -LiteralPath $target -AclObject $replacement
     }
     foreach ($target in $targets) {
