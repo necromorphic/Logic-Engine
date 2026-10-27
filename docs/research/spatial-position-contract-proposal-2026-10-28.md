@@ -293,3 +293,50 @@ Continue **read-only, documentation/test-design work** against existing code pat
 4. Record concrete source paths, blob SHAs, and existing tests for each finding. If no typed position source is found, close this audit as **NO EXISTING TYPED SOURCE FOUND** and keep current position results unsupported.
 
 No runtime, schema, API, event, adapter, cache, or persistent-projection change is permitted by this audit. No tests were run for this source review. ST-01–ST-16 remain NOT TESTED / NOT PASSED. Memory → NPC remains `DISABLED / FAIL-CLOSED`.
+
+
+## 13. Second-pass Core / TimeEngine seam audit — 2026-10-28
+
+**Pinned source baseline:** repository `main` head observed as `338a4501b972117538f4d6e92bb25f09d1b53111`. The blob SHAs below identify the exact inspected files. This is source/test-definition inspection; the test suite was not executed in this review.
+
+### 13.1 Evidence matrix
+
+| Claim | Source evidence (blob SHA; lines) | Evidence class | Result |
+|---|---|---|---|
+| Core stores canonical events and entity projections | `src/storage/sqlite-store.js` `c528805d40d77ac23c3adae866c97d9b97b606e8`, `world_events` lines 215–223, `entities` lines 224 onward | Code-verified | Event history and current entity state exist; entity attributes remain generic JSON. |
+| Entity effect validation gives attributes spatial meaning | `src/core/rules.js` `d2a1953679f3f14d0f425857447a81190278cd10`, lines 215–275 | Code-verified negative finding | `entity.create/update/upsert` accept generic attributes; no typed position/frame/unit/anchor contract in this validator. |
+| Snapshot read is coherent and has a composite cursor | `src/storage/sqlite-store.js` `c528805d40d77ac23c3adae866c97d9b97b606e8`, `readSnapshot` from line 747 onward; `tests/snapshot-read.test.js` `df92d1b88da2a5780f36cbce5358264e2661a9f0`, tests from line 63 onward | Code + test definitions | A bounded SQLite read transaction returns `world_revision` and `commit_sequence`; tests assert selected rows, composite cursor, world isolation and coherent read behavior. Tests were not run here. |
+| Full event effects and time coordinate are available in event history | `src/storage/sqlite-store.js` `c528805d40d77ac23c3adae866c97d9b97b606e8`, `events` lines 1023 onward | Code-verified | `events()` returns `effects`, validity, commit sequence and `game_time_coordinate`; it is a separate read path from `readSnapshot()`. |
+| Entity projection can be replayed at a commit cursor | `src/storage/sqlite-store.js` same blob, `entityProjectionAtCursor` lines 1173–1184 | Code-verified | It replays valid event effects with `commit_sequence < beforeSequence` in sequence order. This is an internal entity projection helper, not a typed spatial projector. |
+| Rollback/rebuild exists | `src/storage/sqlite-store.js` same blob, `rebuild` around line 1490 and `rollback` around line 1982 onward; `docs/21-stage1-causality-contract.md` blob `0eba61944a8569c1092c567ee1c555e3fe4ed3f5`, lines 55–70 | Code + documented limits | Core reconstructs current entity/fact projections from valid events and has causal rollback. Completeness still depends on declared causal metadata; the contract explicitly defers identity reuse/resurrection and version preconditions. No spatial projection exists to verify against rollback. |
+| Time coordinate is canonical and event-associated | `docs/60-time-coordinate-runtime-slice.md` blob `ab7f8cf09cd35ae5f74b41c5063c3d8bc5ad68b2`, lines 7–26; `src/storage/sqlite-store.js` same blob, event commit around lines 1468–1490 | Code + documentation | Core stores integer-millisecond game-time coordinates on world/events. Each event's coordinate is the coordinate after its time advance. This is temporal evidence, not a spatial source. |
+| Segment commit has a test-defined cursor and per-event time coordinates | `tests/time-segment.test.js` blob `ed8d223f11ec5fa9ff8f9ec97f61a5586f2fe960`, lines 47–76 | Test definition only | Test asserts atomic segment commit, one rebuild, start/end coordinates and per-event coordinates. Not executed in this audit. |
+| Event type proves spatial authority | `docs/13-event-type-contract.md` blob `6bd40bd7afa9ecdc8f5e6a55ac1b830237352311`, lines 11–30 | Adopted contract | Explicitly false: `event_type` is descriptive metadata, not a trust/provenance boundary. |
+
+### 13.2 Temporal ordering and snapshot implications
+
+1. The canonical temporal coordinate is an integer-millisecond offset. It is advanced by committed event durations; idle wall-clock time does not itself advance game time.
+2. Event history also has a `commit_sequence`. The coordinate alone is not a unique cursor: multiple events can share a coordinate, particularly when time advance is zero. A reconstruction cursor therefore needs the approved composite world snapshot identity and deterministic event ordering, not a guessed timestamp-only lookup.
+3. `entityProjectionAtCursor(worldId, beforeSequence)` uses a strict sequence boundary (`commit_sequence < beforeSequence`). It can replay the generic entity effects up to a cursor, but it does not map a historical coordinate to a TimeEngine-approved segment/checkpoint boundary by itself.
+4. `readSnapshot()` returns a coherent current snapshot; the inspected interface does not provide a historical typed-spatial snapshot plus the matching full event-effects stream as one operation. Two independent calls cannot be assumed atomic just because each call is individually valid.
+5. Current event records and effect validation do not encode a validated spatial transition. A numeric attribute that changes between commits may be an arbitrary data change; it cannot be treated as movement without an approved typed source/meaning.
+
+### 13.3 Identity, rollback and failure behavior
+
+- **Create/update:** current effects support generic attribute creation/patching. This can support a disposable fixture that uses a test-only convention for position values, but only as an experiment about replay mechanics—not as evidence that the production contract supports coordinates.
+- **Delete/recreate:** entity rows are keyed by `(world_id, entity_id)`. `entity.create` rejects an identity already present in the projection, including a destroyed tombstone; legacy `entity.upsert` is a full replacement. The current contract explicitly defers identity reuse/resurrection. A derived position must remain unknown if incarnation identity cannot be proven.
+- **Rollback/rebuild:** current Core rebuilds projections from valid event history. A disposable projection could be independently replayed from that same valid event set, but no existing Core contract automatically invalidates or rebuilds such a spatial projection. That lifecycle would need to be demonstrated in a disposable test harness before any production proposal.
+- **Missing/conflicting input:** generic attributes do not provide typed coordinate validation or an established spatial conflict rule. The future projection must return UNKNOWN/UNSUPPORTED or CONFLICTED rather than select a plausible value.
+- **Multiple worlds:** Core event/entity queries are world-scoped; tests cover cross-world snapshot isolation. A disposable derived projection must retain `world_id` in every key and test identical entity IDs in different worlds.
+- **Rejected/uncommitted proposals:** a future projection must consume only committed, valid event effects; caller proposals, rejected commits, model output and event-type labels are not evidence of canonical movement.
+- **NPC knowledge:** none of these world-side primitives proves that an NPC perceived or acquired a spatial fact. Memory → NPC remains `DISABLED / FAIL-CLOSED`.
+
+### 13.4 Feasibility disposition
+
+**GO:** a disposable, non-production replay experiment using existing event/effect reads and a test-only attribute convention, provided the harness is isolated and does not change Core runtime, schema, API, adapters, Memory or NPC.
+
+**NO-GO:** any claim that the experiment creates an approved spatial source; production persistence/API/schema/event changes; automatic movement commits; a spatial projection used as canonical truth or NPC knowledge.
+
+The next useful experiment must compare two independent reconstructions from the same pinned valid event history at the same `(world_revision, commit_sequence)`, then invalidate a supporting event and reconstruct again. It must include missing/conflicting values and same entity IDs in separate worlds. Because no local test execution was available in this review, these are **test requirements, not test results**.
+
+No tests were run. ST-01–ST-16 remain `NOT TESTED / NOT PASSED`. Memory → NPC remains `DISABLED / FAIL-CLOSED`.
