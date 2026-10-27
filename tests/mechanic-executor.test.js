@@ -1494,11 +1494,25 @@ test('proposal handoff rejects a condition evaluation when a known-absent attrib
   assert.equal(evaluation.status, 'ready');
   assert.deepEqual(evaluation.dependency_manifest.condition_paths, ['actor.injury']);
 
-  commit(engine, worldId, 'actor-injury-appeared', 2, [{
-    kind: 'entity.update',
-    entity_id: 'entity.actor-context',
-    attributes: { injury: 'broken-arm' },
-  }]);
+  engine.commitEvent(worldId, {
+    event_id: 'actor-injury-appeared',
+    idempotency_key: 'actor-injury-appeared',
+    turn_id: 'actor-injury-appeared-turn',
+    event_type: 'action.completed',
+    expected_revision: 2,
+    effects: [{
+      kind: 'entity.update',
+      entity_id: 'entity.actor-context',
+      attributes: { injury: 'broken-arm' },
+    }],
+    caused_by: [],
+    depends_on: [],
+    read_set: ['entity:entity.actor-context'],
+    causal_links: [
+      { relation: 'READS_ENTITY', target_id: 'entity.actor-context' },
+      { relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'entity.actor-context' } },
+    ],
+  });
 
   const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
   assert.throws(
