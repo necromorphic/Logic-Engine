@@ -499,7 +499,7 @@ new file mode 100644
 +router.post('/host-artifact-inventory/scan', async (request, response) => {
 +    const roots = [
 +        { domain: 'chats', path: request.user?.directories?.chats },
-+        { domain: 'groups', path: request.user?.directories?.groups },
++        { domain: 'groups', path: request.user?.directories?.groupChats },
 +        { domain: 'backups', path: request.user?.directories?.backups },
 +    ];
 +    if (roots.some(root => typeof root.path !== 'string' || !root.path)) {
