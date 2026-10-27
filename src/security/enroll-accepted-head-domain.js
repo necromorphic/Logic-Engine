@@ -62,7 +62,7 @@ export function enrollAcceptedHeadDomain({
   let localCommitted = false;
   try {
     release = beginCoordinatorLock(coordinatorDb);
-    const authority = getAcceptedHeadStatusSync({ port });
+    const authority = getAcceptedHeadStatusSync({ port, token });
     if (authority.pending.core || authority.pending.provider
       || authority.enrolled[domain] || authority.heads[domain] !== 0) {
       throw new Error('ACCEPTED_HEAD_ENROLLMENT_AUTHORITY_NOT_FRESH');
