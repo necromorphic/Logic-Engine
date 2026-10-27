@@ -1261,7 +1261,8 @@ export class SQLiteStore {
     let expectedSequence = null;
     if (cursorPayload !== null) {
       if (!cursorPayload || typeof cursorPayload !== 'object' || Array.isArray(cursorPayload)
-        || Object.keys(cursorPayload).sort().join(',') !== 'after_entity_id,commit_sequence,cursor_digest,world_revision'
+        || Object.keys(cursorPayload).sort().join(',') !== 'after_entity_id,commit_sequence,cursor_digest,world_id,world_revision'
+        || cursorPayload.world_id !== id
         || typeof cursorPayload.after_entity_id !== 'string'
         || !Number.isSafeInteger(cursorPayload.world_revision) || cursorPayload.world_revision < 0
         || !Number.isSafeInteger(cursorPayload.commit_sequence) || cursorPayload.commit_sequence < 0
