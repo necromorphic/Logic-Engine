@@ -58,12 +58,12 @@ function setEnv(name, value, previous) {
   else process.env[name] = value;
 }
 
-const providerOptions = (path, coordinatorPath) => ({
+const providerOptions = (path, coordinatorPath, overrides = {}) => ({
   path,
   coordinatorPath,
-  getSnapshot: async () => ({ world_revision: 0, commit_sequence: 0 }),
-  validateSourceVersion: async () => true,
-  validateInventory: async () => true,
+  getSnapshot: overrides.getSnapshot ?? (async () => ({ world_revision: 0, commit_sequence: 0 })),
+  validateSourceVersion: overrides.validateSourceVersion ?? (async () => true),
+  validateInventory: overrides.validateInventory ?? (async () => true),
 });
 
 test('Provider mutations advance accepted head before commit and fail closed when authority is unavailable', async () => {
@@ -157,6 +157,123 @@ test('Provider mutations advance accepted head before commit and fail closed whe
 
     assert.throws(() => provider.grantQuery(scope, false), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
     assert.equal(provider.authorizeQuery(scope), true);
+  } finally {
+    try { provider?.close(); } catch {}
+    if (child) {
+      child.stdin.end('stop');
+      await once(child, 'exit');
+    }
+    for (const [name, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('trusted Provider dispatch evidence checks exact candidate, grants, source version and readiness synchronously', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-provider-dispatch-evidence-'));
+  const providerPath = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const authorityPath = join(directory, 'authority.sqlite');
+  const previousEnv = {};
+  let child;
+  let provider;
+  try {
+    setEnv('LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', undefined, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', undefined, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', undefined, previousEnv);
+    const bootstrap = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
+    bootstrap.close();
+
+    const service = await startAuthorityProcess(authorityPath);
+    child = service.child;
+    const port = service.port;
+    const enrolledCore = enrollAcceptedHeadSync({
+      domain: 'core', operationId: 'core-dispatch-baseline', operationDigest: digestA, token: coreToken, port,
+    });
+    finalizeAcceptedHeadSync({
+      domain: 'core', operationId: enrolledCore.operation_id, operationDigest: digestA, token: coreToken, port,
+    });
+    enrollAcceptedHeadDomain({
+      domain: 'provider', databasePath: providerPath, coordinatorPath, port, token: providerToken,
+      approvalId: 'approval-provider-dispatch-test', baselineDigest: digestB,
+    });
+
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', String(port), previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', providerToken, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', '1', previousEnv);
+    provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath, {
+      getSnapshot: () => ({ world_revision: 1, commit_sequence: 1 }),
+      validateSourceVersion: () => true,
+      validateInventory: () => true,
+    }));
+
+    const scope = { world_id: 'world-1', subject_id: 'npc-1', purpose: 'npc_decision' };
+    const candidate = {
+      record_ref: 'record-1',
+      record_version: 'version-1',
+      source_kind: 'canonical_entity',
+      source_entity_id: 'entity-42',
+      source_version: 'core-entity-v1:1',
+    };
+    provider.grantQuery(scope, true);
+    provider.putRecord({
+      ...scope,
+      record_ref: candidate.record_ref,
+      record_version: candidate.record_version,
+      source_kind: candidate.source_kind,
+      source_entity_id: candidate.source_entity_id,
+      source_version: candidate.source_version,
+      content_kind: 'fact',
+      epistemic_kind: 'confirmed',
+      producer_kind: 'core',
+      content_disposition: 'eligible',
+      evidence_assessment: 'verified',
+      lineage: [{
+        source_kind: candidate.source_kind,
+        entity_id: candidate.source_entity_id,
+        source_version: candidate.source_version,
+      }],
+    });
+    provider.grantRecord(scope, candidate.record_ref, candidate.record_version, true);
+    const reconciled = await provider.reconcile(scope.world_id);
+    assert.equal(reconciled.status, 'ready');
+
+    const evidence = provider.readDispatchEvidence({
+      world_id: scope.world_id,
+      subject_id: scope.subject_id,
+      purpose: scope.purpose,
+      candidates: [candidate],
+    });
+    assert.equal(evidence.readiness, 'READY');
+    assert.equal(evidence.granted, true);
+    assert.equal(evidence.world_id, scope.world_id);
+    assert.equal(evidence.actor_id, scope.subject_id);
+    assert.deepEqual(evidence.candidates, [candidate]);
+    assert.deepEqual(evidence.sources, [{
+      source_kind: 'canonical_entity',
+      source_entity_id: 'entity-42',
+      source_version: 'core-entity-v1:1',
+    }]);
+    assert.equal(Object.hasOwn(evidence, 'content'), false);
+
+    provider.grantRecord(scope, candidate.record_ref, candidate.record_version, false);
+    assert.throws(() => provider.readDispatchEvidence({
+      world_id: scope.world_id,
+      subject_id: scope.subject_id,
+      purpose: scope.purpose,
+      candidates: [candidate],
+    }), /MEMORY_DISPATCH_NOT_READY/);
+
+    assert.throws(() => provider.readDispatchEvidence({
+      world_id: scope.world_id,
+      subject_id: scope.subject_id,
+      purpose: scope.purpose,
+      candidates: [{ ...candidate, source_version: 'core-entity-v1:2' }],
+    }), /MEMORY_DISPATCH_NOT_READY/);
   } finally {
     try { provider?.close(); } catch {}
     if (child) {
