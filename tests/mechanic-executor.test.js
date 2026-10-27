@@ -1423,7 +1423,7 @@ test('proposal commit rolls back canonical state when committed-audit insertion 
 });
 
 
-test('a newly present effect target invalidates an evaluation based on target absence', (t) => {
+test('proposal handoff rejects stale evaluation when a previously absent target appears', (t) => {
   const { engine, worldId } = setup(t);
   enableFixture(engine, worldId);
   const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
