@@ -1,0 +1,79 @@
+name: Windows accepted-head authority ACL candidate
+on:
+  pull_request:
+    paths:
+      - 'scripts/security/Set-AcceptedHeadAuthorityAcl.ps1'
+      - 'docs/security/accepted-head-authority-acl-candidate.md'
+      - '.github/workflows/windows-accepted-head-authority-acl.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-accepted-head-authority-acl-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  powershell-51-acl-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Apply candidate ACL only to a disposable fixture
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $suffix = [guid]::NewGuid().ToString('N').Substring(0, 5)
+          $roles = @('Authority', 'Core', 'Provider', 'Gateway')
+          $testAccounts = @()
+          $testServices = @()
+          $password = ([guid]::NewGuid().ToString('N') + 'Aa1!')
+          $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+          $root = $null
+          $evidence = $null
+          try {
+            foreach ($role in $roles) {
+              $account = "leHead$role$suffix"
+              $service = "LEHead$role$suffix"
+              New-LocalUser -Name $account -Password $securePassword -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
+              $testAccounts += $account
+              $accountName = "$env:COMPUTERNAME\$account"
+              & sc.exe create $service binPath= "$env:WINDIR\System32\cmd.exe /c exit" obj= $accountName password= $password start= demand | Out-Null
+              if ($LASTEXITCODE -ne 0) { throw "Failed to create disposable service identity fixture for $role." }
+              $testServices += $service
+            }
+            $root = Join-Path $env:RUNNER_TEMP ('accepted-head-acl-smoke-' + [guid]::NewGuid().ToString('N'))
+            New-Item -ItemType Directory -Path $root | Out-Null
+            $db = Join-Path $root 'accepted-head.sqlite'
+            $evidence = Join-Path $env:RUNNER_TEMP ('accepted-head-acl-evidence-' + [guid]::NewGuid().ToString('N') + '.json')
+            Set-Content -LiteralPath $db -Value 'temporary non-sensitive ACL fixture'
+            & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -EvidencePath $evidence -Apply -Confirm:$false
+            $report = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
+            if ($report.status -ne 'APPLIED_AND_ACL_SHAPE_VERIFIED') {
+              throw "Unexpected ACL smoke status: $($report.status)"
+            }
+            $ids = @($report.services.authority.sid, $report.services.core.sid, $report.services.provider.sid, $report.services.gateway.sid)
+            if (@($ids | Select-Object -Unique).Count -ne 4) { throw 'Fixture service identities were not distinct.' }
+            $acl = Get-Acl -LiteralPath $root
+            $identities = @($acl.Access | ForEach-Object { [string]$_.IdentityReference })
+            if ($identities -notcontains [string]$report.services.authority.account) { throw 'Authority identity is missing from fixture ACL.' }
+            foreach ($role in @('core', 'provider', 'gateway')) {
+              if ($identities -contains [string]$report.services.$role.account) { throw "$role identity has an explicit fixture directory ACE." }
+            }
+            Write-Output 'Accepted-head authority ACL shape smoke passed on disposable identities; this is not a target deployment access test.'
+          } finally {
+            if ($evidence -and (Test-Path -LiteralPath $evidence)) { Remove-Item -LiteralPath $evidence -Force }
+            if ($root -and (Test-Path -LiteralPath $root)) {
+              $acl = Get-Acl -LiteralPath $root
+              $acl.SetAccessRuleProtection($false, $true)
+              Set-Acl -LiteralPath $root -AclObject $acl
+              Remove-Item -LiteralPath $root -Recurse -Force
+            }
+            foreach ($service in $testServices) { & sc.exe delete $service | Out-Null }
+            foreach ($account in $testAccounts) {
+              if (Get-LocalUser -Name $account -ErrorAction SilentlyContinue) { Remove-LocalUser -Name $account }
+            }
+          }
