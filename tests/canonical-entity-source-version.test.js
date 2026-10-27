@@ -1,5 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { createCanonicalEntitySourceVersionValidator } from '../src/application/canonical-entity-source-version.js';
@@ -31,22 +34,23 @@ function candidate(overrides = {}) {
     world_id: 'source-authority-world',
     source_kind: 'canonical_entity',
     source_entity_id: 'source-a',
-    source_version: '1',
-    lineage: [{ source_kind: 'canonical_entity', entity_id: 'source-a', source_version: '1' }],
+    source_version: 'core-entity-v1:1',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'source-a', source_version: 'core-entity-v1:1' }],
     ...overrides,
   };
 }
 
 test('Core source-version validator accepts only the exact active canonical entity revision', (t) => {
   const { engine, validate } = setup(t);
-  const snapshot = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'] });
-  const revision = String(snapshot.entities[0].updated_revision);
+  const snapshot = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'], includeSourceVersions: true });
+  const revision = snapshot.entities[0].source_version;
 
   assert.equal(validate(candidate({ source_version: revision, lineage: [
     { source_kind: 'canonical_entity', entity_id: 'source-a', source_version: revision },
   ] })), true);
   assert.equal(validate(candidate({ source_version: '999' })), false);
-  assert.equal(validate(candidate({ source_version: '01' })), false);
+  assert.equal(validate(candidate({ source_version: 'core-entity-v1:01' })), false);
+  assert.equal(validate(candidate({ source_version: undefined })), false);
   assert.equal(validate(candidate({ source_entity_id: 'missing-source', lineage: [
     { source_kind: 'canonical_entity', entity_id: 'missing-source', source_version: '1' },
   ] })), false);
@@ -59,8 +63,8 @@ test('Core source-version validator accepts only the exact active canonical enti
 
 test('Core source-version validator rejects stale revisions after update and rollback', (t) => {
   const { engine, validate } = setup(t);
-  const initial = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'] });
-  const initialVersion = String(initial.entities[0].updated_revision);
+  const initial = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'], includeSourceVersions: true });
+  const initialVersion = initial.entities[0].source_version;
   const update = engine.commitEvent('source-authority-world', {
     event_id: 'source-authority-update',
     idempotency_key: 'source-authority-update',
@@ -71,8 +75,8 @@ test('Core source-version validator rejects stale revisions after update and rol
     effects: [{ kind: 'entity.update', entity_id: 'source-a', attributes: { public_note: 'updated' } }],
   });
   assert.equal(update.accepted, true);
-  const changed = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'] });
-  const changedVersion = String(changed.entities[0].updated_revision);
+  const changed = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'], includeSourceVersions: true });
+  const changedVersion = changed.entities[0].source_version;
   assert.notEqual(changedVersion, initialVersion);
   assert.equal(validate(candidate({ source_version: initialVersion, lineage: [
     { source_kind: 'canonical_entity', entity_id: 'source-a', source_version: initialVersion },
@@ -86,10 +90,12 @@ test('Core source-version validator rejects stale revisions after update and rol
     idempotency_key: 'source-authority-rollback',
   });
   assert.equal(rollback.accepted, true);
-  const restored = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'] });
-  const restoredVersion = String(restored.entities[0].updated_revision);
+  const restored = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'], includeSourceVersions: true });
+  const restoredVersion = restored.entities[0].source_version;
   assert.equal(restored.commit_sequence, changed.commit_sequence);
   assert.notEqual(restored.world_revision, changed.world_revision);
+  assert.notEqual(restoredVersion, changedVersion, 'rollback must not reuse the invalidated source token');
+  assert.notEqual(restoredVersion, initialVersion, 'rollback to old content must issue a new source token');
   assert.equal(validate(candidate({ source_version: changedVersion, lineage: [
     { source_kind: 'canonical_entity', entity_id: 'source-a', source_version: changedVersion },
   ] })), false);
@@ -100,8 +106,8 @@ test('Core source-version validator rejects stale revisions after update and rol
 
 test('Core source-version validator rejects destroyed entities and unavailable Core snapshots', (t) => {
   const { engine, validate } = setup(t);
-  const current = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'] });
-  const version = String(current.entities[0].updated_revision);
+  const current = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'], includeSourceVersions: true });
+  const version = current.entities[0].source_version;
   assert.equal(validate(candidate({ source_version: version, lineage: [
     { source_kind: 'canonical_entity', entity_id: 'source-a', source_version: version },
   ] })), true);
@@ -116,8 +122,8 @@ test('Core source-version validator rejects destroyed entities and unavailable C
     effects: [{ kind: 'entity.update', entity_id: 'source-a', status: 'destroyed' }],
   });
   assert.equal(destroyed.accepted, true);
-  const destroyedSnapshot = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'] });
-  const destroyedVersion = String(destroyedSnapshot.entities[0].updated_revision);
+  const destroyedSnapshot = engine.getSnapshot('source-authority-world', { entityIds: ['source-a'], includeSourceVersions: true });
+  const destroyedVersion = destroyedSnapshot.entities[0].source_version;
   assert.equal(validate(candidate({ source_version: destroyedVersion, lineage: [
     { source_kind: 'canonical_entity', entity_id: 'source-a', source_version: destroyedVersion },
   ] })), false);
@@ -126,4 +132,56 @@ test('Core source-version validator rejects destroyed entities and unavailable C
     getSnapshot() { throw new Error('store unavailable'); },
   });
   assert.throws(() => unavailable(candidate({ source_version: version })), /CORE_SOURCE_SNAPSHOT_UNAVAILABLE/);
+});
+
+
+test('Core source token is stable across unrelated events and persists across restart', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-entity-source-version-'));
+  const dbPath = join(directory, 'core.sqlite');
+  let store = new SQLiteStore(dbPath);
+  let engine = new LogicEngine(store);
+  engine.createWorld({
+    world_id: 'source-token-persistence-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('source-token-persistence-world', {
+    idempotency_key: 'seed-source-token-persistence',
+    turn_id: 'seed-source-token-persistence',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [{ kind: 'entity.create', entity_id: 'source-a', entity_type: 'character', attributes: { note: 'stable' } }],
+  });
+  const first = engine.getSnapshot('source-token-persistence-world', {
+    entityIds: ['source-a'], includeSourceVersions: true,
+  }).entities[0].source_version;
+
+  const beforeUnrelated = engine.getSnapshot('source-token-persistence-world', {
+    entityIds: ['source-a'], includeSourceVersions: true,
+  });
+  engine.commitEvent('source-token-persistence-world', {
+    idempotency_key: 'create-unrelated-source-token-entity',
+    turn_id: 'create-unrelated-source-token-entity',
+    event_type: 'action.completed',
+    expected_revision: beforeUnrelated.world_revision,
+    effects: [{ kind: 'entity.create', entity_id: 'unrelated', entity_type: 'object' }],
+  });
+  const afterUnrelated = engine.getSnapshot('source-token-persistence-world', {
+    entityIds: ['source-a'], includeSourceVersions: true,
+  }).entities[0].source_version;
+  assert.equal(afterUnrelated, first, 'unrelated entity changes must not invalidate this source token');
+
+  store.close();
+  store = new SQLiteStore(dbPath);
+  engine = new LogicEngine(store);
+  const afterRestart = engine.getSnapshot('source-token-persistence-world', {
+    entityIds: ['source-a'], includeSourceVersions: true,
+  }).entities[0].source_version;
+  assert.equal(afterRestart, afterUnrelated, 'source token must persist across process/store restart');
+
+  t.after(() => {
+    try { store.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
 });
