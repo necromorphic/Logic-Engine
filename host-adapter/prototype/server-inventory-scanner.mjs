@@ -22,6 +22,7 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
   }
 
   const artifacts = [];
+  const observedFiles = [];
   const errors = [];
   const domains = new Set();
   const rootPaths = [];
@@ -108,6 +109,7 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
             errors.push('Artifact changed during scan: ' + root.domain);
             continue;
           }
+          observedFiles.push({ absolutePath, domain: root.domain, stat: afterPath });
           artifacts.push({
             artifactId: root.domain + ':' + relativePath,
             domain: root.domain,
@@ -131,6 +133,17 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
       }
     };
     await walk(root.path);
+  }
+
+  for (const observed of observedFiles) {
+    try {
+      const current = await fs.lstat(observed.absolutePath);
+      if (current.isSymbolicLink() || !current.isFile() || !sameStat(observed.stat, current)) {
+        errors.push('Artifact changed after scan: ' + observed.domain);
+      }
+    } catch {
+      errors.push('Artifact unavailable after scan: ' + observed.domain);
+    }
   }
 
   artifacts.sort((a, b) => a.artifactId.localeCompare(b.artifactId, 'en'));
