@@ -240,12 +240,8 @@ test('non-2xx mutation response is journaled UNRESOLVED and blocks subsequent mu
         const ledger = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
         const records = ledger.trim().split('\n').map(line => JSON.parse(line));
         assert.deepEqual(records.map(record => record.kind), ['intent', 'outcome']);
-        assert.equal(records[1].status, 'REJECTED_NO_MUTATION');
+        assert.equal(records[1].status, 'UNRESOLVED');
         assert.equal(records[1].httpStatus, 400);
-
-        const status = await getHostMutationJournalStatus(request);
-        assert.equal(status.status, 'RECORDING');
-        assert.deepEqual(status.pendingOperations, []);
 
         const second = responseMock();
         let reachedHandler = false;
@@ -254,8 +250,9 @@ test('non-2xx mutation response is journaled UNRESOLVED and blocks subsequent mu
             second.json({ ok: true });
         });
         await second.finished;
-        assert.equal(reachedHandler, true);
-        assert.equal(second.statusCode, 200);
+        assert.equal(reachedHandler, false);
+        assert.equal(second.statusCode, 503);
+        assert.match(String(second.body), /HOST_JOURNAL_RECONCILIATION_REQUIRED/);
     } finally {
         await rm(root, { recursive: true, force: true });
     }
