@@ -1005,4 +1005,14 @@ test('real SQLiteMemoryProvider is consumed through the existing Core MemoryNpcC
   assert.equal(deniedAfterRevoke.status, 'non_ready');
   assert.deepEqual(deniedAfterRevoke.candidates, []);
   assert.equal(deniedAfterRevoke.reason, 'memory_retrieval_unavailable');
+
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  const afterExplicitRegrant = await consumer.retrieveForNpc({
+    worldId: scope.world_id,
+    adapterId: 'adapter-real',
+    actorEntityId: scope.subject_id,
+  });
+  assert.equal(afterExplicitRegrant.status, 'ready', JSON.stringify(afterExplicitRegrant));
+  assert.equal(afterExplicitRegrant.candidates.length, 1);
+  assert.equal(afterExplicitRegrant.candidates[0].record_ref, record.record_ref);
 });
