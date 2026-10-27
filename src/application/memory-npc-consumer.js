@@ -100,14 +100,14 @@ export class MemoryNpcConsumer {
     try {
       if (!object(request)) return nonReady('trusted_scope_incomplete');
       ({ adapterId, conversationId, actorEntityId } = request);
-      if (Object.hasOwn(request, 'worldId') || Object.hasOwn(request, 'world_id')) {
-        return nonReady('caller_world_not_authoritative');
-      }
     } catch {
       return nonReady('trusted_scope_incomplete');
     }
     if (!validId(adapterId) || !validId(conversationId) || !validId(actorEntityId)) {
       return nonReady('trusted_scope_incomplete');
+    }
+    if (Object.hasOwn(request, 'worldId') || Object.hasOwn(request, 'world_id')) {
+      return nonReady('caller_world_not_authoritative');
     }
 
     // Core, not the request, resolves the canonical world from the authenticated
