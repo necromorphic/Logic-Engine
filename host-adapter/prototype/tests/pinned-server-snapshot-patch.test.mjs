@@ -56,7 +56,7 @@ test('server mutation journal covers character routes that can alter chat identi
 test('pinned ST enrollment binds the exact persisted source path before registering it', async () => {
   const patch = await readFile(patchPath, 'utf8');
   assert.match(patch, /const sourcePath = selected_group[\s\S]*?sourceLocator \+ '\.jsonl'/);
-  assert.match(patch, /conversationId,\n\+                        sourceLocator,\n\+                        sourcePath,/);
+  assert.match(patch, /conversationId,\r?\n\+                        sourceLocator,\r?\n\+                        sourcePath,/);
   assert.match(patch, /HOST_ENROLLMENT_SOURCE_PATH_REQUIRED/);
   assert.match(patch, /validateEnrolledSourcePath\(paths, \{ conversationId, sourceLocator, domain, sourcePath \}\)/);
 });
