@@ -2,7 +2,7 @@
 
 ## Scope and limits
 
-Read-only inventory from GitHub REST API on 2026-10-28. No branch or issue was deleted, closed, merged, or edited by this audit. Default branch: `main`; head SHA: `5bc5f0e4434c7573d2754e6cda94786fcb45fca0`.
+Inventory baseline from GitHub REST API on 2026-10-28; see the operational cleanup delta at the end for subsequent actions. Default branch: `main`; head SHA: `5bc5f0e4434c7573d2754e6cda94786fcb45fca0`.
 
 - Branch API returned **512 branch refs** (earlier connector search returned 511; REST inventory is authoritative for this run).
 - Open PR API returned **86 open pull requests**.
@@ -18,11 +18,11 @@ Read-only inventory from GitHub REST API on 2026-10-28. No branch or issue was d
 4. **Archive/close PR only after comparison:** if a newer PR truly supersedes an older one, record which unique changes/tests were carried forward, then close the superseded PR; delete its branch only after verifying it is not a base for another open PR.
 5. **Issues:** keep one portfolio issue and one integration register; do not close independent block gates just because their titles overlap.
 
-## Classification counts (heuristic, 512 unique branches and 86 open PRs)
+## Classification counts (heuristic, 512 unique branches and 85 open PRs)
 
 - `WORKSTREAM_UNCLASSIFIED`: 214
 - `DUPLICATE_CANDIDATE`: 112
-- `OPEN_PR_HEAD`: 86
+- `OPEN_PR_HEAD`: 85
 - `DOC_OR_AUDIT_CANDIDATE`: 60
 - `SAFETY_OR_TEST_REQUIRES_REVIEW`: 39
 - `CANONICAL_MAIN`: 1
@@ -37,7 +37,7 @@ Meanings:
 
 ## Open PRs and branch ownership — current REST inventory
 
-GitHub REST API returned **86 open PRs**. All current open PRs are listed below, including the last page omitted by the earlier 80-PR inventory.
+GitHub REST API returned **85 open PRs**. All current open PRs are listed below, including the last page omitted by the earlier 80-PR inventory.
 
 | PR | Head branch | Base | State | Title |
 |---|---|---|---|---|
@@ -93,7 +93,6 @@ GitHub REST API returned **86 open PRs**. All current open PRs are listed below,
 | [#486](https://github.com/necromorphic/Logic-Engine/pull/486) | `feat/memory-dispatch-gateway` | feat/provider-accepted-head-handshake | Draft | feat: add fail-closed Memory dispatch gate and ledger |
 | [#487](https://github.com/necromorphic/Logic-Engine/pull/487) | `coord/stage2-prompt-binding` | feat/memory-dispatch-gateway | Draft | Bind protected dispatch to exact Provider candidate versions |
 | [#488](https://github.com/necromorphic/Logic-Engine/pull/488) | `coord/stage2-source-version-binding` | coord/stage2-prompt-binding | Draft | Bind NPC admission to exact canonical source versions |
-| [#490](https://github.com/necromorphic/Logic-Engine/pull/490) | `coord/core-source-version-authority` | coord/stage2-source-version-binding | Draft | Use durable Core-issued source-version tokens |
 | [#491](https://github.com/necromorphic/Logic-Engine/pull/491) | `coord/core-conversation-bound-scope` | coord/core-source-version-authority | Draft | Bind Memory NPC reads to Core Host conversation scope |
 | [#492](https://github.com/necromorphic/Logic-Engine/pull/492) | `work/sillytavern-diagnostic-extension` | main | Draft | feat(host): add fail-closed SillyTavern diagnostic extension |
 | [#493](https://github.com/necromorphic/Logic-Engine/pull/493) | `proposal/provider-accepted-head-mutation-protocol` | feat/accepted-head-authority-store | Draft | docs(memory): propose Provider accepted-head mutation protocol |
@@ -1234,7 +1233,7 @@ Current lifecycle classification uses the latest open-PR API response. Open PR h
 | `work/recalculation-oracle-integration` | `cea76df9a037f3e334688838aa39ec72dbf859a5` | CLOSED_UNMERGED_REVIEW | — | #225 | Closed without merge: #225; inspect unique commits/tests and whether another open PR depends on it |
 | `work/sillytavern-diagnostic-extension` | `c494830d85fea7201053ff08da598316e5747937` | KEEP_OPEN_PR | — | — | Head of current open PR(s): #492 |
 
-### Status counts — corrected for 86 open PRs
+### Status counts — corrected for 85 open PRs
 
 - `MERGED_PR_BRANCH_REVIEW`: 198
 - `CLOSED_UNMERGED_REVIEW`: 187
@@ -1284,7 +1283,16 @@ GitHub compare API checks were run against current main for selected duplicate-l
 
 ### What can be acted on now vs. what cannot
 
-- **Actionable without code loss:** update the portfolio issue with the 15 currently open Issues and the 86 open PRs; cross-link the three control Issues #252/#251/#264; stop creating new current-main, clean, v2, or final branches until the canonical branch for that workstream is chosen.
+- **Actionable without code loss:** update the portfolio issue with the 15 currently open Issues and the 85 open PRs; cross-link the three control Issues #252/#251/#264; stop creating new current-main, clean, v2, or final branches until the canonical branch for that workstream is chosen.
 - **Candidates for manual cleanup review:** branches associated with merged PRs (198 refs) and closed-unmerged PRs (187 refs). These are not automatically safe to delete.
 - **Not yet proven safe to delete:** any branch whose head is not identical to main, whose unique content has not been compared with current main, or which is a base for an open PR.
 - **No destructive cleanup performed:** this audit only updated the documentation branch. It did not delete branches, close Issues/PRs, merge code, or change runtime behavior.
+
+
+## Operational cleanup delta — 2026-10-28
+
+- **PR #490 closed without merge** as a superseded parallel source-version implementation. The canonical staged path is #509 → #521 → #504: #509 owns the durable persistence migration/transactional ledger, #521 adds Core readback and validation, and #504 consumes that contract. A closing comment records the reason and confirms the branch was not deleted.
+- Current GitHub search after that action returned **85 open PRs** and **19 open Issues**. The 512-branch count above is the inventory snapshot from the audit run, not a newly verified post-cleanup branch count.
+- **PR #355 remains open**: it has unique additions in `tests/causality-contract.test.js` and a benchmark test edit not present in the current-main replacement PR #368. Do not close it until those changes are transferred or explicitly abandoned.
+- **PR #523 remains a draft and is not mergeable** because GitHub reports a merge conflict. It is not merged; its README/report snapshot should be refreshed before it is treated as current.
+- No runtime PR was merged. No branches were deleted. Memory→NPC remains DISABLED / FAIL-CLOSED.
