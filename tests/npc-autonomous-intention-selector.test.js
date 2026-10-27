@@ -92,6 +92,7 @@ test("retains the current eligible intention unless a strictly higher-priority g
   });
 
   input.goals = input.goals.filter((item) => item.id !== "urgent");
+  input.actions = input.actions.filter((item) => item.goal_id !== "urgent");
   assert.deepEqual(selectNpcIntention(input), {
     status: "selected",
     intention: { goal_id: "steady-goal", action_id: "steady-action" },
