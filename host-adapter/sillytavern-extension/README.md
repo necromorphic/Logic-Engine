@@ -16,8 +16,9 @@
 1. Back up SillyTavern.
 2. Copy this directory to `SillyTavern/public/scripts/extensions/third-party/logic-engine/`.
 3. Restart/reload SillyTavern and enable **Logic-Engine Bridge** in the Extensions panel.
-4. Enter the local engine base URL and click **Проверить связь**.
-5. Chat enrollment and digest sync remain disabled unless the separately reviewed Host lifecycle bridge is installed.
+4. Set `ENGINE_HEALTH_ALLOWED_ORIGINS` on the Logic-Engine process to the exact browser origin of SillyTavern, for example `http://127.0.0.1:8000`, then restart Logic-Engine. Do not use `*`.
+5. Enter the local engine base URL and click **Проверить связь**.
+6. Chat enrollment and digest sync remain disabled unless the separately reviewed Host lifecycle bridge is installed.
 
 ### Optional pinned Host bridge patch
 
