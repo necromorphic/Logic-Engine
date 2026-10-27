@@ -661,6 +661,40 @@ export async function recordHostCaptureAcknowledgement(request, capture) {
     }
 }
 
+
+/** Persist a Core conflict response so later inventory scans cannot silently recover. */
+export async function recordHostCaptureConflict(request, capture, upstreamStatus) {
+    const uuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+    if (upstreamStatus !== 409 || !request?.user?.directories || !capture || typeof capture !== 'object'
+        || typeof capture.conversation_id !== 'string'
+        || typeof capture.message_id !== 'string' || !uuidPattern.test(capture.message_id)
+        || typeof capture.version_id !== 'string' || !uuidPattern.test(capture.version_id)
+        || typeof capture.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(capture.content_sha256)
+        || typeof capture.active !== 'boolean' || typeof capture.deleted !== 'boolean'
+        || (capture.deleted && capture.active)) throw new Error('HOST_CAPTURE_CONFLICT_INVALID');
+    const paths = await statePaths(request);
+    const registry = await readRegistry(paths.registryPath);
+    if (!registry.conversations.some(item => item.conversationId === capture.conversation_id)) throw new Error('HOST_CAPTURE_CONFLICT_NOT_ENROLLED');
+    const userKey = digest(String(request.user.profile?.handle ?? paths.roots[0].path));
+    const release = await acquireUserLock(userKey);
+    try {
+        const chain = await readAndValidateJournal(paths.journalPath);
+        if (chain.unresolved || chain.degraded) throw new Error('HOST_CAPTURE_CONFLICT_JOURNAL_UNRESOLVED');
+        const prior = chain.records.find(record => record.kind === 'capture_conflict'
+            && record.conversation_id === capture.conversation_id && record.message_id === capture.message_id
+            && record.version_id === capture.version_id && record.content_sha256 === capture.content_sha256);
+        if (prior) return { status: 'ALREADY_RECORDED' };
+        await appendRecord(paths.journalPath, chain.lastHash, {
+            version: 1, kind: 'capture_conflict', operationId: randomUUID(),
+            conversation_id: capture.conversation_id, message_id: capture.message_id,
+            version_id: capture.version_id, content_sha256: capture.content_sha256,
+            active: capture.active, deleted: capture.deleted, upstreamStatus: 409,
+            recordedAt: new Date().toISOString(),
+        });
+        return { status: 'RECORDED' };
+    } finally { release(); }
+}
+
 /**
  * Read the persisted JSONL source for every explicitly enrolled conversation.
  * This reports current identities/swipes only; it never upgrades Host trust,
