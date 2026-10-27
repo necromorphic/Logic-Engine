@@ -1527,3 +1527,32 @@ test('proposal handoff rejects a condition evaluation when a known-absent attrib
   assert.equal(engine.getState(worldId).entities.find((entity) => entity.entity_id === 'entity.actor-context').attributes.injury, 'broken-arm');
   assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
 });
+
+
+test('proposal based on target absence cannot be approved after that target appears', (t) => {
+  const { engine, worldId } = setup(t, 'executor-target-appears-after-proposal');
+  enableFixture(engine, worldId);
+  const evaluation = new MechanicExecutor(engine, { resolveAuthorizedContext: contextProvider() })
+    .evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  const proposals = new ProposalService(engine, { validateMechanicPolicy: () => true });
+  const proposal = proposals.createFromMechanicEvaluation(worldId, evaluation, {
+    idempotencyKey: 'target-absence-stale-before-approval',
+    turnId: 'turn-target-absence-stale-before-approval',
+    sourceText: 'The target was absent at evaluation time.',
+    adapterId: 'test-adapter',
+  });
+
+  commit(engine, worldId, 'create-previously-absent-target', 2, [{
+    kind: 'entity.create',
+    entity_id: 'entity.new',
+    entity_type: 'character',
+    attributes: { name: 'Newly appeared target' },
+  }]);
+
+  assert.throws(
+    () => proposals.approve(worldId, proposal.proposal_id),
+    (error) => error.code === 'STALE_PROPOSAL' && error.status === 409,
+  );
+  assert.equal(proposals.get(worldId, proposal.proposal_id).status, 'pending');
+  assert.equal(engine.getState(worldId).entities.filter((entity) => entity.entity_id === 'entity.new').length, 1);
+});
