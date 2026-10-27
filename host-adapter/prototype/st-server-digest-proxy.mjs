@@ -51,9 +51,11 @@ export function createHostDigestProxyHandler({
   fetchImpl = globalThis.fetch,
   timeoutMs = 5000,
   onAcceptedCapture = null,
+  onRejectedCapture = null,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
   if (onAcceptedCapture !== null && typeof onAcceptedCapture !== 'function') throw new TypeError('onAcceptedCapture must be a trusted callback');
+  if (onRejectedCapture !== null && typeof onRejectedCapture !== 'function') throw new TypeError('onRejectedCapture must be a trusted callback');
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
   }
@@ -94,6 +96,15 @@ export function createHostDigestProxyHandler({
         ? upstream.ok : upstream.status >= 200 && upstream.status < 300;
       if (!upstreamOk) {
         const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
+        if (onRejectedCapture && status === 409) {
+          try {
+            await onRejectedCapture(request, body, status);
+          } catch {
+            return response.status(503).json({
+              error: { code: 'LOGIC_ENGINE_CAPTURE_ACK_UNAVAILABLE', message: 'Capture conflict evidence could not be persisted.' },
+            });
+          }
+        }
         return response.status(status).json({
           error: { code: 'LOGIC_ENGINE_CAPTURE_REJECTED', message: 'Logic-Engine did not accept the digest capture.' },
         });
