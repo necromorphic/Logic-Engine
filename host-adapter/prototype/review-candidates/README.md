@@ -18,6 +18,6 @@ Core decision: CONDITIONAL APPROVE, restricted to blocking startup migration and
 3. Run `npm run lint` and any applicable existing test commands.
 4. Launch SillyTavern against disposable fixtures and capture startup output proving `HOST_STARTUP_MIGRATION_BLOCKED` occurs before any write.
 5. Compare SHA-256 hashes and bytes of every planned group/chat file and backup directory contents before/after a blocked startup.
-6. Run CI against the exact candidate HEAD and record the commit SHA and workflow results.
+6. The candidate workflow runs against the exact candidate HEAD and pinned SillyTavern commit; record the commit SHA and workflow results.
 
 Do not treat this candidate as second-approved or production-ready. If review finds any mismatch with the pinned source, revise the patch and repeat the exact-HEAD checks.
