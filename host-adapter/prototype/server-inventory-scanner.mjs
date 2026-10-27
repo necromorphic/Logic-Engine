@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { lstat, readdir, readFile, realpath } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { lstat, open, readdir, realpath } from 'node:fs/promises';
 import path from 'node:path';
 
 const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
@@ -15,7 +16,7 @@ const sameStat = (a, b) => a.dev === b.dev && a.ino === b.ino
  *
  * roots: [{ domain: stable logical name, path: absolute storage directory }]
  */
-export async function scanHostArtifactRoots(roots, { fs = { lstat, readdir, readFile, realpath } } = {}) {
+export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir, realpath } } = {}) {
   if (!Array.isArray(roots) || roots.length === 0) {
     return { status: 'INVENTORY_INCOMPLETE', complete: false, artifacts: [], errors: ['No inventory roots configured'] };
   }
@@ -86,10 +87,19 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, readdir, read
           errors.push('Unsupported filesystem artifact type: ' + root.domain);
           continue;
         }
+        let handle;
         try {
-          const bytes = await fs.readFile(absolutePath);
-          const after = await fs.lstat(absolutePath);
-          if (!sameStat(before, after) || bytes.length !== after.size) {
+          // O_NOFOLLOW closes the lstat→open symlink replacement race on supported platforms.
+          handle = await fs.open(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW);
+          const opened = await handle.stat();
+          if (!opened.isFile() || !sameStat(before, opened)) {
+            errors.push('Artifact changed before open: ' + root.domain);
+            continue;
+          }
+          const bytes = await handle.readFile();
+          const afterHandle = await handle.stat();
+          const afterPath = await fs.lstat(absolutePath);
+          if (!sameStat(opened, afterHandle) || !sameStat(opened, afterPath) || bytes.length !== afterHandle.size) {
             errors.push('Artifact changed during scan: ' + root.domain);
             continue;
           }
@@ -102,6 +112,8 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, readdir, read
           });
         } catch {
           errors.push('Artifact read failed: ' + root.domain);
+        } finally {
+          await handle?.close().catch(() => {});
         }
       }
     };
