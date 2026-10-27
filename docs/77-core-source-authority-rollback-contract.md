@@ -132,3 +132,15 @@ The first audit correctly found that `getSnapshot(worldId)` does not enumerate e
 A Core-owned Provider callback, `createCanonicalEntityInventoryValidator(engine)`, now enumerates every page and verifies that each Provider record maps to an active entity with the exact current source token. The Core↔Provider integration tests now use this callback rather than a fixture that blindly returns `true`.
 
 **Status:** implementation candidate added; exact-head Runtime and NPC-boundary CI passed on `a5fb6d012012a0d55d3ff522ede2574fd9a90e73` (run [#40586323309](https://github.com/necromorphic/Logic-Engine/actions/runs/40586323309)). Independent review is still required. This closes the previously missing inventory interface at code level only. It does not prove Host final-send enforcement, backup-restore anti-rollback, or journal replay completeness, and it does not authorize production Memory→NPC traffic.
+
+### Reconciliation lifecycle test update (2026-10-28)
+
+The Provider integration suite now explicitly verifies:
+- an interrupted/unavailable inventory check leaves the Provider non-ready;
+- restoring the trusted inventory validator permits a clean retry;
+- repeated reconciliation is idempotent and does not duplicate Provider records or index entries;
+- a Core mutation during inventory validation prevents the reconciliation attempt from publishing `current`, and the changed source remains stale on the next attempt.
+
+These tests passed on PR head `0b869680e165ac72cd28081bc591553cce4f04d2` in Runtime + NPC-boundary CI run [#40587584663](https://github.com/necromorphic/Logic-Engine/actions/runs/40587584663).
+
+**Still not proven:** process-restart recovery of a partially completed reconciliation; selective invalidation/quarantine of stale Provider records while preserving unrelated valid records; complete incremental journal replay; full-database restore anti-rollback; Host final-send enforcement. The current safe behavior is world-level fail-closed: a stale record can keep that world's Provider index non-ready until the record lifecycle is explicitly defined. Do not add destructive deletion or a new persistence schema implicitly. Memory→NPC remains **NON_READY / FAIL-CLOSED**.
