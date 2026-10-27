@@ -1,0 +1,14 @@
+{
+  "display_name": "Logic-Engine Bridge",
+  "loading_order": 40,
+  "requires": [],
+  "optional": [],
+  "js": "index.js",
+  "css": "style.css",
+  "author": "necromorphic/Logic-Engine",
+  "version": "0.1.0",
+  "homePage": "https://github.com/necromorphic/Logic-Engine",
+  "hooks": {
+    "activate": "init"
+  }
+}
