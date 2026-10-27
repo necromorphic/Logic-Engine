@@ -210,6 +210,45 @@ test('complete authorized empty retrieval is ready-empty only with a matching cu
   assert.equal(JSON.stringify(result).includes('memory-npc-world'), false);
 });
 
+test('empty retrieval is non-ready when the current Core snapshot cannot be verified', async (t) => {
+  const empty = setup(t);
+  empty.setCandidates([]);
+  empty.consumer.authorizedReadService.readEntityFields = () => {
+    throw new Error('private Core diagnostic');
+  };
+
+  const result = await empty.consumer.retrieveForNpc(request());
+
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'authorized_source_read_unavailable');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('private Core diagnostic'), false);
+});
+
+test('empty retrieval with a stale Memory snapshot is non-ready, not proof of absence', async (t) => {
+  const empty = setup(t);
+  empty.setCandidates([]);
+  empty.provider.retrieveCandidates = async () => ({
+    completeness: 'complete',
+    index_health: 'ready',
+    source_reconciliation: 'current',
+    scope: empty.scope,
+    snapshot: {
+      world_revision: empty.snapshot.world_revision - 1,
+      commit_sequence: empty.snapshot.commit_sequence,
+    },
+    candidates: [],
+  });
+
+  const result = await empty.consumer.retrieveForNpc(request());
+
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_snapshot_stale');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+});
+
 test('empty retrieval that is denied, incomplete, or unavailable is non-ready, not proof of absence', async (t) => {
   const deniedQuery = setup(t, { authorizeQuery: false });
   deniedQuery.setCandidates([]);
