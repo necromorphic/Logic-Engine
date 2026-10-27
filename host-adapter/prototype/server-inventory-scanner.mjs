@@ -53,8 +53,13 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
 
   for (const root of rootPaths) {
     const walk = async (directory) => {
-      let entries;
+      let beforeDirectory, entries;
       try {
+        beforeDirectory = await fs.lstat(directory);
+        if (beforeDirectory.isSymbolicLink() || !beforeDirectory.isDirectory()) {
+          errors.push('Directory type changed during enumeration: ' + root.domain);
+          return;
+        }
         entries = await fs.readdir(directory, { withFileTypes: true });
       } catch {
         errors.push('Directory enumeration failed: ' + root.domain);
@@ -115,6 +120,14 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
         } finally {
           await handle?.close().catch(() => {});
         }
+      }
+      try {
+        const afterDirectory = await fs.lstat(directory);
+        if (!sameStat(beforeDirectory, afterDirectory) || afterDirectory.isSymbolicLink() || !afterDirectory.isDirectory()) {
+          errors.push('Directory changed during enumeration: ' + root.domain);
+        }
+      } catch {
+        errors.push('Directory unavailable after enumeration: ' + root.domain);
       }
     };
     await walk(root.path);
