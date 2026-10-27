@@ -156,3 +156,26 @@ test('rule equality rejects non-JSON context and operands instead of coercing th
   sparse.length = 1;
   assert.throws(() => eq(sparse, [null]), (error) => error.code === 'RULE_TYPE_MISMATCH');
 });
+
+test('rule equality rejects non-enumerable properties in objects and arrays', () => {
+  const eq = (contextValue, ruleValue) => evaluateCondition(
+    { op: 'eq', path: 'value', value: ruleValue },
+    { value: contextValue },
+  );
+
+  const hiddenObjectProperty = { visible: 1 };
+  Object.defineProperty(hiddenObjectProperty, 'hidden', {
+    value: 2,
+    enumerable: false,
+  });
+  assert.throws(() => eq(hiddenObjectProperty, { visible: 1 }), (error) => error.code === 'RULE_TYPE_MISMATCH');
+  assert.throws(() => eq({ visible: 1 }, hiddenObjectProperty), (error) => error.code === 'RULE_TYPE_MISMATCH');
+
+  const hiddenArrayProperty = [1];
+  Object.defineProperty(hiddenArrayProperty, 'hidden', {
+    value: 2,
+    enumerable: false,
+  });
+  assert.throws(() => eq(hiddenArrayProperty, [1]), (error) => error.code === 'RULE_TYPE_MISMATCH');
+  assert.throws(() => eq([1], hiddenArrayProperty), (error) => error.code === 'RULE_TYPE_MISMATCH');
+});
