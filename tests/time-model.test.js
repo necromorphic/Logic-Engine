@@ -342,4 +342,11 @@ test('calendar inverse mapping rejects projection metadata from another version 
     () => calendarDateToCoordinate(definition, { ...projected, coordinate: projected.coordinate + 1 }),
     (error) => error.code === 'CALENDAR_DATE_COORDINATE_MISMATCH',
   );
+  assert.throws(
+    () => calendarDateToCoordinate(definition, {
+      ...projected,
+      year_cycle_index: (projected.year_cycle_index + 1) % definition.year_cycle.length,
+    }),
+    (error) => error.code === 'CALENDAR_YEAR_CYCLE_INDEX_MISMATCH',
+  );
 });
