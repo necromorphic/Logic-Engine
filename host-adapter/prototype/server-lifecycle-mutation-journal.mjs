@@ -95,40 +95,43 @@ async function statePaths(request) {
  * protect; malformed or unsafe state fails closed.
  */
 export async function assertHostStartupMigrationSafe(directories) {
-    if (typeof directories?.chats !== 'string' || !path.isAbsolute(directories.chats)) {
-        throw new Error('HOST_STARTUP_MIGRATION_STATE_UNAVAILABLE');
-    }
-    const chatRoot = await realpath(directories.chats);
-    const userRoot = path.dirname(chatRoot);
-    const userStat = await lstat(userRoot);
-    if (!userStat.isDirectory() || userStat.isSymbolicLink()) {
-        throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
-    }
-    const stateDirectory = path.join(userRoot, '.logic-engine-host');
-    let stateStat;
-    try {
-        stateStat = await lstat(stateDirectory);
-    } catch (error) {
-        if (error?.code === 'ENOENT') return { status: 'NO_ENROLLMENT_STATE' };
-        throw error;
-    }
-    if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) {
-        throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
-    }
-    const registryPath = path.join(stateDirectory, 'enrollments.json');
-    let registryStat;
-    try {
-        registryStat = await lstat(registryPath);
-    } catch (error) {
-        if (error?.code === 'ENOENT') return { status: 'NO_ENROLLMENTS' };
-        throw error;
-    }
-    if (!registryStat.isFile() || registryStat.isSymbolicLink()) {
-        throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
-    }
-    const registry = await readRegistry(registryPath);
-    if (registry.conversations.some(item => item.domain === 'group_chats')) {
-        throw new Error('HOST_STARTUP_MIGRATION_BLOCKED');
+    const directoryList = Array.isArray(directories) ? directories : [directories];
+    for (const userDirectories of directoryList) {
+        if (typeof userDirectories?.chats !== 'string' || !path.isAbsolute(userDirectories.chats)) {
+            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNAVAILABLE');
+        }
+        const chatRoot = await realpath(userDirectories.chats);
+        const userRoot = path.dirname(chatRoot);
+        const userStat = await lstat(userRoot);
+        if (!userStat.isDirectory() || userStat.isSymbolicLink()) {
+            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
+        }
+        const stateDirectory = path.join(userRoot, '.logic-engine-host');
+        let stateStat;
+        try {
+            stateStat = await lstat(stateDirectory);
+        } catch (error) {
+            if (error?.code === 'ENOENT') continue;
+            throw error;
+        }
+        if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) {
+            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
+        }
+        const registryPath = path.join(stateDirectory, 'enrollments.json');
+        let registryStat;
+        try {
+            registryStat = await lstat(registryPath);
+        } catch (error) {
+            if (error?.code === 'ENOENT') continue;
+            throw error;
+        }
+        if (!registryStat.isFile() || registryStat.isSymbolicLink()) {
+            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
+        }
+        const registry = await readRegistry(registryPath);
+        if (registry.conversations.some(item => item.domain === 'group_chats')) {
+            throw new Error('HOST_STARTUP_MIGRATION_BLOCKED');
+        }
     }
     return { status: 'SAFE_NO_ENROLLED_GROUP_CHATS' };
 }
