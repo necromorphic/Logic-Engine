@@ -237,3 +237,48 @@ test('calendar required fields must be own properties even if Object.prototype i
     else delete Object.prototype.calendar_id;
   }
 });
+
+
+test('calendar date inputs reject unknown fields, accessors, and explicit undefined values', () => {
+  const accessorDate = { month_id: 'first', day_of_month: 1 };
+  let getterCalled = false;
+  Object.defineProperty(accessorDate, 'year_number', {
+    enumerable: true,
+    get() { getterCalled = true; return 10; },
+  });
+  assert.throws(
+    () => calendarDateToCoordinate(calendar(), accessorDate),
+    (error) => error.code === 'INVALID_CALENDAR_DATE',
+  );
+  assert.equal(getterCalled, false);
+
+  assert.throws(
+    () => calendarDateToCoordinate(calendar(), {
+      year_number: 10, month_id: 'first', day_of_month: 1, unexpected: true,
+    }),
+    (error) => error.code === 'INVALID_CALENDAR_DATE',
+  );
+
+  assert.throws(
+    () => calendarDateToCoordinate(calendar(), {
+      year_number: 10, month_id: 'first', day_of_month: 1, time_of_day_ms: undefined,
+    }),
+    (error) => error.code === 'INVALID_CALENDAR_DATE',
+  );
+});
+
+test('calendar date required fields must be own properties even if Object.prototype is polluted', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'year_number');
+  Object.defineProperty(Object.prototype, 'year_number', {
+    configurable: true, enumerable: true, writable: true, value: 10,
+  });
+  try {
+    assert.throws(
+      () => calendarDateToCoordinate(calendar(), { month_id: 'first', day_of_month: 1 }),
+      (error) => error.code === 'INVALID_CALENDAR_DATE',
+    );
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'year_number', previous);
+    else delete Object.prototype.year_number;
+  }
+});
