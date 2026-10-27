@@ -86,6 +86,56 @@ async function statePaths(request) {
     };
 }
 
+/**
+ * Startup group-metadata migration runs outside HTTP middleware. Refuse to run
+ * it when any explicitly enrolled group chat exists, because the native
+ * migration may rewrite that source before request guards are mounted.
+ *
+ * Missing enrollment state means this prototype has no enrolled source to
+ * protect; malformed or unsafe state fails closed.
+ */
+export async function assertHostStartupMigrationSafe(directories) {
+    const directoryList = Array.isArray(directories) ? directories : [directories];
+    for (const userDirectories of directoryList) {
+        if (typeof userDirectories?.chats !== 'string' || !path.isAbsolute(userDirectories.chats)) {
+            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNAVAILABLE');
+        }
+        const chatRoot = await realpath(userDirectories.chats);
+        const userRoot = path.dirname(chatRoot);
+        const userStat = await lstat(userRoot);
+        if (!userStat.isDirectory() || userStat.isSymbolicLink()) {
+            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
+        }
+        const stateDirectory = path.join(userRoot, '.logic-engine-host');
+        let stateStat;
+        try {
+            stateStat = await lstat(stateDirectory);
+        } catch (error) {
+            if (error?.code === 'ENOENT') continue;
+            throw error;
+        }
+        if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) {
+            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
+        }
+        const registryPath = path.join(stateDirectory, 'enrollments.json');
+        let registryStat;
+        try {
+            registryStat = await lstat(registryPath);
+        } catch (error) {
+            if (error?.code === 'ENOENT') continue;
+            throw error;
+        }
+        if (!registryStat.isFile() || registryStat.isSymbolicLink()) {
+            throw new Error('HOST_STARTUP_MIGRATION_STATE_UNSAFE');
+        }
+        const registry = await readRegistry(registryPath);
+        if (registry.conversations.some(item => item.domain === 'group_chats')) {
+            throw new Error('HOST_STARTUP_MIGRATION_BLOCKED');
+        }
+    }
+    return { status: 'SAFE_NO_ENROLLED_GROUP_CHATS' };
+}
+
 async function atomicWriteJson(filePath, value) {
     const temporaryPath = filePath + '.' + randomUUID() + '.tmp';
     const handle = await open(temporaryPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);

@@ -5,7 +5,7 @@ import path from 'node:path';
 import { createServer } from 'node:http';
 import { once } from 'node:events';
 import { mkdir, readFile, writeFile, rm } from 'node:fs/promises';
-import { createHostLifecycleMutationMiddleware, getHostMutationJournalStatus, reconcileHostMutation, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
+import { assertHostStartupMigrationSafe, createHostLifecycleMutationMiddleware, getHostMutationJournalStatus, reconcileHostMutation, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
 
 async function fixture() {
     const root = await fsMkdtemp();
@@ -475,3 +475,61 @@ test('strict lifecycle mode blocks mutation when enrollment state directory disa
     }
 });
 
+test('startup group-chat migration is allowed when no Host enrollment exists', async () => {
+    const { root, directories } = await fixture();
+    try {
+        assert.deepEqual(await assertHostStartupMigrationSafe([directories]), { status: 'SAFE_NO_ENROLLED_GROUP_CHATS' });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('startup group-chat migration is blocked before mutation when a group chat is enrolled', async () => {
+    const { root, request, directories } = await fixture();
+    try {
+        await registerHostConversation(request, {
+            conversationId: 'group-conversation-1',
+            sourceLocator: 'group-chat-1',
+            domain: 'group_chats',
+        });
+        await assert.rejects(
+            assertHostStartupMigrationSafe(directories),
+            error => error?.message === 'HOST_STARTUP_MIGRATION_BLOCKED',
+        );
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('startup group-chat migration fails closed on malformed enrollment registry', async () => {
+    const { root, directories } = await fixture();
+    try {
+        const stateDirectory = path.join(root, '.logic-engine-host');
+        await mkdir(stateDirectory, { recursive: true });
+        await writeFile(path.join(stateDirectory, 'enrollments.json'), '{"version":1,"conversations":');
+        await assert.rejects(assertHostStartupMigrationSafe(directories));
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('startup group-chat migration checks every user registry, not only the first user', async () => {
+    const first = await fixture();
+    const second = await fixture();
+    try {
+        await registerHostConversation(second.request, {
+            conversationId: 'group-conversation-2',
+            sourceLocator: 'group-chat-2',
+            domain: 'group_chats',
+        });
+        await assert.rejects(
+            assertHostStartupMigrationSafe([first.directories, second.directories]),
+            error => error?.message === 'HOST_STARTUP_MIGRATION_BLOCKED',
+        );
+    } finally {
+        await Promise.all([
+            rm(first.root, { recursive: true, force: true }),
+            rm(second.root, { recursive: true, force: true }),
+        ]);
+    }
+});

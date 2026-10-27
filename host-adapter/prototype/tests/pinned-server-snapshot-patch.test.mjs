@@ -87,3 +87,14 @@ test('pinned ST patch journals Core-accepted captures and requires tombstone evi
   assert.match(patch, /VERSION_DISAPPEARED_WITHOUT_ACCEPTED_TOMBSTONE/);
   assert.match(patch, /ENROLLMENT_FORWARD_ONLY_OBSERVED_INVENTORY_NON_AUTHORITATIVE/);
 });
+
+test('pinned startup migration checks every enrollment registry before rewriting group chats', async () => {
+  const patch = await readFile(patchPath, 'utf8');
+  const serverMain = patch.slice(patch.indexOf('diff --git a/src/server-main.js'));
+  const guardCall = serverMain.indexOf('+    await assertHostStartupMigrationSafe(directories);');
+  const migrationCall = serverMain.indexOf('     await migrateGroupChatsMetadataFormat(directories);');
+  assert.ok(guardCall >= 0 && migrationCall > guardCall, 'startup guard runs before native group-chat migration');
+  assert.match(patch, /export async function assertHostStartupMigrationSafe\(directories\)/);
+  assert.match(patch, /HOST_STARTUP_MIGRATION_BLOCKED/);
+  assert.match(patch, /directoryList = Array\.isArray\(directories\) \? directories : \[directories\]/);
+});
