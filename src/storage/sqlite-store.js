@@ -254,7 +254,7 @@ export class SQLiteStore {
         this.coordinatorRelease = beginCoordinatorLock(this.coordinatorDb);
         this.coordinatorLeaseDepth = 1;
       }
-      this.db.exec(`
+      const schemaSql = `
       PRAGMA foreign_keys=ON;
       PRAGMA busy_timeout=5000;
       CREATE TABLE IF NOT EXISTS worlds(
@@ -355,8 +355,28 @@ export class SQLiteStore {
       CREATE TABLE IF NOT EXISTS schema_migrations(
         version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL
       );
-      `);
-      this.db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
+      `;
+      if (this.acceptedHeadConfig) {
+        const existingObjects = new Set(this.db.prepare(
+          "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+        ).all().map((row) => row.object_name));
+        const requiredObjects = [...schemaSql.matchAll(/CREATE\\s+(?:UNIQUE\\s+)?(TABLE|INDEX)\\s+IF\\s+NOT\\s+EXISTS\\s+([A-Za-z_][A-Za-z0-9_]*)/gi)]
+          .map((match) => match[1].toLowerCase() + ':' + match[2]);
+        if (requiredObjects.some((objectName) => !existingObjects.has(objectName))) {
+          throw new Error('CORE_SCHEMA_INCOMPLETE');
+        }
+        const localAcceptedHead = this.db.prepare(
+          'SELECT head,enrolled FROM accepted_head_state WHERE singleton=1',
+        ).get();
+        if (!localAcceptedHead || localAcceptedHead.enrolled !== 1
+          || !Number.isSafeInteger(localAcceptedHead.head) || localAcceptedHead.head < 1) {
+          throw new Error('CORE_ACCEPTED_HEAD_NOT_ENROLLED');
+        }
+      }
+      this.db.exec(schemaSql);
+      if (!this.acceptedHeadConfig) {
+        this.db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
+      }
       this.migrate();
       if (this.coordinatorRelease) {
         this.coordinatorRelease();
