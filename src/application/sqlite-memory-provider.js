@@ -58,7 +58,9 @@ const hasSafeObjectPrototype = () => {
 const isPlainDataRecord = (value) => {
   if (!object(value) || isProxy(value)) return false;
   const prototype = Object.getPrototypeOf(value);
-  if (prototype === Object.prototype && !hasSafeObjectPrototype()) return false;
+  // Snapshots are copied into ordinary objects, so inherited serialization hooks
+  // must be rejected even when the caller supplied a null-prototype record.
+  if (!hasSafeObjectPrototype()) return false;
   if (prototype !== Object.prototype && prototype !== null) return false;
   for (const key of Reflect.ownKeys(value)) {
     if (typeof key !== 'string') return false;
@@ -68,7 +70,8 @@ const isPlainDataRecord = (value) => {
   return true;
 };
 const isPlainDataArray = (value) => {
-  if (!Array.isArray(value) || isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
+  if (!Array.isArray(value) || isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype
+    || Object.hasOwn(Array.prototype, 'toJSON')) return false;
   const keys = Reflect.ownKeys(value);
   if (keys.length !== value.length + 1 || !keys.includes('length')) return false;
   for (let index = 0; index < value.length; index += 1) {
