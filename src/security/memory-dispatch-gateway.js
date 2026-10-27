@@ -295,6 +295,10 @@ export class MemoryDispatchGateway {
 
       this.db.exec('BEGIN IMMEDIATE');
       try {
+        const duplicateRequestId = this.db.prepare(
+          'SELECT request_id FROM dispatch_ledger WHERE request_id=? LIMIT 1',
+        ).get(requestId);
+        if (duplicateRequestId) throw new Error('MEMORY_DISPATCH_DUPLICATE_ID');
         const unresolvedReplay = this.db.prepare(`
           SELECT request_id FROM dispatch_ledger
           WHERE request_digest=? AND status IN ('DISPATCH_STARTED','UNKNOWN')
