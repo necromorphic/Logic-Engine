@@ -120,6 +120,15 @@ export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs 
   for (const name of changedInputs) {
     if (!Object.hasOwn(inputs, name)) throw new Error('UNKNOWN_CHANGED_INPUT:' + name);
   }
+  if (strategy !== 'A') {
+    const nodeIds = new Set(nodes.map((node) => node.id));
+    for (const id of Object.keys(previousValues)) {
+      if (!nodeIds.has(id)) throw new Error('UNKNOWN_PREVIOUS_NODE_VALUE:' + id);
+    }
+    for (const id of nodeIds) {
+      if (!Object.hasOwn(previousValues, id)) throw new Error('MISSING_PREVIOUS_NODE_VALUE:' + id);
+    }
+  }
   const changed = new Set(changedInputs);
   const selected = strategy === 'A' ? allNodeIds(nodes) : impactedNodes(inputs, nodes, changed);
   // Full recomputation must not inherit cached values: removed/stale node IDs
