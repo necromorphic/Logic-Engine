@@ -138,3 +138,14 @@ test('rule path resolution still supports ordinary own data properties', () => {
     { actor: { location: 'office' } },
   ), { status: 'true', unknown_paths: [] });
 });
+
+test('rule path length matches the declarative schema bound', () => {
+  assert.throws(
+    () => evaluateCondition({ op: 'exists', path: 'a'.repeat(257) }, {}),
+    (error) => error.code === 'INVALID_RULE_PATH',
+  );
+  assert.equal(evaluateCondition(
+    { op: 'exists', path: 'a'.repeat(256) },
+    {},
+  ), false);
+});
