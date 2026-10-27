@@ -67,7 +67,7 @@ PR #201 is now superseded for code/tests by current-main integration #313. Produ
 
 ## ТЗ-2 — согласование версий и отзыв данных (exact reviewed head)
 
-Reviewed Provider/Core/NPC branch HEAD: `791c52eb994011cbb0474ab48895413be3a1aef0` (PR #504, branch `test/provider-consumer-real-sqlite-2026-10-27`; base is `coord/core-source-version-consolidated`, not current `main`). Exact-head CI: [Runtime run #40577381900](https://github.com/necromorphic/Logic-Engine/actions/runs/40577381900) — repository tests **817/817**, recalculation oracle **8/8**, NPC boundary **83/83**; all jobs passed. This is evidence for that exact branch head only, not a claim that PR #504 is merged or based on current main.
+Reviewed Provider/Core/NPC branch HEAD: `a2074cea307c524b5c8385980b023fa80f1a70ee` (PR #504, branch `test/provider-consumer-real-sqlite-2026-10-27`; base is `coord/core-source-version-consolidated`, not current `main`). Exact-head CI: [Runtime run #40583897037](https://github.com/necromorphic/Logic-Engine/actions/runs/40583897037) — repository tests **817/817**, recalculation oracle **8/8**, NPC boundary **83/83**; all jobs passed. The immediately preceding code/test head `791c52eb994011cbb0474ab48895413be3a1aef0` also passed [run #40577381900](https://github.com/necromorphic/Logic-Engine/actions/runs/40577381900). This is evidence for the exact reviewed branch heads only, not a claim that PR #504 is merged or based on current main.
 
 ### Behavior matrix
 
