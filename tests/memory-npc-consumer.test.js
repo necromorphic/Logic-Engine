@@ -957,6 +957,8 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
     (_context, _entity, field) => field === 'entity_id' || field === 'attributes.public_note',
   );
 
+  let lastSourceValidation = null;
+  let lastAuthorizationObservation = null;
   let holdSecondValidation = false;
   let signalSecondValidation;
   let releaseSecondValidation;
@@ -992,7 +994,13 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
       }
       const source = store.db.prepare(`SELECT source_version FROM entity_source_versions
         WHERE world_id=? AND entity_id=?`).get(record.world_id, record.source_entity_id);
-      return Boolean(source) && record.source_version === 'core-entity-v1:' + String(source.source_version);
+      const valid = Boolean(source) && record.source_version === 'core-entity-v1:' + String(source.source_version);
+      lastSourceValidation = {
+        persisted: record.source_version,
+        authoritative: source ? 'core-entity-v1:' + String(source.source_version) : null,
+        valid,
+      };
+      return valid;
     },
     validateInventory: async () => true,
   };
@@ -1040,6 +1048,14 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
     authorizeQuery: (...args) => provider.authorizeQuery(...args),
     retrieveCandidates: (...args) => provider.retrieveCandidates(...args),
     authorizeCandidate: async (...args) => {
+      const input = args[0];
+      const row = input && provider.db.prepare(`SELECT source_version FROM memory_records
+        WHERE world_id=? AND record_ref=? AND record_version=?`)
+        .get(input.world_id, input.record_ref, input.record_version);
+      lastAuthorizationObservation = {
+        supplied: input?.source_version ?? null,
+        persisted: row?.source_version ?? null,
+      };
       try {
         return await provider.authorizeCandidate(...args);
       } catch (error) {
@@ -1062,7 +1078,7 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
   });
 
   const initial = await retrieve();
-  assert.equal(initial.status, 'ready', JSON.stringify({ result: initial, lastProviderAuthorizationError }));
+  assert.equal(initial.status, 'ready', JSON.stringify({ result: initial, lastProviderAuthorizationError, lastAuthorizationObservation, lastSourceValidation }));
   assert.deepEqual(initial.candidates.map((item) => item.record_ref), [
     record.record_ref, secondRecord.record_ref,
   ]);
