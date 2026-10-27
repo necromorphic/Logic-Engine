@@ -10,48 +10,48 @@
 >
 > **Production Memory → NPC остаётся DISABLED / FAIL-CLOSED.** Host inventory всё ещё не доказывает полноту всей активной, исторической и удалённой переписки. В текущем Host-кандидате trusted inventory verifier намеренно отклоняет reconciliation; новая API-точка сама по себе не делает inventory READY. Не доказаны также привязка финального сериализованного тела запроса к допущенным кандидатам памяти, единственный защищённый путь отправки, атомарная проверка revoke/tombstone перед раскрытием и целевые deployment/ACL/backup/restore гарантии.
 >
-> ## Оценка прогресса
+## Оценка прогресса
 >
-> > Проценты ниже — ориентировочная экспертная оценка на 28 октября 2026 года, а не автоматически измеряемая метрика. Техническая оценка Memory → NPC учитывает проверенные PR-кандидаты, даже если они ещё не влиты; общий прогресс проекта не повышается только из-за открытых веток. Готовность к production оценивается отдельно.
+> Проценты ниже — ориентировочная экспертная оценка на 28 октября 2026 года, а не автоматически измеряемая метрика. Техническая оценка Memory → NPC учитывает проверенные PR-кандидаты, даже если они ещё не влиты; общий прогресс проекта не повышается только из-за открытых веток. Готовность к production оценивается отдельно.
 >
-> | Направление | Прогресс | Полоса |
-> |---|---:|---|
-> | **Весь проект** | **35%** | `███████░░░░░░░░░░░░░` |
-> | Core — ядро и правила мира | 55% | `███████████░░░░░░░░░` |
-> | Memory Provider — хранение и операции памяти | 70% | `██████████████░░░░░░` |
-> | NPC — границы допуска и потребление памяти | 45% | `█████████░░░░░░░░░░░` |
-> | Host / Adapter — связь с SillyTavern | 35% | `███████░░░░░░░░░░░░░` |
-> | Mechanics — игровые механики | 35% | `███████░░░░░░░░░░░░░` |
-> | Time / Process Manager — время и длительные процессы | 30% | `██████░░░░░░░░░░░░░░` |
-> | Relationships / World Pack — отношения и пакеты миров | 25% | `█████░░░░░░░░░░░░░░░` |
+| Направление | Прогресс | Полоса |
+|---|---:|---|
+| **Весь проект** | **35%** | `███████░░░░░░░░░░░░░` |
+| Core — ядро и правила мира | 55% | `███████████░░░░░░░░░` |
+| Memory Provider — хранение и операции памяти | 70% | `██████████████░░░░░░` |
+| NPC — границы допуска и потребление памяти | 45% | `█████████░░░░░░░░░░░` |
+| Host / Adapter — связь с SillyTavern | 35% | `███████░░░░░░░░░░░░░` |
+| Mechanics — игровые механики | 35% | `███████░░░░░░░░░░░░░` |
+| Time / Process Manager — время и длительные процессы | 30% | `██████░░░░░░░░░░░░░░` |
+| Relationships / World Pack — отношения и пакеты миров | 25% | `█████░░░░░░░░░░░░░░░` |
 >
-> ### Memory → NPC
+### Memory → NPC
 >
-> | Показатель | Оценка | Что это означает |
-> |---|---:|---|
-> | Техническая реализация отдельных частей | **65%** | Улучшена сквозная привязка версий Core → Provider → NPC; добавлены проверки denied/non-ready vs complete-empty и Host reconciliation seam. Это оценка реализации-кандидатов, не процент завершения production-интеграции. |
-> | Production readiness | **0% — BLOCKED** | Полный реальный путь SillyTavern → Memory → Core → NPC → финальная отправка не доказан; включение запрещено до закрытия обязательных gates. |
+| Показатель | Оценка | Что это означает |
+|---|---:|---|
+| Техническая реализация отдельных частей | **65%** | Улучшена сквозная привязка версий Core → Provider → NPC; добавлены проверки denied/non-ready vs complete-empty и Host reconciliation seam. Это оценка реализации-кандидатов, не процент завершения production-интеграции. |
+| Production readiness | **0% — BLOCKED** | Полный реальный путь SillyTavern → Memory → Core → NPC → финальная отправка не доказан; включение запрещено до закрытия обязательных gates. |
 >
-> `Техническая реализация  █████████████░░░░░░░ 65%`
+`Техническая реализация  █████████████░░░░░░░ 65%`
 >
-> `Production readiness   ░░░░░░░░░░░░░░░░░░░  0% — BLOCKED`
+`Production readiness   ░░░░░░░░░░░░░░░░░░░  0% — BLOCKED`
 >
-> **Что стало лучше и чем подтверждено**
-> - [PR #521](https://github.com/necromorphic/Logic-Engine/pull/521): объединённый кандидат Core для долговечного реестра версий источников и readback; текущий Runtime CI зелёный.
-> - [PR #504](https://github.com/necromorphic/Logic-Engine/pull/504): Provider сохраняет и проверяет точный токен версии источника при чтении и авторизации; текущий Runtime CI зелёный, включая регрессию rollback.
-> - [PR #524](https://github.com/necromorphic/Logic-Engine/pull/524): добавлена fail-closed точка входа для reconciliation. На текущем HEAD прошли Runtime, Host lifecycle patch, patch validation, pinned SillyTavern source audit и browser IndexedDB restart checks.
-> - [PR #526](https://github.com/necromorphic/Logic-Engine/pull/526): startup guard защищает enrolled group chats от известной миграции, которая переписывает данные до запуска сервера. Он влит только в feature branch #524, не в `main`.
-> - [PR #527](https://github.com/necromorphic/Logic-Engine/pull/527): тесты разделяют достоверный полный пустой результат и denied/incomplete/stale/non-ready результаты; текущий Runtime CI зелёный.
-> - [PR #528](https://github.com/necromorphic/Logic-Engine/pull/528): Provider теперь возвращает source-version token вместе с кандидатом; текущий Runtime CI зелёный.
+**Что стало лучше и чем подтверждено**
+- [PR #521](https://github.com/necromorphic/Logic-Engine/pull/521): объединённый кандидат Core для долговечного реестра версий источников и readback; текущий Runtime CI зелёный.
+- [PR #504](https://github.com/necromorphic/Logic-Engine/pull/504): Provider сохраняет и проверяет точный токен версии источника при чтении и авторизации; текущий Runtime CI зелёный, включая регрессию rollback.
+- [PR #524](https://github.com/necromorphic/Logic-Engine/pull/524): добавлена fail-closed точка входа для reconciliation. На текущем HEAD прошли Runtime, Host lifecycle patch, patch validation, pinned SillyTavern source audit и browser IndexedDB restart checks.
+- [PR #526](https://github.com/necromorphic/Logic-Engine/pull/526): startup guard защищает enrolled group chats от известной миграции, которая переписывает данные до запуска сервера. Он влит только в feature branch #524, не в `main`.
+- [PR #527](https://github.com/necromorphic/Logic-Engine/pull/527): тесты разделяют достоверный полный пустой результат и denied/incomplete/stale/non-ready результаты; текущий Runtime CI зелёный.
+- [PR #528](https://github.com/necromorphic/Logic-Engine/pull/528): Provider теперь возвращает source-version token вместе с кандидатом; текущий Runtime CI зелёный.
 >
-> **Что всё ещё блокирует включение**
-> 1. Полный авторитетный Host inventory активных, исторических и удалённых версий, включая обнаружение пропущенных изменений, импорта, ветвления и восстановления.
-> 2. Доверенный verifier для complete-inventory reconciliation. Сейчас он намеренно deny-only; API и успешные тесты не доказывают полноту истории.
-> 3. Сборка финального серверного тела запроса SillyTavern из точных допущенных кандидатов и доказательство, что именно эти сериализованные байты проходят через единственный outbound-путь.
-> 4. Защита от гонки с revoke/tombstone/scope change непосредственно на границе раскрытия.
-> 5. Проверенные на целевом развёртывании identity службы, ACL базы и файлов WAL/SHM, изоляция backup/restore. Live installed SillyTavern и Android/Termux persistence не подтверждены.
+**Что всё ещё блокирует включение**
+1. Полный авторитетный Host inventory активных, исторических и удалённых версий, включая обнаружение пропущенных изменений, импорта, ветвления и восстановления.
+2. Доверенный verifier для complete-inventory reconciliation. Сейчас он намеренно deny-only; API и успешные тесты не доказывают полноту истории.
+3. Сборка финального серверного тела запроса SillyTavern из точных допущенных кандидатов и доказательство, что именно эти сериализованные байты проходят через единственный outbound-путь.
+4. Защита от гонки с revoke/tombstone/scope change непосредственно на границе раскрытия.
+5. Проверенные на целевом развёртывании identity службы, ACL базы и файлов WAL/SHM, изоляция backup/restore. Live installed SillyTavern и Android/Termux persistence не подтверждены.
 >
-> Открытый PR и зелёный CI не равны слиянию, Core approval или production readiness. Статус **BLOCKED** важнее числовой оценки. Не включать Memory → NPC до закрытия [issue #264](https://github.com/necromorphic/Logic-Engine) и проверки полного реального пути.
+Открытый PR и зелёный CI не равны слиянию, Core approval или production readiness. Статус **BLOCKED** важнее числовой оценки. Не включать Memory → NPC до закрытия [issue #264](https://github.com/necromorphic/Logic-Engine/issues/264) и проверки полного реального пути.
 >
 ## Основной принцип
 
