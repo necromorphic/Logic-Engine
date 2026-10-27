@@ -1,7 +1,7 @@
 import { createServer } from 'node:http';
+import { timingSafeEqual } from 'node:crypto';
 import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
-import { createGoogleAiStudioTransport } from './memory-dispatch-google-transport.js';
 import { verifyDispatchRequestSignature } from './memory-dispatch-gateway.js';
 
 const loopbackHosts = new Set(['127.0.0.1', '::1', 'localhost']);
@@ -10,17 +10,9 @@ function tokenMatches(expected, received) {
   if (typeof expected !== 'string' || typeof received !== 'string') return false;
   const left = Buffer.from(expected);
   const right = Buffer.from(received);
-  return left.length === right.length && left.length >= 32
-    && (awaitlessTimingSafeEqual(left, right));
+  return left.length === right.length && left.length >= 32 && timingSafeEqual(left, right);
 }
 
-function awaitlessTimingSafeEqual(left, right) {
-  // Length equality is checked before this helper; use Node's constant-time
-  // primitive without introducing an asynchronous auth path.
-  return timingSafeEqual(left, right);
-}
-
-import { timingSafeEqual } from 'node:crypto';
 
 async function readJsonBody(request, limit) {
   const chunks = [];
@@ -37,9 +29,6 @@ export function createMemoryDispatchGatewayServer({
   gateway,
   hostToken,
   hostSigningKey,
-  apiKey,
-  apiVersion = 'v1beta',
-  fetchImpl = globalThis.fetch,
   host = '127.0.0.1',
   maxBodyBytes = 5_000_000,
 }) {
@@ -47,17 +36,11 @@ export function createMemoryDispatchGatewayServer({
     || typeof hostToken !== 'string' || hostToken.length < 32
     || typeof hostSigningKey !== 'string' || hostSigningKey.length < 32
     || hostToken === hostSigningKey
-    || typeof apiKey !== 'string' || apiKey.length < 8
-    || !['v1', 'v1beta'].includes(apiVersion)
-    || typeof fetchImpl !== 'function'
     || !loopbackHosts.has(host)
     || !Number.isInteger(maxBodyBytes) || maxBodyBytes < 1024) {
     throw new TypeError('Invalid Memory dispatch Gateway server configuration.');
   }
 
-  // Transport is fixed to Google's public AI Studio API. The caller cannot
-  // supply a URL, headers, API key, or arbitrary upstream destination.
-  const sendUpstream = createGoogleAiStudioTransport({ apiKey, apiVersion, fetchImpl });
   const server = createServer(async (request, response) => {
     if (request.method !== 'POST' || request.url !== '/v1/dispatch') {
       response.writeHead(404, { 'content-type': 'application/json' });
@@ -115,9 +98,7 @@ export function createMemoryDispatchGatewayServer({
       if (upstream.body) {
         await pipeline(Readable.fromWeb(upstream.body), response);
       } else {
-        await new Promise((resolve, reject) => {
-          response.end((error) => error ? reject(error) : resolve());
-        });
+        response.end();
       }
     };
 
@@ -143,5 +124,3 @@ export function createMemoryDispatchGatewayServer({
 
   return server;
 }
-
-export { createGoogleAiStudioTransport };
