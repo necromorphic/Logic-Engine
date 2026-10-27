@@ -85,7 +85,22 @@ const snapshotProviderRecord = (value) => {
   const snapshot = copyDataRecord(value);
   if (!isPlainDataArray(snapshot.lineage) || snapshot.lineage.length !== 1
     || !isPlainDataRecord(snapshot.lineage[0])) return null;
-  snapshot.lineage = [copyDataRecord(snapshot.lineage[0])];
+
+  // Persist only the supported lineage fields. Copying arbitrary extra fields
+  // into JSON.stringify would allow a caller-owned toJSON hook (or nested
+  // executable value) to run inside the Provider's persistence boundary.
+  const lineage = snapshot.lineage[0];
+  const lineageKeys = Reflect.ownKeys(lineage);
+  const allowedLineageKeys = new Set(['source_kind', 'entity_id', 'source_version']);
+  if (lineageKeys.length !== allowedLineageKeys.size
+    || lineageKeys.some((key) => typeof key !== 'string' || !allowedLineageKeys.has(key))) return null;
+  if (typeof lineage.source_kind !== 'string' || typeof lineage.entity_id !== 'string'
+    || typeof lineage.source_version !== 'string') return null;
+  snapshot.lineage = [{
+    source_kind: lineage.source_kind,
+    entity_id: lineage.entity_id,
+    source_version: lineage.source_version,
+  }];
   return snapshot;
 };
 const validId = (value) => typeof value === 'string' && value === value.trim()
