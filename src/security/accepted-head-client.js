@@ -70,9 +70,9 @@ async function main() {
       process.stdout.write(JSON.stringify({ ok: true, heads: body.heads, pending: body.pending }));
     } else {
       const result = body?.result;
-      const expectedStatus = action === 'advance' ? 'pending' : 'committed';
+      const expectedStatuses = action === 'advance' ? ['pending', 'committed'] : ['committed'];
       if (result?.domain !== input.domain || result?.operation_id !== input.operation_id
-        || !Number.isSafeInteger(result?.head) || result.head < 1 || result.status !== expectedStatus) {
+        || !Number.isSafeInteger(result?.head) || result.head < 1 || !expectedStatuses.includes(result.status)) {
         throw new Error('invalid response');
       }
       process.stdout.write(JSON.stringify({ ok: true, result }));
