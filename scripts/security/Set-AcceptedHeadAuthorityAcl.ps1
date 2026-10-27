@@ -108,8 +108,20 @@ $protectedStores = @(
     @{ label = 'Coordinator database directory'; path = [System.IO.Path]::GetDirectoryName([System.IO.Path]::GetFullPath($CoordinatorDbPath)) }
 )
 foreach ($store in $protectedStores) {
+    $storeFile = switch ($store.label) {
+        'Core database directory' { [System.IO.Path]::GetFullPath($CoreDbPath) }
+        'Provider database directory' { [System.IO.Path]::GetFullPath($ProviderDbPath) }
+        'Coordinator database directory' { [System.IO.Path]::GetFullPath($CoordinatorDbPath) }
+    }
+    if (-not (Test-Path -LiteralPath $storeFile -PathType Leaf)) {
+        throw "$($store.label) file does not exist; refusing to claim restore-domain separation."
+    }
+    $storeItem = Get-Item -LiteralPath $storeFile -Force
+    if (($storeItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "$($store.label) is a reparse point; refusing to claim restore-domain separation."
+    }
     if (-not (Test-Path -LiteralPath $store.path -PathType Container)) {
-        throw "$($store.label) does not exist; refusing to claim restore-domain separation."
+        throw "$($store.label) parent directory does not exist; refusing to claim restore-domain separation."
     }
     if (Test-PathOverlap -Left $authorityDirectory -Right $store.path) {
         throw "Authority directory overlaps $($store.label); restore-domain separation is not established."
