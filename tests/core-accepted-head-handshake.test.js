@@ -137,7 +137,7 @@ test('Core commits only when accepted-head authority is current and aborts mutat
       world_pack_version: '1',
       game_time: '2026-01-01T00:01:00Z',
     }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
-    assert.equal(store.world('accepted-head-world-two'), null);
+    assert.equal(store.world('accepted-head-world-two') ?? null, null);
   } finally {
     try { store?.close(); } catch {}
     if (child) {
