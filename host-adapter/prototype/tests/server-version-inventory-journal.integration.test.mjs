@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { createHostLifecycleMutationMiddleware, getHostConversationInventory, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
+import { createHostLifecycleMutationMiddleware, getHostConversationInventory, recordHostCaptureAcknowledgement, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
 
 const digest = value => createHash('sha256').update(JSON.stringify(String(value))).digest('hex');
 const makeMessage = ({ messageId, versions, activeVersionIndex }) => ({
@@ -60,9 +60,14 @@ test('enforced server mutation journal records before/after persisted version in
   ].join('\n') + '\n');
   try {
     await writeChat([makeMessage({ messageId, versions: [{ versionId: version1, text: 'private-before' }], activeVersionIndex: 0 })]);
+    const conversationId = installationUuid + ':' + conversationUuid;
     await registerHostConversation(request, {
-      conversationId: installationUuid + ':' + conversationUuid,
+      conversationId,
       sourceLocator: 'chat-a', sourcePath: 'chat-a.jsonl', domain: 'chats',
+    });
+    await recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId, message_id: messageId, version_id: version1,
+      content_sha256: digest('private-before'), active: true, deleted: false,
     });
     const response = responseMock();
     await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
@@ -78,6 +83,14 @@ test('enforced server mutation journal records before/after persisted version in
     });
     await response.finished;
     assert.equal(response.statusCode, 200);
+    await recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId, message_id: messageId, version_id: version1,
+      content_sha256: digest('private-before'), active: false, deleted: false,
+    });
+    await recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId, message_id: messageId, version_id: version2,
+      content_sha256: digest('private-after'), active: true, deleted: false,
+    });
     const journal = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
     const records = journal.trim().split('\n').map(line => JSON.parse(line));
     assert.equal(records.length, 2);
