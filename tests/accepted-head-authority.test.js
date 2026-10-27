@@ -34,7 +34,7 @@ test('accepted-head authority advances monotonic per-domain heads and makes oper
       () => authority.advance({ domain: 'core', operationId: 'core-op-1', operationDigest: digestA, expectedHead: 0 }),
       /ACCEPTED_HEAD_OPERATION_PENDING/,
     );
-    assert.throws(() => authority.getPendingDomains().core !== true && new Error('pending not recorded'));
+    assert.equal(authority.getPendingDomains().core, true);
     assert.deepEqual(authority.finalize({ domain: 'core', operationId: 'core-op-1', operationDigest: digestA }), {
       domain: 'core', head: 1, operation_id: 'core-op-1', replayed: false, status: 'committed',
     });
@@ -51,11 +51,11 @@ test('accepted-head authority advances monotonic per-domain heads and makes oper
     authority.finalize({ domain: 'core', operationId: 'core-op-2', operationDigest: digestB });
     assert.deepEqual(authority.getHeads(), { core: 2, provider: 1 });
     assert.throws(
-      () => authority.advance({ domain: 'provider', operationId: 'core-op-1', operationDigest: digestA }),
+      () => authority.advance({ domain: 'provider', operationId: 'core-op-1', operationDigest: digestA, expectedHead: 0 }),
       /ACCEPTED_HEAD_OPERATION_ID_CONFLICT/,
     );
     assert.throws(
-      () => authority.advance({ domain: 'core', operationId: 'core-op-1', operationDigest: digestB }),
+      () => authority.advance({ domain: 'core', operationId: 'core-op-1', operationDigest: digestB, expectedHead: 2 }),
       /ACCEPTED_HEAD_OPERATION_ID_CONFLICT/,
     );
     assert.throws(() => authority.advance({ domain: 'core', operationId: '  ', operationDigest: digestA, expectedHead: 2 }), /Invalid accepted-head/);
