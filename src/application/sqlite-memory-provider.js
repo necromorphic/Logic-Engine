@@ -1171,3 +1171,7 @@ export class SQLiteMemoryProvider {
     return lockedResult;
   }
 }
+
+// The instance is non-extensible; freeze its shared method surface as well so
+// callers cannot replace authorization/retrieval methods through the prototype.
+Object.freeze(SQLiteMemoryProvider.prototype);
