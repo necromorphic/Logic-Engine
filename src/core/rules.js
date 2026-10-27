@@ -7,7 +7,7 @@ const UNSAFE_PATH_SEGMENTS = new Set(['__proto__', 'constructor', 'prototype']);
 function assertRuleObject(value) {
   if (!value || typeof value !== 'object' || Array.isArray(value)
     || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
-    throw new EngineError('INVALID_RULE', 'Condition must be a plain data object.');
+    throw new EngineError('INVALID_RULE', 'Condition must be an object containing only plain data properties.');
   }
   for (const key of Reflect.ownKeys(value)) {
     const descriptor = typeof key === 'string' ? Object.getOwnPropertyDescriptor(value, key) : null;
