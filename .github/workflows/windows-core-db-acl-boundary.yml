@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: windows-core-db-acl-boundary-\${{ github.workflow }}-\${{ github.ref }}
+  group: windows-core-db-acl-boundary-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
