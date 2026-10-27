@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import os from 'node:os';
 import path from 'node:path';
-import { mkdtemp, mkdir, writeFile, symlink, rm } from 'node:fs/promises';
+import { mkdtemp, mkdir, writeFile, symlink, rm, lstat, open, readdir, realpath } from 'node:fs/promises';
 import { scanHostArtifactRoots } from '../server-inventory-scanner.mjs';
 
 test('scanner enumerates persisted artifacts without exposing their contents', async () => {
@@ -19,6 +19,32 @@ test('scanner enumerates persisted artifacts without exposing their contents', a
     assert.deepEqual(result.artifacts.map((item) => item.locator), ['chat.jsonl', 'group/chat.jsonl']);
     assert.ok(result.artifacts.every((item) => /^[a-f0-9]{64}$/.test(item.sha256)));
     assert.doesNotMatch(JSON.stringify(result), /private text/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('scanner rejects a directory that changes while entries are being enumerated', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'host-inventory-race-'));
+  try {
+    await writeFile(path.join(root, 'first.jsonl'), '{"mes":"first"}\\n');
+    let injected = false;
+    const fs = {
+      lstat, open, realpath,
+      readdir: async (directory, options) => {
+        const entries = await readdir(directory, options);
+        if (directory === root && !injected) {
+          injected = true;
+          await writeFile(path.join(root, 'added-during-scan.jsonl'), '{"mes":"late"}\\n');
+        }
+        return entries;
+      },
+    };
+    const result = await scanHostArtifactRoots([{ domain: 'chats', path: root }], { fs });
+    assert.equal(result.status, 'INVENTORY_INCOMPLETE');
+    assert.equal(result.complete, false);
+    assert.deepEqual(result.artifacts, []);
+    assert.ok(result.errors.includes('Directory changed during enumeration: chats'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
