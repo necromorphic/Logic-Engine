@@ -11,6 +11,16 @@
  */
 const isRecord = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
 
+// Inputs in this experiment are JSON-compatible. Compare each coordinate
+// separately so object key order in the outer snapshot does not affect diffs.
+function changedInputCoordinates(previousInputs, inputs) {
+  const keys = new Set([...Object.keys(previousInputs), ...Object.keys(inputs)]);
+  return [...keys].filter((key) =>
+    !Object.hasOwn(previousInputs, key) || !Object.hasOwn(inputs, key) ||
+    JSON.stringify(previousInputs[key]) !== JSON.stringify(inputs[key])
+  ).sort();
+}
+
 function assertModel(inputs, nodes) {
   if (!isRecord(inputs)) throw new TypeError('inputs must be a plain object');
   if (!Array.isArray(nodes)) throw new TypeError('nodes must be an array');
@@ -105,7 +115,7 @@ function impactedNodes(inputs, nodes, changedInputs) {
   return new Set(order.filter((id) => dirty.has(id)));
 }
 
-export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs = [], previousValues = {}, invariants = [] }) {
+export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs = [], previousValues = {}, previousInputs, invariants = [] }) {
   if (!['A', 'B', 'C'].includes(strategy)) throw new TypeError('strategy must be A, B, or C');
   if (!Array.isArray(changedInputs) || changedInputs.some((x) => typeof x !== 'string')) {
     throw new TypeError('changedInputs must be an array of input names');
@@ -121,6 +131,12 @@ export function runRecalculation({ inputs, nodes, strategy = 'A', changedInputs 
     if (!Object.hasOwn(inputs, name)) throw new Error('UNKNOWN_CHANGED_INPUT:' + name);
   }
   if (strategy !== 'A') {
+    if (!isRecord(previousInputs)) throw new Error('MISSING_PREVIOUS_INPUT_SNAPSHOT');
+    const actualChanges = changedInputCoordinates(previousInputs, inputs);
+    const declaredChanges = [...new Set(changedInputs)].sort();
+    if (JSON.stringify(actualChanges) !== JSON.stringify(declaredChanges)) {
+      throw new Error('CHANGED_INPUT_SET_MISMATCH: expected [' + actualChanges.join(',') + '], got [' + declaredChanges.join(',') + ']');
+    }
     const nodeIds = new Set(nodes.map((node) => node.id));
     for (const id of Object.keys(previousValues)) {
       if (!nodeIds.has(id)) throw new Error('UNKNOWN_PREVIOUS_NODE_VALUE:' + id);
