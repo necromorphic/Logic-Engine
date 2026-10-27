@@ -26,7 +26,7 @@ jobs:
         shell: powershell
         run: |
           $ErrorActionPreference = 'Stop'
-          $services = @(Get-CimInstance Win32_Service | Where-Object { $_.StartName -like 'NT SERVICE\\*' })
+          $services = @(Get-CimInstance Win32_Service | Where-Object { $_.StartName -notin @('LocalSystem', 'NT AUTHORITY\\LocalService', 'NT AUTHORITY\\NetworkService') })
           $unique = @{}
           foreach ($service in $services) {
             try {
@@ -39,7 +39,7 @@ jobs:
             } catch {}
           }
           $candidates = @($unique.Values)
-          if ($candidates.Count -lt 3) { throw 'Runner lacks three distinct virtual service identities for the isolated ACL smoke fixture.' }
+          if ($candidates.Count -lt 3) { throw 'Runner lacks three distinct non-built-in service identities for the isolated ACL smoke fixture.' }
           $root = Join-Path $env:RUNNER_TEMP ('core-db-acl-smoke-' + [guid]::NewGuid().ToString('N'))
           New-Item -ItemType Directory -Path $root | Out-Null
           $db = Join-Path $root 'core.sqlite'
