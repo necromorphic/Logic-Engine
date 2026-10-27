@@ -1556,3 +1556,49 @@ test('proposal based on target absence cannot be approved after that target appe
   assert.equal(proposals.get(worldId, proposal.proposal_id).status, 'pending');
   assert.equal(engine.getState(worldId).entities.filter((entity) => entity.entity_id === 'entity.new').length, 1);
 });
+
+
+test('fresh executor evaluation observes an attribute that was previously proven absent', (t) => {
+  const { engine, worldId } = setup(t, 'executor-fresh-absence-recheck');
+  const value = template({
+    applicability: [{ op: 'exists', path: 'actor.injury', value: false }],
+    actions: [{
+      action_id: 'wait',
+      input_schema: { type: 'object' },
+      preconditions: [],
+      effects: [{
+        effect_id: 'create-entity',
+        kind: 'create_entity',
+        target_ref: 'entity.new',
+        payload: { entity_type: 'character', attributes: { name: 'New' } },
+      }],
+      ambiguity_policy: 'deterministic_only',
+    }],
+  });
+  enableFixture(engine, worldId, value);
+  const provider = new CanonicalEntityAttributeContextProvider(engine, {
+    policyVersion: 'test-absence-recheck-v1',
+    authorizationScope: 'test-principal',
+    bindings: [{ path: 'actor.injury', entity_id: 'entity.actor-context', attribute: 'injury' }],
+    canRead: () => true,
+  });
+  const executor = new MechanicExecutor(engine, { resolveAuthorizedContext: (args) => provider.resolve(args) });
+
+  const absentEvaluation = executor.evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(absentEvaluation.status, 'ready');
+  assert.deepEqual(absentEvaluation.condition_result.unknown_paths, []);
+  assert.deepEqual(absentEvaluation.dependency_manifest.condition_paths, ['actor.injury']);
+
+  commit(engine, worldId, 'actor-injury-appears', 2, [{
+    kind: 'entity.update',
+    entity_id: 'entity.actor-context',
+    attributes: { injury: 'broken-arm' },
+  }]);
+
+  const freshEvaluation = executor.evaluate({ worldId, instanceId: 'instance.executor', actionId: 'wait' });
+  assert.equal(freshEvaluation.status, 'no_match');
+  assert.deepEqual(freshEvaluation.effects, []);
+  assert.equal(freshEvaluation.condition_result.status, 'false');
+  assert.deepEqual(freshEvaluation.condition_result.unknown_paths, []);
+  assert.equal(engine.getState(worldId).entities.some((entity) => entity.entity_id === 'entity.new'), false);
+});
