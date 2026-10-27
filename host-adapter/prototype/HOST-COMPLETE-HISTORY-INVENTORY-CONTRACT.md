@@ -59,21 +59,33 @@ Build an inventory of all Host-persisted chat artifacts and their observed versi
 - Require external anti-rollback authority before treating the inventory as authoritative.
 
 
-## Pinned SillyTavern mutation coverage audit
+## Pinned SillyTavern mutation coverage audit and server journal
 
-Audited against SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. The current candidate patch installs a Host middleware before the private endpoint routers and maps the routes below. This is conditional instrumentation, not proof of complete or tamper-resistant coverage: it runs only when the local per-user enrollment registry is present and non-empty, and that registry shares the Host storage trust domain.
+Audited against SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
 
-| Source | Route(s) | Mutation | Current Host status |
-|---|---|---|---|
-| `src/endpoints/chats.js` | `POST /api/chats/save`, `/rename`, `/delete`, `/group/import`, `/import`, `/group/delete`, `/group/save` | Save/overwrite, rename by copy+unlink, delete, import, group chat mutation | Mapped to conditional pre/post snapshot middleware; route-specific artifact identity/lineage and direct-route acceptance still require verification |
-| `src/endpoints/groups.js` | `POST /api/groups/create`, `/edit`, `/delete` | Create/update group metadata; delete group metadata and cascaded group chat files | Mapped to conditional pre/post snapshot middleware; cascade identity and lineage remain unproven |
-| `src/endpoints/backups.js` | `POST /api/backups/chat/delete` | Delete a chat backup | Mapped to conditional pre/post snapshot middleware; restore paths remain uncovered |
-| `src/endpoints/data-maid.js` | `POST /api/data-maid/delete` | Delete arbitrary files under the authenticated user's root from a validated report | Mapped to conditional pre/post snapshot middleware; target identity and behavior under registry removal remain unproven |
-| `src/endpoints/chats.js` backup helper | invoked by chat saves | Create backup and prune old backups | Side effects not individually journaled |
+The Host patch now adds explicit server-side enrollment at `POST /api/logic-engine/host-lifecycle/enroll` and mounts a mutation middleware before the private endpoint routers. Once at least one conversation is explicitly enrolled for a user, the middleware covers the following direct API mutation routes:
 
-The snapshot endpoint enumerates four actual storage roots from the pinned Host user object: `directories.chats`, `directories.groups`, `directories.groupChats`, and `directories.backups`. Group metadata (`groups`) and group chat JSONL (`groupChats`) are separate roots and both must be present for a complete scan.
+| Source | Routes intercepted | Important side effects |
+|---|---|---|
+| `src/endpoints/chats.js` | `POST /api/chats/save`, `/rename`, `/delete`, `/group/import`, `/import`, `/group/delete`, `/group/save` | Chat writes, rename copy/unlink, imports, group-chat changes, and save-triggered backup creation/pruning |
+| `src/endpoints/characters.js` | `POST /api/characters/rename`, `/delete`, `/import`, `/duplicate` | Character rename may copy/remove an entire chat directory; character deletion may cascade-delete chats |
+| `src/endpoints/groups.js` | `POST /api/groups/create`, `/edit`, `/delete` | Group metadata writes and cascaded group-chat deletion |
+| `src/endpoints/backups.js` | `POST /api/backups/chat/delete` | Backup deletion |
+| `src/endpoints/data-maid.js` | `POST /api/data-maid/delete` | Deletion of files selected by the Data Maid cleanup report |
 
-The middleware now attempts to write a durable intent before each mapped route and a post-scan outcome before returning the response. A non-2xx response is recorded as `UNRESOLVED`, forcing later mapped mutations to fail closed until reconciliation. These are candidate behaviors requiring exact-head CI and route-level tests. The middleware does not authenticate the local registry against rollback/removal; if the registry is absent or empty, the route falls through. It also records a broad snapshot diff rather than a separately authenticated identity/tombstone for each target, and cannot reconstruct pre-enrollment history. The generic Data Maid deletion route remains especially important because it can remove managed artifacts without going through chat-specific handlers.
+The middleware operates at the Express app layer before these routers, so direct API calls do not bypass it. It is account-scoped after the first explicit enrollment: all allowlisted mutation routes for that user are journaled, not only the currently selected chat. This deliberately over-captures account changes rather than trying to infer affected files from client-supplied names.
+
+For each intercepted operation it requires a complete persisted-state scan and a durable `intent` record before calling the route handler. It holds the response while it scans the resulting state and durably appends an `outcome` record containing changed artifact IDs and before/after SHA-256 values, without message text. The local JSONL ledger has a hash chain and fsyncs each append. A pending intent, malformed chain, incomplete pre/post scan, or failed durable append prevents subsequent managed mutations and returns a sanitized failure where possible. The tests exercise direct middleware invocation, persisted before/after changes, idempotent identity registration, and fail-closed recovery.
+
+The snapshot endpoint enumerates four server-supplied roots: `directories.chats`, `directories.groups`, `directories.groupChats`, and `directories.backups`. Group metadata and group-chat JSONL are separate roots and both are required.
+
+This closes the known browser-only bypass for the listed routes in the pinned patch, but it does **not** establish an authoritative all-time history:
+- The journal is local to the same user storage/rollback domain; the hash chain is not an external anti-rollback trust anchor.
+- A process or storage failure after the underlying mutation but before durable outcome leaves an unresolved intent and blocks later managed mutations; it cannot roll back the underlying filesystem mutation.
+- Character/group renames, imports, copies, restores, and Data Maid deletion are recorded as observed artifact changes; this patch does not claim authenticated parent-child lineage or infer semantic identity across those changes.
+- Existing history and versions deleted before enrollment cannot be reconstructed.
+- Coverage is limited to the explicit allowlist above; every newly introduced or discovered route that can mutate these roots must be added to the allowlist or explicitly rejected for managed users.
+- CI proves pinned patch application, syntax, and repository tests only. It is not live deployment evidence and does not prove Android/Termux durability.
 
 ## Acceptance states
 
