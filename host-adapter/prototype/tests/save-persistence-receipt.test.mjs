@@ -343,3 +343,69 @@ test('enrolled save fails closed when Core cannot durably capture the digest inv
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test('preflight blocks a save before mutation when Core retains a newer version than restored local files', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'host-core-rollback-preflight-'));
+  const directories = {
+    chats: path.join(root, 'chats'),
+    groups: path.join(root, 'groups'),
+    groupChats: path.join(root, 'group_chats'),
+    backups: path.join(root, 'backups'),
+  };
+  const chatDirectory = path.join(directories.chats, 'avatar');
+  await Promise.all([...Object.values(directories), chatDirectory].map(directory =>
+    mkdir(directory, { recursive: true })));
+  const conversationUuid = randomUUID();
+  const conversationId = randomUUID() + ':' + conversationUuid;
+  const messageId = randomUUID();
+  const version1 = randomUUID();
+  const version2 = randomUUID();
+  const header = { chat_metadata: { logic_engine_conversation_id: conversationUuid } };
+  const oldMessage = message({ messageId, versions: [{ versionId: version1, text: 'old state' }], activeVersionIndex: 0 });
+  const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
+  await writeFile(chatPath, [JSON.stringify(header), JSON.stringify(oldMessage)].join('\\n') + '\\n');
+  const request = {
+    method: 'POST', baseUrl: '/api/chats', path: '/save', originalUrl: '/api/chats/save',
+    body: { avatar_url: 'avatar.png', file_name: 'chat-a', chat: [header, oldMessage] },
+    user: { profile: { handle: 'core-rollback-preflight-test' }, directories },
+  };
+  const envKeys = ['LOGIC_ENGINE_CORE_URL', 'LOGIC_ENGINE_API_TOKEN', 'LOGIC_ENGINE_ADAPTER_ID', 'LOGIC_ENGINE_ADAPTER_TOKEN'];
+  const priorEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  process.env.LOGIC_ENGINE_CORE_URL = 'http://127.0.0.1:8787';
+  process.env.LOGIC_ENGINE_API_TOKEN = 'test-core-api-token-long-enough';
+  process.env.LOGIC_ENGINE_ADAPTER_ID = 'adapter-test';
+  process.env.LOGIC_ENGINE_ADAPTER_TOKEN = 'test-adapter-token-long-enough';
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ inventory: {
+    authority: 'CORE_HOST_VERSION_LEDGER', conversation_id: conversationId,
+    inventory_status: 'NON_READY',
+    versions: [
+      { message_id: messageId, version_id: version1, content_sha256: digest('old state'), active: false, deleted: false },
+      { message_id: messageId, version_id: version2, content_sha256: digest('new state'), active: true, deleted: false },
+    ],
+  } }) });
+  try {
+    await registerHostConversation(request, {
+      conversationId, sourceLocator: 'chat-a', sourcePath: 'avatar/chat-a.jsonl', domain: 'chats',
+    });
+    const response = responseMock();
+    let nextCalled = false;
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
+      nextCalled = true;
+      response.json({ ok: true });
+    });
+    await response.finished;
+    assert.equal(nextCalled, false);
+    assert.equal(response.statusCode, 503);
+    assert.match(response.body, /CORE_HOST_INVENTORY_ROLLBACK_OR_DIVERGENCE/);
+    assert.equal(await readFile(chatPath, 'utf8'), [JSON.stringify(header), JSON.stringify(oldMessage)].join('\\n') + '\\n');
+  } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of envKeys) {
+      if (priorEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = priorEnv[key];
+    }
+    await rm(root, { recursive: true, force: true });
+  }
+});
