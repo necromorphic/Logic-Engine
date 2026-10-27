@@ -714,6 +714,19 @@ export async function getHostConversationInventory(request) {
         };
     }
     const journal = await readAndValidateJournal(paths.journalPath);
+    if (journal.records.some(record => record.kind === 'capture_conflict'
+        && record.upstreamStatus === 409
+        && registry.conversations.some(item => item.conversationId === record.conversation_id))) {
+        return {
+            status: 'INVENTORY_INCOMPLETE',
+            complete: false,
+            authority: 'NON_AUTHORITATIVE',
+            historicalCompleteness: 'UNKNOWN',
+            inventories: [],
+            errors: ['CORE_CAPTURE_CONFLICT_RECORDED'],
+            mutationJournal: { integrity: 'LOCAL_HASH_CHAIN_VALID', recordCount: journal.records.length, headHash: journal.lastHash, unresolved: journal.unresolved, degraded: journal.degraded, snapshotConsistency: 'CORE_CAPTURE_CONFLICT_RECORDED' },
+        };
+    }
     const journalSummary = {
         integrity: 'LOCAL_HASH_CHAIN_VALID',
         recordCount: journal.records.length,
