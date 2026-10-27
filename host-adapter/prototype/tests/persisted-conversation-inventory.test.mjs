@@ -55,7 +55,7 @@ test('persisted snapshot rejects untagged and empty JSONL artifacts', async () =
       await writeChat(f.chats, 'enrolled', uuid, [makeMessage('known')]);
       const extraPath = path.join(f.chats, kind + '.jsonl');
       if (kind === 'untagged') {
-        await writeFile(extraPath, JSON.stringify({ mes: 'unidentified chat header' }) + '\\n');
+        await writeFile(extraPath, JSON.stringify({ mes: 'unidentified chat header' }) + '\n');
       } else {
         await writeFile(extraPath, '');
       }
