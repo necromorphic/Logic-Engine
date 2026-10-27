@@ -98,6 +98,10 @@ export class SQLiteMemoryProvider {
     }
     this.validateInventory = validateInventory;
     this.authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
+    this.acceptedHeadConfig = acceptedHeadConfigFromEnv();
+    if (this.acceptedHeadConfig && path === ':memory:') {
+      throw new Error('PROVIDER_ACCEPTED_HEAD_REQUIRES_FILE_BACKED_STORE');
+    }
     // In-memory instances are deliberately isolated test stores and do not
     // join a process-global coordinator merely because the test runner set one.
     const sharedCoordinatorPath = path === ':memory:' ? null : coordinatorPath;
@@ -236,12 +240,12 @@ export class SQLiteMemoryProvider {
         const result = work();
         const changesAfter = this.db.prepare('SELECT total_changes() AS count').get().count;
         let acceptedHeadOperation = null;
-        if (this.#acceptedHeadConfig && changesAfter > changesBefore) {
+        if (this.acceptedHeadConfig && changesAfter > changesBefore) {
           const local = this.db.prepare('SELECT head,enrolled FROM accepted_head_state WHERE singleton=1').get();
           if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1) {
             throw new Error('PROVIDER_ACCEPTED_HEAD_NOT_ENROLLED');
           }
-          const heads = getAcceptedHeadsSync({ port: this.#acceptedHeadConfig.port });
+          const heads = getAcceptedHeadsSync({ port: this.acceptedHeadConfig.port });
           if (heads.provider !== local.head) throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
           const operationId = randomUUID();
           const operationDigest = createHash('sha256')
@@ -252,8 +256,8 @@ export class SQLiteMemoryProvider {
             operationId,
             operationDigest,
             expectedHead: local.head,
-            token: this.#acceptedHeadConfig.token,
-            port: this.#acceptedHeadConfig.port,
+            token: this.acceptedHeadConfig.token,
+            port: this.acceptedHeadConfig.port,
           });
           if (advanced.status !== 'pending' || advanced.head !== local.head + 1 || advanced.replayed) {
             throw new Error('PROVIDER_ACCEPTED_HEAD_ADVANCE_INVALID');
@@ -269,8 +273,8 @@ export class SQLiteMemoryProvider {
               domain: 'provider',
               operationId: acceptedHeadOperation.operationId,
               operationDigest: acceptedHeadOperation.operationDigest,
-              token: this.#acceptedHeadConfig.token,
-              port: this.#acceptedHeadConfig.port,
+              token: this.acceptedHeadConfig.token,
+              port: this.acceptedHeadConfig.port,
             });
           } catch {
             // Local commit already succeeded. Authority remains PENDING and all
