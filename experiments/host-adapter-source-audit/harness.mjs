@@ -66,3 +66,35 @@ test('edit/update notifications use the current host-local edit index', () => {
   assert.match(script, /event_types\.MESSAGE_EDITED,\s*this_edit_mes_id/);
   assert.match(script, /event_types\.MESSAGE_UPDATED,\s*this_edit_mes_id/);
 });
+
+
+test('server-side chat mutation routes remain an explicit NON_READY boundary (static audit, not a runtime guard test)', async () => {
+  const chatsRoutes = await readFile(resolve(root, 'src/endpoints/chats.js'), 'utf8');
+  const backupRoutes = await readFile(resolve(root, 'src/endpoints/backups.js'), 'utf8');
+
+  // These handlers operate on server-side artifacts and are not called through
+  // the browser's localStorage enrollment marker or Host lifecycle bridge.
+  // This test deliberately records the gap; it does NOT claim the routes are safe.
+  for (const route of [
+    "router.post('/save'",
+    "router.post('/rename'",
+    "router.post('/delete'",
+    "router.post('/group/import'",
+    "router.post('/import'",
+    "router.post('/group/delete'",
+    "router.post('/group/save'",
+  ]) {
+    assert.ok(chatsRoutes.includes(route), `pinned server mutation route must be reviewed: ${route}`);
+  }
+  assert.ok(backupRoutes.includes("router.post('/chat/delete'"), 'backup deletion route must be reviewed');
+
+  assert.match(chatsRoutes, /await trySaveChat\(chatData, chatFilePath/);
+  assert.match(chatsRoutes, /tryDeleteFile\(chatFilePath\)/);
+  assert.match(chatsRoutes, /fs\.copyFileSync\(pathToUpload, pathToNewFile\)/);
+  assert.match(backupRoutes, /await fsPromises\.unlink\(filePath\)/);
+
+  assert.doesNotMatch(chatsRoutes, /logic-engine-host-lifecycle|guardOperation\(/,
+    'pinned chats.js has no Host enrollment/bridge guard; do not claim direct server API calls are intercepted');
+  assert.doesNotMatch(backupRoutes, /logic-engine-host-lifecycle|guardOperation\(/,
+    'pinned backups.js has no Host enrollment/bridge guard; backup deletion remains outside browser protection');
+});
