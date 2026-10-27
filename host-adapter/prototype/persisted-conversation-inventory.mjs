@@ -55,7 +55,7 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
   for (const enrollment of enrollments) {
     if (!enrollment || !validId(enrollment.conversationId) || !validId(enrollment.sourceLocator)
       || !validId(enrollment.sourcePath) || path.isAbsolute(enrollment.sourcePath)
-      || enrollment.sourcePath.includes('\\\\') || enrollment.sourcePath.split('/').some(part => !part || part === '.' || part === '..')
+      || enrollment.sourcePath.includes(String.fromCharCode(92)) || enrollment.sourcePath.split('/').some(part => !part || part === '.' || part === '..')
       || !['chats', 'group_chats'].includes(enrollment.domain)) return fail('ENROLLMENT_INVALID');
     const identityParts = enrollment.conversationId.split(':');
     if (identityParts.length !== 2 || !validUuid(identityParts[0]) || !validUuid(identityParts[1])) return fail('ENROLLMENT_IDENTITY_INVALID');
