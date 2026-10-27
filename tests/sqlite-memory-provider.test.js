@@ -3,7 +3,42 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
+import { once } from 'node:events';
+import { spawn } from 'node:child_process';
+import { enrollAcceptedHeadSync, finalizeAcceptedHeadSync, getAcceptedHeadStatusSync } from '../src/security/accepted-head-client-sync.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
+
+const coreToken = 'core-token-for-provider-ledger-tests-00000000000000000000000000000001';
+const providerToken = 'provider-token-for-provider-ledger-tests-00000000000000000000000000000002';
+
+async function startAcceptedHeadAuthority(path) {
+  const authorityUrl = new URL('../src/security/accepted-head-authority.js', import.meta.url).href;
+  const script = [
+    'import { AcceptedHeadAuthority, createAcceptedHeadAuthorityServer } from ' + JSON.stringify(authorityUrl) + ';',
+    'const args = process.argv.slice(1);',
+    'const authority = new AcceptedHeadAuthority({ path: args[0], installationId: "provider-ledger-test-installation" });',
+    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN });',
+    'server.listen(0, "127.0.0.1", () => process.stdout.write("LISTENING:" + server.address().port + "\\n"));',
+    'process.stdin.on("data", () => server.close(() => { authority.close(); process.exit(0); }));',
+  ].join('\\n');
+  const child = spawn(process.execPath, ['--input-type=module', '-e', script, path], {
+    stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true,
+    env: { PATH: process.env.PATH || '', SystemRoot: process.env.SystemRoot || '', WINDIR: process.env.WINDIR || '',
+      LE_TEST_CORE_TOKEN: coreToken, LE_TEST_PROVIDER_TOKEN: providerToken },
+  });
+  const [chunk] = await once(child.stdout, 'data');
+  const match = String(chunk).match(/LISTENING:(\\d+)/);
+  if (!match) { child.kill(); throw new Error('Accepted-head test service did not start.'); }
+  const port = Number(match[1]);
+  for (const [domain, operationId, digest, token] of [
+    ['core','test-core-enroll','a'.repeat(64),coreToken],
+    ['provider','test-provider-enroll','b'.repeat(64),providerToken],
+  ]) {
+    enrollAcceptedHeadSync({ domain, operationId, operationDigest: digest, token, port });
+    finalizeAcceptedHeadSync({ domain, operationId, operationDigest: digest, token, port });
+  }
+  return { child, port };
+}
 
 function setup(t, options = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-'));
@@ -643,3 +678,44 @@ test('record revocation survives Provider restart and index rebuild cannot resto
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
 });
+\ntest('accepted-head guard advances with Provider mutations and survives reopen', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-provider-authority-'));
+  const authorityPath = join(directory, 'authority.sqlite');
+  const providerPath = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const authority = await startAcceptedHeadAuthority(authorityPath);
+  let provider;
+  t.after(async () => {
+    try { provider?.close(); } catch {}
+    authority.child.stdin.end('stop');
+    await once(authority.child, 'exit');
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const options = {
+    path: providerPath, coordinatorPath,
+    getSnapshot: async () => ({ world_revision: 4, commit_sequence: 2 }),
+    validateSourceVersion: async (record) => record.source_version === 'source-v1',
+    validateInventory: async () => true,
+    acceptedHead: { port: authority.port, token: providerToken },
+  };
+  provider = new SQLiteMemoryProvider(options);
+  const scope = { world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' };
+  const record = {
+    ...scope, record_ref: 'memory:guarded-record', record_version: 'record-v1',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
+    content_kind: 'claim', epistemic_kind: 'acquired_report', producer_kind: 'memory-index',
+    content_disposition: 'usable', evidence_assessment: 'unassessed',
+    lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-source-a', source_version: 'source-v1' }],
+  };
+  assert.equal(provider.grantQuery(scope, true), undefined);
+  provider.grantRecord(scope, record.record_ref, record.record_version, true);
+  assert.equal(provider.putRecord(record).status, 'stored');
+  const afterWrites = getAcceptedHeadStatusSync({ port: authority.port });
+  assert.equal(afterWrites.pending.provider, false);
+  assert.equal(afterWrites.heads.provider, 4);
+  provider.close();
+  provider = new SQLiteMemoryProvider(options);
+  assert.deepEqual(await provider.rebuildIndex('world-a'), { status: 'rebuilt', count: 1 });
+  assert.equal(getAcceptedHeadStatusSync({ port: authority.port }).pending.provider, false);
+});
+
