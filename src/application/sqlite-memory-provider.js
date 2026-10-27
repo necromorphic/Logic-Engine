@@ -316,7 +316,7 @@ export class SQLiteMemoryProvider {
     if (!this.acceptedHead) return;
     let status;
     try { status = this.#acceptedHeadStatus(); } catch { throw new Error('MEMORY_ACCEPTED_HEAD_UNAVAILABLE'); }
-    const local = this.db.prepare('SELECT accepted_head,status FROM provider_authority_state WHERE singleton=1').get();
+    const local = this.db.prepare('SELECT accepted_head,bootstrap_head,status FROM provider_authority_state WHERE singleton=1').get();
     if (!local || local.status !== 'ready' || local.bootstrap_head === null || local.bootstrap_head === undefined
       || status.pending.core || status.pending.provider || !status.enrolled.core || !status.enrolled.provider
       || Number(local.accepted_head) !== status.heads.provider) {
