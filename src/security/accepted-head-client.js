@@ -35,8 +35,8 @@ async function main() {
     && typeof input.operation_id === 'string' && input.operation_id.length > 0
     && typeof input.operation_digest === 'string' && /^[a-f0-9]{64}$/.test(input.operation_digest)
     && typeof input.token === 'string' && input.token.length >= 32
-    && (action !== 'advance' || (Number.isSafeInteger(input.expected_head) && input.expected_head >= 0))) {
-    url = 'http://127.0.0.1:' + port + (action === 'advance' ? '/v1/advance' : '/v1/finalize');
+    && (action === 'finalize' || (Number.isSafeInteger(input.expected_head) && input.expected_head >= 0))) {
+    url = 'http://127.0.0.1:' + port + (action === 'enroll' ? '/v1/enroll' : action === 'advance' ? '/v1/advance' : '/v1/finalize');
     options = {
       method: 'POST',
       headers: {
@@ -48,7 +48,7 @@ async function main() {
         domain: input.domain,
         operation_id: input.operation_id,
         operation_digest: input.operation_digest,
-        ...(action === 'advance' ? { expected_head: input.expected_head } : {}),
+        ...(action === 'finalize' ? {} : { expected_head: input.expected_head }),
       }),
       signal: AbortSignal.timeout(timeoutMs),
     };
@@ -64,13 +64,14 @@ async function main() {
     if (action === 'heads') {
       if (!Number.isSafeInteger(body?.heads?.core) || body.heads.core < 0
         || !Number.isSafeInteger(body?.heads?.provider) || body.heads.provider < 0
-        || typeof body?.pending?.core !== 'boolean' || typeof body?.pending?.provider !== 'boolean') {
+        || typeof body?.pending?.core !== 'boolean' || typeof body?.pending?.provider !== 'boolean'
+        || typeof body?.enrolled?.core !== 'boolean' || typeof body?.enrolled?.provider !== 'boolean') {
         throw new Error('invalid response');
       }
-      process.stdout.write(JSON.stringify({ ok: true, heads: body.heads, pending: body.pending }));
+      process.stdout.write(JSON.stringify({ ok: true, heads: body.heads, pending: body.pending, enrolled: body.enrolled }));
     } else {
       const result = body?.result;
-      const expectedStatuses = action === 'advance' ? ['pending', 'committed'] : ['committed'];
+      const expectedStatuses = action === 'finalize' ? ['committed'] : ['pending', 'committed'];
       if (result?.domain !== input.domain || result?.operation_id !== input.operation_id
         || !Number.isSafeInteger(result?.head) || result.head < 1 || !expectedStatuses.includes(result.status)) {
         throw new Error('invalid response');
