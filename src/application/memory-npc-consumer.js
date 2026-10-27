@@ -485,6 +485,26 @@ export class MemoryNpcConsumer {
       .map((item) => contentByIdentity.get(recordIdentityKey(item.record_ref, item.record_version)))
       .filter(Boolean);
 
+    // A record may be revoked while Core is reading its canonical source.
+    // Recheck every record that would actually be returned after that read.
+    // If any final check fails, reject the whole result rather than leaking a
+    // partial set or silently turning a revoked result into complete-empty.
+    for (const item of admitted) {
+      let stillAllowed;
+      try {
+        stillAllowed = await this.memoryProvider.authorizeCandidate({
+          ...scope,
+          record_ref: item.record_ref,
+          record_version: item.record_version,
+          source_kind: 'canonical_entity',
+          source_entity_id: item.source_entity_id,
+        }) === true;
+      } catch {
+        return nonReady('memory_record_authorization_unavailable');
+      }
+      if (!stillAllowed) return nonReady('memory_record_authorization_unconfirmed');
+    }
+
     if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
     return Object.freeze({
       status: 'ready',
