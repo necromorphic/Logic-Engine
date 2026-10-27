@@ -337,6 +337,8 @@ No runtime, schema, API, event, adapter, cache, or persistent-projection change 
 
 **NO-GO:** any claim that the experiment creates an approved spatial source; production persistence/API/schema/event changes; automatic movement commits; a spatial projection used as canonical truth or NPC knowledge.
 
-The next useful experiment must compare two independent reconstructions from the same pinned valid event history at the same `(world_revision, commit_sequence)`, then invalidate a supporting event and reconstruct again. It must include missing/conflicting values and same entity IDs in separate worlds. Because no local test execution was available in this review, these are **test requirements, not test results**.
+The next useful experiment must compare two independent reconstructions from the same pinned valid event history at the same `(world_revision, commit_sequence)`, then invalidate a supporting event and reconstruct again. It must include missing/conflicting values and same entity IDs in separate worlds. These remain **spatial-spike test requirements, not test results**.
 
-No tests were run. ST-01–ST-16 remain `NOT TESTED / NOT PASSED`. Memory → NPC remains `DISABLED / FAIL-CLOSED`.
+**Existing repository CI on this documentation commit:** Runtime tests run `40595471811` completed successfully on commit `9c30eab8caba8c3d2b9be0f5419a04b200e80fc8`: `npm test` passed 800 tests, `experiments/recalculation-oracle/harness.test.mjs` passed 8 tests, and the `npc-boundary` job passed. This validates the existing suite at that commit; it does **not** execute or prove the proposed spatial replay experiment.
+
+ST-01–ST-16 remain `NOT TESTED / NOT PASSED`. Memory → NPC remains `DISABLED / FAIL-CLOSED`.
