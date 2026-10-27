@@ -5,7 +5,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
-import { DatabaseSync } from 'node:sqlite';
+import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../src/storage/coordinator-lock.js';
 import {
@@ -93,23 +93,14 @@ test('Provider mutations advance accepted head before commit and fail closed whe
         domain: 'core', operationId: enrolledCore.operation_id, operationDigest: digestA, token: coreToken, port,
       });
 
-      const enrolledProvider = enrollAcceptedHeadSync({
-        domain: 'provider', operationId: 'provider-baseline-enrollment', operationDigest: digestB, token: providerToken, port,
-      });
-      const db = new DatabaseSync(providerPath);
-      try {
-        db.exec('BEGIN IMMEDIATE');
-        db.prepare('UPDATE accepted_head_state SET head=?, enrolled=1, last_operation_id=?, last_operation_digest=? WHERE singleton=1')
-          .run(enrolledProvider.head, enrolledProvider.operation_id, digestB);
-        db.exec('COMMIT');
-      } catch (error) {
-        try { db.exec('ROLLBACK'); } catch {}
-        throw error;
-      } finally {
-        db.close();
-      }
-      finalizeAcceptedHeadSync({
-        domain: 'provider', operationId: enrolledProvider.operation_id, operationDigest: digestB, token: providerToken, port,
+      enrollAcceptedHeadDomain({
+        domain: 'provider',
+        databasePath: providerPath,
+        coordinatorPath,
+        port,
+        token: providerToken,
+        approvalId: 'approval-provider-test',
+        baselineDigest: digestB,
       });
     } finally {
       release();
