@@ -82,6 +82,18 @@ test('sanitized filename alias cannot bypass the enrolled chat save persistence 
     user: { profile: { handle: 'save-receipt-test' }, directories },
   };
 
+  const envKeys = ['LOGIC_ENGINE_CORE_URL', 'LOGIC_ENGINE_API_TOKEN', 'LOGIC_ENGINE_ADAPTER_ID', 'LOGIC_ENGINE_ADAPTER_TOKEN'];
+  const priorEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
+  const originalFetch = globalThis.fetch;
+  process.env.LOGIC_ENGINE_CORE_URL = 'http://127.0.0.1:8787';
+  process.env.LOGIC_ENGINE_API_TOKEN = 'test-core-api-token-long-enough';
+  process.env.LOGIC_ENGINE_ADAPTER_ID = 'adapter-test';
+  process.env.LOGIC_ENGINE_ADAPTER_TOKEN = 'test-adapter-token-long-enough';
+  globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ inventory: {
+    authority: 'CORE_HOST_VERSION_LEDGER', conversation_id: conversationId,
+    inventory_status: 'NON_READY',
+    versions: [{ message_id: messageId, version_id: version1, content_sha256: digest('persisted-before'), active: true, deleted: false }],
+  } }) });
   try {
     await registerHostConversation(request, {
       conversationId, sourceLocator: 'chat-a', sourcePath: 'avatar/chat-a.jsonl', domain: 'chats',
@@ -106,6 +118,11 @@ test('sanitized filename alias cannot bypass the enrolled chat save persistence 
     assert.equal(outcome.persistenceVerification, 'HOST_SAVE_PERSISTENCE_MISMATCH');
     assert.doesNotMatch(journalText, /persisted-before|new-but-not-written/);
   } finally {
+    globalThis.fetch = originalFetch;
+    for (const key of envKeys) {
+      if (priorEnv[key] === undefined) delete process.env[key];
+      else process.env[key] = priorEnv[key];
+    }
     await rm(root, { recursive: true, force: true });
   }
 });
