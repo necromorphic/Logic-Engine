@@ -132,6 +132,7 @@ test('joins trusted Memory record authorization, Core authorized source read, an
     record_version: 'v1',
     source_kind: 'canonical_entity',
     source_entity_id: 'source-a',
+    source_version: 'source-v1',
   });
   assert.equal(JSON.stringify(result).includes('must never leak'), false);
   assert.equal(JSON.stringify(result).includes('private_note'), false);
