@@ -59,6 +59,13 @@ test('Core binding API requires admin to assign and authenticated adapter to res
   assert.equal(denied.status, 403);
   assert.equal((await denied.json()).error.code, 'ADMIN_REQUIRED');
 
+  const unconfiguredAdapter = await fetch(path, {
+    method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({ ...assignment, adapter_id: 'adapter-not-configured' }),
+  });
+  assert.equal(unconfiguredAdapter.status, 400);
+  assert.equal((await unconfiguredAdapter.json()).error.code, 'HOST_BINDING_ADAPTER_NOT_CONFIGURED');
+
   const created = await fetch(path, {
     method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN }, body: json(assignment),
   });

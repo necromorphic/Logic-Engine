@@ -186,6 +186,13 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           throw new EngineError('INVALID_HOST_CONVERSATION_BINDING',
             'Binding accepts adapter_id, conversation_id, world_id, and optional explicit rebind/reason.', 400);
         }
+        // A binding must not become effective for an adapter principal that
+        // Core does not currently authenticate. Otherwise adding that adapter
+        // configuration later could silently activate a dormant binding.
+        if (!Object.hasOwn(adapterTokens, body.adapter_id)) {
+          throw new EngineError('HOST_BINDING_ADAPTER_NOT_CONFIGURED',
+            'A Host conversation can be bound only to a configured adapter identity.', 400);
+        }
         const binding = hostConversationBindings.bind({
           adapterId: body.adapter_id, conversationId: body.conversation_id, worldId: body.world_id,
           rebind: body.rebind ?? false, reason: body.reason ?? null,
