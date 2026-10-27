@@ -145,7 +145,7 @@ test('Core digest proxy sends only allowlisted digests to a fixed configured end
     deleted: false,
   };
   await handler({ body: entry }, response);
-  assert.equal(response.statusCode, 200);
+  assert.equal(response.statusCode, 201);
   assert.deepEqual(response.body, { ok: true, inventory_status: 'NON_READY' });
   assert.equal(calls.length, 1);
   assert.equal(calls[0].url, 'http://192.168.1.10:8787/v1/host-version-ledger/capture');
@@ -192,6 +192,6 @@ test('Core digest proxy rejects caller-supplied authority and hides upstream dia
     content_sha256: 'c'.repeat(64), active: true, deleted: false,
   } }, rejected);
   assert.equal(rejected.statusCode, 403);
-  assert.deepEqual(rejected.body, { error: { code: 'CORE_CAPTURE_REJECTED' } });
+  assert.deepEqual(rejected.body, { error: { code: 'LOGIC_ENGINE_CAPTURE_REJECTED', message: 'Logic-Engine did not accept the digest capture.' } });
   assert.doesNotMatch(JSON.stringify(rejected.body), /sensitive upstream detail/);
 });
