@@ -390,7 +390,7 @@ export class MemoryDispatchGateway {
           INSERT INTO dispatch_ledger(
             request_id,request_digest,route,model,stream,adapter_id,conversation_id,world_id,actor_id,purpose,sources_json,candidates_json,
             core_head,provider_head,status,outcome_code,started_at,finished_at
-          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
           requestId,
           requestDigest,
