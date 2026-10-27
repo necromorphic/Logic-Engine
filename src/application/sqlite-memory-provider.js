@@ -24,12 +24,11 @@ const aliasesSameFile = (left, right) => {
   const canonicalRight = canonicalFilePath(right);
   if (canonicalLeft === canonicalRight) return true;
   if (!existsSync(canonicalLeft) || !existsSync(canonicalRight)) return false;
-  const leftStat = statSync(canonicalLeft);
-  const rightStat = statSync(canonicalRight);
-  // Some Windows/filesystem combinations report zero inode identifiers for
-  // unrelated files. Treat those identifiers as unavailable instead of
-  // falsely declaring the Provider DB and coordinator DB to be the same file.
-  return leftStat.ino !== 0 && rightStat.ino !== 0
+  // Use BigInt stats: Windows file IDs can exceed Number's exact integer range.
+  // Rounded numeric inode values can falsely alias distinct Provider/Core files.
+  const leftStat = statSync(canonicalLeft, { bigint: true });
+  const rightStat = statSync(canonicalRight, { bigint: true });
+  return leftStat.ino !== 0n && rightStat.ino !== 0n
     && leftStat.dev === rightStat.dev && leftStat.ino === rightStat.ino;
 };
 const object = (value) => value !== null && typeof value === 'object' && !Array.isArray(value);
