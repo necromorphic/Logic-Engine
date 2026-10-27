@@ -41,13 +41,16 @@ function nonEmptyString(value, name, maxLength = 200) {
   return value.trim();
 }
 
-function assertPlainDataRecord(value, allowed, code, name) {
+function assertPlainDataRecord(value, allowed, code, name, required = []) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     fail(code, name + ' must be an object.');
   }
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) {
     fail(code, name + ' must be a plain data object.');
+  }
+  for (const field of required) {
+    if (!Object.hasOwn(value, field)) fail(code, name + ' is missing required field ' + field + '.');
   }
   for (const key of Reflect.ownKeys(value)) {
     if (typeof key !== 'string' || !allowed.includes(key)) {
@@ -142,7 +145,7 @@ export function intervalContainsTime(interval, coordinate) {
 }
 
 function normalizeMonth(month, yearIndex, monthIndex) {
-  assertPlainDataRecord(month, ['id', 'name', 'days'], 'INVALID_CALENDAR_MONTH', 'Calendar month');
+  assertPlainDataRecord(month, ['id', 'name', 'days'], 'INVALID_CALENDAR_MONTH', 'Calendar month', ['id', 'name', 'days']);
   return {
     id: nonEmptyString(month.id, 'year_cycle[' + yearIndex + '].months[' + monthIndex + '].id'),
     name: nonEmptyString(month.name, 'year_cycle[' + yearIndex + '].months[' + monthIndex + '].name'),
@@ -156,7 +159,7 @@ function normalizeMonth(month, yearIndex, monthIndex) {
  * have different month lengths, including leap-day or leap-month patterns.
  */
 export function createCalendarDefinition(input) {
-  assertPlainDataRecord(input, ['calendar_id', 'version', 'day_length_ms', 'weekdays', 'year_cycle', 'epoch', 'holidays'], 'INVALID_CALENDAR', 'Calendar definition');
+  assertPlainDataRecord(input, ['calendar_id', 'version', 'day_length_ms', 'weekdays', 'year_cycle', 'epoch', 'holidays'], 'INVALID_CALENDAR', 'Calendar definition', ['calendar_id', 'version', 'day_length_ms', 'weekdays', 'year_cycle', 'epoch']);
 
   const calendarId = nonEmptyString(input.calendar_id, 'calendar_id');
   const version = nonEmptyString(input.version, 'version', 100);
@@ -170,7 +173,7 @@ export function createCalendarDefinition(input) {
     // Normalized calendars carry a derived `days` field on each year.
     // Accept it when revalidating an already-normalized calendar, but verify
     // it against the canonical month sum instead of trusting the supplied value.
-    assertPlainDataRecord(year, ['id', 'name', 'months', 'days'], 'INVALID_CALENDAR_YEAR', 'Calendar year');
+    assertPlainDataRecord(year, ['id', 'name', 'months', 'days'], 'INVALID_CALENDAR_YEAR', 'Calendar year', ['id', 'name', 'months']);
     const monthEntries = denseArrayValues(year.months, 1000, 'INVALID_CALENDAR_MONTHS', 'year-cycle months', 1);
     const months = monthEntries.map((month, monthIndex) => normalizeMonth(month, yearIndex, monthIndex));
     if (new Set(months.map((month) => month.id)).size !== months.length) {
@@ -197,7 +200,7 @@ export function createCalendarDefinition(input) {
   }
 
   const epochInput = input.epoch;
-  assertPlainDataRecord(epochInput, ['coordinate', 'year_number', 'year_cycle_index', 'month_id', 'day_of_month', 'weekday_index', 'time_of_day_ms'], 'INVALID_CALENDAR_EPOCH', 'Calendar epoch');
+  assertPlainDataRecord(epochInput, ['coordinate', 'year_number', 'year_cycle_index', 'month_id', 'day_of_month', 'weekday_index', 'time_of_day_ms'], 'INVALID_CALENDAR_EPOCH', 'Calendar epoch', ['coordinate', 'year_number', 'year_cycle_index', 'month_id', 'day_of_month', 'weekday_index']);
   const epoch = {
     coordinate: safeInteger(epochInput.coordinate, 'epoch.coordinate'),
     year_number: safeInteger(epochInput.year_number, 'epoch.year_number'),
@@ -231,7 +234,7 @@ export function createCalendarDefinition(input) {
   const holidayEntries = denseArrayValues(holidaysInput, 10000, 'INVALID_HOLIDAYS', 'holidays');
   const holidayIds = new Set();
   const holidays = holidayEntries.map((holiday, i) => {
-    assertPlainDataRecord(holiday, ['id', 'name', 'month_id', 'day_of_month', 'year_number'], 'INVALID_HOLIDAY', 'Calendar holiday');
+    assertPlainDataRecord(holiday, ['id', 'name', 'month_id', 'day_of_month', 'year_number'], 'INVALID_HOLIDAY', 'Calendar holiday', ['id', 'name', 'month_id', 'day_of_month']);
     const id = nonEmptyString(holiday.id, 'holidays[' + i + '].id');
     if (holidayIds.has(id)) fail('DUPLICATE_HOLIDAY_ID', 'Holiday ids must be unique.');
     holidayIds.add(id);
