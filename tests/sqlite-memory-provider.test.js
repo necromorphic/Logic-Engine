@@ -1142,3 +1142,35 @@ test('untrusted Core snapshot objects with accessors or proxies fail closed with
   });
   assert.equal(getterCalls, 0);
 });
+
+
+test('identical duplicate ingest repairs a missing index entry after raw-first failure', async (t) => {
+  const s = setup(t);
+  s.db.exec(`CREATE TRIGGER fail_ingest_index_insert BEFORE INSERT ON memory_index_entries
+    BEGIN SELECT RAISE(ABORT, 'injected duplicate repair index failure'); END;`);
+
+  assert.throws(() => s.provider.putRecord(s.record), /injected duplicate repair index failure/);
+  assert.equal(s.db.prepare(
+    'SELECT COUNT(*) AS count FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?',
+  ).get(s.scope.world_id, s.record.record_ref, s.record.record_version).count, 1);
+  assert.equal(s.db.prepare(
+    'SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?',
+  ).get(s.scope.world_id, s.record.record_ref, s.record.record_version).count, 0);
+
+  s.db.exec('DROP TRIGGER fail_ingest_index_insert');
+  assert.deepEqual(s.provider.putRecord(s.record), {
+    status: 'duplicate',
+    record_ref: s.record.record_ref,
+    record_version: s.record.record_version,
+    index_repaired: true,
+    reconciliation_required: true,
+  });
+  assert.equal(s.db.prepare(
+    'SELECT COUNT(*) AS count FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?',
+  ).get(s.scope.world_id, s.record.record_ref, s.record.record_version).count, 1);
+  assert.equal(s.db.prepare(
+    'SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?',
+  ).get(s.scope.world_id, s.record.record_ref, s.record.record_version).count, 1);
+  assert.equal(s.provider.getIndexStatusForDiagnostics(s.scope.world_id).failure_code, 'INDEX_ENTRY_MISSING');
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+});
