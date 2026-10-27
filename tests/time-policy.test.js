@@ -78,3 +78,24 @@ test('TimePolicy rejects unknown fields instead of silently accepting a differen
     } }],
   })), (error) => error.code === 'INVALID_TIME_POLICY');
 });
+
+
+test('duration resolver rejects malformed requested durations regardless of rule resolution', () => {
+  const value = createTimePolicy(policy());
+  const noRule = createTimePolicy(policy({ duration_rules: [] }));
+  for (const requestedDurationMs of [-1, 1.5, Number.NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
+    assert.throws(
+      () => resolveDurationDecision(value, 'travel.completed', null, requestedDurationMs),
+      (error) => error.code === 'INVALID_TIME_POLICY',
+    );
+    assert.throws(
+      () => resolveDurationDecision(noRule, 'unknown.event', null, requestedDurationMs),
+      (error) => error.code === 'INVALID_TIME_POLICY',
+    );
+  }
+  assert.equal(resolveDurationDecision(noRule, 'unknown.event', null, 0).duration_ms, 0);
+  assert.equal(resolveDurationDecision(noRule, 'unknown.event', null, null).status, 'rejected');
+  assert.equal(resolveDurationDecision(value, 'travel.completed', null, 0).duration_ms, 60000);
+  // Explicit null retains the legacy sentinel behavior; omitted/undefined uses the default zero.
+  assert.equal(resolveDurationDecision(value, 'travel.completed', null, null).duration_ms, 60000);
+});
