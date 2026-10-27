@@ -10,6 +10,7 @@
 - Does not subscribe to model-generation events, read message text, send prompts, or call any model provider.
 - Does not store Core credentials in browser code.
 - Keeps Memory → NPC disabled/fail-closed; a healthy `/health` response is not a readiness signal.
+- Uses SillyTavern's supported extension `activate`/`disable` hooks; disable removes the UI, unregisters click handlers, and aborts pending health checks without disabling Host-side safety guards.
 
 ## Installation
 
@@ -53,5 +54,7 @@ node --test host-adapter/sillytavern-extension/tests/*.test.mjs
 node --test host-adapter/prototype/tests/*.test.mjs
 npm test
 ```
+
+The Runtime workflow also runs the extension and Host prototype tests and checks that the generated patch applies to the exact pinned SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
 
 Passing automated tests do not prove real browser persistence, full Host inventory, authorization readiness, or production Memory → NPC disclosure.
