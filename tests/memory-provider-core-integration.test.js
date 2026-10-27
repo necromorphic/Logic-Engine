@@ -535,7 +535,7 @@ test('file-backed Provider restart forces reconciliation before retrieval can re
   assert.equal((await s.provider.retrieveCandidates(s.scope)).completeness, 'complete');
 
   const reopened = s.reopenProvider();
-  assert.equal(reopened.getIndexState(s.scope.world_id).source_reconciliation, 'stale');
+  assert.equal(reopened.getIndexStatusForDiagnostics(s.scope.world_id).source_reconciliation, 'stale');
   await assert.rejects(() => reopened.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);
 
   const recovered = await reopened.reconcile(s.scope.world_id);
