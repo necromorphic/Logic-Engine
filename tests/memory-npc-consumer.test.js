@@ -991,11 +991,9 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
         signalSourceMutationValidation();
         await sourceMutationValidationRelease;
       }
-      const sourceSnapshot = engine.getSnapshot(record.world_id, {
-        entityIds: [record.source_entity_id],
-      });
-      const source = sourceSnapshot.entities.find((entity) => entity.entity_id === record.source_entity_id);
-      return Boolean(source) && record.source_version === String(source.updated_revision);
+      const source = store.db.prepare(`SELECT source_version FROM entity_source_versions
+        WHERE world_id=? AND entity_id=?`).get(record.world_id, record.source_entity_id);
+      return Boolean(source) && record.source_version === 'core-entity-v1:' + String(source.source_version);
     },
     validateInventory: async () => true,
   };
@@ -1013,7 +1011,7 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
     record_version: 'record-v1',
     source_kind: 'canonical_entity',
     source_entity_id: 'source-real',
-    source_version: '1',
+    source_version: 'core-entity-v1:1',
     content_kind: 'claim',
     epistemic_kind: 'acquired_report',
     producer_kind: 'real-sqlite-provider-test',
@@ -1022,7 +1020,7 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
     lineage: [{
       source_kind: 'canonical_entity',
       entity_id: 'source-real',
-      source_version: '1',
+      source_version: 'core-entity-v1:1',
     }],
   };
   const secondRecord = {
@@ -1059,7 +1057,7 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
   assert.deepEqual(initial.candidates[0].content, {
     'attributes.public_note': 'read from canonical Core state',
   });
-  assert.equal(initial.candidates[0].source_version, '1');
+  assert.equal(initial.candidates[0].source_version, 'core-entity-v1:1');
   assert.equal(JSON.stringify(initial).includes('never expose this field'), false);
 
   // Pause the later candidate's real Provider source validator after the earlier
