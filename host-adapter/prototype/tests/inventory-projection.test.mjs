@@ -129,6 +129,15 @@ const captureLedger = records => ({
   })),
 });
 
+test('capture-ledger projection rejects a baseline that does not begin at sequence one', () => {
+  const v0 = ledgerVersion('version-0', 'old text');
+  const result = projectHostCaptureLedgerForComparison(captureLedger([
+    { operation: 'baseline', sequence: 0, payload: { messages: [ledgerMessage('message-1', [v0])] } },
+  ]));
+  assert.equal(result.status, 'NON_READY');
+  assert.equal(result.reason, 'CAPTURE_LEDGER_BASELINE_MISSING');
+});
+
 test('capture-ledger projection preserves edit lineage and remains review-only', () => {
   const v0 = ledgerVersion('version-0', 'old text');
   const v1 = ledgerVersion('version-1', 'edited text', 0, 'version-0');
