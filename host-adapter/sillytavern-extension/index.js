@@ -27,7 +27,7 @@ export async function init() {
     try {
         await initPromise;
     } catch (error) {
-        initPromise = null;
+        cleanup();
         throw error;
     }
 }
