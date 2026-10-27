@@ -11,6 +11,10 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    shell: cmd
+
 jobs:
   pinned-source-audit:
     runs-on: [self-hosted, Windows, X64]
