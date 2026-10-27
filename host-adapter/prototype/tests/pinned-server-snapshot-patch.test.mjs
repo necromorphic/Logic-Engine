@@ -5,7 +5,7 @@ import { fileURLToPath } from 'node:url';
 
 const patchPath = fileURLToPath(new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url));
 
-test('pinned ST patch binds authenticated user before lifecycle mutation middleware', async () => {
+test('pinned ST patch mounts lifecycle middleware before user-data route handlers', async () => {
   const patch = await readFile(patchPath, 'utf8');
   const start = patch.indexOf('diff --git a/src/server-startup.js');
   const end = patch.indexOf('\ndiff --git ', start + 1);
@@ -14,7 +14,7 @@ test('pinned ST patch binds authenticated user before lifecycle mutation middlew
   const userBinding = section.indexOf(" app.use('/', userDataRouter);");
   const lifecycleGuard = section.indexOf('+    app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true }));');
   assert.ok(userBinding >= 0, 'authenticated user-data middleware is mounted');
-  assert.ok(lifecycleGuard > userBinding, 'lifecycle guard runs after request.user binding');
+  assert.ok(lifecycleGuard >= 0 && userBinding >= 0 && lifecycleGuard < userBinding, 'lifecycle guard precedes user-data route handlers; global user binding is installed in server-main.js');
 });
 
 test('pinned ST patch exposes server-derived persisted inventory, not caller-supplied inventory', async () => {
