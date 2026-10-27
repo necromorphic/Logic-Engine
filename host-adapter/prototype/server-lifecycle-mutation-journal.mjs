@@ -2,7 +2,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
-import { scanHostArtifactRoots } from './logic-engine-host-inventory.mjs';
+import { scanHostArtifactRoots } from './server-inventory-scanner.mjs';
 
 const MUTATIONS = new Map([
     ['POST /api/chats/save', 'chat-save'],
