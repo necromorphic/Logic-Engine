@@ -217,3 +217,31 @@ test('rule arrays with overridden prototypes are rejected', () => {
     (error) => error.code === 'INVALID_RULE',
   );
 });
+
+
+test('rejects malformed comparison values even when the context path is absent', () => {
+  const cyclic = {};
+  cyclic.self = cyclic;
+  assert.throws(
+    () => evaluateCondition({ op: 'eq', path: 'missing.path', value: cyclic }, {}),
+    (error) => error.code === 'INVALID_RULE_VALUE',
+  );
+  assert.throws(
+    () => evaluateConditionResult({ op: 'in', path: 'missing.path', values: [cyclic] }, {}),
+    (error) => error.code === 'INVALID_RULE_VALUE',
+  );
+});
+
+test('dependency collection validates comparison payloads consistently with evaluation', async () => {
+  const { collectConditionDependencies } = await import('../src/core/rules.js');
+  const invalid = {};
+  Object.defineProperty(invalid, 'secret', { enumerable: true, get() { throw new Error('getter must not execute'); } });
+  assert.throws(
+    () => collectConditionDependencies({ op: 'eq', path: 'actor.flag', value: invalid }),
+    (error) => error.code === 'INVALID_RULE_VALUE',
+  );
+  assert.throws(
+    () => collectConditionDependencies({ op: 'in', path: 'actor.flag', values: [invalid] }),
+    (error) => error.code === 'INVALID_RULE_VALUE',
+  );
+});
