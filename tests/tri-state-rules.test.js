@@ -104,3 +104,44 @@ test('result API preserves the existing validation errors for malformed rules', 
     (error) => error.code === 'UNSUPPORTED_RULE_OPERATOR',
   );
 });
+
+
+test('rejects accessor-backed rule fields without executing getters', () => {
+  let reads = 0;
+  const rule = { path: 'flag', value: true };
+  Object.defineProperty(rule, 'op', { enumerable: true, get() { reads += 1; return 'eq'; } });
+  assert.throws(() => evaluateCondition(rule, { flag: true }), (error) => error.code === 'INVALID_RULE');
+  assert.equal(reads, 0);
+  assert.throws(() => evaluateConditionResult({ op: 'exists', path: 'flag' }, {}, Object.defineProperty({}, 'knownAbsentPaths', {
+    enumerable: true, get() { reads += 1; return []; },
+  })), (error) => error.code === 'INVALID_RULE_RESULT_OPTIONS');
+  assert.equal(reads, 0);
+});
+
+test('rejects accessor-backed context path properties without executing getters', () => {
+  let reads = 0;
+  const actor = {};
+  Object.defineProperty(actor, 'secret', { enumerable: true, get() { reads += 1; return 'hidden'; } });
+  assert.throws(
+    () => evaluateCondition({ op: 'eq', path: 'actor.secret', value: 'hidden' }, { actor }),
+    (error) => error.code === 'INVALID_RULE_CONTEXT',
+  );
+  assert.equal(reads, 0);
+});
+
+test('rejects sparse and accessor-backed arrays in nested rules and membership checks', () => {
+  const sparse = new Array(1);
+  assert.throws(
+    () => evaluateCondition({ op: 'all', rules: sparse }, {}),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  let reads = 0;
+  const values = [];
+  Object.defineProperty(values, '0', { enumerable: true, configurable: true, get() { reads += 1; return 'x'; } });
+  values.length = 1;
+  assert.throws(
+    () => evaluateCondition({ op: 'in', path: 'value', values }, { value: 'x' }),
+    (error) => error.code === 'INVALID_RULE',
+  );
+  assert.equal(reads, 0);
+});
