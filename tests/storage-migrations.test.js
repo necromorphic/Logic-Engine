@@ -24,6 +24,11 @@ function createLegacyDatabase(path) {
       time_advance_seconds INTEGER NOT NULL DEFAULT 0, source_message_id TEXT, created_at TEXT NOT NULL,
       rollback_id TEXT
     );
+    CREATE TABLE entities(
+      world_id TEXT NOT NULL REFERENCES worlds(world_id), entity_id TEXT NOT NULL, entity_type TEXT NOT NULL,
+      status TEXT NOT NULL, attributes_json TEXT NOT NULL, created_by_event_id TEXT NOT NULL,
+      updated_revision INTEGER NOT NULL, PRIMARY KEY(world_id,entity_id)
+    );
     CREATE TABLE idempotency_keys(
       world_id TEXT NOT NULL REFERENCES worlds(world_id), idempotency_key TEXT NOT NULL,
       response_json TEXT NOT NULL, created_at TEXT NOT NULL, PRIMARY KEY(world_id,idempotency_key)
@@ -40,6 +45,8 @@ function createLegacyDatabase(path) {
       VALUES
         ('legacy-event-1','legacy-world','turn-1','action.completed','2005-12-29T10:01:00.000Z',1,'valid','[]','[]','[]','[]',60,'2005-12-29T10:01:00.000Z'),
         ('legacy-event-2','legacy-world','turn-2','action.completed','2005-12-29T10:05:00.000Z',2,'valid','[]','[]','[]','[]',0,'2005-12-29T10:05:00.000Z');
+    INSERT INTO entities(world_id,entity_id,entity_type,status,attributes_json,created_by_event_id,updated_revision)
+      VALUES('legacy-world','legacy-entity','character','active','{}','legacy-event-2',2);
     INSERT INTO idempotency_keys(world_id,idempotency_key,response_json,created_at)
       VALUES('legacy-world','legacy-key','{"accepted":true}','2005-12-29T10:05:00.000Z');
     INSERT INTO context_manifests(manifest_id,world_id,generation_id,base_commit_sequence,items_json,manifest_hash,created_at)
@@ -76,6 +83,7 @@ test('legacy schema upgrades all numbered migrations, preserves rows, and is ide
   );
   assert.equal(store.db.prepare('SELECT response_json FROM idempotency_keys WHERE world_id=? AND idempotency_key=?').get('legacy-world', 'legacy-key').response_json, '{"accepted":true}');
   assert.equal(store.db.prepare('SELECT base_world_revision FROM context_manifests WHERE manifest_id=?').get('legacy-manifest').base_world_revision, 0);
+  assert.equal(store.db.prepare('SELECT source_version FROM entity_source_versions WHERE world_id=? AND entity_id=?').get('legacy-world', 'legacy-entity').source_version, 3);
   assert.deepEqual({ ...store.db.prepare('SELECT initial_game_time_coordinate,game_time_coordinate FROM worlds WHERE world_id=?').get('legacy-world') }, { initial_game_time_coordinate: 0, game_time_coordinate: 300000 });
   assert.deepEqual(
     store.db.prepare('SELECT event_id,game_time_coordinate,time_advance_ms FROM world_events WHERE world_id=? ORDER BY commit_sequence').all('legacy-world').map((row) => ({ ...row })),
