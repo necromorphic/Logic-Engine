@@ -403,6 +403,24 @@ test('actor binding is checked before query authorization even for complete-empt
   assert.equal(queryAuthorizationCalled, false);
 });
 
+test('missing source version token fails closed before Memory authorization', async (t) => {
+  const { consumer, provider, setCandidates, candidate } = setup(t);
+  let authorizationCalled = false;
+  provider.authorizeCandidate = async () => {
+    authorizationCalled = true;
+    return true;
+  };
+  setCandidates([candidate({
+    source: { kind: 'canonical_entity', entity_id: 'source-a' },
+  })]);
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_candidate_invalid_or_scope_mismatch');
+  assert.deepEqual(result.candidates, []);
+  assert.equal(authorizationCalled, false);
+});
+
 test('duplicate Memory identity/version cannot be rebound to a different canonical source', async (t) => {
   const { consumer, setCandidates, candidate } = setup(t);
   setCandidates([
