@@ -189,7 +189,7 @@ function fail(response, code, status = 503) {
  * A successful pre-snapshot and fsynced intent are required before the handler.
  * The response is held until a post-snapshot and fsynced outcome are recorded.
  */
-export function createHostLifecycleMutationMiddleware() {
+export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true' } = {}) {
     return async function hostLifecycleMutationMiddleware(request, response, next) {
         const operation = MUTATIONS.get(request.method + ' ' + request.baseUrl + request.path)
             ?? MUTATIONS.get(request.method + ' ' + request.originalUrl?.split('?')[0]);
@@ -199,11 +199,15 @@ export function createHostLifecycleMutationMiddleware() {
         let registry;
         try {
             const chatRootPath = request.user?.directories?.chats;
-            if (typeof chatRootPath !== 'string' || !path.isAbsolute(chatRootPath)) return next();
+            if (typeof chatRootPath !== 'string' || !path.isAbsolute(chatRootPath)) {
+                if (enforce) return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
+                return next();
+            }
             let canonicalChatRoot;
             try {
                 canonicalChatRoot = await realpath(chatRootPath);
             } catch {
+                if (enforce) return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
                 return next();
             }
             const stateDirectory = path.join(path.dirname(canonicalChatRoot), '.logic-engine-host');
@@ -211,12 +215,18 @@ export function createHostLifecycleMutationMiddleware() {
                 const stateStat = await lstat(stateDirectory);
                 if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) throw new Error('HOST_STATE_DIRECTORY_UNSAFE');
             } catch (error) {
-                if (error?.code === 'ENOENT') return next();
+                if (error?.code === 'ENOENT') {
+                    if (enforce) return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
+                    return next();
+                }
                 throw error;
             }
             const registryPath = path.join(stateDirectory, 'enrollments.json');
             registry = await readRegistry(registryPath);
-            if (registry.conversations.length === 0) return next();
+            if (registry.conversations.length === 0) {
+                if (enforce) return fail(response, 'HOST_ENROLLMENT_REQUIRED', 503);
+                return next();
+            }
             paths = await statePaths(request);
         } catch {
             return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
