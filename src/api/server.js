@@ -6,6 +6,7 @@ import { ProposalService } from '../application/proposals.js';
 import { ActorBindingService } from '../application/actor-bindings.js';
 import { AuthorizedReadService } from '../application/authorized-read-service.js';
 import { HostConversationWorldBindingService } from '../application/host-conversation-world-bindings.js';
+import { MemoryNpcConsumer } from '../application/memory-npc-consumer.js';
 
 const MAX = 1048576;
 
@@ -49,7 +50,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null, memoryNpcConsumer = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -60,6 +61,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   }
   if (adminToken !== null && (typeof adminToken !== 'string' || adminToken.length < 16 || [token, internalToken, approvalToken].includes(adminToken))) {
     throw new TypeError('Admin token must be at least 16 characters and differ from other tokens');
+  }
+  if (memoryNpcConsumer !== null && typeof memoryNpcConsumer?.retrieveForNpc !== 'function') {
+    throw new TypeError('Memory NPC consumer must be a trusted in-process consumer.');
   }
   if (authorizedReadFieldPolicy !== null && typeof authorizedReadFieldPolicy !== 'function') {
     throw new TypeError('Authorized-read field policy must be trusted application configuration.');
@@ -101,6 +105,47 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
       // The general bearer remains a mandatory outer gateway credential, not a
       // substitute for admin capability. Do not introduce a new read-only token
       // class without an explicit capability contract.
+      if (url.pathname === '/v1/memory/npc/query') {
+        if (req.method !== 'POST') {
+          return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported Memory/NPC query operation.' } });
+        }
+        const adapterId = adapterIdFor(req);
+        if (!adapterId) {
+          return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated Host adapter is required.' } });
+        }
+        if (!memoryNpcConsumer) {
+          return send(res, 503, { error: { code: 'MEMORY_NPC_NOT_READY', message: 'The protected Memory/NPC consumer is not configured.' } });
+        }
+        const body = await readBody(req);
+        if (!body || typeof body !== 'object' || Array.isArray(body)
+          || Object.keys(body).some((key) => !['conversation_id', 'actor_entity_id'].includes(key))
+          || !['conversation_id', 'actor_entity_id'].every((key) => typeof body[key] === 'string'
+            && body[key] === body[key].trim() && body[key].length > 0 && body[key].length <= 200
+            && ![...body[key]].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127))) {
+          throw new EngineError('INVALID_MEMORY_NPC_QUERY',
+            'Memory/NPC query accepts only server-derived conversation_id and actor_entity_id; world and purpose are Core-owned.', 400);
+        }
+        let result;
+        try {
+          result = await memoryNpcConsumer.retrieveForNpc({
+            adapterId,
+            conversationId: body.conversation_id,
+            actorEntityId: body.actor_entity_id,
+          });
+        } catch {
+          return send(res, 503, { error: { code: 'MEMORY_NPC_NOT_READY', message: 'Protected Memory is unavailable.' } });
+        }
+        if (!result || result.status !== 'ready' || !Array.isArray(result.candidates)
+          || !result.snapshot || typeof result.snapshot !== 'object') {
+          return send(res, 503, { error: { code: 'MEMORY_NPC_NOT_READY', message: 'Protected Memory is unavailable.' } });
+        }
+        return send(res, 200, {
+          status: 'ready',
+          snapshot: result.snapshot,
+          candidates: result.candidates,
+        });
+      }
+
       const globalRegistryRead = req.method === 'GET' && (
         url.pathname === '/v1/mechanics/audit' ||
         url.pathname === '/v1/mechanic-templates' ||
