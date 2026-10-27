@@ -129,6 +129,7 @@ const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
   route: 'google-ai-studio-chat-completions',
   model: 'gemini-2.5-flash-lite',
+  stream: false,
   body: JSON.stringify({ messages: [{ role: 'user', content: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' }] }),
   worldId: 'world-1',
   actorId: 'npc-1',
