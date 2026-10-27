@@ -919,6 +919,51 @@ export async function recordHostCaptureConflict(request, capture, upstreamStatus
  * This reports current identities/swipes only; it never upgrades Host trust,
  * historical completeness, or rollback resistance.
  */
+async function readCoreHostVersionInventory(conversationId) {
+    const baseUrl = process.env.LOGIC_ENGINE_CORE_URL;
+    const apiToken = process.env.LOGIC_ENGINE_API_TOKEN;
+    const adapterId = process.env.LOGIC_ENGINE_ADAPTER_ID;
+    const adapterToken = process.env.LOGIC_ENGINE_ADAPTER_TOKEN;
+    if (typeof baseUrl !== 'string' || !baseUrl.trim()
+        || typeof apiToken !== 'string' || apiToken.length < 16
+        || typeof adapterId !== 'string' || !adapterId.trim()
+        || typeof adapterToken !== 'string' || adapterToken.length < 16) {
+        throw new Error('CORE_HOST_INVENTORY_CONFIGURATION_MISSING');
+    }
+    const endpoint = new URL('/v1/host-version-ledger/inventory', baseUrl);
+    if (!['http:', 'https:'].includes(endpoint.protocol) || endpoint.username || endpoint.password) {
+        throw new Error('CORE_HOST_INVENTORY_CONFIGURATION_INVALID');
+    }
+    const response = await fetch(endpoint, {
+        method: 'POST',
+        redirect: 'error',
+        headers: {
+            authorization: 'Bearer ' + apiToken,
+            'content-type': 'application/json',
+            'x-adapter-id': adapterId,
+            'x-adapter-token': adapterToken,
+        },
+        body: JSON.stringify({ conversation_id: conversationId }),
+        signal: AbortSignal.timeout(5000),
+    });
+    if (!response.ok) throw new Error('CORE_HOST_INVENTORY_UNAVAILABLE');
+    const payload = await response.json().catch(() => null);
+    const inventory = payload?.inventory;
+    if (!inventory || inventory.authority !== 'CORE_HOST_VERSION_LEDGER'
+        || inventory.conversation_id !== conversationId
+        || !Array.isArray(inventory.versions)
+        || !['READY', 'NON_READY'].includes(inventory.inventory_status)
+        || inventory.versions.some(version => !version
+            || typeof version.message_id !== 'string' || typeof version.version_id !== 'string'
+            || typeof version.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(version.content_sha256)
+            || typeof version.active !== 'boolean' || typeof version.deleted !== 'boolean'
+            || (version.deleted && version.active))) {
+        throw new Error('CORE_HOST_INVENTORY_INVALID');
+    }
+    return inventory;
+}
+
+
 export async function getHostConversationInventory(request) {
     const paths = await statePaths(request);
     const registry = await readRegistry(paths.registryPath);
