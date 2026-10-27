@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateCondition, evaluateConditionResult } from '../src/core/rules.js';
+import { evaluateCondition, evaluateConditionResult, validateEffects } from '../src/core/rules.js';
 
 test('result API preserves legacy Boolean behavior while exposing missing context as unknown', () => {
   const rule = { op: 'eq', path: 'actor.location', value: 'office' };
@@ -162,5 +162,32 @@ test('rejects accessor-backed and cyclic nested comparison values without execut
   assert.throws(
     () => evaluateCondition({ op: 'eq', path: 'actor', value: {} }, { actor: cyclic }),
     (error) => error.code === 'INVALID_RULE_VALUE',
+  );
+});
+
+
+test('canonical effect validation rejects accessor-backed effects without executing getters', () => {
+  let reads = 0;
+  const effect = { kind: 'entity.delete', entity_id: 'entity-1' };
+  Object.defineProperty(effect, 'entity_id', {
+    enumerable: true,
+    get() { reads += 1; return 'entity-1'; },
+  });
+  assert.throws(() => validateEffects([effect]), (error) => error.code === 'INVALID_EFFECT');
+  assert.equal(reads, 0);
+});
+
+test('canonical effect validation rejects unsafe nested JSON values and malformed arrays', () => {
+  const cyclic = {};
+  cyclic.self = cyclic;
+  assert.throws(
+    () => validateEffects([{ kind: 'entity.create', entity_id: 'entity-1', entity_type: 'actor', attributes: cyclic }]),
+    (error) => error.code === 'INVALID_EFFECT',
+  );
+
+  const sparse = new Array(1);
+  assert.throws(
+    () => validateEffects(sparse),
+    (error) => error.code === 'INVALID_EFFECTS',
   );
 });
