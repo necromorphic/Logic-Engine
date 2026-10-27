@@ -1,7 +1,7 @@
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
-@@ -51,4 +51,5 @@
+@@ -50,4 +50,5 @@
  import { router as dataMaidRouter } from './endpoints/data-maid.js';
  import { router as backupsRouter } from './endpoints/backups.js';
  import { router as imageMetadataRouter } from './endpoints/image-metadata.js';
