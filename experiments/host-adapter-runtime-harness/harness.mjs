@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
 import { resolve } from 'node:path';
+import { readFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 
@@ -36,6 +37,19 @@ for (const name of Object.keys(originalConsoleMethods)) {
     loggedOutput.push({ method: name, rendered });
   };
 }
+
+test('patched clearChat entry point invokes fail-closed guard before side effects', async () => {
+  const script = await readFile(resolve(stRoot, 'public/script.js'), 'utf8');
+  const start = script.indexOf('export async function clearChat({ clearData = false } = {}) {');
+  assert.notEqual(start, -1, 'pinned clearChat entry point must exist');
+  const end = script.indexOf('\n}', start);
+  assert.ok(end > start, 'clearChat function boundary must exist');
+  const body = script.slice(start, end);
+  const guard = body.indexOf("guardOperation('clear-chat', [])");
+  const firstSideEffect = body.indexOf('cancelDebouncedChatSave();');
+  assert.ok(guard >= 0, 'clearChat must call the Host lifecycle guard');
+  assert.ok(firstSideEffect > guard, 'the guard must run before clear/reload side effects');
+});
 
 const requireFromST = createRequire(resolve(stRoot, 'package.json'));
 const express = requireFromST('express');
