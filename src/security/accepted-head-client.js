@@ -65,10 +65,16 @@ async function main() {
       if (!Number.isSafeInteger(body?.heads?.core) || body.heads.core < 0
         || !Number.isSafeInteger(body?.heads?.provider) || body.heads.provider < 0
         || typeof body?.pending?.core !== 'boolean' || typeof body?.pending?.provider !== 'boolean'
-        || typeof body?.enrolled?.core !== 'boolean' || typeof body?.enrolled?.provider !== 'boolean') {
+        || typeof body?.enrolled?.core !== 'boolean' || typeof body?.enrolled?.provider !== 'boolean'
+        || !Array.isArray(body?.pending_operations) || body.pending_operations.length > 2
+        || body.pending_operations.some((operation) => !['core', 'provider'].includes(operation?.domain)
+          || typeof operation?.operation_id !== 'string'
+          || typeof operation?.operation_digest !== 'string' || !/^[a-f0-9]{64}$/.test(operation.operation_digest)
+          || !['enroll', 'mutation'].includes(operation?.operation_kind)
+          || !Number.isSafeInteger(operation?.resulting_head) || operation.resulting_head < 1)) {
         throw new Error('invalid response');
       }
-      process.stdout.write(JSON.stringify({ ok: true, heads: body.heads, pending: body.pending, enrolled: body.enrolled }));
+      process.stdout.write(JSON.stringify({ ok: true, heads: body.heads, pending: body.pending, pending_operations: body.pending_operations, enrolled: body.enrolled }));
     } else {
       const result = body?.result;
       const expectedStatuses = action === 'finalize' ? ['committed'] : ['pending', 'committed'];
