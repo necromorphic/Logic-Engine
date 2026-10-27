@@ -25,6 +25,7 @@ test('B recomputes the transitive dependent closure for a declared dependency', 
     strategy: 'B',
     changedInputs: ['hp'],
     previousValues: { branch: 'infected', effect: 8, summary: 'result:8' },
+    dependencyGraphVerified: true,
   });
   assert.equal(result.status, 'ready');
   assert.deepEqual(result.executed, ['effect', 'summary']);
@@ -186,6 +187,7 @@ test('changing a branch selector recomputes the selector and its full dependent 
     strategy: 'B',
     changedInputs: ['infected'],
     previousValues: { branch: 'infected', effect: 8, summary: 'result:8' },
+    dependencyGraphVerified: true,
   });
   assert.deepEqual(result.executed, ['branch', 'effect', 'summary']);
   assertProjection(result.values, { branch: 'healthy', effect: 5, summary: 'result:5' });
