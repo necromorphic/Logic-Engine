@@ -4,7 +4,7 @@ import { Readable } from 'node:stream';
 import { pipeline } from 'node:stream/promises';
 import { verifyDispatchRequestSignature } from './memory-dispatch-gateway.js';
 
-const loopbackHosts = new Set(['127.0.0.1', '::1', 'localhost']);
+const loopbackHosts = new Set(['127.0.0.1', '::1']);
 
 function tokenMatches(expected, received) {
   if (typeof expected !== 'string' || typeof received !== 'string') return false;
@@ -25,11 +25,12 @@ async function readJsonBody(request, limit) {
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
 }
 
-export function createMemoryDispatchGatewayServer({
+export async function createMemoryDispatchGatewayServer({
   gateway,
   hostToken,
   hostSigningKey,
   host = '127.0.0.1',
+  port = 0,
   maxBodyBytes = 5_000_000,
 }) {
   if (!gateway || typeof gateway.dispatchProtectedRequest !== 'function'
@@ -37,6 +38,7 @@ export function createMemoryDispatchGatewayServer({
     || typeof hostSigningKey !== 'string' || hostSigningKey.length < 32
     || hostToken === hostSigningKey
     || !loopbackHosts.has(host)
+    || !Number.isInteger(port) || port < 0 || port > 65535
     || !Number.isInteger(maxBodyBytes) || maxBodyBytes < 1024) {
     throw new TypeError('Invalid Memory dispatch Gateway server configuration.');
   }
@@ -122,5 +124,20 @@ export function createMemoryDispatchGatewayServer({
     }
   });
 
+  // Own the bind operation: callers cannot accidentally expose this endpoint
+  // by listening on 0.0.0.0 or another non-loopback interface.
+  await new Promise((resolve, reject) => {
+    const onError = (error) => reject(error);
+    server.once('error', onError);
+    server.listen(port, host, () => {
+      server.off('error', onError);
+      const address = server.address();
+      if (!address || typeof address === 'string' || !loopbackHosts.has(address.address)) {
+        server.close(() => reject(new Error('MEMORY_GATEWAY_NON_LOOPBACK_BIND_DENIED')));
+        return;
+      }
+      resolve();
+    });
+  });
   return server;
 }
