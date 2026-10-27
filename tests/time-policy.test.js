@@ -308,3 +308,19 @@ test('TimePolicy enforces the seven-day action ceiling but permits longer skip c
   );
   assert.equal(createTimePolicy(policy({ max_skip_duration_ms: 900000000 })).max_skip_duration_ms, 900000000);
 });
+
+
+test('inherited category proposal fields cannot select a TimePolicy category', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'category');
+  Object.defineProperty(Object.prototype, 'category', {
+    configurable: true, enumerable: true, writable: true, value: 'simple',
+  });
+  try {
+    const result = resolveDurationDecision(policy(), 'craft.completed', {});
+    assert.equal(result.status, 'rejected');
+    assert.equal(result.reason, 'INVALID_CATEGORY_PROPOSAL');
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'category', previous);
+    else delete Object.prototype.category;
+  }
+});
