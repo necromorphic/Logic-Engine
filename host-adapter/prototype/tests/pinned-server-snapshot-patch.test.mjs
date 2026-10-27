@@ -24,3 +24,18 @@ test('pinned ST patch exposes server-derived persisted inventory, not caller-sup
   assert.match(patch, /CURRENT_PERSISTED_SNAPSHOT_NON_AUTHORITATIVE/);
   assert.match(patch, /historicalCompleteness: 'UNKNOWN'/);
 });
+
+
+test('server mutation journal covers character routes that can alter chat identity bindings', async () => {
+  const journalPath = fileURLToPath(new URL('../server-lifecycle-mutation-journal.mjs', import.meta.url));
+  const journal = await readFile(journalPath, 'utf8');
+  for (const route of [
+    'POST /api/characters/rename',
+    'POST /api/characters/edit',
+    'POST /api/characters/edit-attribute',
+    'POST /api/characters/merge-attributes',
+    'POST /api/characters/delete',
+  ]) {
+    assert.ok(journal.includes("['" + route + "'"), 'mutation route is journaled: ' + route);
+  }
+});
