@@ -12,6 +12,23 @@
 
 > Проценты и таблицы ниже — прежняя ориентировочная оценка архитектурных областей, а не автоматический индикатор текущей готовности. Для точного решения о включении используйте issue #264 и доказательства на конкретном commit.
 
+## Stage 2: Memory → NPC — progress estimate (27.10.2026)
+
+Это **оценка выполненных инженерных задач по чек-листу**, а не вероятность успешного запуска. Проценты не заменяют обязательные release gates.
+
+| Workstream | Progress | Evidence / remaining |
+|---|---:|---|
+| Host lifecycle patch + pinned SillyTavern source audit | `████████░░ 80%` | Patch validation, browser restart fixture and pinned-source assertions passed; live installed ST and full historical inventory are not proven. |
+| Memory Provider accepted-head writes + reads | `███████░░░ 70%` | Earlier full Runtime CI passed on an earlier head; new live-read gate targeted tests passed 2/2. Full Runtime/NPC CI for the updated PR head is pending. |
+| Core accepted-head + canonical snapshot reads | `███████░░░ 70%` | New read gate targeted test passed; full Runtime/NPC CI and independent Core review are pending. |
+| Gateway/dispatch ledger prototype | `████░░░░░░ 40%` | Signature, ledger, evidence-reader and synchronous dispatch-start tests exist; production Host route is not wired. |
+| Exact final body ↔ authorized candidate/version binding | `██░░░░░░░░ 20%` | Not proven: current ST request body is client-assembled; trusted server-owned Memory assembly seam is unresolved. |
+| Complete Host inventory + restore-resistant authority | `██░░░░░░░░ 20%` | Previously observed rollback can be detected; all-time active/history/deleted inventory and joint privileged-restore resistance remain NON_READY. |
+| Windows service identities, effective ACLs, backup/restore recovery | `█░░░░░░░░░ 10%` | Requirements identified; target deployment evidence has not been produced. |
+| Installed SillyTavern + Android/Termux runtime | `░░░░░░░░░░ 0%` | Not tested. |
+
+**Production readiness: `0% — NO-GO`.** This is a hard-gated status, not an average of the rows. Keep Memory → NPC `DISABLED / FAIL-CLOSED` until every required gate has evidence and the exact implementation diff receives independent Core approval.
+
 ## Основной принцип
 
 **Замысел ≠ происходящее ≠ рассказанное.**
