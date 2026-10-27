@@ -8,13 +8,18 @@ import { getAcceptedHeadStatusSync } from './accepted-head-client-sync.js';
 export function createDispatchRequestSignature(secret, request) {
   if (typeof secret !== 'string' || secret.length < 32
     || !request || typeof request !== 'object'
-    || typeof request.body !== 'string' || typeof request.stream !== 'boolean') {
+    || typeof request.stream !== 'boolean') {
     throw new TypeError('Invalid signed dispatch request.');
   }
+  const bodyDigest = typeof request.bodyDigest === 'string' && /^[a-f0-9]{64}$/.test(request.bodyDigest)
+    ? request.bodyDigest
+    : typeof request.body === 'string'
+      ? createHash('sha256').update(request.body, 'utf8').digest('hex')
+      : null;
+  if (!bodyDigest) throw new TypeError('Invalid signed dispatch body digest.');
   const sources = normalizeSources(request.sources);
   const candidates = normalizeCandidates(request.candidates);
   assertSourcesMatchCandidates(sources, candidates);
-  const bodyDigest = createHash('sha256').update(request.body, 'utf8').digest('hex');
   const canonical = JSON.stringify({
     request_id: request.requestId,
     route: request.route,
@@ -40,7 +45,7 @@ export function verifyDispatchRequestSignature(secret, request, signature) {
 }
 
 export const SUPPORTED_PROTECTED_MEMORY_ROUTES = Object.freeze([
-  'google-ai-studio-chat-completions',
+  'sillytavern-chat-completions',
 ]);
 
 const validText = (value, max = 200) => typeof value === 'string'
@@ -199,7 +204,7 @@ function assertSyncResult(value) {
  * The caller must provide trusted synchronous Core/Provider readers that open
  * their databases read-only and validate the exact current source/grant state.
  * The module intentionally has no fallback reader or transport. Only the
- * explicitly allowlisted Google AI Studio chat route is supported.
+ * explicitly allowlisted SillyTavern server-side chat-completion route is supported.
  */
 export class MemoryDispatchGateway {
   constructor({
@@ -217,7 +222,7 @@ export class MemoryDispatchGateway {
       || typeof readToken !== 'string' || readToken.length < 32
       || typeof readCoreEvidence !== 'function'
       || typeof readProviderEvidence !== 'function'
-      || typeof sendUpstream !== 'function') {
+      ) {
       throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a transport.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
@@ -230,7 +235,7 @@ export class MemoryDispatchGateway {
     this.readToken = readToken;
     this.readCoreEvidence = readCoreEvidence;
     this.readProviderEvidence = readProviderEvidence;
-    this.sendUpstream = sendUpstream;
+    // The gateway records dispatch-start and issues a permit; it never sends to a model provider.
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
@@ -245,7 +250,7 @@ export class MemoryDispatchGateway {
           CREATE TABLE dispatch_ledger (
             request_id TEXT PRIMARY KEY,
             request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
-            route TEXT NOT NULL CHECK(route='google-ai-studio-chat-completions'),
+            route TEXT NOT NULL CHECK(route='sillytavern-chat-completions'),
             model TEXT NOT NULL,
             stream INTEGER NOT NULL CHECK(stream IN (0,1)),
             world_id TEXT NOT NULL,
@@ -300,11 +305,12 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, model, stream, body, worldId, actorId, purpose, sources, candidates, forwardResponse, signal }) {
+  async dispatchProtectedRequest({ requestId, route, model, stream, bodyDigest, body, worldId, actorId, purpose, sources, candidates }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
-      || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
+      || !(typeof bodyDigest === 'string' && /^[a-f0-9]{64}$/.test(bodyDigest))
+      || (body !== undefined)
       || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
     }
@@ -315,7 +321,7 @@ export class MemoryDispatchGateway {
       route,
       model,
       stream,
-      body_digest: createHash('sha256').update(body, 'utf8').digest('hex'),
+      body_digest: bodyDigest,
       world_id: worldId,
       actor_id: actorId,
       purpose,
@@ -408,31 +414,39 @@ export class MemoryDispatchGateway {
       try { release?.(); } catch {}
     }
 
-    // Never hold the shared coordinator while performing upstream network I/O.
-    // Once DISPATCH_STARTED is durable, an ambiguous outcome is never retried.
-    let response;
-    try {
-      response = await this.sendUpstream({ route, model, stream, body, requestId, requestDigest, forwardResponse, signal });
-    } catch {
-      this.#recordOutcome(requestId, 'UNKNOWN', null);
-      throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
-    }
-
-    const outcomeCode = Number.isInteger(response?.status) ? response.status : null;
-    try {
-      this.#recordOutcome(requestId, 'COMPLETED', outcomeCode);
-    } catch {
-      throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
-    }
-    return response;
+    // The Host server must verify this one-use permit before invoking its already
+    // configured SillyTavern backend. This service never calls a model API.
+    return Object.freeze({
+      status: 'DISPATCH_STARTED',
+      requestId,
+      requestDigest,
+      coreHead,
+      providerHead,
+    });
   }
 
-  #recordOutcome(requestId, status, outcomeCode) {
+  recordDispatchOutcome({ requestId, requestDigest, outcome, outcomeCode = null }) {
+    if (!validText(requestId, 200) || !/^[a-f0-9]{64}$/.test(requestDigest)
+      || !['COMPLETED', 'UNKNOWN'].includes(outcome)
+      || (outcomeCode !== null && (!Number.isInteger(outcomeCode) || outcomeCode < 100 || outcomeCode > 599))) {
+      throw new Error('MEMORY_DISPATCH_OUTCOME_INVALID');
+    }
+    let release = null;
+    try {
+      release = beginCoordinatorLock(this.coordinatorDb);
+      this.#recordOutcome(requestId, requestDigest, outcome, outcomeCode);
+      return Object.freeze({ status: outcome, requestId, requestDigest });
+    } finally {
+      try { release?.(); } catch {}
+    }
+  }
+
+  #recordOutcome(requestId, requestDigest, status, outcomeCode) {
     this.db.exec('BEGIN IMMEDIATE');
     try {
       const result = this.db.prepare(
-        'UPDATE dispatch_ledger SET status=?,outcome_code=?,finished_at=? WHERE request_id=? AND status=?',
-      ).run(status, outcomeCode, new Date().toISOString(), requestId, 'DISPATCH_STARTED');
+        'UPDATE dispatch_ledger SET status=?,outcome_code=?,finished_at=? WHERE request_id=? AND request_digest=? AND status=?',
+      ).run(status, outcomeCode, new Date().toISOString(), requestId, requestDigest, 'DISPATCH_STARTED');
       if (result.changes !== 1) throw new Error('DISPATCH_LEDGER_OUTCOME_CONFLICT');
       this.db.exec('COMMIT');
     } catch (error) {
