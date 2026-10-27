@@ -290,6 +290,7 @@ test('optional calendar fields ignore polluted Object.prototype values', () => {
     holidays: [{ id: 'inherited', name: 'Inherited', month_id: 'first', day_of_month: 1 }],
     time_of_day_ms: 500,
     year_number: 11,
+    days: 999,
   };
   try {
     for (const [key, value] of Object.entries(polluted)) {
@@ -306,6 +307,9 @@ test('optional calendar fields ignore polluted Object.prototype values', () => {
     const normalized = createCalendarDefinition(definition);
     assert.deepEqual(normalized.holidays, []);
     assert.equal(normalized.epoch.time_of_day_ms, 0);
+
+    const rawWithoutDerivedDays = calendar();
+    assert.doesNotThrow(() => createCalendarDefinition(rawWithoutDerivedDays));
 
     const date = { year_number: 10, month_id: 'first', day_of_month: 1 };
     assert.equal(calendarDateToCoordinate(calendar(), date), 0);
