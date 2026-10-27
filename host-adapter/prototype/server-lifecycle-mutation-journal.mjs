@@ -445,6 +445,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
 
         let paths;
         let registry;
+        let coreConfigured = false;
         try {
             const chatRootPath = request.user?.directories?.chats;
             if (typeof chatRootPath !== 'string' || !path.isAbsolute(chatRootPath)) {
@@ -478,7 +479,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             if (UNSUPPORTED_ENROLLED_MUTATIONS.has(operation)) {
                 return fail(response, 'HOST_MUTATION_PATH_NOT_PROVEN', 503);
             }
-            const coreConfigured = Boolean(process.env.LOGIC_ENGINE_CORE_URL && process.env.LOGIC_ENGINE_API_TOKEN
+            coreConfigured = Boolean(process.env.LOGIC_ENGINE_CORE_URL && process.env.LOGIC_ENGINE_API_TOKEN
                 && process.env.LOGIC_ENGINE_ADAPTER_ID && process.env.LOGIC_ENGINE_ADAPTER_TOKEN);
             if (requireCoreInventory && !coreConfigured) {
                 return fail(response, 'CORE_HOST_INVENTORY_CONFIGURATION_MISSING', 503);
