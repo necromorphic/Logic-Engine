@@ -198,12 +198,60 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).index_health, 'ready');
     assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'current');
 
+    // A live Provider process must not serve from a locally current DB while
+    // the external accepted-head authority has an unfinalized newer head.
+    const pendingDigest = 'c'.repeat(64);
+    const pending = advanceAcceptedHeadSync({
+      domain: 'provider',
+      operationId: 'provider-live-pending-read-check',
+      operationDigest: pendingDigest,
+      expectedHead: currentProviderHead(),
+      token: providerToken,
+      port,
+    });
+    assert.equal(pending.status, 'pending');
+    await assert.rejects(provider.retrieveCandidates(scope), /PROVIDER_ACCEPTED_HEAD_MISMATCH/);
+    await assert.rejects(provider.authorizeCandidate({
+      world_id: scope.world_id,
+      subject_id: scope.subject_id,
+      purpose: scope.purpose,
+      record_ref: 'memory:accepted-head-record',
+      record_version: 'record-v1',
+      source_kind: 'canonical_entity',
+      source_entity_id: 'entity-source-a',
+    }), /PROVIDER_ACCEPTED_HEAD_MISMATCH/);
+
+    // Simulate the matching local commit having succeeded before recovery.
+    // Startup must verify the exact pending operation and finalize it.
+    provider.close();
+    provider = null;
+    const recoveryDb = new DatabaseSync(providerPath);
+    try {
+      recoveryDb.prepare(
+        'UPDATE accepted_head_state SET head=?,last_operation_id=?,last_operation_digest=? WHERE singleton=1',
+      ).run(pending.head, pending.operation_id, pendingDigest);
+    } finally {
+      recoveryDb.close();
+    }
+    provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
+    assert.equal(getAcceptedHeadsSync({ port, token: providerToken }).provider, pending.head);
+
     child.stdin.end('stop');
     await once(child, 'exit');
     child = null;
 
     assert.throws(() => provider.grantQuery(scope, false), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
     assert.equal(provider.authorizeQuery(scope), true);
+    await assert.rejects(provider.retrieveCandidates(scope), /PROVIDER_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
+    await assert.rejects(provider.authorizeCandidate({
+      world_id: scope.world_id,
+      subject_id: scope.subject_id,
+      purpose: scope.purpose,
+      record_ref: 'memory:accepted-head-record',
+      record_version: 'record-v1',
+      source_kind: 'canonical_entity',
+      source_entity_id: 'entity-source-a',
+    }), /PROVIDER_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
   } finally {
     try { provider?.close(); } catch {}
     if (child) {
