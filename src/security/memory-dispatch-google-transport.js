@@ -22,13 +22,12 @@ export function createGoogleAiStudioTransport({
       'https://generativelanguage.googleapis.com/'
       + apiVersion + '/models/' + encodeURIComponent(model) + ':' + action,
     );
-    url.searchParams.set('key', apiKey);
     if (stream) url.searchParams.set('alt', 'sse');
 
     // The API key and request body are never logged or written to the ledger.
     const upstream = await fetchImpl(url, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
       body,
       signal,
     });
