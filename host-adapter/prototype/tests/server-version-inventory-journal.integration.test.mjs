@@ -62,6 +62,7 @@ test('enforced server mutation journal records before/after persisted version in
   const envKeys = ['LOGIC_ENGINE_CORE_URL', 'LOGIC_ENGINE_API_TOKEN', 'LOGIC_ENGINE_ADAPTER_ID', 'LOGIC_ENGINE_ADAPTER_TOKEN'];
   const priorEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
   const coreVersions = new Map();
+  let coreInventoryStatus = 'READY';
   process.env.LOGIC_ENGINE_CORE_URL = 'http://127.0.0.1:8787';
   process.env.LOGIC_ENGINE_API_TOKEN = 'test-core-api-token-long-enough';
   process.env.LOGIC_ENGINE_ADAPTER_ID = 'adapter-test';
@@ -83,7 +84,7 @@ test('enforced server mutation journal records before/after persisted version in
         inventory: {
           authority: 'CORE_HOST_VERSION_LEDGER',
           conversation_id: body.conversation_id,
-          inventory_status: 'READY',
+          inventory_status: coreInventoryStatus,
           versions,
         },
       }) };
@@ -140,6 +141,20 @@ test('enforced server mutation journal records before/after persisted version in
     const checkpoint = await getHostConversationInventory(request);
     assert.equal(checkpoint.complete, true);
     assert.equal(checkpoint.mutationJournal.snapshotConsistency, 'MATCHES_LAST_COMMITTED_LOCAL_CHECKPOINT');
+
+    // Matching digests are not sufficient while Core says its inventory is not ready.
+    coreInventoryStatus = 'NON_READY';
+    const notReadyResponse = responseMock();
+    let notReadyHandlerCalled = false;
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, notReadyResponse, async () => {
+      notReadyHandlerCalled = true;
+      notReadyResponse.json({ ok: true });
+    });
+    await notReadyResponse.finished;
+    assert.equal(notReadyHandlerCalled, false);
+    assert.equal(notReadyResponse.statusCode, 503);
+    assert.match(notReadyResponse.body, /CORE_HOST_INVENTORY_NOT_READY/);
+    coreInventoryStatus = 'READY';
 
     // Remove a swipe through the guarded save path, then require an explicit
     // Core-accepted tombstone before the observed inventory can stay complete.
