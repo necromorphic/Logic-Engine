@@ -1120,4 +1120,25 @@ test('real file-backed SQLiteMemoryProvider revalidates revocation races and pre
   const staleSourceResult = await staleSourceInFlight;
   assert.equal(staleSourceResult.status, 'non_ready');
   assert.deepEqual(staleSourceResult.candidates, []);
+
+  // Roll back the canonical mutation. The visible source projection returns to
+  // its prior value, but the source token must advance again so the original
+  // indexed candidate cannot become valid merely because the old value returned.
+  const rollback = engine.rollbackEvent(scope.world_id, {
+    root_event_id: 'update-source-during-memory-validation',
+    idempotency_key: 'rollback-source-during-memory-validation',
+  });
+  assert.equal(rollback.rollback_outcome, 'resolved');
+  assert.equal(
+    engine.getSnapshot(scope.world_id, { entityIds: ['source-real'] }).entities[0].attributes.public_note,
+    'read from canonical Core state',
+  );
+  const restoredSourceVersion = store.db.prepare(`SELECT source_version FROM entity_source_versions
+    WHERE world_id=? AND entity_id=?`).get(scope.world_id, 'source-real');
+  assert.equal(restoredSourceVersion.source_version, 3,
+    'rollback must issue a new source token even when the canonical projection is restored');
+
+  const afterRollback = await retrieve();
+  assert.equal(afterRollback.status, 'non_ready');
+  assert.deepEqual(afterRollback.candidates, []);
 });
