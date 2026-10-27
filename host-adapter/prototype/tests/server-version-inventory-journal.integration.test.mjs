@@ -143,6 +143,7 @@ test('enforced server mutation journal records before/after persisted version in
 
     // Remove a swipe through the guarded save path, then require an explicit
     // Core-accepted tombstone before the observed inventory can stay complete.
+    request.body = { avatar_url: 'avatar.png', file_name: 'chat-a', chat: [{ chat_metadata: { logic_engine_conversation_id: conversationUuid } }, makeMessage({ messageId, versions: [{ versionId: version2, text: 'private-after', parentVersionId: version1 }], activeVersionIndex: 0 })] };
     const deleteResponse = responseMock();
     await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, deleteResponse, async () => {
       await writeChat([makeMessage({
