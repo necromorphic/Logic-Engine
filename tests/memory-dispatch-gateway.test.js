@@ -58,7 +58,7 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
-async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, initialProviderGrant = true } = {}) {
+async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -102,7 +102,7 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       granted: providerGranted,
       readiness: 'READY',
       sources,
-      candidates,
+      candidates: providerCandidatesOverride ?? candidates,
     }),
     sendUpstream: async (request) => {
       calls.push(request);
@@ -205,6 +205,27 @@ test('read-only Gateway SQLite connection can read committed WAL state without w
     try { reader?.close(); } catch {}
     writer.close();
     rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+test('dispatch rejects Provider evidence whose exact candidate record/version set differs from the signed request', async () => {
+  const fixture = await createFixture({
+    providerCandidatesOverride: [{
+      record_ref: 'record-42',
+      record_version: 'record-version-4',
+      source_kind: 'canonical_entity',
+      source_entity_id: 'entity-42',
+      source_version: 'version-7',
+    }],
+  });
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('provider-candidate-mismatch')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0, 'mismatched Provider evidence must block all upstream calls');
+  } finally {
+    await fixture.close();
   }
 });
 
