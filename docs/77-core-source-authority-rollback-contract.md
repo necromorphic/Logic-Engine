@@ -123,3 +123,12 @@ This is a contract gap, not permission to add a public API, cursor table, outbox
 ## 7. Non-goals and safety boundary
 
 This document does not approve a public source-version API, raw Host-message retention, a broader read policy, a new outbox/cursor, cross-store atomicity, restore-resistant anti-rollback implementation, or production Memory→NPC traffic. It is a Core-owned contract proposal and acceptance checklist for review; any unresolved trust boundary remains fail-closed.
+
+
+### Full-inventory API implementation update (2026-10-28)
+
+The first audit correctly found that `getSnapshot(worldId)` does not enumerate entities. A bounded Core-owned inventory method is now implemented as a candidate on this branch: `getCanonicalEntityInventory(worldId, { limit, cursor })`. It returns all canonical entities, including destroyed entities, with their source token (or explicit `null` when unverifiable), and binds each page to `world_revision + commit_sequence`. Pages are capped at 200 entities; continuation cursors carry the marker and an integrity digest. If the world changes between pages, the read fails with `ENTITY_INVENTORY_SNAPSHOT_STALE`; missing worlds, malformed cursors, and unavailable Core authority fail closed.
+
+A Core-owned Provider callback, `createCanonicalEntityInventoryValidator(engine)`, now enumerates every page and verifies that each Provider record maps to an active entity with the exact current source token. The Core↔Provider integration tests now use this callback rather than a fixture that blindly returns `true`.
+
+**Status:** implementation candidate added; CI and independent review are still required. This closes the previously missing inventory interface at code level only. It does not prove Host final-send enforcement, backup-restore anti-rollback, or journal replay completeness, and it does not authorize production Memory→NPC traffic.
