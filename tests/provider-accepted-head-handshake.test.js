@@ -225,13 +225,13 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     // Startup must verify the exact pending operation and finalize it.
     provider.close();
     provider = null;
-    const recoveryDb = new DatabaseSync(providerPath);
+    const pendingReadRecoveryDb = new DatabaseSync(providerPath);
     try {
-      recoveryDb.prepare(
+      pendingReadRecoveryDb.prepare(
         'UPDATE accepted_head_state SET head=?,last_operation_id=?,last_operation_digest=? WHERE singleton=1',
       ).run(pending.head, pending.operation_id, pendingDigest);
     } finally {
-      recoveryDb.close();
+      pendingReadRecoveryDb.close();
     }
     provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
     assert.equal(getAcceptedHeadsSync({ port, token: providerToken }).provider, pending.head);
