@@ -361,8 +361,8 @@ test('partial Provider retrieval is non-ready through the real Core/NPC consumer
   assert.equal(providerResult.completeness, 'partial');
 
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id,
     adapterId: 'provider-e2e-adapter',
+    conversationId: 'provider-e2e-chat',
     actorEntityId: s.scope.subject_id,
   });
   assert.equal(result.status, 'non_ready');
@@ -388,8 +388,8 @@ test('single record revoked during NPC candidate validation returns non-ready, n
   };
 
   const pending = s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id,
     adapterId: 'provider-e2e-adapter',
+    conversationId: 'provider-e2e-chat',
     actorEntityId: s.scope.subject_id,
   });
   await validationStarted;
@@ -424,8 +424,8 @@ test('a real Core source mutation after reconciliation blocks NPC retrieval with
   assert.equal(changed.accepted, true);
 
   const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id,
     adapterId: 'provider-e2e-adapter',
+    conversationId: 'provider-e2e-chat',
     actorEntityId: s.scope.subject_id,
   });
   assert.equal(result.status, 'non_ready');
