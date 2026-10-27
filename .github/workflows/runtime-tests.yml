@@ -30,6 +30,34 @@ jobs:
       - name: Run NPC memory boundary tests
         run: node --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js
 
+  sillytavern-extension:
+    # Validate the separate Host extension against the exact source revision it targets.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.2.2
+        with:
+          node-version: '22.13.0'
+      - name: Test extension UI and safe failure behavior
+        run: node --test host-adapter/sillytavern-extension/tests/*.test.mjs
+      - name: Test existing Host lifecycle prototype
+        run: node --test host-adapter/prototype/tests/*.test.mjs
+      - name: Check out the exact pinned SillyTavern source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: SillyTavern/SillyTavern
+          ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          path: SillyTavern
+      - name: Verify pinned source revision and generate review patch
+        run: |
+          test "$(git -C SillyTavern rev-parse HEAD)" = "06bde939fb1e9c4c8d8641d810f0a916b5bce127"
+          node host-adapter/sillytavern-extension/prepare-pinned-st-patch.mjs
+      - name: Verify patch applies cleanly to the pinned SillyTavern revision
+        run: git -C SillyTavern apply --check ../host-adapter/sillytavern-extension/patches/sillytavern-1.19.0-logic-engine-bridge.patch
+
   test:
     runs-on: [self-hosted, Windows, X64]
     timeout-minutes: 10
