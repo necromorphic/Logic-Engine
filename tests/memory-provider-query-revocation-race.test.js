@@ -609,6 +609,7 @@ test('failed index rebuild rolls back index deletion instead of leaving a partia
 test('retrieval fails closed when another Provider connection revokes and re-grants query access', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'memory-provider-cross-connection-'));
   const path = join(dir, 'provider.sqlite');
+  const coordinatorPath = join(dir, 'coordinator.sqlite');
   let releaseSnapshot;
   let signalSnapshot;
   const snapshotStarted = new Promise((resolve) => { signalSnapshot = resolve; });
@@ -616,6 +617,7 @@ test('retrieval fails closed when another Provider connection revokes and re-gra
   let holdSnapshot = false;
   const options = {
     path,
+    coordinatorPath,
     getSnapshot: async () => {
       if (holdSnapshot) {
         signalSnapshot();
