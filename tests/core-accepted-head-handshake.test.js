@@ -175,6 +175,39 @@ test('Core commits only when accepted-head authority is current and aborts mutat
       'SELECT head,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get().last_operation_id, pendingRecovery.operation_id);
 
+    // Canonical reads must fail closed when the external Core head has advanced
+    // but the local Core checkpoint has not yet committed/finalized.
+    const readPendingDigest = 'f'.repeat(64);
+    const readPending = advanceAcceptedHeadSync({
+      domain: 'core',
+      operationId: 'core-live-pending-read-check',
+      operationDigest: readPendingDigest,
+      expectedHead: 4,
+      token: coreToken,
+      port,
+    });
+    assert.equal(readPending.status, 'pending');
+    assert.throws(
+      () => store.readSnapshot('accepted-head-world-one'),
+      error => error.code === 'CORE_ACCEPTED_HEAD_MISMATCH',
+    );
+
+    // Simulate the matching local commit having completed; startup validates
+    // the exact operation identity before finalizing the pending authority head.
+    store.close();
+    store = null;
+    const readRecoveryDb = new DatabaseSync(corePath);
+    try {
+      readRecoveryDb.prepare(
+        'UPDATE accepted_head_state SET head=?,last_operation_id=?,last_operation_digest=? WHERE singleton=1',
+      ).run(readPending.head, readPending.operation_id, readPendingDigest);
+    } finally {
+      readRecoveryDb.close();
+    }
+    store = new SQLiteStore(corePath);
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: readPending.head, provider: 1 });
+    assert.doesNotThrow(() => store.readSnapshot('accepted-head-world-one'));
+
     child.stdin.end('stop');
     await once(child, 'exit');
     child = null;
@@ -185,6 +218,10 @@ test('Core commits only when accepted-head authority is current and aborts mutat
       world_pack_version: '1',
       game_time: '2026-01-01T00:01:00Z',
     }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
+    assert.throws(
+      () => store.readSnapshot('accepted-head-world-one'),
+      error => error.code === 'CORE_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE',
+    );
     assert.equal(store.world('accepted-head-world-three') ?? null, null);
 
     store.close();
