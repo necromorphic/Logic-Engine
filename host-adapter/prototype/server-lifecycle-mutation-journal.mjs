@@ -219,7 +219,7 @@ function verifyEnrolledChatSavePersistence(request, registry, after) {
     // native route remains responsible for path validation and the persisted
     // scanner remains the source of observed state.
     const sanitizedFileName = String(body?.file_name ?? '')
-        .replace(/[<>:"/\\|?*\\u0000-\\u001F]/g, '')
+        .replace(/[<>:"/\\|?*\u0000-\u001F]/g, '')
         .replace(/[. ]+$/g, '');
     const fileName = sanitizedFileName + '.jsonl';
     const sourcePath = cardName + '/' + fileName;
