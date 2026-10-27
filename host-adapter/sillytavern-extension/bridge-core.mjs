@@ -9,14 +9,16 @@ export function normalizeEngineUrl(value) {
   return url.origin;
 }
 
-export async function fetchHealth(baseUrl, fetchImpl = fetch) {
+export async function fetchHealth(baseUrl, fetchImpl = fetch, lifecycleSignal = null) {
   const url = normalizeEngineUrl(baseUrl) + '/health';
   const response = await fetchImpl(url, {
     method: 'GET',
     credentials: 'omit',
     cache: 'no-store',
     redirect: 'error',
-    signal: AbortSignal.timeout(2500),
+    signal: lifecycleSignal
+      ? AbortSignal.any([lifecycleSignal, AbortSignal.timeout(2500)])
+      : AbortSignal.timeout(2500),
   });
   if (!response.ok) throw new Error(`Движок ответил HTTP ${response.status}.`);
   const body = await response.json();
