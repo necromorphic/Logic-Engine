@@ -229,6 +229,8 @@ The executable MemoryNpcConsumer fixture tests must keep these outcomes separate
 - **Authorized complete-empty:** return ready with empty admitted and candidates only after query authorization, complete/current Memory result metadata, and a matching current Core snapshot read.
 - **Record-level denial:** do not reveal the denied record's identity, reason, count, freshness, or content. Its externally observable result must match a genuine authorized complete-empty result when all other trusted envelope conditions are equal.
 - **Query denied/withheld, retrieval unavailable, or incomplete result:** return non_ready with no admitted references or candidates. This means the consumer cannot verify the result; it does not mean no matching memory exists.
+- **Query permission revoked during retrieval:** the consumer rechecks query authorization immediately before each ready-empty or content-bearing ready result. If the check denies, throws, or returns anything other than explicit `true`, the result is `non_ready` with no references or content.
+- **Limit of this recheck:** it narrows the time-of-check/time-of-use window; it is not an atomic revocation guarantee and does not replace an owner-approved final disclosure gate at the real host/model dispatch boundary.
 - **Malformed, stale, mismatched, or unavailable canonical snapshot:** return non_ready; never downgrade the result to ready-empty by filtering rows.
 - **Interpretation rule:** empty search results are not evidence that an event did not happen, that a source does not exist, or that the NPC never learned something. These tests use injected provider callbacks and establish consumer behavior only; they do not authenticate a production provider or prove Memory→NPC dispatch.
 
