@@ -150,10 +150,10 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
   ).all();
   assert.deepEqual(stored.map((row) => ({ ...row })), [{
     world_id: 'host-proxy-integration-world',
-    conversation_id: 'stable-host-conversation',
-    message_id: 'message-1',
-    version_id: 'version-1',
-    content_sha256: digest('a'),
+    conversation_id: conversationId,
+    message_id: messageId,
+    version_id: versionId,
+    content_sha256: digest(persistedText),
     lifecycle: 'present',
   }]);
 
@@ -172,7 +172,7 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
   const conflictedInventory = await getHostConversationInventory(hostRequest);
   assert.equal(conflictedInventory.complete, false);
   assert.ok(conflictedInventory.errors.includes('CORE_CAPTURE_CONFLICT_RECORDED'));
-  assert.equal(ledger.getInventoryState('host-proxy-integration-world', 'stable-host-conversation').status, 'NON_READY');
+  assert.equal(ledger.getInventoryState('host-proxy-integration-world', conversationId).status, 'NON_READY');
 
   // Exercise the actual SQLite Memory Provider against the Core-owned Host
   // inventory state. A captured digest/conflict is not sufficient to publish a
