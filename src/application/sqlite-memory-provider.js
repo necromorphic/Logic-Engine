@@ -942,6 +942,11 @@ export class SQLiteMemoryProvider {
           source_version: row.source_version,
         }));
       }
+      const uniqueSources = [...new Map(sources.map((source) => [
+        JSON.stringify([source.source_kind, source.source_entity_id, source.source_version]), source,
+      ])).values()].sort((left, right) =>
+        (left.source_entity_id < right.source_entity_id ? -1 : left.source_entity_id > right.source_entity_id ? 1 : 0)
+        || (left.source_version < right.source_version ? -1 : left.source_version > right.source_version ? 1 : 0));
 
       const finalState = this.db.prepare('SELECT * FROM memory_index_state WHERE world_id=?')
         .get(input.world_id);
@@ -961,7 +966,7 @@ export class SQLiteMemoryProvider {
         purpose: input.purpose,
         granted: true,
         readiness: 'READY',
-        sources: Object.freeze(sources),
+        sources: Object.freeze(uniqueSources),
         candidates: Object.freeze(candidates),
       });
     } catch {
