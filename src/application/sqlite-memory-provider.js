@@ -287,6 +287,7 @@ export class SQLiteMemoryProvider {
             snapshot_revision=NULL, snapshot_sequence=NULL,
             failure_code='PROCESS_RESTART_RECONCILIATION_REQUIRED',
             updated_at=?
+        WHERE index_health='ready' AND source_reconciliation='current'
       `).run(new Date().toISOString());
     } catch (error) {
       startupError = error;
