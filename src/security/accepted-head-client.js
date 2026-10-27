@@ -30,7 +30,7 @@ async function main() {
   if (action === 'heads') {
     url = 'http://127.0.0.1:' + port + '/v1/heads';
     options = { method: 'GET', signal: AbortSignal.timeout(timeoutMs) };
-  } else if ((action === 'advance' || action === 'finalize')
+  } else if ((action === 'enroll' || action === 'advance' || action === 'finalize')
     && ['core', 'provider'].includes(input.domain)
     && typeof input.operation_id === 'string' && input.operation_id.length > 0
     && typeof input.operation_digest === 'string' && /^[a-f0-9]{64}$/.test(input.operation_digest)
