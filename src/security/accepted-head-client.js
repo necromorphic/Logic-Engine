@@ -73,6 +73,7 @@ async function main() {
       const result = body?.result;
       const expectedStatuses = action === 'finalize' ? ['committed'] : ['pending', 'committed'];
       if (result?.domain !== input.domain || result?.operation_id !== input.operation_id
+        || result?.operation_digest !== input.operation_digest
         || !Number.isSafeInteger(result?.head) || result.head < 1 || !expectedStatuses.includes(result.status)) {
         throw new Error('invalid response');
       }
