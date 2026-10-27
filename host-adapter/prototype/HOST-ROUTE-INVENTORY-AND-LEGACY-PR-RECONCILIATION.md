@@ -106,7 +106,7 @@ No active phone installation or Ollama vectorization/remote-store patch is chang
 A second source search at the same pinned SHA found additional call-site families outside the initial 18-file table. This is **additional discovery, not exhaustive closure**:
 
 - `src/endpoints/search.js`: external search-provider and YouTube page fetches. Usually not generation by themselves, but may fetch content that later enters a prompt; protect source acquisition/retrieval separately if the product contract includes it.
-- `src/endpoints/translate.js`: LibreTranslate/Google/Yandex translation calls; user-provided or scene text may be sent for translation.
+- `src/endpoints/translate.js`: third-party translation-provider calls; user-provided or scene text may be sent for translation.
 - `src/endpoints/openrouter.js`: provider/model and modality discovery plus an image-generation route; do not equate every call with inference, but inventory the actual image dispatch branch.
 - `src/endpoints/nanogpt.js`: balance/subscription usage endpoints (account metadata, not necessarily protected content); distinguish from inference.
 - `src/vectors/cohere-vectors.js`, `src/vectors/nomicai-vectors.js` and other `src/vectors/**` files: embedding/vectorization transport. These are deliberately **out of Host patch scope** because the existing Ollama/vectorization/remote-store integration must not be changed; list as a separate data-egress family, not as a proposed Host hook.
