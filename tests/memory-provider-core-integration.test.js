@@ -5,7 +5,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
-import { createCanonicalEntitySourceVersionValidator } from '../src/application/canonical-entity-source-version.js';
+import { createCanonicalEntitySourceVersionValidator, createCanonicalEntityInventoryValidator } from '../src/application/canonical-entity-source-version.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
 function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
@@ -37,9 +37,9 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
     const snapshot = engine.getSnapshot(id);
     return { world_revision: snapshot.world_revision, commit_sequence: snapshot.commit_sequence };
   };
-  // Use the real Core-owned source-version validator against the actual SQLiteStore-backed engine.
-  // Inventory attestation below remains a test-only fixture and is not Host completeness evidence.
+  // Use real Core-owned source-version and complete-inventory validators against the SQLiteStore-backed engine.
   const canonicalSourceValidator = createCanonicalEntitySourceVersionValidator(engine);
+  const canonicalInventoryValidator = createCanonicalEntityInventoryValidator(engine);
   const sourceVersionValidator = async (record) => {
     if (triggerRace && record.record_ref === 'memory:record-b') {
       triggerRace = false;
@@ -56,7 +56,7 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
     coordinatorPath: providerPath === ':memory:' ? null : `${providerPath}.coordinator.sqlite`,
     getSnapshot: snapshotReader,
     validateSourceVersion: sourceVersionValidator,
-    validateInventory: async () => true,
+    validateInventory: canonicalInventoryValidator,
   });
   const scope = { world_id: worldId, subject_id: actorId, purpose: 'npc_decision' };
   provider.grantQuery(scope, true);
@@ -98,7 +98,7 @@ function setup(t, { twoRecords = false, providerPath = ':memory:' } = {}) {
       provider.close();
       provider = new SQLiteMemoryProvider({ path: providerPath, getSnapshot: snapshotReader,
         validateSourceVersion: sourceVersionValidator,
-        validateInventory: async () => true, // test-only; not Host completeness evidence
+        validateInventory: canonicalInventoryValidator,
       });
     },
   };
