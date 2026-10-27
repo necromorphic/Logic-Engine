@@ -7,6 +7,7 @@ import { normalizeEngineUrl, fetchHealth } from '../bridge-core.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const root = resolve(here, '..');
+const repo = resolve(root, '../../..');
 
 test('engine URL accepts only a bare HTTP(S) origin', () => {
   assert.equal(normalizeEngineUrl('http://127.0.0.1:8787/'), 'http://127.0.0.1:8787');
@@ -45,4 +46,15 @@ test('extension manifest and UI use the pinned ST extension contract', async () 
   assert.match(js, /logicEngineHostLifecycle/);
   assert.match(html, /logic_engine_check/);
   assert.match(html, /logic_engine_enroll/);
+});
+
+test('patch generator strips provider-specific changes and supplies the server proxy', async () => {
+  const generator = await readFile(resolve(root, 'prepare-pinned-st-patch.mjs'), 'utf8');
+  const sourcePatch = await readFile(resolve(repo, 'host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
+  const proxy = await readFile(resolve(repo, 'host-adapter/prototype/st-server-digest-proxy.mjs'), 'utf8');
+  assert.match(sourcePatch, /src\/endpoints\/backends\/chat-completions\.js/);
+  assert.match(generator, /providerSpecificHunk/);
+  assert.match(generator, /logic-engine-lifecycle-proxy\.mjs/);
+  assert.doesNotMatch(proxy, /Google|Gemini|MakerSuite/);
+  assert.doesNotMatch(proxy, /content_text|raw_message|message_text/);
 });
