@@ -1,9 +1,31 @@
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import {
+  advanceAcceptedHeadSync,
+  finalizeAcceptedHeadSync,
+  getAcceptedHeadsSync,
+} from '../security/accepted-head-client-sync.js';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
+
+const acceptedHeadConfigFromEnv = () => {
+  const required = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED === '1';
+  const portRaw = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_PORT;
+  const token = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN;
+  const anyConfigured = portRaw !== undefined || token !== undefined;
+  if (!anyConfigured) {
+    if (required) throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
+    return null;
+  }
+  const port = Number(portRaw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535
+    || typeof token !== 'string' || token.length < 32) {
+    throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_CONFIGURATION_INVALID');
+  }
+  return Object.freeze({ port, token });
+};
 
 const canonicalFilePath = (path) => {
   let candidate = resolve(path);
@@ -136,6 +158,13 @@ export class SQLiteMemoryProvider {
         source_reconciliation TEXT NOT NULL, snapshot_revision TEXT,
         snapshot_sequence TEXT, failure_code TEXT, updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS accepted_head_state(
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        head INTEGER NOT NULL CHECK(head>=0),
+        enrolled INTEGER NOT NULL DEFAULT 0 CHECK(enrolled IN (0,1)),
+        last_operation_id TEXT,
+        last_operation_digest TEXT
+      );
       CREATE TABLE IF NOT EXISTS memory_raw_captures (
         world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
         version_id TEXT NOT NULL, role TEXT NOT NULL, content_text TEXT NOT NULL,
@@ -163,6 +192,7 @@ export class SQLiteMemoryProvider {
           ON DELETE CASCADE
       );
     `);
+      this.db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
       const stateColumns = this.db.prepare('PRAGMA table_info(memory_index_state)').all();
       if (!stateColumns.some((column) => column.name === 'failure_code')) this.db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
     } catch (error) {
@@ -201,9 +231,52 @@ export class SQLiteMemoryProvider {
     return this.#withCoordinatorLock(() => {
       this.db.exec('BEGIN IMMEDIATE');
       this.transactionDepth += 1;
+      const changesBefore = this.db.prepare('SELECT total_changes() AS count').get().count;
       try {
         const result = work();
+        const changesAfter = this.db.prepare('SELECT total_changes() AS count').get().count;
+        let acceptedHeadOperation = null;
+        if (this.#acceptedHeadConfig && changesAfter > changesBefore) {
+          const local = this.db.prepare('SELECT head,enrolled FROM accepted_head_state WHERE singleton=1').get();
+          if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1) {
+            throw new Error('PROVIDER_ACCEPTED_HEAD_NOT_ENROLLED');
+          }
+          const heads = getAcceptedHeadsSync({ port: this.#acceptedHeadConfig.port });
+          if (heads.provider !== local.head) throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
+          const operationId = randomUUID();
+          const operationDigest = createHash('sha256')
+            .update(JSON.stringify({ domain: 'provider', operation_id: operationId, expected_head: local.head }))
+            .digest('hex');
+          const advanced = advanceAcceptedHeadSync({
+            domain: 'provider',
+            operationId,
+            operationDigest,
+            expectedHead: local.head,
+            token: this.#acceptedHeadConfig.token,
+            port: this.#acceptedHeadConfig.port,
+          });
+          if (advanced.status !== 'pending' || advanced.head !== local.head + 1 || advanced.replayed) {
+            throw new Error('PROVIDER_ACCEPTED_HEAD_ADVANCE_INVALID');
+          }
+          this.db.prepare('UPDATE accepted_head_state SET head=?,last_operation_id=?,last_operation_digest=? WHERE singleton=1')
+            .run(advanced.head, operationId, operationDigest);
+          acceptedHeadOperation = { operationId, operationDigest };
+        }
         this.db.exec('COMMIT');
+        if (acceptedHeadOperation) {
+          try {
+            finalizeAcceptedHeadSync({
+              domain: 'provider',
+              operationId: acceptedHeadOperation.operationId,
+              operationDigest: acceptedHeadOperation.operationDigest,
+              token: this.#acceptedHeadConfig.token,
+              port: this.#acceptedHeadConfig.port,
+            });
+          } catch {
+            // Local commit already succeeded. Authority remains PENDING and all
+            // protected dispatch/future mutations fail closed until recovery.
+          }
+        }
         return result;
       } catch (error) {
         try { this.db.exec('ROLLBACK'); } catch {}
