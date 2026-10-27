@@ -99,3 +99,30 @@ test('duration resolver rejects malformed requested durations regardless of rule
   // Explicit null retains the legacy sentinel behavior; omitted/undefined uses the default zero.
   assert.equal(resolveDurationDecision(value, 'travel.completed', null, null).duration_ms, 60000);
 });
+
+
+test('TimePolicy normalization uses locale-independent code-unit ordering', () => {
+  const value = createTimePolicy(policy({
+    duration_rules: [
+      { event_type: 'é', rule: { kind: 'fixed', duration_ms: 1000 } },
+      { event_type: 'a', rule: { kind: 'fixed', duration_ms: 2000 } },
+      { event_type: 'Z', rule: { kind: 'fixed', duration_ms: 3000 } },
+    ],
+  }));
+  assert.deepEqual(value.duration_rules.map((entry) => entry.event_type), ['Z', 'a', 'é']);
+
+  const categories = createTimePolicy(policy({
+    duration_rules: [{
+      event_type: 'categories',
+      rule: { kind: 'category_map', categories: [
+        { category: 'é', duration_ms: 3000 },
+        { category: 'a', duration_ms: 1000 },
+        { category: 'Z', duration_ms: 2000 },
+      ] },
+    }],
+  }));
+  assert.deepEqual(
+    categories.duration_rules[0].rule.categories.map((entry) => entry.category),
+    ['Z', 'a', 'é'],
+  );
+});
