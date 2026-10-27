@@ -58,6 +58,23 @@ Build an inventory of all Host-persisted chat artifacts and their observed versi
 - Test desktop browser persistence and Android/Termux separately.
 - Require external anti-rollback authority before treating the inventory as authoritative.
 
+
+## Pinned SillyTavern mutation coverage audit
+
+Audited against SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. These are confirmed server-side mutation paths; the current Host patch does **not** yet intercept them:
+
+| Source | Route(s) | Mutation | Current Host status |
+|---|---|---|---|
+| `src/endpoints/chats.js` | `POST /api/chats/save`, `/rename`, `/delete`, `/group/import`, `/import`, `/group/delete`, `/group/save` | Save/overwrite, rename by copy+unlink, delete, import, group chat mutation | Uncovered by server-side Host journal |
+| `src/endpoints/groups.js` | `POST /api/groups/create`, `/edit`, `/delete` | Create/update group metadata; delete group metadata and cascaded group chat files | Uncovered by server-side Host journal |
+| `src/endpoints/backups.js` | `POST /api/backups/chat/delete` | Delete a chat backup | Uncovered by server-side Host journal |
+| `src/endpoints/data-maid.js` | `POST /api/data-maid/delete` | Delete arbitrary files under the authenticated user's root from a validated report | Uncovered by server-side Host journal |
+| `src/endpoints/chats.js` backup helper | invoked by chat saves | Create backup and prune old backups | Side effects not individually journaled |
+
+The snapshot endpoint enumerates four actual storage roots from the pinned Host user object: `directories.chats`, `directories.groups`, `directories.groupChats`, and `directories.backups`. Group metadata (`groups`) and group chat JSONL (`groupChats`) are separate roots and both must be present for a complete scan.
+
+This audit is evidence of the remaining gap, not proof that these routes are protected. A complete-history claim remains blocked until server-side operation boundaries cover these routes and indirect side effects, with durable pre/post records, interruption handling, idempotency, and direct-API tests. The generic Data Maid deletion route is particularly important because it can remove managed artifacts without going through the chat-specific handlers.
+
 ## Acceptance states
 
 - CURRENT_SNAPSHOT_NON_AUTHORITATIVE: a successful present-state scan only.
