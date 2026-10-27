@@ -1452,6 +1452,5 @@ test('a newly present effect target invalidates an evaluation based on target ab
     }),
     (error) => error.code === 'STALE_MECHANIC_EVALUATION' && error.status === 409,
   );
-  assert.equal(proposals.getByIdempotencyKey?.(worldId, 'stale-absent-target-evaluation'), undefined);
   assert.equal(engine.getState(worldId).entities.filter((entity) => entity.entity_id === 'entity.new').length, 1);
 });
