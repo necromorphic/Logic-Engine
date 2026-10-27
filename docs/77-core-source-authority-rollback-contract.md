@@ -85,6 +85,12 @@ Core selects a **hybrid strategy** for the architecture:
 
 This is the Core architectural decision, not a claim that the required journal/reconciliation runtime already exists. A production integration still needs the consumer operation, source classes, maximum stale-time bound, expected volume, retraction semantics, and restart/partial-failure acceptance tests agreed with Memory and NPC owners. Those details gate implementation and rollout, not the choice of the hybrid safety model. Do not implement a new outbox, cursor, store, schema, or public API merely from this decision. Provider token validation remains mandatory; a change feed is not authorization.
 
+### Source-code audit result (2026-10-28)
+
+The current Core implementation does contain canonical `world_events` records and rollback validity/metadata writes, and the rollback path updates event validity, the rollback row, world revision, source-version counters, projection rebuild, and audit within the Core transaction. However, the reviewed surface does **not** expose a complete Memory-facing journal contract with a stable replay cursor that covers both newly committed events and rollback-only validity changes. `commit_sequence` alone is insufficient; the composite snapshot marker detects a rollback-only revision change but is not itself an incremental journal.
+
+**Disposition today:** the existing tables are authoritative source material, but they have **not passed the proof gate for use as the hybrid's incremental primary signal**. Do not wire a consumer to infer journal completeness from table existence. Full reconciliation remains a required recovery path; its real consumer, complete source inventory, staleness bound, and failure/restart behavior must be implemented and tested by the owning integration work before use. This finding does not authorize a parallel outbox or change-feed API in PR #521.
+
 ## 6. Acceptance gate
 
 | Requirement | Current disposition | Evidence needed to close |
