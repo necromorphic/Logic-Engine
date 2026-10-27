@@ -249,7 +249,7 @@ export function createHostLifecycleMutationMiddleware() {
                         return originalEnd(...args);
                     }
                     const changes = diffSnapshots(before, after);
-                    const status = response.statusCode >= 200 && response.statusCode < 300 ? 'COMMITTED' : 'COMMITTED';
+                    const status = response.statusCode >= 200 && response.statusCode < 300 ? 'COMMITTED' : 'UNRESOLVED';
                     const hash = await appendRecord(paths.journalPath, chain.lastHash, {
                         version: 1,
                         kind: 'outcome',
