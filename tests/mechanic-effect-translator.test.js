@@ -401,3 +401,36 @@ test('object field counts are bounded before intent and payload interpretation',
     code('INVALID_MECHANIC_EFFECT_INTENT'),
   );
 });
+
+test('effect translation rejects symbol and non-enumerable object properties', () => {
+  const symbolIntent = intent();
+  symbolIntent[Symbol('hidden')] = true;
+
+  const nonEnumerableIntent = intent();
+  Object.defineProperty(nonEnumerableIntent, 'hidden', {
+    value: true,
+    enumerable: false,
+  });
+
+  const symbolPayload = { entity_type: 'person' };
+  symbolPayload[Symbol('hidden')] = true;
+
+  const nonEnumerablePayload = { entity_type: 'person' };
+  Object.defineProperty(nonEnumerablePayload, 'hidden', {
+    value: true,
+    enumerable: false,
+  });
+
+  for (const value of [symbolIntent, nonEnumerableIntent]) {
+    assert.throws(
+      () => translateMechanicEffectIntents([value]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+  for (const payload of [symbolPayload, nonEnumerablePayload]) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({ payload })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+});
