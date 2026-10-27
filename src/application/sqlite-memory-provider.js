@@ -37,6 +37,7 @@ const intrinsicObjectPrototypeKeys = new Set([
 ]);
 const hasSafeObjectPrototype = () => {
   try {
+    if (Object.getPrototypeOf(Object.prototype) !== null) return false;
     const keys = Reflect.ownKeys(Object.prototype);
     if (keys.length !== intrinsicObjectPrototypeKeys.size) return false;
     for (let index = 0; index < keys.length; index += 1) {
@@ -71,6 +72,7 @@ const isPlainDataRecord = (value) => {
 };
 const isPlainDataArray = (value) => {
   if (!Array.isArray(value) || isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype
+    || Object.getPrototypeOf(Array.prototype) !== Object.prototype
     || Object.hasOwn(Array.prototype, 'toJSON')) return false;
   const keys = Reflect.ownKeys(value);
   if (keys.length !== value.length + 1 || !keys.includes('length')) return false;
