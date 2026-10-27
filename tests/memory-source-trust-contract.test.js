@@ -198,3 +198,57 @@ test('source retraction and unchanged event cursor survive Core SQLite restart',
   assert.equal(engine.getState('source-trust-restart-world').world_revision, revisionAfterRollback);
   store.close();
 });
+
+test('READS_SOURCE rejects an event owned by a different world', (t) => {
+  const { store, engine } = setup(t);
+  engine.createWorld({
+    world_id: 'source-trust-other-world',
+    world_pack_id: 'test.world',
+    world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  const foreignSource = engine.commitEvent('source-trust-world', {
+    idempotency_key: 'source-trust-foreign-source',
+    event_id: 'source-trust-foreign-event-id',
+    turn_id: 'source-trust-foreign-source',
+    event_type: 'action.completed',
+    expected_revision: engine.getState('source-trust-world').world_revision,
+    effects: [{
+      kind: 'entity.create',
+      entity_id: 'source-trust-foreign-marker',
+      entity_type: 'object',
+      attributes: { marker: 'belongs to source-trust-world only' },
+    }],
+  });
+  assert.equal(foreignSource.accepted, true);
+
+  let result = null;
+  let rejected = false;
+  try {
+    result = engine.commitEvent('source-trust-other-world', {
+      idempotency_key: 'source-trust-cross-world-dependent',
+      turn_id: 'source-trust-cross-world-dependent',
+      event_type: 'action.completed',
+      expected_revision: engine.getState('source-trust-other-world').world_revision,
+      causal_links: [{ relation: 'READS_SOURCE', target_id: foreignSource.event_id }],
+      effects: [{
+        kind: 'entity.create',
+        entity_id: 'source-trust-cross-world-derived',
+        entity_type: 'note',
+        attributes: { summary: 'must not be committed from a foreign-world source' },
+      }],
+    });
+  } catch {
+    rejected = true;
+  }
+
+  assert.ok(rejected || result?.accepted !== true,
+    'Core must reject READS_SOURCE when the target event is not canonical in the requesting world');
+  assert.equal(
+    store.db.prepare('SELECT 1 FROM world_events WHERE world_id=? AND event_id=?')
+      .get('source-trust-other-world', 'source-trust-cross-world-dependent'),
+    undefined,
+    'rejected cross-world source must not leave a committed event',
+  );
+});
+
