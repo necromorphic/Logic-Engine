@@ -324,3 +324,22 @@ test('optional calendar fields ignore polluted Object.prototype values', () => {
     }
   }
 });
+
+
+test('calendar inverse mapping rejects projection metadata from another version or coordinate', () => {
+  const definition = calendar();
+  const projected = projectCalendarDate(definition, 5000);
+
+  assert.throws(
+    () => calendarDateToCoordinate(definition, { ...projected, calendar_version: '2.0.0' }),
+    (error) => error.code === 'CALENDAR_VERSION_MISMATCH',
+  );
+  assert.throws(
+    () => calendarDateToCoordinate(definition, { ...projected, calendar_id: 'other.calendar' }),
+    (error) => error.code === 'CALENDAR_ID_MISMATCH',
+  );
+  assert.throws(
+    () => calendarDateToCoordinate(definition, { ...projected, coordinate: projected.coordinate + 1 }),
+    (error) => error.code === 'CALENDAR_DATE_COORDINATE_MISMATCH',
+  );
+});
