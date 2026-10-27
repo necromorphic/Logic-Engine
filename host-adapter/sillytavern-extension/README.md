@@ -19,11 +19,23 @@
 4. Enter the local engine base URL and click **Проверить связь**.
 5. Chat enrollment and digest sync remain disabled unless the separately reviewed Host lifecycle bridge is installed.
 
-The current pinned Host bridge candidate is documented under `host-adapter/prototype/`. It is a review-only source patch, not a production-ready integration. Do not apply it to another SillyTavern revision without rebasing and re-auditing.
+### Optional pinned Host bridge patch
+
+The Host bridge is separate from the browser extension because SillyTavern's browser code must not receive Core or adapter credentials. The patch modifies SillyTavern's host lifecycle and adds a same-origin server-side proxy. It is not production-ready and must not be applied to a different ST revision.
+
+From the Logic-Engine repository root, generate the provider-neutral patch:
+
+```sh
+node host-adapter/sillytavern-extension/prepare-pinned-st-patch.mjs
+```
+
+This generates `host-adapter/sillytavern-extension/patches/sillytavern-1.19.0-logic-engine-bridge.patch`. The generator explicitly removes the model-provider logging hunk from the older candidate patch and adds the missing proxy implementation. Then, in the exact pinned SillyTavern checkout, first run `git apply --check <patch-path>`, inspect the diff, and only then apply it. Do not apply it to a live installation before review.
+
+Configure the SillyTavern server process with `LOGIC_ENGINE_CORE_URL`, `LOGIC_ENGINE_API_TOKEN`, `LOGIC_ENGINE_ADAPTER_ID`, and `LOGIC_ENGINE_ADAPTER_TOKEN`. Configure the matching adapter secret in Logic-Engine. Do not expose the engine port publicly.
 
 ## Security and limitations
 
-- No Google API or model-provider route is used or modified.
+- No Google API or model-provider route is used or modified by this extension or generated patch.
 - The browser extension never receives Core or adapter credentials.
 - Host journal data is identifiers, lineage and SHA-256 digests, not raw message text.
 - Existing Host lifecycle coverage is incomplete: import/restore/branch and several deletion/migration paths are unsupported; pre-enrollment history is unknown.
