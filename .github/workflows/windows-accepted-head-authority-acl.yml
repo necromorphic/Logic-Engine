@@ -71,7 +71,7 @@ jobs:
             }
             $ids = @($report.services.authority.sid, $report.services.core.sid, $report.services.provider.sid, $report.services.gateway.sid)
             if (@($ids | Select-Object -Unique).Count -ne 4) { throw 'Fixture service identities were not distinct.' }
-            $acl = Get-Acl -LiteralPath $root
+            $acl = Get-Acl -LiteralPath $authorityDir
             $identities = @($acl.Access | ForEach-Object { [string]$_.IdentityReference })
             if ($identities -notcontains [string]$report.services.authority.account) { throw 'Authority identity is missing from fixture ACL.' }
             foreach ($role in @('core', 'provider', 'gateway')) {
