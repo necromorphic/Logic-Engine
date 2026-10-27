@@ -45,6 +45,7 @@ jobs:
           node --check sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-diagnostic-health.mjs
+          node --check sillytavern-host-checkout/src/endpoints/logic-engine-diagnostic.js
           node --check sillytavern-host-checkout/src/endpoints/extensions.js
           node --check host-adapter/prototype/diagnostic-extension/index.js
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js

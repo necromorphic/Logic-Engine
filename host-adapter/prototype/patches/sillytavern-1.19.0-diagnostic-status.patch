@@ -1,11 +1,20 @@
-diff --git a/src/endpoints/extensions.js b/src/endpoints/extensions.js
---- a/src/endpoints/extensions.js
-+++ b/src/endpoints/extensions.js
-@@ -533,3 +533,7 @@
-     return response.send(allExtensions);
- });
- 
-+router.get('/logic-engine-diagnostics/status', async (request, response) => {
-+    const { createLogicEngineHealthHandler } = await import('./logic-engine-diagnostic-health.mjs');
-+    return createLogicEngineHealthHandler()(request, response);
-+});
+diff --git a/src/server-startup.js b/src/server-startup.js
+--- a/src/server-startup.js
++++ b/src/server-startup.js
+@@ -53,1 +53,2 @@
+ import { router as volcengineRouter } from './endpoints/volcengine.js';
++import { router as logicEngineDiagnosticRouter } from './endpoints/logic-engine-diagnostic.js';
+@@ -187,1 +188,2 @@
+     app.use('/api/image-metadata', imageMetadataRouter);
++    app.use('/api/logic-engine-diagnostics', logicEngineDiagnosticRouter);
+diff --git a/src/endpoints/logic-engine-diagnostic.js b/src/endpoints/logic-engine-diagnostic.js
+new file mode 100644
+--- /dev/null
++++ b/src/endpoints/logic-engine-diagnostic.js
+@@ -0,0 +1,6 @@
++import express from 'express';
++import { createLogicEngineHealthHandler } from './logic-engine-diagnostic-health.mjs';
++
++export const router = express.Router();
++
++router.get('/status', createLogicEngineHealthHandler());
