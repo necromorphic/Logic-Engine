@@ -155,12 +155,31 @@ test('matching persisted enrolled chat receives success only after the version i
     const envKeys = ['LOGIC_ENGINE_CORE_URL', 'LOGIC_ENGINE_API_TOKEN', 'LOGIC_ENGINE_ADAPTER_ID', 'LOGIC_ENGINE_ADAPTER_TOKEN'];
     const priorEnv = Object.fromEntries(envKeys.map(key => [key, process.env[key]]));
     const captured = [];
+    const remoteVersions = new Map([[JSON.stringify([conversationId, messageId, version1]), {
+      message_id: messageId, version_id: version1, content_sha256: digest('before'), active: true, deleted: false,
+    }]]);
     process.env.LOGIC_ENGINE_CORE_URL = 'http://127.0.0.1:8787';
     process.env.LOGIC_ENGINE_API_TOKEN = 'test-core-api-token-long-enough';
     process.env.LOGIC_ENGINE_ADAPTER_ID = 'adapter-test';
     process.env.LOGIC_ENGINE_ADAPTER_TOKEN = 'test-adapter-token-long-enough';
     globalThis.fetch = async (url, options) => {
-      captured.push({ url: String(url), body: JSON.parse(options.body) });
+      const endpoint = new URL(String(url));
+      if (endpoint.pathname.endsWith('/inventory')) {
+        return { ok: true, status: 200, json: async () => ({ inventory: {
+          authority: 'CORE_HOST_VERSION_LEDGER', conversation_id: conversationId,
+          inventory_status: 'NON_READY', versions: [...remoteVersions.values()],
+        } }) };
+      }
+      const body = JSON.parse(options.body);
+      captured.push({ url: String(url), body });
+      if (body.active) {
+        for (const [key, value] of remoteVersions) {
+          if (value.message_id === body.message_id) remoteVersions.set(key, { ...value, active: false });
+        }
+      }
+      const key = JSON.stringify([body.conversation_id, body.message_id, body.version_id]);
+      remoteVersions.set(key, { message_id: body.message_id, version_id: body.version_id,
+        content_sha256: body.content_sha256, active: body.active, deleted: body.deleted });
       return { ok: true, status: 201, json: async () => ({ capture: { status: 'captured' } }) };
     };
     try {
@@ -289,7 +308,16 @@ test('enrolled save fails closed when Core cannot durably capture the digest inv
   process.env.LOGIC_ENGINE_API_TOKEN = 'test-core-api-token-long-enough';
   process.env.LOGIC_ENGINE_ADAPTER_ID = 'adapter-test';
   process.env.LOGIC_ENGINE_ADAPTER_TOKEN = 'test-adapter-token-long-enough';
-  globalThis.fetch = async () => { throw new Error('Core unavailable'); };
+  globalThis.fetch = async (url, options) => {
+    if (String(url).endsWith('/inventory')) {
+      return { ok: true, status: 200, json: async () => ({ inventory: {
+        authority: 'CORE_HOST_VERSION_LEDGER', conversation_id: conversationId,
+        inventory_status: 'NON_READY',
+        versions: [{ message_id: messageId, version_id: versionId, content_sha256: digest('private message text'), active: true, deleted: false }],
+      } }) };
+    }
+    throw new Error('Core unavailable');
+  };
   try {
     await registerHostConversation(request, {
       conversationId, sourceLocator: 'chat-a', sourcePath: 'avatar/chat-a.jsonl', domain: 'chats',
