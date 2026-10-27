@@ -116,7 +116,7 @@ async function createFixture({ sendUpstream } = {}) {
       if (closed) return;
       closed = true;
       try { gateway?.close(); } catch {}
-      if (service.child.exitCode === null) {
+      if (service.child.exitCode === null && service.child.signalCode === null) {
         service.child.stdin.end('stop');
         await once(service.child, 'exit');
       }
@@ -143,16 +143,22 @@ test('dispatch validates current heads and grants, records one content-free star
     assert.equal(response.status, 200);
     assert.equal(fixture.calls.length, 1);
     assert.equal(fixture.calls[0].body, validRequest().body);
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest()),
+      /MEMORY_DISPATCH_DUPLICATE_ID/,
+    );
+    assert.equal(fixture.calls.length, 1);
 
-    const duplicate = await fixture.gateway.dispatchProtectedRequest(validRequest());
-    assert.rejects;
-    assert.equal(fixture.calls.length, 1);
-    assert.equal(duplicate, response);
-  } catch (error) {
-    // A duplicate request identity must reject rather than replay. The first
-    // response has already been delivered and must never be sent a second time.
-    if (error?.message !== 'MEMORY_DISPATCH_DUPLICATE_ID') throw error;
-    assert.equal(fixture.calls.length, 1);
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      const row = db.prepare('SELECT status,request_digest,sources_json FROM dispatch_ledger WHERE request_id=?')
+        .get('request-001');
+      assert.equal(row.status, 'COMPLETED');
+      assert.match(row.request_digest, /^[a-f0-9]{64}$/);
+      assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
+    } finally {
+      db.close();
+    }
   } finally {
     await fixture.close();
   }
