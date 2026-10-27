@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from './coordinator-lock.js';
-import { createHash, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   advanceAcceptedHeadSync,
   finalizeAcceptedHeadSync,
@@ -14,6 +14,31 @@ import { hashRequest } from '../core/request-hash.js';
 import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidate.js';
 
 const now = () => new Date().toISOString();
+
+// Hash the canonical durable state transition while the SQLite write transaction
+// is open. The local accepted-head bookkeeping is excluded because it is updated
+// only after the digest has been computed; all domain tables and schema objects
+// remain part of the digest.
+function databaseStateDigest(db) {
+  const schema = db.prepare(`
+    SELECT type, name, tbl_name, sql
+    FROM sqlite_master
+    WHERE name NOT LIKE 'sqlite_%'
+      AND name <> 'accepted_head_state'
+    ORDER BY type, name
+  `).all();
+  const tables = db.prepare(`
+    SELECT name FROM sqlite_master
+    WHERE type='table' AND name NOT LIKE 'sqlite_%'
+      AND name <> 'accepted_head_state'
+    ORDER BY name
+  `).all().map(({ name }) => {
+    const quoted = '"' + name.replaceAll('"', '""') + '"';
+    const rows = db.prepare('SELECT * FROM ' + quoted + ' ORDER BY rowid').all();
+    return { name, rows };
+  });
+  return hashRequest({ schema, tables });
+}
 const acceptedHeadConfigFromEnv = () => {
   const required = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED === '1';
   const portRaw = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_PORT;
@@ -630,6 +655,7 @@ export class SQLiteStore {
     try {
       this.db.exec('BEGIN IMMEDIATE');
       this.txDepth = 1;
+      const beforeStateDigest = this.acceptedHeadConfig ? databaseStateDigest(this.db) : null;
       const changesBefore = this.db.prepare('SELECT total_changes() AS count').get().count;
       const result = fn();
       if (result !== null && (typeof result === 'object' || typeof result === 'function')
@@ -645,10 +671,13 @@ export class SQLiteStore {
         }
         const heads = getAcceptedHeadsSync({ port: this.acceptedHeadConfig.port, token: this.acceptedHeadConfig.token });
         if (heads.core !== local.head) throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
-        const operationId = randomUUID();
-        const operationDigest = createHash('sha256')
-          .update(JSON.stringify({ domain: 'core', operation_id: operationId, expected_head: local.head }))
-          .digest('hex');
+        const operationDigest = hashRequest({
+          domain: 'core',
+          expected_head: local.head,
+          before_state_digest: beforeStateDigest,
+          after_state_digest: databaseStateDigest(this.db),
+        });
+        const operationId = 'core-' + operationDigest;
         const advanced = advanceAcceptedHeadSync({
           domain: 'core',
           operationId,
