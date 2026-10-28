@@ -69,7 +69,7 @@ function setup() {
   return { store, engine };
 }
 
-function commit(engine, worldId, eventId, effects) {
+function commit(engine, worldId, eventId, effects, causalLinks = []) {
   const state = engine.getState(worldId);
   return engine.commitEvent(worldId, {
     event_id: eventId,
@@ -81,7 +81,7 @@ function commit(engine, worldId, eventId, effects) {
     caused_by: [],
     depends_on: [],
     read_set: [],
-    causal_links: [],
+    causal_links: causalLinks,
   });
 }
 
@@ -235,9 +235,10 @@ test('entity.update can corrupt or remove a position-shaped attribute without ty
   ]);
   assert.equal(seeded.accepted, true);
 
+  const existenceGuard = [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'update-point' } }];
   const malformedUpdate = commit(engine, 'spatial-lab', 'update-malformed-position', [
     { kind: 'entity.update', entity_id: 'update-point', attributes: { position: { x: 'west', y: 2 } } },
-  ]);
+  ], existenceGuard);
   assert.equal(malformedUpdate.accepted, true);
   assert.deepEqual(
     engine.getState('spatial-lab').entities.find((entity) => entity.entity_id === 'update-point').attributes.position,
@@ -246,7 +247,7 @@ test('entity.update can corrupt or remove a position-shaped attribute without ty
 
   const removePosition = commit(engine, 'spatial-lab', 'remove-position-attribute', [
     { kind: 'entity.update', entity_id: 'update-point', remove_attributes: ['position'] },
-  ]);
+  ], existenceGuard);
   assert.equal(removePosition.accepted, true);
   const finalEntity = engine.getState('spatial-lab').entities.find((entity) => entity.entity_id === 'update-point');
   assert.equal(Object.hasOwn(finalEntity.attributes, 'position'), false);
