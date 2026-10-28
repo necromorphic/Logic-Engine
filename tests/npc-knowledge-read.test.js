@@ -496,6 +496,7 @@ test('rollback of an acquisition invalidates its belief support but preserves th
 test('belief transition refuses a stale snapshot and does not write a projection row', (t) => {
   const { store, engine } = setup(t);
   const stale = request(store);
+  const read = engine.readNpcKnowledge(stale);
   engine.commitEvent('world-a', {
     event_id: 'advance-before-belief-transition',
     idempotency_key: 'advance-before-belief-transition-key',
