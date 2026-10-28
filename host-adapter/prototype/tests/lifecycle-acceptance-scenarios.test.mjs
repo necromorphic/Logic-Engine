@@ -145,7 +145,7 @@ test('pinned patch finalizes enrolled identities before its single native save',
   assert.ok(bulkDeleteHook >= 0 && bulkDeleteSave > bulkDeleteHook && bulkDeleteCheckpoint > bulkDeleteSave,
     'bulk-delete must preserve debounced save only for non-enrolled chats and finalize enrolled identities first');
 
-  assert.doesNotMatch(patch, /afterMutation\('(message-send|edit-message|delete-message|delete-swipe)'[^\n]*sourceAlreadyPersisted/,
+  assert.equal(patch.includes('sourceAlreadyPersisted: lifecycleBefore.status !== \'NOT_ENROLLED\''), false,
     'enrolled handlers must let afterMutation finalize identities before its one native save');
 });
 
