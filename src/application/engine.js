@@ -12,6 +12,7 @@ import { ProcessStore } from '../storage/process-store.js';
 import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
+const INTERNAL_CORE_EFFECTS = Symbol('INTERNAL_CORE_EFFECTS');
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
 const strings = (x, name) => {
   x = x ?? [];
@@ -442,7 +443,11 @@ export class LogicEngine {
     if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
 
     const effects = x.effects ?? [];
-    validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
+    validateEffects(effects, {
+      allowRelationshipTransition: options.allowRelationshipTransition === true,
+      allowKnowledgeAcquisition: options[INTERNAL_CORE_EFFECTS] === true && options.allowKnowledgeAcquisition === true,
+      allowNpcBeliefTransition: options[INTERNAL_CORE_EFFECTS] === true && options.allowNpcBeliefTransition === true,
+    });
     const request = {
       operation: 'event.commit',
       event_id: x.event_id ?? null,
@@ -880,26 +885,29 @@ export class LogicEngine {
         event_type: 'npc.belief.transitioned',
         expected_revision: input.expected_revision,
         expected_commit_sequence: input.expected_commit_sequence,
-        effects: [],
-      });
+        effects: [{
+          kind: 'npc.belief.transition',
+          transition_id: transitionId,
+          actor_id: transition.actor_id,
+          purpose: transition.purpose,
+          proposition_ref: transition.proposition_ref,
+          stance: transition.stance,
+          supporting_acquisition_ids: [...transition.supporting_acquisition_ids],
+          contradicting_acquisition_ids: [...transition.contradicting_acquisition_ids],
+          evidence_acquisition_ids: [...transition.evidence_acquisition_ids],
+          reason_rule_ref: transition.reason_rule_ref,
+          idempotency_key: input.idempotency_key,
+          request_hash: requestHash,
+          snapshot_revision: transition.snapshot.world_revision,
+          snapshot_commit_sequence: transition.snapshot.commit_sequence,
+          previous_stance: transition.previous_stance,
+          surviving_prior_evidence: [...transition.surviving_prior_evidence],
+          invalidated_prior_evidence: [...transition.invalidated_prior_evidence],
+          prior_stance_preserved_despite_invalidation: transition.prior_stance_preserved_despite_invalidation,
+        }],
+      }, { [INTERNAL_CORE_EFFECTS]: true, allowNpcBeliefTransition: true });
       assert(event.idempotent_replay !== true, 'NPC_BELIEF_PROJECTION_MISSING',
         'A committed belief event exists without its Core belief projection; manual reconciliation is required.', 409);
-      this.store.db.prepare(`
-        INSERT INTO npc_belief_transitions(
-          world_id, transition_id, actor_id, proposition_ref, stance,
-          supporting_acquisition_ids_json, contradicting_acquisition_ids_json,
-          evidence_acquisition_ids_json, reason_rule_ref, idempotency_key, request_hash,
-          snapshot_revision, snapshot_commit_sequence, event_id, committed_revision
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-      `).run(
-        input.world_id, transitionId, input.actor_id, input.proposition_ref, transition.stance,
-        JSON.stringify(transition.supporting_acquisition_ids),
-        JSON.stringify(transition.contradicting_acquisition_ids),
-        JSON.stringify(transition.evidence_acquisition_ids),
-        transition.reason_rule_ref, input.idempotency_key, requestHash,
-        transition.snapshot.world_revision, transition.snapshot.commit_sequence,
-        event.event_id, event.world_revision,
-      );
       return {
         status: 'ready',
         idempotent_replay: false,
@@ -1055,7 +1063,7 @@ export class LogicEngine {
       read_set: [...readSet].sort(),
       causal_links: causalLinks,
       effects: assignments,
-    }, { allowKnowledgeAcquisition: true });
+    }, { [INTERNAL_CORE_EFFECTS]: true, allowKnowledgeAcquisition: true });
   }
 
   commitEvent(id, x, options = {}) {
