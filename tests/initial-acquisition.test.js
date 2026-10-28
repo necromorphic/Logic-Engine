@@ -156,7 +156,7 @@ test('revoked actor binding blocks acquisition and no public acquisition-read ro
     const server = createApiServer({ engine, token: TOKEN, adminToken: ADMIN, adapterTokens: { 'adapter-a': ADAPTER } });
     server.listen(0, '127.0.0.1');
     await once(server, 'listening');
-    t.after(() => server.close());
+    t.after(() => { server.closeAllConnections(); server.close(); });
     const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/worlds/w1/knowledge-acquisitions`, {
       headers: { authorization: `Bearer ${TOKEN}` },
     });
@@ -170,7 +170,7 @@ test('generic HTTP event cannot forge a Core-authorized acquisition', async (t) 
   const server = createApiServer({ engine, token: TOKEN, adminToken: ADMIN, adapterTokens: { 'adapter-a': ADAPTER } });
   server.listen(0, '127.0.0.1');
   await once(server, 'listening');
-  t.after(() => { server.close(); store.close(); });
+  t.after(() => { server.closeAllConnections(); server.close(); store.close(); });
   const response = await fetch(`http://127.0.0.1:${server.address().port}/v1/worlds/w1/events`, {
     method: 'POST', headers: { authorization: `Bearer ${TOKEN}`, 'content-type': 'application/json' },
     body: JSON.stringify({ idempotency_key: 'forged-acq', turn_id: 'x', event_type: 'action.completed', expected_revision: 1,
