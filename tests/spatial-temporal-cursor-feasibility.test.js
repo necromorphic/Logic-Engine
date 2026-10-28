@@ -286,3 +286,41 @@ test('equal-time events require stable event identity and commit ordering for a 
   assert.ok(sameCoordinateEvents[0].commit_sequence < sameCoordinateEvents[1].commit_sequence);
   assert.equal(sameCoordinateEvents[0].game_time_coordinate, sameCoordinateEvents[1].game_time_coordinate);
 });
+
+test('an invalidated segment boundary is rejected instead of reconstructed as a confirmed cursor', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-spatial-cursor-invalid-boundary-'));
+  const path = join(directory, 'state.sqlite');
+  const store = new SQLiteStore(path);
+  const engine = new LogicEngine(store);
+  const worldId = 'spatial-cursor-invalid-boundary-world';
+
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    try { store.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  engine.registerTimeTrigger(worldId, trigger('invalid-boundary-at-10', 10000, 'invalid-boundary-entity'));
+  const operation = engine.startTimeAdvance(worldId, {
+    idempotency_key: 'spatial-cursor-invalid-boundary-operation',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(operation.status, 'completed');
+
+  const segments = readSegmentRows(store, worldId, operation.operation_id);
+  const boundaryEventId = segments[0].events.at(-1).event_id;
+  store.db.prepare(
+    "UPDATE world_events SET validity='invalid' WHERE world_id=? AND event_id=?",
+  ).run(worldId, boundaryEventId);
+
+  assert.throws(
+    () => assertSegmentCursorMapping(store, worldId, segments),
+    /valid/,
+    'an invalid boundary must fail validation; no nearby event may be substituted',
+  );
+});
