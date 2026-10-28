@@ -232,3 +232,20 @@ node --import ./tests/configure-test-env.js --test \
 **Result: 115 tests passed, 0 failed.** The command covered the Time and Process Manager contract files present in the uploaded archive. A separate full `npm test` attempt exceeded the 300-second execution limit after output had reached test 710; the full suite result is therefore **incomplete and not claimed as passing**.
 
 Archive provenance remains the same: `Logic-Engine-main (1).zip`. This is not an exact-head CI result for remote `main` or PR #553.
+
+
+## 15. Timed-action interruption: terminal operation vs. reissued action
+
+A focused runtime probe against the uploaded archive confirmed the precise behavior:
+
+1. A 30-second `travel.completed` action encounters an interrupting registered trigger at 10 seconds.
+2. The operation ends with `status: interrupted`, `confirmed_coordinate: 10000`, and `final_action_status: not_executed_interrupted`. The travel event is absent from canonical history.
+3. Calling the operation's `resume` path returns the same terminal interrupted result; it does not execute the action.
+4. Replaying the original timed-action request with the same idempotency key returns the same interrupted operation.
+5. A newly reviewed action submitted with a **new** idempotency key and the current world revision can execute from the interruption coordinate; the probe completed it at coordinate 40000.
+
+This is consistent with fail-closed behavior: an interrupted action is not silently resumed across a world event that may have changed its preconditions. However, the API surface exposes a `resume` route for time-actions, which can be misunderstood as resuming the action itself.
+
+**Proposed adapter contract:** treat `not_executed_interrupted` as “action did not happen.” Re-read current state, reevaluate the intent and preconditions, and submit a new action with a new idempotency key only if still valid. Never reuse the old key to request continuation. If a future product requirement wants automatic continuation, it needs an explicit owner-approved replan/continuation contract rather than overloading time-advance resume.
+
+**Test gap identified:** existing coverage asserts that the action is not committed at interruption, but does not directly assert that (a) resume and same-key replay remain terminal, and (b) a re-evaluated action can be submitted under a new key from the confirmed coordinate. A targeted regression test is appropriate.
