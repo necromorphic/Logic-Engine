@@ -57,6 +57,7 @@ test('trusted initial assignment is event-sourced, projected, and exact replay i
 
   const first = h.engine.assignKnowledge('knowledge-world', assignment());
   const replay = h.engine.assignKnowledge('knowledge-world', assignment());
+  h.store.rebuild('knowledge-world', 2);
 
   assert.equal(first.idempotent_replay, false);
   assert.equal(replay.idempotent_replay, true);
@@ -144,6 +145,31 @@ test('source-event rollback invalidates only assignments supported by that sourc
 
   assert.equal(rollback.rollback_outcome, 'resolved');
   assert.deepEqual(after.assignments.map((item) => item.assignment_id), ['assignment-1']);
+});
+
+test('event-backed source version must match the canonical source cursor', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  createSubject(h.engine);
+  h.engine.commitEvent('knowledge-world', event({
+    event_id: 'source-versioned',
+    idempotency_key: 'source-versioned',
+    turn_id: 'source-versioned',
+    expected_revision: 1,
+    effects: [{ kind: 'entity.create', entity_id: 'source-entity', entity_type: 'source' }],
+  }));
+
+  assert.throws(
+    () => h.engine.assignKnowledge('knowledge-world', assignment({
+      source_kind: 'imported',
+      source_ref: 'event:source-versioned',
+      source_version: 'wrong-version',
+      authorization_ref: 'import-approval',
+      expected_revision: 2,
+    })),
+    (error) => error.code === 'KNOWLEDGE_SOURCE_NOT_ELIGIBLE',
+  );
+  assert.equal(h.engine.listKnowledgeAssignments('knowledge-world').assignments.length, 0);
 });
 
 test('untrusted generic event commit cannot create a knowledge assignment', (t) => {
