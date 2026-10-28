@@ -299,6 +299,16 @@ function applyEventUnsafe(state, event) {
     return Object.freeze({ status: "updated", state: freezeState({ ...state, evidence, beliefs }), reason: null });
   }
 
+  if (event.type === "canonical_truth_changed") {
+    // Canonical world changes are not evidence that this NPC acquired a
+    // correction. Keep the subject-relative belief untouched.
+    return Object.freeze({
+      status: "unchanged",
+      state,
+      reason: "canonical_truth_does_not_revise_belief",
+    });
+  }
+
   if (event.type === "belief_forgotten") {
     if (!validId(event.proposition_ref) || !validId(event.forgetting_rule_ref)) {
       return nonReady("forgetting_metadata_incomplete");
