@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
-import { validateNpcKnowledgeRead } from '../src/application/npc-knowledge-read.js';
+import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from '../src/application/npc-knowledge-read.js';
 import { buildNpcBeliefContext, reduceNpcBeliefTransition } from '../src/application/npc-belief-state.js';
 
 const sourceBytes = JSON.stringify({
@@ -196,9 +196,9 @@ test('reader rejects authorizer scope mismatches for world, purpose, revision, a
   }
 });
 
-test('reader fails closed when the trusted authorizer is asynchronous', (t) => {
+test('reader configuration rejects an asynchronous trusted authorizer', (t) => {
   const { store } = setup(t);
-  const engine = new LogicEngine(store, {
+  assert.throws(() => new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeReadAuthorizer: async (scope) => ({
       status: 'authorized',
@@ -209,9 +209,9 @@ test('reader fails closed when the trusted authorizer is asynchronous', (t) => {
       commit_sequence: scope.commit_sequence,
       authorization_ref: 'rule:npc-read-v1',
     }),
-  });
-  assert.throws(() => engine.readNpcKnowledge(request(store)), {
-    code: 'NPC_KNOWLEDGE_READ_NOT_READY',
+  }), {
+    name: 'TypeError',
+    message: 'npcKnowledgeReadAuthorizer must be a synchronous deployment-owned function',
   });
 });
 
