@@ -88,7 +88,7 @@ Host's candidate tuple is `(world_id, conversation_id, message_id, version_id)`.
 
 | Host fact/event | Existing Provider operation | Current result / preconditions | What remains unproven |
 |---|---|---|---|
-| Completed immutable source version captured | `captureRawMessage(tuple + role/content/metadata)` | Immediately throws `MEMORY_RAW_CAPTURE_NOT_APPROVED`; writes nothing. | No production capture is occurring; Host identity and retention approval are absent. |
+| Completed immutable source version captured | `captureRawMessage(tuple + role/content/metadata)` | Immediately throws `MEMORY_RAW_CAPTURE_NOT_APPROVED`; writes nothing. | No production capture is occurring; product-owner retention direction is recorded in §10, while Host identity/lifecycle evidence and cross-owner adoption remain absent. |
 | Select current swipe/generation | `selectActiveRawVersion(tuple)` | Immediately throws `MEMORY_RAW_SOURCE_NOT_APPROVED`; active pointer is not changed. | Host's selected version must be a stable immutable ID, not a mutable swipe array position. |
 | Read one version / active conversation | `readRawMessageVersion(tuple)` / `readActiveRawMessages(world_id, conversation_id)` | Immediately throws `MEMORY_RAW_DISCLOSURE_NOT_APPROVED`. | No raw Host text can reach the consumer through these methods; no approved disclosure boundary exists. |
 | Edit or regenerate | No dedicated Host edit-ancestry operation; a new version would require a distinct `version_id` and preserved parent/source evidence. | Provider cannot infer the old version after Host overwrites it. | Pre-mutation capture, parent ancestry and durable IDs are not proven on Host. |
