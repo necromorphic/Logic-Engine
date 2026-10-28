@@ -9,7 +9,6 @@ test('query grant revoke/re-grant through a second Provider connection invalidat
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-query-aba-'));
   const path = join(directory, 'provider.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
-  const coordinatorPath = join(directory, 'coordinator.sqlite');
   let holdSnapshot = false;
   let snapshotStarted;
   let releaseSnapshot;
