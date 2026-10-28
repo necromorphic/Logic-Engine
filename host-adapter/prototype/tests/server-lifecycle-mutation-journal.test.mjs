@@ -772,6 +772,8 @@ test('enrolled chat save without a request-bound lifecycle capability is rejecte
             sourcePath: 'character-a/chat-1.jsonl',
             domain: 'chats',
         });
+        request.path = '/api/chats/save';
+        request.originalUrl = '/api/chats/save';
         request.body = {
             avatar_url: 'character-a.png',
             file_name: 'chat-1',
