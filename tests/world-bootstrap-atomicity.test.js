@@ -47,7 +47,7 @@ test('world bootstrap rolls back world, audit, and committed events as one unit'
     throw new Error('simulated bootstrap failure');
   }), /simulated bootstrap failure/);
 
-  assert.equal(store.world('bootstrap-rollback-world'), null);
+  assert.equal(store.world('bootstrap-rollback-world'), undefined);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM audit_entries WHERE world_id=?')
     .get('bootstrap-rollback-world').count, 0);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM world_events WHERE world_id=?')
