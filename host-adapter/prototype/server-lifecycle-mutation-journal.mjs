@@ -378,24 +378,19 @@ function consumeHostSaveCapability(request, target, before, headerToken) {
 
 function operationTargetsEnrolledHistory(operation, request, registry) {
     const body = request.body ?? {};
-    if (operation === 'chat-save') {
-        // The native /api/chats/save handler overwrites the JSONL file before
-        // the post-mutation snapshot can run. No request-bound, one-shot Host
-        // transition capability is currently implemented, so accepting this
-        // write would make post-write detection the only safeguard.
-        const enrolledChats = registry.conversations.filter(conversation => conversation.domain === 'chats');
-        const characterDirectory = path.parse(String(body.avatar_url ?? '').replace('.png', '')).name;
-        const chatName = path.parse(String(body.file_name ?? '')).name;
-        if (!characterDirectory || !chatName || enrolledChats.some(conversation => typeof conversation.sourcePath !== 'string')) {
-            return enrolledChats.length > 0;
+    if (operation === 'chat-save' || operation === 'group-chat-save') {
+        const route = operation === 'chat-save' ? '/api/chats/save' : '/api/chats/group/save';
+        let target;
+        try {
+            target = resolveSaveTarget(route, body);
+        } catch {
+            return registry.conversations.some(conversation => conversation.domain
+                === (operation === 'chat-save' ? 'chats' : 'group_chats'));
         }
-        const sourcePath = characterDirectory + '/' + chatName + '.jsonl';
-        return enrolledChats.some(conversation => conversation.sourcePath === sourcePath);
-    }
-    if (operation === 'group-chat-save') {
-        // Group-save payloads can vary across pinned ST call paths; without a
-        // request-bound lifecycle capability, fail closed for the enrolled domain.
-        return registry.conversations.some(conversation => conversation.domain === 'group_chats');
+        const markerUuid = body.chat?.[0]?.chat_metadata?.logic_engine_conversation_id;
+        return registry.conversations.some(conversation =>
+            (conversation.domain === target.domain && conversation.sourcePath === target.sourcePath)
+            || conversation.conversationId.split(':')[1] === markerUuid);
     }
     if (operation === 'chat-import') {
         return registry.conversations.some(conversation => conversation.domain === 'chats');
@@ -692,6 +687,9 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
 
         let paths;
         let registry;
+        let saveTarget = null;
+        let requiresSaveCapability = false;
+        const saveCapabilityHeader = request.headers?.['x-logic-engine-save-capability'];
         try {
             const chatRootPath = request.user?.directories?.chats;
             if (typeof chatRootPath !== 'string' || !path.isAbsolute(chatRootPath)) {
@@ -741,10 +739,25 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             }
             // Migrate pre-marker enrollments before any covered mutation can proceed.
             await ensureEnrollmentMarker({ roots: safeUserDirectories(request) });
-            if (operationTargetsEnrolledHistory(operation, request, registry)) {
-                return fail(response, ['chat-save', 'group-chat-save'].includes(operation)
-                    ? 'HOST_ENROLLED_HISTORY_SAVE_CAPABILITY_REQUIRED'
-                    : 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED', 409);
+            const isSaveOperation = ['chat-save', 'group-chat-save'].includes(operation);
+            const targetsEnrolledHistory = operationTargetsEnrolledHistory(operation, request, registry);
+            if (isSaveOperation && targetsEnrolledHistory) {
+                if (typeof saveCapabilityHeader !== 'string') {
+                    return fail(response, 'HOST_ENROLLED_HISTORY_SAVE_CAPABILITY_REQUIRED', 409);
+                }
+                try {
+                    saveTarget = resolveSaveTarget(
+                        operation === 'chat-save' ? '/api/chats/save' : '/api/chats/group/save',
+                        request.body ?? {},
+                    );
+                } catch {
+                    return fail(response, 'HOST_SAVE_CAPABILITY_TARGET_INVALID', 409);
+                }
+                requiresSaveCapability = true;
+            } else if (targetsEnrolledHistory) {
+                return fail(response, 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED', 409);
+            } else if (saveCapabilityHeader !== undefined) {
+                return fail(response, 'HOST_SAVE_CAPABILITY_SCOPE_MISMATCH', 409);
             }
             paths = await statePaths(request);
         } catch {
@@ -756,6 +769,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
         let before;
         let operationId;
         let chain;
+        let saveCapability = null;
         try {
             chain = await readAndValidateJournal(paths.journalPath);
             if (chain.unresolved) {
@@ -766,6 +780,21 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             if (!before.complete) {
                 release();
                 return fail(response, 'HOST_INVENTORY_INCOMPLETE');
+            }
+            if (requiresSaveCapability) {
+                const acceptedInventory = await getHostConversationInventory(request);
+                if (!acceptedInventory.complete) {
+                    release();
+                    return fail(response, 'HOST_SAVE_CAPABILITY_INVENTORY_NOT_READY', 503);
+                }
+                try {
+                    saveCapability = consumeHostSaveCapability(request, saveTarget, before, saveCapabilityHeader);
+                } catch (error) {
+                    release();
+                    const code = typeof error?.message === 'string' && error.message.startsWith('HOST_SAVE_CAPABILITY_')
+                        ? error.message : 'HOST_SAVE_CAPABILITY_INVALID';
+                    return fail(response, code, 409);
+                }
             }
             const suppliedOperationId = request.headers?.['x-logic-engine-operation-id'];
             if (suppliedOperationId !== undefined
@@ -881,6 +910,26 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                         return commitBufferedResponse(args, {
                             status: 503,
                             body: JSON.stringify({ error: { code: 'HOST_POST_MUTATION_SCAN_INCOMPLETE' } }),
+                        });
+                    }
+                    if (saveCapability && (
+                        targetArtifactDigest(after, saveTarget) !== saveCapability.postStateFileDigest
+                        || after.conversationInventory?.inventory_sha256 !== saveCapability.postStateInventoryDigest
+                    )) {
+                        await appendRecord(paths.journalPath, chain.lastHash, {
+                            version: 1,
+                            kind: 'outcome',
+                            operationId,
+                            status: 'UNRESOLVED',
+                            completedAt: new Date().toISOString(),
+                            httpStatus: response.statusCode,
+                            afterSnapshotStatus: 'HOST_SAVE_CAPABILITY_POSTSTATE_MISMATCH',
+                            afterSnapshotDigest: snapshotDigest(after),
+                            afterConversationInventoryDigest: after.conversationInventory?.inventory_sha256 ?? null,
+                        });
+                        return commitBufferedResponse(args, {
+                            status: 503,
+                            body: JSON.stringify({ error: { code: 'HOST_SAVE_CAPABILITY_POSTSTATE_MISMATCH' } }),
                         });
                     }
                     const changes = diffSnapshots(before, after);
