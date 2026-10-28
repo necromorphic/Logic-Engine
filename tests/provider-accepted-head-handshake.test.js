@@ -75,6 +75,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
   const previousEnv = {};
   let child;
   let provider;
+  let providerDb;
   try {
     setEnv('LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath, previousEnv);
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', undefined, previousEnv);
@@ -108,11 +109,13 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', providerToken, previousEnv);
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', '1', previousEnv);
     provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
+    providerDb?.close();
+    providerDb = new DatabaseSync(providerPath);
     const scope = { world_id: 'world-1', subject_id: 'npc-1', purpose: 'recall' };
 
     provider.grantQuery(scope, true);
     assert.equal(provider.authorizeQuery(scope), true);
-    const firstOperation = provider.db.prepare(
+    const firstOperation = providerDb.prepare(
       'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get();
     assert.equal(firstOperation.head, 2);
@@ -254,6 +257,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     }), /PROVIDER_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
   } finally {
     try { provider?.close(); } catch {}
+    try { providerDb?.close(); } catch {}
     if (child) {
       child.stdin.end('stop');
       await once(child, 'exit');
