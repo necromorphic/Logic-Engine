@@ -296,18 +296,29 @@ export class HostVersionDigestLedger {
       this.#markNonReady(v.world_id, v.conversation_id, 'HOST_VERSION_UNKNOWN', now);
       return { status: 'non_ready', code: 'HOST_VERSION_UNKNOWN' };
     }
-    // Event-only capture cannot create an orphan or extend an unverified legacy chain.
-    // Parent lookup is scoped to the same canonical world, conversation and logical message.
+    // Event-only capture cannot create an orphan or extend an incomplete/legacy chain.
+    // Walk all ancestors in the same world, conversation and logical message. This
+    // also fails closed if a damaged/restored ledger contains a broken VERIFIED chain.
     if (!prior && v.parent_version_id !== null) {
-      const parent = this.db.prepare('SELECT lineage_status FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?')
-        .get(v.world_id, v.conversation_id, v.message_id, v.parent_version_id);
-      if (!parent) {
-        this.#markNonReady(v.world_id, v.conversation_id, 'HOST_LINEAGE_PARENT_UNKNOWN', now);
-        return { status: 'non_ready', code: 'HOST_LINEAGE_PARENT_UNKNOWN' };
-      }
-      if (parent.lineage_status !== 'VERIFIED') {
-        this.#markNonReady(v.world_id, v.conversation_id, 'HOST_LINEAGE_LEGACY_UNVERIFIED', now);
-        return { status: 'non_ready', code: 'HOST_LINEAGE_LEGACY_UNVERIFIED' };
+      const seenAncestors = new Set([v.version_id]);
+      let parentVersionId = v.parent_version_id;
+      while (parentVersionId !== null) {
+        if (seenAncestors.has(parentVersionId)) {
+          this.#markNonReady(v.world_id, v.conversation_id, 'HOST_LINEAGE_CYCLE_OR_INCOMPLETE', now);
+          return { status: 'non_ready', code: 'HOST_LINEAGE_CYCLE_OR_INCOMPLETE' };
+        }
+        const parent = this.db.prepare('SELECT version_id,parent_version_id,lineage_status FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?')
+          .get(v.world_id, v.conversation_id, v.message_id, parentVersionId);
+        if (!parent) {
+          this.#markNonReady(v.world_id, v.conversation_id, 'HOST_LINEAGE_PARENT_UNKNOWN', now);
+          return { status: 'non_ready', code: 'HOST_LINEAGE_PARENT_UNKNOWN' };
+        }
+        if (parent.lineage_status !== 'VERIFIED') {
+          this.#markNonReady(v.world_id, v.conversation_id, 'HOST_LINEAGE_LEGACY_UNVERIFIED', now);
+          return { status: 'non_ready', code: 'HOST_LINEAGE_LEGACY_UNVERIFIED' };
+        }
+        seenAncestors.add(parentVersionId);
+        parentVersionId = parent.parent_version_id;
       }
     }
     // A newly captured identity or a newly observed deletion changes the
