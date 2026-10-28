@@ -117,3 +117,92 @@ test('post-intent prewrite recheck blocks a file change before native handler ex
     await rm(root, { recursive: true, force: true });
   }
 });
+
+
+test('final native-handoff recheck blocks a target-file race after the inventory precheck', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'host-save-native-handoff-race-'));
+  const directories = {
+    chats: path.join(root, 'chats'), characters: path.join(root, 'characters'), groups: path.join(root, 'groups'),
+    groupChats: path.join(root, 'group_chats'), backups: path.join(root, 'backups'),
+  };
+  await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
+  const chatDirectory = path.join(directories.chats, 'character-a');
+  await mkdir(chatDirectory, { recursive: true });
+  const request = {
+    method: 'POST', baseUrl: '', path: '/api/chats/save', originalUrl: '/api/chats/save',
+    sessionID: 'native-handoff-race-session',
+    user: { profile: { handle: 'native-handoff-race-user' }, directories },
+    headers: {},
+  };
+  const conversationUuid = randomUUID();
+  const conversationId = randomUUID() + ':' + conversationUuid;
+  const messageId = randomUUID();
+  const versionId = randomUUID();
+  const header = {
+    chat_metadata: { logic_engine_conversation_id: conversationUuid },
+    user_name: 'unused',
+    character_name: 'unused',
+  };
+  const message = {
+    mes: 'handoff-before', swipes: ['handoff-before'], swipe_id: 0,
+    _logicEngineLifecycle: {
+      messageId,
+      activeVersionIndex: 0,
+      versions: [{ versionId, payloadDigest: digest('handoff-before'), parentVersionId: null }],
+    },
+  };
+  const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
+  const initialRecords = [header, message];
+  const writeChat = records => writeFile(chatPath, records.map(record => JSON.stringify(record)).join('\n'));
+  const payload = {
+    ch_name: 'Character A', file_name: 'chat-a', chat: initialRecords,
+    avatar_url: 'character-a.png', force: false,
+  };
+
+  try {
+    await writeChat(initialRecords);
+    const originalBytes = await readFile(chatPath, 'utf8');
+    await registerHostConversation(request, {
+      conversationId, sourceLocator: 'chat-a', sourcePath: 'character-a/chat-a.jsonl', domain: 'chats',
+    });
+    await recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId, message_id: messageId, version_id: versionId,
+      parent_version_id: null, content_sha256: digest('handoff-before'), active: true, deleted: false,
+    });
+    const capability = await prepareHostSaveCapability(request, { route: '/api/chats/save', payload });
+    assert.equal(capability.status, 'CAPABILITY_ISSUED');
+
+    const saveRequest = {
+      ...request,
+      body: payload,
+      headers: { 'x-logic-engine-save-capability': capability.token },
+    };
+    const response = responseMock();
+    let reachedNativeSave = false;
+    const changedBytes = originalBytes + '\n';
+    await createHostLifecycleMutationMiddleware({
+      requirePersistedInventory: true,
+      beforeSaveNativeHandoff: async () => {
+        // The earlier post-intent inventory check has completed. Simulate an
+        // external writer in the final gap before the native save handoff.
+        await writeFile(chatPath, changedBytes);
+      },
+    })(saveRequest, response, async () => {
+      reachedNativeSave = true;
+      await writeChat(payload.chat);
+      response.json({ ok: true });
+    });
+    await response.finished;
+
+    assert.equal(reachedNativeSave, false, 'native save must not run after the final pre-handoff check fails');
+    assert.equal(response.statusCode, 409);
+    assert.match(String(response.body), /HOST_SAVE_CAPABILITY_STALE_PRESTATE_AT_NATIVE_HANDOFF/);
+    assert.equal(await readFile(chatPath, 'utf8'), changedBytes, 'the middleware must preserve the bytes present at rejection');
+    assert.equal((await getHostMutationJournalStatus(request)).status, 'RECONCILIATION_REQUIRED');
+    const journal = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
+    assert.match(journal, /HOST_SAVE_CAPABILITY_STALE_PRESTATE_AT_NATIVE_HANDOFF/);
+    assert.doesNotMatch(journal, /handoff-before/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
