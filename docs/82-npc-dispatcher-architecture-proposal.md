@@ -195,3 +195,21 @@ This decision does not override existing contracts. `docs/34-npc-decision-contex
 Required design negatives are enumerated in §11.5 of `docs/81-npc-goal-action-contracts-proposal.md`. In particular, authorization must explicitly allow the NPC, action family, target/scope, purpose, and relevant source; default is deny. The Core-owned committed result/event record is the only candidate authority for any later committed outcome, but a plan-reconciliation contract remains separate and blocked.
 
 **Gate status:** contract design only; no tests or live integration are claimed. No runtime/API/schema/storage, dispatcher, scheduler, worker, or plan-reconciliation implementation is authorized. `Memory → NPC` remains **DISABLED / FAIL-CLOSED**; Host remains **NON_READY** until independent gates pass.
+
+## 11. Source audit addendum — result correlation and first-slice order
+
+### 11.1 What the existing Core path can establish
+
+The inspected source-level trace for the bounded mechanic-evaluation route is: evaluation result → ordinary pending proposal → separate approval → transactional commit → Core event/audit records. For this narrow route, the proposal retains evaluation identity/fingerprints and effect provenance; the committed `world_events` record retains mechanic-execution metadata; `getEvents(...)` exposes the event, and `proposal.committed` audit includes the committed `event_id` and provenance. The commit record/event is a stronger authority than model output or proposal status.
+
+This is not an NPC dispatcher or an observation-result consumer. The current effect translator rejects `propose_knowledge`; the `observe` source/evidence/authorization contract and Core-owned acquisition record are not executable. Therefore the existing event/audit correlation cannot be used to claim that an NPC observed or learned a fact. No plan reconciliation may consume it until a separate contract defines NPC/attempt/evidence/proposal/event correlation, idempotency and replay, failure behavior, and proof that the committed event represents the intended knowledge effect.
+
+### 11.2 Coordinator decision required before implementation sequencing
+
+There are two distinct approved design statements that must not be silently merged:
+
+1. The earlier Core knowledge-contract direction in `docs/34-npc-decision-context-and-proposal.md` and `docs/39-npc-core-knowledge-contract-proposal.md` scopes the candidate first runtime acquisition path to explicitly authorized `author_initial`/imported knowledge with provenance; the executable source/record/filter contract remains unverified.
+2. The later coordinator decision selects `observe` as the first semantic NPC action **for design only**, requiring a trusted observation source, access/visibility rules, and a supported knowledge-proposal mapping.
+
+The coordinator/Core owner must decide whether `observe` is a later slice after `author_initial`/imported acquisition or revises that earlier first-slice direction. Until recorded, no implementation sequence is implied. This remains documentation-only: no dispatcher, worker, scheduler, API/schema/storage, runtime, or plan-reconciliation work is authorized; Memory → NPC remains DISABLED / FAIL-CLOSED and Host remains NON_READY.
+
