@@ -337,3 +337,23 @@ test("unsupported primitive values fail closed in event metadata", () => {
   assert.equal(applyNpcEpistemicEvent(emptyState(), { ...base, extra: Number.NaN }).status, "non_ready");
   assert.equal(applyNpcEpistemicEvent(emptyState(), { ...base, extra: undefined }).status, "non_ready");
 });
+
+test("state validation rejects unknown fields that could bypass shallow freezing", () => {
+  const state = admit(emptyState()).state;
+
+  const withNestedEvidenceExtension = structuredClone(state);
+  withNestedEvidenceExtension.evidence[0].extension = { nested: { mutable: true } };
+  assert.equal(applyNpcEpistemicEvent(withNestedEvidenceExtension, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "canonical_truth_changed",
+  }).status, "non_ready");
+
+  const withTopLevelExtension = structuredClone(state);
+  withTopLevelExtension.extension = { mutable: true };
+  assert.equal(applyNpcEpistemicEvent(withTopLevelExtension, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "canonical_truth_changed",
+  }).status, "non_ready");
+});
