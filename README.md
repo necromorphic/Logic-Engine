@@ -40,7 +40,8 @@
 
 **Актуальные открытые кандидаты, не считать частью `main`, пока PR не слит:**
 - [PR #640](https://github.com/necromorphic/Logic-Engine/pull/640) — перенос canonical source-version ledger в `main`; это кандидат, не утверждённый production-контракт.
-- [PR #632](https://github.com/necromorphic/Logic-Engine/pull/632) — Host lifecycle inventory candidate для проверки на актуальном `main`; сам по себе не доказывает полноту inventory.
+- [PR #632](https://github.com/necromorphic/Logic-Engine/pull/632) — исходная Host lifecycle validation-ветка с подтверждёнными тестами, но 184 commits ahead / 24 behind `main`; сохраняется как evidence-only и не должна сливаться целиком.
+- [PR #680](https://github.com/necromorphic/Logic-Engine/pull/680) — свежий 33-файловый Host lifecycle/save-capability port на текущий `main`; exact-head workflows queued, результаты PR #632 не переносятся автоматически.
 - [PR #636](https://github.com/necromorphic/Logic-Engine/pull/636) — Windows Memory Provider acceptance evidence.
 - [PR #646](https://github.com/necromorphic/Logic-Engine/pull/646) — сериализация старта Host dispatch относительно отзыва; нужен доказанный путь от этого gate до реального final-send.
 - [PR #670](https://github.com/necromorphic/Logic-Engine/pull/670) — Core-owned actor-scoped knowledge reader и belief-transition boundary поверх слитой основы #665. Текущий проверенный кандидат `6afc1839a9e13a86cce690fe464960c500ac1392`: Provider blocker-3 PASS (30/30), Linux Runtime PASS (1105/1105), recalculation oracle PASS (20/20); full Windows Runtime run был CANCELLED и не засчитывается как PASS. Добавлены атомарные cursor rechecks и rollback-race regressions. Остался Core-вопрос: acquisition не закрепляет версию/значение факта, а reader берёт текущее значение по `fact_id` ([обсуждение #140](https://github.com/necromorphic/Logic-Engine/issues/140#issuecomment-6480878131)). Draft; независимого review нет, не production Memory → NPC и не полный WP-3 acceptance.
