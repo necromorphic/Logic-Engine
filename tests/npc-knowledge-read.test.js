@@ -218,13 +218,13 @@ test('reader configuration rejects an asynchronous trusted authorizer', (t) => {
 test('reader rejects unsupported purpose, unknown actor, and malformed limits', (t) => {
   const { store, engine } = setup(t);
   assert.throws(() => engine.readNpcKnowledge(request(store, { purpose: 'prompt_injection' })), {
-    code: 'NPC_KNOWLEDGE_READ_NOT_READY',
+    code: 'INVALID_NPC_KNOWLEDGE_READ',
   });
   assert.throws(() => engine.readNpcKnowledge(request(store, { actor_id: 'missing-npc' })), {
     code: 'NPC_KNOWLEDGE_READER_NOT_ELIGIBLE',
   });
   assert.throws(() => engine.readNpcKnowledge(request(store, { limit: 201 })), {
-    code: 'NPC_KNOWLEDGE_READ_NOT_READY',
+    code: 'INVALID_NPC_KNOWLEDGE_READ',
   });
 });
 
