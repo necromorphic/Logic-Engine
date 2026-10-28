@@ -50,8 +50,8 @@ function Assert-MaintenanceWindow {
             Where-Object { $_.Name -eq $name } |
             Select-Object -First 1
         if (-not $service) { throw "Required Windows service not found during maintenance check: $name" }
-        if ([string]$service.State -ne 'Stopped' -or [int]$service.ProcessId -ne 0) {
-            throw "Maintenance gate refused: service '$name' is not stopped with PID 0 (state=$($service.State), pid=$($service.ProcessId)). No ACL mutation is permitted."
+        if ([string]$service.State -ne 'Stopped' -or [int]$service.ProcessId -ne 0 -or [string]$service.StartMode -ne 'Disabled') {
+            throw "Maintenance gate refused: service '$name' must be Disabled and Stopped with PID 0 (startMode=$($service.StartMode), state=$($service.State), pid=$($service.ProcessId)). No ACL mutation is permitted."
         }
     }
 }
@@ -303,7 +303,8 @@ $report = [ordered]@{
     maintenanceWindowConfirmed = [bool]$MaintenanceWindowConfirmed
     limitations = @(
         'Apply requires explicit operator attestation that the maintenance window is active and all authority DB/SQLite sidecar handles are closed.',
-        'The script verifies the four named services are stopped with PID 0 immediately before each ACL mutation, but cannot enumerate every arbitrary process handle; the operator attestation remains required.',
+        'The script requires all four named services to have StartMode Disabled, State Stopped, and PID 0 before and immediately before each ACL mutation; an external administrator can still re-enable/start a service, so this is not an OS-level lock.',
+        'The script cannot enumerate every arbitrary process handle; the operator attestation and approved handle-closure procedure remain required.',
         'Protects only the dedicated authority DB directory and current SQLite sidecars.',
         'Does not create or validate the authority service, protocol, monotonic semantics, or inventory authority.',
         'Administrators/SYSTEM remain trusted recovery principals; audited recovery controls are separate.',
