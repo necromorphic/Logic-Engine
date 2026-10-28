@@ -427,6 +427,36 @@ test('async transport start is rejected and unresolved dispatch is marked UNKNOW
   }
 });
 
+test('async start that initiates before returning is marked UNKNOWN and never retried', async () => {
+  const fixture = await createFixture({
+    prepareUpstreamOverride: (request) => ({
+      target: transportTargetFor(request),
+      start: async () => {
+        fixtureCalls.push(request);
+        await Promise.resolve();
+        return { started: true, response: Promise.resolve({ status: 200 }) };
+      },
+    }),
+  });
+  const fixtureCalls = [];
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('async-started-before-rejection')),
+      /MEMORY_DISPATCH_OUTCOME_UNKNOWN/,
+    );
+    assert.equal(fixtureCalls.length, 1, 'the pre-await initiation occurs once and must not be retried');
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get('async-started-before-rejection').status, 'UNKNOWN');
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('ambiguous transport outcome is recorded UNKNOWN and the request identity cannot be replayed', async () => {
   let sends = 0;
   const fixture = await createFixture({
