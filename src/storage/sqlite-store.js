@@ -692,6 +692,7 @@ export class SQLiteStore {
             transition_id TEXT NOT NULL,
             actor_id TEXT NOT NULL,
             proposition_ref TEXT NOT NULL,
+            proposition_value_json TEXT NOT NULL,
             stance TEXT NOT NULL CHECK(stance IN ('believes_true','believes_false','suspects_true','suspects_false','unresolved_conflict')),
             supporting_acquisition_ids_json TEXT NOT NULL,
             contradicting_acquisition_ids_json TEXT NOT NULL,
