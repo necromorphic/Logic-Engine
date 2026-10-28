@@ -10,6 +10,7 @@ import { createHostLifecycleMutationMiddleware, getHostMutationJournalStatus, re
 async function fixture() {
     const root = await fsMkdtemp();
     const directories = {
+        root,
         chats: path.join(root, 'chats'),
         characters: path.join(root, 'characters'),
         groups: path.join(root, 'groups'),
@@ -1013,5 +1014,99 @@ test('enrollment marker blocks compatibility-mode mutation when registry rolls b
         assert.match(String(response.body), /HOST_JOURNAL_UNAVAILABLE/);
     } finally {
         await rm(root, { recursive: true, force: true });
+    }
+});
+
+
+test('user-root reset is denied before deleting enrolled histories', async () => {
+    const { root, request } = await fixture();
+    try {
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        request.baseUrl = '/api/users';
+        request.path = '/reset-step2';
+        request.originalUrl = '/api/users/reset-step2';
+        request.body = { code: 'non-sensitive-test-code' };
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            reachedHandler = true;
+            response.sendStatus?.(204);
+            response.end();
+        });
+        await response.finished;
+        assert.equal(reachedHandler, false);
+        assert.equal(response.statusCode, 409);
+        assert.match(String(response.body), /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
+        assert.ok(await readFile(path.join(root, '.logic-engine-host-enrollment-marker'), 'utf8'));
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('admin purge is denied when the target user has enrolled history, even with a truthy string flag', async () => {
+    const target = await fixture();
+    try {
+        await registerHostConversation(target.request, {
+            conversationId: 'target-conversation',
+            sourceLocator: 'target-chat',
+            domain: 'chats',
+        });
+        const request = {
+            method: 'POST',
+            baseUrl: '/api/users',
+            path: '/delete',
+            originalUrl: '/api/users/delete',
+            body: { handle: 'target-user', purge: 'false' },
+            user: { profile: { handle: 'admin-user' }, directories: target.directories },
+        };
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware({
+            getUserDirectories: handle => {
+                assert.equal(handle, 'target-user');
+                return target.directories;
+            },
+        })(request, response, async () => {
+            reachedHandler = true;
+            response.end();
+        });
+        await response.finished;
+        assert.equal(reachedHandler, false);
+        assert.equal(response.statusCode, 409);
+        assert.match(String(response.body), /HOST_ENROLLED_USER_PURGE_UNSUPPORTED/);
+        assert.ok(await readFile(path.join(target.root, '.logic-engine-host-enrollment-marker'), 'utf8'));
+    } finally {
+        await rm(target.root, { recursive: true, force: true });
+    }
+});
+
+test('admin purge preserves normal behavior for a target with no Host enrollment state', async () => {
+    const target = await fixture();
+    try {
+        const request = {
+            method: 'POST',
+            baseUrl: '/api/users',
+            path: '/delete',
+            originalUrl: '/api/users/delete',
+            body: { handle: 'target-user', purge: true },
+            user: { profile: { handle: 'admin-user' }, directories: target.directories },
+        };
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware({
+            getUserDirectories: () => target.directories,
+        })(request, response, async () => {
+            reachedHandler = true;
+            response.end();
+        });
+        await response.finished;
+        assert.equal(reachedHandler, true);
+        assert.equal(response.statusCode, 200);
+    } finally {
+        await rm(target.root, { recursive: true, force: true });
     }
 });
