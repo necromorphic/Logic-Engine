@@ -12,10 +12,7 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
-@@ -53,1 +53,2 @@
- import { router as volcengineRouter } from './endpoints/volcengine.js';
+@@ -53,0 +54,1 @@
 +import { createProtectedDispatchDenyMiddleware } from './endpoints/logic-engine-protected-dispatch-guard.mjs';
-@@ -143,2 +144,3 @@
-     app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true }));
+@@ -143,0 +144,1 @@
 +    app.use(createProtectedDispatchDenyMiddleware());
-     app.use('/', userDataRouter);
