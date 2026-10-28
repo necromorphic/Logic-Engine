@@ -1096,6 +1096,28 @@ export class SQLiteStore {
     }
   }
 
+  listKnowledgeAssignments(id, subjectId = null) {
+    const w = this.world(id);
+    if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    if (subjectId !== null && (typeof subjectId !== 'string' || !subjectId.trim())) {
+      throw new EngineError('INVALID_KNOWLEDGE_SUBJECT', 'subjectId must be a non-empty string when supplied.', 400);
+    }
+    const rows = subjectId === null
+      ? this.db.prepare('SELECT * FROM knowledge_assignments WHERE world_id=? ORDER BY commit_sequence,assignment_id').all(id)
+      : this.db.prepare('SELECT * FROM knowledge_assignments WHERE world_id=? AND subject_id=? ORDER BY commit_sequence,assignment_id').all(id, subjectId);
+    return {
+      world_id: id,
+      world_revision: w.world_revision,
+      commit_sequence: this.currentCommitSequence(id),
+      assignments: rows.map((row) => ({
+        assignment_id: row.assignment_id, subject_id: row.subject_id, item_id: row.item_id,
+        source_kind: row.source_kind, source_ref: row.source_ref, source_version: row.source_version,
+        authorization_ref: row.authorization_ref, event_id: row.event_id,
+        committed_revision: row.committed_revision, commit_sequence: row.commit_sequence,
+      })),
+    };
+  }
+
   events(id, includeInvalid = false) {
     if (!this.world(id)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
     const rows = this.db.prepare('SELECT * FROM world_events WHERE world_id=? ' + (includeInvalid ? '' : "AND validity='valid' ") + 'ORDER BY commit_sequence').all(id);
