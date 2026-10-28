@@ -291,7 +291,48 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     // authorize Provider reconciliation or claim complete native inventory.
     const tombstones = [];
     const priorIdentitySnapshot = await journal.latestIdentitySnapshot(conversationId);
-    const liveMessageIds = new Set(chat.map(message => message?._logicEngineLifecycle?.messageId).filter(Boolean));
+    if (!Array.isArray(priorIdentitySnapshot)) {
+      throw Error('NON_READY: pre-mutation identity snapshot is unavailable; abort lifecycle checkpoint');
+    }
+    const priorMessageIds = priorIdentitySnapshot.map(message => message?.messageId);
+    const currentMessageIds = chat.map(message => message?._logicEngineLifecycle?.messageId ?? null);
+    if (priorMessageIds.some(id => typeof id !== 'string' || !id)
+      || new Set(priorMessageIds).size !== priorMessageIds.length) {
+      throw Error('NON_READY: prior identity snapshot contains missing or duplicate message IDs');
+    }
+    const creationOperations = ['create-message', 'message-send', 'message-receive'];
+    if (creationOperations.includes(operation)) {
+      if (!Number.isInteger(createdMessageIndex) || createdMessageIndex < 0 || createdMessageIndex >= chat.length) {
+        throw Error('NON_READY: creation hook lacks an exact source insertion boundary; abort inventory checkpoint');
+      }
+      const existingIds = currentMessageIds.slice();
+      existingIds.splice(createdMessageIndex, 1);
+      if (existingIds.length !== priorMessageIds.length
+        || existingIds.some((id, index) => id !== priorMessageIds[index])) {
+        throw Error('NON_READY: message creation also changed, reordered, or lost pre-existing message identities');
+      }
+    } else if (operation === 'delete-message') {
+      const currentExistingIds = currentMessageIds.filter(id => id !== null);
+      if (currentExistingIds.length !== currentMessageIds.length
+        || new Set(currentExistingIds).size !== currentExistingIds.length) {
+        throw Error('NON_READY: message deletion left missing or duplicate surviving identities');
+      }
+      let priorIndex = 0;
+      for (const id of currentExistingIds) {
+        while (priorIndex < priorMessageIds.length && priorMessageIds[priorIndex] !== id) priorIndex++;
+        if (priorIndex >= priorMessageIds.length) {
+          throw Error('NON_READY: message deletion also introduced or reordered message identities');
+        }
+        priorIndex++;
+      }
+      if (currentExistingIds.length >= priorMessageIds.length) {
+        throw Error('NON_READY: delete-message checkpoint did not remove a prior message identity');
+      }
+    } else if (currentMessageIds.length !== priorMessageIds.length
+      || currentMessageIds.some((id, index) => id !== priorMessageIds[index])) {
+      throw Error('NON_READY: non-structural mutation changed or reordered message identities');
+    }
+    const liveMessageIds = new Set(currentMessageIds.filter(Boolean));
     if (operation === 'delete-message' && Array.isArray(priorIdentitySnapshot)) {
       for (const priorMessage of priorIdentitySnapshot) {
         if (liveMessageIds.has(priorMessage.messageId)) continue;
