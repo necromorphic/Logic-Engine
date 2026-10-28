@@ -22,7 +22,7 @@ The local-agent report dated 2026-10-28 states that the prior candidate revision
 - preserved legacy migration for unenrolled fixtures;
 - observed no file changes in the reported blocked scenarios.
 
-Those observations were made against the earlier patch revision, not the hardened patch in this commit. They are not evidence that the latest patch has passed CI or the same runtime checks.
+The current candidate HEAD `6155d75386d304226d5d1c072c152083f5406717` has five successful GitHub Actions workflows (exact-head runs are listed on [the candidate branch](https://github.com/necromorphic/Logic-Engine/actions?query=branch%3Areview%2Fstartup-migration-patch-candidate)). These automated checks validate patch application, lint and regression tests; they do **not** repeat the isolated real-startup scenarios against this exact hardened patch. The earlier runtime observations therefore remain evidence for the earlier revision only.
 
 ## Hardening added for this review iteration
 
