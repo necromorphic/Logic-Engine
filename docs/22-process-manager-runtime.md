@@ -4,6 +4,9 @@ Status as of 2026-10-25: **implemented in `main`; bounded runtime slice, not ful
 
 Implementation: [Process Manager runtime, PR #281](https://github.com/necromorphic/Logic-Engine/pull/281), with the Time contract review in [PR #284](https://github.com/necromorphic/Logic-Engine/pull/284). The process lifecycle is a durable domain layer over the existing Core time-trigger and segment pipeline. It is not a second scheduler or canonical writer. PR #248 is historical work and is not the current integration status reference.
 
+
+- **Explicit reconciliation after rollback:** requires `confirm_retry: true`, the current process checkpoint version, and the current `expected_revision`. Stale world revisions fail before trigger/process mutation. The accepted plan is audited with a stable plan ID, version, and old/new due coordinates and trigger identities; replay with the same idempotency key does not apply it twice.
+
 ## Internal API
 
 All routes below require a valid bearer API token and the separately configured x-engine-internal-token. Process lifecycle routes are not public model-facing endpoints.
