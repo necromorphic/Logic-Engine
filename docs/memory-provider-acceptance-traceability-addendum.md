@@ -93,3 +93,13 @@ Code/test evidence is tracked separately from cross-block production gates. Exac
 - Added `tests/memory-provider-authoritative-source-version.test.js` regression coverage for both a locally matching token rejected by the changed authoritative source validator and a Core snapshot change during awaited candidate authorization.
 - Latest code/test HEAD: `c7a4cb2fe3b22bd37e4f8109160fd92f1d238bad`. Runtime tests passed on this exact HEAD in [run #40646422973](https://github.com/necromorphic/Logic-Engine/actions/runs/40646422973): `npm test` 829/829, recalculation-oracle harness 8/8, and NPC-boundary job passed. The earlier `#40645978980` run was cancelled/retried and is not used as final evidence.
 - These Provider changes do not close Host inventory, actual final-send reauthorization, or coordinated Core + Provider backup-restore anti-rollback. Memory → NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+## Raw-text fail-closed entrypoint regression — 28 October 2026
+
+- Test-only commit: `bc6416f061a739515cce525ef2a8e420c4400fed`; [exact-head Runtime CI #40650072926](https://github.com/necromorphic/Logic-Engine/actions/runs/40650072926) completed successfully.
+- Runtime job `npm test`: **success**. Recalculation oracle: **success**. NPC-boundary job: **success**.
+- `tests/sqlite-memory-provider.test.js` now explicitly verifies that `selectActiveRawVersion` fails with `MEMORY_RAW_SOURCE_NOT_APPROVED` and `registerRawDerivedCopy` fails with `MEMORY_RAW_DERIVED_COPY_NOT_APPROVED`.
+- The same regression test supplies a permissive `authorizeRawRead` callback and verifies it is never called (call count remains zero): a caller callback cannot override the unconditional raw-disclosure policy gate.
+- This is test-only evidence for existing fail-closed behavior. No production code, schema, raw-text policy, or runtime wiring changed. It does not approve raw-text retention or disclosure.
+- **Disposition:** Provider-local regression coverage **PASS** on exact HEAD. Host inventory, final dispatch-time revocation enforcement, coordinated-restore anti-rollback, and explicit raw-text policy approval remain **BLOCKED**. Memory→NPC remains **DISABLED / FAIL-CLOSED**.
