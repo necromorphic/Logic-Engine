@@ -142,10 +142,15 @@ test('joins trusted Memory record authorization, Core authorized source read, an
 });
 
 test('initial/imported knowledge requires the Core assignment authority path', async (t) => {
+  // Check each marker independently: provider metadata must not be able to
+  // relabel an initial/imported assignment as an ordinary claim or vice versa.
   for (const overrides of [
     { content_kind: 'author_initial', epistemic_kind: 'authored_initial' },
+    { content_kind: 'author_initial', epistemic_kind: 'canonical' },
     { content_kind: 'imported', epistemic_kind: 'imported' },
+    { content_kind: 'imported', epistemic_kind: 'acquired_report' },
     { content_kind: 'claim', epistemic_kind: 'authored_initial' },
+    { content_kind: 'claim', epistemic_kind: 'imported' },
   ]) {
     const { consumer, setCandidates, candidate } = setup(t);
     setCandidates([candidate(overrides)]);
