@@ -69,7 +69,7 @@ The context text is an adapter output for the LLM, not a canonical record and no
 - [ ] Test invalidation across actual event/restart/rollback boundaries; production evidence remains unavailable.
 - [x] Add auditory propagation as a separate result from visibility, using explicit sound levels and door attenuation.
 - [x] Add deterministic route costs and explicit traversal constraints (synthetic weighted routes; unknown-state doors preserve uncertainty).
-- [ ] Add scenario-based evaluation for multi-NPC scenes (ambush, doorway, sound behind a wall, out-of-room NPC).
+- [ ] Add scenario-based evaluation for multi-NPC scenes (ambush, doorway, sound behind a wall, out-of-room NPC); current synthetic route traces cover route-cost changes only.
 
 ### Phase B — evidence and contracts
 - [ ] Close typed position/frame/schema identity and entity-incarnation requirements with named Core/World Pack/TimeEngine review.
@@ -115,3 +115,8 @@ New test: `tests/spatial-scene-traces.test.js`. The synthetic trace changes one 
 ### Fifth research increment: weighted room routes
 
 New module: `experiments/spatial-scene-lab/spatial-navigation.js`. It ranks simple room paths by the sum of explicit positive per-door traversal costs, supports explicit forbidden doors and a maximum total cost, and rejects missing costs or invalid constraints. Unknown-state doors are not traversed; when they could affect the result, route optimality remains UNKNOWN. These costs are synthetic ranking weights, not measured travel time, accessibility, or safety. No action is selected or committed, and production integration remains NO-GO.
+
+
+### Fifth research increment — route costs and scene-boundary traces
+
+The route-cost module now ranks simple room paths by explicit positive per-door costs and supports forbidden-door and maximum-cost constraints. A scene trace checks that closing a door changes the selected cheapest route and marks a prediction stale when its declared door dependency changes. A second trace ensures an unknown-state shortcut prevents a confirmed optimality claim. These are bounded synthetic tests only; costs do not represent physical time, accessibility, or safety.
