@@ -369,6 +369,12 @@ export class SQLiteStore {
         }
         if (status.pending.core || status.heads.core!==local.head || !status.enrolled.core) throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
       }
+      if (this.acceptedHeadConfig) {
+        const applied = new Set(this.db.prepare('SELECT version FROM schema_migrations').all().map(row => row.version));
+        if (Array.from({length:12}, (_, index) => index + 1).some(version => !applied.has(version))) {
+          throw new Error('CORE_SCHEMA_MIGRATION_REQUIRED');
+        }
+      }
       this.migrate();
       if (this.coordinatorRelease) {
         this.coordinatorRelease();
