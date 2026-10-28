@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, rm, readFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { assertHostStartupMigrationSafe, assertHostUserDataMigrationSafe } from './host-startup-migration-guard.mjs';
+import { assertHostStartupMigrationSafe, assertHostUserDataMigrationSafe } from '../host-startup-migration-guard.mjs';
 
 async function fixture({ enrolled = true, legacy = false } = {}) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-startup-migration-'));
