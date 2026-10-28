@@ -199,6 +199,16 @@ try {
   } catch { $adsDatabaseRefused = $_.Exception.Message -match 'NTFS alternate data stream' }
   if (-not $adsDatabaseRefused) { throw 'An ADS-shaped authority database path was not rejected before normalization.' }
 
+# Regression: evidence output must not contaminate a supplied backup/restore root.
+  $backupEvidencePath = Join-Path $backupRoot 'acl-evidence-must-not-be-written.json'
+  $backupEvidenceRefused = $false
+  try {
+    & .\\scripts\\security\\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $backupEvidencePath
+  } catch { $backupEvidenceRefused = $_.Exception.Message -match 'outside protected database and backup roots' }
+  if (-not $backupEvidenceRefused -or (Test-Path -LiteralPath $backupEvidencePath)) {
+    throw 'Evidence output inside a backup root was not refused before any ACL mutation.'
+  }
+
 # Regression: an existing evidence file must not be overwritten.
   $existingEvidence = $evidence + '.existing'
   $evidenceMarker = 'preserve-prior-security-evidence'
