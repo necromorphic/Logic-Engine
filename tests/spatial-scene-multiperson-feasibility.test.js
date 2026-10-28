@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateSpatialScene, moveEntityInSyntheticScene, predictSceneAtHorizon } from '../experiments/spatial-scene-lab/spatial-scene.js';
+import { detectSimultaneousTrajectoryCollisions, evaluateSpatialScene, moveEntityInSyntheticScene, predictSceneAtHorizon } from '../experiments/spatial-scene-lab/spatial-scene.js';
 
 const entity = (id, position, forward = { x: 1, y: 0, z: 0 }) => ({
   id, position, forward, perception: { halfAngleRadians: Math.PI / 3, maxDistance: 12 },
@@ -277,4 +277,46 @@ test('multi-person trace records visibility loss and rediscovery with explicit r
   assert.equal(observerMoves.evaluation.boundary, 'scene-observer-moved');
   assert.equal(pair(observerMoves.evaluation, 'observer', 'runner').visible, true);
   assert.equal(initial.boundary, 'scene-1');
+});
+
+
+test('synchronized trajectory sweep detects collision at matching times', () => {
+  const initial = scene({
+    entities: [
+      { ...entity('alice', { x: 0, y: 0, z: 0 }), motion: { velocity: { x: 2, y: 0, z: 0 } } },
+      { ...entity('bob', { x: 4, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }), motion: { velocity: { x: -2, y: 0, z: 0 } } },
+      { ...entity('cara', { x: 0, y: 8, z: 0 }), motion: { velocity: { x: 0, y: 0, z: 0 } } },
+    ],
+  });
+  const report = detectSimultaneousTrajectoryCollisions(initial, 2);
+  assert.equal(report.status, 'CONFIRMED');
+  assert.equal(report.assumption, 'CONSTANT_VELOCITY_SYNCHRONIZED_AABB_SWEEP');
+  assert.deepEqual(report.collisions, [{
+    entityA: 'alice', entityB: 'bob', status: 'POSSIBLE',
+    reason: 'SYNCHRONIZED_SWEPT_AABB_OVERLAP', horizonSeconds: 2,
+  }]);
+  assert.equal(initial.entities[0].position.x, 0);
+});
+
+test('crossing geometric paths at different times are not reported as synchronized collision', () => {
+  const initial = scene({
+    entities: [
+      { ...entity('horizontal', { x: 0, y: 0, z: 0 }), motion: { velocity: { x: 1, y: 0, z: 0 } } },
+      { ...entity('vertical', { x: 1, y: -2, z: 0 }), motion: { velocity: { x: 0, y: 1, z: 0 } } },
+    ],
+  });
+  const report = detectSimultaneousTrajectoryCollisions(initial, 3);
+  assert.equal(report.status, 'CONFIRMED');
+  assert.deepEqual(report.collisions, []);
+});
+
+test('trajectory collision prediction fails closed without explicit motion for every entity', () => {
+  assert.deepEqual(
+    detectSimultaneousTrajectoryCollisions(scene(), 2),
+    { status: 'UNKNOWN', reason: 'MOTION_DATA_INCOMPLETE' },
+  );
+  assert.deepEqual(
+    detectSimultaneousTrajectoryCollisions(scene(), 61),
+    { status: 'UNKNOWN', reason: 'INVALID_COLLISION_PREDICTION_REQUEST' },
+  );
 });
