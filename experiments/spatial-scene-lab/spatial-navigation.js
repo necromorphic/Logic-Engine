@@ -4,9 +4,12 @@
 export const SPATIAL_NAVIGATION_MODEL = 'synthetic-route-cost-v1';
 
 function validate(scene, constraints) {
+  if (!constraints || typeof constraints !== 'object' || Array.isArray(constraints)) {
+    return { status: 'UNKNOWN', reason: 'INVALID_NAVIGATION_CONSTRAINTS' };
+  }
   if (!scene || typeof scene.worldId !== 'string' || !scene.worldId ||
       !Array.isArray(scene.rooms) || !Array.isArray(scene.doors) ||
-      !Array.isArray(constraints?.forbiddenDoorIds ?? [])) {
+      !Array.isArray(constraints.forbiddenDoorIds ?? [])) {
     return { status: 'UNKNOWN', reason: 'NAVIGATION_INPUT_INCOMPLETE' };
   }
   const roomIds = new Set();
