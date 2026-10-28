@@ -117,3 +117,27 @@ test("rejects blocked plans whose step order cannot be resumed sequentially", ()
     plan: null,
   });
 });
+
+test("rejects abandoned plans with impossible step sequences", () => {
+  const malformed = [
+    {
+      id: "bad-abandoned",
+      status: "abandoned",
+      steps: [
+        { id: "first", action_id: "first-action", status: "pending" },
+        { id: "second", action_id: "second-action", status: "active" },
+      ],
+    },
+    {
+      id: "bad-abandoned",
+      status: "abandoned",
+      steps: [
+        { id: "first", action_id: "first-action", status: "active" },
+        { id: "second", action_id: "second-action", status: "blocked" },
+      ],
+    },
+  ];
+  for (const candidate of malformed) {
+    assert.deepEqual(advanceNpcPlan(candidate, { type: "abandon" }), { status: "non_ready", plan: null });
+  }
+});
