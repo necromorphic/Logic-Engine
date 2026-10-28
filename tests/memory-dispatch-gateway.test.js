@@ -465,6 +465,51 @@ test('loopback Gateway endpoint authenticates Host and delegates only to the inj
   }
 });
 
+test('loopback Gateway rejects an async transport factory before invoking it or dispatching', async () => {
+  const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
+  const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
+  let factoryCalls = 0;
+  const fixture = await createFixture();
+  const server = await createMemoryDispatchGatewayServer({
+    gateway: fixture.gateway,
+    hostToken,
+    hostSigningKey: signingKey,
+    createTransportCapability: async () => {
+      factoryCalls += 1;
+      return () => ({ started: true, response: Promise.resolve({ status: 200 }) });
+    },
+  });
+  try {
+    const request = validRequest('async-factory-must-not-run');
+    const payload = {
+      request_id: request.requestId,
+      route: request.route,
+      model: request.model,
+      stream: request.stream,
+      body: request.body,
+      adapter_id: request.adapterId,
+      conversation_id: request.conversationId,
+      world_id: request.worldId,
+      actor_id: request.actorId,
+      purpose: request.purpose,
+      sources: request.sources,
+      candidates: request.candidates,
+      signature: createDispatchRequestSignature(signingKey, request),
+    };
+    const response = await fetch('http://127.0.0.1:' + server.address().port + '/v1/dispatch', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + hostToken, 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 503);
+    assert.equal(factoryCalls, 0, 'async factory must be rejected before it can run side effects');
+    assert.equal(fixture.calls.length, 0, 'Gateway must not be entered when capability construction is unsafe');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await fixture.close();
+  }
+});
+
 test('gateway startup rejects any requested non-loopback bind', async () => {
   const gateway = { dispatchProtectedRequest: async () => ({ status: 200 }) };
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
