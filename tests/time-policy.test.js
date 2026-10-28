@@ -95,6 +95,12 @@ test('duration resolver rejects malformed requested durations regardless of rule
   }
   assert.equal(resolveDurationDecision(noRule, 'unknown.event', null, 0).duration_ms, 0);
   assert.equal(resolveDurationDecision(noRule, 'unknown.event', null, null).status, 'rejected');
+  for (const invalidEventType of [null, undefined, 12, '']) {
+    assert.throws(
+      () => resolveDurationDecision(noRule, invalidEventType, null, 0),
+      (error) => error.code === 'INVALID_TIME_POLICY',
+    );
+  }
   assert.equal(resolveDurationDecision(value, 'travel.completed', null, 0).duration_ms, 60000);
   // Explicit null retains the legacy sentinel behavior; omitted/undefined uses the default zero.
   assert.equal(resolveDurationDecision(value, 'travel.completed', null, null).duration_ms, 60000);
@@ -125,4 +131,202 @@ test('TimePolicy normalization uses locale-independent code-unit ordering', () =
     categories.duration_rules[0].rule.categories.map((entry) => entry.category),
     ['Z', 'a', 'é'],
   );
+});
+
+
+test('time policies reject symbol keys and accessors without invoking getters', () => {
+  let getterCalled = false;
+  const input = policy();
+  Object.defineProperty(input, 'version', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return '1.0.0'; },
+  });
+  assert.throws(() => createTimePolicy(input), (error) => error.code === 'INVALID_TIME_POLICY');
+  assert.equal(getterCalled, false);
+
+  const withSymbol = policy();
+  withSymbol[Symbol('hidden')] = true;
+  assert.throws(() => createTimePolicy(withSymbol), (error) => error.code === 'INVALID_TIME_POLICY');
+});
+
+test('time policy arrays reject sparse entries, accessors, and extra properties', () => {
+  const sparseRules = [];
+  sparseRules.length = 1;
+  assert.throws(
+    () => createTimePolicy(policy({ duration_rules: sparseRules })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+
+  const accessorRules = [];
+  accessorRules.length = 1;
+  let getterCalled = false;
+  Object.defineProperty(accessorRules, '0', {
+    enumerable: true,
+    configurable: true,
+    get() { getterCalled = true; return { event_type: 'x', rule: { kind: 'fixed', duration_ms: 1 } }; },
+  });
+  assert.throws(
+    () => createTimePolicy(policy({ duration_rules: accessorRules })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+  assert.equal(getterCalled, false);
+
+  const extraPropertyRules = [{ event_type: 'x', rule: { kind: 'fixed', duration_ms: 1 } }];
+  extraPropertyRules.unexpected = true;
+  assert.throws(
+    () => createTimePolicy(policy({ duration_rules: extraPropertyRules })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+});
+
+test('nested duration rule records reject non-enumerable and custom-prototype fields', () => {
+  const rule = { kind: 'fixed', duration_ms: 1000 };
+  Object.defineProperty(rule, 'hidden', { value: true, enumerable: false });
+  assert.throws(
+    () => createTimePolicy(policy({ duration_rules: [{ event_type: 'x', rule }] })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+
+  const customPrototype = Object.create({ inherited: true });
+  customPrototype.kind = 'fixed';
+  customPrototype.duration_ms = 1000;
+  assert.throws(
+    () => createTimePolicy(policy({ duration_rules: [{ event_type: 'x', rule: customPrototype }] })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+});
+
+
+test('duration proposals and approval options reject accessors without invoking them', () => {
+  let getterCalled = false;
+  const rangePolicy = policy({
+    duration_rules: [{
+      event_type: 'rest.completed',
+      rule: { kind: 'range', min_duration_ms: 1000, max_duration_ms: 3000, resolution: 'author' },
+    }],
+  });
+  const proposal = {};
+  Object.defineProperty(proposal, 'duration_ms', {
+    enumerable: true,
+    get() { getterCalled = true; return 2000; },
+  });
+  const rejectedProposal = resolveDurationDecision(rangePolicy, 'rest.completed', proposal, 0);
+  assert.equal(rejectedProposal.status, 'rejected');
+  assert.equal(rejectedProposal.reason, 'INVALID_AUTHOR_DURATION_PROPOSAL');
+  assert.equal(getterCalled, false);
+
+  const safeProposal = { duration_ms: 2000 };
+  const options = {};
+  Object.defineProperty(options, 'authorApproved', {
+    enumerable: true,
+    get() { getterCalled = true; return true; },
+  });
+  const pendingApproval = resolveDurationDecision(rangePolicy, 'rest.completed', safeProposal, 0, options);
+  assert.equal(pendingApproval.status, 'needs_author');
+  assert.equal(getterCalled, false);
+});
+
+test('duration proposals reject symbol and non-enumerable fields', () => {
+  const categoryPolicy = policy();
+  const symbolProposal = { category: 'simple' };
+  symbolProposal[Symbol('hidden')] = true;
+  assert.equal(
+    resolveDurationDecision(categoryPolicy, 'craft.completed', symbolProposal).reason,
+    'INVALID_CATEGORY_PROPOSAL',
+  );
+
+  const hiddenProposal = {};
+  Object.defineProperty(hiddenProposal, 'category', { value: 'simple', enumerable: false });
+  assert.equal(
+    resolveDurationDecision(categoryPolicy, 'craft.completed', hiddenProposal).reason,
+    'INVALID_CATEGORY_PROPOSAL',
+  );
+});
+
+
+test('time policy required fields must be own properties even if Object.prototype is polluted', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'policy_id');
+  Object.defineProperty(Object.prototype, 'policy_id', {
+    configurable: true, enumerable: true, writable: true, value: 'inherited-policy',
+  });
+  try {
+    const input = policy();
+    delete input.policy_id;
+    assert.throws(
+      () => createTimePolicy(input),
+      (error) => error.code === 'INVALID_TIME_POLICY',
+    );
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'policy_id', previous);
+    else delete Object.prototype.policy_id;
+  }
+});
+
+
+test('duration rule kinds reject prototype keys and non-string values without coercion', () => {
+  for (const kind of ['toString', 'constructor', '__proto__']) {
+    assert.throws(
+      () => createTimePolicy(policy({
+        duration_rules: [{ event_type: 'unsafe.kind', rule: { kind } }],
+      })),
+      (error) => error.code === 'INVALID_TIME_POLICY',
+    );
+  }
+
+  let coercionCalled = false;
+  const kind = {
+    toString() { coercionCalled = true; return 'fixed'; },
+  };
+  assert.throws(
+    () => createTimePolicy(policy({
+      duration_rules: [{ event_type: 'unsafe.kind', rule: { kind } }],
+    })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+  assert.equal(coercionCalled, false);
+});
+
+
+test('inherited author approval cannot resolve an author-required duration', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'authorApproved');
+  Object.defineProperty(Object.prototype, 'authorApproved', {
+    configurable: true, enumerable: true, writable: true, value: true,
+  });
+  try {
+    const result = resolveDurationDecision(
+      policy(),
+      'rest.completed',
+      { duration_ms: 3600000 },
+    );
+    assert.equal(result.status, 'needs_author');
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'authorApproved', previous);
+    else delete Object.prototype.authorApproved;
+  }
+});
+
+
+test('TimePolicy enforces the seven-day action ceiling but permits longer skip ceilings', () => {
+  assert.throws(
+    () => createTimePolicy(policy({ max_action_duration_ms: 900000000 })),
+    (error) => error.code === 'INVALID_TIME_POLICY',
+  );
+  assert.equal(createTimePolicy(policy({ max_skip_duration_ms: 900000000 })).max_skip_duration_ms, 900000000);
+});
+
+
+test('inherited category proposal fields cannot select a TimePolicy category', () => {
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'category');
+  Object.defineProperty(Object.prototype, 'category', {
+    configurable: true, enumerable: true, writable: true, value: 'simple',
+  });
+  try {
+    const result = resolveDurationDecision(policy(), 'craft.completed', {});
+    assert.equal(result.status, 'rejected');
+    assert.equal(result.reason, 'INVALID_CATEGORY_PROPOSAL');
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'category', previous);
+    else delete Object.prototype.category;
+  }
 });
