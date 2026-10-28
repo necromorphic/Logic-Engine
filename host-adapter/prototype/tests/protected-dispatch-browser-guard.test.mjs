@@ -15,7 +15,7 @@ function storageWith(entries = {}) {
 
 test('non-enrolled chat can continue using native SillyTavern generation before any Host enrollment exists', () => {
   assert.deepEqual(
-    assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage: storageWith() }),
+    assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage: storageWith(), messages: [] }),
     { status: 'NOT_ENROLLED' },
   );
 });
@@ -25,7 +25,7 @@ test('enrolled chat is blocked before Generate can reach a model backend', () =>
     'logic-engine-host-lifecycle-locator:chat-a.jsonl': 'install-id:conversation-id',
   });
   assert.throws(
-    () => assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage }),
+    () => assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage, messages: [] }),
     /PROTECTED_EGRESS_GATEWAY_REQUIRED/,
   );
 });
@@ -39,7 +39,7 @@ test('legacy enrollment markers and marker values also fail closed', () => {
   });
   for (const storage of [legacy, markerValue]) {
     assert.throws(
-      () => assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage }),
+      () => assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage, messages: [] }),
       /PROTECTED_EGRESS_GATEWAY_REQUIRED/,
     );
   }
@@ -47,22 +47,38 @@ test('legacy enrollment markers and marker values also fail closed', () => {
 
 test('missing locator or unavailable storage fails closed', () => {
   assert.throws(
-    () => assertProtectedDispatchAllowed({ locator: null, storage: storageWith() }),
+    () => assertProtectedDispatchAllowed({ locator: null, storage: storageWith(), messages: [] }),
     /PROTECTED_EGRESS_GATEWAY_REQUIRED/,
   );
   assert.throws(
-    () => assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage: null }),
+    () => assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage: null, messages: [] }),
     /PROTECTED_EGRESS_GATEWAY_REQUIRED/,
   );
 });
 
-test('lost enrollment markers for the active chat fail closed while any other Host enrollment remains', () => {
+test('lost enrollment markers fail closed when another Host enrollment remains', () => {
   const storage = storageWith({
     'logic-engine-host-lifecycle:install-id:conversation-a': 'enrolled:chat-a.jsonl',
     'logic-engine-host-lifecycle-locator:chat-b.jsonl': 'install-id:conversation-b',
   });
   assert.throws(
-    () => assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage }),
+    () => assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage, messages: [] }),
+    /PROTECTED_EGRESS_GATEWAY_REQUIRED/,
+  );
+});
+
+test('lost localStorage markers fail closed when native chat retains Host lifecycle identity metadata', () => {
+  const storage = storageWith();
+  const messages = [{
+    mes: 'content',
+    _logicEngineLifecycle: {
+      messageId: 'message-1',
+      versions: [{ versionId: 'version-1' }],
+      activeVersionIndex: 0,
+    },
+  }];
+  assert.throws(
+    () => assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage, messages }),
     /PROTECTED_EGRESS_GATEWAY_REQUIRED/,
   );
 });
