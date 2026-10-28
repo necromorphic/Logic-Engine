@@ -81,7 +81,7 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
 
 test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
   const published = [];
-  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }], {
+  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A'], swipe_id: 0 }], {
     publishDigest: async entry => { published.push(structuredClone(entry)); },
   });
   await f.bridge.enrollCurrentConversation();
@@ -110,7 +110,7 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
 test('digest sync retry replays durable tombstones after a partial failed publication', async () => {
   let fail = false;
   const published = [];
-  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }], {
+  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A'], swipe_id: 0 }], {
     publishDigest: async entry => {
       if (fail) throw Error('upstream unavailable');
       published.push(structuredClone(entry));
@@ -202,7 +202,7 @@ test('malformed swipe and branch metadata cannot normalize to a valid empty inve
   assert.match(activeSwipeResult.reason, /malformed native active-swipe index/i);
   assert.equal(activeSwipeResult.trustEvidence.identityVersionMapping, 'MISMATCH');
 
-  const outOfRangeSwipe = makeFixture([{ is_user: false, mes: 'hello', swipes: ['hello', 'other'], swipe_id: 0 }]);
+  const outOfRangeSwipe = makeFixture([{ is_user: false, mes: 'hello', swipes: ['hello'], swipe_id: 0 }]);
   await outOfRangeSwipe.bridge.enrollCurrentConversation();
   outOfRangeSwipe.chat[0].swipe_id = 2;
   const outOfRangeResult = await outOfRangeSwipe.bridge.verifyCurrentSource();
@@ -314,7 +314,7 @@ test('message deletion tombstones survive journal re-open and remain digest-only
 });
 
 test('swipe deletion emits an explicit tombstone for the removed version identity', async () => {
-  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }]);
+  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A'], swipe_id: 0 }]);
   await f.bridge.enrollCurrentConversation();
   const identity = f.chat[0]._logicEngineLifecycle;
   const removedVersionId = identity.versions[0].versionId;
@@ -621,7 +621,7 @@ test('pre-mutation rejects sidecar identity changes even when native content fin
   );
 });
 
-test('swipe selection records a pre-mutation checkpoint and preserves immutable version IDs', async () => {
+test('legacy multi-swipe enrollment is rejected rather than fabricating multiple roots', async () => {
   const f = makeFixture([
     {
       is_user: false,
@@ -630,7 +630,12 @@ test('swipe selection records a pre-mutation checkpoint and preserves immutable 
       swipe_id: 0,
     },
   ]);
-  await f.bridge.enrollCurrentConversation();
+  await assert.rejects(
+    f.bridge.enrollCurrentConversation(),
+    /legacy multi-swipe message has no source-backed parent lineage/,
+  );
+  assert.equal(f.db.rows.size, 0, 'refusal must happen before persisting a baseline');
+});
   const beforeIds = f.chat[0]._logicEngineLifecycle.versions.map(version => version.versionId);
   const before = await f.bridge.beforeMutation('select-swipe', [0], { targetSwipeIndex: 1 });
   assert.equal(before.operation, 'before:select-swipe');
