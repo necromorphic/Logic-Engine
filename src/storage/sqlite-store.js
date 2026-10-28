@@ -86,8 +86,9 @@ const parseRelationshipRef = (value) => {
 };
 const refs = (effects) => effects.map((e) => e.kind === 'relationship.transition'
   ? relationshipRef(e.subject_id, e.target_id)
-  : e.kind.startsWith('entity.') ? 'entity:' + e.entity_id
-    : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id);
+  : e.kind === 'knowledge.acquire' ? 'knowledge:' + encodeURIComponent(e.subject_id) + '/' + encodeURIComponent(e.fact_id)
+    : e.kind.startsWith('entity.') ? 'entity:' + e.entity_id
+      : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id);
 const applyEntityEffects = (entities, effects) => {
   for (const effect of effects) {
     if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
@@ -1525,7 +1526,49 @@ export class SQLiteStore {
       const entityEffectIds = new Set();
       const mechanicEffectIds = new Set();
       const factEffectIds = new Set();
+      const knowledgeEffectKeys = new Set();
       for (const effect of x.effects) {
+        if (effect.kind === 'knowledge.acquire') {
+          if (x.effects.length !== 1) {
+            throw new EngineError('MIXED_KNOWLEDGE_ACQUISITION_EFFECTS_UNSUPPORTED',
+              'An initial knowledge assignment must be the only effect in its canonical event.', 400);
+          }
+          const subject = currentEntities.get(effect.subject_id);
+          if (!subject || subject.status === 'destroyed') {
+            throw new EngineError('KNOWLEDGE_SUBJECT_NOT_ELIGIBLE',
+              'Knowledge subject must be an existing non-destroyed entity in this world.', 409, { subject_id: effect.subject_id });
+          }
+          const sourceFact = this.db.prepare('SELECT status FROM facts WHERE world_id=? AND fact_id=?')
+            .get(id, effect.fact_id);
+          if (!sourceFact) {
+            throw new EngineError('KNOWLEDGE_SOURCE_NOT_FOUND',
+              'The referenced canonical fact must exist in this world.', 404, { fact_id: effect.fact_id });
+          }
+          const assignmentKey = JSON.stringify([
+            effect.subject_id, effect.fact_id, effect.acquisition_kind, effect.source_ref, effect.source_sha256,
+          ]);
+          if (knowledgeEffectKeys.has(assignmentKey)) {
+            throw new EngineError('DUPLICATE_KNOWLEDGE_ACQUISITION',
+              'An event cannot contain duplicate initial knowledge assignments.', 400);
+          }
+          knowledgeEffectKeys.add(assignmentKey);
+          const existingEvents = this.db.prepare("SELECT effects_json FROM world_events WHERE world_id=? AND validity='valid' ORDER BY commit_sequence").all(id);
+          for (const existingEvent of existingEvents) {
+            const existingEffects = dec(existingEvent.effects_json);
+            if (existingEffects.some((existing) => existing.kind === 'knowledge.acquire'
+              && existing.subject_id === effect.subject_id
+              && existing.fact_id === effect.fact_id
+              && existing.acquisition_kind === effect.acquisition_kind
+              && existing.source_ref === effect.source_ref
+              && existing.source_sha256 === effect.source_sha256)) {
+              throw new EngineError('KNOWLEDGE_ACQUISITION_ALREADY_EXISTS',
+                'This exact source assignment is already active for the subject.', 409, {
+                  subject_id: effect.subject_id, fact_id: effect.fact_id, source_ref: effect.source_ref,
+                });
+            }
+          }
+          continue;
+        }
         if (effect.kind === 'relationship.transition') {
           if (x.effects.length !== 1) throw new EngineError('MIXED_RELATIONSHIP_EFFECTS_UNSUPPORTED', 'A Relationship transition must be the only effect in its canonical event.', 400);
           const pairKey = JSON.stringify([effect.subject_id, effect.target_id]);
