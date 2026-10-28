@@ -1566,7 +1566,9 @@ export async function prepareHostSaveCapability(request, { route, payload } = {}
         if (!relative || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
             throw new Error('HOST_SAVE_CAPABILITY_PATH_UNSAFE');
         }
-        const currentFile = await readStableHostChatFile(sourcePath, targetArtifactDigest(before, target));
+        const currentArtifactDigest = targetArtifactDigest(before, target);
+        if (typeof currentArtifactDigest !== 'string') throw new Error('HOST_SAVE_CAPABILITY_SOURCE_NOT_IN_INVENTORY');
+        const currentFile = await readStableHostChatFile(sourcePath, currentArtifactDigest);
         const expectedUuid = targetEnrollment.conversationId.split(':')[1];
         const currentProjection = finalizeProjectedHostInventory(
             projectHostChatRecords(currentFile.records, expectedUuid),
