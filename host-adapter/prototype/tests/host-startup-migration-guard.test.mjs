@@ -62,3 +62,18 @@ test('allows legacy public-data migration when Host has never been enrolled', as
     assert.equal((await assertHostUserDataMigrationSafe([f.directories], publicCharacters)).status, 'SAFE_NO_ENROLLED_HOST_HISTORY');
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
+
+test('fails closed when the enrollment marker survives state-directory loss before startup migrations', async () => {
+  const f = await fixture({ enrolled: true, legacy: true });
+  const marker = path.join(f.root, '.logic-engine-host-enrollment-marker');
+  const publicCharacters = path.join(f.root, 'public', 'characters');
+  await writeFile(marker, JSON.stringify({ version: 1, purpose: 'host-enrollment-present' }) + '\\n');
+  await rm(path.join(f.root, '.logic-engine-host'), { recursive: true });
+  await mkdir(publicCharacters, { recursive: true });
+  try {
+    await assert.rejects(assertHostStartupMigrationSafe([f.directories]), /HOST_STARTUP_MIGRATION_STATE_LOST/);
+    await assert.rejects(assertHostUserDataMigrationSafe([f.directories], publicCharacters), /HOST_STARTUP_MIGRATION_STATE_LOST/);
+    const group = JSON.parse(await readFile(path.join(f.directories.groups, 'group.json'), 'utf8'));
+    assert.ok(Object.hasOwn(group, 'chat_metadata'), 'startup guard must not allow migration after enrollment-state loss');
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
