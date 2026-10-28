@@ -861,15 +861,12 @@ export class SQLiteStore {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request must be an object.', 400);
     }
-    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'includeMechanicEvaluationState', 'includeSourceVersions']);
+    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'includeMechanicEvaluationState']);
     if (Object.keys(request).some((key) => !allowedKeys.has(key))) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request contains an unsupported field.', 400);
     }
     if (request.includeMechanicEvaluationState !== undefined && typeof request.includeMechanicEvaluationState !== 'boolean') {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'includeMechanicEvaluationState must be a boolean.', 400);
-    }
-    if (request.includeSourceVersions !== undefined && typeof request.includeSourceVersions !== 'boolean') {
-      throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'includeSourceVersions must be a boolean.', 400);
     }
     const normalizeIds = (value, fieldName) => {
       if (value === undefined) return [];
@@ -945,19 +942,12 @@ export class SQLiteStore {
       const snapshotFactIds = combineIds(factIds, derivedFactIds, 'factIds');
       const snapshotEventIds = combineIds(eventIds, derivedEventIds, 'eventIds');
 
-      const entityRows = snapshotEntityIds.length
-        ? (request.includeSourceVersions === true
-          ? this.db.prepare('SELECT entities.*, entity_source_versions.source_version AS source_version_token FROM entities LEFT JOIN entity_source_versions ON entity_source_versions.world_id=entities.world_id AND entity_source_versions.entity_id=entities.entity_id WHERE entities.world_id=? AND entities.entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entities.entity_id').all(id, ...snapshotEntityIds)
-          : this.db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...snapshotEntityIds))
+      const entities = snapshotEntityIds.length
+        ? this.db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...snapshotEntityIds).map((r) => ({
+          entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
+          created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
+        }))
         : [];
-      const entities = entityRows.map((r) => ({
-        entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
-        created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
-        ...(request.includeSourceVersions === true ? {
-          source_version: Number.isSafeInteger(r.source_version_token) && r.source_version_token > 0
-            ? 'core-entity-v1:' + String(r.source_version_token) : null,
-        } : {}),
-      }));
       const missingEntityIds = snapshotEntityIds.filter((entityId) => !entities.some((entity) => entity.entity_id === entityId));
       if (missingEntityIds.length) {
         throw new EngineError('ENTITY_NOT_FOUND', 'One or more requested entities were not found in this world snapshot.', 404, { entity_ids: missingEntityIds });
@@ -1223,6 +1213,56 @@ export class SQLiteStore {
       throw new EngineError('ENTITY_SOURCE_VERSION_CONFLICT', 'Canonical source version changed during mutation.', 409);
     }
     return next;
+  }
+
+  canonicalEntitySourceState(worldId, entityId) {
+    if (typeof worldId !== 'string' || !worldId.trim()
+      || typeof entityId !== 'string' || !entityId.trim()) {
+      throw new EngineError('INVALID_SOURCE_ID', 'A canonical world and entity ID are required.', 400);
+    }
+    if (this.txDepth > 0) {
+      throw new EngineError('SNAPSHOT_READ_DURING_WRITE_TRANSACTION', 'A canonical source version cannot be read from inside a store write transaction.', 409);
+    }
+
+    const read = () => {
+      const world = this.world(worldId);
+      if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const row = this.db.prepare(`
+        SELECT entities.entity_id,entities.status,entities.updated_revision,
+          entity_source_versions.source_version AS source_version_token
+        FROM entities
+        LEFT JOIN entity_source_versions
+          ON entity_source_versions.world_id=entities.world_id
+          AND entity_source_versions.entity_id=entities.entity_id
+        WHERE entities.world_id=? AND entities.entity_id=?
+      `).get(worldId, entityId);
+      if (!row) throw new EngineError('ENTITY_NOT_FOUND', 'Entity not found.', 404);
+      return {
+        world_id: worldId,
+        entity_id: row.entity_id,
+        status: row.status,
+        updated_revision: row.updated_revision,
+        world_revision: world.world_revision,
+        commit_sequence: this.currentCommitSequence(worldId),
+        source_version: Number.isSafeInteger(row.source_version_token) && row.source_version_token > 0
+          ? 'core-entity-v1:' + String(row.source_version_token) : null,
+      };
+    };
+
+    let began = false;
+    try {
+      this.db.exec('BEGIN');
+      began = true;
+      const state = read();
+      this.db.exec('COMMIT');
+      began = false;
+      return state;
+    } catch (error) {
+      if (began) {
+        try { this.db.exec('ROLLBACK'); } catch {}
+      }
+      throw error;
+    }
   }
 
   registerContextManifest(worldId, manifest) {
