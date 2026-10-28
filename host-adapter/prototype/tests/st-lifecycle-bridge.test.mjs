@@ -409,7 +409,7 @@ test('native save failure leaves the journal behind so the next mutation fails c
   await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
 });
 
-test('sourceAlreadyPersisted skips the bridge's duplicate save callback', async () => {
+test("sourceAlreadyPersisted skips the bridge's duplicate save callback", async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
   const savesAfterEnrollment = f.saveCount;
