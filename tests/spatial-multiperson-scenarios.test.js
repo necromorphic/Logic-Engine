@@ -160,3 +160,25 @@ test('multi-NPC temporal trace: approaching NPCs may collide, separating NPCs do
   assert.equal(separatingCollisions.status, 'CONFIRMED');
   assert.deepEqual(separatingCollisions.collisions, []);
 });
+
+test('multi-NPC visibility labels sampled body coverage without claiming continuous full-body visibility', () => {
+  const scene = visibilityScene();
+  scene.blockers = [];
+  scene.entities.find((item) => item.id === 'runner').body = {
+    minOffset: { x: -0.3, y: -0.5, z: -0.5 },
+    maxOffset: { x: 0.3, y: 0.5, z: 0.5 },
+  };
+  const result = evaluateSpatialScene(scene);
+  const visibility = visibilityPair(result, 'observer', 'runner');
+  assert.equal(visibility.visible, true);
+  assert.equal(visibility.visibilityExtent, 'SAMPLED_ALL');
+  assert.equal(visibility.sampleCount, 9);
+});
+
+test('multi-NPC visibility fails closed when blocker IDs are duplicated', () => {
+  const scene = visibilityScene();
+  scene.blockers.push({ ...scene.blockers[0] });
+  const result = evaluateSpatialScene(scene);
+  assert.equal(result.status, 'UNKNOWN');
+  assert.equal(result.reason, 'INVALID_OR_INCOMPLETE_SCENE');
+});
