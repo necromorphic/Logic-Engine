@@ -285,6 +285,34 @@ test('Core prepares an actor-bound belief context only after per-acquisition vis
   assert.equal(Object.isFrozen(prepared.context), true);
 });
 
+test('belief context final validation uses one atomic Core snapshot read', (t) => {
+  const { store, engine } = setup(t);
+  const readRequest = request(store);
+  const read = engine.readNpcKnowledge(readRequest);
+  const proposal = {
+    world_id: read.world_id,
+    actor_id: read.actor_id,
+    snapshot: read.snapshot,
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+  };
+
+  // The context path must compare a single canonical snapshot cursor, not
+  // separately read world_revision and commit_sequence around a possible rollback.
+  const originalWorld = store.world.bind(store);
+  store.world = () => { throw new Error('non-atomic world read must not be used'); };
+  try {
+    const prepared = engine.prepareNpcBeliefContext(readRequest, proposal);
+    assert.equal(prepared.status, 'ready');
+  } finally {
+    store.world = originalWorld;
+  }
+});
+
 test('Core omits denied acquisitions from the belief context and rejects proposals relying on them', (t) => {
   const { store } = setup(t);
   const engine = new LogicEngine(store, {
