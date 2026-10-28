@@ -159,11 +159,11 @@ test('request-bound capability permits only append/select transitions and reject
       .trim().split('\n').map(line => JSON.parse(line));
     const versionDiagnostics = journalRecordsForDiagnostics.flatMap(record => ['beforeConversationInventories', 'afterConversationInventories']
       .flatMap(field => (record[field] ?? []).flatMap(conversation => (conversation.versions ?? []).map(version => ({
-        kind: record.kind, field, version_id: version.version_id, payload_sha256: version.payload_sha256,
+        kind: record.kind, field, conversation_id: conversation.conversation_id, message_id: version.message_id, version_id: version.version_id, payload_sha256: version.payload_sha256,
         parent_version_id: version.parent_version_id ?? null,
       })))))
       .concat(journalRecordsForDiagnostics.filter(record => record.kind === 'capture_ack').map(record => ({
-        kind: record.kind, version_id: record.version_id, content_sha256: record.content_sha256,
+        kind: record.kind, conversation_id: record.conversation_id, message_id: record.message_id, version_id: record.version_id, content_sha256: record.content_sha256,
         parent_version_id: record.parent_version_id ?? null,
       })));
     assert.equal(afterSelectInventory.complete, true, JSON.stringify({
