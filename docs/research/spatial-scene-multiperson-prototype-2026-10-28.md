@@ -22,7 +22,8 @@ Module: `experiments/spatial-scene-lab/spatial-scene.js`
 - Explicit orientation vectors, field-of-view half-angle, maximum distance and lighting state.
 - Segment-vs-axis-aligned-box occlusion.
 - Optional target body volumes sampled at nine points, distinguishing FULL, PARTIAL and NONE visibility in the synthetic model.
-- Movement-path rejection when the moving point's segment intersects a declared blocker.
+- Conservative swept-body collision checks against AABB blockers and other declared entity bodies (Minkowski-expanded boxes; no mesh/physics engine).
+- Optional explicit maximum-speed and maximum-turn-rate checks during movement; speed/turn limits require a positive duration and otherwise fail closed.
 - Constant-velocity prediction to a caller-declared future synthetic boundary, only when every entity supplies explicit velocity.
 - Mandatory declaration that the synthetic occluder inventory is complete; otherwise the scene is UNKNOWN.
 - Synthetic movement that returns a new scene snapshot and recomputes visibility without mutating the input.
@@ -63,3 +64,8 @@ This is a geometry experiment, not a physics engine or NPC cognition system.
 2. Extend movement to body-volume collision and stop/turn constraints without pretending it is a full physics engine.
 3. Only after the synthetic harness is stable, study a read-only bridge to canonical Core state. That bridge remains blocked until typed World Pack schema identity and temporal provenance are demonstrable.
 4. Keep production runtime and Memory → NPC unchanged.
+
+
+## Latest research increment
+
+The movement helper checks declared body extents along the entire path rather than only the entity origin. It rejects overlap with another entity's declared body, and can enforce caller-supplied `motion.maxSpeed` and `motion.maxTurnRateRadiansPerSecond` when a positive `durationSeconds` is supplied. These checks use conservative axis-aligned bounds; they do not simulate animation, acceleration, turning arcs, body rotation, dynamic collision response, or continuous physics. A multi-person trace test exercises occlusion, movement, and visibility rediscovery across named synthetic boundaries.
