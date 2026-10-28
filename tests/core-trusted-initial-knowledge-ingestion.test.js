@@ -305,7 +305,7 @@ test('reusing an acquisition idempotency key for different approved source bytes
   assert.throws(() => engine.recordTrustedInitialKnowledgeSource({
     world_id: 'world-a', source_bytes: sourceB, idempotency_key: 'conflicting-source-key',
     expected_revision: 1, expected_commit_sequence: 1,
-  }), { code: 'IDEMPOTENCY_CONFLICT' });
+  }), { code: 'IDEMPOTENCY_KEY_CONFLICT' });
 
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?')
     .get('world-a').n, before);
