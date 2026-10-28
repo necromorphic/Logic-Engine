@@ -282,3 +282,32 @@ test('acquisition rollback survives database restart and projection recovery', (
   store.rebuild('world-recovery', store.world('world-recovery').world_revision);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-recovery').n, 0);
 });
+
+
+test('reusing an acquisition idempotency key for different approved source bytes conflicts without mutation', (t) => {
+  const { store } = setup(t);
+  const sourceA = sourceBytes().replace('authoring:test.world@1.0.0', 'authoring:test.world@conflict-a')
+    .replace('rule:initial-knowledge-v1', 'rule:initial-knowledge-conflict-a');
+  const sourceB = sourceBytes().replace('authoring:test.world@1.0.0', 'authoring:test.world@conflict-b')
+    .replace('rule:initial-knowledge-v1', 'rule:initial-knowledge-conflict-b');
+  const engine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: [...trustedRegistry(sourceA), ...trustedRegistry(sourceB)],
+  });
+
+  const first = engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a', source_bytes: sourceA, idempotency_key: 'conflicting-source-key',
+    expected_revision: 1, expected_commit_sequence: 1,
+  });
+  assert.equal(first.accepted, true);
+  const before = store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?')
+    .get('world-a').n;
+
+  assert.throws(() => engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a', source_bytes: sourceB, idempotency_key: 'conflicting-source-key',
+    expected_revision: 1, expected_commit_sequence: 1,
+  }), { code: 'IDEMPOTENCY_CONFLICT' });
+
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?')
+    .get('world-a').n, before);
+  assert.equal(store.events('world-a').filter((event) => event.event_type === 'knowledge.acquisition.initial').length, 1);
+});
