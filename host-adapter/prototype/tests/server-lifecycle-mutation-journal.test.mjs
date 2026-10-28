@@ -764,7 +764,7 @@ test('enrolled chat save without a request-bound lifecycle capability is rejecte
         const chatPath = path.join(directory, 'chat-1.jsonl');
         const persisted = JSON.stringify({
             chat_metadata: { logic_engine_conversation_id: '00000000-0000-4000-8000-000000000002' },
-        }) + '\\n' + JSON.stringify({ mes: 'preserve enrolled history' }) + '\\n';
+        }) + '\n' + JSON.stringify({ mes: 'preserve enrolled history' }) + '\n';
         await writeFile(chatPath, persisted);
         await registerHostConversation(request, {
             conversationId: '00000000-0000-4000-8000-000000000001:00000000-0000-4000-8000-000000000002',
