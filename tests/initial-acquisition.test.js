@@ -118,6 +118,17 @@ test('destroying the subject removes its acquisition from the active projection'
   } finally { store.close(); }
 });
 
+test('rolling back the acquisition event revokes the assignment through the canonical lifecycle', () => {
+  const { store, engine } = seed();
+  try {
+    const result = engine.recordInitialAcquisition(input());
+    assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 1);
+    const rollback = engine.rollbackEvent('w1', { root_event_id: result.event_id, idempotency_key: 'revoke-acquisition' });
+    assert.equal(rollback.accepted, true);
+    assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
+  } finally { store.close(); }
+});
+
 test('rollback of source support removes the acquisition projection and rebuild does not restore it', () => {
   const { store, engine } = seed();
   try {
