@@ -204,12 +204,11 @@ The inspected source-level trace for the bounded mechanic-evaluation route is: e
 
 This is not an NPC dispatcher or an observation-result consumer. The current effect translator rejects `propose_knowledge`; the `observe` source/evidence/authorization contract and Core-owned acquisition record are not executable. Therefore the existing event/audit correlation cannot be used to claim that an NPC observed or learned a fact. No plan reconciliation may consume it until a separate contract defines NPC/attempt/evidence/proposal/event correlation, idempotency and replay, failure behavior, and proof that the committed event represents the intended knowledge effect.
 
-### 11.2 Coordinator decision required before implementation sequencing
+### 11.2 Resolved sequencing decision and implementation gate
 
-There are two distinct approved design statements that must not be silently merged:
+The coordinator selected **A — establish `author_initial` / `imported` acquisition first**. The Core knowledge-contract direction in `docs/34-npc-decision-context-and-proposal.md` and `docs/39-npc-core-knowledge-contract-proposal.md` is the first acquisition slice; `observe` remains design-only and cannot replace or bypass that foundation.
 
-1. The earlier Core knowledge-contract direction in `docs/34-npc-decision-context-and-proposal.md` and `docs/39-npc-core-knowledge-contract-proposal.md` scopes the candidate first runtime acquisition path to explicitly authorized `author_initial`/imported knowledge with provenance; the executable source/record/filter contract remains unverified.
-2. The later coordinator decision selects `observe` as the first semantic NPC action **for design only**, requiring a trusted observation source, access/visibility rules, and a supported knowledge-proposal mapping.
+Core owns acquisition records, provenance and validity, snapshot consistency, and actor-/purpose-scoped safe filtering. No individual implementation assignee is established by the available evidence. The relevant implementation and audit references are `docs/43-core-npc-knowledge-runtime-implementation-plan.md`, `docs/49-npc-core-knowledge-live-audit.md`, and `docs/50-npc-initial-knowledge-acquisition-contract.md`.
 
-The coordinator/Core owner must decide whether `observe` is a later slice after `author_initial`/imported acquisition or revises that earlier first-slice direction. Until recorded, no implementation sequence is implied. This remains documentation-only: no dispatcher, worker, scheduler, API/schema/storage, runtime, or plan-reconciliation work is authorized; Memory → NPC remains DISABLED / FAIL-CLOSED and Host remains NON_READY.
+The next gate is to verify the authoritative author/import source and lifecycle, implement the Core-owned acquisition/provenance and actor-, purpose-, and snapshot-bound safe-filtering boundary, then test actor isolation, provenance, secret exclusion, snapshot freshness, and replay/reconciliation against production boundaries. This decision resolves sequencing, not implementation status. No dispatcher, worker, scheduler, API/schema/storage, runtime, or plan-reconciliation work is authorized by this documentation update; Memory → NPC remains DISABLED / FAIL-CLOSED and Host remains NON_READY.
 
