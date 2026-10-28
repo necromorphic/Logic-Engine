@@ -794,3 +794,31 @@ test('record revocation survives Provider restart and index rebuild cannot resto
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
 });
+
+test('candidate authorization rejects a different persisted source version', async (t) => {
+  const s = setup(t);
+  s.provider.grantQuery(s.scope, true);
+  s.provider.grantRecord(s.scope, s.record.record_ref, s.record.record_version, true);
+  assert.equal(s.provider.putRecord(s.record).status, 'stored');
+  await s.provider.rebuildIndex(s.scope.world_id);
+  assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
+
+  const base = {
+    ...s.scope,
+    record_ref: s.record.record_ref,
+    record_version: s.record.record_version,
+    source_kind: s.record.source_kind,
+    source_entity_id: s.record.source_entity_id,
+  };
+  assert.equal(await s.provider.authorizeCandidate({
+    ...base,
+    source_version: 'source-v1',
+  }), true);
+  await assert.rejects(
+    () => s.provider.authorizeCandidate({
+      ...base,
+      source_version: 'source-v2',
+    }),
+    /MEMORY_SOURCE_VERSION_UNVERIFIABLE/,
+  );
+});
