@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createProtectedDispatchDenyMiddleware, PROTECTED_MODEL_ROUTE_PREFIXES } from '../protected-dispatch-deny-guard.mjs';
+import { createProtectedDispatchDenyMiddleware, PROTECTED_EGRESS_ROUTE_PREFIXES } from '../protected-dispatch-deny-guard.mjs';
 
 function responseRecorder() {
   return {
@@ -30,7 +30,7 @@ test('enforcement mode denies each known model-capable route family before its h
   const middleware = createProtectedDispatchDenyMiddleware({
     env: { SILLYTAVERN_REQUIRE_PROTECTED_EGRESS_GATEWAY: 'true' },
   });
-  for (const prefix of PROTECTED_MODEL_ROUTE_PREFIXES) {
+  for (const prefix of PROTECTED_EGRESS_ROUTE_PREFIXES) {
     const result = invoke(middleware, prefix + '/generate');
     assert.equal(result.nextCalls, 0, prefix);
     assert.equal(result.response.statusCode, 503, prefix);
@@ -48,6 +48,9 @@ test('enforcement denies reads and writes under model route families to avoid al
     ['/api/google/caption', 'POST'],
     ['/api/openai/models', 'GET'],
     ['/api/backends/text-completions/generate', 'PUT'],
+    ['/proxy/http://provider.example/generate', 'POST'],
+    ['/api/extensions/custom-route', 'POST'],
+    ['/api/search/serpapi', 'POST'],
   ]) {
     const result = invoke(middleware, path, method);
     assert.equal(result.nextCalls, 0);
