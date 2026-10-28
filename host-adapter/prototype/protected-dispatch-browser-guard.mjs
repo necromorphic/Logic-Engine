@@ -70,7 +70,9 @@ export function installProtectedEgressBrowserFence({
     } catch {
       throw new Error('PROTECTED_EGRESS_GATEWAY_REQUIRED');
     }
-    if (target.origin === base.origin) return;
+    const targetProtocol = target.protocol === 'ws:' ? 'http:' : target.protocol === 'wss:' ? 'https:' : target.protocol;
+    const comparableTargetOrigin = targetProtocol + '//' + target.host;
+    if (target.origin === base.origin || comparableTargetOrigin === base.origin) return;
     assertProtectedDispatchAllowed({
       locator: getLocator(),
       messages: getMessages(),
