@@ -4,6 +4,7 @@ import { isProxy } from 'node:util/types';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { openCoordinatorDatabase, beginCoordinatorLock } from '../storage/coordinator-lock.js';
+import { MonotonicSourceAnchor } from '../storage/monotonic-source-anchor.js';
 
 const validId = (v) => typeof v === 'string' && v === v.trim() && v.length > 0 && v.length <= 200;
 const validDigest = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
@@ -81,6 +82,7 @@ export class HostVersionDigestLedger {
       throw new TypeError('A trusted inventory verifier is required');
     }
     this.verifyInventorySnapshot = verifyInventorySnapshot;
+    this.monotonicAnchor = new MonotonicSourceAnchor(resolve(coordinatorPath) + '.monotonic-anchor.log');
     this.coordinator = openCoordinatorDatabase(coordinatorPath);
     this.db = null;
     let startupError = null;
@@ -479,7 +481,7 @@ export class HostVersionDigestLedger {
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const snapshotDigest = digest(JSON.stringify(canonical));
     return this.#write(() => {
-      const currentState = this.db.prepare('SELECT status,failure_code,updated_at FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
+      const currentState = this.db.prepare('SELECT status,failure_code,updated_at,snapshot_digest FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
         .get(snapshot.world_id, snapshot.conversation_id) ?? null;
       const invalidatedDuringVerification = currentState?.status === 'NON_READY'
         && currentState.updated_at !== (preVerification.state?.updated_at ?? null);
@@ -517,6 +519,22 @@ export class HostVersionDigestLedger {
           this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_TOMBSTONE_REAPPEARED', now, snapshotDigest);
           return { status: 'non_ready', code: 'HOST_TOMBSTONE_REAPPEARED' };
         }
+      }
+      // The anchor is a separate append-only witness. If Core and Provider DBs are
+      // restored together to an older snapshot while the anchor survives, this CAS
+      // rejects the rollback before READY can be republished.
+      let anchorAdvanced = false;
+      try {
+        anchorAdvanced = this.monotonicAnchor.advance({
+          world_id: snapshot.world_id,
+          conversation_id: snapshot.conversation_id,
+          expected_snapshot_sha256: currentState?.snapshot_digest ?? null,
+          next_snapshot_sha256: snapshotDigest,
+        });
+      } catch { anchorAdvanced = false; }
+      if (!anchorAdvanced) {
+        this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_MONOTONIC_ANCHOR_MISMATCH', now, snapshotDigest);
+        return { status: 'non_ready', code: 'HOST_MONOTONIC_ANCHOR_MISMATCH' };
       }
       // The verified snapshot is authoritative for active pointers: remove stale
       // pointers for this conversation, then rebuild them from the validated inventory.
