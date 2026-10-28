@@ -168,6 +168,9 @@ test('source version advances for an accepted entity update even when the visibl
     kind: 'entity.update',
     entity_id: 'source-noop',
     attributes: { public_note: 'same' },
+  }], [{
+    relation: 'REQUIRES',
+    predicate: { kind: 'entity_exists', entity_id: 'source-noop' },
   }]);
   const after = s.engine.getSnapshot('source-version-world', { entityIds: ['source-noop'] }).entities[0];
   assert.equal(after.attributes.public_note, 'same');
