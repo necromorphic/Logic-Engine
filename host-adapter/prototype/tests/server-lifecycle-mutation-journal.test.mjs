@@ -743,3 +743,42 @@ test('chat and group-chat imports are rejected while their respective Host histo
     }
 });
 
+
+test('enrolled chat save without a request-bound lifecycle capability is rejected before native overwrite', async () => {
+    const { root, directories, request } = await fixture();
+    try {
+        const directory = path.join(directories.chats, 'character-a');
+        await mkdir(directory, { recursive: true });
+        const chatPath = path.join(directory, 'chat-1.jsonl');
+        const persisted = JSON.stringify({
+            chat_metadata: { logic_engine_conversation_id: '00000000-0000-4000-8000-000000000002' },
+        }) + '\\n' + JSON.stringify({ mes: 'preserve enrolled history' }) + '\\n';
+        await writeFile(chatPath, persisted);
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            sourcePath: 'character-a/chat-1.jsonl',
+            domain: 'chats',
+        });
+        request.body = {
+            avatar_url: 'character-a.png',
+            file_name: 'chat-1',
+            chat: [{ mes: 'stale or unbound replacement' }],
+        };
+        const response = responseMock();
+        let reachedNativeSave = false;
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            reachedNativeSave = true;
+            await writeFile(chatPath, JSON.stringify({ mes: 'overwritten' }) + '\\n');
+            response.json({ ok: true });
+        });
+        await response.finished;
+        assert.equal(reachedNativeSave, false);
+        assert.equal(response.statusCode, 409);
+        assert.match(String(response.body), /HOST_ENROLLED_HISTORY_SAVE_CAPABILITY_REQUIRED/);
+        assert.equal(await readFile(chatPath, 'utf8'), persisted);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
