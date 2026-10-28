@@ -3,6 +3,7 @@ import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
+import { validateNpcKnowledgeRead } from './npc-knowledge-read.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
@@ -166,9 +167,14 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [] } = {}) {
+  constructor(store, { trustedInitialKnowledgeSources = [], npcKnowledgeReadAuthorizer = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
+    if (npcKnowledgeReadAuthorizer !== null
+      && (typeof npcKnowledgeReadAuthorizer !== 'function' || npcKnowledgeReadAuthorizer.constructor?.name === 'AsyncFunction')) {
+      throw new TypeError('npcKnowledgeReadAuthorizer must be a synchronous deployment-owned function');
+    }
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
+    this.npcKnowledgeReadAuthorizer = npcKnowledgeReadAuthorizer;
     this.store = store;
     this.processStore = new ProcessStore(store);
     this.store.processStore = this.processStore;
@@ -492,6 +498,109 @@ export class LogicEngine {
   getSnapshot(id, request = {}) { return this.store.readSnapshot(id, request); }
   getEvents(id, includeInvalid = false) { return this.store.events(id, includeInvalid); }
   getAudit(id) { return this.store.audit(id); }
+
+  /**
+   * Internal Core-owned reader. It is intentionally not exposed through HTTP.
+   * The deployment-injected authorizer must bind actor, purpose, and exact
+   * current world snapshot before any acquired fact value is returned.
+   */
+  readNpcKnowledge(input) {
+    assert(obj(input) && typeof input.world_id === 'string' && input.world_id.trim(),
+      'INVALID_NPC_KNOWLEDGE_READ', 'world_id is required.');
+    assert(typeof this.npcKnowledgeReadAuthorizer === 'function',
+      'NPC_KNOWLEDGE_READ_NOT_CONFIGURED', 'A trusted deployment-owned NPC knowledge read authorizer is required.', 403);
+    const world = this.store.world(input.world_id);
+    assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
+    const commitSequence = this.store.currentCommitSequence(input.world_id);
+    assert(typeof input.actor_id === 'string' && input.actor_id.trim(),
+      'INVALID_NPC_KNOWLEDGE_READ', 'actor_id is required.');
+    const actor = this.store.db.prepare(
+      "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?"
+    ).get(input.world_id, input.actor_id);
+    assert(actor && actor.status !== 'destroyed',
+      'NPC_KNOWLEDGE_READER_NOT_ELIGIBLE', 'The requesting NPC must be a non-destroyed entity in this world.', 403);
+
+    let authorization;
+    try {
+      authorization = this.npcKnowledgeReadAuthorizer(Object.freeze({
+        world_id: input.world_id,
+        actor_id: input.actor_id,
+        purpose: input.purpose,
+        world_revision: world.world_revision,
+        commit_sequence: commitSequence,
+      }));
+    } catch {
+      throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
+        'The trusted read authorizer did not approve this request.', 403);
+    }
+    const checked = validateNpcKnowledgeRead(input, world, commitSequence, authorization);
+    if (checked.status !== 'ready') {
+      const status = checked.reason === 'stale_snapshot' ? 409
+        : checked.reason === 'world_not_found' ? 404
+          : checked.reason === 'invalid_request_shape' || checked.reason === 'invalid_request_fields' ? 400 : 403;
+      throw new EngineError('NPC_KNOWLEDGE_READ_NOT_READY',
+        'NPC knowledge read was denied or its snapshot is no longer current.', status,
+        { reason: checked.reason });
+    }
+
+    const rows = this.store.db.prepare(`
+      SELECT a.acquisition_id, a.fact_id, a.acquisition_kind, a.provenance_ref,
+        a.provenance_digest, a.authorization_ref, f.subject_ref, f.predicate,
+        f.value_json, f.source_event_ids_json
+      FROM knowledge_acquisitions AS a
+      JOIN facts AS f ON f.world_id=a.world_id AND f.fact_id=a.fact_id
+      WHERE a.world_id=? AND a.subject_id=? AND f.status='active'
+      ORDER BY a.acquisition_id
+      LIMIT ?
+    `).all(input.world_id, input.actor_id, checked.request.limit);
+
+    const items = rows.map((row) => {
+      let value;
+      let sourceEventIds;
+      try {
+        value = JSON.parse(row.value_json);
+        sourceEventIds = JSON.parse(row.source_event_ids_json);
+      } catch {
+        throw new EngineError('NPC_KNOWLEDGE_PROJECTION_INVALID',
+          'The knowledge projection contains invalid canonical JSON.', 409);
+      }
+      assert(Array.isArray(sourceEventIds) && sourceEventIds.length > 0
+        && sourceEventIds.every((eventId) => typeof eventId === 'string' && eventId.trim()),
+      'NPC_KNOWLEDGE_PROJECTION_INVALID', 'Knowledge item is missing canonical source-event provenance.', 409);
+      const freezeTree = (node) => {
+        if (node && typeof node === 'object' && !Object.isFrozen(node)) {
+          for (const child of Object.values(node)) freezeTree(child);
+          Object.freeze(node);
+        }
+        return node;
+      };
+      return Object.freeze({
+        acquisition_id: row.acquisition_id,
+        fact_id: row.fact_id,
+        subject_ref: row.subject_ref,
+        predicate: row.predicate,
+        value: freezeTree(value),
+        acquisition_kind: row.acquisition_kind,
+        provenance_ref: row.provenance_ref,
+        provenance_digest: row.provenance_digest,
+        acquisition_authorization_ref: row.authorization_ref,
+        source_event_ids: Object.freeze(sourceEventIds),
+      });
+    });
+
+    return Object.freeze({
+      status: 'ready',
+      world_id: input.world_id,
+      actor_id: input.actor_id,
+      purpose: input.purpose,
+      snapshot: Object.freeze({
+        world_revision: checked.request.world_revision,
+        commit_sequence: checked.request.commit_sequence,
+      }),
+      authorization_ref: checked.request.authorization_ref,
+      items: Object.freeze(items),
+    });
+  }
 
   registerMechanicTemplate(value) {
     const template = validateMechanicTemplate(value);
