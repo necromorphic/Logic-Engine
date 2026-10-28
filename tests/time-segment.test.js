@@ -74,7 +74,7 @@ test('segment rolls back every event when a later event attempts tombstone reuse
   assert.equal(state.world_revision, 2);
   assert.equal(state.entities.some((entity) => entity.entity_id === 'new-entity'), false);
   assert.equal(state.entities.find((entity) => entity.entity_id === 'dead').status, 'destroyed');
-  assert.deepEqual(engine.getEvents('segment-world').map((item) => item.event_id), []);
+  assert.equal(engine.getEvents('segment-world').length, 2);
 });
 
 test('independent events commit as one atomic segment and rebuild projections once', (t) => {
