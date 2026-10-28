@@ -138,7 +138,7 @@ The current repository evidence supports a *read-only research path*, not a prod
 - `SQLiteStore.commit()` is the canonical event transaction; `commitSegment()` routes segment members through `commit()` and rebuilds projections; `rollback()` invalidates dependent events and rebuilds existing projections. The audited store has no demonstrated typed spatial schema gate.
 - Core's world and event markers are distinct: `world_revision`, `commit_sequence`, and game-time coordinate cannot substitute for each other. Rollback may change revision without consuming a new commit sequence.
 - TimeEngine uses canonical integer millisecond game-time coordinates and persists operation/segment recovery data. The operation's latest `result.last_segment` records a composite result including the final commit sequence, while historical segment mapping requires resolving stored segment event IDs against canonical event history. A dedicated typed list of every confirmed segment-to-Core cursor is not exposed by the inspected operation projection.
-- Therefore the evidence does **not** establish a durable, unambiguous mapping for every historical confirmed TimeEngine boundary to Core's composite `(world_revision, commit_sequence)`, including rollback, restart, intervening writes, and old-backup restore.
+- The existing `tests/spatial-temporal-cursor-feasibility.test.js` provides a bounded positive result: it reconstructs per-segment cursors from persisted segment event IDs after restart and verifies that rollback invalidates an affected boundary and leaves the operation checkpoint stale. It does **not** establish universal mapping across every possible intervening write, equal-time event ordering, all recovery paths, or coordinated old-backup restore. Treat it as partial test evidence, not a general cursor contract.
 
 These findings align with the current blocker recorded in [Issue #351](https://github.com/necromorphic/Logic-Engine/issues/351): the process/authority question has been resolved by delegated coordinator authority, but the technical gates remain open. The required work is now evidence closure, not another duplicate read/replay harness.
 
@@ -170,7 +170,7 @@ The architecture/research task is not complete merely because a document exists 
 - [ ] Supported validator/version and schema dialect are identified; full spatial post-state validation and custom semantic metadata behavior are proven.
 - [ ] Exact immutable World Pack manifest/type-schema identity and historical resolution are specified without assuming a digest stored in the same old-restorable database proves newest state.
 - [ ] Entity deletion/tombstone/recreation identity and replay semantics are closed for every path.
-- [ ] Confirmed TimeEngine segment boundary is bound to the correct Core composite marker; equal-time order, intervening writes, rollback, restart and old-backup recovery are accounted for.
+- [x] Basic TimeEngine segment boundary reconstruction after restart and rollback invalidation have a research-only test in main (`tests/spatial-temporal-cursor-feasibility.test.js`, lines 42–113 and 116–176); [ ] equal-time order, intervening writes, alternate recovery paths, and old-backup recovery are not closed by that test.
 - [ ] Rollback/rebuild guarantees ensure no spatial result survives invalidated source evidence.
 - [ ] Unknown/stale/conflict/absent/unsupported statuses and provenance are defined without converting generic attributes or narrative output into spatial facts.
 - [ ] Core and TimeEngine evidence is independently separated in the report; any not-run tests remain NOT RUN and any unapproved runtime contract remains blocked.
@@ -190,7 +190,7 @@ The parent task is [Issue #351](https://github.com/necromorphic/Logic-Engine/iss
 | C. Compare representations | [Evidence report §3](https://github.com/necromorphic/Logic-Engine/blob/main/docs/research/spatial-temporal-world-model-evidence-2026-10-26.md) and the disposition table above | Comparison exists; no storage/projection option is authorized for implementation |
 | D. Bounded read/replay feasibility | Issue #351 records an earlier source-boundary feasibility result and exact CI details; this pass did not rerun tests | Use the canonical report, do not duplicate its harness. Prior test evidence applies only to its recorded exact SHA and does not establish typed position semantics |
 | Position v1 axis/frame meaning | Coordinator decision recorded in [Issue #351](https://github.com/necromorphic/Logic-Engine/issues/351#issuecomment-6464413177) and typed spatial contract revision 2 | +X logical east, +Y logical north, +Z up; right-handed ENU; logical units; entity-origin; frame convention world-enu-logical-v1 scoped by world identity |
-| Required technical gates | [Issue #351 delegated-authority decision](https://github.com/necromorphic/Logic-Engine/issues/351#issuecomment-6465647345) | Process/authority question resolved. Technical blockers remain: canonical typed validation across writers, immutable/historical schema identity, lifecycle/replay coverage, and durable TimeEngine-boundary ↔ Core composite-cursor association |
+| Required technical gates | [Issue #351 delegated-authority decision](https://github.com/necromorphic/Logic-Engine/issues/351#issuecomment-6465647345) | Process/authority question resolved. Technical blockers remain: canonical typed validation across writers, immutable/historical schema identity, complete lifecycle/replay/restore coverage, and proving the limits of TimeEngine-boundary ↔ Core cursor reconstruction beyond the existing bounded restart/rollback test |
 | Production and consumer boundaries | Issue #351 and [knowledge/narrative boundaries](https://github.com/necromorphic/Logic-Engine/blob/main/docs/07-knowledge-and-narrative-boundaries.md) | Production NO-GO; Memory → NPC DISABLED / FAIL-CLOSED; no NPC knowledge or disclosure is inferred from world position |
 
 ### Why the parent task cannot yet be marked complete
@@ -280,6 +280,39 @@ Do not start with a spatial projection. After the owner accepts R1–R4 and expl
 6. Only then a read-only exact-position query with provenance.
 
 This sequence intentionally postpones NPC integration and any inference-heavy spatial feature.
+
+## Evidence matrix (current reviewed main baseline)
+
+**Repository base SHA:** `9f6e46ec1a397989253f2142e43292a2a1297c89` (the exact base SHA of this draft PR). File blob SHAs below identify the retrieved file contents; they are not commit SHAs.
+
+| Claim | Exact source / lines | File blob SHA | Evidence class | Result / decision impact |
+|---|---|---|---|---|
+| World creation accepts pack ID/version but the inspected path does not show manifest resolution | `src/application/engine.js:451–485` (`createWorld`); `src/storage/sqlite-store.js:687+` (`createWorld`) | engine `dcb8b84e…`; store `80cbc54f…` | code-verified, bounded | World Pack identity is currently represented by ID/version at this seam; immutable manifest digest/history is not established here |
+| Manifest only constrains `attributes_schema` to an object | `schemas/world-pack-manifest.schema.json:117–124` | `73b59694…` | code-verified | Typed spatial semantics are not enforced by this manifest fragment alone |
+| No runtime validator dependency declared in package manifest | `package.json:1–17` | `c9d6652d…` | code-verified, bounded | No validator dependency is declared; bounded searches did not locate an in-repo loader/validator path. External loaders are not ruled out |
+| Canonical read seams exist | `src/application/engine.js:486–488`; `src/storage/sqlite-store.js:814+` | engine `dcb8b84e…`; store `80cbc54f…` | code-verified | Existing state/snapshot/event reads can support a research projection, but do not define typed position semantics |
+| Segment commit and rollback are store-owned | `src/application/engine.js:670–705, 1224`; `src/storage/sqlite-store.js:1580+`, `2078+` | engine `dcb8b84e…`; store `80cbc54f…` | code-verified | Any future spatial acceptance must not bypass these canonical mutation/rebuild paths |
+| Coordinator database is not an accepted-head ledger | `src/storage/coordinator-lock.js:4–9, 52+` | `7df7121b…` | code-verified | A separate authority is not demonstrated by this file; local lock does not solve coordinated backup rollback |
+| Basic TimeEngine boundary mapping survives restart | `tests/spatial-temporal-cursor-feasibility.test.js:42–113` | `422b6dbc…` | test-source verified; execution status not checked in this pass | Reconstructs each segment boundary from final segment event ID and canonical event row |
+| Rollback invalidates affected historical boundary; operation checkpoint becomes stale | `tests/spatial-temporal-cursor-feasibility.test.js:116–176` | `422b6dbc…` | test-source verified; execution status not checked in this pass | Consumers must revalidate event validity and world markers; old completed operation data is not automatically current |
+| Coordinated Core+Provider restore can re-agree on old markers | `tests/memory-provider-coordinated-restore.characterization.test.js:10–146` | `9d8ba457…` | test-source verified; execution status not checked in this pass | DB-local markers alone do not detect a consistent old restore |
+| Typed position acceptance is absent from the reviewed contract path | `src/storage/sqlite-store.js:1580+` plus schema above; see PR #620 test for generic `attributes.position` behavior | store `80cbc54f…` | partial/source + prior exact-head CI | A generic position attribute is not verified spatial evidence; one canonical post-state gate is still a proposed seam |
+
+### Failure/test matrix
+
+| Failure mode / invariant | Existing evidence | Current status |
+|---|---|---|
+| Rejected/uncommitted proposal must not alter spatial projection | No spatial projection exists to exercise; no production contract | NOT IMPLEMENTED / NOT TESTED |
+| Duplicate/idempotent input must not duplicate spatial effect | Core idempotency exists, but no typed spatial effect/projection contract | PARTIAL; spatial behavior not tested |
+| Missing/conflicting position must remain unknown/conflict | No typed position runtime exists | NOT IMPLEMENTED / NOT TESTED |
+| Basic segment boundary reconstruction after restart | Test source lines 42–113 | Test present; CI/execution not checked during this pass |
+| Rollback invalidates affected segment boundary | Test source lines 116–176 | Test present; CI/execution not checked during this pass |
+| Coordinated old Core+Provider restore | Test source lines 10–146 | Test present; CI/execution not checked during this pass |
+| Equal-time ordering, intervening non-TimeEngine writes, every alternate restore/recovery path | No complete evidence in this pass | BLOCKED / NOT PROVEN |
+| World Pack schema digest and historical replay | No executable loader/digest path found in bounded search | BLOCKED / NO APPROVED SEAM |
+| Full spatial post-state validation across all canonical writers | No runtime spatial gate demonstrated | BLOCKED / NO APPROVED SEAM |
+
+No tests were executed by this pass. Prior branch CI results cited elsewhere apply only to their exact recorded commit SHAs and must not be generalized to the current main baseline.
 
 ## Current blockers and next concrete decisions
 
