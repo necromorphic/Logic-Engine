@@ -379,6 +379,7 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
 test('loopback Gateway endpoint authenticates Host and delegates only to the injected Host-owned transport', async () => {
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
   const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
+  let factoryCalls = 0;
   let upstreamCalls = 0;
   let observedRoute;
   let observedModel;
@@ -388,7 +389,10 @@ test('loopback Gateway endpoint authenticates Host and delegates only to the inj
     gateway: fixture.gateway,
     hostToken,
     hostSigningKey: signingKey,
-    createTransportCapability: ({ route, model, body }) => ({ forwardResponse }) => {
+    createTransportCapability: ({ route, model, body }) => {
+      factoryCalls += 1;
+      // Constructing the capability is dormant; only invocation starts transport.
+      return ({ forwardResponse }) => {
       upstreamCalls += 1;
       observedRoute = route;
       observedModel = model;
@@ -399,6 +403,7 @@ test('loopback Gateway endpoint authenticates Host and delegates only to the inj
           status: 200,
           headers: { 'content-type': 'application/json' },
         })).then(() => ({ status: 200 })),
+      };
       };
     },
   });
@@ -430,6 +435,7 @@ test('loopback Gateway endpoint authenticates Host and delegates only to the inj
       body: JSON.stringify(payload),
     });
     assert.equal(anonymous.status, 403);
+    assert.equal(factoryCalls, 0);
     assert.equal(upstreamCalls, 0);
 
     const tampered = await fetch(url, {
@@ -438,6 +444,7 @@ test('loopback Gateway endpoint authenticates Host and delegates only to the inj
       body: JSON.stringify({ ...payload, body: payload.body + 'tampered' }),
     });
     assert.equal(tampered.status, 403);
+    assert.equal(factoryCalls, 0);
     assert.equal(upstreamCalls, 0);
 
     const response = await fetch(url, {
@@ -447,6 +454,7 @@ test('loopback Gateway endpoint authenticates Host and delegates only to the inj
     });
     assert.equal(response.status, 200);
     assert.match(await response.text(), /host-owned-test-transport/);
+    assert.equal(factoryCalls, 1);
     assert.equal(upstreamCalls, 1);
     assert.equal(observedBody, request.body);
     assert.equal(observedRoute, 'host-managed-chat-completions');
