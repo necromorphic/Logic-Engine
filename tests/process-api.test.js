@@ -67,9 +67,17 @@ test('process API is internal-only and exposes durable create/read/lifecycle ope
   assert.equal(replay.status, 200);
   assert.equal((await replay.json()).idempotent_replay, true);
 
+  const deniedList = await fetch(path, { headers });
+  assert.equal(deniedList.status, 403);
+  assert.equal((await deniedList.json()).error.code, 'INTERNAL_REQUIRED');
+
   const listed = await fetch(path, { headers: internalHeaders });
   assert.equal(listed.status, 200);
   assert.equal((await listed.json()).processes.length, 1);
+
+  const deniedRead = await fetch(path + '/api-process', { headers });
+  assert.equal(deniedRead.status, 403);
+  assert.equal((await deniedRead.json()).error.code, 'INTERNAL_REQUIRED');
 
   const fetched = await fetch(path + '/api-process', { headers: internalHeaders });
   assert.equal(fetched.status, 200);
@@ -80,6 +88,13 @@ test('process API is internal-only and exposes durable create/read/lifecycle ope
   });
   assert.equal(directTriggerCancel.status, 409);
 
+  const deniedPause = await fetch(path + '/api-process/pause', {
+    method: 'POST', headers,
+    body: json({ expected_version: created.process.version, idempotency_key: 'denied-pause-api-process' }),
+  });
+  assert.equal(deniedPause.status, 403);
+  assert.equal((await deniedPause.json()).error.code, 'INTERNAL_REQUIRED');
+
   const pausedResponse = await fetch(path + '/api-process/pause', {
     method: 'POST', headers: internalHeaders,
     body: json({ expected_version: created.process.version, idempotency_key: 'pause-api-process' }),
@@ -87,6 +102,13 @@ test('process API is internal-only and exposes durable create/read/lifecycle ope
   assert.equal(pausedResponse.status, 200);
   const paused = (await pausedResponse.json()).process;
   assert.equal(paused.status, 'paused');
+
+  const deniedResume = await fetch(path + '/api-process/resume', {
+    method: 'POST', headers,
+    body: json({ expected_version: paused.version, idempotency_key: 'denied-resume-api-process' }),
+  });
+  assert.equal(deniedResume.status, 403);
+  assert.equal((await deniedResume.json()).error.code, 'INTERNAL_REQUIRED');
 
   const resumedResponse = await fetch(path + '/api-process/resume', {
     method: 'POST', headers: internalHeaders,
@@ -96,6 +118,13 @@ test('process API is internal-only and exposes durable create/read/lifecycle ope
   const resumed = (await resumedResponse.json()).process;
   assert.equal(resumed.status, 'scheduled');
   assert.notEqual(resumed.milestones[0].trigger_id, 'api-process-finish');
+
+  const deniedCancel = await fetch(path + '/api-process/cancel', {
+    method: 'POST', headers,
+    body: json({ expected_version: resumed.version, idempotency_key: 'denied-cancel-api-process' }),
+  });
+  assert.equal(deniedCancel.status, 403);
+  assert.equal((await deniedCancel.json()).error.code, 'INTERNAL_REQUIRED');
 
   const cancelledResponse = await fetch(path + '/api-process/cancel', {
     method: 'POST', headers: internalHeaders,

@@ -53,6 +53,15 @@ test('time-advance API is internal-only and exposes durable start/status/replay'
   assert.equal(first.status, 'completed');
   assert.equal(first.confirmed_coordinate, 60000);
 
+  const deniedStatus = await fetch(base + '/v1/worlds/api-time-world/time-advances/' + encodeURIComponent(first.operation_id), {
+    headers,
+  });
+  assert.equal(deniedStatus.status, 403);
+  const deniedResume = await fetch(base + '/v1/worlds/api-time-world/time-advances/' + encodeURIComponent(first.operation_id) + '/resume', {
+    method: 'POST', headers, body: json({}),
+  });
+  assert.equal(deniedResume.status, 403);
+
   const status = await fetch(base + '/v1/worlds/api-time-world/time-advances/' + encodeURIComponent(first.operation_id), {
     headers: internalHeaders,
   });
@@ -65,6 +74,21 @@ test('time-advance API is internal-only and exposes durable start/status/replay'
   assert.equal(replay.status, 200);
   assert.equal((await replay.json()).operation.operation_id, first.operation_id);
   assert.equal((await fetch(base + '/v1/worlds/api-time-world/events', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } })).status, 200);
+});
+
+test('process lifecycle reads require the internal credential', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL });
+  assert.equal((await createWorld(base, 'api-process-auth-world')).status, 201);
+
+  const denied = await fetch(base + '/v1/worlds/api-process-auth-world/processes', { headers });
+  assert.equal(denied.status, 403);
+  assert.equal((await denied.json()).error.code, 'INTERNAL_REQUIRED');
+
+  const allowed = await fetch(base + '/v1/worlds/api-process-auth-world/processes', {
+    headers: { ...headers, 'x-engine-internal-token': INTERNAL },
+  });
+  assert.equal(allowed.status, 200);
+  assert.deepEqual((await allowed.json()).processes, []);
 });
 
 test('time-trigger lifecycle is internal-only and registered triggers drive durable advances', async (t) => {
@@ -95,6 +119,8 @@ test('time-trigger lifecycle is internal-only and registered triggers drive dura
   });
   assert.equal(denied.status, 403);
 
+  const deniedList = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', { headers });
+  assert.equal(deniedList.status, 403);
   const internalHeaders = { ...headers, 'x-engine-internal-token': INTERNAL };
   const registered = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers', {
     method: 'POST', headers: internalHeaders, body: json(trigger),
@@ -116,6 +142,8 @@ test('time-trigger lifecycle is internal-only and registered triggers drive dura
   assert.equal(started.status, 200);
   assert.equal((await started.json()).operation.status, 'completed');
 
+  const deniedFetched = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger', { headers });
+  assert.equal(deniedFetched.status, 403);
   const fetched = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger', { headers: internalHeaders });
   assert.equal(fetched.status, 200);
   assert.equal((await fetched.json()).trigger.status, 'completed');
@@ -141,6 +169,12 @@ test('time-trigger lifecycle is internal-only and registered triggers drive dura
     method: 'POST', headers: internalHeaders, body: json(futureTrigger),
   });
   assert.equal(futureRegistered.status, 201);
+  const deniedCancel = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger-to-cancel/cancel', {
+    method: 'POST', headers, body: json({ reason: 'unauthorized_cancel_attempt' }),
+  });
+  assert.equal(deniedCancel.status, 403);
+  assert.equal((await deniedCancel.json()).error.code, 'INTERNAL_REQUIRED');
+
   const cancelled = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger-to-cancel/cancel', {
     method: 'POST', headers: internalHeaders, body: json({ reason: 'test_cancel' }),
   });
@@ -223,6 +257,15 @@ test('timed-action API requires the internal capability and returns the durable 
   assert.equal(operation.result.final_action_status, 'committed');
   assert.deepEqual(operation.result.completed_trigger_ids, ['api-timed-action-trigger']);
 
+  const deniedStatus = await fetch(base + '/v1/worlds/api-timed-action-world/time-actions/' + encodeURIComponent(operation.operation_id), {
+    headers,
+  });
+  assert.equal(deniedStatus.status, 403);
+  const deniedResume = await fetch(base + '/v1/worlds/api-timed-action-world/time-actions/' + encodeURIComponent(operation.operation_id) + '/resume', {
+    method: 'POST', headers, body: json({}),
+  });
+  assert.equal(deniedResume.status, 403);
+
   const status = await fetch(base + '/v1/worlds/api-timed-action-world/time-actions/' + encodeURIComponent(operation.operation_id), {
     headers: internalHeaders,
   });
@@ -258,6 +301,11 @@ test('time configuration authoring requires admin and calendar projection requir
     method: 'POST', headers, body: json(configuration),
   });
   assert.equal(denied.status, 403);
+
+  const deniedCurrent = await fetch(base + '/v1/worlds/api-time-config-world/time-configurations/current', { headers });
+  assert.equal(deniedCurrent.status, 403);
+  const deniedProjection = await fetch(base + '/v1/worlds/api-time-config-world/time', { headers });
+  assert.equal(deniedProjection.status, 403);
 
   const adminHeaders = { ...headers, 'x-admin-token': ADMIN };
   const registered = await fetch(base + '/v1/worlds/api-time-config-world/time-configurations', {
