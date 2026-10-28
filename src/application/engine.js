@@ -776,7 +776,11 @@ export class LogicEngine {
 
 
   /**
-   * Build an actor-specific belief context  prepareNpcBeliefContext(input, proposal, currentBelief = null) {
+   * Build an actor-specific belief context from Core-authorized acquisitions.
+   * This is an internal, non-HTTP method. Visibility is checked per acquisition;
+   * model proposals cannot create evidence or commit world effects.
+   */
+  prepareNpcBeliefContext(input, proposal, currentBelief = null) {
     assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
       'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
       'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
@@ -882,7 +886,10 @@ export class LogicEngine {
 
 
   /**
-   * Persist an explicit NPC belief transition  recordNpcBeliefTransition(input) {
+   * Persist an explicit NPC belief transition as a Core-owned projection linked
+   * to the canonical event log. The proposal cannot create acquisition evidence.
+   */
+  recordNpcBeliefTransition(input) {
     assert(obj(input), 'INVALID_NPC_BELIEF_TRANSITION', 'Belief transition request must be an object.');
     const allowed = [
       'world_id', 'actor_id', 'purpose', 'expected_revision', 'expected_commit_sequence',
@@ -1034,7 +1041,10 @@ export class LogicEngine {
 
 
   /**
-   * Read the latest non-rolled-back Core belief  getNpcBeliefState(input) {
+   * Read the latest non-rolled-back Core belief and report whether its evidence
+   * remains in the current actor-scoped acquisition projection.
+   */
+  getNpcBeliefState(input) {
     assert(obj(input), 'INVALID_NPC_BELIEF_STATE_REQUEST', 'Belief state request must be an object.');
     const allowed = [
       'world_id', 'actor_id', 'purpose', 'expected_revision',
