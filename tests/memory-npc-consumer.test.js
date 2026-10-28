@@ -708,6 +708,23 @@ test('Core mutation during final query recheck invalidates complete-empty result
   assert.deepEqual(result.candidates, []);
 });
 
+test('missing source version token fails closed before Memory authorization', async (t) => {
+  const { consumer, provider, setCandidates, candidate } = setup(t);
+  let authorizationCalled = false;
+  provider.authorizeCandidate = async () => {
+    authorizationCalled = true;
+    return true;
+  };
+  setCandidates([candidate({
+    source: { kind: 'canonical_entity', entity_id: 'source-a' },
+  })]);
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_candidate_invalid_or_scope_mismatch');
+  assert.equal(authorizationCalled, false);
+});
+
 test('missing or non-object host request fails closed without throwing or calling Memory', async (t) => {
   const { consumer, provider } = setup(t);
   let queryCalled = false;
