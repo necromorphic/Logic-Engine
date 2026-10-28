@@ -62,6 +62,30 @@ function decodeSignature(signature) {
   return Buffer.from(signature, 'base64url');
 }
 
+async function readBoundedBody(response, maxBytes) {
+  if (!response.body || typeof response.body.getReader !== 'function') {
+    fail('REMOTE_ANCHOR_RESPONSE_INVALID');
+  }
+  const reader = response.body.getReader();
+  const chunks = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        try { await reader.cancel(); } catch {}
+        fail('REMOTE_ANCHOR_RESPONSE_TOO_LARGE');
+      }
+      chunks.push(Buffer.from(value));
+    }
+  } finally {
+    try { reader.releaseLock(); } catch {}
+  }
+  return Buffer.concat(chunks, total).toString('utf8');
+}
+
 /**
  * Verify one signed remote accepted-head record.
  *
@@ -152,8 +176,11 @@ export async function fetchVerifiedRemoteAnchorHead({
       signal: controller.signal,
     });
     if (!response || response.status !== 200) fail('REMOTE_ANCHOR_UNAVAILABLE');
-    const raw = await response.text();
-    if (Buffer.byteLength(raw, 'utf8') > 16384) fail('REMOTE_ANCHOR_RESPONSE_TOO_LARGE');
+    const declaredLength = response.headers?.get?.('content-length');
+    if (declaredLength && (!/^\d+$/.test(declaredLength) || Number(declaredLength) > 16384)) {
+      fail('REMOTE_ANCHOR_RESPONSE_TOO_LARGE');
+    }
+    const raw = await readBoundedBody(response, 16384);
     let envelope;
     try {
       envelope = JSON.parse(raw);
