@@ -364,7 +364,7 @@ function segmentAtCoordinate(triggers, dependencies) {
       for (const existingId of priorWriters.get(ref) || []) assertNoUnorderedConflict(trigger, ref, existingId);
     }
 
-    const dependsOnCurrent = (dependencies.get(trigger.trigger_id) || []).some((dependencyId) => currentIds.has(dependencyId));
+    const dependsOnCurrent = [...(dependencies.get(trigger.trigger_id) || [])].some((dependencyId) => currentIds.has(dependencyId));
     if (dependsOnCurrent) close();
 
     const conflict = intersects(trigger.write_set, currentWrites)
