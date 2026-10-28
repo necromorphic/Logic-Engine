@@ -26,6 +26,8 @@
 - `recordNpcBeliefTransition(input)` validates evidence again, persists the transition, and requires an idempotency key plus the exact pre-transition revision and commit sequence.
 - `getNpcBeliefState(input)` reads the latest valid belief transition and reports current evidence support.
 
+A proposal identifies both a canonical proposition reference (subject + predicate, or fact ID where no subject reference exists) and the explicit `proposition_value`. The reducer verifies that cited evidence belongs to that proposition and that every currently visible acquisition for the proposition is accounted for. Evidence matching the value supports the proposition; evidence with another value contradicts it. A conflict cannot be hidden by omitting the conflicting acquisition.
+
 Belief stances are qualitative: `believes_true`, `believes_false`, `suspects_true`, `suspects_false`, and `unresolved_conflict`. Numeric confidence is intentionally absent.
 
 ## Failure behavior
