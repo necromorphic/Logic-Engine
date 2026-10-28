@@ -13,10 +13,14 @@ const gatewayState = {
     pendingRequest: null,
     dispatch: null,
     dispatchInFlight: false,
+    protectedFailureLockout: false,
     lastStatus: 'IDLE',
 };
 
 export function armProtectedRequest(requestId, dispatch) {
+    if (gatewayState.protectedFailureLockout) {
+        throw new Error('Logic Engine Extension Gateway: protected dispatch failed; reload required');
+    }
     if (gatewayState.pendingRequest) {
         throw new Error('Logic Engine Extension Gateway: a request is already armed');
     }
@@ -43,6 +47,7 @@ export function getStatus() {
         status: gatewayState.lastStatus,
         hasPendingRequest: Boolean(gatewayState.pendingRequest),
         dispatchInFlight: gatewayState.dispatchInFlight,
+        protectedFailureLockout: gatewayState.protectedFailureLockout,
     };
 }
 
@@ -51,6 +56,14 @@ export function getStatus() {
 globalThis.logicEngineExtensionGatewayGenerationInterceptor = async function (chat, contextSize, abort, type) {
     const pendingRequest = gatewayState.pendingRequest;
     if (!pendingRequest) {
+        // A failed protected dispatch must not turn the next user retry into
+        // an ordinary native-provider send. Keep this extension instance
+        // locked until reload; do not add a reset API to this review prototype.
+        if (gatewayState.protectedFailureLockout) {
+            abort(true);
+            gatewayState.lastStatus = 'BLOCKED_AFTER_PROTECTED_FAILURE';
+            return;
+        }
         // A second generation must not bypass the protected dispatch while it
         // is in flight. This is a local concurrency guard, not authorization
         // and not protection against other extensions or server-side callers.
@@ -79,6 +92,9 @@ globalThis.logicEngineExtensionGatewayGenerationInterceptor = async function (ch
             dispatch,
         });
         gatewayState.lastStatus = result.status;
+        if (result.status !== 'DISPATCH_DELEGATED') {
+            gatewayState.protectedFailureLockout = true;
+        }
     } finally {
         gatewayState.dispatchInFlight = false;
     }
