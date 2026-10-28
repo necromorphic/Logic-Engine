@@ -209,6 +209,16 @@ try {
     throw 'Evidence output inside a backup root was not refused before any ACL mutation.'
   }
 
+# Regression: evidence output must not be placed beside a protected Core database.
+  $coreEvidencePath = Join-Path (Split-Path -Parent $coreDb) 'acl-evidence-must-not-be-written.json'
+  $coreEvidenceRefused = $false
+  try {
+    & .\\scripts\\security\\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $coreEvidencePath
+  } catch { $coreEvidenceRefused = $_.Exception.Message -match 'outside protected database and backup roots' }
+  if (-not $coreEvidenceRefused -or (Test-Path -LiteralPath $coreEvidencePath)) {
+    throw 'Evidence output inside the Core database directory was not refused before any ACL mutation.'
+  }
+
 # Regression: an existing evidence file must not be overwritten.
   $existingEvidence = $evidence + '.existing'
   $evidenceMarker = 'preserve-prior-security-evidence'
