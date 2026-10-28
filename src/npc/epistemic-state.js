@@ -175,6 +175,10 @@ function findEvidence(state, ref, version) {
 function applyEventUnsafe(state, event) {
   if (!isSafeDataTree(state) || !validState(state) || !isSafeDataTree(event)
     || !isPlainDataObject(event) || !validId(event.type)) return nonReady();
+  if (!validId(event.world_id) || !validId(event.subject_id)
+    || event.world_id !== state.world_id || event.subject_id !== state.subject_id) {
+    return nonReady("event_scope_mismatch");
+  }
 
   if (event.type === "information_received") {
     if (!validId(event.event_ref) || !validId(event.source_ref) || !validId(event.source_version)) {
