@@ -11,6 +11,7 @@ import {
   advanceAcceptedHeadSync,
   enrollAcceptedHeadSync,
   finalizeAcceptedHeadSync,
+  getAcceptedHeadsSync,
 } from '../src/security/accepted-head-client-sync.js';
 import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryDispatchGateway, openReadOnlySqliteDatabase } from '../src/security/memory-dispatch-gateway.js';
 import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
