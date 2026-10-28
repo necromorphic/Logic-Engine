@@ -363,6 +363,29 @@ export class ProcessStore {
             .run(stamp, worldId, processId, item.milestone_id);
           result.push({ process_id: processId, ...item, rollback_id: rollbackId });
         }
+        // A process gated for rollback review must not leave future trigger
+        // work eligible for the shared scheduler. Keep the milestone checkpoint
+        // pending (reconciliation owns its eventual disposition), but quarantine
+        // its unclaimed trigger in this same Core rollback transaction.
+        const rollbackWorldRevision = this.store.world(worldId).world_revision;
+        for (const milestoneRow of rows) {
+          if (milestoneRow.status !== 'pending') continue;
+          const trigger = this.db.prepare(
+            'SELECT status,claimed_by_operation_id FROM world_time_triggers WHERE world_id=? AND trigger_id=?',
+          ).get(worldId, milestoneRow.trigger_id);
+          if (!trigger || trigger.status !== 'pending' || trigger.claimed_by_operation_id !== null) continue;
+          this.db.prepare(`UPDATE world_time_triggers SET status='cancelled',cancellation_reason=?,updated_at=?
+            WHERE world_id=? AND trigger_id=? AND status='pending' AND claimed_by_operation_id IS NULL`)
+            .run('process_rollback_needs_review', stamp, worldId, milestoneRow.trigger_id);
+          this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+            .run(worldId, rollbackWorldRevision, 'time.trigger.cancelled', milestoneRow.trigger_id, enc({
+              reason: 'process_rollback_needs_review',
+              process_id: processId,
+              milestone_id: milestoneRow.milestone_id,
+              rollback_id: rollbackId,
+            }), stamp);
+        }
+
         const error = {
           code: 'PROCESS_MILESTONE_ROLLED_BACK',
           message: 'A supporting event or prerequisite milestone was invalidated; dependent completed progress requires explicit review.',
