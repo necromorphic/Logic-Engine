@@ -314,9 +314,31 @@ try {
 $firewallAllowRules = @($outboundFirewallRules | Where-Object { $_.action -eq "Allow" })
 $firewallBlockRules = @($outboundFirewallRules | Where-Object { $_.action -eq "Block" })
 
+$incompleteReasons = New-Object System.Collections.Generic.List[string]
+if (@($pathEvidence | Where-Object { $_.error }).Count -gt 0) {
+    $incompleteReasons.Add("One or more path, ACL, SQLite-sidecar, or backup-tree queries reported an error.")
+}
+if (@($pathEvidence | Where-Object { $_.PSObject.Properties.Name -contains "exists" -and $null -eq $_.exists }).Count -gt 0) {
+    $incompleteReasons.Add("At least one path existence result is unknown.")
+}
+if (@($serviceEvidence | Where-Object { $_.PSObject.Properties.Name -contains "unavailable" }).Count -gt 0) {
+    $incompleteReasons.Add("Windows service identity evidence is unavailable.")
+}
+if (@($tcpEvidence | Where-Object { $_.PSObject.Properties.Name -contains "unavailable" }).Count -gt 0) {
+    $incompleteReasons.Add("Established TCP connection evidence is unavailable.")
+}
+if (@($firewallProfiles | Where-Object { $_.PSObject.Properties.Name -contains "unavailable" }).Count -gt 0) {
+    $incompleteReasons.Add("Active firewall profile evidence is unavailable.")
+}
+if (-not $outboundFirewallRulesAvailable) {
+    $incompleteReasons.Add("Enabled outbound firewall rule evidence is unavailable.")
+}
+
 $report = [ordered]@{
     reportType = "Logic Engine deployment security evidence (read-only)"
     generatedUtc = [datetime]::UtcNow.ToString("o")
+    collectionStatus = if ($incompleteReasons.Count -gt 0) { "INCOMPLETE" } else { "COLLECTED_NO_QUERY_ERRORS" }
+    incompleteReasons = @($incompleteReasons.ToArray())
     machineName = $env:COMPUTERNAME
     userIdentity = [string]$identity.Name
     elevated = $isAdmin
