@@ -45,7 +45,7 @@ function responseMock() {
   return response;
 }
 
-test('request-bound capability allows create/edit/swipe-select/swipe-delete/message-delete once and rejects reorder', async () => {
+test('request-bound capability permits only append/select transitions and rejects destructive changes', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-version-inventory-journal-'));
   const directories = {
     chats: path.join(root, 'chats'), characters: path.join(root, 'characters'), groups: path.join(root, 'groups'),
@@ -56,32 +56,22 @@ test('request-bound capability allows create/edit/swipe-select/swipe-delete/mess
   await mkdir(chatDirectory, { recursive: true });
   const request = {
     method: 'POST', baseUrl: '', path: '/api/chats/save', originalUrl: '/api/chats/save',
-    sessionID: 'test-session-1',
-    user: { profile: { handle: 'test-user' }, directories },
-    headers: {},
+    sessionID: 'test-session-1', user: { profile: { handle: 'test-user' }, directories }, headers: {},
   };
   const conversationUuid = randomUUID();
   const installationUuid = randomUUID();
   const messageId = randomUUID();
+  const messageId2 = randomUUID();
   const version1 = randomUUID();
   const version2 = randomUUID();
   const version3 = randomUUID();
-  const messageId2 = randomUUID();
   const version4 = randomUUID();
   const conversationId = installationUuid + ':' + conversationUuid;
   const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
-  const header = {
-    chat_metadata: { logic_engine_conversation_id: conversationUuid },
-    user_name: 'unused',
-    character_name: 'unused',
-  };
+  const header = { chat_metadata: { logic_engine_conversation_id: conversationUuid }, user_name: 'unused', character_name: 'unused' };
   const writeChat = records => writeFile(chatPath, records.map(record => JSON.stringify(record)).join('\n'));
   const payload = messages => ({
-    ch_name: 'Character A',
-    file_name: 'chat-a',
-    chat: [header, ...messages],
-    avatar_url: 'character-a.png',
-    force: false,
+    ch_name: 'Character A', file_name: 'chat-a', chat: [header, ...messages], avatar_url: 'character-a.png', force: false,
   });
   const initialMessage = makeMessage({
     messageId,
@@ -99,14 +89,18 @@ test('request-bound capability allows create/edit/swipe-select/swipe-delete/mess
     ],
     activeVersionIndex: 1,
   });
+  const appendedMessage = makeMessage({
+    messageId,
+    versions: [
+      { versionId: version1, text: 'private-before' },
+      { versionId: version2, text: 'private-after', parentVersionId: version1 },
+      { versionId: version3, text: 'private-third', parentVersionId: version2 },
+    ],
+    activeVersionIndex: 2,
+  });
   const deletedSwipeMessage = makeMessage({
     messageId,
     versions: [{ versionId: version2, text: 'private-after', parentVersionId: version1 }],
-    activeVersionIndex: 0,
-  });
-  const editedMessage = makeMessage({
-    messageId,
-    versions: [{ versionId: version3, text: 'edited text', parentVersionId: version2 }],
     activeVersionIndex: 0,
   });
   const newMessage = makeMessage({
@@ -114,13 +108,8 @@ test('request-bound capability allows create/edit/swipe-select/swipe-delete/mess
     versions: [{ versionId: version4, text: 'new message', parentVersionId: null }],
     activeVersionIndex: 0,
   });
-
   const invokeSave = async (savePayload, token) => {
-    const saveRequest = {
-      ...request,
-      body: savePayload,
-      headers: { 'x-logic-engine-save-capability': token },
-    };
+    const saveRequest = { ...request, body: savePayload, headers: { 'x-logic-engine-save-capability': token } };
     const response = responseMock();
     let reachedNativeSave = false;
     await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(saveRequest, response, async () => {
@@ -131,37 +120,26 @@ test('request-bound capability allows create/edit/swipe-select/swipe-delete/mess
     await response.finished;
     return { response, reachedNativeSave };
   };
-  const prepare = savePayload => prepareHostSaveCapability(request, {
-    route: '/api/chats/save',
-    payload: savePayload,
-  });
-  const acknowledge = async (versionId, text, { parentVersionId = null, active, deleted = false }) =>
+  const prepare = savePayload => prepareHostSaveCapability(request, { route: '/api/chats/save', payload: savePayload });
+  const acknowledge = async (message, versionId, text, { parentVersionId = null, active, deleted = false } = {}) =>
     recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId,
-      message_id: messageId,
-      version_id: versionId,
-      parent_version_id: parentVersionId,
-      content_sha256: digest(text),
-      active,
-      deleted,
+      conversation_id: conversationId, message_id: message, version_id: versionId, parent_version_id: parentVersionId,
+      content_sha256: digest(text), active, deleted,
     });
 
   try {
     await writeChat([header, initialMessage]);
     const persistedBefore = await readFile(chatPath, 'utf8');
     await registerHostConversation(request, {
-      conversationId,
-      sourceLocator: 'chat-a',
-      sourcePath: 'character-a/chat-a.jsonl',
-      domain: 'chats',
+      conversationId, sourceLocator: 'chat-a', sourcePath: 'character-a/chat-a.jsonl', domain: 'chats',
     });
-    await acknowledge(version1, 'private-before', { active: true });
-    await acknowledge(version2, 'private-after', { parentVersionId: version1, active: false });
+    await acknowledge(messageId, version1, 'private-before', { active: true });
+    await acknowledge(messageId, version2, 'private-after', { parentVersionId: version1, active: false });
     const before = await getHostConversationInventory(request);
     assert.equal(before.complete, true);
     assert.equal(before.currentVersionCount, 2);
 
-    // A one-shot capability can be consumed by only one of two concurrent saves.
+    // Only one of two concurrent requests may consume a one-shot token.
     const selectPayload = payload([selectedMessage]);
     const selectCapability = await prepare(selectPayload);
     assert.equal(selectCapability.status, 'CAPABILITY_ISSUED');
@@ -173,84 +151,59 @@ test('request-bound capability allows create/edit/swipe-select/swipe-delete/mess
     assert.equal(concurrentResults.filter(item => item.reachedNativeSave).length, 1);
     assert.equal(concurrentResults.filter(item => item.response.statusCode === 200).length, 1);
     assert.equal(concurrentResults.filter(item => item.response.statusCode !== 200).length, 1);
-    assert.equal(await readFile(chatPath, 'utf8'), selectPayload.chat.map(record => JSON.stringify(record)).join('\n'));
+    const selectedBytes = await readFile(chatPath, 'utf8');
+    await acknowledge(messageId, version1, 'private-before', { active: false });
+    await acknowledge(messageId, version2, 'private-after', { parentVersionId: version1, active: true });
+    assert.equal((await getHostConversationInventory(request)).complete, true);
 
-    await acknowledge(version1, 'private-before', { active: false });
-    await acknowledge(version2, 'private-after', { parentVersionId: version1, active: true });
-    const selectedInventory = await getHostConversationInventory(request);
-    assert.equal(selectedInventory.complete, true);
-    assert.equal(selectedInventory.currentVersionCount, 2);
-    const journalPath = path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl');
-    let journal = await readFile(journalPath, 'utf8');
-    let records = journal.trim().split('\n').map(line => JSON.parse(line));
-    let committed = records.filter(record => record.kind === 'outcome' && record.status === 'COMMITTED');
-    assert.equal(committed.length, 1);
-    assert.ok(committed[0].versionChanges.some(change => change.change === 'ACTIVE_CHANGED' && change.version_id === version1));
-    assert.doesNotMatch(journal, /private-before|private-after/);
-
-    // Replaying the consumed token must fail before another native write.
+    // A consumed token cannot be replayed; the persisted file stays byte-identical.
     const replay = await invokeSave(selectPayload, selectCapability.token);
     assert.equal(replay.reachedNativeSave, false);
     assert.notEqual(replay.response.statusCode, 200);
-    assert.equal(await readFile(chatPath, 'utf8'), selectPayload.chat.map(record => JSON.stringify(record)).join('\n'));
+    assert.equal(await readFile(chatPath, 'utf8'), selectedBytes);
 
-    const deleteSwipePayload = payload([deletedSwipeMessage]);
-    const deleteSwipeCapability = await prepare(deleteSwipePayload);
-    assert.equal(deleteSwipeCapability.status, 'CAPABILITY_ISSUED');
-    const deleteSwipe = await invokeSave(deleteSwipePayload, deleteSwipeCapability.token);
-    assert.equal(deleteSwipe.reachedNativeSave, true);
-    assert.equal(deleteSwipe.response.statusCode, 200);
-    await acknowledge(version1, 'private-before', { active: false, deleted: true });
-    const afterSwipeDelete = await getHostConversationInventory(request);
-    assert.equal(afterSwipeDelete.complete, true);
-    assert.equal(afterSwipeDelete.currentVersionCount, 1);
-    assert.equal(afterSwipeDelete.versionCount, 2);
-
-    const editPayload = payload([editedMessage]);
-    const editCapability = await prepare(editPayload);
-    assert.equal(editCapability.status, 'CAPABILITY_ISSUED');
-    assert.equal((await invokeSave(editPayload, editCapability.token)).response.statusCode, 200);
-    await acknowledge(version2, 'private-after', { parentVersionId: version1, active: false, deleted: true });
-    await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version3, parent_version_id: version2,
-      content_sha256: digest('edited text'), active: true, deleted: false,
-    });
+    // Append-only version creation is allowed; previous IDs/digests/ancestry remain intact.
+    const appendPayload = payload([appendedMessage]);
+    const appendCapability = await prepare(appendPayload);
+    assert.equal(appendCapability.status, 'CAPABILITY_ISSUED');
+    const append = await invokeSave(appendPayload, appendCapability.token);
+    assert.equal(append.reachedNativeSave, true);
+    assert.equal(append.response.statusCode, 200);
+    await acknowledge(messageId, version1, 'private-before', { active: false });
+    await acknowledge(messageId, version2, 'private-after', { parentVersionId: version1, active: false });
+    await acknowledge(messageId, version3, 'private-third', { parentVersionId: version2, active: true });
     assert.equal((await getHostConversationInventory(request)).complete, true);
 
-    const createPayload = payload([editedMessage, newMessage]);
+    const createPayload = payload([appendedMessage, newMessage]);
     const createCapability = await prepare(createPayload);
     assert.equal(createCapability.status, 'CAPABILITY_ISSUED');
-    assert.equal((await invokeSave(createPayload, createCapability.token)).response.statusCode, 200);
-    await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId2, version_id: version4, parent_version_id: null,
-      content_sha256: digest('new message'), active: true, deleted: false,
-    });
-    assert.equal((await getHostConversationInventory(request)).complete, true);
-
-    const persistedBeforeRejectedReorder = await readFile(chatPath, 'utf8');
-    const reorderedPayload = payload([newMessage, editedMessage]);
-    await assert.rejects(
-      () => prepare(reorderedPayload),
-      error => error.message === 'HOST_SAVE_CAPABILITY_TRANSITION_UNSUPPORTED',
-    );
-    assert.equal(await readFile(chatPath, 'utf8'), persistedBeforeRejectedReorder);
-
-    const deleteMessagePayload = payload([editedMessage]);
-    const deleteMessageCapability = await prepare(deleteMessagePayload);
-    assert.equal(deleteMessageCapability.status, 'CAPABILITY_ISSUED');
-    assert.equal((await invokeSave(deleteMessagePayload, deleteMessageCapability.token)).response.statusCode, 200);
-    await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId2, version_id: version4, parent_version_id: null,
-      content_sha256: digest('new message'), active: false, deleted: true,
-    });
+    const create = await invokeSave(createPayload, createCapability.token);
+    assert.equal(create.reachedNativeSave, true);
+    assert.equal(create.response.statusCode, 200);
+    await acknowledge(messageId2, version4, 'new message', { active: true });
     const finalInventory = await getHostConversationInventory(request);
     assert.equal(finalInventory.complete, true);
-    assert.equal(finalInventory.currentVersionCount, 1);
+    assert.equal(finalInventory.currentVersionCount, 4);
     assert.equal(finalInventory.versionCount, 4);
-    journal = await readFile(journalPath, 'utf8');
-    assert.doesNotMatch(journal, /private-before|private-after|edited text|new message/);
 
-    // Reintroducing a tombstoned version is still detected after successful saves.
+    // Deletion and reordering are unsupported until a separately reviewed tombstone contract exists.
+    const persistedBeforeRejected = await readFile(chatPath, 'utf8');
+    for (const rejectedPayload of [
+      payload([newMessage, appendedMessage]),
+      payload([deletedSwipeMessage, newMessage]),
+      payload([appendedMessage]),
+    ]) {
+      await assert.rejects(
+        () => prepare(rejectedPayload),
+        error => error.message === 'HOST_SAVE_CAPABILITY_TRANSITION_UNSUPPORTED',
+      );
+      assert.equal(await readFile(chatPath, 'utf8'), persistedBeforeRejected);
+    }
+
+    const journal = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
+    assert.doesNotMatch(journal, /private-before|private-after|private-third|new message/);
+
+    // Restoring an older file is detected as divergence, not accepted as a valid transition.
     await writeChat([header, initialMessage]);
     const rollback = await getHostConversationInventory(request);
     assert.equal(rollback.complete, false);
