@@ -99,8 +99,18 @@ export class HostVersionDigestLedger {
       // Existing rows have no provable ancestry. Do not silently turn their
       // newly-added NULL parent column into a root; retain an explicit legacy status.
       const ledgerColumns = new Set(this.db.prepare('PRAGMA table_info(host_version_digest_ledger)').all().map((row) => row.name));
-      if (!ledgerColumns.has('parent_version_id')) this.db.exec('ALTER TABLE host_version_digest_ledger ADD COLUMN parent_version_id TEXT');
-      if (!ledgerColumns.has('lineage_status')) {
+      const hadParentLineage = ledgerColumns.has('parent_version_id');
+      const hadLineageStatus = ledgerColumns.has('lineage_status');
+      if (!hadParentLineage) {
+        this.db.exec('ALTER TABLE host_version_digest_ledger ADD COLUMN parent_version_id TEXT');
+        // A partial/older schema that had a status but no parent column cannot
+        // prove that NULL was an intentional root. Downgrade every row rather
+        // than silently trusting a potentially inferred ancestry.
+        if (hadLineageStatus) {
+          this.db.exec("UPDATE host_version_digest_ledger SET lineage_status='LEGACY/UNVERIFIED'");
+        }
+      }
+      if (!hadLineageStatus) {
         this.db.exec("ALTER TABLE host_version_digest_ledger ADD COLUMN lineage_status TEXT NOT NULL DEFAULT 'LEGACY/UNVERIFIED'");
       }
     } catch (error) {
