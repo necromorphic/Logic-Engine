@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { resolve } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { join, resolve } from 'node:path';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 
@@ -55,6 +57,67 @@ const express = requireFromST('express');
 const stUtil = await import(pathToFileURL(resolve(stRoot, 'src/util.js')).href);
 stUtil.setConfigFilePath(resolve(stRoot, 'default/config.yaml'));
 const { router } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backends/chat-completions.js')).href);
+const { router: chatsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/chats.js')).href);
+const { createHostLifecycleMutationMiddleware, registerHostConversation } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-host-journal.mjs')).href);
+
+test('real pinned chat deletion route refuses an enrolled file before mutation', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const actualSha = execFileSync('git', ['-C', stRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.equal(actualSha, expectedSha, 'test must run against the exact pinned SillyTavern checkout');
+
+  const root = await mkdtemp(join(os.tmpdir(), 'st-host-lifecycle-route-'));
+  const directories = {
+    chats: join(root, 'chats'),
+    characters: join(root, 'characters'),
+    groups: join(root, 'groups'),
+    groupChats: join(root, 'group_chats'),
+    backups: join(root, 'backups'),
+  };
+  await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
+  const conversationUuid = randomUUID();
+  const conversationId = randomUUID() + ':' + conversationUuid;
+  const chatDirectory = join(directories.chats, 'character-a');
+  await mkdir(chatDirectory, { recursive: true });
+  const chatPath = join(chatDirectory, 'chat-a.jsonl');
+  const persistedChat = JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }) + '\n';
+  await writeFile(chatPath, persistedChat);
+  const user = { profile: { handle: 'runtime-route-test' }, directories };
+  await registerHostConversation({ user }, {
+    conversationId,
+    sourceLocator: 'chat-a',
+    sourcePath: 'character-a/chat-a.jsonl',
+    domain: 'chats',
+  });
+
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  app.use((req, _res, next) => {
+    req.user = user;
+    next();
+  });
+  app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true }));
+  app.use('/api/chats', chatsRouter);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+
+  t.after(async () => {
+    await new Promise(resolveClose => server.close(resolveClose));
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const response = await fetch('http://127.0.0.1:' + address.port + '/api/chats/delete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ avatar_url: 'character-a.png', chatfile: 'chat-a.jsonl' }),
+  });
+  assert.equal(response.status, 409, 'Host guard must reject deletion before the pinned handler runs');
+  assert.deepEqual(await response.json(), {
+    error: { code: 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED' },
+  });
+  assert.equal(await readFile(chatPath, 'utf8'), persistedChat, 'the enrolled source file must remain unchanged');
+});
 
 test('real pinned server Chat Completions handler reaches a recording fake provider exactly once', async (t) => {
   const { execFileSync } = await import('node:child_process');
