@@ -24,6 +24,10 @@ const recordIdentityKey = (ref, version) => JSON.stringify([ref, version]);
 const CONTENT_KINDS = new Set(['claim', 'report', 'summary', 'author_initial', 'imported', 'inference']);
 const EPISTEMIC_KINDS = new Set(['canonical', 'acquired_report', 'rumor', 'inference', 'authored_initial', 'imported']);
 const EVIDENCE_ASSESSMENTS = new Set(['unassessed', 'supported', 'disputed', 'insufficient']);
+// Initial knowledge is authoritative only through Core's explicit subject-assignment
+// lifecycle. This generic Memory retrieval seam has no assignment-read proof yet.
+const INITIAL_ASSIGNMENT_CONTENT_KINDS = new Set(['author_initial', 'imported']);
+const INITIAL_ASSIGNMENT_EPISTEMIC_KINDS = new Set(['authored_initial', 'imported']);
 
 const nonReady = (reason) => Object.freeze({
   status: 'non_ready',
@@ -293,6 +297,16 @@ export class MemoryNpcConsumer {
         return nonReady('memory_record_authorization_unavailable');
       }
       if (!recordAllowed) continue;
+
+      // Initial/imported knowledge is not authorized by a Memory candidate row.
+      // Core owns the explicit subject-assignment record, and this consumer has
+      // no assignment-read proof yet. Do not silently filter these rows into a
+      // ready-empty result or let the generic retrieval path imply acquisition.
+      // Use a generic non-ready result so the caller learns no item-level detail.
+      if (INITIAL_ASSIGNMENT_CONTENT_KINDS.has(candidate.content_kind)
+        || INITIAL_ASSIGNMENT_EPISTEMIC_KINDS.has(candidate.epistemic_kind)) {
+        return nonReady('memory_result_incomplete_or_unavailable');
+      }
 
       // Once the provider confirms this record is visible, required semantic
       // metadata must be present and use known vocabularies. Otherwise the
