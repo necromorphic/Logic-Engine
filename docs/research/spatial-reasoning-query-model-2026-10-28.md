@@ -150,3 +150,18 @@ These are proposed scenario IDs for a future test-only harness; they are NOT exe
 **NO-GO:** implementation and production integration.
 
 The next concrete feasibility target is **position inventory + deterministic point-distance queries over confirmed position-v1 inputs**. If the current canonical state contains no typed, schema-verified position values, the honest result is that the query algorithm can be tested synthetically, while the real-data path remains blocked on typed-source enforcement and schema/temporal provenance.
+
+
+### 3.5 World Pack validator and loader inventory (bounded)
+
+A follow-up search checked the manifest schema, package dependencies, and repository references for a World Pack manifest loader/validator and schema-validation dependency.
+
+Observed evidence:
+- `package.json` declares no runtime dependencies; the project test command runs Node's test runner directly.
+- The manifest file `schemas/world-pack-manifest.schema.json` describes `entity_types[].attributes_schema` only as an object.
+- Bounded repository searches for `validateWorldPackManifest`, runtime use of `world-pack-manifest.schema.json`, and an AJV instance returned no implementation references in the reviewed search results.
+- The existing spatial feasibility tests demonstrate that Core accepts arbitrary object-shaped `attributes.position` values through create/upsert and that this new PR's update characterization also accepts malformed updates when the required entity-existence causal link is supplied.
+
+Interpretation: in the reviewed repository paths, the manifest schema is a declaration artifact, not evidence of an active runtime validation pipeline. This is a bounded search finding, not proof that no external pack loader exists outside this repository or in unsearched code. Until an executable loader, pinned schema resolver, validator capability and canonical commit integration are demonstrated at an exact revision, typed spatial metadata cannot be treated as validated input and a spatial query must not emit `CONFIRMED` from generic attributes.
+
+No runtime or schema changes are proposed by this note.
