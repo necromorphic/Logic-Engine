@@ -84,10 +84,10 @@ const parseRelationshipRef = (value) => {
     return subjectId && targetId ? { subjectId, targetId } : null;
   } catch { return null; }
 };
-const refs = (effects) => effects.map((e) => e.kind === 'relationship.transition'
+const refs = (effects) => effects.flatMap((e) => e.kind === 'knowledge.acquire' ? [] : [e.kind === 'relationship.transition'
   ? relationshipRef(e.subject_id, e.target_id)
   : e.kind.startsWith('entity.') ? 'entity:' + e.entity_id
-    : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id);
+    : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id]);
 const applyEntityEffects = (entities, effects) => {
   for (const effect of effects) {
     if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
