@@ -127,6 +127,10 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0].record_ref, 'memory:record-a');
   assert.deepEqual(result.candidates[0].content, { 'attributes.public_note': 'visible source-a' });
+  assert.equal(result.candidates[0].source_version, String(
+    engine.getSnapshot(worldId, { entityIds: ['source-a'] }).entities[0].updated_revision,
+  ));
+
   assert.equal(JSON.stringify(result).includes('never disclose'), false);
 });
 
