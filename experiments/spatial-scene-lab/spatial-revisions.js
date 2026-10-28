@@ -24,11 +24,22 @@ const validRevision = (scene) => scene &&
   Array.isArray(scene.blockers) && hasUniqueIds(scene.blockers);
 
 function normalizedEntity(entity) {
+  // Include every spatial/perception field used by the current synthetic scene
+  // evaluators. If body, motion, facing, or perception changes, dependent
+  // predictions must not remain fresh merely because position stayed the same.
   return {
     id: entity.id,
-    position: entity.position,
+    position: entity.position ?? null,
     orientation: entity.orientation ?? null,
+    forward: entity.forward ?? null,
     velocity: entity.velocity ?? null,
+    motion: entity.motion ? {
+      velocity: entity.motion.velocity ?? null,
+      maxSpeed: entity.motion.maxSpeed ?? null,
+      maxTurnRateRadiansPerSecond: entity.motion.maxTurnRateRadiansPerSecond ?? null,
+    } : null,
+    body: entity.body ?? null,
+    perception: entity.perception ?? null,
     bounds: entity.bounds ?? null,
     soundLevelDb: entity.soundLevelDb ?? null,
     hearingThresholdDb: entity.hearingThresholdDb ?? null,
