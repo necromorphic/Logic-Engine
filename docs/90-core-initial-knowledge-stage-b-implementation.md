@@ -16,7 +16,7 @@ The narrow Stage B operation records an explicit initial assignment of a canonic
 
 ## Provenance semantics and limit
 
-`source_ref` and lowercase `source_sha256` are supplied under the separately authenticated administrative trust boundary. Core validates their shape and records the attestation; it does **not** fetch arbitrary external packages or independently hash external bytes. Therefore the digest is an administrator-attested source digest, not independent proof of external origin. An external importer that needs stronger origin guarantees must later bind its actual source bytes/package identity to a trusted import adapter before making assignments.
+`source_ref` and UTF-8 `source_content` are supplied under the separately authenticated administrative trust boundary. Core computes `source_sha256` from the supplied bytes; if the caller also supplies a digest, Core verifies that it matches and rejects mismatches. Raw source content is not persisted in the acquisition effect. Core does **not** independently fetch arbitrary external packages or prove that the supplied bytes genuinely came from the path named by `source_ref`; the administrator is the trust root for that source attribution. An external importer that needs stronger origin guarantees must later bind its actual package identity to a trusted import adapter before making assignments.
 
 The Core-generated `authority: "admin_credential"` field is not accepted as a user-selected field by the route; the Core operation sets it. Generic event and proposal paths cannot use it to mint acquisitions.
 
