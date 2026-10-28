@@ -367,13 +367,23 @@ try {
     $report.error = $_.Exception.GetType().Name
     $rollbackErrors = @()
     if ($aclMutationStarted) {
-        foreach ($prior in $before) {
-            try {
-                $restoreAcl = Get-Acl -LiteralPath $prior.path
-                $restoreAcl.SetSecurityDescriptorSddlForm([string]$prior.sddl)
-                Set-Acl -LiteralPath $prior.path -AclObject $restoreAcl
-            } catch {
-                $rollbackErrors += [pscustomobject]@{ path = $prior.path; error = $_.Exception.GetType().Name }
+        $rollbackGatePassed = $true
+        try {
+            Assert-MaintenanceWindow -ServiceNames @($AuthorityServiceName, $CoreServiceName, $ProviderServiceName, $GatewayServiceName)
+        } catch {
+            $rollbackGatePassed = $false
+            $rollbackErrors += [pscustomobject]@{ path = '<maintenance-gate>'; error = $_.Exception.GetType().Name }
+        }
+        if ($rollbackGatePassed) {
+            foreach ($prior in $before) {
+                try {
+                    Assert-MaintenanceWindow -ServiceNames @($AuthorityServiceName, $CoreServiceName, $ProviderServiceName, $GatewayServiceName)
+                    $restoreAcl = Get-Acl -LiteralPath $prior.path
+                    $restoreAcl.SetSecurityDescriptorSddlForm([string]$prior.sddl)
+                    Set-Acl -LiteralPath $prior.path -AclObject $restoreAcl
+                } catch {
+                    $rollbackErrors += [pscustomobject]@{ path = $prior.path; error = $_.Exception.GetType().Name }
+                }
             }
         }
         $report.rollback = if ($rollbackErrors.Count -eq 0) { 'RESTORED_PRIOR_SDDL' } else { 'ROLLBACK_INCOMPLETE' }
