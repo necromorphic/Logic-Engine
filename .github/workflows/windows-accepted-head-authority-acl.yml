@@ -3,6 +3,7 @@ on:
   pull_request:
     paths:
       - 'scripts/security/Set-AcceptedHeadAuthorityAcl.ps1'
+      - 'scripts/security/Test-AcceptedHeadAuthorityAcl.ps1'
       - 'docs/security/accepted-head-authority-acl-candidate.md'
       - '.github/workflows/windows-accepted-head-authority-acl.yml'
   workflow_dispatch:
