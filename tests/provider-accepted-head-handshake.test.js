@@ -53,6 +53,13 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
+async function stopAuthorityChild(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  try { child.kill(); } catch {}
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await once(child, 'exit');
+}
+
 function setEnv(name, value, previous) {
   previous[name] = process.env[name];
   if (value === undefined) delete process.env[name];
@@ -244,8 +251,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     providerReader = new DatabaseSync(providerPath);
     assert.equal(getAcceptedHeadsSync({ port, token: providerToken }).provider, pending.head);
 
-    child.kill();
-    await once(child, 'exit');
+    await stopAuthorityChild(child);
     child = null;
 
     assert.throws(() => provider.grantQuery(scope, false), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
@@ -264,8 +270,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     try { providerReader?.close(); } catch {}
     try { provider?.close(); } catch {}
     if (child) {
-      child.kill();
-      await once(child, 'exit');
+      await stopAuthorityChild(child);
     }
     for (const [name, value] of Object.entries(previousEnv)) {
       if (value === undefined) delete process.env[name];
@@ -338,8 +343,7 @@ test('Provider fails closed when authority advances but the local checkpoint tra
   } finally {
     try { provider?.close(); } catch {}
     if (child) {
-      child.kill();
-      await once(child, 'exit');
+      await stopAuthorityChild(child);
     }
     for (const [name, value] of Object.entries(previousEnv)) {
       if (value === undefined) delete process.env[name];
