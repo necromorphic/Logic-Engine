@@ -45,8 +45,13 @@ function Get-ServiceIdentity {
 function Assert-ServicesStopped {
     param([Parameter(Mandatory = $true)][object[]]$Services)
     foreach ($service in $Services) {
-        if ([string]$service.state -ne 'Stopped' -or [int]$service.processId -ne 0) {
-            throw "Maintenance precondition failed: service '$($service.serviceName)' must be Stopped with ProcessId 0 (state='$($service.state)', pid=$($service.processId)). No ACL mutation is permitted."
+        # Re-query the service each time; the original preflight objects are only snapshots.
+        $current = Get-ServiceIdentity -Name ([string]$service.serviceName)
+        if ([string]$current.sid -ne [string]$service.sid) {
+            throw "Maintenance precondition failed: service identity changed for '$($service.serviceName)'. No ACL mutation is permitted."
+        }
+        if ([string]$current.state -ne 'Stopped' -or [int]$current.processId -ne 0) {
+            throw "Maintenance precondition failed: service '$($service.serviceName)' must be Stopped with ProcessId 0 (state='$($current.state)', pid=$($current.processId)). No ACL mutation is permitted."
         }
     }
 }
