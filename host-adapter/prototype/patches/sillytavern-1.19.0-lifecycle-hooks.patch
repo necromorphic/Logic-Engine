@@ -226,7 +226,10 @@ diff --git a/public/script.js b/public/script.js
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
      }
-@@ -5905,16 +6066,21 @@
+@@ -5902,19 +6063,24 @@
+     await populateFileAttachment(message);
+     statMesProcess(message, 'user', characters, this_chid, '');
+ 
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    const lifecycleBefore = await lifecycleBridge.beforeMutation('message-send', []);
 +
