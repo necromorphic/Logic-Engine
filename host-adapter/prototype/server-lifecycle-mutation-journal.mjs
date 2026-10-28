@@ -1466,3 +1466,105 @@ export async function getHostConversationInventory(request) {
         },
     };
 }
+
+/**
+ * Prepare an ephemeral, server-owned one-shot capability for an exact
+ * enrolled-chat save. The proposed text exists only in request memory; only
+ * SHA-256 digests and identity/lineage metadata are retained in the capability.
+ */
+export async function prepareHostSaveCapability(request, { route, payload } = {}) {
+    const target = resolveSaveTarget(route, payload);
+    const paths = await statePaths(request);
+    const registry = await readRegistry(paths.registryPath);
+    if (!registry.conversations.length) return { status: 'NOT_ENROLLED' };
+
+    const proposedHeaderUuid = payload.chat?.[0]?.chat_metadata?.logic_engine_conversation_id;
+    const targetEnrollment = registry.conversations.find(item =>
+        item.domain === target.domain && item.sourcePath === target.sourcePath);
+    const markerEnrollment = registry.conversations.find(item =>
+        item.conversationId.split(':')[1] === proposedHeaderUuid);
+
+    if (!targetEnrollment) {
+        if (markerEnrollment) throw new Error('HOST_SAVE_CAPABILITY_TARGET_MISMATCH');
+        return { status: 'NOT_ENROLLED' };
+    }
+    if (markerEnrollment && markerEnrollment.conversationId !== targetEnrollment.conversationId) {
+        throw new Error('HOST_SAVE_CAPABILITY_TARGET_MISMATCH');
+    }
+    if (proposedHeaderUuid !== targetEnrollment.conversationId.split(':')[1]) {
+        throw new Error('HOST_SAVE_CAPABILITY_TARGET_MISMATCH');
+    }
+    if (typeof request.sessionID !== 'string' || !request.sessionID
+        || typeof request.user?.profile?.handle !== 'string' || !request.user.profile.handle) {
+        throw new Error('HOST_SAVE_CAPABILITY_SESSION_REQUIRED');
+    }
+
+    const userKey = digest(String(request.user.profile.handle));
+    const release = await acquireUserLock(userKey);
+    try {
+        const chain = await readAndValidateJournal(paths.journalPath);
+        if (chain.unresolved || chain.degraded) throw new Error('HOST_SAVE_CAPABILITY_JOURNAL_NOT_READY');
+        const before = await scanMutationSnapshot(paths, registry, true);
+        if (!before.complete || !before.conversationInventory?.complete) {
+            throw new Error('HOST_SAVE_CAPABILITY_INVENTORY_NOT_READY');
+        }
+        const observedInventory = await getHostConversationInventory(request);
+        if (!observedInventory.complete) throw new Error('HOST_SAVE_CAPABILITY_INVENTORY_NOT_READY');
+
+        const currentInventory = before.conversationInventory.inventories.find(
+            item => item.conversation_id === targetEnrollment.conversationId,
+        );
+        if (!currentInventory) throw new Error('HOST_SAVE_CAPABILITY_TARGET_NOT_IN_INVENTORY');
+        const root = paths.roots.find(item => item.domain === target.domain)?.path;
+        if (!root) throw new Error('HOST_SAVE_CAPABILITY_ROOT_UNAVAILABLE');
+        const sourcePath = path.resolve(root, ...target.sourcePath.split('/'));
+        const relative = path.relative(root, sourcePath);
+        if (!relative || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+            throw new Error('HOST_SAVE_CAPABILITY_PATH_UNSAFE');
+        }
+        const currentFile = await readStableHostChatFile(sourcePath, targetArtifactDigest(before, target));
+        const expectedUuid = targetEnrollment.conversationId.split(':')[1];
+        const currentProjection = finalizeProjectedHostInventory(
+            projectHostChatRecords(currentFile.records, expectedUuid),
+            targetEnrollment,
+        );
+        if (currentProjection.inventory.inventory_sha256 !== currentInventory.inventory_sha256) {
+            throw new Error('HOST_SAVE_CAPABILITY_PRESTATE_INVENTORY_MISMATCH');
+        }
+
+        const proposedProjection = finalizeProjectedHostInventory(
+            projectHostChatRecords(payload.chat, expectedUuid),
+            targetEnrollment,
+        );
+        const transition = classifyHostSaveTransition(currentProjection, proposedProjection);
+        if (!transition) throw new Error('HOST_SAVE_CAPABILITY_TRANSITION_UNSUPPORTED');
+
+        const postStateInventoryDigest = overallProjectedInventoryDigest(
+            before.conversationInventory,
+            proposedProjection.inventory,
+            targetEnrollment.conversationId,
+        );
+        const token = randomBytes(32).toString('base64url');
+        const expiresAt = Date.now() + SAVE_CAPABILITY_TTL_MS;
+        saveCapabilities.set(digest(token), {
+            sessionId: request.sessionID,
+            userHandle: request.user.profile.handle,
+            route,
+            operation: transition,
+            domain: target.domain,
+            sourcePath: target.sourcePath,
+            conversationId: targetEnrollment.conversationId,
+            enrollment: targetEnrollment,
+            preStateFileDigest: currentFile.fileDigest,
+            preStateInventoryDigest: before.conversationInventory.inventory_sha256,
+            postStateFileDigest: payloadFileDigest(payload),
+            postStateInventoryDigest,
+            payloadDigest: digest(canonical(stableValue(payload))),
+            expiresAt,
+        });
+        return { status: 'CAPABILITY_ISSUED', token, expiresAt };
+    } finally {
+        release();
+    }
+}
+
