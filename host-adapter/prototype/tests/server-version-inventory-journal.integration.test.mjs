@@ -53,7 +53,9 @@ test('enrolled chat save stays blocked until a request-bound lifecycle capabilit
   const messageId = randomUUID();
   const version1 = randomUUID();
   const version2 = randomUUID();
-  const chatPath = path.join(directories.chats, 'chat-a.jsonl');
+  const chatDirectory = path.join(directories.chats, 'character-a');
+  await mkdir(chatDirectory, { recursive: true });
+  const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
   const writeChat = messages => writeFile(chatPath, [
     JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }),
     ...messages.map(JSON.stringify),
@@ -68,7 +70,7 @@ test('enrolled chat save stays blocked until a request-bound lifecycle capabilit
     const conversationId = installationUuid + ':' + conversationUuid;
     await registerHostConversation(request, {
       conversationId,
-      sourceLocator: 'chat-a', sourcePath: 'chat-a.jsonl', domain: 'chats',
+      sourceLocator: 'chat-a', sourcePath: 'character-a/chat-a.jsonl', domain: 'chats',
     });
     await recordHostCaptureAcknowledgement(request, {
       conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
