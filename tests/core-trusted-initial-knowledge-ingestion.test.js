@@ -77,11 +77,41 @@ test('trusted source ingestion rejects stale cursors, wrong world pack, and unap
   assert.throws(() => engine.recordTrustedInitialKnowledgeSource({
     world_id: 'world-a', source_bytes: bytes, idempotency_key: 'stale-source',
     expected_revision: 0, expected_commit_sequence: 0,
-  }), { code: 'STALE_TRUSTED_SOURCE_SNAPSHOT' });
+  }), { code: 'REVISION_CONFLICT' });
   assert.throws(() => engine.recordTrustedInitialKnowledgeSource({
     world_id: 'world-a', source_bytes: bytes.replace('fact-a', 'fact-b'), idempotency_key: 'tampered-source',
     expected_revision: 1, expected_commit_sequence: 1,
   }), { code: 'TRUSTED_SOURCE_NOT_APPROVED' });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
+});
+
+test('identical trusted source ingestion retries are idempotent', (t) => {
+  const { store, engine, bytes } = setup(t);
+  const input = {
+    world_id: 'world-a', source_bytes: bytes, idempotency_key: 'author-source-idempotent',
+    expected_revision: 1, expected_commit_sequence: 1,
+  };
+  const first = engine.recordTrustedInitialKnowledgeSource(input);
+  const replay = engine.recordTrustedInitialKnowledgeSource(input);
+  assert.equal(first.accepted, true);
+  assert.equal(replay.idempotent_replay, true);
+  assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM world_events WHERE event_type='knowledge.acquisition.initial'").get().n, 1);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 1);
+});
+
+test('source rollback invalidates the acquisition and rebuild does not restore it', (t) => {
+  const { store, engine, bytes } = setup(t);
+  engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a', source_bytes: bytes, idempotency_key: 'author-source-before-rollback',
+    expected_revision: 1, expected_commit_sequence: 1,
+  });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 1);
+  const rollback = engine.rollbackEvent('world-a', {
+    root_event_id: 'author-seed', idempotency_key: 'rollback-author-seed',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
+  store.rebuild('world-a', store.world('world-a').world_revision);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
 });
 
