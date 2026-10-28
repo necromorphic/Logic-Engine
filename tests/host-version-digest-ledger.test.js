@@ -860,3 +860,23 @@ test('event-only capture rejects a VERIFIED parent whose ancestor chain is incom
   });
   assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE version_id='child-v'").get().n, 0);
 });
+
+test('partially migrated rows with status but no parent column are downgraded to LEGACY/UNVERIFIED', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-digest-partial-lineage-'));
+  const path = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const oldDb = new DatabaseSync(path);
+  oldDb.exec("CREATE TABLE host_version_digest_ledger (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, content_sha256 TEXT NOT NULL, lineage_status TEXT NOT NULL DEFAULT 'VERIFIED', lifecycle TEXT NOT NULL CHECK(lifecycle IN ('present','tombstoned')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tombstoned_at TEXT, PRIMARY KEY(world_id,conversation_id,message_id,version_id));");
+  oldDb.prepare('INSERT INTO host_version_digest_ledger (world_id,conversation_id,message_id,version_id,content_sha256,lineage_status,lifecycle,created_at,updated_at,tombstoned_at) VALUES(?,?,?,?,?,\'VERIFIED\',\'present\',?,?,NULL)')
+    .run(tuple.world_id, tuple.conversation_id, tuple.message_id, tuple.version_id, digest('partial migration'), '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+  oldDb.close();
+
+  const ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  t.after(() => {
+    try { ledger.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const row = ledger.db.prepare('SELECT parent_version_id,lineage_status FROM host_version_digest_ledger WHERE version_id=?').get(tuple.version_id);
+  assert.equal(row.parent_version_id, null);
+  assert.equal(row.lineage_status, 'LEGACY/UNVERIFIED');
+});
