@@ -41,7 +41,7 @@ test('arming is consumed once and interceptor aborts native generation before di
 
     assert.deepEqual(order, [['abort', true], ['dispatch', 'index-test-1']]);
     assert.equal(replayAborted, false);
-    assert.deepEqual(getStatus(), { status: 'DISPATCH_DELEGATED', hasPendingRequest: false });
+    assert.deepEqual(getStatus(), { status: 'DISPATCH_DELEGATED', hasPendingRequest: false, dispatchInFlight: false });
 });
 
 test('missing dispatch callback aborts native generation and fails closed', async () => {
@@ -56,7 +56,7 @@ test('missing dispatch callback aborts native generation and fails closed', asyn
     );
 
     assert.equal(aborted, true);
-    assert.deepEqual(getStatus(), { status: 'BLOCKED_NO_TRUSTED_DISPATCH', hasPendingRequest: false });
+    assert.deepEqual(getStatus(), { status: 'BLOCKED_NO_TRUSTED_DISPATCH', hasPendingRequest: false, dispatchInFlight: false });
 });
 
 test('cancel only affects the matching pending request', () => {
@@ -64,5 +64,52 @@ test('cancel only affects the matching pending request', () => {
     assert.equal(cancelProtectedRequest('wrong-id'), false);
     assert.equal(getStatus().hasPendingRequest, true);
     assert.equal(cancelProtectedRequest('index-test-3'), true);
-    assert.deepEqual(getStatus(), { status: 'CANCELLED', hasPendingRequest: false });
+    assert.deepEqual(getStatus(), { status: 'CANCELLED', hasPendingRequest: false, dispatchInFlight: false });
+});
+
+test('concurrent generation is aborted while protected dispatch is still in flight', async () => {
+    let releaseDispatch;
+    const dispatchWait = new Promise(resolve => { releaseDispatch = resolve; });
+    const order = [];
+    armProtectedRequest('index-test-concurrent', async request => {
+        order.push(['dispatch-start', request.requestId]);
+        await dispatchWait;
+        order.push(['dispatch-end', request.requestId]);
+    });
+
+    const first = globalThis.logicEngineExtensionGatewayGenerationInterceptor(
+        [{ mes: 'protected test context' }],
+        4096,
+        immediately => order.push(['first-abort', immediately]),
+        'normal',
+    );
+
+    // Let the first interceptor consume the arm and reach the pending callback.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    let secondAborted = false;
+    await globalThis.logicEngineExtensionGatewayGenerationInterceptor(
+        [{ mes: 'concurrent context' }],
+        4096,
+        immediately => { secondAborted = immediately; },
+        'normal',
+    );
+
+    assert.equal(secondAborted, true);
+    assert.equal(getStatus().dispatchInFlight, true);
+    assert.deepEqual(order, [
+        ['first-abort', true],
+        ['dispatch-start', 'index-test-concurrent'],
+    ]);
+
+    releaseDispatch();
+    await first;
+
+    assert.equal(getStatus().dispatchInFlight, false);
+    assert.deepEqual(order, [
+        ['first-abort', true],
+        ['dispatch-start', 'index-test-concurrent'],
+        ['dispatch-end', 'index-test-concurrent'],
+    ]);
 });
