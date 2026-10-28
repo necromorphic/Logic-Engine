@@ -2487,6 +2487,10 @@ export class SQLiteStore {
     }
   }
 
+  // Invariant: every canonical entity projection mutation must pass through the
+  // event-effect commit/rollback paths below, which bump this ledger in the same
+  // SQLite transaction. If a future metadata/service mutation bypasses updated_revision,
+  // it must call this method in that same transaction before it can be committed.
   bumpEntitySourceVersion(worldId, entityId, stamp = now(), allowInitialize = false) {
     const current = this.db.prepare(
       'SELECT source_version FROM entity_source_versions WHERE world_id=? AND entity_id=?',
