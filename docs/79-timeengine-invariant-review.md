@@ -213,3 +213,22 @@ All these management routes require the separately configured internal credentia
 5. If a scenario does not fit these three contracts, record the concrete missing behavior and expected invariant first. Do not introduce a generic action DSL, a second scheduler, or a parallel progress ledger without a demonstrated requirement.
 
 This is a proposed adapter mapping, not a new approved API contract. It does not authorize a Host/Adapter to call internal routes unless its trust model explicitly permits that access.
+
+
+## 14. Focused suite verification (uploaded archive)
+
+Executed all time- and process-related test files together with the repository's test environment setup:
+
+```sh
+node --import ./tests/configure-test-env.js --test \
+  tests/process-api.test.js tests/process-contract.test.js \
+  tests/process-knowledge-isolation.test.js tests/process-manager.integration.test.js \
+  tests/process-time-contract.test.js tests/time-advance-operation.test.js \
+  tests/time-configuration.test.js tests/time-coordinate.test.js \
+  tests/time-model.test.js tests/time-policy.test.js tests/time-scheduler.test.js \
+  tests/time-segment.test.js tests/time-trigger-registry.test.js
+```
+
+**Result: 115 tests passed, 0 failed.** The command covered the Time and Process Manager contract files present in the uploaded archive. A separate full `npm test` attempt exceeded the 300-second execution limit after output had reached test 710; the full suite result is therefore **incomplete and not claimed as passing**.
+
+Archive provenance remains the same: `Logic-Engine-main (1).zip`. This is not an exact-head CI result for remote `main` or PR #553.
