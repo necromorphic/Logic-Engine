@@ -53,6 +53,15 @@ test('time-advance API is internal-only and exposes durable start/status/replay'
   assert.equal(first.status, 'completed');
   assert.equal(first.confirmed_coordinate, 60000);
 
+  const deniedStatus = await fetch(base + '/v1/worlds/api-time-world/time-advances/' + encodeURIComponent(first.operation_id), {
+    headers,
+  });
+  assert.equal(deniedStatus.status, 403);
+  const deniedResume = await fetch(base + '/v1/worlds/api-time-world/time-advances/' + encodeURIComponent(first.operation_id) + '/resume', {
+    method: 'POST', headers, body: json({}),
+  });
+  assert.equal(deniedResume.status, 403);
+
   const status = await fetch(base + '/v1/worlds/api-time-world/time-advances/' + encodeURIComponent(first.operation_id), {
     headers: internalHeaders,
   });
@@ -222,6 +231,15 @@ test('timed-action API requires the internal capability and returns the durable 
   assert.equal(operation.status, 'completed');
   assert.equal(operation.result.final_action_status, 'committed');
   assert.deepEqual(operation.result.completed_trigger_ids, ['api-timed-action-trigger']);
+
+  const deniedStatus = await fetch(base + '/v1/worlds/api-timed-action-world/time-actions/' + encodeURIComponent(operation.operation_id), {
+    headers,
+  });
+  assert.equal(deniedStatus.status, 403);
+  const deniedResume = await fetch(base + '/v1/worlds/api-timed-action-world/time-actions/' + encodeURIComponent(operation.operation_id) + '/resume', {
+    method: 'POST', headers, body: json({}),
+  });
+  assert.equal(deniedResume.status, 403);
 
   const status = await fetch(base + '/v1/worlds/api-timed-action-world/time-actions/' + encodeURIComponent(operation.operation_id), {
     headers: internalHeaders,
