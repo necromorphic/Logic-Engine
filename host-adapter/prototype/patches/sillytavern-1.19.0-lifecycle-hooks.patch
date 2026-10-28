@@ -1881,7 +1881,7 @@ diff --git a/src/server-main.js b/src/server-main.js
  import { migrateGroupChatsMetadataFormat } from './endpoints/groups.js';
 +import { assertHostStartupMigrationSafe, assertHostUserDataMigrationSafe } from './endpoints/logic-engine-host-startup-migration-guard.mjs';
  
- // Work around a node v20.0.0, node v20.1.0, and node v20.2.0 bug. The issue was fixed in node v20.3.0.
+ // Work around a node v20.0.0, v20.1.0, and v20.2.0 bug. The issue was fixed in node v20.3.0.
  // https://github.com/nodejs/node/issues/47822#issuecomment-1564708870
 @@ -299,6 +300,7 @@
      console.log();
