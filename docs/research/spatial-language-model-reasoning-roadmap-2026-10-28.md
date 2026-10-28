@@ -130,3 +130,8 @@ The multi-person scenario tests now cover a runner occluded by a wall, visibilit
 ### Seventh research increment — explicit limits of sampled body visibility
 
 Target-body visibility uses nine sample rays (center plus corners). Result extents are named `SAMPLED_ALL`, `SAMPLED_PARTIAL`, or `SAMPLED_NONE` so the output does not imply continuous geometric coverage. Duplicate or empty blocker IDs now invalidate the synthetic scene rather than being silently accepted. This remains a simplified research approximation, not a production perception contract.
+
+
+## 2026-10-29 — trajectory versus static blockers
+
+The isolated scene lab now exposes `detectTrajectoryBlockerIntersections`. It sweeps each entity's declared AABB body along its explicit constant-velocity path for a bounded horizon and reports possible time intervals against static blockers. The sweep expands blocker bounds by the entity body extents, sorts results deterministically, and fails closed when any entity lacks explicit velocity or the horizon is invalid. It does not model moving blockers, acceleration, turning, collision response, or production state. Tests cover a direct wall intersection, vertical separation, body extents, missing motion, and invalid horizon.
