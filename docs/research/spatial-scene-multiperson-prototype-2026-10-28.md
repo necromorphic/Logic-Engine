@@ -62,10 +62,15 @@ This is a geometry experiment, not a physics engine or NPC cognition system.
 
 1. Add a small scenario trace showing positions, blockers, visibility changes and reasons across two synthetic boundaries.
 2. Extend movement to body-volume collision and stop/turn constraints without pretending it is a full physics engine.
-3. Only after the synthetic harness is stable, study a read-only bridge to canonical Core state. That bridge remains blocked until typed World Pack schema identity and temporal provenance are demonstrable.
-4. Keep production runtime and Memory → NPC unchanged.
+3. Add broader trajectory scenarios, including synchronized collisions and cases where geometric paths cross at different times.
+4. Keep production runtime and Memory → NPC unchanged; any future Core bridge remains blocked until typed World Pack schema identity and temporal provenance are demonstrable.
 
 
 ## Latest research increment
 
 The movement helper checks declared body extents along the entire path rather than only the entity origin. It rejects overlap with another entity's declared body, and can enforce caller-supplied `motion.maxSpeed` and `motion.maxTurnRateRadiansPerSecond` when a positive `durationSeconds` is supplied. These checks use conservative axis-aligned bounds; they do not simulate animation, acceleration, turning arcs, body rotation, dynamic collision response, or continuous physics. A multi-person trace test exercises occlusion, movement, and visibility rediscovery across named synthetic boundaries.
+
+
+## Synchronized trajectory collision analysis
+
+The lab can compare two entities' relative motion over the same bounded time interval. It reports `POSSIBLE` when their swept axis-aligned body bounds overlap at matching times, and does not flag path intersections that occur at different times. This is a conservative geometric screen, not a collision solver: no acceleration, rotation, dynamic response, or collision avoidance is modelled. All entities must provide explicit velocity; otherwise the report is `UNKNOWN`.
