@@ -9,7 +9,6 @@ on:
       - 'src/security/enroll-accepted-head-domain.js'
       - 'src/security/recover-accepted-head-domain.js'
       - 'src/security/memory-dispatch-gateway*.js'
-      - 'src/security/memory-dispatch-google-transport.js'
       - 'tests/accepted-head-authority.test.js'
       - 'tests/core-accepted-head-handshake.test.js'
       - 'tests/provider-accepted-head-handshake.test.js'
