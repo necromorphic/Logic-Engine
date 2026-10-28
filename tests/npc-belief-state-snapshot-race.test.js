@@ -150,21 +150,13 @@ test('belief-state read rejects rollback between visibility evaluation and final
     event_type: 'action.completed',
     expected_revision: 0,
     effects: [
-      { kind: 'entity.create', entity_id: 'npc-rollback-race', entity_type: 'character' },
-      { kind: 'fact.set', fact_id: 'fact-rollback-race', predicate: 'secret', value: 'private-value' },
+      { kind: 'entity.create', entity_id: 'npc-race', entity_type: 'character' },
+      { kind: 'fact.set', fact_id: 'fact-race', predicate: 'secret', value: 'private-value' },
     ],
   });
   engine.recordTrustedInitialKnowledgeSource({
     world_id: 'world-belief-rollback-race',
-    source_bytes: JSON.stringify({
-      schema_version: 1,
-      world_pack_id: 'test.belief-state-race',
-      world_pack_version: '1',
-      source_kind: 'author_initial',
-      source_ref: 'authoring:test.belief-state-race@1',
-      authorization_ref: 'rule:initial-knowledge-v1',
-      assignments: [{ subject_id: 'npc-rollback-race', fact_id: 'fact-rollback-race' }],
-    }),
+    source_bytes: sourceBytes,
     idempotency_key: 'belief-rollback-acquisition',
     expected_revision: 1,
     expected_commit_sequence: 1,
@@ -172,16 +164,16 @@ test('belief-state read rejects rollback between visibility evaluation and final
 
   const read = engine.readNpcKnowledge({
     world_id: 'world-belief-rollback-race',
-    actor_id: 'npc-rollback-race',
+    actor_id: 'npc-race',
     purpose: 'npc_turn_context',
     expected_revision: store.world('world-belief-rollback-race').world_revision,
     expected_commit_sequence: store.currentCommitSequence('world-belief-rollback-race'),
     limit: 20,
   });
-  const propositionRef = 'proposition:fact/fact-rollback-race';
+  const propositionRef = 'proposition:fact/fact-race';
   engine.recordNpcBeliefTransition({
     world_id: 'world-belief-rollback-race',
-    actor_id: 'npc-rollback-race',
+    actor_id: 'npc-race',
     purpose: 'npc_turn_context',
     expected_revision: read.snapshot.world_revision,
     expected_commit_sequence: read.snapshot.commit_sequence,
@@ -207,7 +199,7 @@ test('belief-state read rejects rollback between visibility evaluation and final
   const requestSnapshot = engine.getSnapshot('world-belief-rollback-race');
   const request = {
     world_id: 'world-belief-rollback-race',
-    actor_id: 'npc-rollback-race',
+    actor_id: 'npc-race',
     purpose: 'npc_turn_context',
     expected_revision: requestSnapshot.world_revision,
     expected_commit_sequence: requestSnapshot.commit_sequence,
