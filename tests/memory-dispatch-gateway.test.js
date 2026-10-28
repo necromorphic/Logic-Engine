@@ -596,6 +596,10 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
 
     providerReader = openReadOnlySqliteDatabase(providerPath);
     const calls = [];
+    let signalTransportStart;
+    const transportStarted = new Promise((resolve) => { signalTransportStart = resolve; });
+    let releaseTransport;
+    const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
     gateway = new MemoryDispatchGateway({
       ledgerPath,
       coordinatorPath,
@@ -622,6 +626,8 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
       },
       sendUpstream: async (outgoing) => {
         calls.push(outgoing);
+        signalTransportStart();
+        await transportGate;
         return { status: 200, body: 'accepted' };
       },
     });
@@ -651,7 +657,25 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     } finally {
       ledger.close();
     }
+
+    // Reverse-order control: durable dispatch-start wins first. A later revoke
+    // cannot recall the in-flight request; exactly one transport call is allowed.
+    provider.grantRecord(scope, record.record_ref, record.record_version, true);
+    const inFlight = gateway.dispatchProtectedRequest(validRequest('dispatch-start-wins-before-revoke'));
+    await transportStarted;
+    provider.revokeRecord(scope, record.record_ref, record.record_version);
+    releaseTransport();
+    await inFlight;
+    assert.equal(calls.length, 1, 'dispatch-start winning first permits exactly one upstream call');
+    const completedLedger = new DatabaseSync(ledgerPath);
+    try {
+      assert.equal(completedLedger.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get('dispatch-start-wins-before-revoke').status, 'COMPLETED');
+    } finally {
+      completedLedger.close();
+    }
   } finally {
+    try { releaseTransport?.(); } catch {}
     try { gateway?.close(); } catch {}
     try { providerReader?.close(); } catch {}
     try { provider?.close(); } catch {}
