@@ -77,3 +77,17 @@ test('fails closed when the enrollment marker survives state-directory loss befo
     assert.ok(Object.hasOwn(group, 'chat_metadata'), 'startup guard must not allow migration after enrollment-state loss');
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
+
+test('fails closed when the registry is empty but the enrollment marker survives', async () => {
+  const f = await fixture({ enrolled: false, legacy: true });
+  const marker = path.join(f.root, '.logic-engine-host-enrollment-marker');
+  const publicCharacters = path.join(f.root, 'public', 'characters');
+  await writeFile(marker, JSON.stringify({ version: 1, purpose: 'host-enrollment-present' }) + '\n');
+  await mkdir(publicCharacters, { recursive: true });
+  try {
+    await assert.rejects(assertHostStartupMigrationSafe([f.directories]), /HOST_STARTUP_MIGRATION_STATE_LOST/);
+    await assert.rejects(assertHostUserDataMigrationSafe([f.directories], publicCharacters), /HOST_STARTUP_MIGRATION_STATE_LOST/);
+    const group = JSON.parse(await readFile(path.join(f.directories.groups, 'group.json'), 'utf8'));
+    assert.ok(Object.hasOwn(group, 'chat_metadata'), 'migration must not rewrite artifacts after an empty-registry rollback');
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
