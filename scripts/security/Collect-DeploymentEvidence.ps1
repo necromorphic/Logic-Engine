@@ -47,14 +47,18 @@ function Get-PathAclEvidence {
     if ($IncludeDescendants) {
         try {
             $rootItem = Get-Item -LiteralPath $resolved -Force -ErrorAction Stop
-            if ($rootItem.PSIsContainer) {
+            if (-not $rootItem.PSIsContainer) {
+                $descendantEnumerationError = "Backup root is not a directory."
+            } else {
                 foreach ($child in Get-ChildItem -LiteralPath $resolved -Force -Recurse -ErrorAction Stop) {
                     if (-not $targets.Contains($child.FullName)) { $targets.Add($child.FullName) }
                 }
             }
         } catch {
             $category = [string]$_.CategoryInfo.Category
-            if ($category -notin @("ObjectNotFound", "PathNotFound")) {
+            if ($category -in @("ObjectNotFound", "PathNotFound")) {
+                $descendantEnumerationError = "Backup root could not be found: $($_.Exception.GetType().Name)"
+            } else {
                 $descendantEnumerationError = "Descendant enumeration incomplete: $($_.Exception.GetType().Name)"
             }
         }
