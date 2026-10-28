@@ -202,7 +202,7 @@ test('authority IPC requires explicit enrollment, enforces domain tokens, and fa
     assert.equal(authorizedReadOnlyGateway.status, 200, 'dedicated Gateway read token may inspect heads');
     const readOnlyMutation = await fetch('http://127.0.0.1:' + port + '/v1/advance', {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', authorization: 'Bearer ' + readToken },
       body: JSON.stringify({
         domain: 'provider', token: readToken, operation_id: 'gateway-read-token-must-not-write',
         operation_digest: digestD, expected_head: 1,
