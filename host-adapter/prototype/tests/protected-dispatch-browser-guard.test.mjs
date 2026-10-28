@@ -92,10 +92,22 @@ function fakeBrowser({ enrolled = false } = {}) {
   class FakeXHR {
     open(method, url) { calls.push({ kind: 'xhr', method, url }); }
   }
+  class FakeWebSocket {
+    constructor(url) { calls.push({ kind: 'websocket', url }); }
+  }
+  class FakeEventSource {
+    constructor(url) { calls.push({ kind: 'eventsource', url }); }
+  }
+  const navigator = {
+    sendBeacon(url, data) { calls.push({ kind: 'beacon', url, data }); return true; },
+  };
   const browser = {
     location: { href: 'http://localhost:8000/' },
     localStorage: storage,
+    navigator,
     XMLHttpRequest: FakeXHR,
+    WebSocket: FakeWebSocket,
+    EventSource: FakeEventSource,
     async fetch(url, init) { calls.push({ kind: 'fetch', url: String(url), init }); return { ok: true }; },
   };
   return { browser, calls, storage };
@@ -158,6 +170,41 @@ test('browser egress fence preserves direct external requests before any Host en
   try {
     await browser.fetch('https://provider.example/v1/chat/completions', { method: 'POST' });
     assert.equal(calls.length, 1);
+  } finally {
+    uninstall();
+  }
+});
+
+
+test('browser egress fence blocks WebSocket, EventSource and sendBeacon cross-origin transports', () => {
+  const { browser, calls } = fakeBrowser({ enrolled: true });
+  const uninstall = installProtectedEgressBrowserFence({
+    globalObject: browser,
+    getLocator: () => 'chat-a.jsonl',
+    getMessages: () => [],
+  });
+  try {
+    assert.throws(() => new browser.WebSocket('wss://provider.example/socket'), /PROTECTED_EGRESS_GATEWAY_REQUIRED/);
+    assert.throws(() => new browser.EventSource('https://provider.example/events'), /PROTECTED_EGRESS_GATEWAY_REQUIRED/);
+    assert.throws(() => browser.navigator.sendBeacon('https://provider.example/collect', 'payload'), /PROTECTED_EGRESS_GATEWAY_REQUIRED/);
+    assert.equal(calls.length, 0, 'no wrapped cross-origin transport should be invoked');
+  } finally {
+    uninstall();
+  }
+});
+
+test('browser egress fence preserves same-origin WebSocket, EventSource and sendBeacon', () => {
+  const { browser, calls } = fakeBrowser({ enrolled: true });
+  const uninstall = installProtectedEgressBrowserFence({
+    globalObject: browser,
+    getLocator: () => 'chat-a.jsonl',
+    getMessages: () => [],
+  });
+  try {
+    new browser.WebSocket('ws://localhost:8000/socket');
+    new browser.EventSource('/events');
+    assert.equal(browser.navigator.sendBeacon('/api/telemetry', 'payload'), true);
+    assert.deepEqual(calls.map((call) => call.kind), ['websocket', 'eventsource', 'beacon']);
   } finally {
     uninstall();
   }
