@@ -46,18 +46,35 @@ function isPlainDataObject(value) {
   }
 }
 
-function denseArray(value) {
-  if (!Array.isArray(value) || utilTypes.isProxy(value)) return false;
+function isSafeDataTree(value, active = new Set()) {
+  if (value === null || typeof value !== "object") return true;
+  if (utilTypes.isProxy(value) || active.has(value)) return false;
   try {
-    if (Object.getPrototypeOf(value) !== Array.prototype) return false;
-    for (let index = 0; index < value.length; index += 1) {
-      const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
-      if (descriptor == null || !Object.hasOwn(descriptor, "value")) return false;
+    const array = Array.isArray(value);
+    const prototype = Object.getPrototypeOf(value);
+    if (array ? prototype !== Array.prototype : (prototype !== Object.prototype && prototype !== null)) return false;
+    active.add(value);
+    for (const key of Reflect.ownKeys(value)) {
+      if (array && key !== "length" && (typeof key !== "string" || !/^(0|[1-9][0-9]*)$/.test(key))) return false;
+      if (!array && typeof key !== "string") return false;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !Object.hasOwn(descriptor, "value")) return false;
+      if (key !== "length" && !isSafeDataTree(descriptor.value, active)) return false;
     }
+    active.delete(value);
     return true;
   } catch {
+    active.delete(value);
     return false;
   }
+}
+
+function denseArray(value) {
+  if (!Array.isArray(value) || !isSafeDataTree(value)) return false;
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index)) return false;
+  }
+  return true;
 }
 
 function freezeState(state) {
@@ -97,6 +114,7 @@ function validState(state) {
   }
 
   const evidenceKeys = new Set();
+  const evidenceRefs = new Set();
   for (const item of state.evidence) {
     if (!isPlainDataObject(item)
       || !validId(item.ref)
@@ -108,8 +126,11 @@ function validState(state) {
       || !POLARITIES.has(item.polarity)
       || !["valid", "invalidated"].includes(item.status)) return false;
     const key = JSON.stringify([item.ref, item.version]);
-    if (evidenceKeys.has(key)) return false;
+    // Beliefs refer to stable evidence refs (not a ref/version pair), so one
+    // ref cannot ambiguously name multiple versions in the same state.
+    if (evidenceKeys.has(key) || evidenceRefs.has(item.ref)) return false;
     evidenceKeys.add(key);
+    evidenceRefs.add(item.ref);
   }
 
   const propositionKeys = new Set();
@@ -137,7 +158,8 @@ function findEvidence(state, ref, version) {
 }
 
 function applyEventUnsafe(state, event) {
-  if (!validState(state) || !isPlainDataObject(event) || !validId(event.type)) return nonReady();
+  if (!isSafeDataTree(state) || !validState(state) || !isSafeDataTree(event)
+    || !isPlainDataObject(event) || !validId(event.type)) return nonReady();
 
   if (event.type === "information_received") {
     if (!validId(event.event_ref) || !validId(event.source_ref) || !validId(event.source_version)) {
@@ -170,6 +192,8 @@ function applyEventUnsafe(state, event) {
       return nonReady("admitted_evidence_metadata_incomplete");
     }
     const prior = findEvidence(state, event.evidence_ref, event.evidence_version);
+    const otherVersion = state.evidence.find((item) => item.ref === event.evidence_ref);
+    if (otherVersion && !prior) return nonReady("evidence_identity_conflict");
     const nextEvidence = {
       ref: event.evidence_ref,
       version: event.evidence_version,
@@ -283,7 +307,7 @@ function applyEventUnsafe(state, event) {
 
 /** Create an empty, NPC-local epistemic state. */
 export function createNpcEpistemicState(scope) {
-  if (!isPlainDataObject(scope) || !validId(scope.world_id) || !validId(scope.subject_id)) {
+  if (!isSafeDataTree(scope) || !isPlainDataObject(scope) || !validId(scope.world_id) || !validId(scope.subject_id)) {
     return nonReady("trusted_scope_incomplete");
   }
   return Object.freeze({
