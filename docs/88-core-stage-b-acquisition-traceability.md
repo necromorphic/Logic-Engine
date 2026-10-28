@@ -33,8 +33,9 @@ This preserves the existing world scope, revision/commit sequence, transaction, 
 
 ## Limits that remain
 
-1. `initialAcquisitionPolicy` is intentionally deployment-owned and defaults to unset. This PR does not invent a public authoring/import endpoint or a new author credential.
-2. The current source proposition type is a canonical active fact. Other source types are unsupported in this slice.
-3. This is not the Stage C authorized knowledge reader. The projection must not be queried by NPC, Memory Provider, or Host as a substitute for that reader.
-4. The projection suppresses acquisitions when their subject is destroyed or their source fact becomes inactive/conflicted. Rolling back the acquisition event itself revokes the assignment through the canonical event lifecycle.
-5. Full suite results must be taken from CI on the exact PR head; local tests against the uploaded archive are not evidence for the current-main PR head.
+1. `initialAcquisitionPolicy` is intentionally deployment-owned and defaults to unset. The audit did not identify an existing trusted authoring/import/seed entry point that supplies subject-specific assignment plus stable source identity; this callback is only a fail-closed injection seam, not proof that either acquisition kind is wired to a real source. This PR does not invent a public authoring/import endpoint or a new author credential.
+2. No current trusted Core contract was found for authoring/inheriting a restricted/secret marker on an acquisition. The record therefore does not yet carry a visibility classification. This is a blocking gap for any future reader, not permission to expose the source value.
+3. The current source proposition type is a canonical active fact. Other source types are unsupported in this slice.
+4. This is not the Stage C authorized knowledge reader. The projection must not be queried by NPC, Memory Provider, or Host as a substitute for that reader.
+5. The projection suppresses acquisitions when their subject is destroyed or their source fact becomes inactive/conflicted. Rolling back the acquisition event itself revokes the assignment through the canonical event lifecycle.
+6. Full suite results must be taken from CI on the exact PR head; local tests against the uploaded archive are not evidence for the current-main PR head.
