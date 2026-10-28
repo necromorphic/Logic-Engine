@@ -504,11 +504,17 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
   }
 });
 
-test('gateway rejects a missing request-scoped transport before ledger mutation', async () => {
+test('gateway rejects missing or async request-scoped transport before ledger mutation', async () => {
   const fixture = await createFixture();
   try {
     await assert.rejects(
       fixture.gateway.dispatchProtectedRequest(validRequest('missing-transport')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('async-transport', {
+        transport: async () => ({ started: true, response: Promise.resolve({ status: 200 }) }),
+      })),
       /MEMORY_DISPATCH_NOT_READY/,
     );
     assert.equal(fixture.calls.length, 0);
