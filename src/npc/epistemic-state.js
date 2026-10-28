@@ -157,7 +157,9 @@ function validState(state) {
         || !STANCES.has(entry.stance)
         || !validId(entry.revision_rule_ref)
         || !denseArray(entry.evidence_refs)
-        || !entry.evidence_refs.every((ref) => validId(ref)\n          && evidenceByRef.has(ref)\n          && evidenceByRef.get(ref).proposition_ref === belief.proposition_ref)) return false;
+        || !entry.evidence_refs.every((ref) => validId(ref)
+          && evidenceByRef.has(ref)
+          && evidenceByRef.get(ref).proposition_ref === belief.proposition_ref)) return false;
     }
     propositionKeys.add(belief.proposition_ref);
   }
