@@ -12,7 +12,10 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
-@@ -4,1 +4,2 @@
+@@ -1,4 +1,5 @@
+ import https from 'node:https';
+ import http from 'node:http';
+ import fs from 'node:fs';
  import { color, urlHostnameToIPv6, getHasIP } from './util.js';
 +import { createProtectedDispatchDenyMiddleware } from './endpoints/logic-engine-protected-dispatch-guard.mjs';
 @@ -129,2 +130,3 @@
