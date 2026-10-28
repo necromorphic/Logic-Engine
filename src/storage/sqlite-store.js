@@ -1141,6 +1141,100 @@ export class SQLiteStore {
     return this.db.prepare('SELECT COALESCE(MAX(commit_sequence),0) AS value FROM world_events WHERE world_id=?').get(worldId).value;
   }
 
+  // Derive a rollback-safe per-entity source token from the existing immutable
+  // event history plus durable rollback records. This adds no parallel ledger
+  // or schema: every source-affecting event remains in world_events, and each
+  // applied rollback remains in rollbacks. A rollback changes the token even
+  // when the restored projection reuses an earlier updated_revision.
+  canonicalEntitySourceState(worldId, entityId) {
+    if (typeof worldId !== 'string' || !worldId.trim()
+      || typeof entityId !== 'string' || !entityId.trim()) {
+      throw new EngineError('INVALID_SOURCE_ID', 'A canonical world and entity ID are required.', 400);
+    }
+
+    const read = () => {
+      const world = this.world(worldId);
+      if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const entity = this.db.prepare(
+        'SELECT entity_id,status,updated_revision FROM entities WHERE world_id=? AND entity_id=?',
+      ).get(worldId, entityId);
+      if (!entity) throw new EngineError('ENTITY_NOT_FOUND', 'Entity not found.', 404);
+
+      const events = this.db.prepare(
+        'SELECT event_id,commit_sequence,effects_json FROM world_events WHERE world_id=? ORDER BY commit_sequence,event_id',
+      ).all(worldId);
+      const sourceEventIds = new Set();
+      let maxSourceSequence = 0;
+      for (const event of events) {
+        let effects;
+        try { effects = dec(event.effects_json); } catch {
+          throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical source history is malformed.', 503);
+        }
+        if (!Array.isArray(effects) || typeof event.event_id !== 'string'
+          || !Number.isSafeInteger(event.commit_sequence) || event.commit_sequence < 1) {
+          throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical source history is incomplete.', 503);
+        }
+        let touchesEntity;
+        try { touchesEntity = refs(effects).includes('entity:' + entityId); } catch {
+          throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical source history is incomplete.', 503);
+        }
+        if (touchesEntity) {
+          sourceEventIds.add(event.event_id);
+          maxSourceSequence = Math.max(maxSourceSequence, event.commit_sequence);
+        }
+      }
+      if (sourceEventIds.size === 0) {
+        throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'No canonical source history proves this entity version.', 503);
+      }
+
+      const rollbackRows = this.db.prepare(
+        'SELECT invalidated_event_ids_json FROM rollbacks WHERE world_id=? ORDER BY world_revision,rollback_id',
+      ).all(worldId);
+      let rollbackCount = 0;
+      for (const rollback of rollbackRows) {
+        let invalidated;
+        try { invalidated = dec(rollback.invalidated_event_ids_json); } catch {
+          throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical rollback history is malformed.', 503);
+        }
+        if (!Array.isArray(invalidated) || invalidated.some((id) => typeof id !== 'string')) {
+          throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical rollback history is incomplete.', 503);
+        }
+        if (invalidated.some((eventId) => sourceEventIds.has(eventId))) rollbackCount += 1;
+      }
+      if (!Number.isSafeInteger(rollbackCount)) {
+        throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical rollback history exceeds safe bounds.', 503);
+      }
+
+      return {
+        world_id: worldId,
+        entity_id: entity.entity_id,
+        status: entity.status,
+        updated_revision: entity.updated_revision,
+        world_revision: world.world_revision,
+        commit_sequence: this.currentCommitSequence(worldId),
+        source_version: `core-entity-v1:${maxSourceSequence}:${rollbackCount}`,
+      };
+    };
+
+    if (this.txDepth > 0) {
+      throw new EngineError('SNAPSHOT_READ_DURING_WRITE_TRANSACTION', 'A canonical source version cannot be read from inside a store write transaction.', 409);
+    }
+    let began = false;
+    try {
+      this.db.exec('BEGIN');
+      began = true;
+      const state = read();
+      this.db.exec('COMMIT');
+      began = false;
+      return state;
+    } catch (error) {
+      if (began) {
+        try { this.db.exec('ROLLBACK'); } catch {}
+      }
+      throw error;
+    }
+  }
+
   registerContextManifest(worldId, manifest) {
     return this.tx(() => {
       if (!this.world(worldId)) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);

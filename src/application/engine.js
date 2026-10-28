@@ -485,6 +485,7 @@ export class LogicEngine {
 
   getState(id) { return this.store.state(id); }
   getSnapshot(id, request = {}) { return this.store.readSnapshot(id, request); }
+  getCanonicalEntitySourceState(worldId, entityId) { return this.store.canonicalEntitySourceState(worldId, entityId); }
   getEvents(id, includeInvalid = false) { return this.store.events(id, includeInvalid); }
   getAudit(id) { return this.store.audit(id); }
 

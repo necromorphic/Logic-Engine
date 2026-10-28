@@ -70,20 +70,23 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
   });
   const scope = { world_id: worldId, subject_id: actorId, purpose: 'npc_decision' };
   provider.grantQuery(scope, true);
-  const records = sources.map((sourceId, index) => ({
-    ...scope,
-    record_ref: index === 0 ? 'memory:record-a' : 'memory:record-b',
-    record_version: 'record-v1',
-    source_kind: 'canonical_entity',
-    source_entity_id: sourceId,
-    source_version: String(engine.getSnapshot(worldId, { entityIds: [sourceId] }).entities[0]?.updated_revision ?? 'unverifiable'),
-    content_kind: 'claim',
-    epistemic_kind: 'acquired_report',
-    producer_kind: 'memory-index',
-    content_disposition: 'usable',
-    evidence_assessment: 'unassessed',
-    lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: String(engine.getSnapshot(worldId, { entityIds: [sourceId] }).entities[0]?.updated_revision ?? 'unverifiable') }],
-  }));
+  const records = sources.map((sourceId, index) => {
+    const sourceState = engine.getCanonicalEntitySourceState(worldId, sourceId);
+    return {
+      ...scope,
+      record_ref: index === 0 ? 'memory:record-a' : 'memory:record-b',
+      record_version: 'record-v1',
+      source_kind: 'canonical_entity',
+      source_entity_id: sourceId,
+      source_version: sourceState.source_version,
+      content_kind: 'claim',
+      epistemic_kind: 'acquired_report',
+      producer_kind: 'memory-index',
+      content_disposition: 'usable',
+      evidence_assessment: 'unassessed',
+      lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: sourceState.source_version }],
+    };
+  });
   for (const record of records) {
     provider.putRecord(record);
     provider.grantRecord(scope, record.record_ref, record.record_version, true);
@@ -127,9 +130,8 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   assert.equal(result.candidates.length, 1);
   assert.equal(result.candidates[0].record_ref, 'memory:record-a');
   assert.deepEqual(result.candidates[0].content, { 'attributes.public_note': 'visible source-a' });
-  assert.equal(result.candidates[0].source_version, String(
-    s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'] }).entities[0].updated_revision,
-  ));
+  assert.equal(result.candidates[0].source_version,
+    s.engine.getCanonicalEntitySourceState(s.scope.world_id, 'source-a').source_version);
 
   assert.equal(JSON.stringify(result).includes('never disclose'), false);
 });
