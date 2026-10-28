@@ -390,6 +390,11 @@ export function detectSimultaneousTrajectoryCollisions(scene, horizonSeconds) {
       }
     }
   }
+  collisions.sort((a, b) =>
+    a.timeStartSeconds - b.timeStartSeconds ||
+    a.entityA.localeCompare(b.entityA) ||
+    a.entityB.localeCompare(b.entityB));
+
   return {
     status: 'CONFIRMED',
     model: SPATIAL_SCENE_MODEL,
