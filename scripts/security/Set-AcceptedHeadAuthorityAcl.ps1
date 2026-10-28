@@ -244,8 +244,20 @@ foreach ($store in $protectedStores) {
 if (-not $BackupRoots -or $BackupRoots.Count -eq 0) {
     throw 'At least one explicit Core/Provider/coordinator backup or restore root is required.'
 }
+$normalizedBackupRoots = @()
 foreach ($backupRoot in $BackupRoots) {
     $backupPath = [System.IO.Path]::GetFullPath($backupRoot)
+    foreach ($store in $protectedStores) {
+        if (Test-PathOverlap -Left $backupPath -Right ([string]$store.path)) {
+            throw "Backup/restore root overlaps live $($store.label): $backupPath"
+        }
+    }
+    foreach ($priorBackupRoot in $normalizedBackupRoots) {
+        if (Test-PathOverlap -Left $backupPath -Right $priorBackupRoot) {
+            throw "Backup/restore roots overlap each other; isolation is not established: $backupPath and $priorBackupRoot"
+        }
+    }
+    $normalizedBackupRoots += $backupPath
     if (-not (Test-Path -LiteralPath $backupPath -PathType Container)) {
         throw "Backup/restore root does not exist: $backupPath"
     }
