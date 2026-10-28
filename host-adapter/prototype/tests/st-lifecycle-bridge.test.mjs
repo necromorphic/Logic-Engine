@@ -835,3 +835,24 @@ test('post-delete checkpoint rejects non-contiguous deletion of prior message id
     false,
   );
 });
+
+
+test('post-edit checkpoint rejects an untracked role change on a pre-existing message', async () => {
+  const f = makeFixture([
+    { is_user: true, mes: 'user message' },
+    { is_user: false, mes: 'assistant reply' },
+  ]);
+  await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('edit-message', [0]);
+  f.chat[0].is_user = false;
+
+  await assert.rejects(
+    f.bridge.afterMutation('edit-message'),
+    /lifecycle mutation changed the role of a pre-existing message/,
+  );
+  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  assert.equal(
+    ledger.records.some(record => record.operation === 'after:edit-message'),
+    false,
+  );
+});
