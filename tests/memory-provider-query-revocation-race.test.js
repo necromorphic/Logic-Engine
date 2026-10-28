@@ -53,6 +53,7 @@ test('query authorization revoked during source validation is denied', async (t)
     record_version: record.record_version,
     source_kind: record.source_kind,
     source_entity_id: record.source_entity_id,
+    source_version: record.source_version,
   });
   await validationStarted;
   provider.grantQuery(scope, false);
@@ -215,6 +216,7 @@ test('record grant revoked during source validation is a non-ready authorization
     record_version: record.record_version,
     source_kind: record.source_kind,
     source_entity_id: record.source_entity_id,
+    source_version: record.source_version,
   });
   await validationStarted;
   provider.revokeRecord(scope, record.record_ref, record.record_version);
@@ -270,6 +272,7 @@ test('candidate authorization fails non-ready if Provider index changes during s
     record_version: record.record_version,
     source_kind: record.source_kind,
     source_entity_id: record.source_entity_id,
+    source_version: record.source_version,
   });
   await validationStarted;
   provider.putRecord({
@@ -331,6 +334,7 @@ test('candidate authorization fails closed when a grant is revoked and re-grante
     record_version: record.record_version,
     source_kind: record.source_kind,
     source_entity_id: record.source_entity_id,
+    source_version: record.source_version,
   });
   await validationStarted;
   provider.revokeRecord(scope, record.record_ref, record.record_version);
@@ -736,6 +740,7 @@ test('candidate authorization detects record grant ABA from another Provider con
     record_version: record.record_version,
     source_kind: record.source_kind,
     source_entity_id: record.source_entity_id,
+    source_version: record.source_version,
   });
   await validationStarted;
   otherProvider.revokeRecord(scope, record.record_ref, record.record_version);
@@ -804,6 +809,7 @@ test('candidate authorization detects query grant ABA from another Provider conn
     record_version: record.record_version,
     source_kind: record.source_kind,
     source_entity_id: record.source_entity_id,
+    source_version: record.source_version,
   });
   await validationStarted;
   otherProvider.grantQuery(scope, false);
