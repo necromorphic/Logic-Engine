@@ -2,7 +2,7 @@ const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 const ALLOWED_FIELDS = new Set([
-  'conversation_id', 'message_id', 'version_id', 'content_sha256', 'active', 'deleted',
+  'conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted',
 ]);
 
 function configuredTarget(env) {
@@ -18,8 +18,15 @@ function configuredTarget(env) {
 
   let url;
   try { url = new URL(coreUrl); } catch { return null; }
-  if (!['http:', 'https:'].includes(url.protocol) || url.username || url.password
-    || url.search || url.hash || !['', '/'].includes(url.pathname)) return null;
+  const isLoopbackHost = ['localhost', '127.0.0.1', '[::1]'].includes(url.hostname.toLowerCase());
+  // Never send reusable credentials to a remote Core endpoint over plaintext HTTP.
+  // Remote phone→PC deployments require TLS (or an independently secured transport
+  // terminated at an HTTPS endpoint); private LAN addresses are not a trust boundary.
+  if (!['http:', 'https:'].includes(url.protocol)
+    || (url.protocol === 'http:' && !isLoopbackHost)
+    || url.username || url.password
+    || url.search || url.hash || !['', '/'].includes(url.pathname)
+    || adapterToken === apiToken) return null;
   url.pathname = '/v1/host-version-ledger/capture';
   return { url, apiToken, adapterId, adapterToken };
 }
@@ -28,6 +35,8 @@ function validCapture(body) {
   return body && typeof body === 'object' && !Array.isArray(body)
     && Object.keys(body).every((key) => ALLOWED_FIELDS.has(key))
     && ['conversation_id', 'message_id', 'version_id'].every((key) => validId(body[key]))
+    && Object.hasOwn(body, 'parent_version_id')
+    && (body.parent_version_id === null || validId(body.parent_version_id))
     && typeof body.content_sha256 === 'string' && /^[a-f0-9]{64}$/.test(body.content_sha256)
     && typeof body.active === 'boolean' && typeof body.deleted === 'boolean'
     && !(body.deleted && body.active);
@@ -43,8 +52,12 @@ export function createHostDigestProxyHandler({
   env = process.env,
   fetchImpl = globalThis.fetch,
   timeoutMs = 5000,
+  onAcceptedCapture = null,
+  onRejectedCapture = null,
 } = {}) {
   if (typeof fetchImpl !== 'function') throw new TypeError('A fetch implementation is required');
+  if (onAcceptedCapture !== null && typeof onAcceptedCapture !== 'function') throw new TypeError('onAcceptedCapture must be a trusted callback');
+  if (onRejectedCapture !== null && typeof onRejectedCapture !== 'function') throw new TypeError('onRejectedCapture must be a trusted callback');
   if (!Number.isInteger(timeoutMs) || timeoutMs < 1 || timeoutMs > 30000) {
     throw new TypeError('timeoutMs must be an integer between 1 and 30000');
   }
@@ -64,6 +77,7 @@ export function createHostDigestProxyHandler({
       conversation_id: request.body.conversation_id,
       message_id: request.body.message_id,
       version_id: request.body.version_id,
+      parent_version_id: request.body.parent_version_id,
       content_sha256: request.body.content_sha256,
       active: request.body.active,
       deleted: request.body.deleted,
@@ -78,15 +92,41 @@ export function createHostDigestProxyHandler({
           'x-adapter-token': target.adapterToken,
         },
         body: JSON.stringify(body),
+        redirect: 'error',
         signal: AbortSignal.timeout(timeoutMs),
       });
-      let payload;
-      try { payload = await upstream.json(); } catch {
-        return response.status(502).json({
-          error: { code: 'LOGIC_ENGINE_INVALID_RESPONSE', message: 'Logic-Engine returned an invalid response.' },
+      const upstreamOk = typeof upstream.ok === 'boolean'
+        ? upstream.ok : upstream.status >= 200 && upstream.status < 300;
+      if (!upstreamOk) {
+        const status = upstream.status >= 400 && upstream.status <= 599 ? upstream.status : 502;
+        if (onRejectedCapture && status === 409) {
+          try {
+            await onRejectedCapture(request, body, status);
+          } catch {
+            return response.status(503).json({
+              error: { code: 'LOGIC_ENGINE_CAPTURE_ACK_UNAVAILABLE', message: 'Capture conflict evidence could not be persisted.' },
+            });
+          }
+        }
+        return response.status(status).json({
+          error: { code: 'LOGIC_ENGINE_CAPTURE_REJECTED', message: 'Logic-Engine did not accept the digest capture.' },
         });
       }
-      return response.status(upstream.status).json(payload);
+      if (onAcceptedCapture) {
+        try {
+          await onAcceptedCapture(request, body);
+        } catch {
+          // Core may have accepted the capture, but local durable evidence did
+          // not. Do not report success; an idempotent retry can repair the gap.
+          return response.status(503).json({
+            error: { code: 'LOGIC_ENGINE_CAPTURE_ACK_UNAVAILABLE', message: 'Accepted capture acknowledgement could not be persisted.' },
+          });
+        }
+      }
+      // Do not relay upstream diagnostics. A successful digest write is not
+      // readiness: Core's inventory verifier remains deny-only until an
+      // authoritative complete-inventory contract is deployed.
+      return response.status(upstream.status).json({ ok: true, inventory_status: 'NON_READY' });
     } catch {
       return response.status(502).json({
         error: { code: 'LOGIC_ENGINE_UNREACHABLE', message: 'Logic-Engine digest capture is unavailable.' },

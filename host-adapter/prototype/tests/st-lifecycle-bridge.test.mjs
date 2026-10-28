@@ -63,10 +63,12 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   const journal = new HostLifecycleJournal(db);
   let saveCount = 0;
   let sourceLocator = 'chat-file-1';
+  let sourceLineage = { mainChat: null, integrity: null, sessionName: 'chat-file-1', groupId: null };
   const bridge = createStLifecycleBridge({
     journal,
     getConversationId: () => 'chat-1',
     getSourceLocator: () => sourceLocator,
+    getSourceLineage: () => sourceLineage,
     getChat: () => chat,
     publishDigest,
     saveChat: async () => {
@@ -74,7 +76,7 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
       if (failSave) throw Error('simulated native chat save failure');
     },
   });
-  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
+  return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setSourceLineage(value) { sourceLineage = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
 
 test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
@@ -86,6 +88,8 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
   assert.equal(published.length, 2);
   assert.deepEqual(published.map(entry => entry.active), [false, true]);
   assert.ok(published.every(entry => entry.conversation_id === 'chat-1'
+    && Object.hasOwn(entry, 'parent_version_id')
+    && (entry.parent_version_id === null || typeof entry.parent_version_id === 'string')
     && /^[a-f0-9]{64}$/.test(entry.content_sha256)
     && !Object.keys(entry).some(key => /raw|text_body|content_text|message_body/i.test(key))));
   published.length = 0;
@@ -151,6 +155,90 @@ test('Core publisher failure stays NON_READY and can be retried without re-enrol
   assert.equal(retry.status, 'CAPTURED_REVIEW_ONLY');
   assert.equal(retry.published, true);
   assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'CAPTURED_REVIEW_ONLY');
+});
+
+
+test('live source verification binds message/version inventory to observed ST branch metadata and branch references', async () => {
+  const f = makeFixture([{ is_user: false, mes: 'branch answer', extra: { branches: ['chat-file-1 - Branch #1'] } }]);
+  f.setSourceLineage({ mainChat: 'parent-chat', integrity: 'branch-integrity-a', sessionName: 'chat-file-1 - Branch #1', groupId: null });
+  await f.bridge.enrollCurrentConversation();
+
+  const matching = await f.bridge.verifyCurrentSource();
+  assert.equal(matching.status, 'LOCAL_MATCH_NON_AUTHORITATIVE');
+  assert.equal(matching.trustDecision, 'NON_READY');
+
+  f.setSourceLineage({ mainChat: 'different-parent', integrity: 'branch-integrity-b', sessionName: 'chat-file-1 - Branch #1', groupId: null });
+  const changedBranch = await f.bridge.verifyCurrentSource();
+  assert.equal(changedBranch.status, 'NON_READY');
+  assert.match(changedBranch.reason, /fingerprint mismatch/);
+
+  f.setSourceLineage({ mainChat: 'parent-chat', integrity: 'branch-integrity-a', sessionName: 'chat-file-1 - Branch #1', groupId: null });
+  f.chat[0].extra.branches.push('forged-branch-name');
+  const changedBranchReferences = await f.bridge.verifyCurrentSource();
+  assert.equal(changedBranchReferences.status, 'NON_READY');
+  assert.match(changedBranchReferences.reason, /fingerprint mismatch/);
+});
+
+test('malformed swipe and branch metadata cannot normalize to a valid empty inventory', async () => {
+  const malformedBranches = makeFixture([{ is_user: false, mes: 'hello' }]);
+  await malformedBranches.bridge.enrollCurrentConversation();
+  malformedBranches.chat[0].extra = { branches: 'not-an-array' };
+  const branchResult = await malformedBranches.bridge.verifyCurrentSource();
+  assert.equal(branchResult.status, 'NON_READY');
+  assert.match(branchResult.reason, /malformed native branch-reference inventory/i);
+  assert.equal(branchResult.trustEvidence.liveSourceFingerprint, 'NOT_VERIFIED');
+
+  const malformedSwipes = makeFixture([{ is_user: false, mes: 'hello' }]);
+  await malformedSwipes.bridge.enrollCurrentConversation();
+  malformedSwipes.chat[0].swipes = 'not-an-array';
+  const swipeResult = await malformedSwipes.bridge.verifyCurrentSource();
+  assert.equal(swipeResult.status, 'NON_READY');
+  assert.match(swipeResult.reason, /malformed native swipe inventory/);
+  assert.equal(swipeResult.trustEvidence.identityVersionMapping, 'MISMATCH');
+
+  const malformedActiveSwipe = makeFixture([{ is_user: false, mes: 'hello' }]);
+  await malformedActiveSwipe.bridge.enrollCurrentConversation();
+  malformedActiveSwipe.chat[0].swipe_id = '0';
+  const activeSwipeResult = await malformedActiveSwipe.bridge.verifyCurrentSource();
+  assert.equal(activeSwipeResult.status, 'NON_READY');
+  assert.match(activeSwipeResult.reason, /malformed native active-swipe index/i);
+  assert.equal(activeSwipeResult.trustEvidence.identityVersionMapping, 'MISMATCH');
+
+  const outOfRangeSwipe = makeFixture([{ is_user: false, mes: 'hello', swipes: ['hello', 'other'], swipe_id: 0 }]);
+  await outOfRangeSwipe.bridge.enrollCurrentConversation();
+  outOfRangeSwipe.chat[0].swipe_id = 2;
+  const outOfRangeResult = await outOfRangeSwipe.bridge.verifyCurrentSource();
+  assert.equal(outOfRangeResult.status, 'NON_READY');
+  assert.match(outOfRangeResult.reason, /active-swipe index is out of range/i);
+});
+
+test('Host-owned live source verification reports local match as non-authoritative and detects drift', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const matching = await f.bridge.verifyCurrentSource();
+  assert.equal(matching.status, 'LOCAL_MATCH_NON_AUTHORITATIVE');
+  assert.equal(matching.trustDecision, 'NON_READY');
+  assert.equal(matching.trustEvidence.localJournalIntegrity, 'VERIFIED');
+  assert.equal(matching.trustEvidence.liveSourceFingerprint, 'MATCH');
+  assert.equal(matching.trustEvidence.identityVersionMapping, 'MATCH');
+  assert.equal(matching.trustEvidence.sourceAuthenticity, 'UNPROVEN');
+  assert.equal(matching.trustEvidence.rollbackResistance, 'UNPROVEN');
+  assert.equal(matching.trustEvidence.preEnrollmentHistory, 'UNKNOWN_UNRECOVERABLE');
+  f.chat[0].mes = 'untracked external edit';
+  const drift = await f.bridge.verifyCurrentSource();
+  assert.equal(drift.status, 'NON_READY');
+  assert.match(drift.reason, /identity\/version inventory mismatch|live source inventory fingerprint mismatch/);
+});
+
+test('Host source verification rejects identity metadata tampering even when message text fingerprint is unchanged', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  f.chat[0]._logicEngineLifecycle.messageId = 'forged-message-id';
+  const result = await f.bridge.verifyCurrentSource();
+  assert.equal(result.status, 'NON_READY');
+  assert.match(result.reason, /identity\/version inventory mismatch/);
+  assert.equal(result.trustEvidence.identityVersionMapping, 'MISMATCH');
+  assert.equal(result.trustEvidence.sourceAuthenticity, 'UNPROVEN');
 });
 
 test('enrolled bridge writes event IDs and advances the fingerprint after an edit', async () => {
@@ -357,7 +445,7 @@ test('unhooked clear-chat fails closed before source mutation', async () => {
   assert.equal(f.chat.length, 2);
   const readiness = await f.bridge.reconcileCurrentConversation();
   assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('clear-chat'));
+  assert.ok(!readiness.missingPaths.includes('clear-chat'));
   assert.ok(readiness.missingPaths.includes('cancel-generation'));
 });
 
@@ -638,6 +726,7 @@ test('fresh journal/bridge instances replay the persisted journal rows after res
     journal: restartedJournal,
     getConversationId: () => 'chat-1',
     getSourceLocator: () => 'chat-file-1',
+    getSourceLineage: () => ({ mainChat: null, integrity: null, sessionName: 'chat-file-1', groupId: null }),
     getChat: () => f.chat,
     saveChat: async () => {},
   });
@@ -694,4 +783,80 @@ test('unique raw-content sentinels never enter persisted journal rows or exporte
   f.chat.splice(1, 1);
   await f.bridge.afterMutation('delete-message');
   await assertNoRawSentinels('after delete');
+});
+
+
+test('post-delete checkpoint rejects an unrelated reorder of surviving message identities', async () => {
+  const f = makeFixture([
+    { is_user: true, mes: 'first' },
+    { is_user: false, mes: 'second' },
+    { is_user: true, mes: 'third' },
+  ]);
+  await f.bridge.enrollCurrentConversation();
+  const originalIds = f.chat.map(message => message._logicEngineLifecycle.messageId);
+
+  await f.bridge.beforeMutation('delete-message', [2]);
+  f.chat.splice(2, 1);
+  f.chat.reverse();
+
+  await assert.rejects(
+    f.bridge.afterMutation('delete-message'),
+    /message deletion also introduced or reordered message identities/,
+  );
+  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  assert.equal(
+    ledger.records.some(record => record.operation === 'after:delete-message'),
+    false,
+    'a malformed post-delete state must not become the next accepted checkpoint',
+  );
+  assert.deepEqual(originalIds.slice(0, 2).sort(), f.chat.map(message => message._logicEngineLifecycle.messageId).sort());
+});
+
+
+test('post-delete checkpoint rejects non-contiguous deletion of prior message identities', async () => {
+  const f = makeFixture([
+    { is_user: true, mes: 'first' },
+    { is_user: false, mes: 'second' },
+    { is_user: true, mes: 'third' },
+    { is_user: false, mes: 'fourth' },
+  ]);
+  await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('delete-message', [1, 3]);
+  f.chat.splice(3, 1);
+  f.chat.splice(1, 1);
+
+  await assert.rejects(
+    f.bridge.afterMutation('delete-message'),
+    /delete-message checkpoint removed non-contiguous prior message identities/,
+  );
+  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  assert.equal(
+    ledger.records.some(record => record.operation === 'after:delete-message'),
+    false,
+  );
+});
+
+
+test('post-edit checkpoint rejects an untracked role change on a pre-existing message', async () => {
+  const f = makeFixture([
+    { is_user: true, mes: 'user message' },
+    { is_user: false, mes: 'assistant reply' },
+  ]);
+  await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('edit-message', [0]);
+  f.chat[0].mes = 'user message revised';
+  await f.bridge.afterMutation('edit-message');
+
+  await f.bridge.beforeMutation('edit-message', [0]);
+  f.chat[0].is_user = false;
+  await assert.rejects(
+    f.bridge.afterMutation('edit-message'),
+    /lifecycle mutation changed the role of a pre-existing message/,
+  );
+  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  assert.equal(
+    ledger.records.filter(record => record.operation === 'after:edit-message').length,
+    1,
+    'the role-changing mutation must not advance the identity snapshot',
+  );
 });

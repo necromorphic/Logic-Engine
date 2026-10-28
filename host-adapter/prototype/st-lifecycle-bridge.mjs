@@ -1,8 +1,23 @@
 import { contentDigest, fingerprintSource } from './lifecycle-journal.mjs';
 
-const rawVersions = message => Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
+const rawVersions = message => {
+  if (message?.swipes !== undefined && !Array.isArray(message.swipes)) {
+    throw Error('NON_READY: malformed native swipe inventory');
+  }
+  return Array.isArray(message.swipes) && message.swipes.length ? message.swipes : [message.mes ?? ''];
+};
 const roleOf = message => message.is_user ? 'user' : message.is_system ? 'system' : 'assistant';
-const activeIndex = message => Number.isInteger(message.swipe_id) ? message.swipe_id : 0;
+const activeIndex = message => {
+  if (message?.swipe_id !== undefined && !Number.isInteger(message.swipe_id)) {
+    throw Error('NON_READY: malformed native active-swipe index');
+  }
+  const index = message.swipe_id ?? 0;
+  const versions = rawVersions(message);
+  if (index < 0 || index >= versions.length) {
+    throw Error('NON_READY: native active-swipe index is out of range');
+  }
+  return index;
+};
 const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
@@ -13,7 +28,7 @@ const newId = () => {
  * Opt-in adapter boundary for explicit native ST hooks.
  * This is not a complete inventory until every mutation path is wired and tested.
  */
-export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getChat, saveChat, publishDigest = null }) {
+export function createStLifecycleBridge({ journal, getConversationId, getSourceLocator = () => null, getSourceLineage = () => null, getChat, saveChat, publishDigest = null }) {
   if (!journal || !getConversationId || !getChat || !saveChat) throw TypeError('Missing Host lifecycle bridge dependency');
   if (publishDigest !== null && typeof publishDigest !== 'function') throw TypeError('publishDigest must be a trusted callback');
   const publishQueues = new Map();
@@ -42,6 +57,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           conversation_id: conversationId,
           message_id: identity.messageId,
           version_id: version.versionId,
+          parent_version_id: version.parentVersionId ?? null,
           content_sha256: version.payloadDigest,
           active: index === identity.activeVersionIndex,
           deleted: false,
@@ -61,6 +77,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         conversation_id: conversationId,
         message_id: tombstone.messageId,
         version_id: tombstone.versionId,
+        parent_version_id: tombstone.parentVersionId ?? null,
         content_sha256: tombstone.payloadDigest,
         active: false,
         deleted: true,
@@ -84,9 +101,47 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     finally { if (publishQueues.get(conversationId) === current) publishQueues.delete(conversationId); }
   }
 
+  function sourceTrustReport(result, identityVersionMapping = 'NOT_CHECKED') {
+    const matched = result.status === 'LOCAL_MATCH_NON_AUTHORITATIVE';
+    const fingerprint = matched ? 'MATCH'
+      : result.reason === 'live source inventory fingerprint mismatch' ? 'MISMATCH' : 'NOT_VERIFIED';
+    return {
+      ...result,
+      trustDecision: 'NON_READY',
+      trustEvidence: {
+        localJournalIntegrity: result.journalIntegrity ?? (matched ? 'VERIFIED' : 'NOT_VERIFIED'),
+        liveSourceFingerprint: fingerprint,
+        identityVersionMapping,
+        sourceAuthenticity: 'UNPROVEN',
+        rollbackResistance: 'UNPROVEN',
+        lifecycleCompleteness: 'UNPROVEN',
+        preEnrollmentHistory: 'UNKNOWN_UNRECOVERABLE',
+        installConversationWorldBranchRestoreBinding: 'UNPROVEN',
+      },
+    };
+  }
+
+  async function verifyCurrentSource() {
+    const conversationId = await getConversationId();
+    if (!conversationId || !(await enrolledOrFailClosed(conversationId))) {
+      return sourceTrustReport({ status: 'NON_READY', reason: 'conversation is not enrolled' });
+    }
+    const chat = getChat();
+    if (!Array.isArray(chat)) return sourceTrustReport({ status: 'NON_READY', reason: 'live Host chat is unavailable' });
+    // Read the current native source only through the injected Host getter;
+    // callers cannot pass an arbitrary message array to this bridge method.
+    try {
+      await assertIdentitySnapshotMatches(conversationId, chat);
+    } catch (error) {
+      return sourceTrustReport({ status: 'NON_READY', reason: 'live Host identity/version inventory mismatch: ' + (error?.message || error) }, 'MISMATCH');
+    }
+    const result = await journal.verifyCurrentSource(conversationId, { messages: chat, sourceLocator: { locator: getSourceLocator(), lineage: getSourceLineage() } });
+    return sourceTrustReport(result, 'MATCH');
+  }
+
   async function currentFingerprint(chat = getChat()) {
     if (!Array.isArray(chat)) throw Error('NON_READY: current chat is not an array');
-    return fingerprintSource(chat, getSourceLocator());
+    return fingerprintSource(chat, { locator: getSourceLocator(), lineage: getSourceLineage() });
   }
 
   async function enrolledOrFailClosed(conversationId) {
@@ -236,7 +291,67 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     // authorize Provider reconciliation or claim complete native inventory.
     const tombstones = [];
     const priorIdentitySnapshot = await journal.latestIdentitySnapshot(conversationId);
-    const liveMessageIds = new Set(chat.map(message => message?._logicEngineLifecycle?.messageId).filter(Boolean));
+    if (!Array.isArray(priorIdentitySnapshot)) {
+      throw Error('NON_READY: pre-mutation identity snapshot is unavailable; abort lifecycle checkpoint');
+    }
+    const priorMessageIds = priorIdentitySnapshot.map(message => message?.messageId);
+    const currentMessageIds = chat.map(message => message?._logicEngineLifecycle?.messageId ?? null);
+    if (priorMessageIds.some(id => typeof id !== 'string' || !id)
+      || new Set(priorMessageIds).size !== priorMessageIds.length) {
+      throw Error('NON_READY: prior identity snapshot contains missing or duplicate message IDs');
+    }
+    const creationOperations = ['create-message', 'message-send', 'message-receive'];
+    if (creationOperations.includes(operation)) {
+      if (!Number.isInteger(createdMessageIndex) || createdMessageIndex < 0 || createdMessageIndex >= chat.length) {
+        throw Error('NON_READY: creation hook lacks an exact source insertion boundary; abort inventory checkpoint');
+      }
+      const existingIds = currentMessageIds.slice();
+      existingIds.splice(createdMessageIndex, 1);
+      if (existingIds.some(id => typeof id !== 'string' || !id)) {
+        throw Error('NON_READY: missing durable identity on pre-existing message; abort lifecycle checkpoint');
+      }
+      if (existingIds.length !== priorMessageIds.length
+        || existingIds.some((id, index) => id !== priorMessageIds[index])) {
+        throw Error('NON_READY: message creation also changed, reordered, or lost pre-existing message identities');
+      }
+    } else if (operation === 'delete-message') {
+      const currentExistingIds = currentMessageIds.filter(id => id !== null);
+      if (currentExistingIds.length !== currentMessageIds.length
+        || new Set(currentExistingIds).size !== currentExistingIds.length) {
+        throw Error('NON_READY: message deletion left missing or duplicate surviving identities');
+      }
+      let priorIndex = 0;
+      const survivingPriorIndexes = [];
+      for (const id of currentExistingIds) {
+        while (priorIndex < priorMessageIds.length && priorMessageIds[priorIndex] !== id) priorIndex++;
+        if (priorIndex >= priorMessageIds.length) {
+          throw Error('NON_READY: message deletion also introduced or reordered message identities');
+        }
+        survivingPriorIndexes.push(priorIndex);
+        priorIndex++;
+      }
+      const survivingIndexes = new Set(survivingPriorIndexes);
+      const removedPriorIndexes = priorMessageIds.map((_, index) => index)
+        .filter(index => !survivingIndexes.has(index));
+      if (!removedPriorIndexes.length) {
+        throw Error('NON_READY: delete-message checkpoint did not remove a prior message identity');
+      }
+      if (removedPriorIndexes.at(-1) - removedPriorIndexes[0] + 1 !== removedPriorIndexes.length) {
+        throw Error('NON_READY: delete-message checkpoint removed non-contiguous prior message identities');
+      }
+    } else if (currentMessageIds.length !== priorMessageIds.length
+      || currentMessageIds.some((id, index) => id !== priorMessageIds[index])) {
+      throw Error('NON_READY: non-structural mutation changed or reordered message identities');
+    }
+    const priorRoleByMessageId = new Map(priorIdentitySnapshot.map(message => [message.messageId, message.role]));
+    for (let index = 0; index < chat.length; index++) {
+      const messageId = currentMessageIds[index];
+      if (messageId && priorRoleByMessageId.has(messageId)
+        && roleOf(chat[index]) !== priorRoleByMessageId.get(messageId)) {
+        throw Error('NON_READY: lifecycle mutation changed the role of a pre-existing message');
+      }
+    }
+    const liveMessageIds = new Set(currentMessageIds.filter(Boolean));
     if (operation === 'delete-message' && Array.isArray(priorIdentitySnapshot)) {
       for (const priorMessage of priorIdentitySnapshot) {
         if (liveMessageIds.has(priorMessage.messageId)) continue;
@@ -370,6 +485,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     const changes = chat.map((message, messageIndex) => ({
       messageId: message._logicEngineLifecycle.messageId,
       messageIndex,
+      role: roleOf(message),
       activeVersionIndex: message._logicEngineLifecycle.activeVersionIndex,
       versions: message._logicEngineLifecycle.versions,
     }));
@@ -503,6 +619,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
 
   return Object.freeze({
     enrollCurrentConversation,
+    verifyCurrentSource,
     beforeMutation,
     afterMutation,
     syncCurrentDigestInventory,

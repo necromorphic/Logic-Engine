@@ -1,7 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
-import { resolve } from 'node:path';
+import { join, resolve } from 'node:path';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
+import { randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 
@@ -12,16 +15,13 @@ const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 // handler has a console.debug path that serializes the request body, so debug
 // output is suppressed and separately counted rather than retained as text.
 const loggedOutput = [];
-let suppressedDebugCalls = 0;
+const capturedDebugOutput = [];
+let capturedDebugCalls = 0;
 const originalConsoleMethods = Object.fromEntries(
   ['debug', 'info', 'log', 'warn', 'error'].map(name => [name, console[name]]),
 );
 for (const name of Object.keys(originalConsoleMethods)) {
   console[name] = (...args) => {
-    if (name === 'debug') {
-      suppressedDebugCalls += 1;
-      return;
-    }
     const rendered = args.map(arg => {
       try {
         return typeof arg === 'string' ? arg : JSON.stringify(arg);
@@ -29,15 +29,95 @@ for (const name of Object.keys(originalConsoleMethods)) {
         return String(arg);
       }
     }).join(' ');
+    if (name === 'debug') {
+      // Keep debug output in memory only so the test can assert the prompt body
+      // is absent; never print or persist the captured request content.
+      capturedDebugCalls += 1;
+      capturedDebugOutput.push(rendered);
+      return;
+    }
     loggedOutput.push({ method: name, rendered });
   };
 }
+
+test('patched clearChat remains a UI unload and is not treated as persisted deletion', async () => {
+  const script = await readFile(resolve(stRoot, 'public/script.js'), 'utf8');
+  const start = script.indexOf('export async function clearChat({ clearData = false } = {}) {');
+  assert.notEqual(start, -1, 'pinned clearChat entry point must exist');
+  const end = script.indexOf('\n}', start);
+  assert.ok(end > start, 'clearChat function boundary must exist');
+  const body = script.slice(start, end);
+  assert.doesNotMatch(body, /logicEngineHostLifecycle.*(?:guardOperation|beforeMutation)|guardOperation\(['"]clear-chat['"]/s,
+    'clearChat unload must not be recorded as persisted deletion');
+  assert.match(body, /cancelDebouncedChatSave\(\);/, 'clearChat should retain ordinary unload behavior');
+});
 
 const requireFromST = createRequire(resolve(stRoot, 'package.json'));
 const express = requireFromST('express');
 const stUtil = await import(pathToFileURL(resolve(stRoot, 'src/util.js')).href);
 stUtil.setConfigFilePath(resolve(stRoot, 'default/config.yaml'));
 const { router } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backends/chat-completions.js')).href);
+const { router: chatsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/chats.js')).href);
+const { createHostLifecycleMutationMiddleware, registerHostConversation } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-host-journal.mjs')).href);
+
+test('real pinned chat deletion route refuses an enrolled file before mutation', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const actualSha = execFileSync('git', ['-C', stRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.equal(actualSha, expectedSha, 'test must run against the exact pinned SillyTavern checkout');
+
+  const root = await mkdtemp(join(os.tmpdir(), 'st-host-lifecycle-route-'));
+  const directories = {
+    chats: join(root, 'chats'),
+    characters: join(root, 'characters'),
+    groups: join(root, 'groups'),
+    groupChats: join(root, 'group_chats'),
+    backups: join(root, 'backups'),
+  };
+  await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
+  const conversationUuid = randomUUID();
+  const conversationId = randomUUID() + ':' + conversationUuid;
+  const chatDirectory = join(directories.chats, 'character-a');
+  await mkdir(chatDirectory, { recursive: true });
+  const chatPath = join(chatDirectory, 'chat-a.jsonl');
+  const persistedChat = JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }) + '\n';
+  await writeFile(chatPath, persistedChat);
+  const user = { profile: { handle: 'runtime-route-test' }, directories };
+  await registerHostConversation({ user }, {
+    conversationId,
+    sourceLocator: 'chat-a',
+    sourcePath: 'character-a/chat-a.jsonl',
+    domain: 'chats',
+  });
+
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  app.use((req, _res, next) => {
+    req.user = user;
+    next();
+  });
+  app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true }));
+  app.use('/api/chats', chatsRouter);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+
+  t.after(async () => {
+    await new Promise(resolveClose => server.close(resolveClose));
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const response = await fetch('http://127.0.0.1:' + address.port + '/api/chats/delete', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ avatar_url: 'character-a.png', chatfile: 'chat-a.jsonl' }),
+  });
+  assert.equal(response.status, 409, 'Host guard must reject deletion before the pinned handler runs');
+  assert.deepEqual(await response.json(), {
+    error: { code: 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED' },
+  });
+  assert.equal(await readFile(chatPath, 'utf8'), persistedChat, 'the enrolled source file must remain unchanged');
+});
 
 test('real pinned server Chat Completions handler reaches a recording fake provider exactly once', async (t) => {
   const { execFileSync } = await import('node:child_process');
@@ -54,10 +134,7 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify({
         id: 'fake-response',
-        object: 'chat.completion',
-        created: 1,
-        model: 'fake-model',
-        choices: [{ index: 0, message: { role: 'assistant', content: 'harness-ok' }, finish_reason: 'stop' }],
+        candidates: [{ content: { parts: [{ text: 'harness-ok' }] } }],
       }));
     });
   });
@@ -95,7 +172,7 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
-      chat_completion_source: 'openai',
+      chat_completion_source: 'makersuite',
       reverse_proxy: `http://127.0.0.1:${providerAddress.port}/v1`,
       proxy_password: 'test-only-not-a-real-secret',
       model: 'fake-model',
@@ -110,9 +187,22 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
   const responseJson = await response.json();
   assert.equal(responseJson.choices?.[0]?.message?.content, 'harness-ok');
   assert.equal(requestCount, 1, 'exactly one outbound request should arrive at the fake provider');
-  assert.deepEqual(arrivals, [{ method: 'POST', path: '/v1/chat/completions' }]);
+  assert.deepEqual(arrivals, [{ method: 'POST', path: '/v1/v1beta/models/fake-model:generateContent?key=test-only-not-a-real-secret' }]);
   assert.equal(JSON.stringify(arrivals).includes('HARNESS_SENTINEL_DO_NOT_LOG'), false);
-  assert.ok(suppressedDebugCalls > 0, 'the upstream body-serializing debug path must be suppressed');
+  assert.ok(capturedDebugCalls > 0, 'the handler should emit debug diagnostics');
+  assert.ok(
+    capturedDebugOutput.some(line =>
+      line.includes('request metadata')
+      && line.includes('fake-model')
+      && line.includes('messageCount')
+    ),
+    'the debug diagnostic should contain metadata rather than the raw request body',
+  );
+  assert.equal(
+    capturedDebugOutput.some(line => line.includes('HARNESS_SENTINEL_DO_NOT_LOG')),
+    false,
+    'request-body sentinel must not appear in captured debug output',
+  );
   assert.equal(
     loggedOutput.some(entry => entry.rendered.includes('HARNESS_SENTINEL_DO_NOT_LOG')),
     false,

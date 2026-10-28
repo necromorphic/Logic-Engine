@@ -11,6 +11,7 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 - Idempotent same-event replay; reuse of an event ID with a different payload fails closed.
 - Strict-durability IndexedDB write transaction. A failed pre-mutation append throws so the caller must abort the mutation.
 - Startup/status verification detects sequence gaps, chain/digest mismatch, schema mismatch, and head-checkpoint mismatch.
+- `createStLifecycleBridge().verifyCurrentSource()` reads the current chat through the Host-owned `getChat()` dependency and compares its fingerprint with the latest journal checkpoint. Drift returns `NON_READY`; a match is labelled `LOCAL_MATCH_NON_AUTHORITATIVE` and still returns `trustDecision: NON_READY`. The journal-only `status()` method does not accept caller-supplied messages or booleans as evidence; it remains `NON_READY` and never upgrades readiness. The bridge also checks the live message/version identity mapping against the journaled snapshot. The source fingerprint includes the live ST locator, observed `chat_metadata.main_chat` / `integrity` / session name / group ID, and per-message `extra.branches` references. Tests prove changes to those observed branch metadata/references invalidate the enrolled fingerprint. This proves only correspondence to the same local checkpoint: it does not prove that a child branch's `main_chat` name points to the correct parent artifact, nor that local lineage metadata is authentic. Tests explicitly demonstrate that a coordinated rewrite of local records plus the local head can still defeat local hashes, which is why the result never proves authenticity or rollback resistance. Its `trustEvidence` report separates local journal integrity, live fingerprint, identity/version mapping, source authenticity, rollback resistance, lifecycle completeness, pre-enrollment history, and install/conversation/world/branch/restore binding instead of collapsing them into one trust bit.
 - Reconciliation compares native chat fingerprint **and** the current message/version IDs, active swipe, digests, and lineage against the last journaled identity snapshot. This catches copied/restored sidecar IDs even when message text is unchanged.
 - The prototype never asserts capture readiness from caller-supplied coverage. Without trusted pinned-source hook attestation it remains NON_READY.
 
@@ -18,20 +19,22 @@ Target host revision: SillyTavern 1.19.0-1-g06bde939f, commit 06bde939fb1e9c4c8d
 
 The current patch can forward digest-only Host version entries to the PC Logic-Engine API through a same-origin SillyTavern server endpoint. Browser code does **not** receive the Core API token or adapter token; the server-side proxy reads these environment variables:
 
-- `LOGIC_ENGINE_CORE_URL`: root URL of the PC Core API, for example `http://192.168.1.10:8787`.
+- `LOGIC_ENGINE_CORE_URL`: root URL of the PC Core API. Remote phone→PC transport must use HTTPS with a certificate valid for the configured host (directly or via a reviewed TLS reverse proxy), for example `https://logic-engine-pc.example:8787`. Plain HTTP is accepted only for loopback destinations (`localhost`, `127.0.0.1`, `[::1]`) when Host and Core run on the same machine. A private LAN address is not a secure transport.
 - `LOGIC_ENGINE_API_TOKEN`: the Core API bearer token.
 - `LOGIC_ENGINE_ADAPTER_ID`: the adapter ID configured on Core.
 - `LOGIC_ENGINE_ADAPTER_TOKEN`: the matching adapter secret configured in Core's `ENGINE_ADAPTER_TOKENS`.
 
-The proxy accepts only conversation/message/version IDs, a SHA-256 digest, and active/deleted flags. It rejects caller-supplied world IDs, arbitrary URLs, raw text fields, and malformed digests. It forwards only to the server-configured Core URL and does not log request bodies. On the PC, set `ENGINE_HOST=0.0.0.0` and `ENGINE_ALLOW_REMOTE=true` only when phone-to-PC LAN access is needed; restrict the port with the PC firewall to the phone/private subnet and do not expose the Core API to the public internet.
+The proxy accepts only conversation/message/version IDs, a SHA-256 digest, and active/deleted flags. It rejects caller-supplied world IDs, arbitrary URLs, raw text fields, and malformed digests. It forwards only to the server-configured Core URL and does not log request bodies. On the PC, set `ENGINE_HOST=0.0.0.0` and `ENGINE_ALLOW_REMOTE=true` only when phone-to-PC LAN access is needed; restrict the port with the PC firewall to the phone/private subnet and do not expose the Core API to the public internet. These bind/firewall settings do not encrypt traffic: if the Core listener itself does not provide TLS, put a reviewed HTTPS endpoint in front of it or keep remote digest capture disabled. Do not configure a remote `http://` URL because it would transmit the Core and adapter credentials in plaintext.
 
 Before capture can succeed, an administrator must bind the authenticated adapter ID and stable Host conversation ID to a canonical Core world using `/v1/host-conversation-bindings`. The stable ID is returned by `window.logicEngineHostLifecycle.enrollCurrentConversation()`; because the first publication can precede binding, inspect its `coreCaptureStatus`, create the binding, then call `window.logicEngineHostLifecycle.syncCurrentDigestInventory()` and check `getCoreCaptureStatus()`. The bridge publishes current digest entries serially after native save and emits tombstones for versions it observes being removed. This is transport coverage, not a complete source inventory: missed server-side imports/deletions, copy/restore, branch operations, external edits, and crash/restart ordering can still invalidate the ledger.
+
+**Trust boundary for the local inventory check:** matching the live fingerprint to the journal proves consistency with the local checkpoint only. The records and head checkpoint share the Host-controlled IndexedDB trust domain; an actor able to rewrite or roll back both can defeat this check. The verifier therefore explicitly reports missing independent trust anchor, rollback resistance, complete lifecycle coverage, pre-enrollment history, and trusted pinned-source attestation. This is a freshness diagnostic, not proof of source authenticity and not an authorization signal.
 
 **Production remains fail-closed.** Core currently composes the digest ledger with a deny-only inventory verifier, so capture can persist digests but reconciliation cannot publish `READY`. This path does not persist raw message text, create semantic Memory records, admit Memory→NPC context, or authorize outbound model dispatch. Do not infer readiness from a successful HTTP response.
 
 ## Pinned-source hook patch
 
-The candidate patch also replaces a provider sender's raw request-body debug log with metadata-only logging (`model`, `stream`, and message count). The pinned-source CI fails if the raw-body log returns and syntax-checks/lints the changed endpoint. This is a patch-artifact mitigation only; it is not installed into a live ST instance and does not create a final-send authorization gateway.
+The candidate patch also replaces the pinned MakerSuite/Vertex sender's raw `console.debug(`${apiName} request:`, body)` with metadata-only logging (`model`, `stream`, and message count). The pinned-source CI fails if the raw-body log returns and syntax-checks/lints the changed endpoint. This is a patch-artifact mitigation only; it is not installed into a live ST instance and does not create a final-send authorization gateway.
 
 Source audit: [`SOURCE-LIFECYCLE-AUDIT.md`](./SOURCE-LIFECYCLE-AUDIT.md) records pinned-source evidence and explicitly distinguishes source-confirmed behavior from unrun runtime experiments.
 
@@ -72,7 +75,7 @@ These are source-confirmed bypasses, not solved hooks. Adding client events alon
 
 ## Remaining uninstrumented or unproven paths
 
-The readiness contract explicitly enumerates lifecycle coverage paths including message create/send/receive, swipe create/select/delete, message delete/edit, regeneration, generation start/end/stop/cancel/partial-finalization, persistence ordering, clear, import/export, copy/branch, restore, chat switch, external edits, rollback, restart, and replay. This is a fail-closed coverage checklist, not a claim that those paths are currently hooked.
+The readiness contract explicitly enumerates lifecycle coverage paths including message create/send/receive, swipe create/select/delete, message delete/edit, regeneration, generation start/end/stop/cancel/partial-finalization, persistence ordering, persisted chat-file deletion, import/export, copy/branch, restore, chat switch, external edits, rollback, restart, and replay. This is a fail-closed coverage checklist, not a claim that those paths are currently hooked.
 
 - Explicit generation cancellation / partial-output finalization semantics.
 - Chat switching, and all import/export, copy/branch/restore paths.
@@ -113,7 +116,9 @@ Because the journal stores digests rather than source bytes, it cannot itself re
 
 ### Chat unload is not deletion
 
-Source review found that pinned ST `clearChat({ clearData: true })` is used for chat switching/reload and other UI transitions. Treating that array clear as source deletion would incorrectly record the old chat as empty and could poison identity/reconciliation. The candidate patch therefore does **not** hook `clearChat` as deletion. The actual complete chat-file deletion path is still uncovered, especially when the target chat is not the currently loaded chat. `clear-chat` remains a required-but-missing coverage path, so readiness stays NON_READY.
+The candidate patch must not treat `clearChat({ clearData: true })` as persisted deletion: SillyTavern uses it while switching or reloading chats. The guard has been removed from this UI-unload path, and `clear-chat` is no longer a required persisted-mutation coverage item. The actual server-side chat-file deletion route remains a separate interception requirement.
+
+Source review found that pinned ST `clearChat({ clearData: true })` is used for chat switching/reload and other UI transitions. Treating that array clear as source deletion would incorrectly record the old chat as empty and could poison identity/reconciliation. The candidate patch therefore does **not** hook `clearChat` as deletion. The actual server-side chat-file deletion path is separately journaled at the API layer, but complete deletion coverage—especially for non-current chats and all alternate routes—has not been established, so readiness stays NON_READY.
 
 ## Exact-head follow-up — raw-content sentinel regression (26 Oct 2026)
 
@@ -137,3 +142,32 @@ Exact-head CI for this code HEAD:
 - [Host lifecycle patch validation #40276125986](https://github.com/necromorphic/Logic-Engine/actions/runs/40276125986) — SUCCESS.
 
 This refresh records repository CI only. It does not establish live browser/Android/Termux behavior, real IndexedDB durability, persisted chat-file before/after evidence, or full lifecycle coverage. PR #323 remains Draft/review-only. Core approval of the Host↔Core/Provider handoff and real persisted-state acceptance evidence are still required; production Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+## Pinned source inventory evidence (27 Oct 2026)
+
+See [`PINNED-SOURCE-INVENTORY-EVIDENCE.md`](./PINNED-SOURCE-INVENTORY-EVIDENCE.md) for the pinned archive identity, native locator/version semantics, branch/import lifecycle evidence, and the explicit conclusion that `getChat()` cannot prove a complete authoritative all-time inventory. The document includes an upstream verified-commit check and matching Git blob IDs for three audited source files; it does not claim full-archive equivalence or a live-device experiment. Host remains `NON_READY`; Memory→NPC remains `DISABLED / FAIL-CLOSED`.
+
+
+## Current mainline integration status
+
+The active Host lifecycle integration is tracked by [Draft PR #456](https://github.com/necromorphic/Logic-Engine/pull/456), branch `host/lifecycle-mainline-integration-2026-10-27`. PR #445 was closed as superseded without merging. Because every push changes the exact validated commit, use the [current PR checks](https://github.com/necromorphic/Logic-Engine/pull/456/checks) for validation status and the [branch comparison](https://github.com/necromorphic/Logic-Engine/compare/main...host/lifecycle-mainline-integration-2026-10-27) for freshness.
+
+Host capture/reconciliation remains `NON_READY`; production Memory→NPC remains `DISABLED / FAIL-CLOSED`. Complete lifecycle route coverage, all-time inventory, source authenticity, rollback resistance, authenticated lineage, live Android/Termux durability, and final-send enforcement remain unproven.
+
+## Server-side persisted artifact inventory (new, review-only)
+
+The candidate pinned-source patch adds an authenticated SillyTavern server route at `POST /api/logic-engine/host-artifact-inventory/scan`. It scans the per-user character-chat, group-metadata, group-chat JSONL, and backup storage roots supplied by the server, returns relative artifact locators, byte lengths and SHA-256 digests, and never returns file contents. A scan with an unreadable root, partial enumeration, symlink, unsupported file type, read failure, or detected concurrent file change returns `INVENTORY_INCOMPLETE` with no partial artifact list.
+
+A successful scan is labelled `CURRENT_SNAPSHOT_NON_AUTHORITATIVE`; historical completeness is always `UNKNOWN`. This is a first server-side inventory primitive, not a complete all-time history registry. It does not reconstruct pre-existing deleted versions, create deletion tombstones for files that merely disappear, authenticate branch/import/restore lineage, persist an append-only history across future scans, or provide rollback resistance. The browser-local journal remains enrollment-forward-only. The candidate patch now adds server-side explicit enrollment and a global middleware for the allowlisted chat, character, group, backup, and Data Maid mutation routes. Each managed operation requires a complete pre-scan, a fsynced intent, a complete post-scan, and a fsynced outcome. An unresolved intent or journal failure blocks subsequent managed mutations. The server exposes digest-only journal status and an explicit acknowledgement endpoint for unresolved operations; reconciliation records the uncertainty and leaves history `NON_READY_HISTORY_GAP`, never `READY`. A supplied `X-Logic-Engine-Operation-Id` is deduplicated by request fingerprint; clients omitting it do not get cross-request retry deduplication. A 4xx response is classified as `REJECTED_NO_MUTATION` only when both scans complete and both artifact-level and version-level diffs are empty; otherwise the outcome remains unresolved and blocks later managed mutations. This closes the known direct-API bypass for the enumerated routes, but the local ledger has no external anti-rollback anchor and does not prove historical lineage.
+
+The scanner module has unit tests for digest-only output, nested files, unavailable roots, symlink refusal, and invalid root definitions. The pinned-source patch-check workflow syntax-checks the copied server scanner; source audit asserts the route's non-authoritative/digest-only contract. These checks are repository CI evidence only, not proof of a live installed ST server or Android/Termux behavior. Host capture/reconciliation remains `NON_READY`; Memory→NPC remains `DISABLED / FAIL-CLOSED`.
+
+## Exact-head follow-up — server-side mutation coverage (28 Oct 2026)
+
+The current candidate now includes character files in the server-side before/after artifact snapshot and journals the pinned `POST /api/characters/create` and `POST /api/characters/edit-avatar` routes. The pinned-source audit checks those route declarations against the Host journal map.
+
+Character rename, character deletion with chat cleanup enabled, chat rename, chat deletion, and group-chat deletion are refused with `409 HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED` when they target an enrolled source path. This avoids allowing a handler to move/delete enrolled history and only discovering the broken source path during the post-mutation scan. A supported, lineage-preserving path migration is not implemented; this is a deliberate fail-closed restriction.
+
+A server mutation response in the 4xx range is marked `REJECTED_NO_MUTATION` only when both before/after scans complete and report no artifact or version changes. A 4xx after any observed change and every 5xx remain `UNRESOLVED`, blocking subsequent managed mutations until reconciliation. Regression tests cover both sides of this distinction.
+
+These are targeted coverage improvements, not full lifecycle readiness. External edits, copy/restore, complete import/deletion coverage, an independent anti-rollback trust anchor, and a real browser/UI run remain open. Host capture remains `NON_READY`; production Memory→NPC remains disabled and fail-closed.
