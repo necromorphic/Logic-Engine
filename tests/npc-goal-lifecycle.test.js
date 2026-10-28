@@ -56,3 +56,13 @@ test("rejects accessor-backed goal objects without reading accessor values", () 
   assert.deepEqual(transitionNpcGoal(goal, "complete"), { status: "non_ready", goal: null });
   assert.equal(invoked, false);
 });
+
+test("rejects non-string lifecycle events without coercing them", () => {
+  let coerced = false;
+  const event = { [Symbol.toPrimitive]() { coerced = true; return "complete"; } };
+  assert.deepEqual(transitionNpcGoal({ id: "g", status: "active" }, event), {
+    status: "non_ready",
+    goal: null,
+  });
+  assert.equal(coerced, false);
+});
