@@ -848,3 +848,15 @@ test('self-parent is rejected before any ledger mutation', (t) => {
   })), /Invalid digest-only Host version entry/);
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
 });
+
+test('event-only capture rejects a VERIFIED parent whose ancestor chain is incomplete', (t) => {
+  const ledger = setup(t);
+  const now = new Date().toISOString();
+  ledger.db.prepare("INSERT INTO host_version_digest_ledger (world_id,conversation_id,message_id,version_id,content_sha256,parent_version_id,lineage_status,lifecycle,created_at,updated_at,tombstoned_at) VALUES(?,?,?,?,?,?,'VERIFIED','present',?,?,NULL)")
+    .run(tuple.world_id, tuple.conversation_id, tuple.message_id, 'broken-parent-v', digest('broken parent'), 'missing-grandparent-v', now, now);
+  const child = entry({ version_id: 'child-v', parent_version_id: 'broken-parent-v', active: false });
+  assert.deepEqual(ledger.captureVersion(child), {
+    status: 'non_ready', code: 'HOST_LINEAGE_PARENT_UNKNOWN'
+  });
+  assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE version_id='child-v'").get().n, 0);
+});
