@@ -117,6 +117,11 @@ export function createRemoteAnchorServer({
     const envelope = await store.getHead(installationId);
     if (envelope === null) return null;
     const verified = verifyRemoteAnchorEnvelope({ envelope, installationId, expectedKeyId: keyId, publicKey: publicPem });
+    // Epoch and contract transitions are unsupported: a correctly signed head
+    // from another epoch/contract must not be silently continued by this server.
+    if (verified.epochId !== epochId || verified.contractVersion !== contractVersion) {
+      fail(503, 'ANCHOR_STORE_INVALID');
+    }
     if (envelope.record.sequence < 1 || verified.recordDigest !== createHash('sha256')
       .update(serializeRemoteAnchorRecord(envelope.record), 'utf8').digest('hex')) {
       fail(503, 'ANCHOR_STORE_INVALID');
