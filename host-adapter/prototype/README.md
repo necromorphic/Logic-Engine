@@ -166,7 +166,7 @@ The scanner module has unit tests for digest-only output, nested files, unavaila
 
 The current candidate now includes character files in the server-side before/after artifact snapshot and journals the pinned `POST /api/characters/create` and `POST /api/characters/edit-avatar` routes. The pinned-source audit checks those route declarations against the Host journal map.
 
-Character rename, and character deletion with chat cleanup enabled, are refused with `409 HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED` when an enrolled chat path is inside that character's chat directory. This avoids allowing the handler to move/delete enrolled history and only discovering the broken source path during the post-mutation scan. A supported, lineage-preserving path migration is not implemented; this is a deliberate fail-closed restriction.
+Character rename, character deletion with chat cleanup enabled, chat rename, chat deletion, and group-chat deletion are refused with `409 HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED` when they target an enrolled source path. This avoids allowing a handler to move/delete enrolled history and only discovering the broken source path during the post-mutation scan. A supported, lineage-preserving path migration is not implemented; this is a deliberate fail-closed restriction.
 
 A server mutation response in the 4xx range is marked `REJECTED_NO_MUTATION` only when both before/after scans complete and report no artifact or version changes. A 4xx after any observed change and every 5xx remain `UNRESOLVED`, blocking subsequent managed mutations until reconciliation. Regression tests cover both sides of this distinction.
 
