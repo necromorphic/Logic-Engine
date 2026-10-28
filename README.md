@@ -39,7 +39,8 @@
 **Изменения в основной ветке:** в `main` присутствуют контракт #527 (полный пустой результат отличается от отказа/неполноты) и PR #618 — accepted-head защита реальных Core/Provider writes, revoke, tombstone/purge, reconciliation/readiness и recovery с pre-dispatch Gateway gate. Это закрывает Provider blocker #3 на уровне кода и тестов, но не доказывает полноту Host inventory или сквозную доставку памяти конкретному NPC.
 
 **Актуальные открытые кандидаты, не считать частью `main`, пока PR не слит:**
-- [PR #640](https://github.com/necromorphic/Logic-Engine/pull/640) — перенос canonical source-version ledger в `main`; это кандидат, не утверждённый production-контракт.
+- [PR #640](https://github.com/necromorphic/Logic-Engine/pull/640) — исходная source-version ledger ветка, только evidence; базовая история устарела.
+- [PR #681](https://github.com/necromorphic/Logic-Engine/pull/681) — current-main порт canonical source-version ledger/inventory; exact-head CI выполняется. Migration 14 зарезервирована этим кандидатом, поэтому #670 потребуется rebase и migration 15 до объединения.
 - [PR #632](https://github.com/necromorphic/Logic-Engine/pull/632) — исходная Host lifecycle validation-ветка с подтверждёнными тестами, но 184 commits ahead / 24 behind `main`; сохраняется как evidence-only и не должна сливаться целиком.
 - [PR #680](https://github.com/necromorphic/Logic-Engine/pull/680) — свежий 33-файловый Host lifecycle/save-capability port на текущий `main`; exact-head CI на `cd06ee6949d7e8000d41e3a2ba7dc07ce2c81500` прошёл: patch check 152/152, pinned-source audit Linux/Windows 12/12 + route harness 5/5 на каждой ОС, IndexedDB restart PASS, Runtime 1150/1150, NPC boundary 100/100, trusted acquisition 10/10, oracle 20/20. PR остаётся Draft: эти проверки не доказывают полный Host inventory или production egress.
 - [PR #636](https://github.com/necromorphic/Logic-Engine/pull/636) — Windows Memory Provider acceptance evidence.
