@@ -1143,3 +1143,37 @@ test('admin purge fails closed when target chat-root path is a symlink', async (
         await rm(outside, { recursive: true, force: true });
     }
 });
+
+
+test('admin purge rejects path-like target handles before resolving user directories', async () => {
+    const target = await fixture();
+    try {
+        const request = {
+            method: 'POST',
+            baseUrl: '/api/users',
+            path: '/delete',
+            originalUrl: '/api/users/delete',
+            body: { handle: '../outside', purge: true },
+            user: { profile: { handle: 'admin-user' }, directories: target.directories },
+        };
+        let resolverCalled = false;
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware({
+            getUserDirectories: () => {
+                resolverCalled = true;
+                return target.directories;
+            },
+        })(request, response, async () => {
+            reachedHandler = true;
+            response.end();
+        });
+        await response.finished;
+        assert.equal(resolverCalled, false);
+        assert.equal(reachedHandler, false);
+        assert.equal(response.statusCode, 503);
+        assert.match(String(response.body), /HOST_TARGET_USER_SCOPE_UNAVAILABLE/);
+    } finally {
+        await rm(target.root, { recursive: true, force: true });
+    }
+});
