@@ -90,7 +90,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
     assert.ok(groupRoutes.includes(route), `pinned group mutation route must be covered: ${route}`);
   }
   assert.ok(dataMaidRoutes.includes("router.post('/delete'"), 'Data Maid deletion route must be covered');
-  for (const route of ["router.post('/rename'", "router.post('/delete'", "router.post('/import'", "router.post('/duplicate'"]) {
+  for (const route of ["router.post('/create'", "router.post('/rename'", "router.post('/edit-avatar'", "router.post('/delete'", "router.post('/import'", "router.post('/duplicate'"]) {
     assert.ok(characterRoutes.includes(route), `pinned character mutation route must be covered: ${route}`);
   }
 
