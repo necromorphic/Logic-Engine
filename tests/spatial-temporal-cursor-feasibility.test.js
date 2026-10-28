@@ -207,6 +207,13 @@ test('restoring an older SQLite backup resurrects a rolled-back boundary unless 
   const firstBoundaryEventId = segments[0].events.at(-1).event_id;
   const backupWorldRevision = engine.getState(worldId).world_revision;
 
+  // The default coordinator sidecar is a lock primitive, not an accepted-head
+  // ledger. It has no business tables that could remember the later rollback.
+  const coordinatorTables = store.coordinatorDb.prepare(
+    "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'",
+  ).all();
+  assert.deepEqual(coordinatorTables, []);
+
   // Simulate a closed, consistent filesystem backup of the Core SQLite file.
   store.close();
   copyFileSync(path, backupPath);
