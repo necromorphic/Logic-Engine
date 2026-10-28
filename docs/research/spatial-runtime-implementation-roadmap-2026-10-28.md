@@ -178,6 +178,15 @@ The architecture/research task is not complete merely because a document exists 
 
 The first five technical items are still blockers. Until they close, the research can become more precise, but the spatial contract cannot honestly be declared implementation-ready.
 
+## Required handoff links
+
+- Original bounded architecture/feasibility task: [Issue #350](https://github.com/necromorphic/Logic-Engine/issues/350).
+- Current spatial task and acceptance criteria: [Issue #351](https://github.com/necromorphic/Logic-Engine/issues/351).
+- Portfolio owner / shared register / release-gate tracking: [Issue #252](https://github.com/necromorphic/Logic-Engine/issues/252).
+- Core authority boundary: [Issue #262](https://github.com/necromorphic/Logic-Engine/issues/262).
+- TimeEngine / Process Manager boundary: [Issue #243](https://github.com/necromorphic/Logic-Engine/issues/243).
+- Independent review request: [Issue #630](https://github.com/necromorphic/Logic-Engine/issues/630).
+
 ## Traceability to the parent task
 
 The parent task is [Issue #351](https://github.com/necromorphic/Logic-Engine/issues/351). This table prevents documentation progress from being mistaken for runtime readiness.
