@@ -54,6 +54,23 @@ jobs:
           $backupChildEvidence = @($report.pathAclEvidence | Where-Object { $_.path -eq $backupChildPath -and $_.exists -eq $true })
           if (-not $backupChildEvidence) { throw 'A nested backup file must have ACL evidence.' }
           if (-not $report.limitations -or $report.limitations.Count -lt 1) { throw 'Evidence limitations are missing.' }
+          $originalReport = Get-Content -LiteralPath $reportPath -Raw
+          $overwriteRefused = $false
+          try {
+            & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath, $invalidFixturePath) -BackupPath @($backupFixture) -ProcessName @('powershell.exe') -OutputPath $reportPath
+          } catch {
+            $overwriteRefused = $_.Exception.Message -like '*OutputPath already exists*'
+          }
+          if (-not $overwriteRefused) { throw 'Collector did not refuse to overwrite an existing evidence report.' }
+          if ((Get-Content -LiteralPath $reportPath -Raw) -cne $originalReport) { throw 'Existing evidence report changed after overwrite was refused.' }
+          $backupOutputPath = Join-Path $backupFixture 'must-not-write.json'
+          $backupWriteRefused = $false
+          try {
+            & .\scripts\security\Collect-DeploymentEvidence.ps1 -BackupPath @($backupFixture) -ProcessName @('powershell.exe') -OutputPath $backupOutputPath
+          } catch {
+            $backupWriteRefused = $_.Exception.Message -like '*outside supplied backup roots*'
+          }
+          if (-not $backupWriteRefused -or (Test-Path -LiteralPath $backupOutputPath)) { throw 'Collector must refuse to write its report inside a backup tree.' }
           Remove-Item -LiteralPath $reportPath -Force
           Remove-Item -LiteralPath $backupFixture -Recurse -Force
           Write-Output 'PowerShell 5.1 collector smoke test passed; report was validated and removed.'
