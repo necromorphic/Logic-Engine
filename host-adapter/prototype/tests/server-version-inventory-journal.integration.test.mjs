@@ -57,7 +57,7 @@ test('enrolled chat save fails closed until request-bound lifecycle capability e
   const writeChat = messages => writeFile(chatPath, [
     JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }),
     ...messages.map(JSON.stringify),
-  ].join('\\n') + '\\n');
+  ].join('\n') + '\n');
   try {
     const initial = makeMessage({
       messageId,
