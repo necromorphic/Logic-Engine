@@ -20,8 +20,8 @@ async function fixture() {
     const request = {
         method: 'POST',
         baseUrl: '',
-        path: '/api/chats/save',
-        originalUrl: '/api/chats/save',
+        path: '/api/characters/create',
+        originalUrl: '/api/characters/create',
         user: { profile: { handle: 'test-user' }, directories },
     };
     return { root, directories, request };
@@ -63,7 +63,7 @@ function responseMock() {
     return response;
 }
 
-test('explicit enrollment enables durable before/after journal around direct server mutation routes', async () => {
+test('explicit enrollment enables durable before/after journal around a non-blocked direct server mutation route', async () => {
     const { root, directories, request } = await fixture();
     try {
         const chatPath = path.join(directories.chats, 'chat-1.jsonl');
@@ -139,8 +139,8 @@ test('real HTTP response cannot leak a success body when post-scan is incomplete
         server = createServer((request, response) => {
             request.user = fixtureRequest.user;
             request.baseUrl = '';
-            request.path = '/api/chats/save';
-            request.originalUrl = '/api/chats/save';
+            request.path = '/api/characters/create';
+            request.originalUrl = '/api/characters/create';
             void middleware(request, response, async () => {
                 await rm(directories.backups, { recursive: true, force: true });
                 response.statusCode = 200;
@@ -158,7 +158,7 @@ test('real HTTP response cannot leak a success body when post-scan is incomplete
         server.listen(0, '127.0.0.1');
         await once(server, 'listening');
         const address = server.address();
-        const response = await fetch(`http://127.0.0.1:${address.port}/api/chats/save`, { method: 'POST' });
+        const response = await fetch(`http://127.0.0.1:${address.port}/api/characters/create`, { method: 'POST' });
         const body = await response.text();
         assert.equal(response.status, 503);
         assert.match(body, /HOST_POST_MUTATION_SCAN_INCOMPLETE/);
