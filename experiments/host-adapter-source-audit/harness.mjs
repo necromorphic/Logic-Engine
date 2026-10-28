@@ -90,7 +90,11 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
     assert.ok(groupRoutes.includes(route), `pinned group mutation route must be covered: ${route}`);
   }
   assert.ok(dataMaidRoutes.includes("router.post('/delete'"), 'Data Maid deletion route must be covered');
-  for (const route of ["router.post('/create'", "router.post('/rename'", "router.post('/edit-avatar'", "router.post('/delete'", "router.post('/import'", "router.post('/duplicate'"]) {
+  for (const route of [
+    "router.post('/create'", "router.post('/rename'", "router.post('/edit'",
+    "router.post('/edit-avatar'", "router.post('/edit-attribute'", "router.post('/merge-attributes'",
+    "router.post('/delete'", "router.post('/import'", "router.post('/duplicate'",
+  ]) {
     assert.ok(characterRoutes.includes(route), `pinned character mutation route must be covered: ${route}`);
   }
 
@@ -103,8 +107,9 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
     "'POST /api/chats/group/import'", "'POST /api/chats/import'",
     "'POST /api/chats/group/delete'", "'POST /api/chats/group/save'",
     "'POST /api/groups/create'", "'POST /api/groups/edit'", "'POST /api/groups/delete'",
-    "'POST /api/characters/create'", "'POST /api/characters/rename'", "'POST /api/characters/edit-avatar'", "'POST /api/characters/delete'",
-    "'POST /api/characters/import'", "'POST /api/characters/duplicate'",
+    "'POST /api/characters/create'", "'POST /api/characters/rename'", "'POST /api/characters/edit'",
+    "'POST /api/characters/edit-avatar'", "'POST /api/characters/edit-attribute'", "'POST /api/characters/merge-attributes'",
+    "'POST /api/characters/delete'", "'POST /api/characters/import'", "'POST /api/characters/duplicate'",
     "'POST /api/backups/chat/delete'", "'POST /api/data-maid/delete'",
   ]) assert.ok(hostJournal.includes(route), `Host journal must intercept direct route ${route}`);
 
