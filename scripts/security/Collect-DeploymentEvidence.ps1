@@ -31,7 +31,7 @@ function Get-PathAclEvidence {
     try {
         $resolved = [System.IO.Path]::GetFullPath($InputPath)
     } catch {
-        return @([pscustomobject]@{ requestedPath = $InputPath; exists = $false; error = "Invalid path" })
+        return @([pscustomobject]@{ requestedPath = $InputPath; exists = $null; error = "Invalid path" })
     }
 
     $targets = New-Object System.Collections.Generic.List[string]
