@@ -1,217 +1,240 @@
-# Proposal: World Pack Typed Spatial Attributes at Core Commit Boundary
+# World Pack Typed Spatial Attributes Contract — Revision 2
 
-**Status:** DESIGN PROPOSAL ONLY — NOT AN IMPLEMENTATION AUTHORIZATION  
+**Status:** DOCUMENTATION REVISION FOR RE-REVIEW ONLY — NOT APPROVED FOR IMPLEMENTATION  
 **Date:** 2026-10-28  
-**Decision basis:** Coordinator decision in [Issue #351, comment 6455368293](https://github.com/necromorphic/Logic-Engine/issues/351#issuecomment-6455368293)  
-**Related:** [Spatial position semantics proposal / PR #533](https://github.com/necromorphic/Logic-Engine/pull/533); [spatial-temporal evidence report](https://github.com/necromorphic/Logic-Engine/blob/research/spatial-temporal-evidence-2026-10-26/docs/research/spatial-temporal-world-model-evidence-2026-10-26.md)
+**Supersedes:** Revision 1 in PR #548  
+**Scope:** Architecture contract only. No production code, schema, API, event, adapter, persistence, projection, runtime, Host, Memory, or NPC changes are authorized.  
+**Safety:** Memory → NPC remains **DISABLED / FAIL-CLOSED**. Production implementation remains **NO-GO**.
 
-## 1. Decision and scope
+## 1. Decision retained from revision 1
 
-The coordinator selected World Pack-owned typed spatial attributes, validated by Core at the canonical commit boundary, as the preferred design direction.
+World Pack-owned typed spatial attributes remain the selected design direction. Core is the authority for canonical world state; World Pack declares type-specific attribute semantics; a spatial result is derived only from accepted canonical state and verifiable schema/temporal provenance.
 
-This document proposes a contract for review. It does **not** authorize production code, schema, API, event, adapter, persistence, projection, runtime, Host, Memory, or NPC changes. No spatial value may be inferred from generic attributes or narrative/model output. **Memory → NPC remains DISABLED / FAIL-CLOSED.**
+Approved v1 position semantics are unchanged:
 
-The approved v1 meaning of position is:
-- three coordinates: X, Y, Z;
+- exactly three coordinates: numeric X, Y, Z;
 - one world-relative, right-handed coordinate frame; +Z is up;
 - abstract logical units, not metres or another physical unit;
-- the position denotes the entity's explicitly defined origin;
-- no local frames, transforms, implicit scale, interpolation, or extrapolation.
+- position denotes the declared entity origin;
+- no local frames, transforms, implicit scale, interpolation, or extrapolation;
+- no inference from narrative/model output or generic attributes.
 
-These semantic decisions do not prove that the current runtime enforces them.
+Revision 2 replaces alternatives with normative rules where the current architecture supports a safe decision. Where a guarantee requires absent runtime protection or an owner decision, this document explicitly returns UNKNOWN/UNSUPPORTED and keeps the implementation gate BLOCKED.
 
-## 2. Source audit: current evidence and gap
+## 2. Evidence boundary and source audit
 
-The current-main source audit found:
-- `schemas/world-pack-manifest.schema.json` declares `entity_types[]` and requires `attributes_schema`, but the field is currently only constrained as a generic object.
-- `docs/04-world-pack-format.md` explicitly describes the World Pack format as proposed/partial and says its field list does not prove that every field is accepted or consumed by a runtime loader.
-- `src/core/rules.js` exports `validateEffects`; entity effects permit generic `attributes`. That validator checks effect shape and supported fields, not attributes against a pinned World Pack entity-type schema.
-- `src/storage/sqlite-store.js` stores entity attributes as `attributes_json`; canonical `commit`, `commitSegment`, `rebuild`, and `readSnapshot` are relevant existing seams, but generic storage and coherent snapshots do not make attributes spatially typed.
-- Existing `fact.set` and `located_at` examples are not typed 3D coordinate sources.
+The following are source findings, not proof of spatial enforcement:
 
-**Finding:** no inspected production path currently proves that spatial attributes are schema-validated and committed under the approved position semantics. Do not treat a JSON shape such as `{ "x": 1, "y": 2, "z": 3 }` as position evidence merely because it appears in generic attributes.
+- `schemas/world-pack-manifest.schema.json` defines `entity_types[]`; each type has `type_id` and `attributes_schema`, but `attributes_schema` is only constrained as an object. See `$defs.typeDefinition` and its `attributes_schema` property.
+- `src/core/rules.js`, `validateEffects` (around lines 205 onward in the audited source), checks supported effect fields and that entity `attributes` is an object. It does not bind the entity to a World Pack schema or validate typed spatial fields.
+- `src/storage/sqlite-store.js`, `commit()` (around line 1283), reads the world and checks revision/cursor and entity-effect preconditions, but the audited body does not resolve a World Pack schema or call `validateEffects`.
+- `commitSegment()` (around line 1507) opens a transaction, calls `commit()` for each event with deferred rebuild, rebuilds, then records segment replay. Nested `tx()` calls participate in the existing transaction depth. The implementation's actual transaction behavior must be rechecked at the exact candidate code revision before implementation.
+- `rebuild()` (around line 2215) replays valid events ordered by `commit_sequence`; entity create/upsert share an upsert projection path, update merges attribute patches/removals, and delete writes a destroyed tombstone with empty attributes.
+- Entity projection identity is currently keyed by `(world_id, entity_id)`; the audited code does not establish a distinct durable incarnation identity for a delete/recreate lifecycle.
+- World rows contain `world_pack_id` and `world_pack_version`, but those columns alone do not prove immutable schema content is resolved or pinned by the canonical commit path.
+- `docs/57-core-evaluation-recalculation-boundary.md` states that `world_revision + commit_sequence` identifies a Core snapshot boundary, not a universal source-change journal. `docs/07-knowledge-and-narrative-boundaries.md` assigns temporal progression to Time/TimeEngine and canonical state/commit to Core.
 
-This audit is bounded to the paths and evidence listed above; it is not a claim that every file in the repository has been exhaustively reviewed.
+Source links: [rules.js](https://github.com/necromorphic/Logic-Engine/blob/main/src/core/rules.js), [sqlite-store.js](https://github.com/necromorphic/Logic-Engine/blob/main/src/storage/sqlite-store.js), [World Pack manifest schema](https://github.com/necromorphic/Logic-Engine/blob/main/schemas/world-pack-manifest.schema.json), [Core evaluation boundary](https://github.com/necromorphic/Logic-Engine/blob/main/docs/57-core-evaluation-recalculation-boundary.md), [TimeEngine boundary](https://github.com/necromorphic/Logic-Engine/blob/main/docs/07-knowledge-and-narrative-boundaries.md).
 
-## 3. Proposed contract: World Pack declaration
+## 3. Normative World Pack schema identity
 
-### 3.1 Typed field declaration
+### 3.1 Exact type resolution
 
-A World Pack entity type may declare a spatial position field only through an explicit, versioned schema declaration. The proposal is to represent the field as an object with exactly the three required numeric coordinates `x`, `y`, and `z`; unknown members and non-numeric, non-finite, or partial values must be rejected.
+For a world pinned to World Pack `(world_pack_id, world_pack_version)`, Core MUST resolve an entity's `entity_type` to exactly one `entity_types[]` entry whose `type_id` equals that value byte-for-byte. No case folding, aliases, fuzzy matching, global fallback, or inference is allowed.
 
-Illustrative shape only — **not an accepted schema or runtime payload**:
+Zero matches, multiple matches, malformed definitions, or a type not declared in the pinned pack produce `UNKNOWN / SCHEMA_UNRESOLVED`; a write that attempts to assert or change spatial state MUST be rejected. Non-spatial writes to legacy/non-spatial entity types remain subject to existing Core behavior only if they do not claim spatial evidence.
 
-```json
-{
-  "position": {
-    "type": "object",
-    "required": ["x", "y", "z"],
-    "additionalProperties": false,
-    "properties": {
-      "x": { "type": "number" },
-      "y": { "type": "number" },
-      "z": { "type": "number" }
-    },
-    "spatial_semantics": {
-      "contract": "position-v1",
-      "frame": "world",
-      "handedness": "right",
-      "up_axis": "+z",
-      "units": "logical",
-      "anchor": "entity-origin"
-    }
-  }
-}
-```
+### 3.2 Immutable identity
 
-The illustrative `spatial_semantics` location and exact encoding are open design details. The final contract must choose a representation that the actual schema validator can validate and Core can resolve unambiguously; prose or an unconsumed manifest field is insufficient.
+A schema identity for spatial interpretation is the tuple:
 
-### 3.2 Entity-type and pack binding
+`(world_pack_id, world_pack_version, canonical_manifest_digest, canonical_entity_type_schema_digest, spatial_contract_id)`
 
-The final contract must specify:
-- how Core resolves the entity's declared `entity_type` to exactly one schema in the World Pack pinned to that world;
-- how the pinned pack ID and version (or immutable content identity) are established and checked at commit time;
-- what happens when the pack/schema is absent, ambiguous, invalid, unsupported, or changes incompatibly;
-- whether existing entity types without spatial declarations remain valid and simply have no supported position.
+The digest input MUST be canonicalized deterministically; object-key order and transport formatting MUST NOT change the digest. Reusing the same pack/version with changed canonical content is a version-immutability violation and MUST be rejected. A content change requires a new pack version. The spatial contract identifier for this revision is `position-v1`.
 
-No global default spatial schema is permitted. A type without an explicit supported declaration has position status `UNKNOWN / UNSUPPORTED`.
+This is a normative requirement, **not a claim that the current runtime stores or verifies these digests**. The current audited world row stores pack ID/version only. The exact canonicalization algorithm, digest storage/evidence location, and migration of existing pack registrations require an owner decision before implementation; until then the schema identity is not proven and the spatial result is UNKNOWN.
 
-## 4. Proposed Core validation and commit boundary
+### 3.3 Typed position and semantic metadata
 
-The design must identify the exact production call path and prove validation happens before canonical acceptance. Candidate inspection points—not a pre-approved implementation plan—are:
-1. effect-shape validation in `src/core/rules.js:validateEffects`;
-2. canonical event acceptance in `src/storage/sqlite-store.js:commit` and bounded segment acceptance in `commitSegment`;
-3. projection replay in `rebuild`;
-4. coherent state reads in `readSnapshot`.
+A spatial field is supported only when the pinned entity-type `attributes_schema` explicitly declares the field and its semantic metadata. The accepted declaration MUST express:
 
-### 4.1 Exact source-path findings (bounded audit of current `main`)
+- object with exactly `x`, `y`, `z`;
+- all three required, numeric, finite values; no booleans, strings, nulls, arrays, missing coordinates, or unknown members;
+- `spatial_semantics.contract = "position-v1"`;
+- `frame = "world"`, `handedness = "right"`, `up_axis = "+z"`, `units = "logical"`, `anchor = "entity-origin"`.
 
-The source inspection narrows the open question; it does not resolve it:
+No semantic default is inferred from an omitted field. Unsupported or contradictory metadata fails closed. The actual JSON Schema vocabulary/placement for `spatial_semantics` MUST be chosen to be accepted by the pinned schema validator; custom metadata MUST NOT be treated as validated merely because it is present in a JSON object. Until a validator and loader demonstrably consume this declaration, spatial status is UNKNOWN.
 
-- `src/core/rules.js:205` exports `validateEffects`. For `entity.create`, `entity.update`, and `entity.upsert`, it verifies that `attributes` is an object and checks effect shape. It does not resolve a World Pack or validate attributes against an entity type's `attributes_schema`.
-- `src/storage/sqlite-store.js:1283` is the `commit(id, x, options = {})` method. Its inspected body does not call `validateEffects` or resolve a World Pack entity schema. It does enforce other canonical invariants, including world existence, revision/cursor checks, duplicate entity-effect prevention, create-ID reuse rejection, and update preconditions. This means the contract must trace and prove the trusted caller path as well as any invariant required at the storage commit boundary; the method name alone is not proof of typed validation.
-- `src/storage/sqlite-store.js:1507` implements `commitSegment` and calls `this.commit(..., { deferRebuild: true })` for each segment event, then calls `rebuild`. Therefore any required typed-source invariant must hold for this route too, including deferred projection rebuild.
-- `src/storage/sqlite-store.js:2215` rebuilds projections from events marked `valid`. It replays `entity.create` and `entity.upsert` through the same upsert projection path, merges `entity.update` attribute patches, and represents `entity.delete` as a destroyed tombstone with empty attributes.
-- The inspected entity checks reject `entity.create` when an ID already exists, including a destroyed tombstone, but do not establish a distinct durable incarnation identifier for `entity.upsert`. The contract must not infer that an upsert of a tombstoned ID is the same incarnation or allow old position to carry forward without an approved identity rule.
-- The `worlds` row stores `world_pack_id` and `world_pack_version`, and `commit` reads the world row, but the inspected commit path does not resolve those values to a loaded, immutable entity-type schema. The existence of pack ID/version columns is not proof that schema validation is active.
+Other typed attributes are validated against the same exact pinned entity-type `attributes_schema` using the repository's supported schema-validation capability. No claim is made that the current bounded validators implement full JSON Schema 2020-12. If a schema feature is unsupported, the affected write is rejected rather than partially validated.
 
-These findings are based on the named source paths and are bounded to the inspected implementation. They are evidence for Core review, not a recommendation to add validation at a guessed layer. Core must identify the trusted caller path and select one authoritative enforcement point that cannot be bypassed.
+## 4. One authoritative spatial-validation boundary
 
-Core review must determine the authoritative insertion point. It must not be assumed that validating an effect once is sufficient if another canonical commit route can bypass the same invariant. Replay/rebuild must either revalidate against the same pinned schema identity or prove that only previously validated canonical events can enter the valid event stream.
+### 4.1 Normative rule
 
-Before a canonical entity effect is accepted, Core must validate:
-- the world exists and its pinned World Pack/schema identity is resolvable;
-- the entity type exists in that schema;
-- every supplied spatial value matches the declared typed field and the approved v1 semantics;
-- a create/upsert/update cannot bypass validation or leave a contradictory spatial value through partial updates/removal;
-- unsupported or conflicting evidence fails closed rather than being guessed.
+The single authoritative spatial validation gate MUST execute inside the canonical Core commit transaction, before any event becomes accepted/valid and before canonical state/projections can be treated as committed. It MUST validate the full spatially relevant post-state, not only the incoming patch, against the pinned schema identity and current entity lifecycle.
 
-Failure must reject the affected canonical effect/commit using the repository's established error/transaction conventions. The contract must not invent an error code before the Core owner reviews the actual error taxonomy.
+This contract chooses the storage-backed canonical commit transaction as the non-bypassable acceptance boundary because the audited store exposes both direct `commit()` and `commitSegment()`, and the latter delegates each event to `commit()`. This is a contract choice for future implementation; current code does **not** yet enforce it.
 
-## 5. Value and unknown-state rules
+The gate MUST be shared by all canonical write paths. A caller-side-only validation is insufficient. A new writer or alternate commit route is prohibited unless it enters the same gate.
 
-- Supported position requires a complete, valid X/Y/Z triple and verifiable provenance to a canonical accepted state.
-- Missing position, missing schema, unknown entity type, malformed/partial value, unsupported semantics, world mismatch, stale or inconsistent snapshot, or conflicting evidence must not yield a usable coordinate.
-- Do not silently coerce strings to numbers, substitute zero, clamp values, infer units, normalize to physical scale, or select one conflicting value by arrival order.
-- Unknown and unsupported are not the same as the origin `(0,0,0)`.
-- Position is not a claim about visibility, line of sight, observation, NPC knowledge, or belief.
+### 4.2 Write-path matrix
 
-The final contract should define whether the external result uses one status enum or a structured failure reason. That presentation choice must not weaken fail-closed behavior.
+| Path | Required enforcement | Current evidence / disposition |
+|---|---|---|
+| Ordinary event commit | Validate every entity create/update/upsert/delete spatial transition in the canonical `commit()` transaction before acceptance | `commit()` currently lacks World Pack spatial resolution; **not implemented** |
+| Segment commit | Each segment event passes the same `commit()` gate; all segment effects and final rebuild are one transaction, or the contract must explicitly downgrade to per-event atomicity | `commitSegment()` wraps calls in `tx()`; nested transaction behavior suggests one SQLite transaction, but exact rollback-on-mid-segment failure requires an exact-head regression test; **not yet proven by this audit** |
+| Replay/idempotent retry | Return the recorded result only for the exact same request identity/hash; never reinterpret a replay as a new spatial write. Conflicting key/hash is rejected | Existing replay/idempotency path exists; spatial provenance binding is **not implemented** |
+| Projection rebuild/replay | Rebuild only from canonical events whose schema/contract evidence can be verified; replay in `commit_sequence` order under the exact historical schema identity | `rebuild()` replays valid events but does not currently revalidate spatial schema identity; **not implemented** |
+| Rollback/retraction followed by rebuild | Invalidate every spatial result depending on invalidated events and rebuild only from still-valid canonical events; no stale projection may be served as current | Existing validity and rollback mechanisms exist, but spatial dependency invalidation is **not established** |
+| Any alternate importer, migration, repair, or direct store writer | Must use the same gate or leave spatial status UNKNOWN and refuse to mark the result supported | Complete route inventory is **not established**; implementation cannot proceed until audited |
 
-## 6. Entity deletion and recreation
+### 4.3 Failure and atomicity
 
-The existing entity table is keyed by `(world_id, entity_id)`; the audit has not established a durable entity-incarnation identifier that distinguishes deletion followed by recreation with the same ID.
+If any spatially relevant effect in an ordinary commit fails validation, the entire canonical event/commit MUST be rejected; no part of that event may become valid, update the entity projection, advance the accepted spatial state, or be exposed as a supported position.
 
-Therefore:
-- a recreated entity ID must not inherit a prior incarnation's position;
-- the design must specify how incarnation identity is represented in canonical evidence and replay, or explicitly return unknown whenever identity continuity cannot be proved;
-- a consumer must not infer continuity from the reused ID, matching attributes, or narrative text.
+For a segment, the required target contract is all-or-nothing: if any event fails spatial validation, the whole segment, its event rows, projection changes, replay/idempotency record, and revision/sequence advancement MUST roll back together. The current implementation appears to wrap the segment in an outer `tx()`, but this guarantee is **not counted as confirmed** until tests demonstrate rollback after failure at the first, middle, and final segment positions, including failure during rebuild. If those tests fail, the segment path remains BLOCKED; no partial-segment behavior may be silently accepted as equivalent.
 
-This is an implementation blocker until the Core owner identifies a supported mechanism and the contract defines its behavior.
+A failure MUST use the repository's approved error taxonomy; this document does not invent an error code. Failed or interrupted operations leave the spatial result UNKNOWN until a fresh coherent Core snapshot is obtained.
 
-## 7. Temporal binding and coherent reads
+## 5. Entity lifecycle and identity continuity
 
-Current evidence distinguishes `world_revision`, `commit_sequence`, and `game_time_coordinate`. They are not interchangeable.
+Normative choice: **if continuity of an entity incarnation cannot be proved from canonical evidence, position is UNKNOWN.** The contract does not authorize ID reuse as identity continuity and does not introduce a new incarnation field in this documentation-only stage.
 
-The contract must:
-- identify a state by the coherent Core snapshot markers required by the existing store contract, including the pair `(world_revision, commit_sequence)` where applicable;
-- reject mixed/stale snapshots and rollback-invalidated evidence;
-- define exactly how a historical position is bound to a confirmed TimeEngine boundary;
-- return unknown if the Core commit/state boundary cannot be mapped to a confirmed TimeEngine boundary for the requested historical answer;
-- prohibit interpolation/extrapolation between supported boundaries in v1.
+- `entity.create` is allowed only for a never-before-used entity ID in that world, consistent with the current create-ID reuse rejection.
+- `entity.update` may modify only the existing live incarnation. It MUST NOT revive a destroyed tombstone.
+- `entity.upsert` MUST NOT recreate or revive a destroyed ID, nor inherit any attributes or position from the prior tombstone. If current upsert behavior cannot distinguish a new incarnation safely, a tombstoned ID's upsert is rejected and position remains UNKNOWN.
+- `entity.delete` creates a terminal tombstone for that identity. The deleted position is no longer a usable current position.
+- Replay/rebuild MUST preserve this rule. Matching IDs, matching attributes, matching narrative, or event order alone do not prove that a new incarnation is the old one.
 
-The bounded `getState → getEvents → getState` feasibility seam has prior test evidence, but it does not itself define spatial meaning or prove arbitrary game-time-to-commit mapping. The final proposal must cite the exact evidence and limitations rather than claim this gap is already solved.
+A separate durable incarnation identifier may later be proposed, but it requires an explicit architecture decision and changes to canonical evidence/storage. Until then, reuse after deletion is prohibited for spatially supported entities.
 
-## 8. Rollback, rebuild, and deterministic replay
+## 6. TimeEngine and state boundary
 
-The design must demonstrate:
-- rejected/uncommitted effects never become spatial evidence;
-- rollback invalidates conclusions dependent on invalidated events;
-- rebuild from valid canonical events deterministically reproduces the same position status and value under the same pinned schema/contract version;
-- pack/schema identity changes cannot silently reinterpret historical values;
-- a stale projection or mismatched source markers cannot be served as current;
-- restart/rebuild produces the same result as uninterrupted replay.
+Three values remain distinct:
 
-No new persistent spatial projection or table is assumed by this proposal. If a projection is proposed, it requires a separate review of storage ownership, lineage, invalidation, and rebuild semantics before implementation.
+- `world_revision`: Core world-state revision;
+- `commit_sequence`: monotonic order of accepted events within the world, used to order commits including events with equal game time;
+- game-time coordinate: TimeEngine-owned in-world temporal coordinate.
 
-## 9. Backward compatibility and migration
+Neither revision nor sequence is game time. Game time alone is not a unique state selector.
 
-The contract must preserve existing packs/entities that have no typed spatial declaration. They remain usable under their current behavior, but their positions are `UNKNOWN / UNSUPPORTED`.
+A spatial result MUST be bound to a coherent Core snapshot, including `(world_revision, commit_sequence)` where the current read contract supplies both, and to an exact confirmed TimeEngine boundary for historical/game-time queries. When multiple commits share the same game-time coordinate, the state order is `commit_sequence`; a query specifying only game time MUST NOT choose an arbitrary event or silently choose first/last. It returns UNKNOWN unless an existing TimeEngine contract supplies the exact boundary/selection rule.
 
-The proposal must specify:
-- schema/contract versioning and compatibility policy;
-- whether existing generic attributes named `position`, `coordinates`, or similar are ignored as spatial evidence until explicitly migrated;
-- how invalid existing values are surfaced without retroactively changing canonical history;
-- whether migration requires a new World Pack version and how that version is pinned;
-- how rollback/rebuild behaves across pack-version boundaries.
+If a time-advance operation is pending, interrupted, has an unknown outcome, or its confirmed boundary cannot be mapped to the Core snapshot, return UNKNOWN. Following rollback, any time-to-state mapping or derived result depending on invalidated events is invalidated and must be recomputed from confirmed surviving evidence. Do not interpolate or extrapolate.
 
-No automatic migration or reinterpretation is authorized.
+The audited architecture assigns clock progression/triggers to TimeEngine and canonical state/commit to Core, but the inspected sources do not establish the exact durable link needed for every historical game-time query. The mapping contract and evidence source require Core + TimeEngine owner confirmation. No new clock, timestamp, scheduler, journal, or temporal persistence mechanism is authorized here.
 
-## 10. Proposed acceptance tests
+## 7. Replay, rebuild, rollback, and historical schema
 
-These are required future test cases, not tests claimed to have run. The eventual implementation must provide executable tests at the real validation/commit boundary, not only unit tests of a standalone validator.
+Initial commit and subsequent replay/rebuild MUST produce the same spatial status and value when given the same canonical event history, same validity/rollback state, same immutable schema identity, and same `position-v1` contract.
 
-| Case | Expected result |
+- Each event that asserts or changes spatial state must have verifiable evidence identifying the exact schema/contract under which it was accepted.
+- Replay MUST use that historical schema identity, never the currently installed version by default.
+- If historical schema content or validation evidence is missing, corrupt, ambiguous, or no longer available, the event may remain in history but MUST NOT yield a supported spatial value; return `UNKNOWN / HISTORICAL_SCHEMA_UNAVAILABLE`.
+- A schema version change cannot reinterpret older events. Rebuild must either resolve the exact old schema identity or mark the dependent spatial result UNKNOWN.
+- Rollback invalidates derived spatial results whose source events or required schema/time evidence were invalidated. Stale cached/projection results MUST NOT be returned as current.
+- Restart and rebuild equivalence is a required future test, not a current guarantee.
+
+The existing canonical event format/store has not been shown to persist the complete schema digest and validation evidence required above. Where that evidence cannot be represented by existing fields without ambiguity, an owner must separately approve a persistence/event-contract change before implementation. This documentation-only PR does not make that change.
+
+## 8. Partial updates, deletion, and backward compatibility
+
+| Input/history | Normative behavior |
 |---|---|
-| Valid declared position on a typed entity | Accepted; position supported only at the resulting canonical state boundary |
-| Generic `attributes.position` without a typed declaration | Not accepted as spatial evidence |
-| Missing/unknown pack schema or entity type | Fail closed; affected commit rejected or position unsupported according to the reviewed transaction contract |
-| Partial X/Y/Z, strings, booleans, null, arrays, malformed numbers, unknown keys | Reject; no coercion |
-| Unsupported frame/units/anchor declaration | Reject or unsupported; no fallback defaults |
-| Update removes or partially overwrites a supported position | Apply only the explicitly reviewed update semantics; never synthesize missing coordinates |
-| Cross-world entity or schema reference | Reject |
-| Recreated entity reuses the same ID | No inheritance of old position |
-| Rejected or uncommitted effect | No spatial evidence |
-| Rollback invalidates source event | Dependent result becomes invalid/unknown |
-| Rebuild and restart | Deterministic equivalence with valid-event replay |
-| Pack schema version changes | No silent reinterpretation of older committed values |
-| Inconsistent Core snapshot markers | Reject result |
-| No confirmed TimeEngine boundary for historical query | Unknown; no interpolation/extrapolation |
-| Conflicting committed evidence | Conflict/unknown unless a separately approved deterministic rule applies |
-| Memory/NPC asks for position | No disclosure or integration permission granted |
+| Old World Pack has no typed spatial declaration | Pack remains usable under existing non-spatial behavior; spatial status is `UNKNOWN / UNSUPPORTED`. |
+| Generic `attributes.position`, `coordinates`, `location`, or similar fields without explicit typed declaration | Never spatial evidence; do not infer or coerce. |
+| Old event's source schema is unavailable | Preserve event history; spatial status `UNKNOWN / HISTORICAL_SCHEMA_UNAVAILABLE`; no reinterpretation under current schema. |
+| Schema migration | Requires a new immutable pack version and explicit migration rule/evidence. No automatic migration. |
+| Version rollback | Restore the exact old schema identity if available; otherwise spatial status UNKNOWN. Do not relabel old data as valid under another version. |
+| Partial update omits spatial field | Preserve current value only if the entity incarnation and full pre-state are verified under the same schema and the patch semantics mean “unchanged”; never fill missing coordinates from defaults. |
+| Update provides only some of X/Y/Z | Reject the entire commit. |
+| Explicit removal of spatial field via `remove_attributes` | Removal is allowed only as an explicit typed-schema-valid state transition; after commit, position becomes `UNKNOWN / POSITION_ABSENT`, not the old position. |
+| Update changes schema/type or semantic metadata | Reject unless an explicit reviewed migration transition exists; no in-place reinterpretation. |
+| Delete/tombstone | Position becomes UNKNOWN immediately; no later entity may inherit it. |
+| Conflicting spatial evidence | Return `UNKNOWN / CONFLICT`; no arrival-order winner. |
 
-ST-01–ST-16 remain **NOT TESTED / NOT PASSED** until implemented and actually executed with recorded results.
+A legacy migration must enumerate the source field, source schema/version, conversion rule, validation evidence, and resulting immutable pack version. Generic field names alone are not migration evidence.
 
-## 11. Explicit blockers requiring Core review
+## 9. Spatial result statuses
 
-1. **Canonical validation point:** exact call path and proof no commit route bypasses validation.
-2. **World Pack pinning:** source of immutable pack/schema identity available to the commit path.
-3. **Entity incarnation:** reliable deletion/recreation distinction or fail-closed behavior.
-4. **Core–TimeEngine mapping:** evidence linking a coherent Core state to a confirmed temporal boundary.
-5. **Rollback/rebuild:** deterministic handling of invalidated events and schema versions.
-6. **Schema representation:** exact JSON Schema form and validator behavior for semantic metadata.
-7. **Transaction semantics:** whether invalid spatial data rejects one effect or the whole proposed commit, consistent with existing atomicity rules.
-8. **Backward compatibility:** treatment of existing generic attributes and packs.
+| Status | Meaning | Example causes |
+|---|---|---|
+| `SUPPORTED` | Complete validated position for a proven current incarnation at a coherent, confirmed state/time boundary | Exact schema and provenance verified; valid finite X/Y/Z |
+| `UNKNOWN / POSITION_ABSENT` | No current typed position exists | Explicit removal; never declared |
+| `UNKNOWN / UNSUPPORTED` | Entity type or legacy pack has no supported spatial declaration | Untyped legacy entity |
+| `UNKNOWN / SCHEMA_UNRESOLVED` | Schema/type absent, ambiguous, invalid, unsupported, or not resolvable | Zero/multiple `type_id` matches |
+| `UNKNOWN / SCHEMA_IDENTITY_UNPROVEN` | Pack/version exists but immutable content identity is not verified | Missing digest or changed content under same version |
+| `UNKNOWN / INVALID_VALUE` | Spatial value is malformed or semantically invalid | Partial triple, string coordinate, non-finite number, unsupported frame |
+| `UNKNOWN / IDENTITY_UNPROVEN` | Entity incarnation continuity cannot be proven | Tombstone reuse or ambiguous upsert |
+| `UNKNOWN / HISTORICAL_SCHEMA_UNAVAILABLE` | Original schema/validation evidence is unavailable | Old event replay without source schema |
+| `UNKNOWN / TIME_BOUNDARY_UNCONFIRMED` | Core state cannot be tied to a confirmed TimeEngine boundary | Pending/interrupted time operation; ambiguous game-time query |
+| `UNKNOWN / STALE_SNAPSHOT` | Snapshot markers disagree or source state changed | Mixed revision/sequence or stale projection |
+| `UNKNOWN / ROLLBACK_INVALIDATED` | Required source event/evidence was retracted or rolled back | Dependent event invalidated |
+| `UNKNOWN / CONFLICT` | Valid evidence conflicts and no approved deterministic resolution exists | Competing committed positions |
+| `REJECTED` | Proposed canonical write fails validation; no new spatial state is accepted | Bad schema/value, illegal tombstone reuse, partial coordinates |
 
-These are not resolved merely by merging this document.
+`UNKNOWN` is not origin, zero, empty, or permission to infer. `REJECTED` describes the attempted write; after rejection, the previously committed state is usable only if its own currentness and provenance remain verified.
 
-## 12. Requested review and decision gate
+## 10. Acceptance matrix for future implementation
 
-Core reviewer is asked to:
-1. confirm or amend the proposed World Pack declaration and semantic metadata;
-2. identify exact validation/commit/rebuild symbols and the authoritative enforcement point;
-3. resolve or explicitly retain each blocker in §11;
-4. review the executable acceptance matrix and required evidence;
-5. state whether the contract is approved for a subsequent implementation proposal.
+These are required future checks. They are **NOT RUN / NOT PASSED** by this documentation change.
 
-**Gate:** this document may be reviewed and revised as design work. Production implementation remains **NO-GO** until Core explicitly approves a concrete contract and a separate implementation scope. Memory → NPC remains **DISABLED / FAIL-CLOSED**.
+| Test | Positive/negative criterion | Required evidence |
+|---|---|---|
+| Valid typed position | Accept only exact typed finite X/Y/Z and supported semantics | Test through canonical commit gate |
+| Untyped generic `position` / `coordinates` | Never becomes spatial evidence | Negative commit/read test |
+| Missing/unknown/ambiguous type schema | Reject spatial write; result UNKNOWN | Tests for zero and multiple matches |
+| Same pack/version with changed content | Reject immutable identity violation | Digest/version immutability test |
+| Unsupported `spatial_semantics` or unsupported validator keyword | Reject; no silent partial validation | Real loader + validator tests |
+| Partial triple, unknown key, string/boolean/null/array/NaN/infinity | Reject entire commit | Boundary tests for each malformed form |
+| Ordinary commit and alternate direct writer | No bypass around canonical gate | Route inventory plus negative bypass test |
+| Segment first/middle/final event failure | No segment effects, projection, idempotency result, revision/sequence advance survive | Transaction rollback tests |
+| Rebuild failure | No partially rebuilt spatial projection is served | Failure injection and recovery test |
+| Replay same key/hash | Same recorded result; no re-interpretation | Idempotency test |
+| Replay key with different request | Reject conflict | Negative replay test |
+| Create/update/upsert/delete | Lifecycle rules preserved; deleted position not usable | Event lifecycle matrix |
+| Upsert of tombstoned ID | Reject; no inherited position | Regression test |
+| Partial update leaves field unchanged | Preserve only under proven same incarnation/schema and explicit patch semantics | Positive + stale-precondition tests |
+| Explicit position removal | Commit removal; return POSITION_ABSENT | Removal test |
+| Historical schema missing | UNKNOWN, never current-schema reinterpretation | Replay with missing old schema fixture |
+| Same history commit vs rebuild/restart | Identical result under same schema evidence | Deterministic replay comparison |
+| Rollback | All dependent spatial results invalidated | Rollback/rebuild test |
+| Equal game-time commits | Ordered by commit_sequence; time-only ambiguous query UNKNOWN | TimeEngine/Core integration test |
+| Pending/interrupted TimeEngine operation | UNKNOWN until confirmed mapping restored | Failure/recovery integration test |
+| Cross-world or mixed snapshot markers | Reject/UNKNOWN | Negative snapshot tests |
+| Memory/NPC consumer requests position | No new disclosure/integration path | Verify existing disabled/fail-closed gate remains unchanged |
+
+## 11. Six review blockers mapped to this revision
+
+| Blocker from review | Revision 2 disposition | Section | What is actually closed vs still required |
+|---|---|---|---|
+| 1. No single non-bypassable validation/commit boundary; segment/rebuild routes unclear | Normative canonical transaction gate; write-path matrix; all-or-nothing segment target | §4 | **Design rule closed for re-review. Runtime guarantee open:** gate absent; segment atomicity needs exact-head failure tests and route inventory. |
+| 2. World Pack schema identity/type resolution not immutable | Exact `entity_type == type_id` rule, immutable tuple and fail-closed cases | §3 | **Semantic rule closed for re-review. Runtime guarantee open:** current code does not resolve/store/verify the full identity/digest. Digest canonicalization/evidence location needs owner approval. |
+| 3. Delete/recreate can reuse ID and inherit position through upsert/rebuild | Unknown if continuity unproven; prohibit tombstone reuse for spatially supported entities | §5, §8 | **Safe fallback selected. Runtime enforcement open:** current projection key lacks incarnation identity; upsert/rebuild must be changed and tested before implementation can pass. |
+| 4. No proven Core state ↔ confirmed TimeEngine boundary | Separate revision/sequence/game time; equal-time order; ambiguous/pending/rollback mapping returns UNKNOWN | §6 | **Fail-closed behavior defined. Mapping itself remains open:** Core + TimeEngine owner must identify existing durable confirmation evidence. No new mechanism authorized. |
+| 5. Replay/rebuild/rollback can reinterpret old events or serve stale results | Historical schema identity/evidence required; no fallback to current schema; invalidation rules | §7, §8, §9 | **Determinism rule closed for re-review. Runtime guarantee open:** current events/store have not been shown to carry sufficient schema evidence or spatial invalidation. |
+| 6. Schema semantics, transaction rejection, legacy compatibility and partial updates were underspecified | Validator requirements, statuses, whole-event rejection, segment atomicity target, legacy/update/removal matrix | §3.3, §4.3, §8, §9, §10 | **Normative outcomes closed for re-review. Runtime guarantee open:** schema validator capability, transaction tests, and migration/evidence mechanism require proof; no existing tests are claimed. |
+
+## 12. Open architecture-owner decisions
+
+These questions cannot be solved by prose alone and remain explicit pre-implementation gates:
+
+1. **Schema digest canonicalization and evidence location:** approve the deterministic canonicalization algorithm and where exact historical manifest/type-schema digest plus validation contract identity can be verified. Existing world pack ID/version fields are insufficient by themselves.
+2. **TimeEngine confirmation contract:** identify the existing authoritative record/operation that proves a game-time boundary is complete and maps it to Core `(world_revision, commit_sequence)`; define how same-game-time queries name a boundary. Do not create a new clock or journal implicitly.
+3. **Segment transaction guarantee:** confirm by exact-head tests that the outer SQLite transaction rolls back all event, projection, revision/sequence, and idempotency changes after any mid-segment or rebuild failure.
+4. **Schema validator support:** identify the actual runtime validator and confirm it validates the required schema dialect and rejects unsupported keywords/custom metadata rather than silently ignoring them.
+5. **Migration policy:** approve whether legacy entities remain non-spatial indefinitely or may be migrated only through a new pack version with explicit evidence. No automatic backfill.
+6. **Incarnation model:** this revision selects prohibition of tombstoned-ID reuse for supported spatial entities. If the product requires reuse, the architecture owner must separately approve a durable incarnation identity and its event/storage/replay changes; do not weaken this contract by inference.
+7. **Canonical route inventory:** confirm all direct, segment, replay, rebuild, migration, repair, and import writers enter the same gate. The current source audit is bounded and does not prove exhaustiveness.
+
+Until these decisions are recorded and required code/tests exist, spatial production implementation remains **BLOCK / NO-GO**.
+
+## 13. Re-review gate and explicit non-claims
+
+This revision is ready only for a second architectural review. It is not contract approval or implementation authorization.
+
+- No production code or runtime behavior was changed by this revision.
+- No ST-01–ST-16 or new acceptance test is claimed to have run.
+- A green CI result, if any, is not evidence that the architecture guarantees above are implemented.
+- Memory → NPC remains **DISABLED / FAIL-CLOSED**.
+- Production implementation remains **NO-GO** until Core and TimeEngine owners resolve the open decisions, the real write paths and transaction guarantees are verified, and a separate implementation scope is approved.
