@@ -103,3 +103,12 @@ No persistent beliefs, confidence scores, observations, communication, documents
 The first NPC runtime adapter is not ready until Stages A–C exist in executable Core code, Stage D consumes the exact filtered envelope, and the production-boundary tests above pass on the resulting commit. A green general test suite alone is not sufficient.
 
 The next Core PR should implement Stage A only after the binding source is explicitly selected; the next should implement acquisition/provenance; filtering must follow those real records rather than inventing data shapes in advance.
+
+
+## Stage B implementation-branch reconciliation (2026-10-28)
+
+The draft implementation in `feat/npc-initial-acquisition-stage-b-20261028` adds a Core-owned, event-sourced `author_initial` acquisition primitive and a rebuildable projection. It binds a record to one exact valid source claim/event, a canonical non-destroyed subject, and an exact world revision/commit-sequence cursor. The acquisition effect is rejected by ordinary event preparation; no public endpoint was added. Focused tests cover persistence, source rollback, acquisition rollback, idempotent replay, subject unavailability, source/provenance mismatch, and migrations.
+
+**Stage B is not yet complete.** The service is not wired to a production authoring caller, and imported acquisition is deliberately rejected because current Core has no trusted import-source resolver/manifest contract that verifies package provenance and binds it to source events. A caller-supplied import label/digest is not treated as authority. Visibility remains `unclassified`, so these records cannot be used as model disclosure permission. See `docs/90-core-initial-knowledge-acquisition-stage-b-implementation.md` for exact implementation evidence and the remaining exit blocker.
+
+Memory → NPC remains DISABLED / FAIL-CLOSED. Stages C and D remain out of scope.
