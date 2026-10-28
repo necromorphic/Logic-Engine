@@ -988,3 +988,30 @@ test('re-enrollment fails closed when the marker survives loss of the mutation j
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test('enrollment marker blocks compatibility-mode mutation when registry rolls back to empty', async () => {
+    const { root, request } = await fixture();
+    try {
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        await writeFile(path.join(root, '.logic-engine-host', 'enrollments.json'), JSON.stringify({
+            version: 1,
+            conversations: [],
+        }) + '\n');
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            reachedHandler = true;
+            response.json({ ok: true });
+        });
+        await response.finished;
+        assert.equal(reachedHandler, false, 'native mutation must not run after the registry becomes empty');
+        assert.equal(response.statusCode, 503);
+        assert.match(String(response.body), /HOST_JOURNAL_UNAVAILABLE/);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
