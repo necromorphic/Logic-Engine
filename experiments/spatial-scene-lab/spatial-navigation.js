@@ -82,18 +82,45 @@ export function rankRoomRoutes(scene, fromRoomId, toRoomId, constraints = {}) {
   routes.sort((a, b) => a.cost - b.cost ||
     a.doorPath.join('\u0000').localeCompare(b.doorPath.join('\u0000')));
 
-  const openReachable = new Set([fromRoomId]);
-  const queue = [fromRoomId];
-  while (queue.length) {
-    const roomId = queue.shift();
-    for (const door of scene.doors.filter((item) => item.state === 'open' && !forbidden.has(item.id) &&
-      (item.roomA === roomId || item.roomB === roomId))) {
-      const next = door.roomA === roomId ? door.roomB : door.roomA;
-      if (!openReachable.has(next)) { openReachable.add(next); queue.push(next); }
+  // An unknown door matters only if it participates in a possible route to
+  // the requested destination under the same explicit constraints. Merely
+  // touching the source's open component (for example, a dead-end closet) is
+  // not enough to make reachability or route optimality unknown.
+  let unknownCouldMatter = false;
+  const possibleRouteStack = [{
+    roomId: fromRoomId,
+    roomPath: [fromRoomId],
+    cost: 0,
+    usedUnknownDoor: false,
+  }];
+  while (possibleRouteStack.length && !unknownCouldMatter) {
+    const current = possibleRouteStack.pop();
+    const doors = scene.doors.filter((door) =>
+      ['open', 'unknown'].includes(door.state) &&
+      !forbidden.has(door.id) &&
+      (door.roomA === current.roomId || door.roomB === current.roomId)
+    );
+    for (const door of doors) {
+      const next = door.roomA === current.roomId ? door.roomB : door.roomA;
+      if (current.roomPath.includes(next)) continue;
+      const cost = current.cost + door.traversalCost;
+      if (constraints.maxCost !== undefined && cost > constraints.maxCost) continue;
+      const usedUnknownDoor = current.usedUnknownDoor || door.state === 'unknown';
+      if (next === toRoomId) {
+        if (usedUnknownDoor) {
+          unknownCouldMatter = true;
+          break;
+        }
+      } else {
+        possibleRouteStack.push({
+          roomId: next,
+          roomPath: [...current.roomPath, next],
+          cost,
+          usedUnknownDoor,
+        });
+      }
     }
   }
-  const unknownCouldMatter = scene.doors.some((door) => door.state === 'unknown' && !forbidden.has(door.id) &&
-    (openReachable.has(door.roomA) || openReachable.has(door.roomB)));
   if (!routes.length) {
     return {
       status: unknownCouldMatter ? 'UNKNOWN' : 'CONFIRMED',
