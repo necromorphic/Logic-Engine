@@ -244,6 +244,21 @@ $pathInputs = @($DataPath) + @($BackupPath) | Where-Object { $_ } | Select-Objec
 
 # Never let the evidence output overwrite an input, SQLite sidecar, or file in a backup tree.
 $fullOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
+# Output ancestors must be real directories, not junctions/symlinks that could redirect the report into a protected tree.
+$outputParentDirectory = [System.IO.Path]::GetDirectoryName($fullOutputPath)
+if (-not $outputParentDirectory -or -not (Test-Path -LiteralPath $outputParentDirectory -PathType Container)) {
+    throw "Output directory does not exist: $outputParentDirectory"
+}
+$currentOutputParent = $outputParentDirectory
+while ($currentOutputParent) {
+    $parentItem = Get-Item -LiteralPath $currentOutputParent -Force -ErrorAction Stop
+    if (($parentItem.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0) {
+        throw "Output path contains a reparse point; refusing to write evidence: $currentOutputParent"
+    }
+    $nextOutputParent = [System.IO.Path]::GetDirectoryName($currentOutputParent.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar))
+    if (-not $nextOutputParent -or $nextOutputParent -eq $currentOutputParent) { break }
+    $currentOutputParent = $nextOutputParent
+}
 foreach ($dataFile in @($DataPath | Where-Object { $_ })) {
     try {
         $fullDataPath = [System.IO.Path]::GetFullPath($dataFile)
