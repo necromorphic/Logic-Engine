@@ -1163,3 +1163,40 @@ test('final dispatch revalidation rejects forged or malformed prepared results',
   const tampered = { ...prepared, candidates: [] };
   assert.equal((await consumer.revalidateForFinalDispatch(request(), tampered)).status, 'non_ready');
 });
+
+
+test('consumer fails closed on Object.prototype pollution without invoking inherited getters', async (t) => {
+  const { consumer } = setup(t);
+  let invoked = false;
+  Object.defineProperty(Object.prototype, 'npcInjectedWorldId', {
+    configurable: true,
+    get() { invoked = true; return 'memory-npc-world'; },
+  });
+  let result;
+  try {
+    result = await consumer.retrieveForNpc(request());
+  } finally {
+    delete Object.prototype.npcInjectedWorldId;
+  }
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_result_incomplete_or_scope_mismatch');
+  assert.equal(invoked, false);
+});
+
+test('consumer fails closed when Array.prototype iterator is replaced', async (t) => {
+  const { consumer } = setup(t);
+  const original = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  let result;
+  try {
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true,
+      writable: true,
+      value: function* pollutedIterator() { throw new Error('iterator invoked'); },
+    });
+    result = await consumer.retrieveForNpc(request());
+  } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, original);
+  }
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_result_incomplete_or_scope_mismatch');
+});
