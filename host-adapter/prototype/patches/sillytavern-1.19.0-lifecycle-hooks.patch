@@ -478,11 +478,12 @@ diff --git a/src/server-startup.js b/src/server-startup.js
  import { router as volcengineRouter } from './endpoints/volcengine.js';
 +import { router as logicEngineLifecycleRouter } from './endpoints/logic-engine-lifecycle.js';
 +import { createHostLifecycleMutationMiddleware } from './endpoints/logic-engine-host-journal.mjs';
++import { getUserDirectories } from './users.js';
  
  /**
   * @typedef {object} ServerStartupResult
 @@ -141,2 +143,3 @@ export function setupPrivateEndpoints(app) {
-+    app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true }));
++    app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, getUserDirectories }));
      app.use('/', userDataRouter);
      app.use('/api/users', usersPrivateRouter);
 @@ -185,5 +186,6 @@ export function setupPrivateEndpoints(app) {
@@ -615,15 +616,16 @@ diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends
      try {
 diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-engine-host-journal.mjs
 new file mode 100644
+index 0000000..0000000
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,990 @@
+@@ -0,0 +1,1195 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
 +import path from 'node:path';
-+import { scanHostArtifactRoots } from './logic-engine-host-inventory.mjs';
-+import { scanPersistedConversationInventories } from './logic-engine-persisted-conversation-inventory.mjs';
++import { scanHostArtifactRoots } from './server-inventory-scanner.mjs';
++import { scanPersistedConversationInventories } from './persisted-conversation-inventory.mjs';
 +
 +const MUTATIONS = new Map([
 +    ['POST /api/chats/save', 'chat-save'],
@@ -647,8 +649,10 @@ new file mode 100644
 +    ['POST /api/groups/delete', 'group-delete'],
 +    ['POST /api/backups/chat/delete', 'backup-delete'],
 +    ['POST /api/data-maid/delete', 'data-maid-delete'],
++    ['POST /api/users/reset-step2', 'user-root-reset'],
 +]);
 +
++const ENROLLMENT_MARKER_NAME = '.logic-engine-host-enrollment-marker';
 +const digest = value => createHash('sha256').update(value).digest('hex');
 +const canonical = value => JSON.stringify(value);
 +const stableValue = value => {
@@ -668,15 +672,93 @@ new file mode 100644
 +        && conversation.sourcePath.startsWith(prefix));
 +}
 +
++async function targetUserHasEnrolledState(directories) {
++    const rootPath = directories?.root;
++    const chatRootPath = directories?.chats;
++    if (typeof rootPath !== 'string' || !path.isAbsolute(rootPath)
++        || typeof chatRootPath !== 'string' || !path.isAbsolute(chatRootPath)) {
++        throw new Error('HOST_TARGET_USER_SCOPE_UNAVAILABLE');
++    }
++    try {
++        const rootStat = await lstat(rootPath);
++        if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('HOST_TARGET_USER_ROOT_UNSAFE');
++    } catch (error) {
++        if (error?.code === 'ENOENT') return false;
++        throw error;
++    }
++    const canonicalChatRoot = await realpath(chatRootPath);
++    const chatStat = await lstat(canonicalChatRoot);
++    if (!chatStat.isDirectory() || chatStat.isSymbolicLink()) throw new Error('HOST_TARGET_USER_CHAT_ROOT_UNSAFE');
++    const userRoot = path.dirname(canonicalChatRoot);
++    const markerPath = path.join(userRoot, ENROLLMENT_MARKER_NAME);
++    const stateDirectory = path.join(userRoot, '.logic-engine-host');
++    let markerExists = false;
++    try {
++        const markerStat = await lstat(markerPath);
++        if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('HOST_TARGET_USER_MARKER_UNSAFE');
++        markerExists = true;
++    } catch (error) {
++        if (error?.code !== 'ENOENT') throw error;
++    }
++    let stateExists = false;
++    try {
++        const stateStat = await lstat(stateDirectory);
++        if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) throw new Error('HOST_TARGET_USER_STATE_UNSAFE');
++        stateExists = true;
++    } catch (error) {
++        if (error?.code !== 'ENOENT') throw error;
++    }
++    if (!stateExists) {
++        if (markerExists) throw new Error('HOST_TARGET_USER_ENROLLMENT_STATE_LOST');
++        return false;
++    }
++    let registry;
++    try {
++        registry = await readRegistry(path.join(stateDirectory, 'enrollments.json'), { allowMissing: !markerExists });
++    } catch {
++        throw new Error('HOST_TARGET_USER_REGISTRY_UNAVAILABLE');
++    }
++    if (registry.conversations.length > 0) return true;
++    if (markerExists) throw new Error('HOST_TARGET_USER_ENROLLMENT_STATE_LOST');
++    return false;
++}
++
 +function operationTargetsEnrolledHistory(operation, request, registry) {
 +    const body = request.body ?? {};
++    if (operation === 'chat-save') {
++        // The native /api/chats/save handler overwrites the JSONL file before
++        // the post-mutation snapshot can run. No request-bound, one-shot Host
++        // transition capability is currently implemented, so accepting this
++        // write would make post-write detection the only safeguard.
++        const enrolledChats = registry.conversations.filter(conversation => conversation.domain === 'chats');
++        const characterDirectory = path.parse(String(body.avatar_url ?? '').replace('.png', '')).name;
++        const chatName = path.parse(String(body.file_name ?? '')).name;
++        if (!characterDirectory || !chatName || enrolledChats.some(conversation => typeof conversation.sourcePath !== 'string')) {
++            return enrolledChats.length > 0;
++        }
++        const sourcePath = characterDirectory + '/' + chatName + '.jsonl';
++        return enrolledChats.some(conversation => conversation.sourcePath === sourcePath);
++    }
++    if (operation === 'group-chat-save') {
++        // Group-save payloads can vary across pinned ST call paths; without a
++        // request-bound lifecycle capability, fail closed for the enrolled domain.
++        return registry.conversations.some(conversation => conversation.domain === 'group_chats');
++    }
 +    if (operation === 'chat-import') {
 +        return registry.conversations.some(conversation => conversation.domain === 'chats');
 +    }
 +    if (operation === 'group-chat-import') {
 +        return registry.conversations.some(conversation => conversation.domain === 'group_chats');
 +    }
-+    if (operation === 'data-maid-delete') {
++    if (operation === 'user-root-reset') {
++        // This route deletes the entire current user's data root, including the
++        // enrollment marker and journal. It is denied while any history is enrolled.
++        return registry.conversations.length > 0;
++    }
++    if (operation === 'data-maid-delete' || operation === 'backup-delete') {
++        // Backup deletion can destroy the only remaining copy of an enrolled
++        // chat version. Until backups have an identity-preserving lifecycle,
++        // reject the operation whenever any Host conversation is enrolled.
 +        return registry.conversations.length > 0;
 +    }
 +    if (operation === 'chat-delete') {
@@ -742,7 +824,12 @@ new file mode 100644
 +        if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('HOST_STATE_DIRECTORY_UNSAFE');
 +    } catch (error) {
 +        if (error?.code !== 'ENOENT') throw error;
-+        await mkdir(stateDirectory, { mode: 0o700 });
++        try {
++            await mkdir(stateDirectory, { mode: 0o700 });
++        } catch (createError) {
++            // Concurrent first-time requests may race to create the same state directory.
++            if (createError?.code !== 'EEXIST') throw createError;
++        }
 +        const stat = await lstat(stateDirectory);
 +        if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('HOST_STATE_DIRECTORY_UNSAFE');
 +    }
@@ -924,10 +1011,32 @@ new file mode 100644
 + * A successful pre-snapshot and fsynced intent are required before the handler.
 + * The response is held until a post-snapshot and fsynced outcome are recorded.
 + */
-+export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false } = {}) {
++export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, getUserDirectories } = {}) {
 +    return async function hostLifecycleMutationMiddleware(request, response, next) {
-+        const operation = MUTATIONS.get(request.method + ' ' + request.baseUrl + request.path)
-+            ?? MUTATIONS.get(request.method + ' ' + request.originalUrl?.split('?')[0]);
++        const routeKey = request.method + ' ' + request.baseUrl + request.path;
++        const originalRouteKey = request.method + ' ' + request.originalUrl?.split('?')[0];
++        if (request.method === 'POST'
++            && (routeKey === 'POST /api/users/delete' || originalRouteKey === 'POST /api/users/delete')
++            && request.body?.purge) {
++            // Admin purge targets another user's root; the current request.user
++            // registry is not the target's authority. Resolve the target using
++            // SillyTavern's own server-side directory resolver and fail closed if
++            // its enrollment state cannot be verified.
++            if (typeof request.body?.handle !== 'string' || !request.body.handle || typeof getUserDirectories !== 'function') {
++                return fail(response, 'HOST_TARGET_USER_SCOPE_UNAVAILABLE', 503);
++            }
++            try {
++                const targetDirectories = getUserDirectories(request.body.handle);
++                if (await targetUserHasEnrolledState(targetDirectories)) {
++                    return fail(response, 'HOST_ENROLLED_USER_PURGE_UNSUPPORTED', 409);
++                }
++            } catch {
++                return fail(response, 'HOST_TARGET_USER_SCOPE_UNAVAILABLE', 503);
++            }
++            return next();
++        }
++        const operation = MUTATIONS.get(routeKey)
++            ?? MUTATIONS.get(originalRouteKey);
 +        if (!operation || !request.user) return next();
 +
 +        let paths;
@@ -945,12 +1054,26 @@ new file mode 100644
 +                if (enforce) return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
 +                return next();
 +            }
-+            const stateDirectory = path.join(path.dirname(canonicalChatRoot), '.logic-engine-host');
++            const userRoot = path.dirname(canonicalChatRoot);
++            const stateDirectory = path.join(userRoot, '.logic-engine-host');
 +            try {
 +                const stateStat = await lstat(stateDirectory);
 +                if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) throw new Error('HOST_STATE_DIRECTORY_UNSAFE');
 +            } catch (error) {
 +                if (error?.code === 'ENOENT') {
++                    // Enrollment leaves a marker outside the journal directory. If the
++                    // journal directory is later removed, never treat that as an
++                    // unconfigured installation and pass the native mutation through.
++                    try {
++                        const markerPath = path.join(userRoot, ENROLLMENT_MARKER_NAME);
++                        const markerStat = await lstat(markerPath);
++                        if (!markerStat.isFile() || markerStat.isSymbolicLink()) {
++                            return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
++                        }
++                        return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
++                    } catch (markerError) {
++                        if (markerError?.code !== 'ENOENT') return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
++                    }
 +                    if (enforce) return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
 +                    return next();
 +                }
@@ -958,12 +1081,19 @@ new file mode 100644
 +            }
 +            const registryPath = path.join(stateDirectory, 'enrollments.json');
 +            registry = await readRegistry(registryPath);
++            // A surviving marker means this state was previously enrolled.
++            // Validate it before treating an empty registry as a legacy install.
++            await assertEnrollmentStateNotLost(request);
 +            if (registry.conversations.length === 0) {
 +                if (enforce) return fail(response, 'HOST_ENROLLMENT_REQUIRED', 503);
 +                return next();
 +            }
++            // Migrate pre-marker enrollments before any covered mutation can proceed.
++            await ensureEnrollmentMarker({ roots: safeUserDirectories(request) });
 +            if (operationTargetsEnrolledHistory(operation, request, registry)) {
-+                return fail(response, 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED', 409);
++                return fail(response, ['chat-save', 'group-chat-save'].includes(operation)
++                    ? 'HOST_ENROLLED_HISTORY_SAVE_CAPABILITY_REQUIRED'
++                    : 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED', 409);
 +            }
 +            paths = await statePaths(request);
 +        } catch {
@@ -1245,7 +1375,69 @@ new file mode 100644
 + * Explicit Host enrollment registration. The registry is local Host state, not
 + * an external anti-rollback authority and not a Core authorization contract.
 + */
++async function assertEnrollmentStateNotLost(request) {
++    const roots = safeUserDirectories(request);
++    const canonicalChatRoot = await realpath(roots[0].path);
++    const userRoot = path.dirname(canonicalChatRoot);
++    const stateDirectory = path.join(userRoot, '.logic-engine-host');
++    const markerPath = path.join(userRoot, ENROLLMENT_MARKER_NAME);
++    let markerExists = false;
++    try {
++        const markerStat = await lstat(markerPath);
++        if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('HOST_ENROLLMENT_MARKER_UNSAFE');
++        markerExists = true;
++    } catch (error) {
++        if (error?.code !== 'ENOENT') throw error;
++    }
++    if (!markerExists) return;
++    try {
++        const stateStat = await lstat(stateDirectory);
++        if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) throw new Error('HOST_STATE_DIRECTORY_UNSAFE');
++    } catch (error) {
++        if (error?.code === 'ENOENT') throw new Error('HOST_ENROLLMENT_STATE_LOST');
++        throw error;
++    }
++    try {
++        const registryPath = path.join(stateDirectory, 'enrollments.json');
++        const registryStat = await lstat(registryPath);
++        if (!registryStat.isFile() || registryStat.isSymbolicLink()) throw new Error('HOST_REGISTRY_UNSAFE');
++        const registry = await readRegistry(registryPath);
++        if (registry.conversations.length === 0) throw new Error('HOST_ENROLLMENT_STATE_LOST');
++    } catch (error) {
++        if (error?.code === 'ENOENT') throw new Error('HOST_ENROLLMENT_STATE_LOST');
++        throw error;
++    }
++    try {
++        const journalStat = await lstat(path.join(stateDirectory, 'mutation-ledger.jsonl'));
++        if (!journalStat.isFile() || journalStat.isSymbolicLink()) throw new Error('HOST_JOURNAL_UNSAFE');
++    } catch (error) {
++        if (error?.code === 'ENOENT') throw new Error('HOST_ENROLLMENT_STATE_LOST');
++        throw error;
++    }
++}
++
++async function ensureEnrollmentMarker(paths) {
++    // This sibling marker detects accidental loss of the journal directory;
++    // it is not an independent anti-rollback trust anchor.
++    const markerPath = path.join(path.dirname(await realpath(paths.roots[0].path)), ENROLLMENT_MARKER_NAME);
++    try {
++        const markerStat = await lstat(markerPath);
++        if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('HOST_ENROLLMENT_MARKER_UNSAFE');
++        return;
++    } catch (error) {
++        if (error?.code !== 'ENOENT') throw error;
++    }
++    const markerHandle = await open(markerPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
++    try {
++        await markerHandle.writeFile(JSON.stringify({ version: 1, purpose: 'host-enrollment-present' }) + '\n', 'utf8');
++        await markerHandle.sync();
++    } finally {
++        await markerHandle.close();
++    }
++}
++
 +export async function registerHostConversation(request, { conversationId, sourceLocator, sourcePath, domain }) {
++    await assertEnrollmentStateNotLost(request);
 +    if (typeof conversationId !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(conversationId)) {
 +        throw new Error('HOST_ENROLLMENT_INVALID');
 +    }
@@ -1256,42 +1448,57 @@ new file mode 100644
 +    if (!['chats', 'group_chats'].includes(domain)) throw new Error('HOST_ENROLLMENT_INVALID');
 +    const paths = await statePaths(request);
 +    if (sourcePath !== undefined) await validateEnrolledSourcePath(paths, { conversationId, sourceLocator, domain, sourcePath });
-+    let registryExists = true;
++    const userKey = digest(String(request.user.profile?.handle ?? paths.roots[0].path));
++    const release = await acquireUserLock(userKey);
 +    try {
-+        const stat = await lstat(paths.registryPath);
-+        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_REGISTRY_UNSAFE');
-+    } catch (error) {
-+        if (error?.code !== 'ENOENT') throw error;
-+        registryExists = false;
-+    }
-+    const registry = await readRegistry(paths.registryPath, { allowMissing: true });
-+    if (!registryExists) {
++        // Re-check under the enrollment lock: statePaths() may create a missing
++        // directory, so the first check alone cannot distinguish first setup
++        // from a concurrent loss of previously enrolled state.
++        await assertEnrollmentStateNotLost(request);
++        let registryExists = true;
 +        try {
-+            const journalText = await readFile(paths.journalPath, 'utf8');
-+            if (journalText.length > 0) throw new Error('HOST_REGISTRY_MISSING_WITH_HISTORY');
++            const stat = await lstat(paths.registryPath);
++            if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_REGISTRY_UNSAFE');
 +        } catch (error) {
 +            if (error?.code !== 'ENOENT') throw error;
++            registryExists = false;
 +        }
-+    }
-+    const existing = registry.conversations.find(item => item.conversationId === conversationId);
-+    const candidate = { conversationId, sourceLocator, ...(sourcePath === undefined ? {} : { sourcePath }), domain, enrolledAt: new Date().toISOString() };
-+    if (existing) {
-+        if (existing.sourceLocator !== sourceLocator || existing.domain !== domain
-+            || (sourcePath !== undefined && existing.sourcePath !== sourcePath)) throw new Error('HOST_ENROLLMENT_IDENTITY_CONFLICT');
-+        return { status: 'ALREADY_ENROLLED' };
-+    }
-+    if (!registryExists) {
-+        const journalHandle = await open(paths.journalPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-+        try {
-+            await journalHandle.sync();
-+        } finally {
-+            await journalHandle.close();
++        const registry = await readRegistry(paths.registryPath, { allowMissing: true });
++        if (!registryExists) {
++            try {
++                const journalText = await readFile(paths.journalPath, 'utf8');
++                if (journalText.length > 0) throw new Error('HOST_REGISTRY_MISSING_WITH_HISTORY');
++            } catch (error) {
++                if (error?.code !== 'ENOENT') throw error;
++            }
 +        }
++        const existing = registry.conversations.find(item => item.conversationId === conversationId);
++        const candidate = { conversationId, sourceLocator, ...(sourcePath === undefined ? {} : { sourcePath }), domain, enrolledAt: new Date().toISOString() };
++        if (existing) {
++            if (existing.sourceLocator !== sourceLocator || existing.domain !== domain
++                || (sourcePath !== undefined && existing.sourcePath !== sourcePath)) throw new Error('HOST_ENROLLMENT_IDENTITY_CONFLICT');
++            await ensureEnrollmentMarker(paths);
++            return { status: 'ALREADY_ENROLLED' };
++        }
++        if (!registryExists) {
++            const journalHandle = await open(paths.journalPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
++            try {
++                await journalHandle.sync();
++            } finally {
++                await journalHandle.close();
++            }
++        }
++        // Persist the loss-detection marker before making enrollment durable.
++        // A crash after the registry write must never leave an enrolled history
++        // without its sibling marker.
++        await ensureEnrollmentMarker(paths);
++        registry.conversations.push(candidate);
++        registry.conversations.sort((a, b) => a.conversationId.localeCompare(b.conversationId));
++        await atomicWriteJson(paths.registryPath, registry);
++        return { status: 'ENROLLED' };
++    } finally {
++        release();
 +    }
-+    registry.conversations.push(candidate);
-+    registry.conversations.sort((a, b) => a.conversationId.localeCompare(b.conversationId));
-+    await atomicWriteJson(paths.registryPath, registry);
-+    return { status: 'ENROLLED' };
 +}
 +
 +
@@ -1608,6 +1815,7 @@ new file mode 100644
 +        },
 +    };
 +}
+
 diff --git a/src/endpoints/logic-engine-host-inventory.mjs b/src/endpoints/logic-engine-host-inventory.mjs
 new file mode 100644
 --- /dev/null
