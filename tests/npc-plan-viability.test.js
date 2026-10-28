@@ -96,6 +96,26 @@ test("malformed, duplicate, sparse, or out-of-scope assessment input fails close
   }).status, "non_ready");
 });
 
+test("accessor array entries fail closed without invoking the getter", () => {
+  let invoked = false;
+  const assumptions = [];
+  Object.defineProperty(assumptions, "0", {
+    configurable: true,
+    enumerable: true,
+    get() {
+      invoked = true;
+      return { id: "assumption-1", outcome: "holds" };
+    },
+  });
+  assumptions.length = 1;
+
+  assert.equal(assessNpcPlanViability({
+    plan: plan(),
+    assessment: assessment({ assumptions }),
+  }).status, "non_ready");
+  assert.equal(invoked, false);
+});
+
 test("input values are not mutated", () => {
   const input = { plan: plan(), assessment: assessment() };
   const before = structuredClone(input);
