@@ -66,3 +66,11 @@ test("rejects non-string lifecycle events without coercing them", () => {
   });
   assert.equal(coerced, false);
 });
+
+
+test("fails closed when goal reflection traps throw", () => {
+  const goal = new Proxy({}, {
+    getPrototypeOf() { throw new Error("prototype trap"); },
+  });
+  assert.deepEqual(transitionNpcGoal(goal, "complete"), { status: "non_ready", goal: null });
+});
