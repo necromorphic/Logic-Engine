@@ -281,37 +281,6 @@ export class ProcessStore {
     });
   }
 
-  reconcileMilestones(worldId, processId, updates) {
-    return this.store.tx(() => {
-      const row = this.db.prepare('SELECT * FROM world_processes WHERE world_id=? AND process_id=?')
-        .get(worldId, processId);
-      if (!row) throw new EngineError('PROCESS_NOT_FOUND', 'Process not found in this world.', 404);
-      const definition = dec(row.definition_json);
-      const updateById = new Map(updates.map((item) => [item.milestone_id, item]));
-      definition.milestones = definition.milestones.map((milestone) => {
-        const update = updateById.get(milestone.milestone_id);
-        return update ? { ...milestone, trigger_id: update.trigger_id } : milestone;
-      });
-      const stamp = now();
-      for (const update of updates) {
-        const changed = this.db.prepare(`UPDATE world_process_milestones
-          SET status='pending',completed_event_ids_json='[]',trigger_id=?,definition_json=?,
-            checkpoint_version=checkpoint_version+1,updated_at=?
-          WHERE world_id=? AND process_id=? AND milestone_id=? AND status IN ('pending','needs_review')`)
-          .run(update.trigger_id, enc(definition.milestones.find((item) => item.milestone_id === update.milestone_id)),
-            stamp, worldId, processId, update.milestone_id);
-        if (changed.changes !== 1) {
-          throw new EngineError('PROCESS_RECONCILIATION_CONFLICT',
-            'A milestone changed while the process was being reconciled.', 409,
-            { milestone_id: update.milestone_id });
-        }
-      }
-      this.db.prepare('UPDATE world_processes SET definition_json=?,updated_at=? WHERE world_id=? AND process_id=?')
-        .run(enc(definition), stamp, worldId, processId);
-      return this.get(worldId, processId);
-    });
-  }
-
   invalidateEvents(worldId, invalidatedEventIds, rollbackId) {
     const invalidated = new Set(invalidatedEventIds);
     if (!invalidated.size) return [];
