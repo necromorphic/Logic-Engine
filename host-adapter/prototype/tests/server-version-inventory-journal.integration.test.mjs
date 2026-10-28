@@ -139,8 +139,29 @@ test('request-bound capability permits only append/select transitions and reject
     assert.equal(before.complete, true);
     assert.equal(before.currentVersionCount, 2);
 
-    // The one-shot capability permits one save and rejects replay before another native write.
+    // A capability is bound to the exact request body; a modified body must fail before native persistence.
     const selectPayload = payload([selectedMessage]);
+    const persistedBeforeRejectedBody = await readFile(chatPath, 'utf8');
+    const bodyCapability = await prepare(selectPayload);
+    const changedBody = { ...selectPayload, force: true };
+    const changedBodyResult = await invokeSave(changedBody, bodyCapability.token);
+    assert.equal(changedBodyResult.reachedNativeSave, false);
+    assert.notEqual(changedBodyResult.response.statusCode, 200);
+    assert.equal(await readFile(chatPath, 'utf8'), persistedBeforeRejectedBody);
+
+    // A capability cannot authorize bytes that changed after preparation.
+    const staleFileCapability = await prepare(selectPayload);
+    const tamperedBytes = persistedBeforeRejectedBody.replace('"user_name":"unused"', '"user_name":"changed"');
+    assert.notEqual(tamperedBytes, persistedBeforeRejectedBody);
+    await writeFile(chatPath, tamperedBytes);
+    const staleFileResult = await invokeSave(selectPayload, staleFileCapability.token);
+    assert.equal(staleFileResult.reachedNativeSave, false);
+    assert.notEqual(staleFileResult.response.statusCode, 200);
+    assert.equal(await readFile(chatPath, 'utf8'), tamperedBytes);
+    await writeFile(chatPath, persistedBeforeRejectedBody);
+    assert.equal((await getHostConversationInventory(request)).complete, true);
+
+    // The one-shot capability permits one save and rejects replay before another native write.
     const selectCapability = await prepare(selectPayload);
     assert.equal(selectCapability.status, 'CAPABILITY_ISSUED');
     const select = await invokeSave(selectPayload, selectCapability.token);
