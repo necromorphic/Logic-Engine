@@ -1,0 +1,99 @@
+name: Windows gateway read-only SQLite WAL probe
+on:
+  pull_request:
+    paths:
+      - 'scripts/security/gateway_readonly_sqlite_probe.py'
+      - '.github/workflows/windows-gateway-readonly-sqlite-probe.yml'
+      - 'docs/security/gateway-readonly-sqlite-probe.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: gateway-readonly-sqlite-probe-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows-disposable-acl-probe:
+    runs-on: windows-2022
+    timeout-minutes: 6
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Probe read-only SQLite access under a separate Windows identity
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $suffix = [guid]::NewGuid().ToString('N').Substring(0, 6)
+          $password = ([guid]::NewGuid().ToString('N') + 'Aa1!')
+          $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
+          $account = "leGwProbe$suffix"
+          $root = Join-Path $env:RUNNER_TEMP "le-gw-probe-$suffix"
+          $python = (Get-Command python -ErrorAction Stop).Source
+          $writerProcesses = @()
+          try {
+            New-LocalUser -Name $account -Password $securePassword -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
+            New-Item -ItemType Directory -Path $root | Out-Null
+            foreach ($role in @('Core', 'Provider')) {
+              $dir = Join-Path $root $role
+              New-Item -ItemType Directory -Path $dir | Out-Null
+              Set-Content -LiteralPath (Join-Path $dir 'sentinel-do-not-rename.txt') -Value 'fixture'
+              $acl = Get-Acl -LiteralPath $dir
+              $acl.SetAccessRuleProtection($true, $false)
+              $acl.Access | ForEach-Object { [void]$acl.RemoveAccessRule($_) }
+              $inherit = [System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit
+              $prop = [System.Security.AccessControl.PropagationFlags]::None
+              foreach ($entry in @(
+                @{ name = 'NT AUTHORITY\SYSTEM'; rights = [System.Security.AccessControl.FileSystemRights]::FullControl },
+                @{ name = 'BUILTIN\Administrators'; rights = [System.Security.AccessControl.FileSystemRights]::FullControl },
+                @{ name = "$env:COMPUTERNAME\$account"; rights = [System.Security.AccessControl.FileSystemRights]::ReadAndExecute }
+              )) {
+                $rule = New-Object System.Security.AccessControl.FileSystemAccessRule($entry.name, $entry.rights, $inherit, $prop, [System.Security.AccessControl.AccessControlType]::Allow)
+                [void]$acl.AddAccessRule($rule)
+              }
+              Set-Acl -LiteralPath $dir -AclObject $acl
+            }
+            $credential = New-Object System.Management.Automation.PSCredential("$env:COMPUTERNAME\$account", $securePassword)
+            foreach ($role in @('Core', 'Provider')) {
+              $dir = Join-Path $root $role
+              $db = Join-Path $dir 'state.sqlite'
+              $ready = Join-Path $env:RUNNER_TEMP "le-gw-probe-$role-$suffix.ready"
+              $out = Join-Path $env:RUNNER_TEMP "le-gw-probe-$role-$suffix.out"
+              $err = Join-Path $env:RUNNER_TEMP "le-gw-probe-$role-$suffix.err"
+              $args = @(
+                ('"{0}"' -f (Join-Path $env:GITHUB_WORKSPACE 'scripts/security/gateway_readonly_sqlite_probe.py')),
+                'writer', ('"{0}"' -f $db), ('"{0}"' -f $ready)
+              ) -join ' '
+              $proc = Start-Process -FilePath $python -ArgumentList $args -PassThru -WindowStyle Hidden -WorkingDirectory $env:GITHUB_WORKSPACE
+              $writerProcesses += $proc
+              $deadline = (Get-Date).AddSeconds(15)
+              while (-not (Test-Path -LiteralPath $ready) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 200 }
+              if (-not (Test-Path -LiteralPath $ready)) { throw "SQLite writer did not create live WAL/SHM for $role." }
+              foreach ($sidecar in @("$db-wal", "$db-shm")) {
+                if (-not (Test-Path -LiteralPath $sidecar)) { throw "Missing live SQLite sidecar: $sidecar" }
+              }
+              $readerArgs = @(
+                ('"{0}"' -f (Join-Path $env:GITHUB_WORKSPACE 'scripts/security/gateway_readonly_sqlite_probe.py')),
+                'reader', ('"{0}"' -f $db), 'unused'
+              ) -join ' '
+              $reader = Start-Process -FilePath $python -ArgumentList $readerArgs -Credential $credential -LoadUserProfile -Wait -PassThru -RedirectStandardOutput $out -RedirectStandardError $err -WorkingDirectory $env:GITHUB_WORKSPACE
+              if ($reader.ExitCode -ne 0) {
+                $details = ''
+                if (Test-Path $out) { $details += Get-Content $out -Raw }
+                if (Test-Path $err) { $details += Get-Content $err -Raw }
+                throw "Gateway read-only probe failed for $role (exit $($reader.ExitCode)): $details"
+              }
+              Get-Content -LiteralPath $out
+            }
+          } finally {
+            foreach ($proc in $writerProcesses) { try { Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue } catch {} }
+            if (Test-Path -LiteralPath $root) {
+              $acl = Get-Acl -LiteralPath $root
+              $acl.SetAccessRuleProtection($false, $true)
+              Set-Acl -LiteralPath $root -AclObject $acl
+              Remove-Item -LiteralPath $root -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            try { Remove-LocalUser -Name $account -ErrorAction SilentlyContinue } catch {}
+          }
