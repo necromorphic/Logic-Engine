@@ -39,7 +39,7 @@ Keep the selected position semantics from the typed-spatial contract revision 2:
 
 ## Stage 1 — Establish a trusted World Pack loading boundary
 
-**Known source boundary:** `schemas/world-pack-manifest.schema.json` requires `entity_types[].type_id` and `attributes_schema`, but constrains `attributes_schema` only to an object. The reviewed repository paths have not demonstrated a loader that validates and registers spatial semantics.
+**Known source boundary:** `schemas/world-pack-manifest.schema.json` requires `entity_types[].type_id` and `attributes_schema`, but constrains `attributes_schema` only to an object. The current `LogicEngine.createWorld()` path requires `world_pack_id` and `world_pack_version`; the store persists those identifiers. The bounded code search did not find a `loadWorldPack`, `registerWorldPack`, or `validateWorldPackManifest` path demonstrating that the corresponding manifest content is loaded, validated, and bound to world creation. This is a bounded source-search result, not proof that no external loader exists.
 
 **Required design:**
 1. Identify the single authoritative manifest ingestion/registration path and every alternate import, migration, repair, and reload path.
