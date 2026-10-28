@@ -72,6 +72,9 @@ Responses expose process identity/version/state, progress counts, milestone stat
 - POST /v1/worlds/{world_id}/processes/{process_id}/pause
 - POST /v1/worlds/{world_id}/processes/{process_id}/resume
 - POST /v1/worlds/{world_id}/processes/{process_id}/cancel
+- POST /v1/worlds/{world_id}/processes/{process_id}/reconcile
+
+**Reconcile** is an explicit author-confirmed retry path for a process in `needs_review`. It resets all milestones in `needs_review` to `pending`, clears their invalidated completion-event references, replaces trigger IDs for pending/retried milestones, and re-registers those triggers through Core. It requires `confirm_retry: true`, the current `expected_version`, and a fresh `idempotency_key`. If any milestone to be retried is already due at or before current game time, reconciliation fails closed with `PROCESS_RECONCILE_REQUIRES_REPLAN`; it does not invent a new due time. Reconciliation does not recompute canonical effects or restore rolled-back events: it explicitly schedules the milestone proposals for a new attempt.
 
 Body:
 
