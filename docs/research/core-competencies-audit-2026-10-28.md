@@ -59,6 +59,21 @@ The current implementation has **two bounded dependency systems**, not one unive
 
 **Finding:** the next Core competency is not “build a universal graph” immediately. First establish an evidence inventory for each currently supported dependency form: where it is declared, validated, consumed by rollback/planning, and covered by a test. Mark omitted-read detection, complete dependency capture, arbitrary derived-state recalculation, and cross-block invalidation as unsupported until proven. No new graph schema, queue, API, or storage is proposed by this audit.
 
+## Dependency/recalculation — test inventory
+
+The relevant source-level suites currently contain:
+
+| Suite | Test cases in current source | What is exercised | What it does not prove |
+|---|---:|---|---|
+| `tests/causality-contract.test.js` | 43 | Entity create/update preconditions; rollback chains/diamonds; independent surviving branches; `READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`; `REQUIRES` predicates; context-manifest read declaration; unknown historical predicate review; per-world commit sequence and rollback idempotency | That every producer declares every dependency, or that arbitrary external/derived records are in the graph |
+| `tests/time-scheduler.test.js` | 33 | Stable topological ordering; missing/cancelled/not-due dependency blocking; cycle/time-order rejection; same-coordinate read/write conflict; permutation invariance; large direct dependency sets | Execution of effects, canonical commit, cross-block causal invalidation, or universal world recalculation |
+| `tests/time-advance-operation.test.js` | 6 | Scheduled effects at due coordinates; idempotency; blocked work; sub-second rejection; persisted segment checkpoint recovery | A confirmed temporal boundary mapped to the Core composite cursor, or restoration from an old external backup |
+| `experiments/recalculation-oracle/harness.test.mjs` | 8 | Full recompute A; declared dependent closure B; invariant/fallback C; missing declared edge, cycles, unknown dependencies | Production integration with Core canonical state or proof that all runtime reads are declared |
+
+The high-fan-in scheduler test covers 1,000 direct prerequisites in a deterministic plan. That is useful scale/ordering evidence for the scheduler, not proof of general recalculation.
+
+**Current dependency verdict:** strong test coverage exists for the declared causal subset and for due-trigger ordering. The key missing guarantee is **dependency completeness across producers and derived consumers**, not the basic ability to traverse known edges. Keep that distinction in the progress estimate.
+
 ## Authorized-read / result-publication competency — deeper source findings
 
 The narrow Core read service is stronger than a simple snapshot wrapper, but it is not the full result-publication pipeline:
