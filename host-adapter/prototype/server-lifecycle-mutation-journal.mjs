@@ -1135,7 +1135,7 @@ async function validateEnrolledSourcePath(paths, { conversationId, sourceLocator
         const after = await handle.stat();
         const pathAfter = await lstat(cursor);
         const sourceChanged = {
-            descriptorIdentity: before.dev !== after.dev || before.ino !== after.ino,
+            descriptorIdentity: !sameFileIdentity(before, after),
             descriptorMetadata: before.size !== after.size || before.mtimeMs !== after.mtimeMs,
             pathIdentity: pathAfter.isSymbolicLink() || !sameFileIdentity(before, pathAfter)
                 || pathAfter.size !== after.size || pathAfter.mtimeMs !== after.mtimeMs,
