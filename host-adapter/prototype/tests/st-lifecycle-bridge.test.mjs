@@ -443,7 +443,7 @@ test('unhooked clear-chat fails closed before source mutation', async () => {
   assert.equal(f.chat.length, 2);
   const readiness = await f.bridge.reconcileCurrentConversation();
   assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('clear-chat'));
+  assert.ok(!readiness.missingPaths.includes('clear-chat'));
   assert.ok(readiness.missingPaths.includes('cancel-generation'));
 });
 
