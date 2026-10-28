@@ -203,6 +203,7 @@ Source inspected: `src/endpoints/backends/chat-completions.js` at pinned SillyTa
 ### What this establishes
 
 - The pinned Chat Completions file contains multiple independent final transport call sites; a hook at one generic sender cannot be assumed to cover all branches.
+- The dedicated handler entry points map to these call sites in source order: C01 starts at line 230; C02 at 454; C03 at 800; C04 at 881; C05 at 971; C06 at 1071; C07 at 1183; C08 at 1289; C09 at 1394; C10 at 1506; C11 at 1607; C12 at 1687. The dispatcher's switch routes through early-return handlers at lines 2260–2272. C13 is the shared send path reached after additional source-selection branches spanning lines 2301–2576. Those predicates must be traced individually; C13 does not make the earlier handlers share one final boundary.
 - For branches that prebuild a config object, the final gate must bind the exact target, headers and already-serialized `config.body` immediately before the corresponding `fetch`. Re-serializing or rebuilding the request after authorization would break exact-request binding.
 - The diagnostic probe is a separate outbound path and must not be silently counted as ordinary generation or ignored if protected content can reach it.
 - The file also contains model-list/discovery calls. They are not interchangeable with generation calls and must be classified separately rather than counted as protected inference sends.
