@@ -762,6 +762,211 @@ export class LogicEngine {
     });
   }
 
+
+  /**
+   * Persist an explicit NPC belief transition as a Core-owned projection linked
+   * to the canonical event log. The proposal cannot create acquisition evidence.
+   */
+  recordNpcBeliefTransition(input) {
+    assert(obj(input), 'INVALID_NPC_BELIEF_TRANSITION', 'Belief transition request must be an object.');
+    const allowed = [
+      'world_id', 'actor_id', 'purpose', 'expected_revision', 'expected_commit_sequence',
+      'limit', 'proposition_ref', 'stance', 'supporting_acquisition_ids',
+      'contradicting_acquisition_ids', 'reason_rule_ref', 'idempotency_key',
+    ];
+    assert(Object.keys(input).every((key) => allowed.includes(key)),
+      'UNSUPPORTED_NPC_BELIEF_TRANSITION_FIELD', 'Belief transition request contains an unsupported field.');
+    for (const key of ['world_id', 'actor_id', 'proposition_ref', 'reason_rule_ref', 'idempotency_key']) {
+      assert(typeof input[key] === 'string' && input[key].trim() && input[key].length <= 200,
+        'INVALID_NPC_BELIEF_TRANSITION', key + ' must be a non-empty string of at most 200 characters.');
+    }
+    assert(['npc_turn_context', 'npc_action_evaluation'].includes(input.purpose),
+      'INVALID_NPC_BELIEF_TRANSITION', 'Unsupported NPC belief transition purpose.');
+    assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0
+      && Number.isSafeInteger(input.expected_commit_sequence) && input.expected_commit_sequence >= 0,
+    'INVALID_NPC_BELIEF_TRANSITION', 'A current world revision and commit sequence are required.');
+    const requestHash = hashRequest({
+      operation: 'npc.belief.transition',
+      world_id: input.world_id,
+      actor_id: input.actor_id,
+      purpose: input.purpose,
+      expected_revision: input.expected_revision,
+      expected_commit_sequence: input.expected_commit_sequence,
+      proposition_ref: input.proposition_ref,
+      stance: input.stance,
+      supporting_acquisition_ids: input.supporting_acquisition_ids,
+      contradicting_acquisition_ids: input.contradicting_acquisition_ids,
+      reason_rule_ref: input.reason_rule_ref,
+    });
+
+    return this.store.tx(() => {
+      const replay = this.store.db.prepare(`
+        SELECT transition_id, request_hash, stance, supporting_acquisition_ids_json,
+          contradicting_acquisition_ids_json, evidence_acquisition_ids_json,
+          reason_rule_ref, snapshot_revision, snapshot_commit_sequence,
+          event_id, committed_revision
+        FROM npc_belief_transitions
+        WHERE world_id=? AND idempotency_key=?
+      `).get(input.world_id, input.idempotency_key);
+      if (replay) {
+        assert(replay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
+          'Belief transition idempotency key was already used for a different request.', 409);
+        return {
+          status: 'ready',
+          idempotent_replay: true,
+          transition: {
+            transition_id: replay.transition_id,
+            world_id: input.world_id,
+            actor_id: input.actor_id,
+            proposition_ref: input.proposition_ref,
+            stance: replay.stance,
+            supporting_acquisition_ids: JSON.parse(replay.supporting_acquisition_ids_json),
+            contradicting_acquisition_ids: JSON.parse(replay.contradicting_acquisition_ids_json),
+            evidence_acquisition_ids: JSON.parse(replay.evidence_acquisition_ids_json),
+            reason_rule_ref: replay.reason_rule_ref,
+            snapshot: {
+              world_revision: replay.snapshot_revision,
+              commit_sequence: replay.snapshot_commit_sequence,
+            },
+            event_id: replay.event_id,
+            committed_revision: replay.committed_revision,
+          },
+        };
+      }
+
+      const readRequest = {
+        world_id: input.world_id,
+        actor_id: input.actor_id,
+        purpose: input.purpose,
+        expected_revision: input.expected_revision,
+        expected_commit_sequence: input.expected_commit_sequence,
+        limit: input.limit ?? 200,
+      };
+      const read = this.readNpcKnowledge(readRequest);
+      const currentRow = this.store.db.prepare(`
+        SELECT b.stance, b.evidence_acquisition_ids_json
+        FROM npc_belief_transitions AS b
+        JOIN world_events AS e ON e.world_id=b.world_id AND e.event_id=b.event_id
+        WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
+        ORDER BY e.commit_sequence DESC LIMIT 1
+      `).get(input.world_id, input.actor_id, input.proposition_ref);
+      const currentBelief = currentRow ? {
+        world_id: input.world_id,
+        actor_id: input.actor_id,
+        proposition_ref: input.proposition_ref,
+        stance: currentRow.stance,
+        evidence_acquisition_ids: JSON.parse(currentRow.evidence_acquisition_ids_json),
+      } : null;
+      const proposal = {
+        world_id: read.world_id,
+        actor_id: read.actor_id,
+        snapshot: read.snapshot,
+        proposition_ref: input.proposition_ref,
+        stance: input.stance,
+        supporting_acquisition_ids: input.supporting_acquisition_ids,
+        contradicting_acquisition_ids: input.contradicting_acquisition_ids,
+        reason_rule_ref: input.reason_rule_ref,
+      };
+      const prepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
+      const transition = prepared.transition;
+      const transitionId = 'npc-belief:' + hashRequest({
+        world_id: input.world_id,
+        idempotency_key: input.idempotency_key,
+      }).slice(0, 40);
+      const event = this.commitEvent(input.world_id, {
+        event_id: transitionId,
+        idempotency_key: input.idempotency_key,
+        turn_id: 'npc-belief-transition',
+        event_type: 'npc.belief.transitioned',
+        expected_revision: input.expected_revision,
+        expected_commit_sequence: input.expected_commit_sequence,
+        effects: [],
+      });
+      assert(event.idempotent_replay !== true, 'NPC_BELIEF_PROJECTION_MISSING',
+        'A committed belief event exists without its Core belief projection; manual reconciliation is required.', 409);
+      this.store.db.prepare(`
+        INSERT INTO npc_belief_transitions(
+          world_id, transition_id, actor_id, proposition_ref, stance,
+          supporting_acquisition_ids_json, contradicting_acquisition_ids_json,
+          evidence_acquisition_ids_json, reason_rule_ref, idempotency_key, request_hash,
+          snapshot_revision, snapshot_commit_sequence, event_id, committed_revision
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+      `).run(
+        input.world_id, transitionId, input.actor_id, input.proposition_ref, transition.stance,
+        JSON.stringify(transition.supporting_acquisition_ids),
+        JSON.stringify(transition.contradicting_acquisition_ids),
+        JSON.stringify(transition.evidence_acquisition_ids),
+        transition.reason_rule_ref, input.idempotency_key, requestHash,
+        transition.snapshot.world_revision, transition.snapshot.commit_sequence,
+        event.event_id, event.world_revision,
+      );
+      return {
+        status: 'ready',
+        idempotent_replay: false,
+        transition: {
+          ...transition,
+          transition_id: transitionId,
+          event_id: event.event_id,
+          committed_revision: event.world_revision,
+        },
+      };
+    });
+  }
+
+  /**
+   * Read the latest non-rolled-back Core belief and report whether its evidence
+   * remains in the current actor-scoped acquisition projection.
+   */
+  getNpcBeliefState(input) {
+    assert(obj(input), 'INVALID_NPC_BELIEF_STATE_REQUEST', 'Belief state request must be an object.');
+    const allowed = [
+      'world_id', 'actor_id', 'purpose', 'expected_revision',
+      'expected_commit_sequence', 'limit', 'proposition_ref',
+    ];
+    assert(Object.keys(input).every((key) => allowed.includes(key)),
+      'UNSUPPORTED_NPC_BELIEF_STATE_FIELD', 'Belief state request contains an unsupported field.');
+    const read = this.readNpcKnowledge({
+      world_id: input.world_id,
+      actor_id: input.actor_id,
+      purpose: input.purpose,
+      expected_revision: input.expected_revision,
+      expected_commit_sequence: input.expected_commit_sequence,
+      limit: input.limit ?? 200,
+    });
+    const row = this.store.db.prepare(`
+      SELECT b.transition_id, b.proposition_ref, b.stance,
+        b.supporting_acquisition_ids_json, b.contradicting_acquisition_ids_json,
+        b.evidence_acquisition_ids_json, b.reason_rule_ref, b.snapshot_revision,
+        b.snapshot_commit_sequence, b.event_id, b.committed_revision
+      FROM npc_belief_transitions AS b
+      JOIN world_events AS e ON e.world_id=b.world_id AND e.event_id=b.event_id
+      WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
+      ORDER BY e.commit_sequence DESC LIMIT 1
+    `).get(input.world_id, input.actor_id, input.proposition_ref);
+    if (!row) return Object.freeze({ status: 'unknown', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
+    const active = new Set(read.items.map((item) => item.acquisition_id));
+    const evidence = JSON.parse(row.evidence_acquisition_ids_json);
+    const surviving = evidence.filter((ref) => active.has(ref));
+    return Object.freeze({
+      status: 'ready',
+      actor_id: input.actor_id,
+      proposition_ref: row.proposition_ref,
+      stance: row.stance,
+      evidence_status: surviving.length === evidence.length ? 'supported'
+        : surviving.length > 0 ? 'partially_supported' : 'unsupported',
+      evidence_acquisition_ids: Object.freeze(evidence),
+      surviving_evidence_acquisition_ids: Object.freeze(surviving),
+      reason_rule_ref: row.reason_rule_ref,
+      snapshot: Object.freeze({
+        world_revision: read.snapshot.world_revision,
+        commit_sequence: read.snapshot.commit_sequence,
+      }),
+      transition_id: row.transition_id,
+      event_id: row.event_id,
+      committed_revision: row.committed_revision,
+    });
+  }
+
   /**
    * Ingests an immutable deployment-approved authoring source into the canonical
    * event log. This method is intentionally not exposed by the HTTP API.
