@@ -61,7 +61,7 @@ function validateRecord(record, expectedInstallationId) {
     || typeof record.provider_readiness_digest !== 'string' || !DIGEST.test(record.provider_readiness_digest)) {
     fail('REMOTE_ANCHOR_DIGEST_INVALID');
   }
-  if (!['ADVANCE', 'RECOVERY', 'REENROLL'].includes(record.record_type)) fail('REMOTE_ANCHOR_RECORD_TYPE_INVALID');
+  if (!['ADVANCE', 'RECOVERY'].includes(record.record_type)) fail('REMOTE_ANCHOR_RECORD_TYPE_INVALID');
   if (record.record_type === 'RECOVERY') {
     if (typeof record.recovery_reason !== 'string' || record.recovery_reason.trim().length < 1
       || record.recovery_reason.length > 256 || /[\x00-\x1f\x7f]/.test(record.recovery_reason)) {
