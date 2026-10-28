@@ -141,6 +141,23 @@ test('joins trusted Memory record authorization, Core authorized source read, an
   assert.equal(store.audit('memory-npc-world').length, before.audit);
 });
 
+test('initial/imported knowledge requires the Core assignment authority path', async (t) => {
+  for (const overrides of [
+    { content_kind: 'author_initial', epistemic_kind: 'authored_initial' },
+    { content_kind: 'imported', epistemic_kind: 'imported' },
+    { content_kind: 'claim', epistemic_kind: 'authored_initial' },
+  ]) {
+    const { consumer, setCandidates, candidate } = setup(t);
+    setCandidates([candidate(overrides)]);
+    const result = await consumer.retrieveForNpc(request());
+
+    assert.equal(result.status, 'non_ready');
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.candidates, []);
+    assert.equal(result.reason, 'memory_result_incomplete_or_unavailable');
+  }
+});
+
 test('query denial and incomplete Memory results fail closed without returning candidates', async (t) => {
   const denied = setup(t, { authorizeQuery: false });
   assert.equal((await denied.consumer.retrieveForNpc(request())).status, 'non_ready');
