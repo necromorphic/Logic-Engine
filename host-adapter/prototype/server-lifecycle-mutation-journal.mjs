@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { constants } from 'node:fs';
 import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
@@ -31,6 +31,8 @@ const MUTATIONS = new Map([
 ]);
 
 const ENROLLMENT_MARKER_NAME = '.logic-engine-host-enrollment-marker';
+const SAVE_CAPABILITY_TTL_MS = 15_000;
+const saveCapabilities = new Map();
 const digest = value => createHash('sha256').update(value).digest('hex');
 const canonical = value => JSON.stringify(value);
 const stableValue = value => {
@@ -103,6 +105,210 @@ async function targetUserHasEnrolledState(directories) {
     }
     if (registry.conversations.length > 0) return true;
     throw new Error('HOST_TARGET_USER_ENROLLMENT_STATE_AMBIGUOUS');
+}
+
+
+const validHostUuid = value => typeof value === 'string'
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+const hostTextDigest = value => digest(JSON.stringify(String(value)));
+const sameFileStat = (a, b) => a.dev === b.dev && a.ino === b.ino
+    && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+
+function purgeExpiredSaveCapabilities(now = Date.now()) {
+    for (const [token, capability] of saveCapabilities) {
+        if (capability.expiresAt <= now) saveCapabilities.delete(token);
+    }
+}
+
+function resolveSaveTarget(route, payload) {
+    if (!payload || typeof payload !== 'object' || !Array.isArray(payload.chat) || !payload.chat.length) {
+        throw new Error('HOST_SAVE_PAYLOAD_INVALID');
+    }
+    if (route === '/api/chats/save') {
+        if (typeof payload.avatar_url !== 'string' || typeof payload.file_name !== 'string') {
+            throw new Error('HOST_SAVE_TARGET_INVALID');
+        }
+        const avatar = payload.avatar_url.replace(/\.png$/i, '');
+        const fileName = payload.file_name;
+        if (!avatar || path.isAbsolute(avatar) || avatar.includes('\\')
+            || avatar.split('/').some(part => !part || part === '.' || part === '..')
+            || path.parse(fileName).name !== fileName || fileName.includes('/') || fileName.includes('\\')
+            || !fileName || fileName === '.' || fileName === '..') {
+            throw new Error('HOST_SAVE_TARGET_INVALID');
+        }
+        return { route, operation: 'chat-save', domain: 'chats', sourcePath: avatar + '/' + fileName + '.jsonl' };
+    }
+    if (route === '/api/chats/group/save') {
+        if (typeof payload.id !== 'string' || path.parse(payload.id).name !== payload.id
+            || !payload.id || payload.id === '.' || payload.id === '..'
+            || payload.id.includes('/') || payload.id.includes('\\')) {
+            throw new Error('HOST_SAVE_TARGET_INVALID');
+        }
+        return { route, operation: 'group-chat-save', domain: 'group_chats', sourcePath: payload.id + '.jsonl' };
+    }
+    throw new Error('HOST_SAVE_ROUTE_UNSUPPORTED');
+}
+
+function projectHostChatRecords(records, expectedConversationUuid) {
+    if (!Array.isArray(records) || !records.length
+        || !records.every(record => record && typeof record === 'object' && !Array.isArray(record))) {
+        throw new Error('HOST_SAVE_CHAT_MALFORMED');
+    }
+    const marker = records[0]?.chat_metadata?.logic_engine_conversation_id;
+    if (!validHostUuid(marker) || marker !== expectedConversationUuid) {
+        throw new Error('HOST_SAVE_CONVERSATION_MARKER_MISMATCH');
+    }
+    const messageIds = new Set();
+    const versionIds = new Set();
+    const messages = [];
+    for (const message of records.slice(1)) {
+        const identity = message?._logicEngineLifecycle;
+        const nativeVersions = Array.isArray(message?.swipes) && message.swipes.length
+            ? message.swipes : [message?.mes ?? ''];
+        const activeVersionIndex = message?.swipe_id === undefined ? 0 : message.swipe_id;
+        if (!identity || !validHostUuid(identity.messageId) || messageIds.has(identity.messageId)
+            || !Array.isArray(identity.versions) || identity.versions.length !== nativeVersions.length
+            || !Number.isInteger(activeVersionIndex) || activeVersionIndex < 0
+            || activeVersionIndex >= nativeVersions.length
+            || identity.activeVersionIndex !== activeVersionIndex
+            || typeof message.mes !== 'string' || nativeVersions.some(value => typeof value !== 'string')
+            || message.mes !== nativeVersions[activeVersionIndex]) {
+            throw new Error('HOST_SAVE_MESSAGE_IDENTITY_INVALID');
+        }
+        messageIds.add(identity.messageId);
+        const versions = [];
+        for (let index = 0; index < nativeVersions.length; index++) {
+            const version = identity.versions[index];
+            if (!version || !validHostUuid(version.versionId) || versionIds.has(version.versionId)
+                || typeof version.payloadDigest !== 'string'
+                || !/^[a-f0-9]{64}$/.test(version.payloadDigest)
+                || version.payloadDigest !== hostTextDigest(nativeVersions[index])
+                || (version.parentVersionId != null && !validHostUuid(version.parentVersionId))) {
+                throw new Error('HOST_SAVE_VERSION_IDENTITY_INVALID');
+            }
+            versionIds.add(version.versionId);
+            versions.push({
+                versionId: version.versionId,
+                payloadSha256: version.payloadDigest,
+                parentVersionId: version.parentVersionId ?? null,
+            });
+        }
+        messages.push({ messageId: identity.messageId, activeVersionIndex, versions });
+    }
+    const inventory = {
+        conversation_id: null,
+        domain: null,
+        locator: null,
+        message_count: messages.length,
+        version_count: messages.reduce((sum, message) => sum + message.versions.length, 0),
+        versions: messages.flatMap(message => message.versions.map((version, index) => ({
+            message_id: message.messageId,
+            version_id: version.versionId,
+            payload_sha256: version.payloadSha256,
+            parent_version_id: version.parentVersionId,
+            active: index === message.activeVersionIndex,
+        }))).sort((a, b) => a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id)),
+    };
+    return { messages, inventory };
+}
+
+function sameHostVersion(a, b) {
+    return a.versionId === b.versionId && a.payloadSha256 === b.payloadSha256
+        && a.parentVersionId === b.parentVersionId;
+}
+function sameHostMessage(a, b, { includeActive = true } = {}) {
+    return a.messageId === b.messageId
+        && (!includeActive || a.activeVersionIndex === b.activeVersionIndex)
+        && a.versions.length === b.versions.length
+        && a.versions.every((version, index) => sameHostVersion(version, b.versions[index]));
+}
+function classifyHostSaveTransition(before, after) {
+    const oldMessages = before.messages;
+    const newMessages = after.messages;
+    if (oldMessages.length === newMessages.length + 1) {
+        for (let removed = 0; removed < oldMessages.length; removed++) {
+            const remaining = oldMessages.filter((_, index) => index !== removed);
+            if (remaining.every((message, index) => sameHostMessage(message, newMessages[index]))) {
+                return 'delete-message';
+            }
+        }
+        return null;
+    }
+    if (newMessages.length === oldMessages.length + 1
+        && oldMessages.every((message, index) => sameHostMessage(message, newMessages[index]))
+        && newMessages.at(-1).versions.length === 1
+        && newMessages.at(-1).versions[0].parentVersionId === null) {
+        return 'create-message';
+    }
+    if (oldMessages.length !== newMessages.length
+        || oldMessages.some((message, index) => message.messageId !== newMessages[index].messageId)) return null;
+
+    const changed = oldMessages.map((oldMessage, index) => ({ oldMessage, newMessage: newMessages[index], index }))
+        .filter(({ oldMessage, newMessage }) => !sameHostMessage(oldMessage, newMessage));
+    if (changed.length !== 1) return null;
+    const { oldMessage, newMessage } = changed[0];
+
+    if (oldMessage.versions.length === newMessage.versions.length
+        && oldMessage.versions.every((version, index) => sameHostVersion(version, newMessage.versions[index]))
+        && oldMessage.activeVersionIndex !== newMessage.activeVersionIndex) {
+        return 'swipe-select';
+    }
+    if (oldMessage.versions.length === newMessage.versions.length + 1) {
+        for (let removed = 0; removed < oldMessage.versions.length; removed++) {
+            const remaining = oldMessage.versions.filter((_, index) => index !== removed);
+            if (remaining.every((version, index) => sameHostVersion(version, newMessage.versions[index]))) {
+                return 'delete-swipe';
+            }
+        }
+        return null;
+    }
+    if (oldMessage.versions.length === newMessage.versions.length
+        && oldMessage.activeVersionIndex === newMessage.activeVersionIndex) {
+        const replacements = oldMessage.versions.map((version, index) => ({ version, next: newMessage.versions[index], index }))
+            .filter(({ version, next }) => !sameHostVersion(version, next));
+        if (replacements.length === 1) {
+            const { version, next } = replacements[0];
+            if (next.versionId !== version.versionId
+                && next.payloadSha256 !== version.payloadSha256
+                && next.parentVersionId === version.versionId
+                && !newMessages.some(message => message.versions.some(item => item.versionId === version.versionId))) {
+                return 'edit-message';
+            }
+        }
+    }
+    return null;
+}
+
+async function readStableHostChatFile(filePath, expectedDigest = null) {
+    const before = await lstat(filePath);
+    if (before.isSymbolicLink() || !before.isFile()) throw new Error('HOST_SAVE_SOURCE_UNSAFE');
+    const handle = await open(filePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    try {
+        const opened = await handle.stat();
+        if (!opened.isFile() || !sameFileStat(before, opened)) throw new Error('HOST_SAVE_SOURCE_CHANGED');
+        const bytes = await handle.readFile();
+        const afterHandle = await handle.stat();
+        const afterPath = await lstat(filePath);
+        if (!sameFileStat(opened, afterHandle) || !sameFileStat(opened, afterPath) || bytes.length !== afterHandle.size) {
+            throw new Error('HOST_SAVE_SOURCE_CHANGED');
+        }
+        const fileDigest = digest(bytes);
+        if (expectedDigest && expectedDigest !== fileDigest) throw new Error('HOST_SAVE_SOURCE_CHANGED');
+        const text = bytes.toString('utf8');
+        const records = text.split(/\r?\n/).filter(line => line.trim().length > 0).map(line => JSON.parse(line));
+        return { bytes, fileDigest, records };
+    } finally {
+        await handle.close().catch(() => {});
+    }
+}
+
+function payloadFileDigest(payload) {
+    return digest(payload.chat.map(record => JSON.stringify(record)).join('\n'));
+}
+
+function targetArtifactDigest(snapshot, target) {
+    const artifactId = target.domain + ':' + target.sourcePath;
+    return snapshot.artifacts.find(item => item.artifactId === artifactId)?.sha256 ?? null;
 }
 
 function operationTargetsEnrolledHistory(operation, request, registry) {
