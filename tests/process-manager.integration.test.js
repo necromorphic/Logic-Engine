@@ -643,6 +643,23 @@ test('explicit reconciliation resets rolled-back milestones and re-arms the proc
     (error) => error.code === 'PROCESS_RECONCILE_REQUIRES_REPLAN',
   );
 
+  assert.throws(
+    () => engine.transitionProcess('world-a', 'journey-1', {
+      action: 'reconcile',
+      confirm_retry: true,
+      replan: [
+        { milestone_id: 'depart', due_coordinate: 3000 },
+        { milestone_id: 'arrive', due_coordinate: 2000 },
+      ],
+      expected_version: process.version,
+      idempotency_key: 'reconcile-invalid-dependency-order',
+    }),
+    (error) => error.code === 'INVALID_PROCESS_REPLAN',
+  );
+  // Invalid plans must fail closed without registering any replacement triggers.
+  assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 0);
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
+
   const reconciled = engine.transitionProcess('world-a', 'journey-1', {
     action: 'reconcile',
     confirm_retry: true,
