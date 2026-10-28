@@ -143,11 +143,13 @@ test('recovery and re-enrollment require explicit privileged credentials', async
   const recovery = requestBody({ record_type: 'RECOVERY', recovery_reason: 'restore review' });
   assert.equal((await append(base, recovery)).status, 403);
 
-  const privileged = { [installationId]: { token, allowRecovery: true, allowReenroll: true } };
+  const privileged = { [installationId]: { token, allowRecovery: true } };
   const second = await withServer(t, { credentials: privileged });
   assert.equal((await append(second.base, recovery)).status, 201);
   const badReason = requestBody({ record_type: 'RECOVERY', recovery_reason: null });
   assert.equal((await append(second.base, badReason)).status, 400);
+  const reenroll = requestBody({ record_type: 'REENROLL', recovery_reason: null });
+  assert.equal((await append(second.base, reenroll)).status, 400);
 });
 
 test('rejects unknown fields, contract mismatch, and oversized request bodies', async (t) => {
