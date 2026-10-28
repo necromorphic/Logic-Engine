@@ -935,24 +935,25 @@ export class LogicEngine {
       if (replay) {
         assert(replay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
           'Belief transition idempotency key was already used for a different request.', 409);
+        // Idempotent replay is still an authenticated operation. Re-check the
+        // actor and trusted read authority at the current snapshot, but return
+        // only an acknowledgement so stale evidence values cannot leak.
+        const currentWorld = this.store.world(input.world_id);
+        assert(currentWorld && currentWorld.status === 'active',
+          'WORLD_NOT_FOUND', 'World not found or inactive.', 404);
+        this.readNpcKnowledge({
+          world_id: input.world_id,
+          actor_id: input.actor_id,
+          purpose: input.purpose,
+          expected_revision: currentWorld.world_revision,
+          expected_commit_sequence: this.store.currentCommitSequence(input.world_id),
+          limit: input.limit ?? 200,
+        });
         return {
           status: 'ready',
           idempotent_replay: true,
           transition: {
             transition_id: replay.transition_id,
-            world_id: input.world_id,
-            actor_id: input.actor_id,
-            proposition_ref: input.proposition_ref,
-            proposition_value: JSON.parse(replay.proposition_value_json),
-            stance: replay.stance,
-            supporting_acquisition_ids: JSON.parse(replay.supporting_acquisition_ids_json),
-            contradicting_acquisition_ids: JSON.parse(replay.contradicting_acquisition_ids_json),
-            evidence_acquisition_ids: JSON.parse(replay.evidence_acquisition_ids_json),
-            reason_rule_ref: replay.reason_rule_ref,
-            snapshot: {
-              world_revision: replay.snapshot_revision,
-              commit_sequence: replay.snapshot_commit_sequence,
-            },
             event_id: replay.event_id,
             committed_revision: replay.committed_revision,
           },
