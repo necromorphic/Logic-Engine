@@ -586,7 +586,7 @@ test('paused lifecycle state and trigger cancellation survive restart before res
 }));
 
 
-test('explicit reconciliation resets rolled-back milestones and re-arms the process', (t) => withDatabase(t, ({ engine, store }) => {
+test('explicit reconciliation resets rolled-back milestones and re-arms the process', (t) => withDatabase(t, ({ engine, store, reopen }) => {
   store.createWorld(worldInput());
   const created = engine.createProcess('world-a', processInput());
   const initialTriggerIds = created.process.milestones.map((milestone) => milestone.trigger_id);
@@ -656,6 +656,16 @@ test('explicit reconciliation resets rolled-back milestones and re-arms the proc
   assert.equal(process.milestones.every((milestone) => milestone.status === 'pending'), true);
   assert.equal(process.milestones.every((milestone) => !initialTriggerIds.includes(milestone.trigger_id)), true);
   assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').due_coordinate, 2000);
+  assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 2);
+  const reconciledTriggerIds = process.milestones.map((milestone) => milestone.trigger_id);
+
+  // Reconciliation must be durable: reopening cannot resurrect quarantined
+  // trigger IDs or lose the author-approved replacement schedule.
+  ({ engine } = reopen());
+  process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'scheduled');
+  assert.deepEqual(process.milestones.map((milestone) => milestone.trigger_id), reconciledTriggerIds);
+  assert.deepEqual(process.milestones.map((milestone) => milestone.status), ['pending', 'pending']);
   assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 2);
 
   const afterReconcile = engine.getState('world-a');
