@@ -305,6 +305,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     // current chat projection. The journal is still review-only; this does not
     // authorize Provider reconciliation or claim complete native inventory.
     const tombstones = [];
+    const removedSwipeParents = new Map();
     const priorIdentitySnapshot = await journal.latestIdentitySnapshot(conversationId);
     const liveMessageIds = new Set(chat.map(message => message?._logicEngineLifecycle?.messageId).filter(Boolean));
     if (operation === 'delete-message' && Array.isArray(priorIdentitySnapshot)) {
@@ -358,6 +359,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           throw Error('NON_READY: deleted swipe has no matching version identity');
         }
         const removed = identity.versions[removedSwipeIndex];
+        removedSwipeParents.set(identity.messageId, removed.versionId);
         tombstones.push({
           messageId: identity.messageId,
           versionId: removed.versionId,
@@ -393,6 +395,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           }
           const versionId = newId();
           const parentVersionId = prior?.versionId
+            ?? removedSwipeParents.get(identity.messageId)
             ?? identity.versions[identity.activeVersionIndex]?.versionId
             ?? null;
           nextVersions.push({
