@@ -73,7 +73,7 @@ test('scene trace: unchanged door preserves only predictions that do not depend 
 
 test('scene trace: door closure changes the cheapest route and stale-marks the old route prediction', () => {
   const before = {
-    worldId: 'route-trace', revision: 1, boundary: 'before',
+    worldId: 'route-trace', revision: 1, boundary: 'before', blockers: [],
     rooms: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }],
     doors: [
       { id: 'a-b', roomA: 'a', roomB: 'b', state: 'open', traversalCost: 1 },
