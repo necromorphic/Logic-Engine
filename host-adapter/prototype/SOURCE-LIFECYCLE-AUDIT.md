@@ -179,6 +179,39 @@ git -C /path/to/SillyTavern apply --check /path/to/Logic-Engine/host-adapter/pro
 
 The equivalent pinned-source apply-check, syntax/lint checks, Host prototype tests, and Chromium IndexedDB process-restart test have run in CI on the current PR head. This does **not** test a future send gate or establish Android/Termux runtime behavior. A future runtime diff must be reviewed separately by Core before application, and then must add route-level denial/error/bypass tests plus the real post-assembly revocation race test described above.
 
+## Provider-neutral final-send call-site matrix (pinned source, 28 Oct 2026)
+
+Source inspected: `src/endpoints/backends/chat-completions.js` at pinned SillyTavern SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. The line numbers below are 1-based in that exact file. They identify direct outbound calls, not an exhaustive inventory of every model-capable endpoint.
+
+| Call-site ID | Source line(s) | Role evidenced by the call site | Request materialization before transport | Disposition |
+|---|---:|---|---|---|
+| C01 | 410 | Chat-generation POST | Body serialized inline as `JSON.stringify(requestBody)`; target and server-owned headers are already resolved | Separate outbound branch; no shared gate proven |
+| C02 | 733 | Chat-generation POST | Body serialized inline as `JSON.stringify(body)`; URL and headers are already resolved | Separate outbound branch; no shared gate proven |
+| C03 | 852 | Chat-generation POST | Serialized body is stored in an options object before `fetch` | Separate outbound branch; exact options must be bound |
+| C04 | 942 | Chat-generation POST | Prepared request config passed directly to `fetch` | Separate outbound branch; exact config must be bound |
+| C05 | 1042, 1045 | Streaming and non-streaming chat-generation POST | Same prepared config reaches two conditional `fetch` call sites | Both branches require equivalent enforcement |
+| C06 | 1153 | Chat-generation POST | Prepared config passed directly to `fetch` | Separate outbound branch; no shared gate proven |
+| C07 | 1259 | Chat-generation POST | Prepared config passed directly to `fetch` | Separate outbound branch; no shared gate proven |
+| C08 | 1364 | Chat-generation POST | Prepared config passed directly to `fetch` | Separate outbound branch; no shared gate proven |
+| C09 | 1476 | Chat-generation POST | Prepared config passed directly to `fetch` | Separate outbound branch; no shared gate proven |
+| C10 | 1577 | Chat-generation POST | Prepared config passed directly to `fetch` | Separate outbound branch; no shared gate proven |
+| C11 | 1658 | Chat-generation POST | Prepared config passed directly to `fetch` | Separate outbound branch; no shared gate proven |
+| C12 | 1752 | Chat-generation POST | Body is serialized into config before `fetch`; target and headers are already resolved | Separate outbound branch; no shared gate proven |
+| C13 | 2689 | Generic/custom chat-generation POST | Body is serialized into config before `fetch`; custom headers and endpoint are resolved | Separate outbound branch; no shared gate proven |
+| AUX-01 | 1984 | Diagnostic deployment/model probe | Sends a small fixed test prompt during a status/configuration check | Not the ordinary user-turn send path, but still outbound model traffic; scope must be decided separately |
+
+### What this establishes
+
+- The pinned Chat Completions file contains multiple independent final transport call sites; a hook at one generic sender cannot be assumed to cover all branches.
+- For branches that prebuild a config object, the final gate must bind the exact target, headers and already-serialized `config.body` immediately before the corresponding `fetch`. Re-serializing or rebuilding the request after authorization would break exact-request binding.
+- The diagnostic probe is a separate outbound path and must not be silently counted as ordinary generation or ignored if protected content can reach it.
+- The file also contains model-list/discovery calls. They are not interchangeable with generation calls and must be classified separately rather than counted as protected inference sends.
+- This matrix is source-inspected only. It does not prove that any gate exists, that all other endpoint files/extensions are covered, or that a revocation race is blocked.
+
+### Next source-first action
+
+Trace the dispatcher to each C01–C13 call site and record the branch predicate, final target/header/body construction, response/streaming behavior, and any early return. Then extend the same inventory to the separate Text Completions and other enabled model-capable routes. No runtime hook, route allowlist, new API/schema, or production wiring is introduced by this audit. Each unreviewed path remains unsupported for protected Memory→NPC content pending exact-diff Core approval and a real no-egress/revocation-race test.
+
 ## Target-aware destructive/import guard follow-up (26 Oct 2026)
 
 The pinned candidate now checks the affected chat locator before direct single-chat delete paths and direct group-chat rename. Bulk group/character deletion, chat import, and chat-backup restore fail closed whenever any Host enrollment marker exists, because the current prototype cannot prove a complete inventory for every affected non-current chat. These guards prevent known UI entry points from silently mutating an enrolled history; they do not make those operations supported or provide tombstone-complete deletion.
