@@ -17,7 +17,6 @@ import { createDispatchRequestSignature, verifyDispatchRequestSignature, MemoryD
 import { createMemoryDispatchGatewayServer } from '../src/security/memory-dispatch-gateway-server.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
-import { createGoogleAiStudioTransport } from '../src/security/memory-dispatch-google-transport.js';
 
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
@@ -141,7 +140,7 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
 
 const validRequest = (requestId = 'request-001', overrides = {}) => ({
   requestId,
-  route: 'google-ai-studio-chat-completions',
+  route: 'host-selected-chat-generation',
   model: 'gemini-2.5-flash-lite',
   stream: false,
   body: JSON.stringify({ messages: [{ role: 'user', content: 'SECRET_MEMORY_TEXT_DO_NOT_PERSIST' }] }),
@@ -327,7 +326,7 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
         .get('ambiguous-request');
       assert.equal(row.status, 'UNKNOWN');
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
-      assert.equal(row.route, 'google-ai-studio-chat-completions');
+      assert.equal(row.route, 'host-selected-chat-generation');
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
       db.close();
@@ -347,27 +346,22 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
   }
 });
 
-test('loopback Gateway endpoint requires Host authentication and a body-bound signature before Google egress', async () => {
-  const apiKey = 'google-ai-studio-test-key-not-real';
+test('loopback Gateway endpoint requires Host authentication and a body-bound signature before the injected Host-selected transport', async () => {
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
   const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
   let upstreamCalls = 0;
-  let observedUrl;
+  let observedRoute;
   let observedBody;
-  let observedHeaders;
-  const transport = createGoogleAiStudioTransport({
-    apiKey,
-    fetchImpl: async (url, options) => {
-      upstreamCalls += 1;
-      observedUrl = String(url);
-      observedBody = options.body;
-      observedHeaders = options.headers;
-      return new Response('{"candidates":[{"content":{"parts":[{"text":"ok"}]}}]}', {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      });
-    },
-  });
+  const transport = async ({ route, model, body, forwardResponse }) => {
+    upstreamCalls += 1;
+    observedRoute = route;
+    observedBody = body;
+    await forwardResponse(new Response('selected-backend-response', {
+      status: 200,
+      headers: { 'content-type': 'text/plain' },
+    }));
+    return { status: 200 };
+  };
   const fixture = await createFixture({ sendUpstream: transport });
   const server = await createMemoryDispatchGatewayServer({
     gateway: fixture.gateway,
@@ -416,21 +410,15 @@ test('loopback Gateway endpoint requires Host authentication and a body-bound si
       body: JSON.stringify(payload),
     });
     assert.equal(response.status, 200);
-    assert.match(await response.text(), /"candidates"/);
+    assert.equal(await response.text(), 'selected-backend-response');
     assert.equal(upstreamCalls, 1);
+    assert.equal(observedRoute, 'host-selected-chat-generation');
     assert.equal(observedBody, request.body);
-    const upstreamUrl = new URL(observedUrl);
-    assert.equal(upstreamUrl.hostname, 'generativelanguage.googleapis.com');
-    assert.equal(upstreamUrl.pathname, '/v1beta/models/gemini-2.5-flash-lite:generateContent');
-    assert.equal(upstreamUrl.searchParams.has('key'), false);
-    const apiKeyHeader = 'x-goog-' + 'api-key';
-    assert.equal(observedHeaders[apiKeyHeader], apiKey);
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await fixture.close();
   }
 });
-
 test('gateway startup rejects any requested non-loopback bind', async () => {
   const gateway = { dispatchProtectedRequest: async () => ({ status: 200 }) };
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
