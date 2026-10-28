@@ -25,6 +25,48 @@ const CONTENT_KINDS = new Set(['claim', 'report', 'summary', 'author_initial', '
 const EPISTEMIC_KINDS = new Set(['canonical', 'acquired_report', 'rumor', 'inference', 'authored_initial', 'imported']);
 const EVIDENCE_ASSESSMENTS = new Set(['unassessed', 'supported', 'disputed', 'insufficient']);
 
+const INTRINSIC_OBJECT_PROTOTYPE_KEYS = new Set([
+  "constructor", "__defineGetter__", "__defineSetter__", "hasOwnProperty",
+  "__lookupGetter__", "__lookupSetter__", "isPrototypeOf", "propertyIsEnumerable",
+  "toString", "valueOf", "__proto__", "toLocaleString",
+]);
+const INTRINSIC_ARRAY_ITERATOR = Array.prototype[Symbol.iterator];
+
+function hasSafeObjectPrototype() {
+  try {
+    const keys = Reflect.ownKeys(Object.prototype);
+    for (const key of keys) {
+      if (typeof key !== "string" || !INTRINSIC_OBJECT_PROTOTYPE_KEYS.has(key)) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, key);
+      if (!descriptor) return false;
+      if (key === "__proto__") {
+        if (!Object.hasOwn(descriptor, "get") || !Object.hasOwn(descriptor, "set")) return false;
+      } else if (!Object.hasOwn(descriptor, "value")) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasSafeArrayIterator() {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+    return descriptor != null
+      && Object.hasOwn(descriptor, "value")
+      && descriptor.value === INTRINSIC_ARRAY_ITERATOR;
+  } catch {
+    return false;
+  }
+}
+
+// Initial knowledge is authoritative only through Core's explicit subject-assignment
+// lifecycle. This generic Memory retrieval seam has no assignment-read proof yet.
+const INITIAL_ASSIGNMENT_CONTENT_KINDS = new Set(['author_initial', 'imported']);
+const INITIAL_ASSIGNMENT_EPISTEMIC_KINDS = new Set(['authored_initial', 'imported']);
+
 const nonReady = (reason) => Object.freeze({
   status: 'non_ready',
   admitted: Object.freeze([]),
@@ -79,6 +121,9 @@ export class MemoryNpcConsumer {
    * and the only outbound Gateway path to close the remaining TOCTOU window.
    */
   async revalidateForFinalDispatch(request, preparedResult) {
+    if (!hasSafeObjectPrototype() || !hasSafeArrayIterator()) {
+      return nonReady('final_dispatch_revalidation_unavailable');
+    }
     if (!object(preparedResult) || preparedResult.status !== 'ready'
       || !Array.isArray(preparedResult.admitted) || !Array.isArray(preparedResult.candidates)
       || !validSnapshot(preparedResult.snapshot)) {
@@ -98,6 +143,9 @@ export class MemoryNpcConsumer {
   }
 
   async retrieveForNpc(request) {
+    if (!hasSafeObjectPrototype() || !hasSafeArrayIterator()) {
+      return nonReady('memory_result_incomplete_or_scope_mismatch');
+    }
     let worldId;
     let adapterId;
     let actorEntityId;
@@ -293,6 +341,16 @@ export class MemoryNpcConsumer {
         return nonReady('memory_record_authorization_unavailable');
       }
       if (!recordAllowed) continue;
+
+      // Initial/imported knowledge is not authorized by a Memory candidate row.
+      // Core owns the explicit subject-assignment record, and this consumer has
+      // no assignment-read proof yet. Do not silently filter these rows into a
+      // ready-empty result or let the generic retrieval path imply acquisition.
+      // Use a generic non-ready result so the caller learns no item-level detail.
+      if (INITIAL_ASSIGNMENT_CONTENT_KINDS.has(candidate.content_kind)
+        || INITIAL_ASSIGNMENT_EPISTEMIC_KINDS.has(candidate.epistemic_kind)) {
+        return nonReady('memory_result_incomplete_or_unavailable');
+      }
 
       // Once the provider confirms this record is visible, required semantic
       // metadata must be present and use known vocabularies. Otherwise the

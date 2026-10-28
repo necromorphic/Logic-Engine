@@ -141,6 +141,28 @@ test('joins trusted Memory record authorization, Core authorized source read, an
   assert.equal(store.audit('memory-npc-world').length, before.audit);
 });
 
+test('initial/imported knowledge requires the Core assignment authority path', async (t) => {
+  // Check each marker independently: provider metadata must not be able to
+  // relabel an initial/imported assignment as an ordinary claim or vice versa.
+  for (const overrides of [
+    { content_kind: 'author_initial', epistemic_kind: 'authored_initial' },
+    { content_kind: 'author_initial', epistemic_kind: 'canonical' },
+    { content_kind: 'imported', epistemic_kind: 'imported' },
+    { content_kind: 'imported', epistemic_kind: 'acquired_report' },
+    { content_kind: 'claim', epistemic_kind: 'authored_initial' },
+    { content_kind: 'claim', epistemic_kind: 'imported' },
+  ]) {
+    const { consumer, setCandidates, candidate } = setup(t);
+    setCandidates([candidate(overrides)]);
+    const result = await consumer.retrieveForNpc(request());
+
+    assert.equal(result.status, 'non_ready');
+    assert.deepEqual(result.admitted, []);
+    assert.deepEqual(result.candidates, []);
+    assert.equal(result.reason, 'memory_result_incomplete_or_unavailable');
+  }
+});
+
 test('query denial and incomplete Memory results fail closed without returning candidates', async (t) => {
   const denied = setup(t, { authorizeQuery: false });
   assert.equal((await denied.consumer.retrieveForNpc(request())).status, 'non_ready');
@@ -1140,4 +1162,41 @@ test('final dispatch revalidation rejects forged or malformed prepared results',
   const prepared = await consumer.retrieveForNpc(request());
   const tampered = { ...prepared, candidates: [] };
   assert.equal((await consumer.revalidateForFinalDispatch(request(), tampered)).status, 'non_ready');
+});
+
+
+test('consumer fails closed on Object.prototype pollution without invoking inherited getters', async (t) => {
+  const { consumer } = setup(t);
+  let invoked = false;
+  Object.defineProperty(Object.prototype, 'npcInjectedWorldId', {
+    configurable: true,
+    get() { invoked = true; return 'memory-npc-world'; },
+  });
+  let result;
+  try {
+    result = await consumer.retrieveForNpc(request());
+  } finally {
+    delete Object.prototype.npcInjectedWorldId;
+  }
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_result_incomplete_or_scope_mismatch');
+  assert.equal(invoked, false);
+});
+
+test('consumer fails closed when Array.prototype iterator is replaced', async (t) => {
+  const { consumer } = setup(t);
+  const original = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  let result;
+  try {
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true,
+      writable: true,
+      value: function* pollutedIterator() { throw new Error('iterator invoked'); },
+    });
+    result = await consumer.retrieveForNpc(request());
+  } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, original);
+  }
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_result_incomplete_or_scope_mismatch');
 });
