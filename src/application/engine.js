@@ -485,6 +485,55 @@ export class LogicEngine {
 
   getState(id) { return this.store.state(id); }
   getSnapshot(id, request = {}) { return this.store.readSnapshot(id, request); }
+  listKnowledgeAssignments(id, subjectId = null) { return this.store.listKnowledgeAssignments(id, subjectId); }
+
+  assignKnowledge(id, input) {
+    assert(obj(input), 'INVALID_KNOWLEDGE_ASSIGNMENT', 'Knowledge assignment request must be an object.');
+    const allowed = ['assignment_id', 'subject_id', 'item_id', 'source_kind', 'source_ref', 'source_version', 'authorization_ref', 'expected_revision'];
+    assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_KNOWLEDGE_ASSIGNMENT_FIELD', 'Knowledge assignment request contains an unsupported field.');
+    for (const key of ['assignment_id', 'subject_id', 'item_id', 'source_kind', 'source_ref', 'source_version', 'authorization_ref']) {
+      assert(typeof input[key] === 'string' && input[key].trim() === input[key] && input[key].length > 0 && input[key].length <= 200,
+        'INVALID_KNOWLEDGE_ASSIGNMENT', key + ' must be a non-empty string of at most 200 characters without surrounding whitespace.');
+    }
+    assert(['author_initial', 'imported'].includes(input.source_kind), 'INVALID_KNOWLEDGE_ASSIGNMENT', 'source_kind must be author_initial or imported.');
+    assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision must be a non-negative safe integer.');
+    const sourceEventId = input.source_ref.startsWith('event:') ? input.source_ref.slice('event:'.length) : null;
+    if (input.source_ref.startsWith('event:')) {
+      assert(sourceEventId.length > 0, 'INVALID_KNOWLEDGE_SOURCE_REF', 'event source_ref requires an event ID.');
+    } else {
+      assert(input.source_ref.startsWith('world_pack:'), 'INVALID_KNOWLEDGE_SOURCE_REF', 'source_ref must be event:<event_id> or world_pack:<id>@<version>.');
+    }
+    const request = {
+      assignment_id: input.assignment_id,
+      subject_id: input.subject_id,
+      item_id: input.item_id,
+      source_kind: input.source_kind,
+      source_ref: input.source_ref,
+      source_version: input.source_version,
+      authorization_ref: input.authorization_ref,
+      expected_revision: input.expected_revision,
+    };
+    const stableKey = 'knowledge-assignment:' + hashRequest({ assignment_id: input.assignment_id }).slice(0, 64);
+    const event = {
+      idempotency_key: stableKey,
+      turn_id: stableKey,
+      event_type: 'knowledge.assignment.created',
+      expected_revision: input.expected_revision,
+      caused_by: sourceEventId ? [sourceEventId] : [],
+      causal_links: sourceEventId ? [{ relation: 'READS_SOURCE', target_id: sourceEventId }] : [],
+      effects: [{
+        kind: 'knowledge.assignment',
+        assignment_id: request.assignment_id,
+        subject_id: request.subject_id,
+        item_id: request.item_id,
+        source_kind: request.source_kind,
+        source_ref: request.source_ref,
+        source_version: request.source_version,
+        authorization_ref: request.authorization_ref,
+      }],
+    };
+    return this.commitEvent(id, event, { knowledgeAssignmentAuthorization: true });
+  }
   getEvents(id, includeInvalid = false) { return this.store.events(id, includeInvalid); }
   getAudit(id) { return this.store.audit(id); }
 
@@ -545,7 +594,10 @@ export class LogicEngine {
     if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
 
     const effects = x.effects ?? [];
-    validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
+    validateEffects(effects, {
+      allowRelationshipTransition: options.allowRelationshipTransition === true,
+      allowKnowledgeAssignment: options.knowledgeAssignmentAuthorization === true,
+    });
     const request = {
       operation: 'event.commit',
       event_id: x.event_id ?? null,
@@ -602,6 +654,9 @@ export class LogicEngine {
   }
 
   commitEvent(id, x, options = {}) {
+    const hasKnowledgeAssignment = Array.isArray(x?.effects) && x.effects.some((effect) => effect?.kind === 'knowledge.assignment');
+    assert(!hasKnowledgeAssignment || options.knowledgeAssignmentAuthorization === true,
+      'KNOWLEDGE_ASSIGNMENT_TRUSTED_PATH_REQUIRED', 'Knowledge assignments may only be committed through the trusted Core author/import operation.', 403);
     const prepared = this.prepareEventForWorld(id, x, options);
     if (options.mechanicExecution !== undefined && options.mechanicExecution !== null) {
       const metadata = options.mechanicExecution;
@@ -664,7 +719,9 @@ export class LogicEngine {
       });
     }
     this.assertNoScheduledTriggerCrossing(id, [prepared], prepared.expected_revision);
-    return this.store.commit(id, prepared);
+    return this.store.commit(id, prepared, {
+      allowKnowledgeAssignment: options.knowledgeAssignmentAuthorization === true,
+    });
   }
 
   commitSegment(id, x, options = {}) {

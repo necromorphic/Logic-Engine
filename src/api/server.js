@@ -49,7 +49,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, authorizedKnowledgePolicy = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -63,6 +63,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   }
   if (authorizedReadFieldPolicy !== null && typeof authorizedReadFieldPolicy !== 'function') {
     throw new TypeError('Authorized-read field policy must be trusted application configuration.');
+  }
+  if (authorizedKnowledgePolicy !== null && typeof authorizedKnowledgePolicy !== 'function') {
+    throw new TypeError('Authorized-knowledge policy must be trusted application configuration.');
   }
   if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
@@ -87,7 +90,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   // application configuration and is never accepted from an HTTP request.
   // Without one, preserve the narrow self-identity-only default.
   const authorizedReads = new AuthorizedReadService(engine, actorBindings,
-    authorizedReadFieldPolicy || defaultAuthorizedReadFieldPolicy);
+    authorizedReadFieldPolicy || defaultAuthorizedReadFieldPolicy, authorizedKnowledgePolicy);
 
   return createServer(async (req, res) => {
     try {
@@ -332,6 +335,27 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
           return send(res, ['needs_review', 'blocked'].includes(operation.status) ? 409 : 200, { operation });
         }
         return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported time-advance operation.' } });
+      }
+
+      if (action === 'knowledge-assignments') {
+        if (parts.length !== 4) return send(res, 404, { error: { code: 'ROUTE_NOT_FOUND', message: 'Route not found.' } });
+        if (!secretMatches(req.headers['x-admin-token'], adminToken)) {
+          return send(res, 403, { error: { code: 'ADMIN_REQUIRED', message: 'Initial knowledge assignment requires a separate administrative credential.' } });
+        }
+        if (req.method === 'GET') {
+          const subjectId = url.searchParams.get('subject_id');
+          return send(res, 200, { knowledge: engine.listKnowledgeAssignments(worldId, subjectId) });
+        }
+        if (req.method === 'POST') {
+          const body = await readBody(req);
+          const allowed = ['assignment_id', 'subject_id', 'item_id', 'source_kind', 'source_ref', 'source_version', 'authorization_ref', 'expected_revision'];
+          if (!body || typeof body !== 'object' || Array.isArray(body) || Object.keys(body).some((key) => !allowed.includes(key))) {
+            throw new EngineError('INVALID_KNOWLEDGE_ASSIGNMENT', 'Request contains unsupported fields.');
+          }
+          const result = engine.assignKnowledge(worldId, body);
+          return send(res, result.idempotent_replay ? 200 : 201, { assignment: result });
+        }
+        return send(res, 405, { error: { code: 'METHOD_NOT_ALLOWED', message: 'Unsupported knowledge-assignment operation.' } });
       }
 
       if (action === 'time-configurations') {
