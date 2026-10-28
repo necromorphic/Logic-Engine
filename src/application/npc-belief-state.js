@@ -35,6 +35,13 @@ const stableJson = (value) => {
     JSON.stringify(key) + ':' + stableJson(value[key])).join(',') + '}';
   return JSON.stringify(value);
 };
+function freezeTree(value) {
+  if (value && typeof value === 'object' && !Object.isFrozen(value)) {
+    for (const child of Object.values(value)) freezeTree(child);
+    Object.freeze(value);
+  }
+  return value;
+}
 export const npcPropositionRefFor = (item) => validRef(item?.subject_ref) && validRef(item?.predicate)
   ? 'proposition:' + encodeURIComponent(item.subject_ref) + '/' + encodeURIComponent(item.predicate)
   : validRef(item?.fact_id) && validRef(item?.predicate)
@@ -52,6 +59,7 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     || !isPlainObject(knowledgeRead.snapshot)
     || !Number.isSafeInteger(knowledgeRead.snapshot.world_revision)
     || !Number.isSafeInteger(knowledgeRead.snapshot.commit_sequence)
+    || knowledgeRead.truncated === true
     || !Array.isArray(knowledgeRead.items)) {
     return Object.freeze({ status: 'non_ready', reason: 'core_knowledge_read_not_ready', transition: null });
   }
@@ -127,6 +135,7 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
   } catch {
     return Object.freeze({ status: 'non_ready', reason: 'invalid_proposition_value', transition: null });
   }
+  const canonicalPropositionValue = freezeTree(JSON.parse(propositionValueKey));
   const valuesBySide = (refs) => new Set(refs.map((ref) => stableJson(active.get(ref).value)));
   const supportValues = valuesBySide(supporting);
   const contradictValues = valuesBySide(contradicting);
@@ -180,7 +189,7 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     purpose: knowledgeRead.purpose,
     snapshot: Object.freeze({ ...knowledgeRead.snapshot }),
     proposition_ref: proposal.proposition_ref,
-    proposition_value: proposal.proposition_value,
+    proposition_value: canonicalPropositionValue,
     stance: proposal.stance,
     supporting_acquisition_ids: Object.freeze(supporting),
     contradicting_acquisition_ids: Object.freeze(contradicting),
@@ -220,7 +229,7 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
       fact_id: item.fact_id,
       subject_ref: item.subject_ref,
       predicate: item.predicate,
-      value: item.value,
+      value: freezeTree(JSON.parse(stableJson(item.value))),
       provenance_ref: item.provenance_ref,
       provenance_digest: item.provenance_digest,
       source_event_ids: item.source_event_ids,
