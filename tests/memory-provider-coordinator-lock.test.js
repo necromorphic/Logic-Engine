@@ -161,10 +161,17 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
     }
   `;
 
+  const childProcesses = new Set();
+  const waitForExit = (child) => (child.exitCode !== null || child.signalCode !== null)
+    ? Promise.resolve()
+    : new Promise((resolve) => child.once('exit', resolve));
+
   const startChild = (script, args) => {
     const child = spawn(process.execPath, ['--input-type=module', '-e', script, ...args], {
       env, stdio: ['pipe', 'pipe', 'pipe'],
     });
+    childProcesses.add(child);
+    child.once('exit', () => childProcesses.delete(child));
     let stdout = '';
     let stderr = '';
     const messages = [];
@@ -252,7 +259,11 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
       assert.equal(secondProviderProc.messages.find((message) => message.id === secondRaceId).ok, true,
         'second identical ingest should resolve as duplicate, not fail with a primary-key race');
     } finally {
-      secondProviderProc.child.kill();
+      if (secondProviderProc.child.exitCode === null && secondProviderProc.child.signalCode === null) {
+        const stopped = waitForExit(secondProviderProc.child);
+        secondProviderProc.child.kill();
+        await stopped;
+      }
     }
 
     // A fresh Provider DB must also take the shared lock around schema creation/migration.
@@ -270,8 +281,13 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
     migrationProc.child.stdin.end(JSON.stringify({ id: 999, operation: 'close' }) + '\n');
     await migrationProc.exited;
   } finally {
-    providerChild?.kill();
-    coreChild?.kill();
+    // SQLite files must not be removed while any test worker still owns an open handle.
+    const activeChildren = [...childProcesses];
+    const exits = activeChildren.map(waitForExit);
+    for (const child of activeChildren) {
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+    }
+    await Promise.all(exits);
     rmSync(dir, { recursive: true, force: true });
   }
 });
