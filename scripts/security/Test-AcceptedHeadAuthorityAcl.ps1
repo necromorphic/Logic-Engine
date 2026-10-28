@@ -67,6 +67,8 @@ try {
   $providerRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
     "$env:COMPUTERNAME\$($testAccounts[2])",
     ([System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::DeleteSubdirectoriesAndFiles),
+    ([System.Security.AccessControl.InheritanceFlags]::ContainerInherit -bor [System.Security.AccessControl.InheritanceFlags]::ObjectInherit),
+    [System.Security.AccessControl.PropagationFlags]::InheritOnly,
     [System.Security.AccessControl.AccessControlType]::Allow
   )
   $unsafeParentAcl.AddAccessRule($providerRule)
@@ -81,6 +83,34 @@ try {
     Set-Acl -LiteralPath $unsafeParent -AclObject $originalParentAcl
     if (Test-Path -LiteralPath $unsafeEvidence) { Remove-Item -LiteralPath $unsafeEvidence -Force }
     if (Test-Path -LiteralPath $unsafeParent) { Remove-Item -LiteralPath $unsafeParent -Recurse -Force }
+  }
+
+  # Regression: Authority itself is not trusted to replace/control an ancestor.
+  $authorityUnsafeParent = Join-Path $env:ProgramData ('accepted-head-authority-parent-' + [guid]::NewGuid().ToString('N'))
+  $authorityUnsafeDir = Join-Path $authorityUnsafeParent 'authority'
+  $authorityUnsafeDb = Join-Path $authorityUnsafeDir 'accepted-head.sqlite'
+  $authorityUnsafeEvidence = $evidence + '.authority-parent'
+  New-Item -ItemType Directory -Path $authorityUnsafeDir -Force | Out-Null
+  Set-Content -LiteralPath $authorityUnsafeDb -Value 'temporary non-sensitive authority fixture'
+  $originalAuthorityParentAcl = Get-Acl -LiteralPath $authorityUnsafeParent
+  try {
+    $authorityParentAcl = Get-Acl -LiteralPath $authorityUnsafeParent
+    $authorityRule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+      "$env:COMPUTERNAME\\$($testAccounts[0])",
+      ([System.Security.AccessControl.FileSystemRights]::Delete -bor [System.Security.AccessControl.FileSystemRights]::ChangePermissions),
+      [System.Security.AccessControl.AccessControlType]::Allow
+    )
+    $authorityParentAcl.AddAccessRule($authorityRule)
+    Set-Acl -LiteralPath $authorityUnsafeParent -AclObject $authorityParentAcl
+    $rejected = $false
+    try {
+      & .\\scripts\\security\\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $authorityUnsafeDb -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $authorityUnsafeEvidence -Apply -Confirm:$false
+    } catch { $rejected = $_.Exception.Message -match 'Parent path grants directory replacement/ACL-control rights' }
+    if (-not $rejected) { throw 'Authority identity was incorrectly trusted for dangerous ancestor ACL rights.' }
+  } finally {
+    Set-Acl -LiteralPath $authorityUnsafeParent -AclObject $originalAuthorityParentAcl
+    if (Test-Path -LiteralPath $authorityUnsafeEvidence) { Remove-Item -LiteralPath $authorityUnsafeEvidence -Force }
+    if (Test-Path -LiteralPath $authorityUnsafeParent) { Remove-Item -LiteralPath $authorityUnsafeParent -Recurse -Force }
   }
 
 # Regression: an existing evidence file must not be overwritten.
