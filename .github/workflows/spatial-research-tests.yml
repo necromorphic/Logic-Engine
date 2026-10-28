@@ -29,3 +29,5 @@ jobs:
           node-version: '22.18.0'
       - name: Run spatial temporal and synthetic geometry tests
         run: node --import ./tests/configure-test-env.js --test tests/spatial-temporal-cursor-feasibility.test.js tests/spatial-reasoning-feasibility.test.js
+      - name: Run complete project test suite on hosted Linux
+        run: npm test
