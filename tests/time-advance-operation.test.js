@@ -249,3 +249,38 @@ test('recovery fails closed when the persisted segment index disagrees with the 
   assert.equal(store.db.prepare('SELECT next_segment_index FROM time_advance_operations WHERE operation_id=?')
     .get('mismatched-checkpoint-operation').next_segment_index, 1);
 });
+
+
+test('recovery rejects negative and out-of-range persisted segment indexes', (t) => {
+  for (const invalidIndex of [-1, 3]) {
+    const { store, engine } = setup();
+    t.after(() => store.close());
+
+    const segments = [1, 2].map((index) => ({
+      coordinate: index * 10000,
+      idempotency_key: 'invalid-index-segment-key-' + invalidIndex + '-' + index,
+      request_hash: 'invalid-index-segment-hash-' + invalidIndex + '-' + index,
+      events: [],
+    }));
+    store.createTimeAdvanceOperation({
+      world_id: 'time-operation-world',
+      operation_id: 'invalid-index-operation-' + invalidIndex,
+      idempotency_key: 'invalid-index-operation-key-' + invalidIndex,
+      request_hash: 'invalid-index-operation-hash-' + invalidIndex,
+      from_coordinate: 0,
+      target_coordinate: 20000,
+      starting_world_revision: 0,
+      status: 'running',
+      segments,
+      plan: { status: 'planned', completed_trigger_ids: [] },
+    });
+    store.db.prepare('UPDATE time_advance_operations SET next_segment_index=? WHERE world_id=? AND operation_id=?')
+      .run(invalidIndex, 'time-operation-world', 'invalid-index-operation-' + invalidIndex);
+
+    const recovered = engine.resumeTimeAdvance('time-operation-world', 'invalid-index-operation-' + invalidIndex);
+    assert.equal(recovered.status, 'needs_review', 'index ' + invalidIndex);
+    assert.equal(recovered.error.code, 'TIME_ADVANCE_CHECKPOINT_INVALID', 'index ' + invalidIndex);
+    assert.equal(engine.getState('time-operation-world').game_time_coordinate, 0);
+    assert.equal(engine.getEvents('time-operation-world').length, 0);
+  }
+});
