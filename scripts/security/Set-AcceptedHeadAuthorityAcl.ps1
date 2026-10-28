@@ -73,7 +73,8 @@ function Assert-SafeParentPathMutationRights {
         $acl = Get-Acl -LiteralPath $current -ErrorAction Stop
         foreach ($rule in @($acl.Access)) {
             if ($rule.AccessControlType -ne [System.Security.AccessControl.AccessControlType]::Allow) { continue }
-            if (($rule.PropagationFlags -band [System.Security.AccessControl.PropagationFlags]::InheritOnly) -ne 0) { continue }
+            # Fail closed on dangerous Allow ACEs even when marked InheritOnly: they can
+            # propagate to the protected child directory and must not be ignored here.
             try {
                 $sid = $rule.IdentityReference.Translate([System.Security.Principal.SecurityIdentifier]).Value
             } catch {
@@ -235,8 +236,29 @@ $targets = @($directory) + @(Get-ChildItem -LiteralPath $directory -Force | ForE
 foreach ($target in $targets) { Assert-NoReparsePath -Path $target }
 $targetFingerprints = @{}
 foreach ($target in $targets) { $targetFingerprints[$target] = Get-TargetFingerprint -Path $target }
-$trustedParentSids = @($authority.sid, 'S-1-5-18', 'S-1-5-32-544')
+$trustedParentSids = @('S-1-5-18', 'S-1-5-32-544')
 Assert-SafeParentPathMutationRights -ProtectedDirectory $directory -TrustedSids $trustedParentSids
+function New-EvidenceStream {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    # CreateNew is atomic and never overwrites. Keep the file exclusively open while
+    # the ACL operation runs so the evidence path cannot be replaced mid-operation.
+    return [System.IO.File]::Open($Path, [System.IO.FileMode]::CreateNew, [System.IO.FileAccess]::ReadWrite, [System.IO.FileShare]::None)
+}
+
+function Write-EvidenceReport {
+    param(
+        [Parameter(Mandatory = $true)][System.IO.FileStream]$Stream,
+        [Parameter(Mandatory = $true)]$Report
+    )
+    $json = $Report | ConvertTo-Json -Depth 8
+    $encoding = New-Object System.Text.UTF8Encoding($false)
+    $bytes = $encoding.GetBytes($json + [Environment]::NewLine)
+    $Stream.Position = 0
+    $Stream.SetLength(0)
+    $Stream.Write($bytes, 0, $bytes.Length)
+    $Stream.Flush($true)
+}
+
 $evidenceFullPath = [System.IO.Path]::GetFullPath($EvidencePath)
 $evidenceDirectory = [System.IO.Path]::GetDirectoryName($evidenceFullPath)
 if (-not (Test-Path -LiteralPath $evidenceDirectory -PathType Container)) {
@@ -273,7 +295,9 @@ $report = [ordered]@{
     )
 }
 if (-not $Apply) {
-    $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidenceFullPath -Encoding UTF8
+    $evidenceStream = New-EvidenceStream -Path $evidenceFullPath
+    try { Write-EvidenceReport -Stream $evidenceStream -Report $report }
+    finally { $evidenceStream.Dispose() }
     Write-Output "PLAN_ONLY: authority identities and target paths recorded at $evidenceFullPath; no ACLs changed."
     exit 0
 }
@@ -286,8 +310,9 @@ if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.Win
 )) {
     throw 'Applying the boundary requires an elevated PowerShell session.'
 }
-$report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidenceFullPath -Encoding UTF8
+$evidenceStream = New-EvidenceStream -Path $evidenceFullPath
 try {
+    Write-EvidenceReport -Stream $evidenceStream -Report $report
     foreach ($target in $targets) {
         Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints -TrustedSids $trustedParentSids
         $current = Get-Acl -LiteralPath $target
@@ -311,7 +336,7 @@ try {
             [pscustomobject]@{ path = $target; owner = [string]$acl.Owner; sddl = [string]$acl.Sddl }
         }
     )
-    $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidenceFullPath -Encoding UTF8
+    Write-EvidenceReport -Stream $evidenceStream -Report $report
     Write-Output "APPLIED_AND_ACL_SHAPE_VERIFIED: evidence written to $evidenceFullPath."
 } catch {
     $report.status = 'PARTIAL_OR_FAILED_APPLY'
@@ -328,6 +353,8 @@ try {
     }
     $report.rollback = if ($rollbackErrors.Count -eq 0) { 'RESTORED_PRIOR_SDDL' } else { 'ROLLBACK_INCOMPLETE' }
     $report.rollbackErrors = $rollbackErrors
-    $report | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $evidenceFullPath -Encoding UTF8
+    Write-EvidenceReport -Stream $evidenceStream -Report $report
     throw
+} finally {
+    if ($evidenceStream) { $evidenceStream.Dispose() }
 }
