@@ -72,3 +72,37 @@ The following are proposed tests/evidence requirements, not claims that they exi
 ## Concrete next work item
 
 After owner review authorizes code changes, the smallest test-first slice is to extend the research-only cursor tests to assert the full per-segment composite cursor and add non-TimeEngine intervening-write and missing/invalid-boundary cases. Do not implement a spatial projection or query API in that slice.
+
+## 3D-thinking scope additions — 2026-10-28
+
+Research requirements only; this section does not authorize runtime changes.
+
+### S1 — Temporal identity and currentness
+- Bind each position claim to a stable event identity and composite Core cursor; game-time coordinate alone is not a unique boundary.
+- A historical segment boundary is not the current world state. Later writes, rollback, restart, or recovery must revalidate it or mark it stale/unknown.
+- Missing or contradictory provenance must fail closed; never guess from a nearby event.
+- Coordinated restore of older Core + Provider databases must not silently re-enable a claim. Without independent accepted-head authority, require NON_READY/manual recovery.
+- Evidence required: restart, equal-time events, intervening writes, rollback, missing/invalid boundary, crash recovery, coordinated restore.
+
+### S2 — Geometric foundation
+- Every spatial value declares coordinate frame and unit; incompatible or unlabelled values are rejected.
+- Nested frames (object → room → building → world) need explicit parent identity and deterministic transforms. Parent changes must consistently update children or invalidate dependent results.
+- Validate immutable World Pack content identity and full canonical post-state at the canonical commit gate, not only submitted patches.
+- Bounds, room/floor membership, allowed zones, and collision rules are explicit policies; they are not inferred defaults.
+- Evidence required: unit/frame mismatch, transform round-trip, parent changes, missing parent/cycles, invalid positions, reused ID/version with changed manifest bytes, and all canonical writer paths including import/migration/repair.
+
+### S3 — NPC perception is separate from world truth
+- Knowing where an entity is does not mean an NPC sees, hears, recognizes, or knows it.
+- Perception separately evaluates observer pose/orientation, distance, line of sight, blockers, lighting, and world-specific sensory rules.
+- Results are scoped to observer and world-state cursor; relevant movement, geometry, blocker, or lighting changes make old results stale.
+- Perception grants no Memory access or NPC response permission. Host/Memory/NPC integration requires separate review and explicit authorization.
+- Evidence required: occlusion, field-of-view boundaries, distance thresholds, lighting policy, invalidation after geometry/observer changes, and no implicit Memory → NPC path.
+
+### Gate order
+1. Complete S1 temporal identity/currentness evidence.
+2. Define and validate S2 coordinate frames, units, immutable schema identity, and canonical post-state.
+3. Design read-only spatial queries only after S1/S2 pass.
+4. Design S3 perception as a separate layer after query semantics stabilize.
+5. Runtime remains NO-GO until an implementation contract is reviewed and approved.
+
+Do not add a cursor receipt/table pre-emptively. First prove whether canonical events and existing markers can satisfy S1; propose new persistence only if tests demonstrate a gap.
