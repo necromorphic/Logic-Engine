@@ -9,6 +9,8 @@ Provide a plan-first Windows ACL candidate for the dedicated file-backed store o
 ## Preconditions
 
 - A real accepted-head authority service already exists and its service identity is dedicated.
+- Before applying ACLs, Authority, Core, Provider, and Gateway services must all report `State = Stopped` and `ProcessId = 0`; the script rechecks immediately before each ACL write and refuses without ACL changes if the precondition fails. It does not stop services automatically.
+- This service-state check does **not** prove that no other process has an already-open database/WAL/SHM handle. Target-PC handle inventory/closure evidence remains a separate gate.
 - Core, Provider, gateway, and authority use four distinct Windows service identities.
 - The authority database is a dedicated file in a dedicated directory. The script refuses reparse points and unexpected directory entries.
 - Actual Core, Provider and coordinator DB paths plus every known backup/restore root must be supplied. The script refuses overlapping authority/store or authority/backup paths; an omitted backup root still remains an evidence gap.
@@ -36,6 +38,7 @@ Applying changes requires an elevated PowerShell session, explicit `-Apply`, and
 ## What the script enforces in its candidate ACL
 
 - Authority, Core, Provider and gateway service identities must resolve and be distinct.
+- For `-Apply`, all four configured services must be stopped with PID 0; service state is rechecked immediately before each `Set-Acl` operation. A refusal before the first ACL write is recorded as `REFUSED_MAINTENANCE_PRECONDITION` with `noAclChanges: true`; services are never stopped automatically.
 - Built-in service identities are rejected for the authority.
 - ACL inheritance is replaced for the dedicated directory and existing SQLite database/sidecars.
 - Authority receives Modify; SYSTEM and local Administrators retain FullControl.
