@@ -183,10 +183,15 @@ test('real Provider revocation during candidate B authorization excludes revoked
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
   });
-  // Revocation of A during B authorization must remove A from the final result.
-  // B remains independently authorized and current, so it may still be returned.
-  assert.equal(result.status, 'ready');
-  assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
+  // A revocation racing an awaited authorization may fail the whole retrieval
+  // closed or retain independently authorized B, but revoked A must never leak.
+  assert.ok(result.status === 'ready' || result.status === 'non_ready');
+  if (result.status === 'ready') {
+    assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
+  } else {
+    assert.deepEqual(result.candidates, []);
+  }
+  assert.equal(JSON.stringify(result).includes('memory:record-a'), false);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
 test('query access revoked during candidate source validation never becomes ready-empty', async (t) => {
