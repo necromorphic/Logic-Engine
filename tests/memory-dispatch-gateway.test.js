@@ -541,6 +541,18 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
       validateInventory: async () => true,
     };
     const bootstrap = new SQLiteMemoryProvider(providerOptions);
+    // Seed a legacy raw row before enrollment; direct SQL is fixture setup only.
+    const rawSource = {
+      world_id: 'legacy-world',
+      conversation_id: 'legacy-conversation',
+      message_id: 'legacy-message',
+      version_id: 'legacy-version',
+    };
+    const rawText = 'legacy fixture only';
+    bootstrap.db.prepare('INSERT INTO memory_raw_captures (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,metadata_json,captured_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,NULL)')
+      .run(rawSource.world_id, rawSource.conversation_id, rawSource.message_id, rawSource.version_id,
+        'assistant', rawText, createHash('sha256').update(rawText, 'utf8').digest('hex'), '{}',
+        '2026-01-01T00:00:00.000Z');
     bootstrap.close();
     enrollAcceptedHeadDomain({
       domain: 'provider',
@@ -614,19 +626,8 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
       },
     });
 
-    // Tombstone and purge are real Provider mutation APIs too. Seed one legacy
-    // row as a fixture because raw capture itself remains explicitly disabled.
-    const rawSource = {
-      world_id: 'legacy-world',
-      conversation_id: 'legacy-conversation',
-      message_id: 'legacy-message',
-      version_id: 'legacy-version',
-    };
-    const rawText = 'legacy fixture only';
-    provider.db.prepare('INSERT INTO memory_raw_captures (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,metadata_json,captured_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,NULL)')
-      .run(rawSource.world_id, rawSource.conversation_id, rawSource.message_id, rawSource.version_id,
-        'assistant', rawText, createHash('sha256').update(rawText, 'utf8').digest('hex'), '{}',
-        '2026-01-01T00:00:00.000Z');
+    // Tombstone and purge are real Provider mutation APIs too; the legacy row
+    // was seeded before enrollment, so no enrolled write bypasses the head guard.
     const providerHead = () => provider.db.prepare(
       'SELECT head FROM accepted_head_state WHERE singleton=1',
     ).get().head;
