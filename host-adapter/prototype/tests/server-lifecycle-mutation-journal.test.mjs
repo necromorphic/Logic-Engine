@@ -755,7 +755,7 @@ test('enrolled chat save without a request-bound lifecycle capability is rejecte
         }) + '\\n' + JSON.stringify({ mes: 'preserve enrolled history' }) + '\\n';
         await writeFile(chatPath, persisted);
         await registerHostConversation(request, {
-            conversationId: 'conversation-1',
+            conversationId: '00000000-0000-4000-8000-000000000001:00000000-0000-4000-8000-000000000002',
             sourceLocator: 'chat-1',
             sourcePath: 'character-a/chat-1.jsonl',
             domain: 'chats',
