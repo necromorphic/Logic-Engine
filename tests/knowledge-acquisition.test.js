@@ -75,6 +75,29 @@ test('trusted initial assignment is event-sourced, projected, and exact replay i
   });
 });
 
+test('snapshot reads assignments for only the requested canonical subject at the same cursor', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  createSubject(h.engine);
+  h.engine.assignKnowledge('knowledge-world', assignment());
+  h.engine.commitEvent('knowledge-world', event({
+    event_id: 'subject-two-created',
+    idempotency_key: 'subject-two-created',
+    turn_id: 'subject-two-created',
+    expected_revision: 2,
+    effects: [{ kind: 'entity.create', entity_id: 'npc-2', entity_type: 'character' }],
+  }));
+
+  const first = h.engine.getSnapshot('knowledge-world', { knowledgeSubjectIds: ['npc-1'] });
+  const second = h.engine.getSnapshot('knowledge-world', { knowledgeSubjectIds: ['npc-2'] });
+
+  assert.equal(first.commit_sequence, 3);
+  assert.equal(first.knowledge_assignments.length, 1);
+  assert.equal(first.knowledge_assignments[0].subject_id, 'npc-1');
+  assert.equal(second.commit_sequence, 3);
+  assert.deepEqual(second.knowledge_assignments, []);
+});
+
 test('assignment identity cannot be reused for different content', (t) => {
   const h = setup();
   t.after(() => h.store.close());
