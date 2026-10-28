@@ -12,6 +12,7 @@ test('server inventory reads registered persisted chat and returns only version 
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-persisted-inventory-integration-'));
   const directories = {
     chats: path.join(root, 'chats'),
+    characters: path.join(root, 'characters'),
     groups: path.join(root, 'groups'),
     groupChats: path.join(root, 'group_chats'),
     backups: path.join(root, 'backups'),
@@ -66,6 +67,7 @@ test('server inventory fails closed when enrolled persisted identity is absent',
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-persisted-inventory-missing-'));
   const directories = {
     chats: path.join(root, 'chats'),
+    characters: path.join(root, 'characters'),
     groups: path.join(root, 'groups'),
     groupChats: path.join(root, 'group_chats'),
     backups: path.join(root, 'backups'),
