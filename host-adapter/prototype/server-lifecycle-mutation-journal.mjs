@@ -57,17 +57,22 @@ async function targetUserHasEnrolledState(directories) {
         || typeof chatRootPath !== 'string' || !path.isAbsolute(chatRootPath)) {
         throw new Error('HOST_TARGET_USER_SCOPE_UNAVAILABLE');
     }
+    const resolvedRoot = path.resolve(rootPath);
+    const resolvedChatRoot = path.resolve(chatRootPath);
+    if (path.dirname(resolvedChatRoot) !== resolvedRoot) throw new Error('HOST_TARGET_USER_SCOPE_MISMATCH');
     try {
-        const rootStat = await lstat(rootPath);
+        const rootStat = await lstat(resolvedRoot);
         if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) throw new Error('HOST_TARGET_USER_ROOT_UNSAFE');
     } catch (error) {
         if (error?.code === 'ENOENT') return false;
         throw error;
     }
-    const canonicalChatRoot = await realpath(chatRootPath);
-    const chatStat = await lstat(canonicalChatRoot);
+    const chatStat = await lstat(resolvedChatRoot);
     if (!chatStat.isDirectory() || chatStat.isSymbolicLink()) throw new Error('HOST_TARGET_USER_CHAT_ROOT_UNSAFE');
-    const userRoot = path.dirname(canonicalChatRoot);
+    const canonicalRoot = await realpath(resolvedRoot);
+    const canonicalChatRoot = await realpath(resolvedChatRoot);
+    if (path.dirname(canonicalChatRoot) !== canonicalRoot) throw new Error('HOST_TARGET_USER_CANONICAL_SCOPE_MISMATCH');
+    const userRoot = canonicalRoot;
     const markerPath = path.join(userRoot, ENROLLMENT_MARKER_NAME);
     const stateDirectory = path.join(userRoot, '.logic-engine-host');
     let markerExists = false;
