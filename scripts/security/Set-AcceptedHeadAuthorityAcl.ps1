@@ -42,6 +42,15 @@ function Get-ServiceIdentity {
     }
 }
 
+function Assert-ServicesStopped {
+    param([Parameter(Mandatory = $true)][object[]]$Services)
+    foreach ($service in $Services) {
+        if ([string]$service.state -ne 'Stopped' -or [int]$service.processId -ne 0) {
+            throw "Maintenance precondition failed: service '$($service.serviceName)' must be Stopped with ProcessId 0 (state='$($service.state)', pid=$($service.processId)). No ACL mutation is permitted."
+        }
+    }
+}
+
 function Assert-NoReparsePath {
     param([Parameter(Mandatory = $true)][string]$Path)
     $current = [System.IO.Path]::GetFullPath($Path)
@@ -286,6 +295,11 @@ $report = [ordered]@{
     targetDirectory = $directory
     targetPaths = $targets
     priorAcl = $before
+    maintenancePrecondition = @{
+        required = 'Authority, Core, Provider, and Gateway services must all be Stopped with ProcessId 0.'
+        status = 'NOT_CHECKED'
+        noAclChanges = $true
+    }
     limitations = @(
         'Protects only the dedicated authority DB directory and current SQLite sidecars.',
         'Does not create or validate the authority service, protocol, monotonic semantics, or inventory authority.',
@@ -310,8 +324,14 @@ if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.Win
 )) {
     throw 'Applying the boundary requires an elevated PowerShell session.'
 }
+$aclMutationStarted = $false
 $evidenceStream = New-EvidenceStream -Path $evidenceFullPath
 try {
+    Write-EvidenceReport -Stream $evidenceStream -Report $report
+    Assert-ServicesStopped -Services @($authority, $core, $provider, $gateway)
+    $report.maintenancePrecondition.status = 'PASSED'
+    $report.maintenancePrecondition.checkedAtUtc = [datetime]::UtcNow.ToString('o')
+    $report.maintenancePrecondition.noAclChanges = $true
     Write-EvidenceReport -Stream $evidenceStream -Report $report
     foreach ($target in $targets) {
         Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints -TrustedSids $trustedParentSids
@@ -319,6 +339,10 @@ try {
         $isDirectory = ([System.IO.File]::GetAttributes($target) -band [System.IO.FileAttributes]::Directory) -ne 0
         $replacement = New-AuthorityAcl -CurrentAcl $current -AuthorityAccount $authority.account -Directory:$isDirectory
         Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints -TrustedSids $trustedParentSids
+        # Recheck as close as possible to each ACL write; do not stop services automatically.
+        Assert-ServicesStopped -Services @($authority, $core, $provider, $gateway)
+        $report.maintenancePrecondition.checkedAtUtc = [datetime]::UtcNow.ToString('o')
+        $aclMutationStarted = $true
         Set-Acl -LiteralPath $target -AclObject $replacement
     }
     foreach ($target in $targets) {
@@ -339,8 +363,16 @@ try {
     Write-EvidenceReport -Stream $evidenceStream -Report $report
     Write-Output "APPLIED_AND_ACL_SHAPE_VERIFIED: evidence written to $evidenceFullPath."
 } catch {
+    $caughtError = $_
+    $report.error = $caughtError.Exception.GetType().Name
+    if (-not $aclMutationStarted) {
+        $report.status = if ($caughtError.Exception.Message -like 'Maintenance precondition failed:*') { 'REFUSED_MAINTENANCE_PRECONDITION' } else { 'FAILED_BEFORE_ACL_MUTATION' }
+        $report.maintenancePrecondition.status = if ($caughtError.Exception.Message -like 'Maintenance precondition failed:*') { 'FAILED' } else { $report.maintenancePrecondition.status }
+        $report.maintenancePrecondition.noAclChanges = $true
+        Write-EvidenceReport -Stream $evidenceStream -Report $report
+        throw
+    }
     $report.status = 'PARTIAL_OR_FAILED_APPLY'
-    $report.error = $_.Exception.GetType().Name
     $rollbackErrors = @()
     foreach ($prior in $before) {
         try {
