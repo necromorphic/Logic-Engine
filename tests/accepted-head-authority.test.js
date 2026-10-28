@@ -349,15 +349,17 @@ test('accepted-head authority service entrypoint starts authenticated loopback s
     const body = await response.json();
     assert.deepEqual(body.heads, { core: 0, provider: 0 });
     assert.deepEqual(body.enrolled, { core: false, provider: false });
+    const childExited = once(child, 'exit');
     child.kill('SIGTERM');
-    const [code] = await once(child, 'exit');
+    const [code] = await childExited;
     assert.equal(code, 0);
     child = null;
   } finally {
     try { portProbe?.close(); } catch {}
     if (child) {
+      const childExited = once(child, 'exit');
       child.kill('SIGTERM');
-      await once(child, 'exit');
+      await childExited;
     }
     rmSync(directory, { recursive: true, force: true });
   }
