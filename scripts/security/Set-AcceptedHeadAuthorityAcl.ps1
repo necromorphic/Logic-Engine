@@ -366,17 +366,23 @@ try {
     $report.status = if ($aclMutationStarted) { 'PARTIAL_OR_FAILED_APPLY' } else { 'REFUSED_NO_ACL_CHANGES' }
     $report.error = $_.Exception.GetType().Name
     $rollbackErrors = @()
-    foreach ($prior in $before) {
-        try {
-            $restoreAcl = Get-Acl -LiteralPath $prior.path
-            $restoreAcl.SetSecurityDescriptorSddlForm([string]$prior.sddl)
-            Set-Acl -LiteralPath $prior.path -AclObject $restoreAcl
-        } catch {
-            $rollbackErrors += [pscustomobject]@{ path = $prior.path; error = $_.Exception.GetType().Name }
+    if ($aclMutationStarted) {
+        foreach ($prior in $before) {
+            try {
+                $restoreAcl = Get-Acl -LiteralPath $prior.path
+                $restoreAcl.SetSecurityDescriptorSddlForm([string]$prior.sddl)
+                Set-Acl -LiteralPath $prior.path -AclObject $restoreAcl
+            } catch {
+                $rollbackErrors += [pscustomobject]@{ path = $prior.path; error = $_.Exception.GetType().Name }
+            }
         }
+        $report.rollback = if ($rollbackErrors.Count -eq 0) { 'RESTORED_PRIOR_SDDL' } else { 'ROLLBACK_INCOMPLETE' }
+        $report.rollbackErrors = $rollbackErrors
+    } else {
+        # Do not write ACLs during a fail-closed precondition refusal.
+        $report.rollback = 'NOT_NEEDED_NO_ACL_MUTATION_STARTED'
+        $report.rollbackErrors = @()
     }
-    $report.rollback = if ($rollbackErrors.Count -eq 0) { 'RESTORED_PRIOR_SDDL' } else { 'ROLLBACK_INCOMPLETE' }
-    $report.rollbackErrors = $rollbackErrors
     Write-EvidenceReport -Stream $evidenceStream -Report $report
     throw
 } finally {
