@@ -66,10 +66,17 @@ test('trusted Core assignment creates author_initial/imported projection and pre
 });
 
 test('missing/denied or malformed trusted provenance cannot create an acquisition', () => {
-  const { store, engine } = seed(trustedPolicy({ authorized: false }));
+  for (const policy of [trustedPolicy({ authorized: false }), trustedPolicy({ digest: 'not-a-digest' })]) {
+    const { store, engine } = seed(policy);
+    try {
+      assert.throws(() => engine.recordInitialAcquisition(input()), { code: 'KNOWLEDGE_AUTHORITY_DENIED' });
+      assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
+    } finally { store.close(); }
+  }
+  const store = new SQLiteStore(':memory:');
+  const engine = new LogicEngine(store);
   try {
-    assert.throws(() => engine.recordInitialAcquisition(input()), { code: 'KNOWLEDGE_AUTHORITY_DENIED' });
-    assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
+    assert.throws(() => engine.recordInitialAcquisition(input()), { code: 'KNOWLEDGE_AUTHORITY_REQUIRED' });
   } finally { store.close(); }
 });
 
