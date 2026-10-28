@@ -25,19 +25,24 @@ export function createGoogleAiStudioTransport({
     if (stream) url.searchParams.set('alt', 'sse');
 
     // The API key and request body are never logged or written to the ledger.
-    // Calling fetchImpl is the synchronous handoff point. Do not await before
-    // invoking it: the Gateway commits DISPATCH_STARTED immediately before this
-    // capability is called. The returned promise only observes/forwards the
-    // already-started request; it must never initiate a second request.
-    const response = Promise.resolve(fetchImpl(url, {
-      method: 'POST',
-      headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
-      body,
-      signal,
-    })).then(async (upstream) => {
-      await forwardResponse(upstream);
-      return { status: upstream.status };
-    });
-    return { started: true, response };
+    // Preparation resolves the endpoint and closes over the exact serialized
+    // body and server-owned credentials without performing network I/O.
+    return {
+      target: url.href,
+      start: () => {
+        // Calling fetchImpl is the synchronous handoff point. The Gateway has
+        // durably committed DISPATCH_STARTED before this closure is invoked.
+        const response = Promise.resolve(fetchImpl(url, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json', 'x-goog-api-key': apiKey },
+          body,
+          signal,
+        })).then(async (upstream) => {
+          await forwardResponse(upstream);
+          return { status: upstream.status };
+        });
+        return { started: true, response };
+      },
+    };
   };
 }
