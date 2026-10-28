@@ -46,7 +46,7 @@ jobs:
           git rev-parse HEAD
           node --version
           npm --version
-          node --input-type=module -e "import os from 'node:os'; console.log(JSON.stringify({node:process.versions.node,sqlite:process.versions.sqlite,platform:process.platform,arch:process.arch,osType:os.type(),osRelease:os.release(),osVersion:os.version()},null,2))"
+          node scripts/record-test-environment.mjs
       - name: Verify installed Node.js
         run: |
           node -e "const [major, minor] = process.versions.node.split('.').map(Number); if (major < 22 || (major === 22 && minor < 13)) { console.error('Node.js 22.13.0 or newer is required; found ' + process.versions.node); process.exit(1); }"
