@@ -63,3 +63,12 @@ Source locations:
 - `docs/28-proposal-api-stage1.md`: proposal lifecycle and credential separation.
 - `docs/63-time-advance-operation-runtime-slice.md`: time-advance API routes and internal-token requirement.
 - `docs/13-sillytavern-adapter-contract.md`: adapter responsibilities and request/response envelope.
+
+
+### Repository inventory result
+
+The repository inventory currently exposes a review-only `host-adapter/prototype` and explicitly marks the pinned SillyTavern lifecycle integration as **NOT READY**. The inspected source tree did not reveal a production trusted orchestration service that can currently serve as option 1 above. This is a bounded repository finding, not proof that no external service exists.
+
+Consequently, the repository itself does not yet provide an evidenced end-to-end path from a SillyTavern adapter intent through authorized timed-action execution and post-interruption re-evaluation. This is an integration readiness gap, not a reason to bypass the internal-token boundary.
+
+Evidence: `docs/27-host-adapter-lifecycle-evidence.md`, `docs/13-sillytavern-adapter-contract.md`, `src/api/server.js`, and the current `host-adapter/prototype` tree.
