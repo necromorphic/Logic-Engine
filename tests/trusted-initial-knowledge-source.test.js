@@ -55,15 +55,15 @@ test('rejects caller-forged digest and source identity mismatch', () => {
 });
 
 test('rejects unknown fields, unsupported kinds, and malformed assignments', () => {
-  for (const invalid of [
-    source({ extra: true }),
-    source({ source_kind: 'observed' }),
-    source({ assignments: [{ subject_id: 'npc-a', fact_id: 'fact-a', trusted: true }] }),
-    source({ assignments: [{ subject_id: 'npc-a', fact_id: 'fact-a' }, { subject_id: 'npc-a', fact_id: 'fact-a' }] }),
-    source({ assignments: [] }),
-  ]) {
-    const doc = JSON.parse(invalid);
-    assert.throws(() => validateTrustedInitialKnowledgeSource(invalid, registryFor(invalid)), /./);
+  const cases = [
+    [source({ extra: true }), 'INVALID_TRUSTED_SOURCE_SCHEMA'],
+    [source({ source_kind: 'observed' }), 'UNSUPPORTED_ACQUISITION_KIND'],
+    [source({ assignments: [{ subject_id: 'npc-a', fact_id: 'fact-a', trusted: true }] }), 'INVALID_TRUSTED_SOURCE_ASSIGNMENT'],
+    [source({ assignments: [{ subject_id: 'npc-a', fact_id: 'fact-a' }, { subject_id: 'npc-a', fact_id: 'fact-a' }] }), 'DUPLICATE_TRUSTED_SOURCE_ASSIGNMENT'],
+    [source({ assignments: [] }), 'INVALID_TRUSTED_SOURCE_ASSIGNMENTS'],
+  ];
+  for (const [invalid, code] of cases) {
+    assert.throws(() => validateTrustedInitialKnowledgeSource(invalid, registryFor(invalid)), { code });
   }
 });
 
