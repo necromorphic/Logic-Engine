@@ -461,6 +461,42 @@ test('belief transition idempotency key cannot be reused for a different stance'
   }), { code: 'IDEMPOTENCY_KEY_REUSED' });
 });
 
+test('idempotent belief replay rechecks current read authorization and returns no belief content', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  const input = {
+    ...current,
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-replay-requires-current-authorization',
+  };
+  const committed = engine.recordNpcBeliefTransition(input);
+  const denied = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeReadAuthorizer: (scope) => ({
+      status: 'denied',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      authorization_ref: 'rule:read-revoked',
+    }),
+  });
+  assert.throws(() => denied.recordNpcBeliefTransition(input), {
+    code: 'NPC_KNOWLEDGE_READ_NOT_READY',
+  });
+  const replay = engine.recordNpcBeliefTransition(input);
+  assert.equal(replay.idempotent_replay, true);
+  assert.deepEqual(Object.keys(replay.transition).sort(), ['committed_revision', 'event_id', 'transition_id']);
+  assert.equal(replay.transition.event_id, committed.transition.event_id);
+});
+
 test('rollback of an acquisition invalidates its belief support but preserves the belief transition for reconciliation', (t) => {
   const { store, engine, acquisition } = setup(t);
   const current = request(store);
