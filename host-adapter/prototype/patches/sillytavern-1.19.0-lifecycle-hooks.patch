@@ -2609,7 +2609,7 @@ diff --git a/src/endpoints/logic-engine-persisted-conversation-inventory.mjs b/s
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-persisted-conversation-inventory.mjs
-@@ -0,0 +1,202 @@
+@@ -0,0 +1,210 @@
 +import { createHash } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { lstat, open, readdir, realpath } from 'node:fs/promises';
@@ -2726,7 +2726,15 @@ new file mode 100644
 +        } catch (error) {
 +          // Keep diagnostics platform-safe: include only a stable OS error code,
 +          // never the absolute path or chat contents.
-+          const code = typeof error?.code === 'string' ? error.code : 'UNCLASSIFIED';
++          const safeMessageCodes = [
++            'ARTIFACT_TYPE_UNSUPPORTED',
++            'ARTIFACT_CHANGED_BEFORE_READ',
++            'ARTIFACT_CHANGED_DURING_READ',
++            'JSONL_RECORD_INVALID',
++          ];
++          const code = typeof error?.code === 'string' ? error.code
++            : safeMessageCodes.includes(error?.message) ? error.message
++              : error instanceof SyntaxError ? 'JSON_PARSE' : 'UNCLASSIFIED';
 +          parseErrors.push('CHAT_JSONL_UNREADABLE:' + domain + ':' + code);
 +          continue;
 +        }
