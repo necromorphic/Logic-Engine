@@ -233,6 +233,22 @@ diff --git a/public/script.js b/public/script.js
      if (this_edit_mes_id === id) {
          this_edit_mes_id = undefined;
      }
+@@ -4290,10 +4481,15 @@ export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, depth = 0 } = {}, dryRun = false) {
+ export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, depth = 0 } = {}, dryRun = false) {
++    // Reject alternate generation before dispatch; the Host cannot prove its parent lineage yet.
++    if (['swipe', 'regenerate'].includes(type)) {
++        const lifecycleBridge = await getLogicEngineLifecycleBridge();
++        await lifecycleBridge.beforeMutation('create-swipe', chat.length ? [chat.length - 1] : []);
++    }
+     console.log('Generate entered');
+     setGenerationProgress(0);
+     generation_started = new Date();
+ 
+     // Prevent generation from shallow characters
+     await unshallowCharacter(this_chid);
+ 
+     // Occurs every time, even if the generation is aborted due to slash commands execution
+     await eventSource.emit(event_types.GENERATION_STARTED, type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage }, dryRun);
 @@ -5905,16 +6001,21 @@
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('message-send', []);

@@ -18,7 +18,7 @@ const activeIndex = message => {
   }
   return index;
 };
-const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'create-swipe', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat']);
+const CURRENTLY_HOOKED_PATHS = Object.freeze(['create-message', 'message-send', 'message-receive', 'select-swipe', 'delete-swipe', 'delete-message', 'edit-message', 'rename-chat']);
 const newId = () => {
   if (!globalThis.crypto?.randomUUID) throw Error('crypto.randomUUID unavailable; Host capture NON_READY');
   return globalThis.crypto.randomUUID();
@@ -50,13 +50,22 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       }
       for (let index = 0; index < identity.versions.length; index++) {
         const version = identity.versions[index];
-        if (!version?.versionId || !/^[a-f0-9]{64}$/.test(version.payloadDigest)) {
-          throw Error('NON_READY: cannot publish Host version inventory with invalid digest identity');
+        if (!Object.hasOwn(version, 'parentVersionId') || version.parentVersionId === undefined) {
+          const state = { status: 'NON_READY', published: false, versionCount: 0,
+            reason: 'source-backed parent lineage is unavailable for one or more versions' };
+          coreCaptureStates.set(conversationId, state);
+          return state;
+        }
+        if (!version?.versionId || !/^[a-f0-9]{64}$/.test(version.payloadDigest)
+          || (version.parentVersionId !== null
+            && (typeof version.parentVersionId !== 'string' || !version.parentVersionId))) {
+          throw Error('NON_READY: cannot publish Host version inventory with invalid parent lineage');
         }
         entries.push({
           conversation_id: conversationId,
           message_id: identity.messageId,
           version_id: version.versionId,
+          parent_version_id: version.parentVersionId,
           content_sha256: version.payloadDigest,
           active: index === identity.activeVersionIndex,
           deleted: false,
@@ -68,14 +77,23 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     entries.sort((a, b) => Number(a.active) - Number(b.active)
       || a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id));
     for (const tombstone of tombstones) {
+      if (tombstone && (!Object.hasOwn(tombstone, 'parentVersionId') || tombstone.parentVersionId === undefined)) {
+        const state = { status: 'NON_READY', published: false, versionCount: 0,
+          reason: 'source-backed parent lineage is unavailable for one or more tombstones' };
+        coreCaptureStates.set(conversationId, state);
+        return state;
+      }
       if (!tombstone || typeof tombstone.messageId !== 'string' || typeof tombstone.versionId !== 'string'
-        || !/^[a-f0-9]{64}$/.test(tombstone.payloadDigest)) {
-        throw Error('NON_READY: cannot publish malformed Host tombstone');
+        || !/^[a-f0-9]{64}$/.test(tombstone.payloadDigest)
+        || (tombstone.parentVersionId !== null
+          && (typeof tombstone.parentVersionId !== 'string' || !tombstone.parentVersionId))) {
+        throw Error('NON_READY: cannot publish malformed Host tombstone or invalid parent lineage');
       }
       entries.push({
         conversation_id: conversationId,
         message_id: tombstone.messageId,
         version_id: tombstone.versionId,
+        parent_version_id: tombstone.parentVersionId,
         content_sha256: tombstone.payloadDigest,
         active: false,
         deleted: true,
@@ -152,6 +170,12 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   async function enrollCurrentConversation() {
     const conversationId = await getConversationId(), chat = getChat();
     if (!conversationId || !Array.isArray(chat)) throw Error('No active conversation; enrollment refused');
+    // Legacy ST history does not expose authoritative parent links. Never
+    // fabricate a root for an existing version; only a later, instrumented
+    // single-version insertion can establish a new root from its source boundary.
+    if (chat.some(message => rawVersions(message).length > 1)) {
+      throw Error('NON_READY: legacy multi-swipe message has no source-backed parent lineage; enrollment refused');
+    }
     const fingerprint = await currentFingerprint(chat);
     const descriptors = chat.map(message => ({
       role: roleOf(message),
@@ -164,7 +188,10 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         const identity = result.mapping[i];
         chat[i]._logicEngineLifecycle = {
           messageId: identity.messageId,
-          versions: identity.versions.map(version => ({ ...version, parentVersionId: null })),
+          // ST's current native message projection does not prove that this
+          // observed version is a root. Preserve that uncertainty; undefined is
+          // intentionally rejected by Core inventory publication.
+          versions: identity.versions.map(version => ({ ...version, parentVersionId: undefined })),
           activeVersionIndex: identity.activeVersionIndex,
         };
       }
@@ -216,7 +243,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           || current.versionIndex !== versionIndex || expected.versionIndex !== versionIndex
           || current.payloadDigest !== expected.payloadDigest
           || current.payloadDigest !== await contentDigest(versions[versionIndex])
-          || (current.parentVersionId ?? null) !== (expected.parentVersionId ?? null)) {
+          || current.parentVersionId !== expected.parentVersionId) {
           throw Error('NON_READY: version identity or digest differs from journal; abort mutation');
         }
         versionIds.add(current.versionId);
@@ -227,6 +254,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   async function beforeMutation(operation, messageIndexes, details = {}) {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
+    // The adapter has no source-backed parent token for ST alternate generation.
+    // Reject before native mutation rather than guessing a parent from swipe slot order.
+    if (operation === 'create-swipe') {
+      throw Error('NON_READY: alternate generation has no source-backed parent lineage; abort mutation before source change');
+    }
     if (!CURRENTLY_HOOKED_PATHS.includes(operation)) {
       throw Error('NON_READY: unsupported/uninstrumented Host lifecycle operation ' + String(operation) + '; abort mutation before source change');
     }
@@ -261,7 +293,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           versionId: version.versionId,
           versionIndex,
           role: roleOf(message),
-          parentVersionId: version.parentVersionId ?? null,
+          parentVersionId: version.parentVersionId,
           payloadDigest: version.payloadDigest,
         });
       }
@@ -288,6 +320,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     // current chat projection. The journal is still review-only; this does not
     // authorize Provider reconciliation or claim complete native inventory.
     const tombstones = [];
+    const removedSwipeParents = new Map();
     const priorIdentitySnapshot = await journal.latestIdentitySnapshot(conversationId);
     const liveMessageIds = new Set(chat.map(message => message?._logicEngineLifecycle?.messageId).filter(Boolean));
     if (operation === 'delete-message' && Array.isArray(priorIdentitySnapshot)) {
@@ -299,7 +332,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
             versionId: version.versionId,
             versionIndex: version.versionIndex,
             payloadDigest: version.payloadDigest,
-            parentVersionId: version.parentVersionId ?? null,
+            parentVersionId: version.parentVersionId,
             deleted: true,
             active: false,
             reason: 'message-deleted',
@@ -325,6 +358,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       }
     }
 
+    if (['create-message', 'message-send', 'message-receive'].includes(operation)
+      && rawVersions(chat[createdMessageIndex]).length > 1) {
+      throw Error('NON_READY: newly created multi-swipe message has no source-backed parent lineage; checkpoint refused');
+    }
+
     const versionPayloads = [];
     for (let i = 0; i < chat.length; i++) {
       const message = chat[i], versions = rawVersions(message);
@@ -341,12 +379,13 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           throw Error('NON_READY: deleted swipe has no matching version identity');
         }
         const removed = identity.versions[removedSwipeIndex];
+        removedSwipeParents.set(identity.messageId, removed.versionId);
         tombstones.push({
           messageId: identity.messageId,
           versionId: removed.versionId,
           versionIndex: removed.versionIndex ?? removedSwipeIndex,
           payloadDigest: removed.payloadDigest,
-          parentVersionId: removed.parentVersionId ?? null,
+          parentVersionId: removed.parentVersionId,
           deleted: true,
           active: false,
           reason: 'swipe-deleted',
@@ -368,7 +407,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
               versionId: prior.versionId,
               versionIndex: prior.versionIndex ?? j,
               payloadDigest: prior.payloadDigest,
-              parentVersionId: prior.parentVersionId ?? null,
+              parentVersionId: prior.parentVersionId,
               deleted: true,
               active: false,
               reason: 'version-replaced',
@@ -376,6 +415,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           }
           const versionId = newId();
           const parentVersionId = prior?.versionId
+            ?? removedSwipeParents.get(identity.messageId)
             ?? identity.versions[identity.activeVersionIndex]?.versionId
             ?? null;
           nextVersions.push({
@@ -405,7 +445,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           versionId: priorVersion.versionId,
           versionIndex: priorVersion.versionIndex,
           payloadDigest: priorVersion.payloadDigest,
-          parentVersionId: priorVersion.parentVersionId ?? null,
+          parentVersionId: priorVersion.parentVersionId,
           deleted: true,
           active: false,
           reason: 'version-removed',
@@ -541,7 +581,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
           || currentVersion.versionIndex !== versionIndex
           || recordedVersion.versionIndex !== versionIndex
           || currentVersion.payloadDigest !== recordedVersion.payloadDigest
-          || (currentVersion.parentVersionId ?? null) !== (recordedVersion.parentVersionId ?? null)) {
+          || currentVersion.parentVersionId !== recordedVersion.parentVersionId) {
           return { status: 'NON_READY', reason: 'native version identity differs from the last journaled version snapshot' };
         }
       }

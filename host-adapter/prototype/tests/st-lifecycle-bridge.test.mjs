@@ -79,18 +79,14 @@ function makeFixture(chat = [{ is_user: true, mes: 'hello' }, { is_user: false, 
   return { db, journal, chat, bridge, setLocator(value) { sourceLocator = value; }, setSourceLineage(value) { sourceLineage = value; }, setFailSave(value) { failSave = value; }, get saveCount() { return saveCount; } };
 }
 
-test('configured Core publisher receives digest-only baseline, replacement tombstone, and active version in order', async () => {
+test('unproven legacy root lineage blocks baseline and replacement publication', async () => {
   const published = [];
-  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }], {
+  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A'], swipe_id: 0 }], {
     publishDigest: async entry => { published.push(structuredClone(entry)); },
   });
   await f.bridge.enrollCurrentConversation();
-  assert.equal(published.length, 2);
-  assert.deepEqual(published.map(entry => entry.active), [false, true]);
-  assert.ok(published.every(entry => entry.conversation_id === 'chat-1'
-    && /^[a-f0-9]{64}$/.test(entry.content_sha256)
-    && !Object.keys(entry).some(key => /raw|text_body|content_text|message_body/i.test(key))));
-  published.length = 0;
+  assert.equal(published.length, 0, 'unproven legacy roots must not be sent to Core');
+  assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'NON_READY');
 
   const oldVersionIds = f.chat[0]._logicEngineLifecycle.versions.map(version => version.versionId);
   await f.bridge.beforeMutation('edit-message', [0]);
@@ -99,18 +95,14 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
   f.chat[0].swipe_id = 0;
   await f.bridge.afterMutation('edit-message');
 
-  assert.equal(published.length, 3);
-  assert.equal(published[0].active, true);
-  assert.equal(published[0].deleted, false);
-  assert.deepEqual(new Set(published.slice(1).map(entry => entry.version_id)), new Set(oldVersionIds));
-  assert.ok(published.slice(1).every(entry => entry.deleted === true && entry.active === false));
-  assert.ok(published.every(entry => !JSON.stringify(entry).includes('edited answer')));
+  assert.equal(published.length, 0, 'unproven baseline lineage must keep Core publication fail-closed');
+  assert.equal(f.chat[0]._logicEngineLifecycle.versions[0].parentVersionId, oldVersionIds[0]);
 });
 
-test('digest sync retry replays durable tombstones after a partial failed publication', async () => {
+test('digest sync remains fail-closed when tombstone lineage is unproven', async () => {
   let fail = false;
   const published = [];
-  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }], {
+  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A'], swipe_id: 0 }], {
     publishDigest: async entry => {
       if (fail) throw Error('upstream unavailable');
       published.push(structuredClone(entry));
@@ -131,12 +123,11 @@ test('digest sync retry replays durable tombstones after a partial failed public
   fail = false;
   published.length = 0;
   const retry = await f.bridge.syncCurrentDigestInventory();
-  assert.equal(retry.status, 'CAPTURED_REVIEW_ONLY');
-  assert.ok(published.some(entry => entry.version_id === removedVersionId
-    && entry.deleted === true && entry.active === false));
+  assert.equal(retry.status, 'NON_READY');
+  assert.equal(published.length, 0, 'unknown legacy parent lineage must not be replayed to Core');
 });
 
-test('Core publisher failure stays NON_READY and can be retried without re-enrolling', async () => {
+test('unproven legacy root stays NON_READY and cannot be retried into Core publication', async () => {
   let fail = true;
   const f = makeFixture([{ is_user: false, mes: 'hello' }], {
     publishDigest: async () => {
@@ -150,9 +141,9 @@ test('Core publisher failure stays NON_READY and can be retried without re-enrol
 
   fail = false;
   const retry = await f.bridge.syncCurrentDigestInventory();
-  assert.equal(retry.status, 'CAPTURED_REVIEW_ONLY');
-  assert.equal(retry.published, true);
-  assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'CAPTURED_REVIEW_ONLY');
+  assert.equal(retry.status, 'NON_READY');
+  assert.equal(retry.published, false);
+  assert.equal((await f.bridge.getCoreCaptureStatus()).status, 'NON_READY');
 });
 
 
@@ -202,7 +193,7 @@ test('malformed swipe and branch metadata cannot normalize to a valid empty inve
   assert.match(activeSwipeResult.reason, /malformed native active-swipe index/i);
   assert.equal(activeSwipeResult.trustEvidence.identityVersionMapping, 'MISMATCH');
 
-  const outOfRangeSwipe = makeFixture([{ is_user: false, mes: 'hello', swipes: ['hello', 'other'], swipe_id: 0 }]);
+  const outOfRangeSwipe = makeFixture([{ is_user: false, mes: 'hello', swipes: ['hello'], swipe_id: 0 }]);
   await outOfRangeSwipe.bridge.enrollCurrentConversation();
   outOfRangeSwipe.chat[0].swipe_id = 2;
   const outOfRangeResult = await outOfRangeSwipe.bridge.verifyCurrentSource();
@@ -314,7 +305,7 @@ test('message deletion tombstones survive journal re-open and remain digest-only
 });
 
 test('swipe deletion emits an explicit tombstone for the removed version identity', async () => {
-  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B'], swipe_id: 0 }]);
+  const f = makeFixture([{ is_user: false, mes: 'swipe A', swipes: ['swipe A'], swipe_id: 0 }]);
   await f.bridge.enrollCurrentConversation();
   const identity = f.chat[0]._logicEngineLifecycle;
   const removedVersionId = identity.versions[0].versionId;
@@ -433,6 +424,22 @@ test('restart reconciliation rejects a corrupted journal even when chat fingerpr
   assert.match(result.reason, /digest mismatch/);
 });
 
+test('alternate generation is refused before native mutation when parent lineage is unproven', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const before = await f.journal.verifyIntegrity('chat-1');
+  const originalSwipes = structuredClone(f.chat[1].swipes ?? [f.chat[1].mes]);
+
+  await assert.rejects(
+    f.bridge.beforeMutation('create-swipe', [1]),
+    /alternate generation has no source-backed parent lineage/,
+  );
+
+  assert.deepEqual(f.chat[1].swipes ?? [f.chat[1].mes], originalSwipes);
+  const after = await f.journal.verifyIntegrity('chat-1');
+  assert.equal(after.sequence, before.sequence);
+});
+
 test('unhooked clear-chat fails closed before source mutation', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
@@ -535,6 +542,22 @@ test('create-message checkpoint refuses to absorb an unhooked edit in earlier me
   assert.equal(after.sequence, before.sequence);
 });
 
+test('new multi-swipe generation is rejected before sidecar identity or journal checkpoint advances', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  await f.bridge.beforeMutation('message-receive', []);
+  const before = await f.journal.verifyIntegrity('chat-1');
+  f.chat.push({ is_user: false, mes: 'reply A', swipes: ['reply A', 'reply B'], swipe_id: 0 });
+
+  await assert.rejects(
+    f.bridge.afterMutation('message-receive', { createdMessageIndex: 2 }),
+    /newly created multi-swipe message has no source-backed parent lineage/,
+  );
+  const after = await f.journal.verifyIntegrity('chat-1');
+  assert.equal(after.sequence, before.sequence);
+  assert.equal(f.chat[2]._logicEngineLifecycle, undefined);
+});
+
 test('create-message assigns identity only to the explicitly appended tail message', async () => {
   const f = makeFixture();
   await f.bridge.enrollCurrentConversation();
@@ -545,6 +568,8 @@ test('create-message assigns identity only to the explicitly appended tail messa
   assert.equal(result.status, 'REVIEW_ONLY');
   assert.deepEqual(f.chat.slice(0, 2).map(message => message._logicEngineLifecycle.messageId), oldMessageIds);
   assert.ok(f.chat[2]._logicEngineLifecycle.messageId);
+  assert.equal(f.chat[2]._logicEngineLifecycle.versions[0].parentVersionId, null,
+    'the instrumented insertion boundary proves this newly created single version is a root');
 });
 
 test('message-send checkpoint records the inserted user message and receive preserves the lineage', async () => {
@@ -564,6 +589,8 @@ test('message-send checkpoint records the inserted user message and receive pres
   assert.equal(received.status, 'REVIEW_ONLY');
   assert.equal(f.chat[2]._logicEngineLifecycle.messageId, sentMessageId);
   assert.ok(f.chat[3]._logicEngineLifecycle.messageId);
+  assert.equal(f.chat[2]._logicEngineLifecycle.versions[0].parentVersionId, null);
+  assert.equal(f.chat[3]._logicEngineLifecycle.versions[0].parentVersionId, null);
 });
 
 test('message-send supports insertion at a requested historical index', async () => {
@@ -621,7 +648,7 @@ test('pre-mutation rejects sidecar identity changes even when native content fin
   );
 });
 
-test('swipe selection records a pre-mutation checkpoint and preserves immutable version IDs', async () => {
+test('legacy multi-swipe enrollment is rejected rather than fabricating multiple roots', async () => {
   const f = makeFixture([
     {
       is_user: false,
@@ -630,29 +657,11 @@ test('swipe selection records a pre-mutation checkpoint and preserves immutable 
       swipe_id: 0,
     },
   ]);
-  await f.bridge.enrollCurrentConversation();
-  const beforeIds = f.chat[0]._logicEngineLifecycle.versions.map(version => version.versionId);
-  const before = await f.bridge.beforeMutation('select-swipe', [0], { targetSwipeIndex: 1 });
-  assert.equal(before.operation, 'before:select-swipe');
-  assert.ok(before.eventId);
-
-  // Model the native selection mutation only after the before checkpoint exists.
-  f.chat[0].swipe_id = 1;
-  f.chat[0].mes = 'answer B';
-  const after = await f.bridge.afterMutation('select-swipe', { selectedMessageIndex: 0 });
-  assert.equal(after.status, 'REVIEW_ONLY');
-  assert.equal(f.chat[0]._logicEngineLifecycle.activeVersionIndex, 1);
-  assert.deepEqual(
-    f.chat[0]._logicEngineLifecycle.versions.map(version => version.versionId),
-    beforeIds,
-    'selecting a retained swipe must not mint or rewrite version identity',
+  await assert.rejects(
+    f.bridge.enrollCurrentConversation(),
+    /legacy multi-swipe message has no source-backed parent lineage/,
   );
-
-  const journalRows = [...f.db.rows.values()].filter(row => row.conversationId === 'chat-1');
-  const beforeRow = journalRows.find(row => row.operation === 'before:select-swipe');
-  const afterRow = journalRows.find(row => row.operation === 'after:select-swipe');
-  assert.ok(beforeRow && afterRow);
-  assert.ok(beforeRow.sequence < afterRow.sequence);
+  assert.equal(f.db.rows.size, 0, 'refusal must happen before persisting a baseline');
 });
 
 
