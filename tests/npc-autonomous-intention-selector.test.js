@@ -130,3 +130,19 @@ test("does not mutate caller-owned goals or action candidates", () => {
   selectNpcIntention(input);
   assert.deepEqual(input, before);
 });
+
+test("rejects accessor-backed array entries without invoking them", () => {
+  let invoked = false;
+  const goals = [];
+  Object.defineProperty(goals, "0", {
+    enumerable: true,
+    configurable: true,
+    get() { invoked = true; return goal("g", 10); },
+  });
+  goals.length = 1;
+  assert.deepEqual(selectNpcIntention({ goals, actions: [action("a", "g")] }), {
+    status: "non_ready",
+    intention: null,
+  });
+  assert.equal(invoked, false);
+});
