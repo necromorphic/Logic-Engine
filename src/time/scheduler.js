@@ -26,7 +26,7 @@ function nonEmptyString(value, name) {
 }
 
 function denseArrayValues(value, name, max, errorCode) {
-  if (!Array.isArray(value) || value.length > max) {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype || value.length > max) {
     fail(errorCode, name + ' must be an array with at most ' + max + ' entries.');
   }
   const values = [];
