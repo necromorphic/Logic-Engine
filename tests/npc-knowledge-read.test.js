@@ -271,6 +271,7 @@ test('Core prepares an actor-bound belief context only after per-acquisition vis
     actor_id: read.actor_id,
     snapshot: read.snapshot,
     proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
     stance: 'believes_true',
     supporting_acquisition_ids: [read.items[0].acquisition_id],
     contradicting_acquisition_ids: [],
@@ -316,6 +317,7 @@ test('Core omits denied acquisitions from the belief context and rejects proposa
     actor_id: read.actor_id,
     snapshot: read.snapshot,
     proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
     stance: 'believes_true',
     supporting_acquisition_ids: [read.items[0].acquisition_id],
     contradicting_acquisition_ids: [],
@@ -389,7 +391,8 @@ test('Core refuses a belief context if the snapshot changes during visibility ev
     world_id: read.world_id,
     actor_id: read.actor_id,
     snapshot: read.snapshot,
-    proposition_ref: 'proposition:secret',
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
     stance: 'believes_true',
     supporting_acquisition_ids: [read.items[0].acquisition_id],
     contradicting_acquisition_ids: [],
@@ -407,6 +410,7 @@ test('Core persists an explicit belief transition, supports idempotent replay, a
   const input = {
     ...current,
     proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
     stance: 'believes_true',
     supporting_acquisition_ids: [read.items[0].acquisition_id],
     contradicting_acquisition_ids: [],
@@ -443,6 +447,7 @@ test('belief transition idempotency key cannot be reused for a different stance'
   const input = {
     ...current,
     proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
     stance: 'believes_true',
     supporting_acquisition_ids: [read.items[0].acquisition_id],
     contradicting_acquisition_ids: [],
@@ -463,6 +468,7 @@ test('rollback of an acquisition invalidates its belief support but preserves th
   engine.recordNpcBeliefTransition({
     ...current,
     proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
     stance: 'believes_true',
     supporting_acquisition_ids: [read.items[0].acquisition_id],
     contradicting_acquisition_ids: [],
@@ -500,7 +506,8 @@ test('belief transition refuses a stale snapshot and does not write a projection
   });
   assert.throws(() => engine.recordNpcBeliefTransition({
     ...stale,
-    proposition_ref: 'proposition:npc-a-secret',
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
     stance: 'believes_true',
     supporting_acquisition_ids: ['some-acquisition'],
     contradicting_acquisition_ids: [],
