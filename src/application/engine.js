@@ -513,7 +513,7 @@ export class LogicEngine {
       authorization_ref: input.authorization_ref,
       expected_revision: input.expected_revision,
     };
-    const stableKey = 'knowledge-assignment:' + input.assignment_id;
+    const stableKey = 'knowledge-assignment:' + hashRequest({ assignment_id: input.assignment_id }).slice(0, 64);
     const event = {
       idempotency_key: stableKey,
       turn_id: stableKey,
