@@ -48,7 +48,7 @@ function readPath(root, path) {
     if (value === null || typeof value !== 'object' || !Object.hasOwn(value, key)) return { exists: false };
     const descriptor = Object.getOwnPropertyDescriptor(value, key);
     if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
-      throw new EngineError('INVALID_RULE_CONTEXT', 'Rule context paths must resolve through enumerable own data properties.');
+      throw new EngineError('RULE_TYPE_MISMATCH', 'Rule context paths must resolve through enumerable own data properties.');
     }
     value = descriptor.value;
   }
@@ -60,25 +60,25 @@ function readPath(root, path) {
 function canonicalJson(value, state = { depth: 0, nodes: 0, ancestors: new WeakSet() }) {
   state.nodes += 1;
   if (state.nodes > 10000 || state.depth > 32) {
-    throw new EngineError('INVALID_RULE_VALUE', 'Rule comparison values exceed the supported JSON complexity limit.');
+    throw new EngineError('RULE_TYPE_MISMATCH', 'Rule comparison values exceed the supported JSON complexity limit.');
   }
   if (value === null || typeof value === 'string' || typeof value === 'boolean') return value;
   if (typeof value === 'number' && Number.isFinite(value)) return value;
   if (!value || typeof value !== 'object') {
-    throw new EngineError('INVALID_RULE_VALUE', 'Rule comparison values must be JSON data.');
+    throw new EngineError('RULE_TYPE_MISMATCH', 'Rule comparison values must be JSON data.');
   }
   if (state.ancestors.has(value)) {
-    throw new EngineError('INVALID_RULE_VALUE', 'Rule comparison values must not contain cycles.');
+    throw new EngineError('RULE_TYPE_MISMATCH', 'Rule comparison values must not contain cycles.');
   }
 
   state.ancestors.add(value);
   state.depth += 1;
   try {
     if (Array.isArray(value)) {
-      assertDenseDataArray(value, 10000, 'INVALID_RULE_VALUE', 'Comparison array');
+      assertDenseDataArray(value, 10000, 'RULE_TYPE_MISMATCH', 'Comparison array');
       return value.map((item) => canonicalJson(item, state));
     }
-    assertPlainDataObject(value, 'INVALID_RULE_VALUE', 'Comparison object');
+    assertPlainDataObject(value, 'RULE_TYPE_MISMATCH', 'Comparison object');
     return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalJson(value[key], state)]));
   } finally {
     state.depth -= 1;
