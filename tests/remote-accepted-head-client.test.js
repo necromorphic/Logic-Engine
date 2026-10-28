@@ -49,6 +49,7 @@ test('verifies a signed current head and returns a frozen normalized result', ()
   const result = verifyRemoteAnchorEnvelope({
     envelope: makeEnvelope(),
     installationId,
+    expectedKeyId: 'key-01',
     publicKey: publicPem,
   });
   assert.equal(result.installationId, installationId);
@@ -68,6 +69,7 @@ test('rejects altered records, bad signatures, and wrong installation identity',
   assert.throws(() => verifyRemoteAnchorEnvelope({
     envelope: { ...envelope, record: { ...envelope.record, core_head_digest: 'c'.repeat(64) } },
     installationId,
+    expectedKeyId: 'key-01',
     publicKey: publicPem,
   }), /REMOTE_ANCHOR_SIGNATURE_INVALID/);
   assert.throws(() => verifyRemoteAnchorEnvelope({
@@ -78,6 +80,7 @@ test('rejects altered records, bad signatures, and wrong installation identity',
   assert.throws(() => verifyRemoteAnchorEnvelope({
     envelope: { ...envelope, signature: Buffer.alloc(64).toString('base64url') },
     installationId,
+    expectedKeyId: 'key-01',
     publicKey: publicPem,
   }), /REMOTE_ANCHOR_SIGNATURE_INVALID/);
 });
@@ -90,6 +93,7 @@ test('requires an explicit recovery reason for recovery records', () => {
   assert.throws(() => verifyRemoteAnchorEnvelope({
     envelope: makeEnvelope({ record_type: 'RECOVERY', recovery_reason: null }),
     installationId,
+    expectedKeyId: 'key-01',
     publicKey: publicPem,
   }), /REMOTE_ANCHOR_RECOVERY_REASON_INVALID/);
 });
@@ -99,16 +103,19 @@ test('rejects unknown fields, invalid chain metadata, and sequence rollback', ()
   assert.throws(() => verifyRemoteAnchorEnvelope({
     envelope: { ...envelope, record: { ...envelope.record, trusted: true } },
     installationId,
+    expectedKeyId: 'key-01',
     publicKey: publicPem,
   }), /REMOTE_ANCHOR_RECORD_FIELDS_INVALID/);
   assert.throws(() => verifyRemoteAnchorEnvelope({
     envelope: makeEnvelope({ sequence: 2 }),
     installationId,
+    expectedKeyId: 'key-01',
     publicKey: publicPem,
   }), /REMOTE_ANCHOR_CHAIN_INVALID/);
   assert.throws(() => verifyRemoteAnchorEnvelope({
     envelope,
     installationId,
+    expectedKeyId: 'key-01',
     publicKey: publicPem,
     minimumSequence: 2,
   }), /REMOTE_ANCHOR_ROLLBACK_DETECTED/);
@@ -118,6 +125,7 @@ test('fetch client requires HTTPS and fails closed on HTTP, invalid response, an
   const common = {
     installationId,
     serviceToken: 'x'.repeat(40),
+    expectedKeyId: 'key-01',
     publicKey: publicPem,
     fetchImpl: async () => new Response(JSON.stringify(makeEnvelope()), { status: 200 }),
   };
@@ -145,6 +153,7 @@ test('fetch client uses bearer auth and verifies returned signature', async () =
     endpoint: 'https://anchor.example/base/',
     installationId,
     serviceToken: 's'.repeat(40),
+    expectedKeyId: 'key-01',
     publicKey: publicPem,
     fetchImpl: async (url, options) => {
       requestedUrl = url;
