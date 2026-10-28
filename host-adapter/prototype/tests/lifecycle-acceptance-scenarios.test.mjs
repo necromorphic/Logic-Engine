@@ -74,7 +74,7 @@ test('write-ahead failure prevents the simulated destructive mutation', async ()
   assert.equal((await f.bridge.reconcileCurrentConversation()).status, 'NON_READY');
 });
 
-test('clear-chat is rejected before source mutation because no native deletion hook exists', async () => {
+test('clear-chat unload is not a persisted deletion operation', async () => {
   const f = fixture();
   await f.bridge.enrollCurrentConversation();
   const before = f.chat.map(m => m._logicEngineLifecycle.messageId);
@@ -85,7 +85,7 @@ test('clear-chat is rejected before source mutation because no native deletion h
   assert.deepEqual(f.chat.map(m => m._logicEngineLifecycle.messageId), before);
   const readiness = await f.bridge.reconcileCurrentConversation();
   assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('clear-chat'));
+  assert.ok(!readiness.missingPaths.includes('clear-chat'));
 });
 
 test('pinned patch explicitly hooks core mutations but does not pretend uncovered paths are hooked', async () => {
