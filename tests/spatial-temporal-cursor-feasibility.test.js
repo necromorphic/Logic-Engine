@@ -238,3 +238,51 @@ test('ordinary world writes after TimeEngine completion do not make an old segme
   assert.equal(persistedBoundary.commit_sequence, boundary.commit_sequence);
   assert.notEqual(persistedBoundary.committed_revision, afterWrite.world_revision);
 });
+
+
+test('equal-time events require stable event identity and commit ordering for a segment boundary', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-spatial-cursor-equal-time-'));
+  const path = join(directory, 'state.sqlite');
+  let store = new SQLiteStore(path);
+  let engine = new LogicEngine(store);
+  const worldId = 'spatial-cursor-equal-time-world';
+
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    try { store.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  engine.registerTimeTrigger(worldId, trigger('equal-time-a', 10000, 'equal-time-entity-a'));
+  engine.registerTimeTrigger(worldId, trigger('equal-time-b', 10000, 'equal-time-entity-b'));
+  const operation = engine.startTimeAdvance(worldId, {
+    idempotency_key: 'spatial-cursor-equal-time-operation',
+    expected_revision: 2,
+    to_coordinate: 10000,
+  });
+
+  assert.equal(operation.status, 'completed');
+  const segments = readSegmentRows(store, worldId, operation.operation_id);
+  assert.equal(segments.length, 1);
+  assert.equal(segments[0].events.length, 2);
+
+  const mapped = assertSegmentCursorMapping(store, worldId, segments);
+  const boundary = mapped[0].boundaryCursor;
+  const sameCoordinateEvents = store.db.prepare(
+    'SELECT event_id,game_time_coordinate,committed_revision,commit_sequence,validity FROM world_events WHERE world_id=? AND game_time_coordinate=? AND validity=? ORDER BY commit_sequence',
+  ).all(worldId, 10000, 'valid');
+
+  assert.equal(sameCoordinateEvents.length, 2);
+  assert.deepEqual(
+    sameCoordinateEvents.map((event) => event.event_id),
+    segments[0].events.map((event) => event.event_id),
+  );
+  assert.equal(boundary.event_id, segments[0].events.at(-1).event_id);
+  assert.equal(boundary.commit_sequence, sameCoordinateEvents.at(-1).commit_sequence);
+  assert.ok(sameCoordinateEvents[0].commit_sequence < sameCoordinateEvents[1].commit_sequence);
+  assert.equal(sameCoordinateEvents[0].game_time_coordinate, sameCoordinateEvents[1].game_time_coordinate);
+});
