@@ -181,6 +181,17 @@ test('rolling back the acquisition event itself removes it from the rebuilt proj
 
   store.rebuild('world-a', store.world('world-a').world_revision);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0);
+
+  const retry = engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a',
+    source_bytes: bytes,
+    idempotency_key: 'rollback-acquisition-event',
+    expected_revision: 1,
+    expected_commit_sequence: 1,
+  });
+  assert.equal(retry.idempotent_replay, true);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-a').n, 0,
+    'an idempotent retry must not resurrect an acquisition that was subsequently rolled back');
 });
 
 test('rolling back one of two independent acquisitions preserves the other source', (t) => {
