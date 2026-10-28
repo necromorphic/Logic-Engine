@@ -46,7 +46,7 @@ This is a seam recommendation for further review, **not authorization to impleme
 2. Immutable manifest/schema digest calculation, storage, and historical resolution.
 3. Exact validator capability and enforcement against full post-state at every accepted write.
 4. Typed spatial provenance surviving replay/rebuild and being invalidated correctly by rollback.
-5. A durable confirmed TimeEngine boundary associated with the Core composite cursor `(world_revision, commit_sequence)`.
+5. End-to-end proof that each historical confirmed TimeEngine boundary can be reconstructed to the correct Core cursor after restart, rollback, and backup restoration. Source inspection found a plausible persisted reconstruction path; the new isolated test must validate it.
 6. Exact-head test evidence for the proposed end-to-end contract. This source inspection did not run tests on `8d48021399824e96907541832cde4ce2a5012224`.
 
 Until those are closed, generic `position: {x,y,z}` remains unconfirmed, production spatial integration remains NO-GO, and Memory → NPC remains DISABLED / FAIL-CLOSED.
@@ -54,25 +54,17 @@ Until those are closed, generic `position: {x,y,z}` remains unconfirmed, product
 
 ## 6. TimeEngine boundary-to-Core cursor mapping
 
-The same audited source revision has a durable time-advance operation record, but the persisted fields and public operation projection do not establish the full required mapping:
+A follow-up source inspection refined the earlier conclusion: the operation does persist more cursor evidence than the table's top-level columns show.
 
-- The `time_advance_operations` table stores `confirmed_coordinate`, `starting_world_revision`, and `current_world_revision`; it has no `commit_sequence` field.
-- The `timeAdvanceOperation(row)` projection returns those same fields and does not return a confirmed-boundary composite cursor.
-- During resume, each planned segment is committed through `commitSegment()`. The segment result contains start/end game-time coordinates, start/final world revision, and start/final commit sequence. The operation checkpoint update persists `segment.coordinate` and `worldAfter.world_revision`, but does not persist `worldAfter`'s commit sequence alongside that confirmed coordinate.
-- Therefore, the operation can persist a confirmed time coordinate and a world revision, while the reviewed operation checkpoint does not itself persist a durable `(world_revision, commit_sequence)` pair for that exact boundary. A caller might reconstruct current state by other means, but that is not the same as a durable historical boundary mapping.
+- The `time_advance_operations` row stores `confirmed_coordinate` and `current_world_revision`.
+- The operation's `result_json` contains `last_segment`; the segment result includes `end_game_time_coordinate`, `world_revision`, and final `commit_sequence`. The update of the operation checkpoint and its `result_json` occurs in the same transaction as the segment commit. This provides an indirect durable cursor for the latest confirmed segment.
+- The persisted `segments_json` contains each planned segment's coordinate and event IDs. The canonical `world_events` rows persist each event's `game_time_coordinate`, `commit_sequence`, and validity. A candidate reconstruction rule is therefore: for each segment, identify its final event ID, resolve that event row, and bind its commit sequence to the segment coordinate, then validate the operation/world markers and event validity.
+- The public operation projection exposes `result.last_segment` for the latest segment, but does not expose the per-segment `segments_json` as a typed boundary-cursor list. Reconstructing older segment cursors requires joining the stored plan to canonical event history rather than reading a dedicated cursor field.
 
-Existing durable checkpoint/restart tests and segment commit sequence results are useful primitives, but this source inspection does not establish that an operation's confirmed boundary can be recovered unambiguously to the exact Core composite cursor after later commits, rollback, or older-backup restoration. Equal `game_time` alone is not a sufficient history cursor.
+This is a plausible existing-source path, not yet a proven end-to-end contract. The new research-only test `tests/spatial-temporal-cursor-feasibility.test.js` checks whether all segment boundary cursors can be reconstructed consistently before and after reopening the SQLite database. Its exact-head CI result is pending at the time of this edit. Rollback and older-backup restoration still need separate cases before the reconstruction rule can be considered generally safe for historical spatial queries.
 
-This is a source-level gap, not authorization to add a `commit_sequence` column, API field, cursor, or event. The next temporal step is to identify whether an already approved durable checkpoint or segment record can provide this association without a new contract; otherwise the missing association needs explicit design approval before implementation.
-
-
-### Existing test-source coverage checked
-
-- `tests/time-trigger-registry.test.js` includes `registered trigger state and completion survive a SQLite restart without re-firing` and `registered due triggers complete atomically with their event segment and operation checkpoint`. The assertions cover trigger/operation recovery, confirmed coordinate, replay, and effects; they do not assert a persisted operation-checkpoint `commit_sequence` paired with that coordinate.
-- `tests/time-segment.test.js` asserts that a segment result contains start/final commit sequence and time coordinates. That proves the segment response has these values, not that the durable time-advance operation checkpoint retains the matching cursor after restart.
-- These are source inspections of the current-main tests; this research pass does not claim that it reran the entire current-main suite independently. PR #576 CI validates the research branch's exact head, not a separately executed current-main spatial contract suite.
-
+This finding does not authorize a new schema/API field or runtime behavior. It narrows the research question from “is the cursor persisted at all?” to “is reconstruction from segment event IDs plus canonical event history stable and sufficient under rollback/recovery?”
 
 ### Why world revision cannot substitute for commit sequence
 
-The audited store source also shows that `world_revision` changes on non-event state transitions, including time-trigger registration/cancellation and time-configuration activation. Canonical event commits separately allocate and persist `commit_sequence`. Therefore, the operation's persisted `current_world_revision` cannot be treated as a surrogate for the missing event cursor, nor can a revision-to-sequence identity be assumed. A valid historical spatial boundary needs an explicit, durable association or a separately proven reconstruction rule that accounts for non-event revisions, rollback, and repeated time coordinates.
+The audited store source shows that `world_revision` changes on non-event state transitions, including time-trigger registration/cancellation and time-configuration activation. Canonical event commits separately allocate and persist `commit_sequence`. Therefore, `current_world_revision` alone cannot substitute for an event cursor; the proposed reconstruction must use the segment's final event identity and its canonical `commit_sequence`, with explicit validity and recovery checks.
