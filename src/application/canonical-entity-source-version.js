@@ -140,7 +140,7 @@ export function createCanonicalEntityInventoryValidator(engine) {
         for (const entity of page.entities) {
           if (!object(entity) || !validId(entity.entity_id)
             || !['active', 'destroyed'].includes(entity.status)
-            || (entity.source_version !== null && !canonicalSourceVersion(entity.source_version))
+            || !canonicalSourceVersion(entity.source_version)
             || inventory.has(entity.entity_id)
             || (previousEntityId !== null && entity.entity_id <= previousEntityId)) return false;
           inventory.set(entity.entity_id, entity);
