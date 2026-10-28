@@ -527,4 +527,4 @@ test('movement snapshot deep-copies nested body and motion data for every entity
   assert.equal(initial.entities[1].body.maxOffset.y, 0.4);
   assert.equal(initial.entities[1].motion.velocity.y, 1);
 });
-\n
+
