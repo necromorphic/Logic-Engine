@@ -758,6 +758,17 @@ export class LogicEngine {
       });
     });
 
+    // The authorizer and SQL read happen after the initial cursor capture. Re-read
+    // the canonical cursor before returning so a concurrent commit cannot make
+    // this ready response combine newer acquisition rows with an older snapshot.
+    const worldNow = this.store.world(request.world_id);
+    const sequenceNow = this.store.currentCommitSequence(request.world_id);
+    assert(worldNow && worldNow.status === 'active'
+      && worldNow.world_revision === checked.request.world_revision
+      && sequenceNow === checked.request.commit_sequence,
+    'NPC_KNOWLEDGE_READ_NOT_READY',
+    'World snapshot changed while reading NPC knowledge; retry from a fresh snapshot.', 409);
+
     return Object.freeze({
       status: 'ready',
       world_id: request.world_id,
