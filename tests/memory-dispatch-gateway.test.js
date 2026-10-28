@@ -131,7 +131,7 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       closed = true;
       try { gateway?.close(); } catch {}
       if (service.child.exitCode === null && service.child.signalCode === null) {
-        service.child.stdin.end('stop');
+        service.child.kill();
         await once(service.child, 'exit');
       }
       rmSync(directory, { recursive: true, force: true });
@@ -700,7 +700,7 @@ test('real Provider readiness loss and access revocations before dispatch-start 
     try { providerReader?.close(); } catch {}
     try { provider?.close(); } catch {}
     if (service?.child && service.child.exitCode === null && service.child.signalCode === null) {
-      service.child.stdin.end('stop');
+      service.child.kill();
       await once(service.child, 'exit');
     }
     for (const [name, value] of Object.entries(previousEnv)) {
