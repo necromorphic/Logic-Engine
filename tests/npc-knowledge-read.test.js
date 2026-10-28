@@ -110,6 +110,7 @@ test('reader returns only facts acquired by the requesting NPC and binds the exa
   });
   assert.equal(result.items.length, 1);
   assert.equal(result.items[0].fact_id, 'fact-a');
+  assert.deepEqual(engine.readNpcKnowledge(request(store, { actor_id: 'npc-b' })).items, []);
   assert.equal(result.items[0].value, 'source-backed-value');
   assert.equal(result.items[0].provenance_ref, 'authoring:test.world@1.0.0');
   assert.deepEqual(result.items[0].source_event_ids, ['author-seed']);
@@ -145,6 +146,55 @@ test('reader rejects stale snapshot cursors and actor/purpose authorization mism
     }),
   });
   assert.throws(() => mismatch.readNpcKnowledge(current), { code: 'NPC_KNOWLEDGE_READ_NOT_READY' });
+});
+
+test('reader rejects authorizer scope mismatches for world, purpose, revision, and commit sequence', (t) => {
+  const { store } = setup(t);
+  const current = request(store);
+  const mismatches = [
+    ['world_id', 'other-world'],
+    ['purpose', 'npc_action_evaluation'],
+    ['world_revision', current.expected_revision + 1],
+    ['commit_sequence', current.expected_commit_sequence + 1],
+  ];
+
+  for (const [field, value] of mismatches) {
+    const engine = new LogicEngine(store, {
+      trustedInitialKnowledgeSources: trustedRegistry,
+      npcKnowledgeReadAuthorizer: (scope) => ({
+        status: 'authorized',
+        world_id: scope.world_id,
+        actor_id: scope.actor_id,
+        purpose: scope.purpose,
+        world_revision: scope.world_revision,
+        commit_sequence: scope.commit_sequence,
+        authorization_ref: 'rule:npc-read-v1',
+        [field]: value,
+      }),
+    });
+    assert.throws(() => engine.readNpcKnowledge(current), {
+      code: 'NPC_KNOWLEDGE_READ_NOT_READY',
+    }, `must reject authorization mismatch for ${field}`);
+  }
+});
+
+test('reader fails closed when the trusted authorizer is asynchronous', (t) => {
+  const { store } = setup(t);
+  const engine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeReadAuthorizer: async (scope) => ({
+      status: 'authorized',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      authorization_ref: 'rule:npc-read-v1',
+    }),
+  });
+  assert.throws(() => engine.readNpcKnowledge(request(store)), {
+    code: 'NPC_KNOWLEDGE_READ_NOT_READY',
+  });
 });
 
 test('reader rejects unsupported purpose, unknown actor, and malformed limits', (t) => {
