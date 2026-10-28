@@ -740,7 +740,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1663 @@
+@@ -0,0 +1,1701 @@
 +import { createHash, randomBytes, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -855,7 +855,7 @@ new file mode 100644
 +    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 +const hostTextDigest = value => digest(JSON.stringify(String(value)));
 +const sameFileStat = (a, b) => a.dev === b.dev && a.ino === b.ino
-+    && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
++    && a.size === b.size && a.mtimeMs === b.mtimeMs;
 +
 +function purgeExpiredSaveCapabilities(now = Date.now()) {
 +    for (const [token, capability] of saveCapabilities) {
@@ -1394,7 +1394,7 @@ new file mode 100644
 + * A successful pre-snapshot and fsynced intent are required before the handler.
 + * The response is held until a post-snapshot and fsynced outcome are recorded.
 + */
-+export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, getUserDirectories, beforeSavePrestateRecheck = null } = {}) {
++export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, getUserDirectories, beforeSavePrestateRecheck = null, beforeSaveNativeHandoff = null } = {}) {
 +    return async function hostLifecycleMutationMiddleware(request, response, next) {
 +        const routeKey = request.method + ' ' + request.baseUrl + request.path;
 +        const originalRouteKey = request.method + ' ' + request.originalUrl?.split('?')[0];
@@ -1750,6 +1750,44 @@ new file mode 100644
 +            })();
 +            return response;
 +        };
++
++        if (saveCapability) {
++            try {
++                // This is the last asynchronous boundary before entering the native
++                // save handler. Re-open the exact target with no-follow/stable-stat
++                // checks after the durable intent and inventory scan; do not rely on
++                // the earlier prestate scan to cover this final race window.
++                if (typeof beforeSaveNativeHandoff === 'function') {
++                    await beforeSaveNativeHandoff({ request, target: saveTarget, operationId });
++                }
++                const root = paths.roots.find(item => item.domain === saveTarget.domain)?.path;
++                if (!root) throw new Error('HOST_SAVE_CAPABILITY_ROOT_UNAVAILABLE');
++                const sourceFilePath = path.resolve(root, ...saveTarget.sourcePath.split('/'));
++                const relative = path.relative(root, sourceFilePath);
++                if (!relative || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
++                    throw new Error('HOST_SAVE_CAPABILITY_PATH_UNSAFE');
++                }
++                await readStableHostChatFile(sourceFilePath, saveCapability.preStateFileDigest);
++            } catch {
++                restoreResponseMethods();
++                try {
++                    await appendRecord(paths.journalPath, chain.lastHash, {
++                        version: 1,
++                        kind: 'outcome',
++                        operationId,
++                        status: 'UNRESOLVED',
++                        completedAt: new Date().toISOString(),
++                        httpStatus: 409,
++                        afterSnapshotStatus: 'HOST_SAVE_CAPABILITY_STALE_PRESTATE_AT_NATIVE_HANDOFF',
++                    });
++                } catch {
++                    // Keep the request blocked even if the journal outcome cannot be recorded.
++                }
++                release();
++                return fail(response, 'HOST_SAVE_CAPABILITY_STALE_PRESTATE_AT_NATIVE_HANDOFF', 409);
++            }
++        }
++
 +        return next();
 +    };
 +}
@@ -1839,8 +1877,8 @@ new file mode 100644
 +        const pathAfter = await lstat(cursor);
 +        if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino
 +            || before.size !== after.size || before.mtimeMs !== after.mtimeMs
-+            || before.ctimeMs !== after.ctimeMs || before.dev !== pathAfter.dev
-+            || before.ino !== pathAfter.ino || bytes.length !== after.size) {
++            || before.dev !== pathAfter.dev || before.ino !== pathAfter.ino
++            || bytes.length !== after.size) {
 +            throw new Error('HOST_ENROLLMENT_SOURCE_CHANGED');
 +        }
 +        const firstLine = bytes.toString('utf8').split(/\r?\n/).find(line => line.trim().length > 0);
