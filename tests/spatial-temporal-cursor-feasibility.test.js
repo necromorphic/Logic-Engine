@@ -316,7 +316,7 @@ test('an invalidated segment boundary is rejected instead of reconstructed as a 
   const segments = readSegmentRows(store, worldId, operation.operation_id);
   const boundaryEventId = segments[0].events.at(-1).event_id;
   store.db.prepare(
-    "UPDATE world_events SET validity='invalid' WHERE world_id=? AND event_id=?",
+    "UPDATE world_events SET validity='invalidated' WHERE world_id=? AND event_id=?",
   ).run(worldId, boundaryEventId);
 
   assert.throws(
