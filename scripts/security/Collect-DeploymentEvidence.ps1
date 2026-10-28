@@ -245,7 +245,12 @@ $pathInputs = @($DataPath) + @($BackupPath) | Where-Object { $_ } | Select-Objec
 # Never let the evidence output overwrite an input, SQLite sidecar, or file in a backup tree.
 $fullOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
 foreach ($dataFile in @($DataPath | Where-Object { $_ })) {
-    $fullDataPath = [System.IO.Path]::GetFullPath($dataFile)
+    try {
+        $fullDataPath = [System.IO.Path]::GetFullPath($dataFile)
+    } catch {
+        # Let Get-PathAclEvidence record the invalid input as unknown/incomplete below.
+        continue
+    }
     if ([string]::Equals($fullOutputPath, $fullDataPath, [System.StringComparison]::OrdinalIgnoreCase)) {
         throw "OutputPath must not overwrite a supplied data path: $fullDataPath"
     }
@@ -256,7 +261,12 @@ foreach ($dataFile in @($DataPath | Where-Object { $_ })) {
     }
 }
 foreach ($backupRoot in @($BackupPath | Where-Object { $_ })) {
-    $fullBackupRoot = [System.IO.Path]::GetFullPath($backupRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    try {
+        $fullBackupRoot = [System.IO.Path]::GetFullPath($backupRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    } catch {
+        # An invalid backup path is reported as incomplete by Get-PathAclEvidence.
+        continue
+    }
     $backupPrefix = $fullBackupRoot + [System.IO.Path]::DirectorySeparatorChar
     if ($fullOutputPath.StartsWith($backupPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
         [string]::Equals($fullOutputPath, $fullBackupRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
