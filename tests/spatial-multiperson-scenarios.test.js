@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildLanguageModelSceneContext, evaluateSpatialTopology } from '../experiments/spatial-scene-lab/spatial-topology.js';
 import { estimateSoundAudibility } from '../experiments/spatial-scene-lab/spatial-sound.js';
-import { evaluateSpatialScene, moveEntityInSyntheticScene } from '../experiments/spatial-scene-lab/spatial-scene.js';
+import { detectSimultaneousTrajectoryCollisions, evaluateSpatialScene, moveEntityInSyntheticScene, predictSceneAtHorizon } from '../experiments/spatial-scene-lab/spatial-scene.js';
 
 const makeScene = (doorState) => ({
   worldId: 'multi-npc-doorway',
@@ -131,4 +131,32 @@ test('multi-NPC visibility remains UNKNOWN when lighting or blocker inventory is
   const incomplete = evaluateSpatialScene({ ...visibilityScene(), occluderInventoryComplete: false });
   assert.equal(incomplete.status, 'UNKNOWN');
   assert.equal(incomplete.reason, 'INVALID_OR_INCOMPLETE_SCENE');
+});
+
+
+test('multi-NPC temporal trace: approaching NPCs may collide, separating NPCs do not collide in the same horizon', () => {
+  const temporalScene = (velocityA, velocityB) => ({
+    worldId: 'multi-npc-temporal', boundary: 'time-0', lighting: 'clear',
+    occluderInventoryComplete: true, blockers: [],
+    entities: [
+      { ...sceneEntity('npc-a', { x: 2, y: 0, z: 0 }), motion: { velocity: { x: velocityA, y: 0, z: 0 } } },
+      { ...sceneEntity('npc-b', { x: 8, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }), motion: { velocity: { x: velocityB, y: 0, z: 0 } } },
+    ],
+  });
+
+  const approaching = temporalScene(1, -1);
+  const prediction = predictSceneAtHorizon(approaching, 4, 'time-4');
+  assert.equal(prediction.status, 'CONFIRMED');
+  assert.equal(prediction.scene.entities.find((item) => item.id === 'npc-a').position.x, 6);
+  assert.equal(prediction.scene.entities.find((item) => item.id === 'npc-b').position.x, 4);
+  const approachingCollisions = detectSimultaneousTrajectoryCollisions(approaching, 4);
+  assert.equal(approachingCollisions.status, 'CONFIRMED');
+  assert.equal(approachingCollisions.collisions.length, 1);
+  assert.equal(approachingCollisions.collisions[0].status, 'POSSIBLE');
+  assert.equal(approachingCollisions.collisions[0].timeStartSeconds, 3);
+
+  const separating = temporalScene(-1, 1);
+  const separatingCollisions = detectSimultaneousTrajectoryCollisions(separating, 4);
+  assert.equal(separatingCollisions.status, 'CONFIRMED');
+  assert.deepEqual(separatingCollisions.collisions, []);
 });
