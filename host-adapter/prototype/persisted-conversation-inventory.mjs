@@ -122,7 +122,15 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
         } catch (error) {
           // Keep diagnostics platform-safe: include only a stable OS error code,
           // never the absolute path or chat contents.
-          const code = typeof error?.code === 'string' ? error.code : 'UNCLASSIFIED';
+          const safeMessageCodes = [
+            'ARTIFACT_TYPE_UNSUPPORTED',
+            'ARTIFACT_CHANGED_BEFORE_READ',
+            'ARTIFACT_CHANGED_DURING_READ',
+            'JSONL_RECORD_INVALID',
+          ];
+          const code = typeof error?.code === 'string' ? error.code
+            : safeMessageCodes.includes(error?.message) ? error.message
+              : error instanceof SyntaxError ? 'JSON_PARSE' : 'UNCLASSIFIED';
           parseErrors.push('CHAT_JSONL_UNREADABLE:' + domain + ':' + code);
           continue;
         }
