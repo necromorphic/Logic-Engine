@@ -497,6 +497,56 @@ test('idempotent belief replay rechecks current read authorization and returns n
   assert.equal(replay.transition.event_id, committed.transition.event_id);
 });
 
+test('belief-state reads do not disclose a proposition whose current evidence is withheld', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  const propositionRef = propositionRefFor(read.items[0]);
+  engine.recordNpcBeliefTransition({
+    ...current,
+    proposition_ref: propositionRef,
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-state-withheld',
+  });
+  const denied = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeReadAuthorizer: (scope) => ({
+      status: 'authorized',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      authorization_ref: 'rule:npc-read-v1',
+    }),
+    npcKnowledgeVisibilityAuthorizer: (scope) => ({
+      status: 'denied',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      acquisition_id: scope.acquisition_id,
+      authorization_ref: 'rule:npc-visibility-deny-v1',
+    }),
+  });
+  const state = denied.getNpcBeliefState({
+    ...request(store),
+    proposition_ref: propositionRef,
+  });
+  assert.deepEqual(state, {
+    status: 'unavailable',
+    actor_id: 'npc-a',
+    proposition_ref: propositionRef,
+  });
+  assert.equal('proposition_value' in state, false);
+  assert.equal('stance' in state, false);
+});
+
 test('rollback of an acquisition invalidates its belief support but preserves the belief transition for reconciliation', (t) => {
   const { store, engine, acquisition } = setup(t);
   const current = request(store);
