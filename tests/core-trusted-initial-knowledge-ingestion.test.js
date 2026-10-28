@@ -1,6 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 
@@ -221,4 +224,50 @@ test('rolling back one of two independent acquisitions preserves the other sourc
   const recovered = store.db.prepare('SELECT acquisition_id,event_id,provenance_ref FROM knowledge_acquisitions WHERE world_id=? AND subject_id=? AND fact_id=?')
     .all('world-a', 'npc-a', 'fact-a');
   assert.deepEqual(recovered, remaining);
+});
+
+
+test('acquisition rollback survives database restart and projection recovery', (t) => {
+  const dir = mkdtempSync(join(tmpdir(), 'logic-acquisition-recovery-'));
+  const dbPath = join(dir, 'core.sqlite');
+  let store = new SQLiteStore(dbPath);
+  t.after(() => {
+    store?.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  const bytes = sourceBytes();
+  const engine = new LogicEngine(store, { trustedInitialKnowledgeSources: trustedRegistry(bytes) });
+  engine.createWorld({
+    world_id: 'world-recovery',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('world-recovery', {
+    event_id: 'recovery-seed',
+    idempotency_key: 'recovery-seed',
+    turn_id: 'recovery-seed',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [
+      { kind: 'entity.create', entity_id: 'npc-a', entity_type: 'character' },
+      { kind: 'fact.set', fact_id: 'fact-a', predicate: 'secret', value: 'source-backed-value' },
+    ],
+  });
+  const acquired = engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-recovery', source_bytes: bytes, idempotency_key: 'recovery-acquire',
+    expected_revision: 1, expected_commit_sequence: 1,
+  });
+  const rollback = engine.rollbackEvent('world-recovery', {
+    root_event_id: acquired.event_id, idempotency_key: 'recovery-rollback-acquisition',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-recovery').n, 0);
+
+  store.close();
+  store = new SQLiteStore(dbPath);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-recovery').n, 0);
+  store.rebuild('world-recovery', store.world('world-recovery').world_revision);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions WHERE world_id=?').get('world-recovery').n, 0);
 });
