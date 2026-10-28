@@ -208,3 +208,12 @@ The pinned `public/scripts/extensions/vectors/index.js` uses these same-origin e
 - `POST /api/openai/workers-ai/models/embedding`.
 
 The server deny guard now exempts **only these exact POST paths** before prefix matching. Wrong methods, extra path segments, native generation, TTS, and other provider paths remain denied. The route-specific regression test passes at the current candidate head [`e48e727`](https://github.com/necromorphic/Logic-Engine/commit/e48e72723e078d97a9b75d580700d8241a77c358) ([CI](https://github.com/necromorphic/Logic-Engine/actions/runs/40673626105)). This exception preserves the existing vectorization behavior; it is not a declaration that the vectorization subsystem is a protected Memory disclosure gate.
+
+
+### Browser fence extension and exact-head regression result
+
+The browser fence now wraps cross-origin `fetch`, `XMLHttpRequest.open`, `WebSocket`, `EventSource`, and `navigator.sendBeacon`. Same-origin traffic remains allowed to reach the server middleware; same-host `ws:`/page `http:` and `wss:`/page `https:` are treated as the same origin for the WebSocket check. Tests prove enrolled cross-origin calls fail before the fake transport and same-origin calls continue.
+
+Exact-head Host CI passed at `f27f026cd9eb3397dfc5c1649af1d057cfde1dfa`: [run #40673828412](https://github.com/necromorphic/Logic-Engine/actions/runs/40673828412). The earlier exact vectorization route exception test passed at [run #40673626105](https://github.com/necromorphic/Logic-Engine/actions/runs/40673626105); the exceptions are present in the later head as well.
+
+This improves common transport interception but still does not prove a complete browser sandbox. Workers, image/navigation beacons, dynamically injected scripts using alternate primitives, arbitrary plugin routes, native extensions and any transport not classified/tested remain **UNPROVEN**. No production route or positive Gateway is active.
