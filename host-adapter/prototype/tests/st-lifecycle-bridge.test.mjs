@@ -409,6 +409,20 @@ test('native save failure leaves the journal behind so the next mutation fails c
   await assert.rejects(f.bridge.beforeMutation('delete-message', [0]), /fingerprint differs/);
 });
 
+test('successful outer native save can checkpoint without consuming a second one-shot save capability', async () => {
+  const f = makeFixture();
+  await f.bridge.enrollCurrentConversation();
+  const savesAfterEnrollment = f.saveCount;
+  await f.bridge.beforeMutation('edit-message', [0]);
+  f.chat[0].mes = 'changed and persisted by the outer capability-bound save';
+  await f.bridge.afterMutation('edit-message', { sourceAlreadyPersisted: true });
+  assert.equal(f.saveCount, savesAfterEnrollment);
+  assert.equal((await f.journal.verifyCurrentSource('chat-1', {
+    messages: f.chat,
+    sourceLocator: { locator: 'chat-file-1', lineage: { mainChat: null, integrity: null, sessionName: 'chat-file-1', groupId: null } },
+  })).status, 'LOCAL_MATCH_NON_AUTHORITATIVE');
+});
+
 test('empty chat enrollment is explicit and does not imply pre-enrollment history', async () => {
   const db = new FakeDB(), journal = new HostLifecycleJournal(db), chat = [];
   const bridge = createStLifecycleBridge({
