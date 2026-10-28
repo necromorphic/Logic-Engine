@@ -76,6 +76,21 @@ test('time-advance API is internal-only and exposes durable start/status/replay'
   assert.equal((await fetch(base + '/v1/worlds/api-time-world/events', { headers: { ...headers, 'x-engine-internal-token': INTERNAL } })).status, 200);
 });
 
+test('process lifecycle reads require the internal credential', async (t) => {
+  const base = await setup(t, { internalToken: INTERNAL });
+  assert.equal((await createWorld(base, 'api-process-auth-world')).status, 201);
+
+  const denied = await fetch(base + '/v1/worlds/api-process-auth-world/processes', { headers });
+  assert.equal(denied.status, 403);
+  assert.equal((await denied.json()).error.code, 'INTERNAL_REQUIRED');
+
+  const allowed = await fetch(base + '/v1/worlds/api-process-auth-world/processes', {
+    headers: { ...headers, 'x-engine-internal-token': INTERNAL },
+  });
+  assert.equal(allowed.status, 200);
+  assert.deepEqual((await allowed.json()).processes, []);
+});
+
 test('time-trigger lifecycle is internal-only and registered triggers drive durable advances', async (t) => {
   const base = await setup(t, { internalToken: INTERNAL });
   assert.equal((await createWorld(base, 'api-time-trigger-world')).status, 201);
