@@ -9,6 +9,8 @@ on:
       - "host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs"
       - "host-adapter/prototype/tests/protected-dispatch-browser-guard.test.mjs"
       - "host-adapter/prototype/tests/st-server-digest-proxy.test.mjs"
+      - "host-adapter/prototype/request-scoped-transport-capability.mjs"
+      - "host-adapter/prototype/tests/request-scoped-transport-capability.test.mjs"
       - "host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch"
       - "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
       - ".github/workflows/host-protected-dispatch-deny-check.yml"
@@ -20,6 +22,8 @@ on:
       - "host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs"
       - "host-adapter/prototype/tests/protected-dispatch-browser-guard.test.mjs"
       - "host-adapter/prototype/tests/st-server-digest-proxy.test.mjs"
+      - "host-adapter/prototype/request-scoped-transport-capability.mjs"
+      - "host-adapter/prototype/tests/request-scoped-transport-capability.test.mjs"
       - "host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch"
       - "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
       - ".github/workflows/host-protected-dispatch-deny-check.yml"
@@ -40,7 +44,7 @@ jobs:
         with:
           node-version: 22
       - name: Run Host proxy and protected-dispatch tests
-        run: node --test host-adapter/prototype/tests/st-server-digest-proxy.test.mjs host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs host-adapter/prototype/tests/protected-dispatch-browser-guard.test.mjs
+        run: node --test host-adapter/prototype/tests/st-server-digest-proxy.test.mjs host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs host-adapter/prototype/tests/protected-dispatch-browser-guard.test.mjs host-adapter/prototype/tests/request-scoped-transport-capability.test.mjs
       - name: Checkout pinned SillyTavern
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
