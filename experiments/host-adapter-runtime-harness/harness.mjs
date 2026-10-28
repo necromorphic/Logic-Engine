@@ -5,6 +5,7 @@ import { resolve } from 'node:path';
 import { readFile } from 'node:fs/promises';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
+import { createProtectedDispatchDenyMiddleware } from '../../host-adapter/prototype/protected-dispatch-deny-guard.mjs';
 
 const stRoot = resolve(process.env.SILLYTAVERN_DIR ?? 'SillyTavern');
 const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
@@ -89,11 +90,14 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
   assert.ok(providerAddress && typeof providerAddress === 'object');
 
   const app = express();
+  const gateEnv = { SILLYTAVERN_REQUIRE_PROTECTED_EGRESS_GATEWAY: 'true' };
   app.use(express.json({ limit: '1mb' }));
   app.use((req, _res, next) => {
     req.user = { directories: {} };
     next();
   });
+  // Exercise the guard in front of the actual pinned Express router.
+  app.use(createProtectedDispatchDenyMiddleware({ env: gateEnv }));
   app.use('/api/backends/chat-completions', router);
   const stHarnessServer = app.listen(0, '127.0.0.1');
   await once(stHarnessServer, 'listening');
@@ -110,20 +114,33 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
     }
   });
 
-  const response = await fetch(`http://127.0.0.1:${stAddress.port}/api/backends/chat-completions/generate`, {
+  const requestUrl = `http://127.0.0.1:${stAddress.port}/api/backends/chat-completions/generate`;
+  const requestBody = JSON.stringify({
+    chat_completion_source: 'makersuite',
+    reverse_proxy: `http://127.0.0.1:${providerAddress.port}/v1`,
+    proxy_password: 'test-only-not-a-real-secret',
+    model: 'fake-model',
+    messages: [{ role: 'user', content: 'HARNESS_SENTINEL_DO_NOT_LOG' }],
+    stream: false,
+    temperature: 0,
+    max_tokens: 8,
+  });
+  const sendRequest = () => fetch(requestUrl, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({
-      chat_completion_source: 'makersuite',
-      reverse_proxy: `http://127.0.0.1:${providerAddress.port}/v1`,
-      proxy_password: 'test-only-not-a-real-secret',
-      model: 'fake-model',
-      messages: [{ role: 'user', content: 'HARNESS_SENTINEL_DO_NOT_LOG' }],
-      stream: false,
-      temperature: 0,
-      max_tokens: 8,
-    }),
+    body: requestBody,
   });
+
+  const deniedResponse = await sendRequest();
+  assert.equal(deniedResponse.status, 503, 'the guard must deny before the pinned provider handler');
+  assert.equal((await deniedResponse.json()).error?.code, 'PROTECTED_EGRESS_GATEWAY_REQUIRED');
+  assert.equal(requestCount, 0, 'denial must produce zero outbound provider requests');
+  assert.deepEqual(arrivals, []);
+
+  // Test-only control: prove the exact pinned provider handler remains reachable
+  // when enforcement is off; this does not enable production dispatch.
+  gateEnv.SILLYTAVERN_REQUIRE_PROTECTED_EGRESS_GATEWAY = 'false';
+  const response = await sendRequest();
 
   assert.equal(response.status, 200, 'the actual pinned handler should return the fake provider response');
   const responseJson = await response.json();

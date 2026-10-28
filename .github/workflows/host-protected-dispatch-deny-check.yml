@@ -1,0 +1,174 @@
+name: Host protected dispatch deny guard
+
+on:
+  pull_request:
+    paths:
+      - "host-adapter/prototype/protected-dispatch-deny-guard.mjs"
+      - "host-adapter/prototype/protected-dispatch-browser-guard.mjs"
+      - "host-adapter/prototype/st-server-digest-proxy.mjs"
+      - "host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs"
+      - "host-adapter/prototype/tests/protected-dispatch-browser-guard.test.mjs"
+      - "host-adapter/prototype/tests/st-server-digest-proxy.test.mjs"
+      - "host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch"
+      - "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+      - ".github/workflows/host-protected-dispatch-deny-check.yml"
+  push:
+    paths:
+      - "host-adapter/prototype/protected-dispatch-deny-guard.mjs"
+      - "host-adapter/prototype/protected-dispatch-browser-guard.mjs"
+      - "host-adapter/prototype/st-server-digest-proxy.mjs"
+      - "host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs"
+      - "host-adapter/prototype/tests/protected-dispatch-browser-guard.test.mjs"
+      - "host-adapter/prototype/tests/st-server-digest-proxy.test.mjs"
+      - "host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch"
+      - "host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch"
+      - ".github/workflows/host-protected-dispatch-deny-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-protected-dispatch-deny:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Logic-Engine branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Run Host proxy and protected-dispatch tests
+        run: node --test host-adapter/prototype/tests/st-server-digest-proxy.test.mjs host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs host-adapter/prototype/tests/protected-dispatch-browser-guard.test.mjs
+      - name: Checkout pinned SillyTavern
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: SillyTavern/SillyTavern
+          ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          path: sillytavern-host-checkout
+          persist-credentials: false
+      - name: Stage Host modules
+        run: |
+          mkdir -p sillytavern-host-checkout/public/scripts/logic-engine-lifecycle
+          cp host-adapter/prototype/lifecycle-journal.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs
+          cp host-adapter/prototype/st-lifecycle-bridge.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs
+          cp host-adapter/prototype/conversation-identity.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/conversation-identity.mjs
+          cp host-adapter/prototype/protected-dispatch-browser-guard.mjs sillytavern-host-checkout/public/scripts/logic-engine-lifecycle/protected-dispatch-browser-guard.mjs
+          cp host-adapter/prototype/st-server-digest-proxy.mjs sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle-proxy.mjs
+          cp host-adapter/prototype/protected-dispatch-deny-guard.mjs sillytavern-host-checkout/src/endpoints/logic-engine-protected-dispatch-guard.mjs
+      - name: Apply-check and apply Host lifecycle patch
+        run: |
+          cd sillytavern-host-checkout
+          git apply --check ../host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
+          git apply ../host-adapter/prototype/patches/sillytavern-1.19.0-lifecycle-hooks.patch
+      - name: Apply-check and apply protected dispatch patch
+        run: |
+          cd sillytavern-host-checkout
+          git apply --unidiff-zero --check ../host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch
+          git apply --unidiff-zero ../host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch
+          git diff --check
+          node --check src/endpoints/logic-engine-protected-dispatch-guard.mjs
+          node --check public/scripts/logic-engine-lifecycle/protected-dispatch-browser-guard.mjs
+          node --check src/server-main.js
+          node --check public/script.js
+      - name: Ensure guard is installed before generic proxy and private endpoint routers
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const serverMain = readFileSync('sillytavern-host-checkout/src/server-main.js', 'utf8');
+          const script = readFileSync('sillytavern-host-checkout/public/script.js', 'utf8');
+
+          const loginGuard = serverMain.indexOf('app.use(requireLoginMiddleware);');
+          const serverGuard = serverMain.indexOf('app.use(createProtectedDispatchDenyMiddleware());');
+          const proxyMount = serverMain.indexOf("app.use('/proxy/:url(*)'");
+          const privateRouters = serverMain.indexOf('setupPrivateEndpoints(app);');
+          const generate = script.indexOf('export async function Generate(type,');
+          const browserGuard = script.indexOf('assertProtectedDispatchAllowed({ locator: getCurrentChatId(), messages: chat, storage: localStorage })', generate);
+          const chatDeclaration = script.indexOf('export let chat = [];');
+          const browserFence = script.indexOf('installProtectedEgressBrowserFence({', chatDeclaration);
+
+          if (loginGuard < 0 || serverGuard <= loginGuard ||
+              proxyMount < 0 || serverGuard > proxyMount ||
+              privateRouters < 0 || serverGuard > privateRouters ||
+              generate < 0 || browserGuard < generate || chatDeclaration < 0 || browserFence < chatDeclaration) {
+            console.error({ loginGuard, serverGuard, proxyMount, privateRouters, generate, browserGuard });
+            process.exit(1);
+          }
+
+          const startup = readFileSync('sillytavern-host-checkout/src/server-startup.js', 'utf8');
+          const guardSource = readFileSync('host-adapter/prototype/protected-dispatch-deny-guard.mjs', 'utf8');
+          const privateStart = startup.indexOf('export function setupPrivateEndpoints(app) {');
+          const privateEnd = startup.indexOf('\n}', privateStart);
+          if (privateStart < 0 || privateEnd < 0) throw new Error('Pinned private endpoint router block not found');
+          const privateBlock = startup.slice(privateStart, privateEnd);
+          const mounts = privateBlock.split(String.fromCharCode(10)).map((line) => {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('app.use(')) return null;
+            if (trimmed === 'app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true }));') return null;
+            const match = trimmed.match(/^app[.]use[(][ ]*['"]([^'"]+)['"][ ]*,[ ]*([A-Za-z_$][A-Za-z0-9_$]*)[ ]*[)][;]$/);
+            if (!match) throw new Error(`Unclassified pinned router mount syntax: ${trimmed}`);
+            return `${match[1]}:${match[2]}`;
+          }).filter(Boolean);
+          const expectedMounts = [
+            '/:userDataRouter',
+            '/api/users:usersPrivateRouter', '/api/users:usersAdminRouter',
+            '/api/moving-ui:movingUIRouter', '/api/images:imagesRouter',
+            '/api/quick-replies:quickRepliesRouter', '/api/avatars:avatarsRouter',
+            '/api/themes:themesRouter', '/api/openai:openAiRouter',
+            '/api/google:googleRouter', '/api/anthropic:anthropicRouter',
+            '/api/tokenizers:tokenizersRouter', '/api/presets:presetsRouter',
+            '/api/secrets:secretsRouter', '/thumbnail:thumbnailRouter',
+            '/api/novelai:novelAiRouter', '/api/extensions:extensionsRouter',
+            '/api/assets:assetsRouter', '/api/files:filesRouter',
+            '/api/characters:charactersRouter', '/api/chats:chatsRouter',
+            '/api/groups:groupsRouter', '/api/worldinfo:worldInfoRouter',
+            '/api/stats:statsRouter', '/api/backgrounds:backgroundsRouter',
+            '/api/sprites:spritesRouter', '/api/content:contentManagerRouter',
+            '/api/settings:settingsRouter', '/api/sd:stableDiffusionRouter',
+            '/api/horde:hordeRouter', '/api/vector:vectorsRouter',
+            '/api/translate:translateRouter', '/api/extra/classify:classifyRouter',
+            '/api/extra/caption:captionRouter', '/api/search:searchRouter',
+            '/api/backends/text-completions:textCompletionsRouter',
+            '/api/openrouter:openRouterRouter', '/api/nanogpt:nanogptRouter',
+            '/api/backends/kobold:koboldRouter',
+            '/api/backends/chat-completions:chatCompletionsRouter',
+            '/api/speech:speechRouter', '/api/azure:azureRouter',
+            '/api/volcengine:volcengineRouter', '/api/minimax:minimaxRouter',
+            '/api/data-maid:dataMaidRouter', '/api/backups:backupsRouter',
+            '/api/image-metadata:imageMetadataRouter', '/api/logic-engine:logicEngineLifecycleRouter',
+          ];
+          if (JSON.stringify(mounts) !== JSON.stringify(expectedMounts)) {
+            console.error({ mounts, expectedMounts });
+            throw new Error('Pinned private endpoint mount inventory changed; classify every added/removed/reordered router');
+          }
+
+          const prefixStart = guardSource.indexOf('const PROTECTED_EGRESS_ROUTE_PREFIXES');
+          const prefixOpen = guardSource.indexOf('[', prefixStart);
+          const prefixClose = guardSource.indexOf(']);', prefixOpen);
+          if (prefixStart < 0 || prefixOpen < 0 || prefixClose < 0) throw new Error('Protected egress prefix list missing');
+          const blockedPrefixes = [...guardSource.slice(prefixOpen, prefixClose).matchAll(/['"]([^'"]+)['"]/g)].map((match) => match[1]);
+          const requiredBlocked = [
+            '/proxy', '/api/extensions', '/api/search',
+            '/api/backends/chat-completions', '/api/backends/text-completions',
+            '/api/backends/kobold', '/api/openai', '/api/openrouter', '/api/nanogpt',
+            '/api/google', '/api/anthropic', '/api/novelai', '/api/horde', '/api/sd',
+            '/api/extra/caption', '/api/extra/classify', '/api/speech', '/api/azure',
+            '/api/volcengine', '/api/minimax', '/api/translate',
+          ];
+          for (const route of requiredBlocked) {
+            if (!blockedPrefixes.includes(route)) throw new Error(`Pinned egress route lacks a deny classification: ${route}`);
+          }
+          if (!blockedPrefixes.includes('/api/plugins')) {
+            throw new Error('Dynamic plugin routes must be denied in protected mode');
+          }
+          if (blockedPrefixes.includes('/api/vector')) {
+            throw new Error('Vectorization route is explicitly out of scope and must not be changed by this guard');
+          }
+          const mountedBlockedPrefixes = requiredBlocked.filter((route) => route !== '/proxy');
+          const egressMounts = expectedMounts.filter((mount) => mountedBlockedPrefixes.includes(mount.split(':')[0]));
+          if (egressMounts.length !== mountedBlockedPrefixes.length) {
+            throw new Error('Every blocked private-router prefix must map to exactly one pinned router mount');
+          }
+          NODE
