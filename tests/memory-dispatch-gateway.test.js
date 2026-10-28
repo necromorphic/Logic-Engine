@@ -322,6 +322,42 @@ test('invalid or untrusted transport target fails closed before dispatch-start',
   }
 });
 
+test('transport target rejects protocol, port, model substitution, extra query, and path variants', async () => {
+  const request = validRequest();
+  const good = transportTargetFor(request);
+  const invalidTargets = [
+    good.replace('https:', 'http:'),
+    good.replace('generativelanguage.googleapis.com', 'generativelanguage.googleapis.com:8443'),
+    good.replace(request.model, 'different-model'),
+    good + '?alt=sse',
+    good.replace('/v1beta/', '/v1beta/extra/'),
+    good + '#fragment',
+    good.replace('https://', 'https://user@'),
+  ];
+  for (const target of invalidTargets) {
+    const fixture = await createFixture({
+      prepareUpstreamOverride: () => ({ target, start: () => {
+        throw new Error('invalid target must not reach transport');
+      } }),
+    });
+    try {
+      await assert.rejects(
+        fixture.gateway.dispatchProtectedRequest(validRequest('invalid-target-' + invalidTargets.indexOf(target))),
+        /MEMORY_DISPATCH_NOT_READY/,
+      );
+      assert.equal(fixture.calls.length, 0);
+      const db = new DatabaseSync(fixture.ledgerPath);
+      try {
+        assert.equal(db.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0);
+      } finally {
+        db.close();
+      }
+    } finally {
+      await fixture.close();
+    }
+  }
+});
+
 test('local Core or Provider head mismatch prevents dispatch before transport', async () => {
   const fixture = await createFixture({ coreHead: 2 });
   try {
