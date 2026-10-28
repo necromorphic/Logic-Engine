@@ -664,6 +664,26 @@ async function validateEnrolledSourcePath(paths, { conversationId, sourceLocator
  * Explicit Host enrollment registration. The registry is local Host state, not
  * an external anti-rollback authority and not a Core authorization contract.
  */
+async function ensureEnrollmentMarker(paths) {
+    // This sibling marker detects accidental loss of the journal directory;
+    // it is not an independent anti-rollback trust anchor.
+    const markerPath = path.join(path.dirname(paths.roots[0].path), ENROLLMENT_MARKER_NAME);
+    try {
+        const markerStat = await lstat(markerPath);
+        if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('HOST_ENROLLMENT_MARKER_UNSAFE');
+        return;
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+    }
+    const markerHandle = await open(markerPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+    try {
+        await markerHandle.writeFile(JSON.stringify({ version: 1, purpose: 'host-enrollment-present' }) + '\\n', 'utf8');
+        await markerHandle.sync();
+    } finally {
+        await markerHandle.close();
+    }
+}
+
 export async function registerHostConversation(request, { conversationId, sourceLocator, sourcePath, domain }) {
     if (typeof conversationId !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(conversationId)) {
         throw new Error('HOST_ENROLLMENT_INVALID');
@@ -697,6 +717,7 @@ export async function registerHostConversation(request, { conversationId, source
     if (existing) {
         if (existing.sourceLocator !== sourceLocator || existing.domain !== domain
             || (sourcePath !== undefined && existing.sourcePath !== sourcePath)) throw new Error('HOST_ENROLLMENT_IDENTITY_CONFLICT');
+        await ensureEnrollmentMarker(paths);
         return { status: 'ALREADY_ENROLLED' };
     }
     if (!registryExists) {
@@ -710,22 +731,7 @@ export async function registerHostConversation(request, { conversationId, source
     registry.conversations.push(candidate);
     registry.conversations.sort((a, b) => a.conversationId.localeCompare(b.conversationId));
     await atomicWriteJson(paths.registryPath, registry);
-    // Durable-enough local sentinel outside the journal directory: this detects
-    // accidental journal-directory loss. It is not an anti-rollback trust anchor.
-    const markerPath = path.join(path.dirname(paths.roots[0].path), ENROLLMENT_MARKER_NAME);
-    try {
-        const markerStat = await lstat(markerPath);
-        if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('HOST_ENROLLMENT_MARKER_UNSAFE');
-    } catch (error) {
-        if (error?.code !== 'ENOENT') throw error;
-        const markerHandle = await open(markerPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-        try {
-            await markerHandle.writeFile(JSON.stringify({ version: 1, purpose: 'host-enrollment-present' }) + '\\n', 'utf8');
-            await markerHandle.sync();
-        } finally {
-            await markerHandle.close();
-        }
-    }
+    await ensureEnrollmentMarker(paths);
     return { status: 'ENROLLED' };
 }
 
