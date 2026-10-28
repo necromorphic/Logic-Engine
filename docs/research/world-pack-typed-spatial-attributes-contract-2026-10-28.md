@@ -10,16 +10,19 @@
 
 World Pack-owned typed spatial attributes remain the selected design direction. Core is the authority for canonical world state; World Pack declares type-specific attribute semantics; a spatial result is derived only from accepted canonical state and verifiable schema/temporal provenance.
 
-Approved v1 position semantics are unchanged:
+Approved v1 position semantics retained and completed by coordinator decision:
 
 - exactly three coordinates: numeric X, Y, Z;
-- one world-relative, right-handed coordinate frame; +Z is up;
-- abstract logical units, not metres or another physical unit;
-- position denotes the declared entity origin;
+- one world-relative, right-handed coordinate frame;
+- **+X is the logical eastward axis, +Y is the logical northward axis, and +Z is up** (right-handed ENU convention);
+- eastward/northward are axis labels for the fictional/logical world frame, not geodetic coordinates or claims about physical metres;
+- units are abstract logical units, not metres or another physical unit;
+- position denotes the declared entity origin, distinct from the world's origin;
+- canonical frame convention identifier: `world-enu-logical-v1`; the frame instance is scoped by world identity, conceptually `(world_id, "world-enu-logical-v1")`. Equal convention IDs do not make coordinates from different worlds comparable;
 - no local frames, transforms, implicit scale, interpolation, or extrapolation;
 - no inference from narrative/model output or generic attributes.
 
-Revision 2 replaces alternatives with normative rules where the current architecture supports a safe decision. Where a guarantee requires absent runtime protection or an owner decision, this document explicitly returns UNKNOWN/UNSUPPORTED and keeps the implementation gate BLOCKED.
+This coordinator decision closes the v1 axis naming and frame-convention questions without adding a runtime field, API, schema, or storage mechanism. The exact serialization/placement of this metadata remains subject to the existing schema-validator and World Pack evidence gates below. Runtime guarantees absent from the current code remain BLOCKED.
 
 ## 2. Evidence boundary and source audit
 
@@ -61,7 +64,8 @@ A spatial field is supported only when the pinned entity-type `attributes_schema
 - object with exactly `x`, `y`, `z`;
 - all three required, numeric, finite values; no booleans, strings, nulls, arrays, missing coordinates, or unknown members;
 - `spatial_semantics.contract = "position-v1"`;
-- `frame = "world"`, `handedness = "right"`, `up_axis = "+z"`, `units = "logical"`, `anchor = "entity-origin"`.
+- `frame = "world-enu-logical-v1"`, `handedness = "right"`, `x_axis = "+east"`, `y_axis = "+north"`, `up_axis = "+z"`, `units = "logical"`, `anchor = "entity-origin"`;
+- the frame instance is interpreted only within the same `world_id`; cross-world coordinate comparison is unsupported.
 
 No semantic default is inferred from an omitted field. Unsupported or contradictory metadata fails closed. The actual JSON Schema vocabulary/placement for `spatial_semantics` MUST be chosen to be accepted by the pinned schema validator; custom metadata MUST NOT be treated as validated merely because it is present in a JSON object. Until a validator and loader demonstrably consume this declaration, spatial status is UNKNOWN.
 
@@ -231,7 +235,7 @@ Until these decisions are recorded and required code/tests exist, spatial produc
 
 ## 13. Re-review gate and explicit non-claims
 
-This revision is ready only for a second architectural review. It is not contract approval or implementation authorization.
+This revision records a coordinator decision on the previously open v1 axis/frame convention and is ready for a second architectural review. It is not approval of the missing runtime guarantees or implementation authorization.
 
 - No production code or runtime behavior was changed by this revision.
 - No ST-01–ST-16 or new acceptance test is claimed to have run.
