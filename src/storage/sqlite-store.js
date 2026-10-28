@@ -172,7 +172,7 @@ const world = (r) => r && ({
   world_id: r.world_id,
   world_pack_id: r.world_pack_id,
   world_pack_version: r.world_pack_version,
-  world_pack_digest: r.world_pack_digest ?? null,
+  ...(r.world_pack_digest ? { world_pack_digest: r.world_pack_digest } : {}),
   initial_game_time: r.initial_game_time,
   game_time: r.game_time,
   initial_game_time_coordinate: r.initial_game_time_coordinate,
@@ -839,7 +839,7 @@ export class SQLiteStore {
         throw error;
       }
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,0,?,?,?,?)')
-        .run(w.world_id, 'world.created', w.world_id, enc({ world_pack_id: w.world_pack_id, world_pack_version: w.world_pack_version, world_pack_digest: w.world_pack_digest ?? null }), t);
+        .run(w.world_id, 'world.created', w.world_id, enc({ world_pack_id: w.world_pack_id, world_pack_version: w.world_pack_version, ...(w.world_pack_digest ? { world_pack_digest: w.world_pack_digest } : {}) }), t);
       return this.world(w.world_id);
     });
   }
