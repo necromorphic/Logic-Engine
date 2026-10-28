@@ -357,15 +357,19 @@ export class SQLiteStore {
       } else {
         const local = this.db.prepare('SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1').get();
         let status = getAcceptedHeadStatusSync({ port:this.acceptedHeadConfig.port, token:this.acceptedHeadConfig.token });
-        const pending = status.operations.core;
-        if (pending) {
-          if (!local || local.head !== pending.head || local.last_operation_id !== pending.operation_id
-            || local.last_operation_digest !== pending.operation_digest || local.enrolled !== 1) throw new Error('CORE_ACCEPTED_HEAD_RECOVERY_REQUIRED');
-          finalizeAcceptedHeadSync({ domain:'core', operationId:pending.operation_id, operationDigest:pending.operation_digest,
+        if (status.pending.provider) throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
+        if (status.pending.core) {
+          if (!local || local.enrolled !== 1 || local.head !== status.heads.core
+            || typeof local.last_operation_id !== 'string' || !/^[a-f0-9]{64}$/.test(local.last_operation_digest || '')) {
+            throw new Error('CORE_ACCEPTED_HEAD_RECOVERY_REQUIRED');
+          }
+          // Finalize by the exact local operation identity; authority keeps the
+          // pending operation metadata private from status readers.
+          finalizeAcceptedHeadSync({ domain:'core', operationId:local.last_operation_id, operationDigest:local.last_operation_digest,
             token:this.acceptedHeadConfig.token, port:this.acceptedHeadConfig.port });
           status = getAcceptedHeadStatusSync({ port:this.acceptedHeadConfig.port, token:this.acceptedHeadConfig.token });
         }
-        if (status.pending.core || status.heads.core !== local.head || !status.enrolled.core) throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
+        if (status.pending.core || status.pending.provider || status.heads.core !== local.head || !status.enrolled.core) throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
       }
       this.migrate();
       if (this.coordinatorRelease) {
