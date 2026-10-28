@@ -109,7 +109,7 @@ test('destroying the subject removes its acquisition from the active projection'
     engine.recordInitialAcquisition(input());
     assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 1);
     engine.commitEvent('w1', { idempotency_key: 'destroy-subject', turn_id: 'destroy', event_type: 'action.completed', expected_revision: 2,
-      effects: [{ kind: 'entity.update', entity_id: 'npc-a', status: 'destroyed' }] });
+      effects: [{ kind: 'entity.upsert', entity_id: 'npc-a', entity_type: 'character', status: 'destroyed', attributes: {} }] });
     assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
   } finally { store.close(); }
 });
