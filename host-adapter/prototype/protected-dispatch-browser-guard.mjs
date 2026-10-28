@@ -1,20 +1,31 @@
 import { hasAnyHostEnrollment, hostLocatorHasEnrollment } from './conversation-identity.mjs';
 
+function hasConversationLifecycleIdentity(messages) {
+  if (!Array.isArray(messages)) return false;
+  return messages.some((message) => {
+    const identity = message?._logicEngineLifecycle;
+    return identity && typeof identity === 'object'
+      && typeof identity.messageId === 'string' && identity.messageId.length > 0
+      && Array.isArray(identity.versions);
+  });
+}
+
 /**
  * Fail closed for enrolled Host conversations until the PC-side dispatch
  * authority owns final authorization and the only upstream transport.
  *
- * If any Host enrollment exists but this locator has lost its own markers,
- * treat the missing binding as ambiguous/corrupt state, not proof that the
- * conversation is unprotected. This intentionally blocks unknown chats once
- * the installation has enrolled Host conversations.
+ * Enrollment evidence is checked in both localStorage and the current native
+ * chat projection. Losing localStorage registration markers must not turn a
+ * chat with durable Host lifecycle identity metadata into an unprotected chat.
+ * If any other Host enrollment remains, unknown locators also fail closed.
  */
-export function assertProtectedDispatchAllowed({ locator, storage = globalThis.localStorage } = {}) {
+export function assertProtectedDispatchAllowed({ locator, messages, storage = globalThis.localStorage } = {}) {
   let enrolled = true;
   try {
     const locatorEnrolled = hostLocatorHasEnrollment(locator, storage);
     const installationHasEnrollments = hasAnyHostEnrollment(storage);
-    enrolled = locatorEnrolled || installationHasEnrollments;
+    const chatHasLifecycleIdentity = hasConversationLifecycleIdentity(messages);
+    enrolled = locatorEnrolled || installationHasEnrollments || chatHasLifecycleIdentity;
   } catch {
     enrolled = true;
   }
