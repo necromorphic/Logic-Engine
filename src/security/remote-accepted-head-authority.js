@@ -167,10 +167,10 @@ export function createRemoteAnchorServer({
     const current = await readCurrentHead(installationId);
     const currentSequence = current?.verified.sequence ?? 0;
     const currentDigest = current?.verified.recordDigest ?? null;
-    if (currentSequence >= Number.MAX_SAFE_INTEGER) fail(503, 'ANCHOR_SEQUENCE_EXHAUSTED');
     if (body.expected_sequence !== currentSequence || body.expected_digest !== currentDigest) {
       fail(409, 'HEAD_CONFLICT');
     }
+    if (currentSequence >= Number.MAX_SAFE_INTEGER) fail(503, 'ANCHOR_SEQUENCE_EXHAUSTED');
 
     const record = {
       installation_id: installationId,
