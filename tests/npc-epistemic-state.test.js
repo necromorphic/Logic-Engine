@@ -78,6 +78,9 @@ test("belief revision requires valid evidence for the same proposition and a rul
   assert.equal(result.state.beliefs[0].stance, "believes_true");
   assert.deepEqual(result.state.beliefs[0].supporting_evidence_refs, ["evidence-1"]);
   assert.deepEqual(result.state.beliefs[0].conflicting_evidence_refs, []);
+  const replay = apply(result.state, event);
+  assert.equal(replay.status, "unchanged");
+  assert.equal(replay.state, result.state);
   assert.equal(apply(state, { ...event, evidence_refs: ["missing"] }).status, "non_ready");
   assert.equal(apply(state, { ...event, revision_rule_ref: "" }).status, "non_ready");
 });
@@ -153,6 +156,13 @@ test("forgetting is explicit and traceable; it does not delete evidence history"
   assert.equal(result.state.beliefs[0].history.length, 1);
   assert.deepEqual(result.state.beliefs[0].history[0].evidence_refs, ["evidence-1"]);
   assert.equal(result.state.evidence.length, 1);
+  const replay = apply(result.state, {
+    type: "belief_forgotten",
+    proposition_ref: "prop-secret-location",
+    forgetting_rule_ref: "rule-memory-decay",
+  });
+  assert.equal(replay.status, "unchanged");
+  assert.equal(replay.state, result.state);
 });
 
 test("canonical truth changes do not silently correct NPC beliefs", () => {
@@ -242,4 +252,33 @@ test("events from another world or subject cannot alter this NPC state", () => {
   assert.equal(apply(state, { ...event, world_id: "world-other" }).status, "non_ready");
   assert.equal(apply(state, { ...event, subject_id: "npc-other" }).status, "non_ready");
   assert.deepEqual(state.evidence, []);
+});
+
+test("history cannot reference evidence for another proposition", () => {
+  const state = admit(emptyState()).state;
+  const second = admit(state, {
+    evidence_ref: "evidence-2",
+    proposition_ref: "prop-another-fact",
+    acquisition_ref: "acq-2",
+    source_ref: "source-2",
+  }).state;
+  const malformed = structuredClone(second);
+  malformed.beliefs = [{
+    proposition_ref: "prop-secret-location",
+    stance: "unknown",
+    supporting_evidence_refs: [],
+    conflicting_evidence_refs: [],
+    revision_rule_ref: "rule-initial",
+    review_required: false,
+    history: [{
+      stance: "believes_true",
+      revision_rule_ref: "rule-initial",
+      evidence_refs: ["evidence-2"],
+    }],
+  }];
+  assert.equal(applyNpcEpistemicEvent(malformed, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "canonical_truth_changed",
+  }).status, "non_ready");
 });
