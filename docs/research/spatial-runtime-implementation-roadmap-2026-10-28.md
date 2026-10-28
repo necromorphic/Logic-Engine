@@ -197,6 +197,90 @@ The parent task is [Issue #351](https://github.com/necromorphic/Logic-Engine/iss
 
 The remaining blockers require new, verifiable technical evidence and explicit implementation authorization, not more explanatory prose. In the current authorized scope, I can finish source mapping and the architecture proposal, but I must not silently implement a new schema validator, digest registry, canonical commit gate, spatial projection, or TimeEngine cursor mechanism. Those would be runtime/schema/storage changes explicitly excluded by the task's current authorization.
 
+## Proposed blocker-resolution design (for independent review)
+
+This section proposes a concrete resolution rather than leaving the blockers as an unranked list. It is still a proposal and is not authorization to implement.
+
+### Decision R1 — Fail closed on unverifiable restore for v1
+
+**Recommendation:** do not build a distributed anti-rollback ledger as part of the first spatial slice. Require an explicit recovery attestation whenever the active Core database cannot prove continuity with the last accepted head. Until that attestation is supplied, the world is `NON_READY` for spatial reads and downstream consumers.
+
+Why:
+- The coordinator database currently provides locking, not an independently committed accepted-head record.
+- A second ledger introduces a new authority, recovery protocol, and cross-store failure modes.
+- A ledger restored from the same backup does not help; a ledger outside the restore domain can help only if operations reliably compare it and handle outages.
+- A fail-closed recovery gate is smaller and more honest than claiming anti-rollback from a digest or revision stored inside the same database.
+
+Minimum future acceptance conditions:
+1. Define the restore boundary and who can attest recovery.
+2. Record the last accepted Core composite cursor and immutable schema identity in an authority outside the restored database, **or** require a documented operator recovery action when no such authority exists.
+3. Any missing, older, or contradictory evidence yields `NON_READY`; never auto-rewind the accepted head.
+4. Recovery action is audited and does not silently make old state current.
+
+**Trade-off:** without an external accepted-head authority, automated detection of a fully coordinated old restore is impossible from the restored database alone. The proposal deliberately chooses manual/non-ready recovery over pretending otherwise.
+
+### Decision R2 — Make schema identity immutable and resolvable before spatial validation
+
+**Recommendation:** a World Pack is a content-addressed immutable artifact. A human-readable pack ID/version is not its identity.
+
+Proposed identity tuple:
+`(world_pack_id, world_pack_version, canonical_manifest_sha256, canonical_entity_type_schema_sha256, spatial_contract_id)`.
+
+Required protocol:
+1. A single loader validates the complete manifest using a pinned validator and schema dialect.
+2. Canonicalization is specified and tested before digesting; digest algorithm and canonicalization version are recorded.
+3. Loader rejects same ID/version with different canonical bytes; no in-place mutation of a published pack.
+4. World creation pins the manifest digest, not only pack ID/version.
+5. Historical replay resolves the exact digest that applied at event acceptance. Missing artifact or digest mismatch means `UNSUPPORTED`/world `NON_READY`, not fallback to latest.
+6. Legacy worlds with no digest remain spatially `UNKNOWN` until explicitly repinned through a reviewed migration.
+
+**Trade-off:** this needs a runtime/schema/storage change and a pinned validator dependency, so it cannot be implemented under the current docs-only authorization. Independent review should challenge the canonicalization scheme and whether the artifact registry belongs in repository artifacts or a dedicated immutable registry.
+
+### Decision R3 — Treat canonical Core commit as the only spatial acceptance gate
+
+**Recommendation:** validate the full post-state for each affected entity inside the same canonical transaction that commits the event. Validation must use the schema digest pinned to that world, not caller-provided schema and not the latest pack.
+
+The gate must cover direct commits, segment commits, imports, migrations, repairs, replay/rebuild and any alternate writer. If an alternate path cannot run the same gate, it must not produce confirmed spatial state.
+
+For patch-style updates, construct the complete resulting attribute state first and validate it; validating only incoming fields can let malformed pre-existing values survive. Segment processing is all-or-nothing for spatially relevant state. A retry must reuse the original idempotency result and schema identity.
+
+**Trade-off:** this is the most important runtime boundary, but it must not be implemented until R2 defines what schema is authoritative and every canonical write path is enumerated.
+
+### Decision R4 — Persist a two-phase TimeEngine/Core boundary receipt
+
+**Recommendation:** do not infer a TimeEngine boundary from its timestamp or from the Core's current head. Store an explicit receipt for every confirmed boundary with:
+- operation ID and segment ID;
+- canonical game-time coordinate and TimeEngine operation version;
+- Core world ID;
+- Core `world_revision` and `commit_sequence` observed for the boundary;
+- exact boundary event IDs / idempotency keys;
+- schema identity digest;
+- receipt state: `PENDING`, `CONFIRMED`, or `INVALIDATED`.
+
+Because TimeEngine and Core may have separate transactions, use an explicit handshake:
+1. TimeEngine persists the segment as pending with stable IDs before Core mutation.
+2. Core commits the segment idempotently and returns its composite cursor plus the accepted event identities.
+3. TimeEngine persists the returned receipt as confirmed.
+4. On restart, reconcile pending records by querying Core with the same idempotency/event identities; never synthesize a cursor from current head.
+5. Rollback/retraction invalidates receipts whose source events are invalidated and recomputes dependent spatial state.
+6. If either side cannot resolve the exact result, boundary is unconfirmed and spatial reads are `UNKNOWN`/world `NON_READY`.
+
+**Important limit:** a two-phase receipt solves ambiguous partial completion across ordinary restart, but it does not by itself detect coordinated restoration of both stores. R1 still applies.
+
+**Trade-off:** this adds an explicit protocol and persisted receipt, so the exact owner/storage location and recovery state machine need independent review before implementation.
+
+### Smallest safe implementation slice after review
+
+Do not start with a spatial projection. After the owner accepts R1–R4 and explicitly authorizes code changes, implement in this order:
+1. Validator + immutable World Pack artifact identity.
+2. Pin identity during world creation and reject unresolved legacy packs for spatial use.
+3. Canonical commit gate for typed spatial post-state.
+4. TimeEngine/Core boundary receipt and pending-state recovery.
+5. Fail-closed restore/recovery gate.
+6. Only then a read-only exact-position query with provenance.
+
+This sequence intentionally postpones NPC integration and any inference-heavy spatial feature.
+
 ## Current blockers and next concrete decisions
 
 | Priority | Decision / evidence needed | Why it blocks progress |
