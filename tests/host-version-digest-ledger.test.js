@@ -60,7 +60,7 @@ test('bound capture resolves canonical scope while holding the shared coordinato
 
   const result = ledger.captureBoundVersion({
     adapterId: 'adapter-a', conversationId: 'chat-a',
-    message_id: 'message-a', version_id: 'version-a',
+    message_id: 'message-a', version_id: 'version-a', parent_version_id: null,
     content_sha256: digest('bound capture'), active: true, deleted: false,
     resolveBinding: ({ adapterId, conversationId }) => {
       assert.equal(adapterId, 'adapter-a');
@@ -73,7 +73,7 @@ test('bound capture resolves canonical scope while holding the shared coordinato
   assert.equal(ledger.db.prepare('SELECT world_id FROM host_version_digest_ledger').get().world_id, 'canonical-world');
   assert.throws(() => ledger.captureBoundVersion({
     adapterId: 'adapter-a', conversationId: 'chat-a', world_id: 'caller-world',
-    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('untrusted scope'),
+    message_id: 'message-b', version_id: 'version-b', parent_version_id: null, content_sha256: digest('untrusted scope'),
     active: false, deleted: false, resolveBinding: () => ({ world_id: 'caller-world', conversation_id: 'chat-a' }),
   }), /Invalid bound Host version entry/);
 });
@@ -95,7 +95,7 @@ test('Provider mutation entry points reject Proxy and accessor-backed records be
 
   let resolverCalls = 0;
   const boundEntry = {
-    adapterId: 'adapter-a', conversationId: 'chat-a', message_id: 'message-a', version_id: 'version-a',
+    adapterId: 'adapter-a', conversationId: 'chat-a', message_id: 'message-a', version_id: 'version-a', parent_version_id: null,
     content_sha256: digest('bound'), active: true, deleted: false,
     resolveBinding: () => { resolverCalls += 1; return { world_id: 'world-a', conversation_id: 'chat-a' }; }
   };
@@ -292,7 +292,7 @@ test('duplicate identities in a snapshot are rejected', async (t) => {
 test('snapshot conflict is preflighted before any earlier version from that snapshot is applied', async (t) => {
   const ledger = setup(t);
   ledger.captureVersion(entry());
-  const newEntry = entry({ message_id: 'message-b', version_id: 'version-b', content_sha256: digest('new'), active: true });
+  const newEntry = entry({ message_id: 'message-b', version_id: 'version-b', parent_version_id: null, content_sha256: digest('new'), active: true });
   const conflict = entry({ content_sha256: digest('mutated bytes') });
   const result = await ledger.reconcileConversation({
     world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true,
@@ -344,20 +344,20 @@ test('ledger mutations after READY invalidate the published inventory state', as
   assert.equal((await ledger.reconcileConversation(snapshot([entry()]))).status, 'ready');
 
   ledger.captureVersion(entry({
-    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('second'), active: false
+    message_id: 'message-b', version_id: 'version-b', parent_version_id: null, content_sha256: digest('second'), active: false
   }));
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code,
     'HOST_LEDGER_MUTATED_AFTER_RECONCILIATION');
 
   assert.equal((await ledger.reconcileConversation(snapshot([entry(), entry({
-    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('second'), active: false
+    message_id: 'message-b', version_id: 'version-b', parent_version_id: null, content_sha256: digest('second'), active: false
   })]))).status, 'ready');
   ledger.selectActiveVersion({ ...tuple, message_id: 'message-b', version_id: 'version-b' });
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 
   assert.equal((await ledger.reconcileConversation(snapshot([entry(), entry({
-    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('second'), active: false
+    message_id: 'message-b', version_id: 'version-b', parent_version_id: null, content_sha256: digest('second'), active: false
   })]))).status, 'ready');
   ledger.tombstoneVersion(tuple);
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
