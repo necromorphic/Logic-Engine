@@ -781,10 +781,13 @@ export async function registerHostConversation(request, { conversationId, source
                 await journalHandle.close();
             }
         }
+        // Persist the loss-detection marker before making enrollment durable.
+        // A crash after the registry write must never leave an enrolled history
+        // without its sibling marker.
+        await ensureEnrollmentMarker(paths);
         registry.conversations.push(candidate);
         registry.conversations.sort((a, b) => a.conversationId.localeCompare(b.conversationId));
         await atomicWriteJson(paths.registryPath, registry);
-        await ensureEnrollmentMarker(paths);
         return { status: 'ENROLLED' };
     } finally {
         release();
