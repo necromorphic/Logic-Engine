@@ -264,9 +264,9 @@ export class LogicEngine {
 
   transitionProcess(id, processId, input) {
     assert(obj(input), 'INVALID_PROCESS_TRANSITION', 'Process transition request must be an object.');
-    const allowed = ['action', 'expected_version', 'idempotency_key', 'reason'];
+    const allowed = ['action', 'expected_version', 'idempotency_key', 'reason', 'confirm_retry'];
     assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_PROCESS_TRANSITION_FIELD', 'Process transition contains an unsupported field.');
-    assert(['pause', 'resume', 'cancel'].includes(input.action), 'INVALID_PROCESS_ACTION', 'Process action must be pause, resume, or cancel.');
+    assert(['pause', 'resume', 'cancel', 'reconcile'].includes(input.action), 'INVALID_PROCESS_ACTION', 'Process action must be pause, resume, cancel, or reconcile.');
     assert(Number.isSafeInteger(input.expected_version) && input.expected_version >= 1, 'INVALID_PROCESS_VERSION', 'expected_version must be a positive safe integer.');
     assert(typeof input.idempotency_key === 'string' && input.idempotency_key.trim() && input.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'Process transition idempotency_key is required.');
     const reason = input.reason ?? ('author_' + input.action);
@@ -278,6 +278,74 @@ export class LogicEngine {
       const replay = this.processStore.replayOperation(id, key, requestHash);
       if (replay) return replay;
       const current = this.processStore.get(id, processId);
+      if (input.action === 'reconcile') {
+        if (input.confirm_retry !== true) {
+          throw new EngineError('PROCESS_RECONCILIATION_CONFIRMATION_REQUIRED',
+            'Reconciliation resets affected milestones to pending and retries them; confirm_retry must be true.', 400);
+        }
+        if (current.stored_status !== 'needs_review') {
+          throw new EngineError('INVALID_PROCESS_TRANSITION', 'Only a needs-review process can be reconciled.', 409,
+            { current_status: current.stored_status });
+        }
+        if (current.version !== input.expected_version) {
+          throw new EngineError('PROCESS_VERSION_CONFLICT', 'Process checkpoint changed before reconciliation.', 409,
+            { expected_version: input.expected_version, current_version: current.version });
+        }
+        const toRetry = current.milestones.filter((milestone) =>
+          milestone.status === 'pending' || milestone.status === 'needs_review');
+        const reviewMilestones = current.milestones.filter((milestone) => milestone.status === 'needs_review');
+        if (!reviewMilestones.length) {
+          throw new EngineError('PROCESS_RECONCILIATION_NOT_REQUIRED',
+            'This process has no milestones awaiting review.', 409);
+        }
+        const world = this.getState(id);
+        const overdue = toRetry.filter((milestone) => milestone.due_coordinate <= world.game_time_coordinate);
+        if (overdue.length) {
+          throw new EngineError('PROCESS_RECONCILE_REQUIRES_REPLAN',
+            'Milestones due at or before the current game time require explicit re-planning before retry.', 409,
+            { milestone_ids: overdue.map((milestone) => milestone.milestone_id), current_coordinate: world.game_time_coordinate });
+        }
+        for (const milestone of toRetry) {
+          const oldTrigger = this.getTimeTrigger(id, milestone.trigger_id);
+          if (oldTrigger?.status === 'pending') {
+            this.cancelTimeTrigger(id, milestone.trigger_id, 'process_reconciliation_retry', { processLifecycle: true });
+          }
+        }
+        const nextVersion = current.version + 1;
+        const newIds = new Map(toRetry.map((milestone) => [milestone.milestone_id,
+          'process-trigger:' + hashRequest({
+            world_id: id, process_id: processId, milestone_id: milestone.milestone_id,
+            reconciliation_version: nextVersion,
+          }).slice(0, 40)]));
+        const triggerIdByMilestone = new Map(current.milestones.map((milestone) => [
+          milestone.milestone_id, newIds.get(milestone.milestone_id) || milestone.trigger_id,
+        ]));
+        for (const milestone of toRetry) {
+          this.registerTimeTrigger(id, {
+            trigger_id: newIds.get(milestone.milestone_id),
+            due_coordinate: milestone.due_coordinate,
+            dependencies: milestone.prerequisites.map((prerequisiteId) => triggerIdByMilestone.get(prerequisiteId)),
+            read_set: milestone.read_set,
+            write_set: milestone.write_set,
+            processing_mode: 'exact',
+            interrupt_after_coordinate: milestone.interrupt_after_coordinate,
+            payload: { process_id: processId, milestone_id: milestone.milestone_id, event: milestone.event },
+          });
+        }
+        const updates = toRetry.map((milestone) => ({
+          milestone_id: milestone.milestone_id, trigger_id: newIds.get(milestone.milestone_id),
+        }));
+        this.processStore.reconcileMilestones(id, processId, updates);
+        const target = current.progress.completed > 0 ? 'running' : 'scheduled';
+        const requestHash = hashRequest({
+          operation: 'process.reconcile', world_id: id, process_id: processId,
+          expected_version: input.expected_version, idempotency_key: key,
+          reason: reason.trim(), confirm_retry: true,
+        });
+        return this.processStore.transition(id, processId, target, {
+          expectedVersion: input.expected_version, idempotencyKey: key, requestHash,
+        });
+      }
       if (input.action === 'resume') {
         if (current.stored_status !== 'paused' && current.stored_status !== 'needs_review') {
           throw new EngineError('INVALID_PROCESS_TRANSITION', 'Only a paused or needs-review process can be resumed.', 409, { current_status: current.stored_status });
