@@ -209,7 +209,7 @@ export class MemoryDispatchGateway {
     readToken,
     readCoreEvidence,
     readProviderEvidence,
-    sendUpstream,
+    startUpstream,
   }) {
     if (typeof ledgerPath !== 'string' || !isAbsolute(ledgerPath)
       || typeof coordinatorPath !== 'string' || !isAbsolute(coordinatorPath)
@@ -217,7 +217,7 @@ export class MemoryDispatchGateway {
       || typeof readToken !== 'string' || readToken.length < 32
       || typeof readCoreEvidence !== 'function'
       || typeof readProviderEvidence !== 'function'
-      || typeof sendUpstream !== 'function') {
+      || typeof startUpstream !== 'function') {
       throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a transport.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
@@ -230,7 +230,7 @@ export class MemoryDispatchGateway {
     this.readToken = readToken;
     this.readCoreEvidence = readCoreEvidence;
     this.readProviderEvidence = readProviderEvidence;
-    this.sendUpstream = sendUpstream;
+    this.startUpstream = startUpstream;
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
@@ -412,7 +412,16 @@ export class MemoryDispatchGateway {
     // Once DISPATCH_STARTED is durable, an ambiguous outcome is never retried.
     let response;
     try {
-      response = await this.sendUpstream({ route, model, stream, body, requestId, requestDigest, forwardResponse, signal });
+      // The trusted provider handler must synchronously initiate the exact
+      // pre-serialized request and return its response promise. An async
+      // capability is rejected: it could defer the actual network call until
+      // after this authorization/dispatch-start boundary.
+      const handoff = this.startUpstream({ route, model, stream, body, requestId, requestDigest, forwardResponse, signal });
+      if (!handoff || typeof handoff !== 'object' || typeof handoff.then === 'function'
+        || handoff.started !== true || !handoff.response || typeof handoff.response.then !== 'function') {
+        throw new Error('MEMORY_DISPATCH_TRANSPORT_HANDOFF_INVALID');
+      }
+      response = await handoff.response;
     } catch {
       this.#recordOutcome(requestId, 'UNKNOWN', null);
       throw new Error('MEMORY_DISPATCH_OUTCOME_UNKNOWN');
