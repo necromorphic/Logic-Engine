@@ -71,3 +71,8 @@ This is a source-level gap, not authorization to add a `commit_sequence` column,
 - `tests/time-trigger-registry.test.js` includes `registered trigger state and completion survive a SQLite restart without re-firing` and `registered due triggers complete atomically with their event segment and operation checkpoint`. The assertions cover trigger/operation recovery, confirmed coordinate, replay, and effects; they do not assert a persisted operation-checkpoint `commit_sequence` paired with that coordinate.
 - `tests/time-segment.test.js` asserts that a segment result contains start/final commit sequence and time coordinates. That proves the segment response has these values, not that the durable time-advance operation checkpoint retains the matching cursor after restart.
 - These are source inspections of the current-main tests; this research pass does not claim that it reran the entire current-main suite independently. PR #576 CI validates the research branch's exact head, not a separately executed current-main spatial contract suite.
+
+
+### Why world revision cannot substitute for commit sequence
+
+The audited store source also shows that `world_revision` changes on non-event state transitions, including time-trigger registration/cancellation and time-configuration activation. Canonical event commits separately allocate and persist `commit_sequence`. Therefore, the operation's persisted `current_world_revision` cannot be treated as a surrogate for the missing event cursor, nor can a revision-to-sequence identity be assumed. A valid historical spatial boundary needs an explicit, durable association or a separately proven reconstruction rule that accounts for non-event revisions, rollback, and repeated time coordinates.
