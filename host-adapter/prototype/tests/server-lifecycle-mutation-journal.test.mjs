@@ -940,3 +940,27 @@ test('re-enrollment fails closed when the marker survives loss of the enrollment
         await rm(root, { recursive: true, force: true });
     }
 });
+
+
+test('concurrent first-time enrollments preserve both registry entries', async () => {
+    const { root, request } = await fixture();
+    try {
+        const results = await Promise.all([
+            registerHostConversation(request, {
+                conversationId: 'conversation-a',
+                sourceLocator: 'chat-a',
+                domain: 'chats',
+            }),
+            registerHostConversation(request, {
+                conversationId: 'conversation-b',
+                sourceLocator: 'chat-b',
+                domain: 'chats',
+            }),
+        ]);
+        assert.deepEqual(results.map(result => result.status).sort(), ['ENROLLED', 'ENROLLED']);
+        const registry = JSON.parse(await readFile(path.join(root, '.logic-engine-host', 'enrollments.json'), 'utf8'));
+        assert.deepEqual(registry.conversations.map(item => item.conversationId), ['conversation-a', 'conversation-b']);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
