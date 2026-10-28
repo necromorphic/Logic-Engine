@@ -771,7 +771,7 @@ export class LogicEngine {
     assert(obj(input), 'INVALID_NPC_BELIEF_TRANSITION', 'Belief transition request must be an object.');
     const allowed = [
       'world_id', 'actor_id', 'purpose', 'expected_revision', 'expected_commit_sequence',
-      'limit', 'proposition_ref', 'stance', 'supporting_acquisition_ids',
+      'limit', 'proposition_ref', 'proposition_value', 'stance', 'supporting_acquisition_ids',
       'contradicting_acquisition_ids', 'reason_rule_ref', 'idempotency_key',
     ];
     assert(Object.keys(input).every((key) => allowed.includes(key)),
@@ -793,6 +793,7 @@ export class LogicEngine {
       expected_revision: input.expected_revision,
       expected_commit_sequence: input.expected_commit_sequence,
       proposition_ref: input.proposition_ref,
+      proposition_value: input.proposition_value,
       stance: input.stance,
       supporting_acquisition_ids: input.supporting_acquisition_ids,
       contradicting_acquisition_ids: input.contradicting_acquisition_ids,
@@ -801,7 +802,7 @@ export class LogicEngine {
 
     return this.store.tx(() => {
       const replay = this.store.db.prepare(`
-        SELECT transition_id, request_hash, stance, supporting_acquisition_ids_json,
+        SELECT transition_id, request_hash, stance, proposition_value_json, supporting_acquisition_ids_json,
           contradicting_acquisition_ids_json, evidence_acquisition_ids_json,
           reason_rule_ref, snapshot_revision, snapshot_commit_sequence,
           event_id, committed_revision
@@ -819,6 +820,7 @@ export class LogicEngine {
             world_id: input.world_id,
             actor_id: input.actor_id,
             proposition_ref: input.proposition_ref,
+            proposition_value: JSON.parse(replay.proposition_value_json),
             stance: replay.stance,
             supporting_acquisition_ids: JSON.parse(replay.supporting_acquisition_ids_json),
             contradicting_acquisition_ids: JSON.parse(replay.contradicting_acquisition_ids_json),
@@ -862,6 +864,7 @@ export class LogicEngine {
         actor_id: read.actor_id,
         snapshot: read.snapshot,
         proposition_ref: input.proposition_ref,
+        proposition_value: input.proposition_value,
         stance: input.stance,
         supporting_acquisition_ids: input.supporting_acquisition_ids,
         contradicting_acquisition_ids: input.contradicting_acquisition_ids,
@@ -886,13 +889,13 @@ export class LogicEngine {
         'A committed belief event exists without its Core belief projection; manual reconciliation is required.', 409);
       this.store.db.prepare(`
         INSERT INTO npc_belief_transitions(
-          world_id, transition_id, actor_id, proposition_ref, stance,
+          world_id, transition_id, actor_id, proposition_ref, proposition_value_json, stance,
           supporting_acquisition_ids_json, contradicting_acquisition_ids_json,
           evidence_acquisition_ids_json, reason_rule_ref, idempotency_key, request_hash,
           snapshot_revision, snapshot_commit_sequence, event_id, committed_revision
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
       `).run(
-        input.world_id, transitionId, input.actor_id, input.proposition_ref, transition.stance,
+        input.world_id, transitionId, input.actor_id, input.proposition_ref, JSON.stringify(transition.proposition_value), transition.stance,
         JSON.stringify(transition.supporting_acquisition_ids),
         JSON.stringify(transition.contradicting_acquisition_ids),
         JSON.stringify(transition.evidence_acquisition_ids),
@@ -934,7 +937,7 @@ export class LogicEngine {
       limit: input.limit ?? 200,
     });
     const row = this.store.db.prepare(`
-      SELECT b.transition_id, b.proposition_ref, b.stance,
+      SELECT b.transition_id, b.proposition_ref, b.proposition_value_json, b.stance,
         b.supporting_acquisition_ids_json, b.contradicting_acquisition_ids_json,
         b.evidence_acquisition_ids_json, b.reason_rule_ref, b.snapshot_revision,
         b.snapshot_commit_sequence, b.event_id, b.committed_revision
@@ -951,6 +954,7 @@ export class LogicEngine {
       status: 'ready',
       actor_id: input.actor_id,
       proposition_ref: row.proposition_ref,
+      proposition_value: JSON.parse(row.proposition_value_json),
       stance: row.stance,
       evidence_status: surviving.length === evidence.length ? 'supported'
         : surviving.length > 0 ? 'partially_supported' : 'unsupported',
