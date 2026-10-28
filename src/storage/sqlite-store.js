@@ -1449,6 +1449,9 @@ export class SQLiteStore {
         if (effect.kind === 'entity.create' && current) {
           throw new EngineError('ENTITY_ALREADY_EXISTS', 'entity.create cannot reuse an existing entity identity, including a destroyed tombstone.', 409, { entity_id: effect.entity_id });
         }
+        if (effect.kind === 'entity.upsert' && current?.status === 'destroyed') {
+          throw new EngineError('ENTITY_TOMBSTONE_REUSE', 'entity.upsert cannot revive or reuse an entity identity after its tombstone; retract the destroying event or use a new entity_id.', 409, { entity_id: effect.entity_id });
+        }
         if (effect.kind === 'entity.update') {
           if (!current || current.status === 'destroyed') {
             throw new EngineError('ENTITY_NOT_UPDATABLE', 'entity.update requires an existing non-destroyed entity.', 409, { entity_id: effect.entity_id });
@@ -2219,6 +2222,36 @@ export class SQLiteStore {
     this.db.prepare('DELETE FROM fact_claims WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM relationships WHERE world_id=?').run(id);
     const events = this.db.prepare("SELECT * FROM world_events WHERE world_id=? AND validity='valid' ORDER BY commit_sequence").all(id);
+
+    // Validate identity history before clearing any projection. A valid event log must
+    // never resurrect an entity ID after a terminal tombstone, including on rebuild.
+    const historicalEntities = new Map();
+    for (const event of events) {
+      for (const effect of dec(event.effects_json)) {
+        if (!effect || typeof effect.entity_id !== 'string') continue;
+        const current = historicalEntities.get(effect.entity_id);
+        if (effect.kind === 'entity.create') {
+          if (current) {
+            throw new EngineError('ENTITY_HISTORY_ID_REUSE', 'Valid event history reuses an entity identity after creation.', 500, {
+              entity_id: effect.entity_id, event_id: event.event_id,
+            });
+          }
+          historicalEntities.set(effect.entity_id, { status: effect.status || 'active' });
+        } else if (effect.kind === 'entity.upsert') {
+          if (current?.status === 'destroyed') {
+            throw new EngineError('ENTITY_HISTORY_TOMBSTONE_REUSE', 'Valid event history attempts to revive or reuse a tombstoned entity identity.', 500, {
+              entity_id: effect.entity_id, event_id: event.event_id,
+            });
+          }
+          historicalEntities.set(effect.entity_id, { status: effect.status || 'active' });
+        } else if (effect.kind === 'entity.update') {
+          if (current) historicalEntities.set(effect.entity_id, { status: effect.status ?? current.status });
+        } else if (effect.kind === 'entity.delete') {
+          historicalEntities.set(effect.entity_id, { status: 'destroyed' });
+        }
+      }
+    }
+
     const upsertEntity = this.db.prepare(`INSERT INTO entities(
       world_id,entity_id,entity_type,status,attributes_json,created_by_event_id,updated_revision
     ) VALUES(?,?,?,?,?,?,?) ON CONFLICT(world_id,entity_id) DO UPDATE SET
