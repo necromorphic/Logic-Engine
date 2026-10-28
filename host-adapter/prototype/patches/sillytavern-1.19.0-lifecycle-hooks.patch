@@ -337,7 +337,8 @@ diff --git a/public/script.js b/public/script.js
  
      await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);
      this_edit_mes_id = undefined;
-     await saveChatConditional({ throwOnError: lifecycleBefore.status !== 'NOT_ENROLLED' });
+-    await saveChatConditional();
++    await saveChatConditional({ throwOnError: lifecycleBefore.status !== 'NOT_ENROLLED' });
 +    await lifecycleBridge.afterMutation('edit-message', { sourceAlreadyPersisted: lifecycleBefore.status !== 'NOT_ENROLLED' });
      showSwipeButtons();
 @@ -9363,7 +9479,9 @@
@@ -359,7 +360,8 @@ diff --git a/public/script.js b/public/script.js
          saveChatDebounced();
      }
  
-     await saveChatConditional({ throwOnError: lifecycleBefore.status !== 'NOT_ENROLLED' });
+-    await saveChatConditional();
++    await saveChatConditional({ throwOnError: lifecycleBefore.status !== 'NOT_ENROLLED' });
 +    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId, sourceAlreadyPersisted: lifecycleBefore.status !== 'NOT_ENROLLED' });
  
      return newSwipeId;
