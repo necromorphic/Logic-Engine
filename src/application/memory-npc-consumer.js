@@ -585,6 +585,7 @@ export class MemoryNpcConsumer {
           record_version: item.record_version,
           source_kind: 'canonical_entity',
           source_entity_id: item.source_entity_id,
+          source_version: item.source_version,
         }) === true;
       } catch {
         return nonReady('memory_record_authorization_unavailable');
