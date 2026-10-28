@@ -744,7 +744,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1703 @@
+@@ -0,0 +1,1714 @@
 +import { createHash, randomBytes, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -860,7 +860,7 @@ new file mode 100644
 +const hostTextDigest = value => digest(JSON.stringify(String(value)));
 +const sameFileIdentity = (a, b) => a.dev === b.dev
 +    && (a.ino === b.ino || (process.platform === 'win32' && (!a.ino || !b.ino)));
-+const sameFileStat = (a, b) => sameFileIdentity(a, b)
++const sameFileStat = (a, b) => (process.platform === 'win32' || sameFileIdentity(a, b))
 +    && a.size === b.size && a.mtimeMs === b.mtimeMs;
 +
 +function purgeExpiredSaveCapabilities(now = Date.now()) {
@@ -1030,7 +1030,9 @@ new file mode 100644
 +        const bytes = await handle.readFile();
 +        const afterHandle = await handle.stat();
 +        const afterPath = await lstat(filePath);
-+        if (!sameFileStat(opened, afterHandle) || !sameFileStat(opened, afterPath) || bytes.length !== afterHandle.size) {
++        const pathBytes = await readFile(filePath);
++        if (!sameFileStat(opened, afterHandle) || !sameFileStat(opened, afterPath)
++            || bytes.length !== afterHandle.size || digest(pathBytes) !== digest(bytes)) {
 +            throw new Error('HOST_SAVE_SOURCE_CHANGED');
 +        }
 +        const fileDigest = digest(bytes);
@@ -1881,11 +1883,20 @@ new file mode 100644
 +        const bytes = await handle.readFile();
 +        const after = await handle.stat();
 +        const pathAfter = await lstat(cursor);
-+        if (!before.isFile() || !sameFileStat(before, after)
-+            || pathAfter.isSymbolicLink() || !sameFileIdentity(before, pathAfter)
-+            || pathAfter.size !== after.size || pathAfter.mtimeMs !== after.mtimeMs
-+            || bytes.length !== after.size) {
-+            throw new Error('HOST_ENROLLMENT_SOURCE_CHANGED');
++        const pathBytes = await readFile(cursor);
++        const sourceChanged = {
++            descriptorIdentity: process.platform !== 'win32' && !sameFileIdentity(before, after),
++            descriptorMetadata: before.size !== after.size || before.mtimeMs !== after.mtimeMs,
++            pathIdentity: pathAfter.isSymbolicLink() || !pathAfter.isFile()
++                || (process.platform !== 'win32' && !sameFileIdentity(before, pathAfter))
++                || pathAfter.size !== after.size || pathAfter.mtimeMs !== after.mtimeMs,
++            byteLength: bytes.length !== after.size,
++            pathContent: digest(pathBytes) !== digest(bytes),
++        };
++        if (!before.isFile() || Object.values(sourceChanged).some(Boolean)) {
++            const error = new Error('HOST_ENROLLMENT_SOURCE_CHANGED');
++            error.cause = sourceChanged;
++            throw error;
 +        }
 +        const firstLine = bytes.toString('utf8').split(/\r?\n/).find(line => line.trim().length > 0);
 +        const header = firstLine ? JSON.parse(firstLine) : null;
