@@ -212,7 +212,7 @@ test('Core digest proxy rejects caller-supplied authority and hides upstream dia
   });
   const invalid = makeResponse();
   await handler({ body: {
-    conversation_id: 'conversation-1', message_id: 'message-1', version_id: 'version-1', parent_version_id: null,
+    conversation_id: 'conversation-1', message_id: 'message-1', version_id: 'version-1',
     content_sha256: 'c'.repeat(64), active: true, deleted: false, world_id: 'caller-controlled',
   } }, invalid);
   assert.equal(invalid.statusCode, 400);
@@ -220,8 +220,8 @@ test('Core digest proxy rejects caller-supplied authority and hides upstream dia
 
   const rejected = makeResponse();
   await handler({ body: {
-    conversation_id: 'conversation-1', message_id: 'message-1', version_id: 'version-1', parent_version_id: null,
-    content_sha256: 'c'.repeat(64), active: true, deleted: false,
+    conversation_id: 'conversation-1', message_id: 'message-1', version_id: 'version-1',
+    parent_version_id: null, content_sha256: 'c'.repeat(64), active: true, deleted: false,
   } }, rejected);
   assert.equal(rejected.statusCode, 403);
   assert.deepEqual(rejected.body, { error: { code: 'LOGIC_ENGINE_CAPTURE_REJECTED', message: 'Logic-Engine did not accept the digest capture.' } });
