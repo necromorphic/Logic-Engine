@@ -149,3 +149,28 @@ test('rollback advances canonical source version instead of rewinding to the res
   assert.equal(s.engine.getSnapshot('source-version-world', { entityIds: ['source-a'] }).entities[0].attributes.public_note, 'before');
   assert.equal(s.readVersion('source-a'), 3);
 });
+
+test('source version advances for an accepted entity update even when the visible value is unchanged', (t) => {
+  const s = fixture(t);
+  s.commit('create-noop-source', 0, [{
+    kind: 'entity.create',
+    entity_id: 'source-noop',
+    entity_type: 'character',
+    attributes: { public_note: 'same' },
+  }]);
+  const before = s.engine.getSnapshot('source-version-world', { entityIds: ['source-noop'] }).entities[0];
+  assert.equal(s.readVersion('source-noop'), 1);
+
+  // Core currently has no separate metadata-only entity mutation path: canonical
+  // entity changes are committed as entity effects, and even a same-value update
+  // receives a new projection revision and a fresh source token.
+  s.commit('same-value-source-update', 1, [{
+    kind: 'entity.update',
+    entity_id: 'source-noop',
+    attributes: { public_note: 'same' },
+  }]);
+  const after = s.engine.getSnapshot('source-version-world', { entityIds: ['source-noop'] }).entities[0];
+  assert.equal(after.attributes.public_note, 'same');
+  assert.ok(after.updated_revision > before.updated_revision);
+  assert.equal(s.readVersion('source-noop'), 2);
+});
