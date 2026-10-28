@@ -149,3 +149,36 @@ test('detects spatial body, motion, facing, and perception changes as entity dep
   assert.equal(freshness.freshness, 'STALE');
   assert.deepEqual(freshness.affectedDependencies, ['entity:npc-a']);
 });
+
+
+test('each spatial dependency field independently invalidates the entity key', () => {
+  const baseEntity = {
+    id: 'npc-a',
+    position: { x: 1, y: 1, z: 0 },
+    forward: { x: 1, y: 0, z: 0 },
+    body: {
+      minOffset: { x: -0.3, y: -0.3, z: 0 },
+      maxOffset: { x: 0.3, y: 0.3, z: 1.8 },
+    },
+    motion: { velocity: { x: 1, y: 0, z: 0 }, maxSpeed: 2 },
+    perception: { halfAngleRadians: Math.PI / 3, maxDistance: 10 },
+  };
+  const variants = [
+    ['body', { ...baseEntity, body: { ...baseEntity.body, maxOffset: { ...baseEntity.body.maxOffset, x: 0.4 } } }],
+    ['motion velocity', { ...baseEntity, motion: { ...baseEntity.motion, velocity: { x: 0, y: 1, z: 0 } } }],
+    ['motion limit', { ...baseEntity, motion: { ...baseEntity.motion, maxSpeed: 3 } }],
+    ['facing', { ...baseEntity, forward: { x: 0, y: 1, z: 0 } }],
+    ['perception range', { ...baseEntity, perception: { ...baseEntity.perception, maxDistance: 8 } }],
+    ['perception angle', { ...baseEntity, perception: { ...baseEntity.perception, halfAngleRadians: Math.PI / 4 } }],
+  ];
+
+  for (const [field, changedEntity] of variants) {
+    const previous = makeScene(17, {
+      entities: [baseEntity, { id: 'npc-b', position: { x: 2, y: 1, z: 0 } }],
+    });
+    const current = makeScene(18, {
+      entities: [changedEntity, { id: 'npc-b', position: { x: 2, y: 1, z: 0 } }],
+    });
+    assert.deepEqual(diffSceneRevisions(previous, current).changedDependencies, ['entity:npc-a'], field);
+  }
+});
