@@ -82,6 +82,14 @@ test('trusted source ingestion rejects stale cursors, wrong world pack, and unap
     world_id: 'world-a', source_bytes: bytes.replace('fact-a', 'fact-b'), idempotency_key: 'tampered-source',
     expected_revision: 1, expected_commit_sequence: 1,
   }), { code: 'TRUSTED_SOURCE_NOT_APPROVED' });
+  engine.createWorld({
+    world_id: 'world-b', world_pack_id: 'other.world', world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  assert.throws(() => engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-b', source_bytes: bytes, idempotency_key: 'wrong-pack-source',
+    expected_revision: 0, expected_commit_sequence: 0,
+  }), { code: 'TRUSTED_SOURCE_WORLD_PACK_MISMATCH' });
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
 });
 
