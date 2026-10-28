@@ -462,7 +462,7 @@ test('belief transition idempotency key cannot be reused for a different stance'
 });
 
 test('rollback of an acquisition invalidates its belief support but preserves the belief transition for reconciliation', (t) => {
-  const { store, engine } = setup(t);
+  const { store, engine, acquisition } = setup(t);
   const current = request(store);
   const read = engine.readNpcKnowledge(current);
   engine.recordNpcBeliefTransition({
@@ -476,8 +476,8 @@ test('rollback of an acquisition invalidates its belief support but preserves th
     idempotency_key: 'belief-transition-before-source-rollback',
   });
   engine.rollbackEvent('world-a', {
-    root_event_id: 'author-seed',
-    idempotency_key: 'rollback-author-seed-after-belief',
+    root_event_id: acquisition.event_id,
+    idempotency_key: 'rollback-acquisition-after-belief',
   });
   const fresh = request(store);
   const state = engine.getNpcBeliefState({
