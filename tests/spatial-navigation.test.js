@@ -41,7 +41,9 @@ test('max cost filters routes without inventing a fallback', () => {
 
 test('unknown door state preserves uncertainty about reachability and optimality', () => {
   const result = rankRoomRoutes(scene([
-    door('known', 'a', 'd', 5), door('uncertain', 'a', 'c', 1, 'unknown'),
+    door('known', 'a', 'd', 5),
+    door('uncertain', 'a', 'c', 1, 'unknown'),
+    door('c-d', 'c', 'd', 1),
   ]), 'a', 'd');
   assert.equal(result.reachable, true);
   assert.equal(result.optimality, 'UNKNOWN');
