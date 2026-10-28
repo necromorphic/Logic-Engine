@@ -33,7 +33,7 @@ function fixture() {
   const journal = new HostLifecycleJournal(db);
   const chat = [
     { is_user: true, mes: 'hello' },
-    { is_user: false, mes: 'swipe A', swipes: ['swipe A', 'swipe B', 'swipe C'], swipe_id: 1 },
+    { is_user: false, mes: 'swipe A', swipes: ['swipe A'], swipe_id: 1 },
   ];
   const bridge = createStLifecycleBridge({
     journal, getConversationId: () => 'scenario-chat', getChat: () => chat,
@@ -42,25 +42,14 @@ function fixture() {
   return { db, journal, chat, bridge };
 }
 
-test('swipe deletion preserves surviving version IDs and does not treat selection as deletion', async () => {
+test('legacy multi-swipe enrollment is refused without source-backed parent lineage', async () => {
   const f = fixture();
-  await f.bridge.enrollCurrentConversation();
-  const versions = f.chat[1]._logicEngineLifecycle.versions;
-  const ids = versions.map(v => v.versionId);
-  const activeBefore = f.chat[1]._logicEngineLifecycle.activeVersionIndex;
-  assert.equal(activeBefore, 1);
-
-  await f.bridge.beforeMutation('delete-swipe', [1], { swipeIndex: 1 });
-  f.chat[1].swipes.splice(1, 1);
-  f.chat[1].mes = 'swipe C';
-  f.chat[1].swipe_id = 1;
-  await f.bridge.afterMutation('delete-swipe', { removedSwipeIndex: 1, selectedMessageIndex: 1 });
-
-  const after = f.chat[1]._logicEngineLifecycle;
-  assert.deepEqual(after.versions.map(v => v.versionId), [ids[0], ids[2]]);
-  assert.deepEqual(after.versions.map(v => v.versionIndex), [0, 1]);
-  assert.equal(after.activeVersionIndex, 1);
-  assert.equal((await f.journal.verifyIntegrity('scenario-chat')).status, 'INTEGRITY_OK');
+  f.chat[1].swipes = ['swipe A', 'swipe B', 'swipe C'];
+  await assert.rejects(
+    f.bridge.enrollCurrentConversation(),
+    /legacy multi-swipe message has no source-backed parent lineage/,
+  );
+  assert.equal(f.db.rows.size, 0);
 });
 
 test('write-ahead failure prevents the simulated destructive mutation', async () => {
