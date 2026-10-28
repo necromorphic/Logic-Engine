@@ -674,22 +674,6 @@ export async function registerHostConversation(request, { conversationId, source
     }
     if (!['chats', 'group_chats'].includes(domain)) throw new Error('HOST_ENROLLMENT_INVALID');
     const paths = await statePaths(request);
-    // Durable-enough local sentinel outside the journal directory: this detects
-    // accidental journal-directory loss. It is not an anti-rollback trust anchor.
-    const markerPath = path.join(path.dirname(paths.roots[0].path), ENROLLMENT_MARKER_NAME);
-    try {
-        const markerStat = await lstat(markerPath);
-        if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('HOST_ENROLLMENT_MARKER_UNSAFE');
-    } catch (error) {
-        if (error?.code !== 'ENOENT') throw error;
-        const markerHandle = await open(markerPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-        try {
-            await markerHandle.writeFile(JSON.stringify({ version: 1, purpose: 'host-enrollment-present' }) + '\\n', 'utf8');
-            await markerHandle.sync();
-        } finally {
-            await markerHandle.close();
-        }
-    }
     if (sourcePath !== undefined) await validateEnrolledSourcePath(paths, { conversationId, sourceLocator, domain, sourcePath });
     let registryExists = true;
     try {
@@ -726,6 +710,22 @@ export async function registerHostConversation(request, { conversationId, source
     registry.conversations.push(candidate);
     registry.conversations.sort((a, b) => a.conversationId.localeCompare(b.conversationId));
     await atomicWriteJson(paths.registryPath, registry);
+    // Durable-enough local sentinel outside the journal directory: this detects
+    // accidental journal-directory loss. It is not an anti-rollback trust anchor.
+    const markerPath = path.join(path.dirname(paths.roots[0].path), ENROLLMENT_MARKER_NAME);
+    try {
+        const markerStat = await lstat(markerPath);
+        if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('HOST_ENROLLMENT_MARKER_UNSAFE');
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+        const markerHandle = await open(markerPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+        try {
+            await markerHandle.writeFile(JSON.stringify({ version: 1, purpose: 'host-enrollment-present' }) + '\\n', 'utf8');
+            await markerHandle.sync();
+        } finally {
+            await markerHandle.close();
+        }
+    }
     return { status: 'ENROLLED' };
 }
 
