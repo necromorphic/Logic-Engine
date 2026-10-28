@@ -243,7 +243,7 @@ test('authority IPC requires explicit enrollment, enforces domain tokens, and fa
     }), /Invalid accepted-head client configuration/);
     assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 2, provider: 2 });
   } finally {
-    child.stdin.end('stop');
+    child.kill();
     await once(child, 'exit');
     rmSync(dir, { recursive: true, force: true });
   }
