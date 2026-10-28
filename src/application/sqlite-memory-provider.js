@@ -675,6 +675,7 @@ export class SQLiteMemoryProvider {
       world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose,
       record_ref: input.record_ref, record_version: input.record_version,
       source_kind: input.source_kind, source_entity_id: input.source_entity_id,
+      source_version: input.source_version,
     };
     // Take the cross-connection epoch before reading any authorization state.
     // Otherwise a revoke/re-grant committed between the initial grant read and
@@ -693,6 +694,12 @@ export class SQLiteMemoryProvider {
       .get(input.world_id, input.record_ref, input.record_version);
     if (!row || row.subject_id !== input.subject_id || row.purpose !== input.purpose
       || row.source_kind !== input.source_kind || row.source_entity_id !== input.source_entity_id) return false;
+    // The consumer must present the exact source version it retrieved. Local
+    // record identity alone is insufficient: an old candidate must not be
+    // silently rebound to a newer persisted source version.
+    if (!validId(input.source_version) || input.source_version !== row.source_version) {
+      throw new Error('MEMORY_SOURCE_VERSION_UNVERIFIABLE');
+    }
     let lineage;
     try { lineage = decode(row.lineage_json); } catch {
       throw new Error('MEMORY_LINEAGE_INVALID');
@@ -734,6 +741,19 @@ export class SQLiteMemoryProvider {
       // A stale/unverifiable source version is not an access denial. Do not let
       // the consumer filter it into a false complete-empty result.
       throw new Error('MEMORY_SOURCE_VERSION_UNVERIFIABLE');
+    }
+
+    // Re-read Core after the awaited source validator. A source can change
+    // after validation but before Provider authorization completes; comparing
+    // the composite cursor with the last reconciled snapshot fails closed.
+    let latestCoreSnapshot;
+    try { latestCoreSnapshot = snapshotOf(await this.#getSnapshot(input.world_id)); }
+    catch { throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE'); }
+    if (!latestCoreSnapshot) throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
+    if (String(latestCoreSnapshot.world_revision) !== initialState.snapshot_revision
+      || String(latestCoreSnapshot.commit_sequence) !== initialState.snapshot_sequence) {
+      this.#setState(input.world_id, 'stale', 'stale', null, 'SNAPSHOT_STALE');
+      throw new Error('MEMORY_SNAPSHOT_STALE');
     }
 
     // The external source-version validator above may await and therefore must
@@ -1145,7 +1165,7 @@ export class SQLiteMemoryProvider {
 
         const candidates = rows.slice(0, 50).map((row) => ({
           record: { ref: row.record_ref, version: row.record_version },
-          source: { kind: row.source_kind, entity_id: row.source_entity_id },
+          source: { kind: row.source_kind, entity_id: row.source_entity_id, version: row.source_version },
           world_id: row.world_id, subject_id: row.subject_id, purpose: row.purpose,
           content_kind: row.content_kind, epistemic_kind: row.epistemic_kind,
           producer: { kind: row.producer_kind },
