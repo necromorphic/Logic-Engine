@@ -219,8 +219,8 @@ diff --git a/public/script.js b/public/script.js
  
      const startIndex = firstMessageId <= minId ? firstMessageId : null;
      updateViewMessageIds(startIndex);
-     saveChatDebounced();
-+    if (lifecycleBefore.status === 'NOT_ENROLLED') await saveChatConditional();
+-    saveChatDebounced();
++    if (lifecycleBefore.status === 'NOT_ENROLLED') saveChatDebounced();
 +    await lifecycleBridge.afterMutation('delete-message');
  
      if (this_edit_mes_id === id) {
