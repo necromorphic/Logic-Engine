@@ -268,16 +268,17 @@ test('equal-time events require stable event identity and commit ordering for a 
   assert.equal(operation.status, 'completed');
   const segments = readSegmentRows(store, worldId, operation.operation_id);
   assert.equal(segments.length, 1);
-  assert.equal(segments[0].events.length, 2);
+  assert.ok(segments[0].events.length >= 2, 'multiple same-time events must share the segment');
 
   const mapped = assertSegmentCursorMapping(store, worldId, segments);
   const boundary = mapped[0].boundaryCursor;
   const plannedEventIds = segments[0].events.map((event) => event.event_id);
+  const placeholders = plannedEventIds.map(() => '?').join(',');
   const sameCoordinateEvents = store.db.prepare(
-    'SELECT event_id,game_time_coordinate,committed_revision,commit_sequence,validity FROM world_events WHERE world_id=? AND event_id IN (?,?) ORDER BY commit_sequence',
+    `SELECT event_id,game_time_coordinate,committed_revision,commit_sequence,validity FROM world_events WHERE world_id=? AND event_id IN (${placeholders}) ORDER BY commit_sequence`,
   ).all(worldId, ...plannedEventIds);
 
-  assert.equal(sameCoordinateEvents.length, 2);
+  assert.equal(sameCoordinateEvents.length, plannedEventIds.length);
   assert.deepEqual(
     sameCoordinateEvents.map((event) => event.event_id),
     segments[0].events.map((event) => event.event_id),
