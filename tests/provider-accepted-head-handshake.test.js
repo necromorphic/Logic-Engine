@@ -111,6 +111,8 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
     providerDb?.close();
     providerDb = new DatabaseSync(providerPath);
+    providerDb?.close();
+    providerDb = new DatabaseSync(providerPath);
     const scope = { world_id: 'world-1', subject_id: 'npc-1', purpose: 'recall' };
 
     provider.grantQuery(scope, true);
@@ -124,7 +126,7 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     assert.equal(firstOperation.last_operation_id, 'provider-' + firstOperation.last_operation_digest);
 
     provider.grantQuery({ world_id: 'world-1', subject_id: 'npc-2', purpose: 'recall' }, true);
-    const secondOperation = provider.db.prepare(
+    const secondOperation = providerDb.prepare(
       'SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get();
     assert.equal(secondOperation.head, 3);
@@ -153,12 +155,14 @@ test('Provider mutations advance accepted head before commit and fail closed whe
       recoveryDb.close();
     }
     provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
+    providerDb?.close();
+    providerDb = new DatabaseSync(providerPath);
     assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 4 });
 
     // Verify the accepted-head wrapper covers each currently usable Provider
     // mutation family, not only query grants. Each visible state transition must
     // advance the external head and persist the same local head before returning.
-    const currentProviderHead = () => provider.db.prepare(
+    const currentProviderHead = () => providerDb.prepare(
       'SELECT head FROM accepted_head_state WHERE singleton=1',
     ).get().head;
     const assertHeadAdvanced = async (work) => {
@@ -237,6 +241,8 @@ test('Provider mutations advance accepted head before commit and fail closed whe
       pendingReadRecoveryDb.close();
     }
     provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
+    providerDb?.close();
+    providerDb = new DatabaseSync(providerPath);
     assert.equal(getAcceptedHeadsSync({ port, token: providerToken }).provider, pending.head);
 
     child.stdin.end('stop');
@@ -306,7 +312,9 @@ test('Provider fails closed when authority advances but the local checkpoint tra
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', providerToken, previousEnv);
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', '1', previousEnv);
     provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
-    provider.db.exec(`CREATE TRIGGER fail_accepted_head_checkpoint
+    providerDb?.close();
+    providerDb = new DatabaseSync(providerPath);
+    providerDb.exec(`CREATE TRIGGER fail_accepted_head_checkpoint
       BEFORE UPDATE ON accepted_head_state
       BEGIN SELECT RAISE(ABORT, 'injected checkpoint failure'); END;`);
 
