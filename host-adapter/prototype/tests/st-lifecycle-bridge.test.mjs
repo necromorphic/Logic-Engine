@@ -85,8 +85,9 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
     publishDigest: async entry => { published.push(structuredClone(entry)); },
   });
   await f.bridge.enrollCurrentConversation();
-  assert.equal(published.length, 2);
-  assert.deepEqual(published.map(entry => entry.active), [false, true]);
+  assert.equal(published.length, 1);
+  assert.equal(published[0].parent_version_id, null);
+  assert.equal(published[0].active, true);
   assert.ok(published.every(entry => entry.conversation_id === 'chat-1'
     && /^[a-f0-9]{64}$/.test(entry.content_sha256)
     && !Object.keys(entry).some(key => /raw|text_body|content_text|message_body/i.test(key))));
@@ -99,11 +100,16 @@ test('configured Core publisher receives digest-only baseline, replacement tombs
   f.chat[0].swipe_id = 0;
   await f.bridge.afterMutation('edit-message');
 
-  assert.equal(published.length, 3);
-  assert.equal(published[0].active, true);
-  assert.equal(published[0].deleted, false);
-  assert.deepEqual(new Set(published.slice(1).map(entry => entry.version_id)), new Set(oldVersionIds));
-  assert.ok(published.slice(1).every(entry => entry.deleted === true && entry.active === false));
+  assert.equal(published.length, 2);
+  const current = published.find(entry => entry.deleted === false);
+  const tombstone = published.find(entry => entry.deleted === true);
+  assert.ok(current);
+  assert.equal(current.active, true);
+  assert.equal(current.parent_version_id, oldVersionIds[0]);
+  assert.ok(tombstone);
+  assert.equal(tombstone.active, false);
+  assert.equal(tombstone.parent_version_id, null);
+  assert.deepEqual(new Set([tombstone.version_id]), new Set(oldVersionIds));
   assert.ok(published.every(entry => !JSON.stringify(entry).includes('edited answer')));
 });
 
