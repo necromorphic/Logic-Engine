@@ -170,9 +170,9 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
   async function enrollCurrentConversation() {
     const conversationId = await getConversationId(), chat = getChat();
     if (!conversationId || !Array.isArray(chat)) throw Error('No active conversation; enrollment refused');
-    // Legacy ST swipes do not expose authoritative parent links. Never fabricate
-    // a root for each existing alternative: require a fresh, single-version
-    // baseline until the source provides verifiable lineage metadata.
+    // Legacy ST history does not expose authoritative parent links. Never
+    // fabricate a root for an existing version; only a later, instrumented
+    // single-version insertion can establish a new root from its source boundary.
     if (chat.some(message => rawVersions(message).length > 1)) {
       throw Error('NON_READY: legacy multi-swipe message has no source-backed parent lineage; enrollment refused');
     }
