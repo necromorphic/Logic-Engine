@@ -16,6 +16,7 @@ function setup(t) {
   const path = join(directory, 'memory-provider.sqlite');
   const provider = new SQLiteMemoryProvider({
     path,
+    coordinatorPath: join(directory, 'coordinator.sqlite'),
     getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
@@ -114,6 +115,7 @@ test('legacy raw purge removes only registered Provider copies and preserves ext
   const externalPath = join(directory, 'external.sqlite');
   const provider = new SQLiteMemoryProvider({
     path: providerPath,
+    coordinatorPath: join(directory, 'coordinator.sqlite'),
     getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
@@ -204,6 +206,7 @@ test('exact-version tombstone persists across Provider restart without resurrect
   const path = join(directory, 'memory-provider.sqlite');
   let provider = new SQLiteMemoryProvider({
     path,
+    coordinatorPath: join(directory, 'coordinator.sqlite'),
     getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
@@ -235,6 +238,7 @@ test('exact-version tombstone persists across Provider restart without resurrect
   provider.close();
   provider = new SQLiteMemoryProvider({
     path,
+    coordinatorPath: join(directory, 'coordinator.sqlite'),
     getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
