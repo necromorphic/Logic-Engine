@@ -82,8 +82,7 @@ async function runChildMode(mode, directory) {
             ref: candidate.record.ref,
             version: candidate.record.version,
             sourceEntityId: candidate.source.entity_id,
-            sourceVersion: candidate.source.version,
-          })),
+            })),
         }));
       } catch (error) {
         if (error?.message !== 'MEMORY_RECORDS_WITHHELD') throw error;
@@ -127,7 +126,6 @@ if (childMode?.startsWith('--provider-child-')) {
       ref: 'memory:process-record',
       version: 'record-v1',
       sourceEntityId: 'entity-process-a',
-      sourceVersion: 'source-v1',
     }]);
 
     runChild('revoke', directory);
