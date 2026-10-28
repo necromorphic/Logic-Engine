@@ -1424,7 +1424,7 @@ export async function getHostConversationInventory(request) {
             message_id: record.message_id,
             version_id: record.version_id,
             payload_sha256: record.content_sha256,
-            parent_version_id: observedVersions.get(key)?.parent_version_id ?? null,
+            parent_version_id: record.parent_version_id ?? null,
         });
     }
     for (const conversation of snapshot.inventories) {
