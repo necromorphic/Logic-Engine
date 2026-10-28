@@ -129,14 +129,26 @@ test('rolling back the acquisition event revokes the assignment through the cano
   } finally { store.close(); }
 });
 
-test('rollback of source support removes the acquisition projection and rebuild does not restore it', () => {
+test('rollback of a source event revokes acquisition even when equivalent fact support and subject survive', () => {
   const { store, engine } = seed();
   try {
-    engine.recordInitialAcquisition(input());
+    engine.commitEvent('w1', {
+      event_id: 'independent-support', idempotency_key: 'independent-support', turn_id: 'independent-support',
+      event_type: 'action.completed', expected_revision: 1,
+      effects: [
+        { kind: 'entity.upsert', entity_id: 'npc-a', entity_type: 'character', status: 'active', attributes: {} },
+        { kind: 'fact.set', fact_id: 'fact-a', predicate: 'knows', value: 'secret-x' },
+      ],
+    });
+    engine.recordInitialAcquisition(input({ expected_revision: 2, expected_commit_sequence: 2 }));
     assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 1);
-    const rollback = engine.rollbackEvent('w1', { root_event_id: 'seed-facts', idempotency_key: 'rollback-seed' });
+
+    const rollback = engine.rollbackEvent('w1', { root_event_id: 'seed-facts', idempotency_key: 'rollback-seed-source-only' });
     assert.equal(rollback.accepted, true);
+    assert.equal(store.db.prepare("SELECT status FROM entities WHERE world_id='w1' AND entity_id='npc-a'").get().status, 'active');
+    assert.equal(store.db.prepare("SELECT status FROM facts WHERE world_id='w1' AND fact_id='fact-a'").get().status, 'active');
     assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
+
     store.rebuild('w1', store.world('w1').world_revision);
     assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
   } finally { store.close(); }
