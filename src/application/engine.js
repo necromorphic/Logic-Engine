@@ -512,7 +512,16 @@ export class LogicEngine {
       'INVALID_KNOWLEDGE_PROVENANCE', 'source_sha256 must be a lowercase SHA-256 digest.', 400);
     assert(typeof input.idempotency_key === 'string' && input.idempotency_key.trim()
       && input.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key is required.');
-    const snapshot = this.getSnapshot(id, { entityIds: [input.subject_id], factIds: [input.fact_id] });
+    let snapshot;
+    try {
+      snapshot = this.getSnapshot(id, { entityIds: [input.subject_id], factIds: [input.fact_id] });
+    } catch (error) {
+      if (error?.code === 'ENTITY_NOT_FOUND') {
+        throw new EngineError('KNOWLEDGE_SUBJECT_NOT_ELIGIBLE',
+          'Knowledge subject must be an existing entity in this world.', 409);
+      }
+      throw error;
+    }
     const subject = snapshot.entities.find((entity) => entity.entity_id === input.subject_id);
     const fact = snapshot.facts.find((item) => item.fact_id === input.fact_id);
     if (!subject || subject.status === 'destroyed') {
