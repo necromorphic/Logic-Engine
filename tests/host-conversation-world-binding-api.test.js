@@ -134,7 +134,7 @@ test('Host digest capture requires Core binding and accepts no raw text or calle
   const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER_A };
   const capture = {
     conversation_id: 'stable-chat-id', message_id: 'message-1', version_id: 'version-1',
-    content_sha256: 'a'.repeat(64), active: true, deleted: false,
+    content_sha256: 'a'.repeat(64), parent_version_id: null, active: true, deleted: false,
   };
 
   const unbound = await fetch(path, { method: 'POST', headers: adapterHeaders, body: json(capture) });
