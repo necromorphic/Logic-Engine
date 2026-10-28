@@ -109,6 +109,22 @@ test('capability is one-shot even after a response promise rejects; outcome is U
   assert.equal(calls, 1);
 });
 
+test('synchronous transport failure after durable start is UNKNOWN and never retried', async () => {
+  let calls = 0;
+  const capability = makeCapability({
+    fetchImpl: () => { calls += 1; throw new Error('synchronous transport failure'); },
+  });
+  const result = await dispatchThroughRequestScopedCapability({
+    capability,
+    authorizeAndPersistStart: async evidence => ({
+      status: 'STARTED', dispatchId: 'dispatch-sync-unknown', requestDigest: evidence.requestDigest,
+    }),
+  });
+  assert.equal(result.status, 'UNKNOWN');
+  assert.equal(result.dispatchId, 'dispatch-sync-unknown');
+  assert.equal(calls, 1);
+});
+
 test('invalid endpoint, non-string body, and URL credentials are rejected', () => {
   assert.throws(() => makeCapability({ endpoint: 'file:///tmp/provider' }), /resolved HTTP\(S\) endpoint/);
   assert.throws(() => makeCapability({ endpoint: 'https://user:pass@provider.example/v1' }), /resolved HTTP\(S\) endpoint/);
