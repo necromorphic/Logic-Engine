@@ -684,7 +684,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     // Readiness loss is a real reconciliation failure, not a fixture update.
     provider.grantQuery(scope, true);
     snapshotUnavailable = true;
-    await assert.rejects(provider.reconcile(scope.world_id), /MEMORY_SNAPSHOT_UNAVAILABLE/);
+    assert.equal((await provider.reconcile(scope.world_id)).status, 'unavailable');
     await assert.rejects(
       gateway.dispatchProtectedRequest(validRequest('provider-readiness-lost-before-start')),
       /MEMORY_DISPATCH_NOT_READY/,
