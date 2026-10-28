@@ -323,3 +323,42 @@ test('authorized read returns the current composite snapshot after rollback chan
   assert.equal(store.currentCommitSequence('read-world'), before.commit_sequence);
 });
 
+test('rollback during field-policy evaluation rejects disclosure when commit sequence is unchanged', (t) => {
+  let engineRef;
+  let rolledBack = false;
+  const { service, engine, store } = setup(t, (_context, _entity, field) => {
+    if (field === 'attributes.name' && !rolledBack) {
+      rolledBack = true;
+      const beforeRollback = engineRef.getSnapshot('read-world');
+      const result = engineRef.rollbackEvent('read-world', {
+        root_event_id: 'rollback-race-temporary',
+        idempotency_key: 'rollback-race-during-authorized-read',
+      });
+      assert.deepEqual(result.invalidated_event_ids, ['rollback-race-temporary']);
+      const afterRollback = engineRef.getSnapshot('read-world');
+      assert.equal(afterRollback.world_revision, beforeRollback.world_revision + 1);
+      assert.equal(afterRollback.commit_sequence, beforeRollback.commit_sequence);
+    }
+    return true;
+  });
+  engineRef = engine;
+
+  engine.commitEvent('read-world', {
+    event_id: 'rollback-race-temporary',
+    idempotency_key: 'rollback-race-temporary',
+    turn_id: 'rollback-race-temporary-turn',
+    event_type: 'action.completed',
+    expected_revision: engine.getState('read-world').world_revision,
+    effects: [{ kind: 'entity.create', entity_id: 'rollback-race-temporary-entity', entity_type: 'object' }],
+  });
+  const snapshotBeforeRead = engine.getSnapshot('read-world');
+  assert.equal(snapshotBeforeRead.commit_sequence, store.currentCommitSequence('read-world'));
+
+  assert.throws(
+    () => service.readEntityFields(request()),
+    (error) => error.code === 'STALE_AUTHORIZED_READ_SNAPSHOT' && error.status === 409,
+  );
+  assert.equal(rolledBack, true);
+  assert.equal(engine.getSnapshot('read-world').commit_sequence, snapshotBeforeRead.commit_sequence);
+  assert.equal(engine.getSnapshot('read-world').entities.some((entity) => entity.entity_id === 'rollback-race-temporary-entity'), false);
+});
