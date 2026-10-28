@@ -335,9 +335,16 @@ export class SQLiteMemoryProvider {
           .map((match) => match[1].toLowerCase() + ':' + match[2]);
         if (requiredObjects.some((objectName) => !existingObjects.has(objectName))) throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
         const requiredColumns = {
+          memory_records: ['world_id','subject_id','purpose','record_ref','record_version','source_kind','source_entity_id','source_version','content_kind','epistemic_kind','producer_kind','content_disposition','evidence_assessment','lineage_json','created_at'],
+          memory_index_entries: ['world_id','record_ref','record_version','indexed_at'],
+          memory_query_grants: ['world_id','subject_id','purpose','allowed'],
+          memory_record_grants: ['world_id','subject_id','purpose','record_ref','record_version','allowed'],
+          memory_index_state: ['world_id','index_health','source_reconciliation','snapshot_revision','snapshot_sequence','failure_code','updated_at'],
           accepted_head_state: ['singleton','head','enrolled','last_operation_id','last_operation_digest'],
           accepted_head_enrollment_audit: ['singleton','domain','approval_id','baseline_digest','operation_id','enrolled_head','enrolled_at'],
-          memory_index_state: ['world_id','index_health','source_reconciliation','snapshot_revision','snapshot_sequence','failure_code','updated_at'],
+          memory_raw_captures: ['world_id','conversation_id','message_id','version_id','role','content_text','content_sha256','metadata_json','captured_at','deleted_at'],
+          memory_raw_active_versions: ['world_id','conversation_id','message_id','version_id','selected_at'],
+          memory_raw_derived_copies: ['world_id','conversation_id','message_id','source_version_id','copy_ref','copy_version','copy_kind','content_text','content_sha256','status','created_at','invalidated_at'],
         };
         for (const [table, columns] of Object.entries(requiredColumns)) {
           const actual = new Set(this.#db.prepare('PRAGMA table_info(' + table + ')').all().map((row) => row.name));
