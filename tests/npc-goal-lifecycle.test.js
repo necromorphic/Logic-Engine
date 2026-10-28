@@ -74,3 +74,20 @@ test("fails closed when goal reflection traps throw", () => {
   });
   assert.deepEqual(transitionNpcGoal(goal, "complete"), { status: "non_ready", goal: null });
 });
+
+
+test("fails closed on Object.prototype pollution without invoking inherited getters", () => {
+  let invoked = false;
+  Object.defineProperty(Object.prototype, "npcInjectedStatus", {
+    configurable: true,
+    get() { invoked = true; return "active"; },
+  });
+  let result;
+  try {
+    result = transitionNpcGoal({ id: "g", status: "active" }, "complete");
+  } finally {
+    delete Object.prototype.npcInjectedStatus;
+  }
+  assert.deepEqual(result, { status: "non_ready", goal: null });
+  assert.equal(invoked, false);
+});
