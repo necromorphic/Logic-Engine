@@ -116,3 +116,29 @@ Inspected current `main` source paths (28 October 2026); these are source observ
 **WP-1 result: source-path gap confirmed within the inspected repository paths.** No supported production authoring/import entry point was found that assigns an initial item to a canonical subject. This is not a claim about uninspected deployment-specific code.
 
 **Next implementation decision:** Core review must explicitly approve the minimal event-sourced acquisition effect and its source-validity lifecycle before runtime code is changed. Until then, no acquisition API, schema, storage projection, or partial read path is added. WP-2 remains blocked; Memory → NPC remains `DISABLED / FAIL-CLOSED`.
+
+### WP-2 lifecycle audit — current Core primitives are insufficient for acquisition semantics
+
+Inspected `src/storage/sqlite-store.js` on `main`:
+
+- `world_events` persists event validity (`valid`, `retracted`, `invalidated`), causal metadata, effects and commit sequence (table definition around lines 215–223).
+- `commitEvent` writes canonical effects and rebuilds the world projection; mechanic effect provenance currently maps only `create_entity`, `update_attribute`, and `assert_fact` to existing world effects.
+- `rollback` (around lines 2055–2190) invalidates a root event and dependent events using `caused_by`, `depends_on`, `read_set`, supported causal links and changes to entity/fact/relationship projections. Its dependency analysis does not define a knowledge-assignment identity, acquisition support set, source-version validity, or subject-specific acquisition projection.
+- `rebuild` reprojects existing canonical effects; the existence of replay/rebuild machinery does not establish that an unimplemented acquisition effect can be reconstructed or invalidated correctly.
+- Existing `fact.set` represents world fact projection. It does not preserve independent subject/item acquisition supports as a separate semantic relation.
+
+#### Required transition table for the proposed first slice
+
+| Operation | Required result | Current Core evidence | Disposition |
+|---|---|---|---|
+| Create `author_initial` / `imported` assignment | Stable assignment identity bound to canonical world, subject, item/source, source version and authorization rule | No supported assignment effect or trusted entry point identified in WP-1 | **BLOCKED** |
+| Exact duplicate replay | Return the same assignment result; do not create a second support | Generic event idempotency exists, but acquisition-specific identity and payload semantics do not | **UNPROVEN** |
+| Reuse assignment identity with different subject/item/source | Reject as a conflict; never silently retarget | Generic idempotency-key conflict is not equivalent to acquisition identity validation | **UNPROVEN** |
+| Replace/invalidate source | Invalidate only assignments whose source basis is no longer valid | Rollback invalidates events through supported event/projection dependencies; acquisition source-version transitions are not defined | **BLOCKED** |
+| Two independent assignments support the same subject/item | Invalidating one support leaves the other active | No acquisition support projection exists; a single world fact projection cannot prove this behavior | **BLOCKED** |
+| Restart/replay/rebuild | Reconstruct exactly the active assignment set from authoritative valid events | Existing replay/rebuild applies current effect vocabulary; no acquisition effect or derived acquisition projection exists | **BLOCKED** |
+| Read at a snapshot | Return only assignments valid at the same `(world_revision, commit_sequence)` snapshot | Snapshot cursor exists, but no acquisition relation is resolved by it | **BLOCKED** |
+
+**WP-2 result: STOP before runtime implementation.** The repository has reusable event identity, validity, rollback and snapshot primitives, but the inspected implementation does not prove the acquisition-specific lifecycle required by #557. The minimum reviewed design must define (1) canonical assignment identity and conflict behavior, (2) source-version validity/invalidation semantics, and (3) a derived projection that preserves independent supports and can be rebuilt from valid Core events. Only after that contract is approved should code and production-path tests be added. Do not add a partial read path or repurpose `fact.set`.
+
+This is a bounded source audit, not a claim that tests were executed. It does not change the readiness decision: Memory → NPC remains `DISABLED / FAIL-CLOSED`; Host remains `NON_READY`.
