@@ -186,6 +186,25 @@ function assertSameSources(actual, expected) {
   }
 }
 
+
+function validateTransportTarget(target, model, stream) {
+  if (!validText(target, 2048)) throw new Error('MEMORY_DISPATCH_TRANSPORT_TARGET_INVALID');
+  const url = new URL(target);
+  if (url.protocol !== 'https:' || url.hostname !== 'generativelanguage.googleapis.com'
+    || url.username || url.password || url.hash) {
+    throw new Error('MEMORY_DISPATCH_TRANSPORT_TARGET_INVALID');
+  }
+  const expectedActions = stream ? ['streamGenerateContent'] : ['generateContent'];
+  const match = url.pathname.match(/^\\/(v1|v1beta)\\/models\\/([A-Za-z0-9._-]{1,128}):(generateContent|streamGenerateContent)$/);
+  if (!match || decodeURIComponent(match[2]) !== model || !expectedActions.includes(match[3])) {
+    throw new Error('MEMORY_DISPATCH_TRANSPORT_TARGET_INVALID');
+  }
+  const query = [...url.searchParams.entries()];
+  if (stream ? !(query.length === 1 && query[0][0] === 'alt' && query[0][1] === 'sse') : query.length !== 0) {
+    throw new Error('MEMORY_DISPATCH_TRANSPORT_TARGET_INVALID');
+  }
+}
+
 function assertSyncResult(value) {
   if (!value || typeof value !== 'object' || typeof value.then === 'function') {
     throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -209,7 +228,7 @@ export class MemoryDispatchGateway {
     readToken,
     readCoreEvidence,
     readProviderEvidence,
-    startUpstream,
+    prepareUpstream,
   }) {
     if (typeof ledgerPath !== 'string' || !isAbsolute(ledgerPath)
       || typeof coordinatorPath !== 'string' || !isAbsolute(coordinatorPath)
@@ -217,7 +236,7 @@ export class MemoryDispatchGateway {
       || typeof readToken !== 'string' || readToken.length < 32
       || typeof readCoreEvidence !== 'function'
       || typeof readProviderEvidence !== 'function'
-      || typeof startUpstream !== 'function') {
+      || typeof prepareUpstream !== 'function') {
       throw new TypeError('MemoryDispatchGateway requires file-backed stores, a read-only authority token, trusted synchronous readers, and a transport.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
@@ -230,7 +249,7 @@ export class MemoryDispatchGateway {
     this.readToken = readToken;
     this.readCoreEvidence = readCoreEvidence;
     this.readProviderEvidence = readProviderEvidence;
-    this.startUpstream = startUpstream;
+    this.prepareUpstream = prepareUpstream;
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
@@ -253,6 +272,7 @@ export class MemoryDispatchGateway {
             purpose TEXT NOT NULL,
             sources_json TEXT NOT NULL,
             candidates_json TEXT NOT NULL,
+            transport_target TEXT NOT NULL,
             core_head INTEGER NOT NULL CHECK(core_head > 0),
             provider_head INTEGER NOT NULL CHECK(provider_head > 0),
             status TEXT NOT NULL CHECK(status IN ('DISPATCH_STARTED','COMPLETED','UNKNOWN')),
@@ -277,7 +297,7 @@ export class MemoryDispatchGateway {
         const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
         const required = [
           'request_id', 'request_digest', 'route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
-          'sources_json', 'candidates_json', 'core_head', 'provider_head', 'status', 'outcome_code',
+          'sources_json', 'candidates_json', 'transport_target', 'core_head', 'provider_head', 'status', 'outcome_code',
           'started_at', 'finished_at',
         ];
         if (required.some((column) => !columns.has(column))) throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
@@ -311,10 +331,27 @@ export class MemoryDispatchGateway {
     const sourceSet = normalizeSources(sources);
     const candidateSet = normalizeCandidates(candidates);
     assertSourcesMatchCandidates(sourceSet, candidateSet);
+    let preparedTransport;
+    try {
+      // Resolve the configured target and construct a request-scoped capability
+      // before authorization. Preparation must not perform network I/O.
+      preparedTransport = this.prepareUpstream({ route, model, stream, body, signal, forwardResponse });
+      if (!preparedTransport || typeof preparedTransport !== 'object'
+        || typeof preparedTransport.then === 'function'
+        || typeof preparedTransport.target !== 'string'
+        || typeof preparedTransport.start !== 'function') {
+        throw new Error('MEMORY_DISPATCH_TRANSPORT_PREPARATION_INVALID');
+      }
+      validateTransportTarget(preparedTransport.target, model, stream);
+    } catch {
+      throw new Error('MEMORY_DISPATCH_NOT_READY');
+    }
+    const transportTarget = preparedTransport.target;
     const requestDigest = createHash('sha256').update(JSON.stringify({
       route,
       model,
       stream,
+      transport_target: transportTarget,
       body_digest: createHash('sha256').update(body, 'utf8').digest('hex'),
       world_id: worldId,
       actor_id: actorId,
@@ -374,9 +411,9 @@ export class MemoryDispatchGateway {
         if (unresolvedReplay) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
         this.db.prepare(`
           INSERT INTO dispatch_ledger(
-            request_id,request_digest,route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
+            request_id,request_digest,route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,transport_target,
             core_head,provider_head,status,outcome_code,started_at,finished_at
-          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
           requestId,
           requestDigest,
@@ -388,6 +425,7 @@ export class MemoryDispatchGateway {
           purpose,
           JSON.stringify(sourceSet),
           JSON.stringify(candidateSet),
+          transportTarget,
           coreHead,
           providerHead,
           new Date().toISOString(),
@@ -412,11 +450,10 @@ export class MemoryDispatchGateway {
     // Once DISPATCH_STARTED is durable, an ambiguous outcome is never retried.
     let response;
     try {
-      // The trusted provider handler must synchronously initiate the exact
-      // pre-serialized request and return its response promise. An async
-      // capability is rejected: it could defer the actual network call until
-      // after this authorization/dispatch-start boundary.
-      const handoff = this.startUpstream({ route, model, stream, body, requestId, requestDigest, forwardResponse, signal });
+      // The request-scoped capability was prepared before authorization. Its
+      // start() method must synchronously initiate the exact pre-serialized
+      // request and return the promise for observing that same request.
+      const handoff = preparedTransport.start({ route, model, stream, body, requestId, requestDigest, forwardResponse, signal });
       if (!handoff || typeof handoff !== 'object' || typeof handoff.then === 'function'
         || handoff.started !== true || !handoff.response || typeof handoff.response.then !== 'function') {
         throw new Error('MEMORY_DISPATCH_TRANSPORT_HANDOFF_INVALID');
