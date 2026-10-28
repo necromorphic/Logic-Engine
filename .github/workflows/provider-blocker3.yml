@@ -31,6 +31,14 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.13.0'
+      - name: Capture test environment fingerprint
+        run: |
+          node --version
+          npm --version
+          node -p "'node:sqlite=' + (process.versions.sqlite || 'not-exposed-by-this-Node-build')"
+          node -p "JSON.stringify({platform: process.platform, arch: process.arch, versions: process.versions}, null, 2)"
+          uname -a
+          cat /etc/os-release
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Accepted-head, Provider, and protected-dispatch acceptance tests
@@ -44,6 +52,14 @@ jobs:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: '22.13.0'
+      - name: Capture test environment fingerprint
+        run: |
+          node --version
+          npm --version
+          node -p "'node:sqlite=' + (process.versions.sqlite || 'not-exposed-by-this-Node-build')"
+          node -p "JSON.stringify({platform: process.platform, arch: process.arch, versions: process.versions}, null, 2)"
+          uname -a
+          cat /etc/os-release
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Run full repository Runtime suite
