@@ -255,7 +255,7 @@ function buildDependencyOrder(due, allById, completedIds) {
   const blocked = [];
 
   for (const trigger of due) {
-    const required = [];
+    const required = new Set();
     for (const dependencyId of trigger.dependencies) {
       const dependency = allById.get(dependencyId);
       if (!dependency) {
@@ -345,8 +345,8 @@ function segmentAtCoordinate(triggers, dependencies) {
     currentWrites = new Set();
   };
 
-  const directlyOrdered = (leftId, rightId) => (dependencies.get(leftId) || new Set()).has(rightId)
-    || (dependencies.get(rightId) || new Set()).has(leftId);
+  const directlyOrdered = (leftId, rightId) => dependencies.get(leftId)?.has(rightId) === true
+    || dependencies.get(rightId)?.has(leftId) === true;
   const assertNoUnorderedConflict = (trigger, reference, existingId) => {
     if (!directlyOrdered(trigger.trigger_id, existingId)) {
       fail('TRIGGER_CONFLICT_NEEDS_REVIEW', 'Same-coordinate triggers conflict without an explicit direct dependency order.', {
