@@ -12,9 +12,8 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
-@@ -4,2 +4,3 @@
+@@ -4,1 +4,2 @@
  import { color, urlHostnameToIPv6, getHasIP } from './util.js';
- 
 +import { createProtectedDispatchDenyMiddleware } from './endpoints/logic-engine-protected-dispatch-guard.mjs';
 @@ -129,2 +130,3 @@
  export function setupPrivateEndpoints(app) {
