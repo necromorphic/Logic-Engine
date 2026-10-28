@@ -12,7 +12,25 @@ import { ProcessStore } from '../storage/process-store.js';
 import { addTimeDuration, createCalendarDefinition, projectCalendarDate } from '../time/model.js';
 import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
+const INTERNAL_CORE_EFFECTS = Symbol('INTERNAL_CORE_EFFECTS');
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+const exactDataRecord = (value, keys) => {
+  if (!obj(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    const ownKeys = Reflect.ownKeys(value);
+    if (ownKeys.length !== keys.length
+      || !keys.every((key) => Object.hasOwn(value, key))
+      || !ownKeys.every((key) => typeof key === 'string' && keys.includes(key))) return false;
+    return ownKeys.every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor && descriptor.enumerable && Object.hasOwn(descriptor, 'value');
+    });
+  } catch {
+    return false;
+  }
+};
 const strings = (x, name) => {
   x = x ?? [];
   assert(Array.isArray(x) && x.length <= 500 && x.every((v) => typeof v === 'string' && v.trim()), 'INVALID_FIELD', name + ' must be an array of non-empty strings.');
@@ -442,7 +460,11 @@ export class LogicEngine {
     if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
 
     const effects = x.effects ?? [];
-    validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
+    validateEffects(effects, {
+      allowRelationshipTransition: options.allowRelationshipTransition === true,
+      allowKnowledgeAcquisition: options[INTERNAL_CORE_EFFECTS] === true && options.allowKnowledgeAcquisition === true,
+      allowNpcBeliefTransition: options[INTERNAL_CORE_EFFECTS] === true && options.allowNpcBeliefTransition === true,
+    });
     const request = {
       operation: 'event.commit',
       event_id: x.event_id ?? null,
@@ -813,12 +835,7 @@ export class LogicEngine {
         'status', 'world_id', 'actor_id', 'purpose', 'world_revision',
         'commit_sequence', 'acquisition_id', 'authorization_ref',
       ];
-      const exactDecision = decision && typeof decision === 'object'
-        && !Array.isArray(decision)
-        && Object.getPrototypeOf(decision) === Object.prototype
-        && Reflect.ownKeys(decision).length === allowedKeys.length
-        && allowedKeys.every((key) => Object.hasOwn(decision, key))
-        && Reflect.ownKeys(decision).every((key) => typeof key === 'string' && allowedKeys.includes(key));
+      const exactDecision = exactDataRecord(decision, allowedKeys);
       if (!exactDecision) {
         throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
           'The visibility authorizer returned a malformed decision.', 403);
@@ -1006,26 +1023,30 @@ export class LogicEngine {
         event_type: 'npc.belief.transitioned',
         expected_revision: input.expected_revision,
         expected_commit_sequence: input.expected_commit_sequence,
-        effects: [],
-      });
+        effects: [{
+          kind: 'npc.belief.transition',
+          transition_id: transitionId,
+          actor_id: transition.actor_id,
+          purpose: transition.purpose,
+          proposition_ref: transition.proposition_ref,
+          proposition_value: transition.proposition_value,
+          stance: transition.stance,
+          supporting_acquisition_ids: [...transition.supporting_acquisition_ids],
+          contradicting_acquisition_ids: [...transition.contradicting_acquisition_ids],
+          evidence_acquisition_ids: [...transition.evidence_acquisition_ids],
+          reason_rule_ref: transition.reason_rule_ref,
+          idempotency_key: input.idempotency_key,
+          request_hash: requestHash,
+          snapshot_revision: transition.snapshot.world_revision,
+          snapshot_commit_sequence: transition.snapshot.commit_sequence,
+          previous_stance: transition.previous_stance,
+          surviving_prior_evidence: [...transition.surviving_prior_evidence],
+          invalidated_prior_evidence: [...transition.invalidated_prior_evidence],
+          prior_stance_preserved_despite_invalidation: transition.prior_stance_preserved_despite_invalidation,
+        }],
+      }, { [INTERNAL_CORE_EFFECTS]: true, allowNpcBeliefTransition: true });
       assert(event.idempotent_replay !== true, 'NPC_BELIEF_PROJECTION_MISSING',
         'A committed belief event exists without its Core belief projection; manual reconciliation is required.', 409);
-      this.store.db.prepare(`
-        INSERT INTO npc_belief_transitions(
-          world_id, transition_id, actor_id, proposition_ref, proposition_value_json, stance,
-          supporting_acquisition_ids_json, contradicting_acquisition_ids_json,
-          evidence_acquisition_ids_json, reason_rule_ref, idempotency_key, request_hash,
-          snapshot_revision, snapshot_commit_sequence, event_id, committed_revision
-        ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
-      `).run(
-        input.world_id, transitionId, input.actor_id, input.proposition_ref, JSON.stringify(transition.proposition_value), transition.stance,
-        JSON.stringify(transition.supporting_acquisition_ids),
-        JSON.stringify(transition.contradicting_acquisition_ids),
-        JSON.stringify(transition.evidence_acquisition_ids),
-        transition.reason_rule_ref, input.idempotency_key, requestHash,
-        transition.snapshot.world_revision, transition.snapshot.commit_sequence,
-        event.event_id, event.world_revision,
-      );
       return {
         status: 'ready',
         idempotent_replay: false,
@@ -1189,7 +1210,7 @@ export class LogicEngine {
       read_set: [...readSet].sort(),
       causal_links: causalLinks,
       effects: assignments,
-    }, { allowKnowledgeAcquisition: true });
+    }, { [INTERNAL_CORE_EFFECTS]: true, allowKnowledgeAcquisition: true });
   }
 
   commitEvent(id, x, options = {}) {
