@@ -12,7 +12,7 @@ diff --git a/public/script.js b/public/script.js
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
-@@ -51,1 +51,2 @@
+@@ -53,1 +53,2 @@
  import { router as volcengineRouter } from './endpoints/volcengine.js';
 +import { createProtectedDispatchDenyMiddleware } from './endpoints/logic-engine-protected-dispatch-guard.mjs';
 @@ -143,2 +144,3 @@
