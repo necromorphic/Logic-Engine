@@ -64,3 +64,10 @@ The same audited source revision has a durable time-advance operation record, bu
 Existing durable checkpoint/restart tests and segment commit sequence results are useful primitives, but this source inspection does not establish that an operation's confirmed boundary can be recovered unambiguously to the exact Core composite cursor after later commits, rollback, or older-backup restoration. Equal `game_time` alone is not a sufficient history cursor.
 
 This is a source-level gap, not authorization to add a `commit_sequence` column, API field, cursor, or event. The next temporal step is to identify whether an already approved durable checkpoint or segment record can provide this association without a new contract; otherwise the missing association needs explicit design approval before implementation.
+
+
+### Existing test-source coverage checked
+
+- `tests/time-trigger-registry.test.js` includes `registered trigger state and completion survive a SQLite restart without re-firing` and `registered due triggers complete atomically with their event segment and operation checkpoint`. The assertions cover trigger/operation recovery, confirmed coordinate, replay, and effects; they do not assert a persisted operation-checkpoint `commit_sequence` paired with that coordinate.
+- `tests/time-segment.test.js` asserts that a segment result contains start/final commit sequence and time coordinates. That proves the segment response has these values, not that the durable time-advance operation checkpoint retains the matching cursor after restart.
+- These are source inspections of the current-main tests; this research pass does not claim that it reran the entire current-main suite independently. PR #576 CI validates the research branch's exact head, not a separately executed current-main spatial contract suite.
