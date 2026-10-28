@@ -98,3 +98,21 @@ The first source-path check now has concrete evidence:
 **WP-1 disposition: BLOCKED pending Core design decision.** Do not retrofit subject acquisition into `fact.set`, the illustrative World Pack shape, or a context manifest. Core must choose whether to add an explicit assignment to a reviewed author/import contract or introduce the smallest separately reviewed Core-owned representation. The current source audit supports the absence of a demonstrated path in inspected main; it does not prove that no deployment-specific loader exists.
 
 These findings are bounded to the inspected repository state; revisit them if production paths change. A reusable identity or snapshot primitive is not proof that acquisition is implemented.
+
+### WP-1 source audit — concrete implementation boundaries
+
+Inspected current `main` source paths (28 October 2026); these are source observations, not runtime test results:
+
+| Path | Observed behavior | WP-1 consequence |
+|---|---|---|
+| `src/application/engine.js::LogicEngine.createWorld` (around lines 451–469) | Accepts only world ID, pack ID/version, and game time, then delegates to `store.createWorld`. It does not accept subject-specific initial knowledge assignments. | The current world-start entry point cannot express `author_initial` assignments. |
+| `src/storage/sqlite-store.js::SQLiteStore.createWorld` (around lines 687–704) | Creates the world row and a `world.created` audit entry containing pack ID/version. It does not expand a pack or create subject-acquisition events. | Pack metadata is not an acquisition source. |
+| `docs/04-world-pack-format.md` (opening status and §4) | Explicitly describes the World Pack as proposed/incomplete and its sample as illustrative; no complete production loader/conformance contract is established. | Do not treat `knowledge_channels` or illustrative `propose_knowledge` as an executable importer. |
+| `src/core/mechanic-effect-translator.js` (lines 1–5 and supported-intent translation) | `propose_knowledge` is listed as a known intent, but only `create_entity`, `update_attribute`, and `assert_fact` are supported. | A recognized intent name is not a supported acquisition operation. `assert_fact` remains canonical world fact creation. |
+| `src/application/engine.js::LogicEngine.commitEvent` (around line 635) | The mechanic-evaluation provenance mapping explicitly maps `assert_fact` to `fact.set`; no subject-acquisition effect is represented in this mapping. | Reusing `fact.set` would conflate world truth with subject knowledge and is not an acceptable shortcut. |
+| `src/storage/sqlite-store.js::SQLiteStore.readSnapshot` (around lines 805–818) | The method documents returned facts, attributes, and manifests as raw internal source data, not actor-authorized/model-safe context. | The existing snapshot is a read primitive, not a knowledge assignment or disclosure filter. |
+| `tests/core.test.js` (e.g. world setup at line 15 and canonical event fixtures throughout) | Tests construct worlds and seed facts/entities through `createWorld` and `commitEvent`; this is not evidence of a production author/import assignment contract. | Test fixtures must not be mistaken for a supported authoring/import path. |
+
+**WP-1 result: source-path gap confirmed within the inspected repository paths.** No supported production authoring/import entry point was found that assigns an initial item to a canonical subject. This is not a claim about uninspected deployment-specific code.
+
+**Next implementation decision:** Core review must explicitly approve the minimal event-sourced acquisition effect and its source-validity lifecycle before runtime code is changed. Until then, no acquisition API, schema, storage projection, or partial read path is added. WP-2 remains blocked; Memory → NPC remains `DISABLED / FAIL-CLOSED`.
