@@ -405,6 +405,7 @@ if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
 $encoding = New-Object System.Text.UTF8Encoding($false)
 $outputBytes = $encoding.GetBytes($json + [Environment]::NewLine)
 $outputStream = $null
+$outputCreated = $false
 try {
     # CreateNew closes the check/write race and never truncates a file created by another process.
     $outputStream = [System.IO.File]::Open(
@@ -413,11 +414,12 @@ try {
         [System.IO.FileAccess]::Write,
         [System.IO.FileShare]::None
     )
+    $outputCreated = $true
     $outputStream.Write($outputBytes, 0, $outputBytes.Length)
     $outputStream.Flush($true)
 } catch {
     if ($outputStream) { $outputStream.Dispose(); $outputStream = $null }
-    if (Test-Path -LiteralPath $fullOutputPath -PathType Leaf) {
+    if ($outputCreated -and (Test-Path -LiteralPath $fullOutputPath -PathType Leaf)) {
         try { Remove-Item -LiteralPath $fullOutputPath -Force -ErrorAction Stop } catch {}
     }
     throw
