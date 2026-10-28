@@ -113,12 +113,23 @@ export async function createMemoryDispatchGatewayServer({
       // This synchronous factory is trusted Host code. It must only construct a
       // dormant, request-bound capability; it must not initiate network I/O.
       // The Gateway invokes that capability only after durable DISPATCH_STARTED.
+      // Reject declared-async factories before invocation: even a factory that
+      // eventually returns a function can perform side effects before its first
+      // await, which would violate the dormant-capability boundary.
+      if (createTransportCapability.constructor?.name === 'AsyncFunction') {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
       const transport = createTransportCapability(Object.freeze({
         route: dispatchRequest.route,
         model: dispatchRequest.model,
         stream: dispatchRequest.stream,
         body: dispatchRequest.body,
       }));
+      // Also reject thenables from non-async functions before entering Gateway.
+      if (transport && (typeof transport === 'object' || typeof transport === 'function')
+        && typeof transport.then === 'function') {
+        throw new Error('MEMORY_DISPATCH_NOT_READY');
+      }
       if (typeof transport !== 'function') throw new Error('MEMORY_DISPATCH_NOT_READY');
       await gateway.dispatchProtectedRequest({
         ...dispatchRequest,
