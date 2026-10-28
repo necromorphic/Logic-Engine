@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { once } from 'node:events';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
@@ -7,8 +8,10 @@ import { createApiServer } from '../src/api/server.js';
 
 const TOKEN = 'test-token-long-enough-123456';
 const ADMIN = 'admin-token-long-enough-123456';
-const SHA_A = 'a'.repeat(64);
-const SHA_B = 'b'.repeat(64);
+const SOURCE_A = '{"source":"world-pack initial knowledge","fact_id":"fact-secret"}';
+const SOURCE_B = '{"source":"campaign import","fact_id":"fact-secret"}';
+const SHA_A = createHash('sha256').update(SOURCE_A, 'utf8').digest('hex');
+const SHA_B = createHash('sha256').update(SOURCE_B, 'utf8').digest('hex');
 const headers = { authorization: 'Bearer ' + TOKEN, 'content-type': 'application/json' };
 const json = (body) => JSON.stringify(body);
 
@@ -46,7 +49,7 @@ test('initial knowledge assignment is admin-gated and records author/import prov
     fact_id: 'fact-secret',
     acquisition_kind: 'author_initial',
     source_ref: 'world-pack:characters/npc-a/initial-knowledge',
-    source_sha256: SHA_A,
+    source_content: SOURCE_A,
   };
 
   const denied = await fetch(url, { method: 'POST', headers, body: json(body) });
@@ -75,7 +78,7 @@ test('initial knowledge assignment is admin-gated and records author/import prov
     fact_id: 'fact-secret',
     acquisition_kind: 'author_initial',
     source_ref: 'world-pack:characters/npc-a/initial-knowledge',
-    source_sha256: SHA_A,
+    source_content: SOURCE_A,
     authority: 'admin_credential',
   }]);
 
@@ -99,7 +102,7 @@ test('imported knowledge is a separate, explicitly sourced acquisition and exact
     fact_id: 'fact-secret',
     acquisition_kind: 'imported',
     source_ref: 'import:campaign-bundle/characters/npc-a/knowledge.json',
-    source_sha256: SHA_B,
+    source_content: SOURCE_B,
   };
   const first = await fetch(url, {
     method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN }, body: json(body),
@@ -124,7 +127,7 @@ test('generic event and proposal-shaped calls cannot forge a knowledge acquisiti
     idempotency_key: 'forged-knowledge', turn_id: 'model-turn', event_type: 'action.completed',
     effects: [{
       kind: 'knowledge.acquire', subject_id: 'npc-a', fact_id: 'fact-secret',
-      acquisition_kind: 'author_initial', source_ref: 'claimed-source', source_sha256: SHA_A,
+      acquisition_kind: 'author_initial', source_ref: 'claimed-source', source_content: SOURCE_A,
       authority: 'admin_credential',
     }],
   }), (error) => error.code === 'UNSUPPORTED_EFFECT');
@@ -132,7 +135,7 @@ test('generic event and proposal-shaped calls cannot forge a knowledge acquisiti
   const response = await fetch(base + '/v1/worlds/knowledge-world/initial-knowledge', {
     method: 'POST', headers, body: json({
       idempotency_key: 'forged-knowledge', subject_id: 'npc-a', fact_id: 'fact-secret',
-      acquisition_kind: 'author_initial', source_ref: 'claimed-source', source_sha256: SHA_A,
+      acquisition_kind: 'author_initial', source_ref: 'claimed-source', source_content: SOURCE_A,
     }),
   });
   assert.equal(response.status, 403);
@@ -147,7 +150,7 @@ test('assignment rejects unknown subject, cross-world source and malformed prove
   const good = {
     idempotency_key: 'bad-subject', expected_revision: 1, expected_commit_sequence: 1,
     subject_id: 'missing-actor', fact_id: 'fact-secret', acquisition_kind: 'author_initial',
-    source_ref: 'world-pack:initial', source_sha256: SHA_A,
+    source_ref: 'world-pack:initial', source_content: SOURCE_A,
   };
   const missingSubject = await fetch(url, {
     method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN }, body: json(good),
@@ -177,6 +180,14 @@ test('assignment rejects unknown subject, cross-world source and malformed prove
   });
   assert.equal(malformedDigest.status, 400);
   assert.equal((await malformedDigest.json()).error.code, 'INVALID_KNOWLEDGE_PROVENANCE');
+
+  const mismatchedDigest = await fetch(url, {
+    method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({ ...good, idempotency_key: 'mismatched-digest', subject_id: 'npc-a',
+      source_content: SOURCE_A, source_sha256: SHA_B }),
+  });
+  assert.equal(mismatchedDigest.status, 409);
+  assert.equal((await mismatchedDigest.json()).error.code, 'KNOWLEDGE_PROVENANCE_DIGEST_MISMATCH');
   assert.equal(engine.getEvents('knowledge-world', true).every((event) =>
     !event.effects.some((effect) => effect.kind === 'knowledge.acquire')), true);
 });
@@ -194,7 +205,7 @@ test('source rollback invalidates dependent initial acquisition through the exis
       fact_id: 'fact-secret',
       acquisition_kind: 'author_initial',
       source_ref: 'world-pack:characters/npc-a/initial-knowledge',
-      source_sha256: SHA_A,
+      source_content: SOURCE_A,
     }),
   });
   assert.equal(response.status, 201);
@@ -223,7 +234,7 @@ test('rolling back an assignment event revokes that acquisition without deleting
       fact_id: 'fact-secret',
       acquisition_kind: 'author_initial',
       source_ref: 'world-pack:characters/npc-a/initial-knowledge',
-      source_sha256: SHA_A,
+      source_content: SOURCE_A,
     }),
   });
   assert.equal(response.status, 201);
