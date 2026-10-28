@@ -20,8 +20,8 @@ async function fixture() {
     const request = {
         method: 'POST',
         baseUrl: '',
-        path: '/api/chats/save',
-        originalUrl: '/api/chats/save',
+        path: '/api/characters/edit',
+        originalUrl: '/api/characters/edit',
         user: { profile: { handle: 'test-user' }, directories },
     };
     return { root, directories, request };
@@ -139,8 +139,8 @@ test('real HTTP response cannot leak a success body when post-scan is incomplete
         server = createServer((request, response) => {
             request.user = fixtureRequest.user;
             request.baseUrl = '';
-            request.path = '/api/chats/save';
-            request.originalUrl = '/api/chats/save';
+            request.path = '/api/characters/edit';
+            request.originalUrl = '/api/characters/edit';
             void middleware(request, response, async () => {
                 await rm(directories.backups, { recursive: true, force: true });
                 response.statusCode = 200;
@@ -747,12 +747,14 @@ test('chat and group-chat imports are rejected while their respective Host histo
 test('enrolled chat save without a request-bound lifecycle capability is rejected before native overwrite', async () => {
     const { root, directories, request } = await fixture();
     try {
+        request.path = '/api/chats/save';
+        request.originalUrl = '/api/chats/save';
         const directory = path.join(directories.chats, 'character-a');
         await mkdir(directory, { recursive: true });
         const chatPath = path.join(directory, 'chat-1.jsonl');
         const persisted = JSON.stringify({
             chat_metadata: { logic_engine_conversation_id: '00000000-0000-4000-8000-000000000002' },
-        }) + '\\n' + JSON.stringify({ mes: 'preserve enrolled history' }) + '\\n';
+        }) + '\n' + JSON.stringify({ mes: 'preserve enrolled history' }) + '\n';
         await writeFile(chatPath, persisted);
         await registerHostConversation(request, {
             conversationId: '00000000-0000-4000-8000-000000000001:00000000-0000-4000-8000-000000000002',
