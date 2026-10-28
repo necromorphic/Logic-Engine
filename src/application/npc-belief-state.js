@@ -37,7 +37,9 @@ const stableJson = (value) => {
 };
 const propositionRefFor = (item) => validRef(item?.subject_ref) && validRef(item?.predicate)
   ? 'proposition:' + encodeURIComponent(item.subject_ref) + '/' + encodeURIComponent(item.predicate)
-  : null;
+  : validRef(item?.fact_id) && validRef(item?.predicate)
+    ? 'proposition:fact/' + encodeURIComponent(item.fact_id)
+    : null;
 
 /**
  * Validate a model-proposed belief transition against Core-authorized evidence.
