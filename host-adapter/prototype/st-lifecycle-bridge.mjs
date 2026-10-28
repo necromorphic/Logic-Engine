@@ -280,7 +280,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     });
   }
 
-  async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null, sourceAlreadyPersisted = false } = {}) {
+  async function afterMutation(operation, { removedSwipeIndex = null, selectedMessageIndex = null, createdMessageIndex = null } = {}) {
     const conversationId = await getConversationId();
     if (!conversationId || !(await enrolledOrFailClosed(conversationId))) return { status: 'NOT_ENROLLED' };
     const chat = getChat();
@@ -478,12 +478,10 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
 
     const fingerprint = await currentFingerprint(chat);
-    // Save native state before advancing the journal checkpoint unless the caller
-    // has just completed the request-bound one-shot native save successfully. In
-    // that case a second save would replay an already-consumed capability. If the
-    // save or journal append fails, the checkpoint remains behind and the next
-    // pre-hook rejects the fingerprint mismatch instead of claiming completeness.
-    if (!sourceAlreadyPersisted) await saveChat();
+    // Persist native state before advancing the journal checkpoint. If save or
+    // journal append fails, the checkpoint remains behind and the next pre-hook
+    // rejects the fingerprint mismatch instead of claiming completeness.
+    await saveChat();
     const changes = chat.map((message, messageIndex) => ({
       messageId: message._logicEngineLifecycle.messageId,
       messageIndex,
