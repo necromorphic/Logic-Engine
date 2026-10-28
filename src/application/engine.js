@@ -123,6 +123,8 @@ function segmentAccess(event) {
       writes.add('entity:' + effect.entity_id);
     } else if (effect.kind.startsWith('mechanic.instance.')) {
       writes.add('mechanic:' + effect.instance_id);
+    } else if (effect.kind === 'knowledge.acquire') {
+      writes.add('knowledge-acquisition:' + effect.acquisition_id);
     } else {
       writes.add('fact:' + effect.fact_id);
     }
