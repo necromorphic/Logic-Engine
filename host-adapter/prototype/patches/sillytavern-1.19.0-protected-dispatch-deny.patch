@@ -1,8 +1,7 @@
 diff --git a/src/server-startup.js b/src/server-startup.js
-index 4bfc843..0000000 100644
 --- a/src/server-startup.js
 +++ b/src/server-startup.js
-@@ -1,6 +1,7 @@
+@@ -1,7 +1,8 @@
  import https from 'node:https';
  import http from 'node:http';
  import fs from 'node:fs';
