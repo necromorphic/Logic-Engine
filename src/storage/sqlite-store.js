@@ -172,6 +172,7 @@ const world = (r) => r && ({
   world_id: r.world_id,
   world_pack_id: r.world_pack_id,
   world_pack_version: r.world_pack_version,
+  world_pack_digest: r.world_pack_digest ?? null,
   initial_game_time: r.initial_game_time,
   game_time: r.game_time,
   initial_game_time_coordinate: r.initial_game_time_coordinate,
@@ -663,6 +664,15 @@ export class SQLiteStore {
           }
         },
       },
+      {
+        version: 13,
+        apply: () => {
+          const columns = this.db.prepare('PRAGMA table_info(worlds)').all();
+          if (!columns.some((column) => column.name === 'world_pack_digest')) {
+            this.db.exec('ALTER TABLE worlds ADD COLUMN world_pack_digest TEXT');
+          }
+        },
+      },
     ];
     for (const migration of migrations) {
       const applied = this.db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
@@ -822,14 +832,14 @@ export class SQLiteStore {
     return this.tx(() => {
       const t = now();
       try {
-        this.db.prepare('INSERT INTO worlds(world_id,world_pack_id,world_pack_version,initial_game_time,game_time,created_at) VALUES(?,?,?,?,?,?)')
-          .run(w.world_id, w.world_pack_id, w.world_pack_version, w.game_time, w.game_time, t);
+        this.db.prepare('INSERT INTO worlds(world_id,world_pack_id,world_pack_version,world_pack_digest,initial_game_time,game_time,created_at) VALUES(?,?,?,?,?,?,?)')
+          .run(w.world_id, w.world_pack_id, w.world_pack_version, w.world_pack_digest ?? null, w.game_time, w.game_time, t);
       } catch (error) {
         if (String(error.message).includes('UNIQUE')) throw new EngineError('WORLD_ALREADY_EXISTS', 'World already exists.', 409);
         throw error;
       }
       this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,0,?,?,?,?)')
-        .run(w.world_id, 'world.created', w.world_id, enc({ world_pack_id: w.world_pack_id, world_pack_version: w.world_pack_version }), t);
+        .run(w.world_id, 'world.created', w.world_id, enc({ world_pack_id: w.world_pack_id, world_pack_version: w.world_pack_version, world_pack_digest: w.world_pack_digest ?? null }), t);
       return this.world(w.world_id);
     });
   }
