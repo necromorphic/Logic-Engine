@@ -155,8 +155,8 @@ export class InitialKnowledgeReadService {
       try {
         permitted = this.knowledgePolicy(
           context,
-          Object.freeze({ ...acquisition }),
-          Object.freeze({ ...fact }),
+          Object.freeze(structuredClone(acquisition)),
+          Object.freeze(structuredClone(fact)),
         ) === true;
       } catch {
         permitted = false;
