@@ -157,7 +157,7 @@ function validState(state) {
         || !STANCES.has(entry.stance)
         || !validId(entry.revision_rule_ref)
         || !denseArray(entry.evidence_refs)
-        || !entry.evidence_refs.every((ref) => validId(ref) && evidenceByRef.has(ref))) return false;
+        || !entry.evidence_refs.every((ref) => validId(ref)\n          && evidenceByRef.has(ref)\n          && evidenceByRef.get(ref).proposition_ref === belief.proposition_ref)) return false;
     }
     propositionKeys.add(belief.proposition_ref);
   }
@@ -261,6 +261,14 @@ function applyEventUnsafe(state, event) {
     const supporting = evidence.filter((item) => item.polarity === (negativeStance ? "supports_false" : "supports_true")).map((item) => item.ref);
     const conflicting = evidence.filter((item) => item.polarity === (negativeStance ? "supports_true" : "supports_false")).map((item) => item.ref);
     const current = state.beliefs.find((item) => item.proposition_ref === event.proposition_ref);
+    if (current
+      && current.stance === event.stance
+      && current.revision_rule_ref === event.revision_rule_ref
+      && current.review_required === false
+      && sameRefs(current.supporting_evidence_refs, supporting)
+      && sameRefs(current.conflicting_evidence_refs, conflicting)) {
+      return Object.freeze({ status: "unchanged", state, reason: null });
+    }
     const history = current ? [...current.history, {
       stance: current.stance,
       revision_rule_ref: current.revision_rule_ref,
@@ -315,6 +323,13 @@ function applyEventUnsafe(state, event) {
     }
     const current = state.beliefs.find((item) => item.proposition_ref === event.proposition_ref);
     if (!current) return nonReady("belief_not_found");
+    if (current.stance === "unknown"
+      && current.revision_rule_ref === event.forgetting_rule_ref
+      && current.review_required === false
+      && current.supporting_evidence_refs.length === 0
+      && current.conflicting_evidence_refs.length === 0) {
+      return Object.freeze({ status: "unchanged", state, reason: null });
+    }
     const history = [...current.history, {
       stance: current.stance,
       revision_rule_ref: current.revision_rule_ref,
