@@ -307,6 +307,9 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       }
       const existingIds = currentMessageIds.slice();
       existingIds.splice(createdMessageIndex, 1);
+      if (existingIds.some(id => typeof id !== 'string' || !id)) {
+        throw Error('NON_READY: missing durable identity on pre-existing message; abort lifecycle checkpoint');
+      }
       if (existingIds.length !== priorMessageIds.length
         || existingIds.some((id, index) => id !== priorMessageIds[index])) {
         throw Error('NON_READY: message creation also changed, reordered, or lost pre-existing message identities');
