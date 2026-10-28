@@ -342,6 +342,8 @@ try {
         # Recheck as close as possible to each ACL write; do not stop services automatically.
         Assert-ServicesStopped -Services @($authority, $core, $provider, $gateway)
         $report.maintenancePrecondition.checkedAtUtc = [datetime]::UtcNow.ToString('o')
+        $report.maintenancePrecondition.noAclChanges = $false
+        Write-EvidenceReport -Stream $evidenceStream -Report $report
         $aclMutationStarted = $true
         Set-Acl -LiteralPath $target -AclObject $replacement
     }
