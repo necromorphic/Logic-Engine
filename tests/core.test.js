@@ -53,6 +53,35 @@ test('stale proposal is rejected without partial effects', (t) => {
   assert.equal(h.engine.getState('w').entities.length, 1);
 });
 
+test('entity.upsert cannot revive a destroyed entity identity', (t) => {
+  const h = setup();
+  t.after(() => h.store.close());
+  h.engine.commitEvent('w', cmd({
+    event_id: 'entity-born', idempotency_key: 'entity-born',
+    effects: [{ kind: 'entity.upsert', entity_id: 'dead-id', entity_type: 'character', attributes: { name: 'Old entity' } }],
+  }));
+  h.engine.commitEvent('w', cmd({
+    event_id: 'entity-destroyed', idempotency_key: 'entity-destroyed', turn_id: 'destroy',
+    expected_revision: 1,
+    effects: [{ kind: 'entity.upsert', entity_id: 'dead-id', entity_type: 'character', status: 'destroyed' }],
+  }));
+
+  assert.throws(
+    () => h.engine.commitEvent('w', cmd({
+      event_id: 'entity-resurrected', idempotency_key: 'entity-resurrected', turn_id: 'resurrect',
+      expected_revision: 2,
+      effects: [{ kind: 'entity.upsert', entity_id: 'dead-id', entity_type: 'character', status: 'active' }],
+    })),
+    (error) => error.code === 'ENTITY_TOMBSTONE_REUSE' && error.status === 409,
+  );
+  assert.equal(h.engine.getState('w').world_revision, 2);
+  assert.equal(h.engine.getState('w').entities.find((entity) => entity.entity_id === 'dead-id').status, 'destroyed');
+
+  // Rebuild must preserve the same terminal tombstone from valid history.
+  h.store.rebuild('w', 2);
+  assert.equal(h.engine.getState('w').entities.find((entity) => entity.entity_id === 'dead-id').status, 'destroyed');
+});
+
 test('causal references must resolve to valid prior events in the same world', (t) => {
   const h = setup();
   t.after(() => h.store.close());
