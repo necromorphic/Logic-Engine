@@ -74,22 +74,26 @@ function validatePlan(plan) {
       else if (sawActive && step.status !== "pending") return false;
       else if (!sawActive && step.status !== "completed") return false;
     }
-  } else if (plan.status === "blocked") {
-    if (blockedCount !== 1 || activeCount !== 0) return false;
-    let sawBlocked = false;
+  } else if (plan.status === "blocked" || plan.status === "abandoned") {
+    const hasBlockedStep = blockedCount === 1 && activeCount === 0;
+    const hasActiveStep = activeCount === 1 && blockedCount === 0;
+    if (plan.status === "blocked" && !hasBlockedStep) return false;
+    if (plan.status === "abandoned" && !hasBlockedStep && !hasActiveStep) return false;
+
+    const currentStatus = hasBlockedStep ? "blocked" : "active";
+    let sawCurrent = false;
     for (const step of plan.steps) {
-      if (step.status === "blocked") {
-        sawBlocked = true;
-      } else if (sawBlocked && step.status !== "pending") {
+      if (step.status === currentStatus) {
+        sawCurrent = true;
+      } else if (sawCurrent && step.status !== "pending") {
         return false;
-      } else if (!sawBlocked && step.status !== "completed") {
+      } else if (!sawCurrent && step.status !== "completed") {
         return false;
       }
     }
   } else if (plan.status === "completed") {
     if (completedCount !== plan.steps.length) return false;
   }
-  if (plan.status === "abandoned" && (activeCount > 1 || blockedCount > 1)) return false;
   return true;
 }
 
