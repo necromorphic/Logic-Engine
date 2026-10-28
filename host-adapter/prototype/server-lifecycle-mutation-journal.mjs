@@ -405,7 +405,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             // registry is not the target's authority. Resolve the target using
             // SillyTavern's own server-side directory resolver and fail closed if
             // its enrollment state cannot be verified.
-            if (typeof request.body?.handle !== 'string' || !request.body.handle || typeof getUserDirectories !== 'function') {
+            if (typeof request.body?.handle !== 'string' || !/^[a-z0-9-]{1,128}$/.test(request.body.handle) || typeof getUserDirectories !== 'function') {
                 return fail(response, 'HOST_TARGET_USER_SCOPE_UNAVAILABLE', 503);
             }
             try {
