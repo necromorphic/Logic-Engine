@@ -501,7 +501,7 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
 });
 
 
-test('real Provider revokeRecord committed before dispatch-start produces zero upstream calls', async () => {
+test('real Provider readiness loss and access revocations before dispatch-start produce zero upstream calls', async () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-provider-revoke-dispatch-race-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -670,7 +670,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     assert.equal((await provider.reconcile(scope.world_id)).status, 'current');
 
     // Query-level revocation must block every candidate in this scope.
-    provider.revokeQuery(scope);
+    provider.grantQuery(scope, false);
     await assertNoDispatch('query revoke before dispatch-start');
     provider.grantQuery(scope, true);
 
