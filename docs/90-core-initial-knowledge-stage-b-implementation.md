@@ -58,9 +58,10 @@ Memory → NPC remains **DISABLED / FAIL-CLOSED**. This PR does not authorize a 
 
 ## Test evidence
 
-CI passed on implementation commit `65a7eeb229d5a2ad756b77d1b307e3b1b8d5a7d7`:
-- Runtime test suite: **1,028 passed, 0 failed**.
+CI passed on PR #644 head `53448ce779280108ff13c2bec82ab194fcb9bae7`:
+- Runtime test suite: **1,043 passed, 0 failed**.
 - Provider acceptance suite: **20 passed, 0 failed**.
-- The six acquisition-specific integration tests passed, including Core-computed digest matching/mismatch, same-world validation, replay/duplicate behavior, and rollback invalidation.
+- All seven acquisition-specific integration tests passed, including Core-computed digest matching/mismatch, same-world validation, stale-cursor rejection, replay/duplicate behavior, and rollback invalidation.
+- Run: https://github.com/necromorphic/Logic-Engine/actions/runs/40744010724.
 
-The subsequent report-only commit does not change runtime code. The PR remains a draft and is not merged; no production dispatch or Memory → NPC read path is enabled.
+The subsequent documentation update does not change runtime code. The PR remains a draft and is not merged; no production dispatch or Memory → NPC read path is enabled.
