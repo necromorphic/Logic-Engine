@@ -114,6 +114,17 @@ export class MemoryNpcConsumer {
     }
     if (!queryAllowed) return nonReady('query_access_unconfirmed');
 
+    // Query permission can be revoked while retrieval, record checks, or the
+    // canonical source read are in flight. Recheck before any READY result;
+    // this narrows the race but does not claim an atomic disclosure guarantee.
+    const queryStillAllowed = async () => {
+      try {
+        return await this.memoryProvider.authorizeQuery(scope) === true;
+      } catch {
+        return false;
+      }
+    };
+
     let memoryResult;
     try {
       // Freeze a stable data snapshot before any per-record authorization
@@ -170,6 +181,35 @@ export class MemoryNpcConsumer {
         || !sameSnapshot(memoryResult.snapshot, {
           world_revision: emptySnapshotRead.world_revision,
           commit_sequence: emptySnapshotRead.commit_sequence,
+        })) {
+        return nonReady('memory_snapshot_stale');
+      }
+      if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+      // Keep the Core snapshot read after asynchronous authorization so a
+      // world change during the recheck cannot make a stale empty result ready.
+      let finalEmptySnapshotRead;
+      try {
+        finalEmptySnapshotRead = this.authorizedReadService.readEntityFields({
+          worldId,
+          adapterId,
+          actorEntityId,
+          recipient: 'model',
+          purpose: 'npc_decision',
+          entityIds: [actorEntityId],
+          fields: ['entity_id'],
+        });
+      } catch {
+        return nonReady('authorized_source_read_unavailable');
+      }
+      if (!object(finalEmptySnapshotRead)
+        || finalEmptySnapshotRead.world_id !== worldId
+        || !validSnapshot({
+          world_revision: finalEmptySnapshotRead.world_revision,
+          commit_sequence: finalEmptySnapshotRead.commit_sequence,
+        })
+        || !sameSnapshot(memoryResult.snapshot, {
+          world_revision: finalEmptySnapshotRead.world_revision,
+          commit_sequence: finalEmptySnapshotRead.commit_sequence,
         })) {
         return nonReady('memory_snapshot_stale');
       }
@@ -304,6 +344,35 @@ export class MemoryNpcConsumer {
         || !sameSnapshot(memoryResult.snapshot, {
           world_revision: filteredEmptySnapshotRead.world_revision,
           commit_sequence: filteredEmptySnapshotRead.commit_sequence,
+        })) {
+        return nonReady('memory_snapshot_stale');
+      }
+      if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+      // Keep the Core snapshot read after asynchronous authorization so a
+      // world change during the recheck cannot make a stale empty result ready.
+      let finalEmptySnapshotRead;
+      try {
+        finalEmptySnapshotRead = this.authorizedReadService.readEntityFields({
+          worldId,
+          adapterId,
+          actorEntityId,
+          recipient: 'model',
+          purpose: 'npc_decision',
+          entityIds: [actorEntityId],
+          fields: ['entity_id'],
+        });
+      } catch {
+        return nonReady('authorized_source_read_unavailable');
+      }
+      if (!object(finalEmptySnapshotRead)
+        || finalEmptySnapshotRead.world_id !== worldId
+        || !validSnapshot({
+          world_revision: finalEmptySnapshotRead.world_revision,
+          commit_sequence: finalEmptySnapshotRead.commit_sequence,
+        })
+        || !sameSnapshot(memoryResult.snapshot, {
+          world_revision: finalEmptySnapshotRead.world_revision,
+          commit_sequence: finalEmptySnapshotRead.commit_sequence,
         })) {
         return nonReady('memory_snapshot_stale');
       }
@@ -471,6 +540,58 @@ export class MemoryNpcConsumer {
     const admitted = decision.admitted
       .map((item) => contentByIdentity.get(recordIdentityKey(item.record_ref, item.record_version)))
       .filter(Boolean);
+
+    // A record may be revoked while Core is reading its canonical source.
+    // Recheck every record that would actually be returned after that read.
+    // If any final check fails, reject the whole result rather than leaking a
+    // partial set or silently turning a revoked result into complete-empty.
+    for (const item of admitted) {
+      let stillAllowed;
+      try {
+        stillAllowed = await this.memoryProvider.authorizeCandidate({
+          ...scope,
+          record_ref: item.record_ref,
+          record_version: item.record_version,
+          source_kind: 'canonical_entity',
+          source_entity_id: item.source_entity_id,
+        }) === true;
+      } catch {
+        return nonReady('memory_record_authorization_unavailable');
+      }
+      if (!stillAllowed) return nonReady('memory_record_authorization_unconfirmed');
+    }
+
+    if (!(await queryStillAllowed())) return nonReady('query_access_unconfirmed');
+
+    // Revalidate Core's revision after all asynchronous authorization checks.
+    // The content-bearing read must still correspond to the current snapshot
+    // when this consumer finishes; no async checks follow this final read.
+    let finalSourceSnapshotRead;
+    try {
+      finalSourceSnapshotRead = this.authorizedReadService.readEntityFields({
+        worldId,
+        adapterId,
+        actorEntityId,
+        recipient: 'model',
+        purpose: 'npc_decision',
+        entityIds,
+        fields: ['entity_id'],
+      });
+    } catch {
+      return nonReady('authorized_source_read_unavailable');
+    }
+    if (!object(finalSourceSnapshotRead)
+      || finalSourceSnapshotRead.world_id !== worldId
+      || !validSnapshot({
+        world_revision: finalSourceSnapshotRead.world_revision,
+        commit_sequence: finalSourceSnapshotRead.commit_sequence,
+      })
+      || !sameSnapshot(sourceRead, {
+        world_revision: finalSourceSnapshotRead.world_revision,
+        commit_sequence: finalSourceSnapshotRead.commit_sequence,
+      })) {
+      return nonReady('memory_snapshot_stale');
+    }
 
     return Object.freeze({
       status: 'ready',

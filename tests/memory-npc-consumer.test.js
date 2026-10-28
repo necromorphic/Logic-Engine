@@ -91,7 +91,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   });
   t.after(() => store.close());
   return {
-    store, engine, bindings, consumer, provider, scope, snapshot,
+    store, engine, bindings, consumer, provider, authorizedReadService, scope, snapshot,
     setCandidates(next) { candidateList = next; },
     getLastCandidateAuthorization() { return lastCandidateAuthorization; },
     revokeContent() { contentVisible = false; },
@@ -151,6 +151,33 @@ test('query denial and incomplete Memory results fail closed without returning c
   assert.deepEqual(result.candidates, []);
 });
 
+test('query access revoked during retrieval prevents ready-empty and content-bearing results', async (t) => {
+  const empty = setup(t);
+  empty.setCandidates([]);
+  let emptyChecks = 0;
+  empty.provider.authorizeQuery = async () => ++emptyChecks === 1;
+
+  const emptyResult = await empty.consumer.retrieveForNpc(request());
+
+  assert.equal(emptyChecks, 2);
+  assert.equal(emptyResult.status, 'non_ready');
+  assert.equal(emptyResult.reason, 'query_access_unconfirmed');
+  assert.deepEqual(emptyResult.admitted, []);
+  assert.deepEqual(emptyResult.candidates, []);
+
+  const nonEmpty = setup(t);
+  let nonEmptyChecks = 0;
+  nonEmpty.provider.authorizeQuery = async () => ++nonEmptyChecks === 1;
+
+  const contentResult = await nonEmpty.consumer.retrieveForNpc(request());
+
+  assert.equal(nonEmptyChecks, 2);
+  assert.equal(contentResult.status, 'non_ready');
+  assert.equal(contentResult.reason, 'query_access_unconfirmed');
+  assert.deepEqual(contentResult.admitted, []);
+  assert.deepEqual(contentResult.candidates, []);
+});
+
 test('malformed records in a complete Memory result are non-ready, not authorized-empty', async (t) => {
   const { consumer, setCandidates, candidate } = setup(t);
 
@@ -193,12 +220,103 @@ test('authorized candidate with missing or unknown semantic metadata is non-read
   assert.deepEqual(missingLifecycle.candidates, []);
 });
 
+test('complete authorized empty retrieval is ready-empty only with a matching current Core snapshot', async (t) => {
+  const empty = setup(t);
+  empty.setCandidates([]);
+
+  const result = await empty.consumer.retrieveForNpc(request());
+
+  assert.equal(result.status, 'ready');
+  assert.equal(result.reason, null);
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.deepEqual(result.snapshot, {
+    world_revision: empty.snapshot.world_revision,
+    commit_sequence: empty.snapshot.commit_sequence,
+  });
+  assert.equal(JSON.stringify(result).includes('memory-npc-world'), false);
+});
+
+test('empty retrieval is non-ready when the current Core snapshot cannot be verified', async (t) => {
+  const empty = setup(t);
+  empty.setCandidates([]);
+  empty.consumer.authorizedReadService.readEntityFields = () => {
+    throw new Error('private Core diagnostic');
+  };
+
+  const result = await empty.consumer.retrieveForNpc(request());
+
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'authorized_source_read_unavailable');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('private Core diagnostic'), false);
+});
+
+test('empty retrieval with a stale Memory snapshot is non-ready, not proof of absence', async (t) => {
+  const empty = setup(t);
+  empty.setCandidates([]);
+  empty.provider.retrieveCandidates = async () => ({
+    completeness: 'complete',
+    index_health: 'ready',
+    source_reconciliation: 'current',
+    scope: empty.scope,
+    snapshot: {
+      world_revision: empty.snapshot.world_revision - 1,
+      commit_sequence: empty.snapshot.commit_sequence,
+    },
+    candidates: [],
+  });
+
+  const result = await empty.consumer.retrieveForNpc(request());
+
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_snapshot_stale');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+});
+
+test('empty retrieval that is denied, incomplete, or unavailable is non-ready, not proof of absence', async (t) => {
+  const deniedQuery = setup(t, { authorizeQuery: false });
+  deniedQuery.setCandidates([]);
+  const denied = await deniedQuery.consumer.retrieveForNpc(request());
+  assert.equal(denied.status, 'non_ready');
+  assert.deepEqual(denied.admitted, []);
+  assert.deepEqual(denied.candidates, []);
+
+  const incomplete = setup(t, { completeness: 'partial' });
+  incomplete.setCandidates([]);
+  const partial = await incomplete.consumer.retrieveForNpc(request());
+  assert.equal(partial.status, 'non_ready');
+  assert.deepEqual(partial.admitted, []);
+  assert.deepEqual(partial.candidates, []);
+
+  const unavailable = setup(t);
+  unavailable.setCandidates([]);
+  unavailable.provider.retrieveCandidates = async () => {
+    throw new Error('private provider diagnostic');
+  };
+  const failed = await unavailable.consumer.retrieveForNpc(request());
+  assert.equal(failed.status, 'non_ready');
+  assert.deepEqual(failed.admitted, []);
+  assert.deepEqual(failed.candidates, []);
+  assert.equal(JSON.stringify(failed).includes('private provider diagnostic'), false);
+});
+
 test('Memory record denial is indistinguishable from an authorized empty candidate set, including stale hidden records', async (t) => {
   const denied = setup(t, { authorizeCandidate: false });
   const result = await denied.consumer.retrieveForNpc(request());
   assert.equal(result.status, 'ready');
   assert.deepEqual(result.admitted, []);
   assert.deepEqual(result.candidates, []);
+
+  const genuinelyEmpty = setup(t);
+  genuinelyEmpty.setCandidates([]);
+  const emptyResult = await genuinelyEmpty.consumer.retrieveForNpc(request());
+  assert.equal(emptyResult.status, 'ready');
+  assert.deepEqual(emptyResult.admitted, []);
+  assert.deepEqual(emptyResult.candidates, []);
+  assert.deepEqual(result, emptyResult);
 
   denied.setCandidates([denied.candidate({
     freshness: { status: 'stale' },
@@ -531,6 +649,64 @@ test('Core mutation during asynchronous Memory authorization invalidates the cap
   assert.equal(JSON.stringify(result).includes('authorized source text'), false);
 });
 
+test('Core mutation during the final record authorization check invalidates content-bearing results', async (t) => {
+  const { consumer, provider, engine } = setup(t);
+  let checks = 0;
+  provider.authorizeCandidate = async () => {
+    checks += 1;
+    if (checks === 3) {
+      const current = engine.getState('memory-npc-world').world_revision;
+      const committed = engine.commitEvent('memory-npc-world', {
+        idempotency_key: 'mutate-during-final-npc-auth',
+        turn_id: 'mutate-during-final-npc-auth',
+        event_type: 'action.completed',
+        expected_revision: current,
+        effects: [{ kind: 'entity.create', entity_id: 'during-final-auth', entity_type: 'object' }],
+      });
+      assert.equal(committed.accepted, true);
+    }
+    return true;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+
+  assert.equal(checks, 3);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_snapshot_stale');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+});
+
+test('Core mutation during final query recheck invalidates complete-empty results', async (t) => {
+  const { consumer, provider, engine, setCandidates } = setup(t);
+  setCandidates([]);
+  let queryChecks = 0;
+  provider.authorizeQuery = async () => {
+    queryChecks += 1;
+    if (queryChecks === 2) {
+      const current = engine.getState('memory-npc-world').world_revision;
+      const committed = engine.commitEvent('memory-npc-world', {
+        idempotency_key: 'mutate-during-final-empty-query-auth',
+        turn_id: 'mutate-during-final-empty-query-auth',
+        event_type: 'action.completed',
+        expected_revision: current,
+        effects: [{ kind: 'entity.create', entity_id: 'during-empty-final-auth', entity_type: 'object' }],
+      });
+      assert.equal(committed.accepted, true);
+    }
+    return true;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+
+  assert.equal(queryChecks, 2);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_snapshot_stale');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+});
+
 test('missing or non-object host request fails closed without throwing or calling Memory', async (t) => {
   const { consumer, provider } = setup(t);
   let queryCalled = false;
@@ -742,6 +918,34 @@ test('mutable provider candidate cannot rebind its source during asynchronous re
   assert.equal(result.candidates[0].content['attributes.public_note'], 'authorized source text');
 });
 
+test('record revoked during Core source read is not returned to NPC', async (t) => {
+  const { consumer, provider, revokeContent, authorizedReadService } = setup(t);
+  let candidateChecks = 0;
+  provider.authorizeCandidate = async () => {
+    candidateChecks += 1;
+    // The record remains allowed during the initial checks, then is revoked
+    // while Core is returning the canonical source. The final NPC check must
+    // reject the result before candidate content is returned.
+    return candidateChecks <= 2;
+  };
+
+  const originalRead = authorizedReadService.readEntityFields.bind(authorizedReadService);
+  authorizedReadService.readEntityFields = (input) => {
+    const result = originalRead(input);
+    if (input.fields.includes('attributes.public_note')) revokeContent();
+    return result;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+
+  assert.equal(candidateChecks, 3);
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_authorization_unconfirmed');
+  assert.deepEqual(result.admitted, []);
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+});
+
 test('rechecks earlier Memory candidates after a later async authorization revokes access', async (t) => {
   const { consumer, provider, setCandidates, candidate } = setup(t);
   setCandidates([
@@ -772,7 +976,7 @@ test('rechecks earlier Memory candidates after a later async authorization revok
   assert.deepEqual(result.admitted.map((entry) => entry.record_ref), ['memory:claim-2']);
   assert.deepEqual(result.candidates.map((entry) => entry.record_ref), ['memory:claim-2']);
   assert.equal(calls.get('memory:claim-1'), 2);
-  assert.equal(calls.get('memory:claim-2'), 2);
+  assert.equal(calls.get('memory:claim-2'), 3);
 });
 
 function candidateForMutation(provider, setCandidates) {
