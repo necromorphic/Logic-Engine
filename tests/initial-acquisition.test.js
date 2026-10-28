@@ -98,7 +98,7 @@ test('identical acquisition retry is idempotent; changed payload under the same 
     assert.equal(first.accepted, true);
     assert.equal(replay.idempotent_replay, true);
     assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM world_events WHERE event_type='knowledge.acquisition.initial'").get().n, 1);
-    assert.throws(() => engine.recordInitialAcquisition(input({ acquisition_kind: 'imported' })), { code: 'IDEMPOTENCY_CONFLICT' });
+    assert.throws(() => engine.recordInitialAcquisition(input({ acquisition_kind: 'imported' })), { code: 'IDEMPOTENCY_KEY_CONFLICT' });
     assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 1);
   } finally { store.close(); }
 });
