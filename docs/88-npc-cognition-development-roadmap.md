@@ -34,7 +34,7 @@ This roadmap tracks the intended sequence for developing NPC cognition in Logic-
 
 **Stage 1 is complete at the semantic/design level.** The decision record resolves acquisition vs belief, stale evidence, forgetting/expiry, source revocation, qualitative uncertainty, and Core ownership. The concrete Core representation and production-path tests remain later implementation dependencies; they do not reopen the Stage 1 semantic gate.
 
-An NPC-owned pure reducer is under review in [PR #661](https://github.com/necromorphic/Logic-Engine/pull/661). It separates receipt, admitted evidence, and belief; binds events to world/subject; requires explicit revision/invalidation rules; preserves contradictory evidence; makes repeated identical belief revisions and forgetting operations no-ops; and validates historical evidence against the same proposition. It is not an authorization service, persistent Core representation, Memory adapter, or production dispatch path. Exact-head CI for the current revision is pending.
+An NPC-owned pure reducer is under review in [PR #661](https://github.com/necromorphic/Logic-Engine/pull/661). It separates receipt, admitted evidence, and belief; binds events to world/subject; requires explicit revision/invalidation rules; preserves contradictory evidence; makes repeated identical belief revisions and forgetting operations no-ops; validates historical evidence against the same proposition; and preserves the invalidation rule so conflicting invalidation replays fail closed. It is not an authorization service, persistent Core representation, Memory adapter, or production dispatch path. Exact-head CI for the current revision is pending.
 
 ## Current work item: Stage 2 — information acquisition
 
