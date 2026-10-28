@@ -666,6 +666,37 @@ async function validateEnrolledSourcePath(paths, { conversationId, sourceLocator
  * Explicit Host enrollment registration. The registry is local Host state, not
  * an external anti-rollback authority and not a Core authorization contract.
  */
+async function assertEnrollmentStateNotLost(request) {
+    const roots = safeUserDirectories(request);
+    const canonicalChatRoot = await realpath(roots[0].path);
+    const userRoot = path.dirname(canonicalChatRoot);
+    const stateDirectory = path.join(userRoot, '.logic-engine-host');
+    const markerPath = path.join(userRoot, ENROLLMENT_MARKER_NAME);
+    let markerExists = false;
+    try {
+        const markerStat = await lstat(markerPath);
+        if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('HOST_ENROLLMENT_MARKER_UNSAFE');
+        markerExists = true;
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+    }
+    if (!markerExists) return;
+    try {
+        const stateStat = await lstat(stateDirectory);
+        if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) throw new Error('HOST_STATE_DIRECTORY_UNSAFE');
+    } catch (error) {
+        if (error?.code === 'ENOENT') throw new Error('HOST_ENROLLMENT_STATE_LOST');
+        throw error;
+    }
+    try {
+        const registryStat = await lstat(path.join(stateDirectory, 'enrollments.json'));
+        if (!registryStat.isFile() || registryStat.isSymbolicLink()) throw new Error('HOST_REGISTRY_UNSAFE');
+    } catch (error) {
+        if (error?.code === 'ENOENT') throw new Error('HOST_ENROLLMENT_STATE_LOST');
+        throw error;
+    }
+}
+
 async function ensureEnrollmentMarker(paths) {
     // This sibling marker detects accidental loss of the journal directory;
     // it is not an independent anti-rollback trust anchor.
@@ -687,6 +718,7 @@ async function ensureEnrollmentMarker(paths) {
 }
 
 export async function registerHostConversation(request, { conversationId, sourceLocator, sourcePath, domain }) {
+    await assertEnrollmentStateNotLost(request);
     if (typeof conversationId !== 'string' || !/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,127}$/.test(conversationId)) {
         throw new Error('HOST_ENROLLMENT_INVALID');
     }
