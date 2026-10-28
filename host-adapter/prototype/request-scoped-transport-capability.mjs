@@ -11,7 +11,6 @@ const validUrl = value => {
 };
 
 const sha256 = value => createHash('sha256').update(value, 'utf8').digest('hex');
-const canonical = value => JSON.stringify(value, Object.keys(value).sort());
 
 /**
  * Creates a one-shot, request-scoped transport capability.
@@ -50,7 +49,7 @@ export function createRequestScopedTransportCapability({
   Object.freeze(copiedHeaders);
 
   const requestMetadata = Object.freeze({
-    endpoint,
+    endpoint_sha256: sha256(endpoint),
     method,
     streaming,
     body_sha256: sha256(serializedBody),
