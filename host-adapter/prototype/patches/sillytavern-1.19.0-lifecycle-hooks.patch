@@ -2468,7 +2468,7 @@ diff --git a/src/endpoints/logic-engine-host-inventory.mjs b/src/endpoints/logic
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-inventory.mjs
-@@ -0,0 +1,137 @@
+@@ -0,0 +1,138 @@
 +import { createHash } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { lstat, open, readdir, realpath } from 'node:fs/promises';
@@ -2573,7 +2573,8 @@ new file mode 100644
 +          const bytes = await handle.readFile();
 +          const afterHandle = await handle.stat();
 +          const afterPath = await fs.lstat(absolutePath);
-+          if (!sameStat(opened, afterHandle) || !sameStat(opened, afterPath) || bytes.length !== afterHandle.size) {
++          if (afterPath.isSymbolicLink() || !afterPath.isFile()
++            || !sameStat(opened, afterHandle) || !sameStat(opened, afterPath) || bytes.length !== afterHandle.size) {
 +            errors.push('Artifact changed during scan: ' + root.domain);
 +            continue;
 +          }
@@ -2610,7 +2611,7 @@ diff --git a/src/endpoints/logic-engine-persisted-conversation-inventory.mjs b/s
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-persisted-conversation-inventory.mjs
-@@ -0,0 +1,243 @@
+@@ -0,0 +1,244 @@
 +import { createHash } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { lstat, open, readdir, realpath } from 'node:fs/promises';
@@ -2659,7 +2660,8 @@ new file mode 100644
 +    } finally {
 +      await pathHandle.close().catch(() => {});
 +    }
-+    if (!sameStat(opened, afterHandle) || !sameStat(opened, afterPath)
++    if (afterPath.isSymbolicLink() || !afterPath.isFile()
++        || !sameStat(opened, afterHandle) || !sameStat(opened, afterPath)
 +        || bytes.length !== afterHandle.size || !pathBytes.equals(bytes)) {
 +      throw Error('ARTIFACT_CHANGED_DURING_READ');
 +    }
