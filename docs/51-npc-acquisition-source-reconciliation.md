@@ -12,7 +12,7 @@ Related:
 
 ## 1. Executive conclusion
 
-The first acquisition slice is semantically specified. The Stage B feature branch now provides a canonical event-backed acquisition record, but the deployment-owned authoring/import policy is not configured by default and no actor-relative safe read exists; production use remains blocked pending exact-head tests and Stage C. Existing canonical facts, event provenance, context manifests, actor bindings, proposal lifecycle, and partial rollback are useful dependencies only; none can be reinterpreted as a subject's acquisition record.
+The first acquisition slice is semantically specified. The Stage B feature branch now provides a canonical event-backed acquisition record, but the deployment-owned authoring/import policy is not configured by default and no actor-relative safe read exists; exact-head CI for the Stage B candidate passed, but production use remains blocked pending a real trusted authoring/import source and Stage C. Existing canonical facts, event provenance, context manifests, actor bindings, proposal lifecycle, and partial rollback are useful dependencies only; none can be reinterpreted as a subject's acquisition record.
 
 The most important implementation boundary is not a new NPC-local feature. It is a Core-owned mapping from an explicitly authorized initial assignment to a subject, a resolvable canonical proposition/source, and a validity basis that survives replay and can be reconciled under the existing event lifecycle. The Core owner must select a representation after inspecting seed/import and replay paths.
 
