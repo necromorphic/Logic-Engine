@@ -23,7 +23,7 @@ async function setup(t) {
     world_id: 'knowledge-world', world_pack_id: 'test.world',
     world_pack_version: '1', game_time: '2026-01-01T00:00:00Z',
   });
-  engine.commitEvent('knowledge-world', {
+  const seedEvent = engine.commitEvent('knowledge-world', {
     idempotency_key: 'seed-knowledge-world', turn_id: 'seed', event_type: 'action.completed',
     expected_revision: 0,
     effects: [
@@ -32,7 +32,7 @@ async function setup(t) {
       { kind: 'fact.set', fact_id: 'fact-secret', subject_ref: 'npc-a', predicate: 'holds_secret', value: true },
     ],
   });
-  return { base: 'http://127.0.0.1:' + server.address().port, engine };
+  return { base: 'http://127.0.0.1:' + server.address().port, engine, seedEventId: seedEvent.event_id };
 }
 
 test('initial knowledge assignment is admin-gated and records author/import provenance in Core events', async (t) => {
@@ -170,4 +170,62 @@ test('assignment rejects unknown subject, cross-world source and malformed prove
   assert.equal((await malformedDigest.json()).error.code, 'INVALID_KNOWLEDGE_PROVENANCE');
   assert.equal(engine.getEvents('knowledge-world', true).every((event) =>
     !event.effects.some((effect) => effect.kind === 'knowledge.acquire')), true);
+});
+
+test('source rollback invalidates dependent initial acquisition through the existing Core lifecycle', async (t) => {
+  const { base, engine, seedEventId } = await setup(t);
+  const response = await fetch(base + '/v1/worlds/knowledge-world/initial-knowledge', {
+    method: 'POST',
+    headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({
+      idempotency_key: 'initial-before-source-rollback',
+      expected_revision: 1,
+      expected_commit_sequence: 1,
+      subject_id: 'npc-a',
+      fact_id: 'fact-secret',
+      acquisition_kind: 'author_initial',
+      source_ref: 'world-pack:characters/npc-a/initial-knowledge',
+      source_sha256: SHA_A,
+    }),
+  });
+  assert.equal(response.status, 201);
+  const result = await response.json();
+  const rollback = engine.rollbackEvent('knowledge-world', {
+    root_event_id: seedEventId,
+    idempotency_key: 'rollback-knowledge-source',
+  });
+  assert.ok(rollback);
+  const events = engine.getEvents('knowledge-world', true);
+  const acquisitionEvent = events.find((event) => event.event_id === result.acquisition.event_id);
+  assert.ok(acquisitionEvent);
+  assert.notEqual(acquisitionEvent.validity, 'valid');
+});
+
+test('rolling back an assignment event revokes that acquisition without deleting its audit history', async (t) => {
+  const { base, engine } = await setup(t);
+  const response = await fetch(base + '/v1/worlds/knowledge-world/initial-knowledge', {
+    method: 'POST',
+    headers: { ...headers, 'x-admin-token': ADMIN },
+    body: json({
+      idempotency_key: 'initial-before-assignment-rollback',
+      expected_revision: 1,
+      expected_commit_sequence: 1,
+      subject_id: 'npc-a',
+      fact_id: 'fact-secret',
+      acquisition_kind: 'author_initial',
+      source_ref: 'world-pack:characters/npc-a/initial-knowledge',
+      source_sha256: SHA_A,
+    }),
+  });
+  assert.equal(response.status, 201);
+  const result = await response.json();
+  const rollback = engine.rollbackEvent('knowledge-world', {
+    root_event_id: result.acquisition.event_id,
+    idempotency_key: 'rollback-initial-assignment',
+  });
+  assert.ok(rollback);
+  const historical = engine.getEvents('knowledge-world', true)
+    .find((event) => event.event_id === result.acquisition.event_id);
+  assert.ok(historical);
+  assert.notEqual(historical.validity, 'valid');
 });
