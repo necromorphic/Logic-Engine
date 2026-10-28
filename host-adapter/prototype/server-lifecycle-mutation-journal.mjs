@@ -395,7 +395,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
         const originalRouteKey = request.method + ' ' + request.originalUrl?.split('?')[0];
         if (request.method === 'POST'
             && (routeKey === 'POST /api/users/delete' || originalRouteKey === 'POST /api/users/delete')
-            && request.body?.purge === true) {
+            && request.body?.purge) {
             // Admin purge targets another user's root; the current request.user
             // registry is not the target's authority. Resolve the target using
             // SillyTavern's own server-side directory resolver and fail closed if
