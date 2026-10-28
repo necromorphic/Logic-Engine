@@ -273,7 +273,11 @@ export class LogicEngine {
     assert(typeof reason === 'string' && reason.trim() && reason.length <= 200, 'INVALID_PROCESS_REASON', 'reason must be a non-empty string of at most 200 characters.');
     const key = input.idempotency_key.trim();
     const targetState = input.action === 'pause' ? 'paused' : input.action === 'cancel' ? 'cancelled' : null;
-    const requestHash = hashRequest({ operation: 'process.' + input.action, world_id: id, process_id: processId, expected_version: input.expected_version, idempotency_key: key, reason: reason.trim() });
+    const requestHash = hashRequest({
+      operation: 'process.' + input.action, world_id: id, process_id: processId,
+      expected_version: input.expected_version, idempotency_key: key, reason: reason.trim(),
+      ...(input.action === 'reconcile' ? { confirm_retry: input.confirm_retry === true } : {}),
+    });
     return this.store.tx(() => {
       const replay = this.processStore.replayOperation(id, key, requestHash);
       if (replay) return replay;
@@ -337,11 +341,6 @@ export class LogicEngine {
         }));
         this.processStore.reconcileMilestones(id, processId, updates);
         const target = current.progress.completed > 0 ? 'running' : 'scheduled';
-        const requestHash = hashRequest({
-          operation: 'process.reconcile', world_id: id, process_id: processId,
-          expected_version: input.expected_version, idempotency_key: key,
-          reason: reason.trim(), confirm_retry: true,
-        });
         return this.processStore.transition(id, processId, target, {
           expectedVersion: input.expected_version, idempotencyKey: key, requestHash,
         });
