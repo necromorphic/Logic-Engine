@@ -191,7 +191,7 @@ test('Core commits only when accepted-head authority is current and aborts mutat
     } finally { migrationRepair.close(); }
     store = new SQLiteStore(corePath);
 
-    child.stdin.end('stop');
+    child.kill();
     await once(child, 'exit');
     child = null;
 
@@ -224,7 +224,7 @@ test('Core commits only when accepted-head authority is current and aborts mutat
   } finally {
     try { store?.close(); } catch {}
     if (child) {
-      child.stdin.end('stop');
+      child.kill();
       await once(child, 'exit');
     }
     for (const [name, value] of Object.entries(previousEnv)) {
