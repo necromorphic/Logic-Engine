@@ -38,21 +38,16 @@ for (const name of Object.keys(originalConsoleMethods)) {
   };
 }
 
-test('patched clearChat entry point invokes fail-closed guard before side effects', async () => {
+test('patched clearChat remains a UI unload and is not treated as persisted deletion', async () => {
   const script = await readFile(resolve(stRoot, 'public/script.js'), 'utf8');
   const start = script.indexOf('export async function clearChat({ clearData = false } = {}) {');
   assert.notEqual(start, -1, 'pinned clearChat entry point must exist');
   const end = script.indexOf('\n}', start);
   assert.ok(end > start, 'clearChat function boundary must exist');
   const body = script.slice(start, end);
-  const guard = body.indexOf("guardOperation('clear-chat', [])");
-  const fallback = body.indexOf("logic-engine-host-lifecycle-locator:' + lifecycleLocator");
-  const unavailableError = body.indexOf('Host lifecycle guard unavailable for enrolled chat; clear-chat refused');
-  const firstSideEffect = body.indexOf('cancelDebouncedChatSave();');
-  assert.ok(body.indexOf('const lifecycleLocator = getCurrentChatId();') >= 0, 'clearChat must snapshot the active Host locator');
-  assert.ok(guard >= 0, 'clearChat must call the Host lifecycle guard');
-  assert.ok(fallback > guard && unavailableError > fallback, 'missing bridge must fail closed when the active locator is enrolled');
-  assert.ok(firstSideEffect > unavailableError, 'all guard/fallback checks must run before clear/reload side effects');
+  assert.doesNotMatch(body, /logicEngineHostLifecycle.*(?:guardOperation|beforeMutation)|guardOperation\(['"]clear-chat['"]/s,
+    'clearChat unload must not be recorded as persisted deletion');
+  assert.match(body, /cancelDebouncedChatSave\(\);/, 'clearChat should retain ordinary unload behavior');
 });
 
 const requireFromST = createRequire(resolve(stRoot, 'package.json'));
