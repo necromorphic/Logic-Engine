@@ -358,14 +358,17 @@ export class SQLiteMemoryProvider {
       if (this.#acceptedHeadConfig) {
         let status = getAcceptedHeadStatusSync({ port: this.#acceptedHeadConfig.port, token: this.#acceptedHeadConfig.token });
         const local = this.#db.prepare('SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1').get();
-        const pending = status.operations.provider;
-        if (pending) {
-          if (!local || local.head !== pending.head || local.last_operation_id !== pending.operation_id
-            || local.last_operation_digest !== pending.operation_digest || local.enrolled !== 1) {
+        if (status.pending.core) throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
+        if (status.pending.provider) {
+          if (!local || local.enrolled !== 1 || local.head !== status.heads.provider
+            || typeof local.last_operation_id !== 'string' || !/^[a-f0-9]{64}$/.test(local.last_operation_digest || '')) {
             throw new Error('PROVIDER_ACCEPTED_HEAD_RECOVERY_REQUIRED');
           }
-          finalizeAcceptedHeadSync({ domain:'provider', operationId:pending.operation_id,
-            operationDigest:pending.operation_digest, token:this.#acceptedHeadConfig.token, port:this.#acceptedHeadConfig.port });
+          // Authority status intentionally exposes only a pending bit. Finalize
+          // with the local operation identity; the authority verifies the exact
+          // pending operation ID and digest without disclosing them to readers.
+          finalizeAcceptedHeadSync({ domain:'provider', operationId:local.last_operation_id,
+            operationDigest:local.last_operation_digest, token:this.#acceptedHeadConfig.token, port:this.#acceptedHeadConfig.port });
           status = getAcceptedHeadStatusSync({ port:this.#acceptedHeadConfig.port, token:this.#acceptedHeadConfig.token });
         }
         if (status.pending.core || status.pending.provider || status.heads.provider !== local.head
@@ -419,7 +422,7 @@ export class SQLiteMemoryProvider {
       || !Number.isSafeInteger(status.heads.provider) || status.heads.provider < 1
       || !Number.isSafeInteger(status.heads.core) || status.heads.core < 1
       || status.heads.provider !== local.head || status.pending.provider || status.pending.core
-      || status.operations.provider || status.operations.core) throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
+      ) throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
   }
 
   #withImmediateTransaction(work) {
