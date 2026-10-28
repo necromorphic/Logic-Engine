@@ -29,6 +29,8 @@ jobs:
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Run NPC memory boundary tests
         run: node --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js
+      - name: Run SillyTavern extension gateway tests
+        run: node --test host-adapter/extension-gateway/tests/*.test.mjs
 
   test:
     runs-on: [self-hosted, Windows, X64]
