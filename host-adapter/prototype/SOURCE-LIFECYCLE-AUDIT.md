@@ -253,6 +253,34 @@ Together with the Chat Completions matrix above, this establishes that the pinne
 
 Next: trace how the pinned server mounts these routers, inventory other model-capable endpoint files and extension routes, and classify each path as (a) protected user-turn inference, (b) other inference such as captioning, (c) discovery/diagnostic, or (d) management/control. Every unreviewed path remains unsupported for protected Memory→NPC content. No runtime hook, API/schema, or production wiring is introduced by this source audit.
 
+## Additional model-capable endpoint families (pinned source, 28 Oct 2026)
+
+This is a route-family inventory, not an assertion that every direct `fetch` below is a protected user-turn send. Sources inspected at pinned SillyTavern SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
+
+| Source file | Relevant mounted route family observed in source | Outbound call-site evidence | Initial classification |
+|---|---|---|---|
+| `src/endpoints/openai.js` | `/caption-image`, `/generate-voice`, image/video generation, embeddings, transcription, and model-list helpers | Direct fetches at lines 241, 296, 361, 396, 436, 470, 506, 547, 591, 630, 670, 708, 731, 766, 830, 897 | Mixed multimodal inference, media generation, embeddings, discovery, and follow-up/poll/download requests; each route needs separate classification |
+| `src/endpoints/anthropic.js` | `/caption-image` | Direct fetch at line 36 | Separate image-caption inference route |
+| `src/endpoints/novelai.js` | `/generate`, `/generate-image`, `/generate-voice`, status and upscale paths | Direct fetches at lines 143, 269, 315, 403, 459 | Mixed generation, status, upscale, and auxiliary paths; do not treat as one boundary |
+| `src/endpoints/minimax.js` | `/generate-voice` | Direct fetches at lines 73 and 200 | Voice generation plus a subsequent media fetch |
+| `src/endpoints/volcengine.js` | `/generate-voice` | Direct fetch at line 34 | Separate voice-generation path |
+| `src/endpoints/nanogpt.js` | credits and model-provider discovery | Direct fetches at lines 52, 53, 113 | Account/model discovery traffic; not ordinary user-turn generation based on the inspected route names |
+| `src/endpoints/translate.js` | Translation endpoints | Direct fetches at lines 47, 133, 186, 238, 301, 348 | Separate translation calls; whether protected Memory→NPC content may enter these paths must be explicitly decided |
+| `src/endpoints/caption.js` | Caption route wrapper | No direct fetch found in this file | Delegates elsewhere; the wrapper alone is not evidence of the final outbound boundary |
+| `src/endpoints/classify.js` | Classification route wrapper | No direct fetch found in this file | Delegates elsewhere; trace the called service before classifying |
+| `src/endpoints/vectors.js` | Vector operations | No direct fetch found in this file | Delegates elsewhere or uses another transport; inspect callees before claiming coverage |
+
+### Implications for the boundary design
+
+- A final-send gate scoped only to Chat Completions and Text Completions would not establish coverage of captioning, translation, speech/media generation, embedding, or delegated classification/vector paths.
+- Some of these routes are likely unrelated to the normal RP turn, but that is not enough to mark them safe: the contract must say whether protected Memory-derived material is allowed to reach each route.
+- Some routes perform more than one outbound call (for example, create/poll/fetch media workflows). Each network step needs a classification; gating only the initial request does not prove later calls cannot disclose protected material.
+- This is an inventory of selected pinned files, not a complete repository-wide route graph. Extension-defined routes, native callers, dynamically registered endpoints, and delegated callees remain to be traced.
+
+### Required route disposition ledger
+
+Before runtime integration, maintain a per-route ledger with: mounted path; source file/function; caller class; whether protected memory can reach input; final URL/headers/body materialization; all outbound call sites; streaming/cancellation behavior; denial response; no-fallback proof; post-assembly revocation-race test; and explicit disposition (`SUPPORTED`, `UNSUPPORTED`, or `OUT OF SCOPE`) approved by Core. Until a row is reviewed and tested, it is `UNSUPPORTED` for protected Memory→NPC content.
+
 ## Target-aware destructive/import guard follow-up (26 Oct 2026)
 
 The pinned candidate now checks the affected chat locator before direct single-chat delete paths and direct group-chat rename. Bulk group/character deletion, chat import, and chat-backup restore fail closed whenever any Host enrollment marker exists, because the current prototype cannot prove a complete inventory for every affected non-current chat. These guards prevent known UI entry points from silently mutating an enrolled history; they do not make those operations supported or provide tombstone-complete deletion.
