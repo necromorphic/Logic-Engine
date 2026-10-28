@@ -688,7 +688,8 @@ test('chat and group-chat imports are rejected while their respective Host histo
             sourceLocator: 'chat-1',
             sourcePath: 'character-a/chat-1.jsonl',
             directory: 'chats',
-            persisted: '{"chat_metadata":{"logic_engine_conversation_id":"00000000-0000-4000-8000-000000000002"}}\\n{"mes":"preserve chat"}\\n',
+            identity: '00000000-0000-4000-8000-000000000002',
+            message: 'preserve chat',
         },
         {
             route: '/api/chats/group/import',
@@ -696,10 +697,11 @@ test('chat and group-chat imports are rejected while their respective Host histo
             sourceLocator: 'group-1',
             sourcePath: 'group-1.jsonl',
             directory: 'groupChats',
-            persisted: '{"chat_metadata":{"logic_engine_conversation_id":"00000000-0000-4000-8000-000000000004"}}\\n{"mes":"preserve group chat"}\\n',
+            identity: '00000000-0000-4000-8000-000000000004',
+            message: 'preserve group chat',
         },
     ];
-    for (const [index, item] of cases.entries()) {
+    for (const item of cases) {
         const { root, directories, request } = await fixture();
         try {
             const directory = item.directory === 'chats'
@@ -707,12 +709,13 @@ test('chat and group-chat imports are rejected while their respective Host histo
                 : directories.groupChats;
             await mkdir(directory, { recursive: true });
             const chatPath = path.join(directory, path.basename(item.sourcePath));
-            await writeFile(chatPath, item.persisted.replaceAll('\\\\n', '\\n'));
-            const identity = index === 0
-                ? '00000000-0000-4000-8000-000000000002'
-                : '00000000-0000-4000-8000-000000000004';
+            const persisted = [
+                JSON.stringify({ chat_metadata: { logic_engine_conversation_id: item.identity } }),
+                JSON.stringify({ mes: item.message }),
+            ].join('\\n') + '\\n';
+            await writeFile(chatPath, persisted);
             await registerHostConversation(request, {
-                conversationId: '00000000-0000-4000-8000-000000000001:' + identity,
+                conversationId: '00000000-0000-4000-8000-000000000001:' + item.identity,
                 sourceLocator: item.sourceLocator,
                 sourcePath: item.sourcePath,
                 domain: item.domain,
@@ -725,7 +728,7 @@ test('chat and group-chat imports are rejected while their respective Host histo
             let reachedHandler = false;
             await createHostLifecycleMutationMiddleware()(request, response, async () => {
                 reachedHandler = true;
-                await writeFile(chatPath, '{"mes":"imported replacement"}\\n');
+                await writeFile(chatPath, JSON.stringify({ mes: 'imported replacement' }) + '\\n');
                 response.json({ ok: true });
             });
             await response.finished;
@@ -733,9 +736,10 @@ test('chat and group-chat imports are rejected while their respective Host histo
             assert.equal(reachedHandler, false, item.route + ' must be rejected before native import');
             assert.equal(response.statusCode, 409);
             assert.match(String(response.body), /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
-            assert.equal(await readFile(chatPath, 'utf8'), item.persisted.replaceAll('\\\\n', '\\n'));
+            assert.equal(await readFile(chatPath, 'utf8'), persisted);
         } finally {
             await rm(root, { recursive: true, force: true });
         }
     }
 });
+
