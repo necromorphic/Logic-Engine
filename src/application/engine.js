@@ -14,6 +14,23 @@ import { createTimePolicy, resolveDurationDecision } from '../time/policy.js';
 
 const INTERNAL_CORE_EFFECTS = Symbol('INTERNAL_CORE_EFFECTS');
 const obj = (x) => x !== null && typeof x === 'object' && !Array.isArray(x);
+const exactDataRecord = (value, keys) => {
+  if (!obj(value)) return false;
+  try {
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) return false;
+    const ownKeys = Reflect.ownKeys(value);
+    if (ownKeys.length !== keys.length
+      || !keys.every((key) => Object.hasOwn(value, key))
+      || !ownKeys.every((key) => typeof key === 'string' && keys.includes(key))) return false;
+    return ownKeys.every((key) => {
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      return descriptor && descriptor.enumerable && Object.hasOwn(descriptor, 'value');
+    });
+  } catch {
+    return false;
+  }
+};
 const strings = (x, name) => {
   x = x ?? [];
   assert(Array.isArray(x) && x.length <= 500 && x.every((v) => typeof v === 'string' && v.trim()), 'INVALID_FIELD', name + ' must be an array of non-empty strings.');
@@ -703,12 +720,7 @@ export class LogicEngine {
         'status', 'world_id', 'actor_id', 'purpose', 'world_revision',
         'commit_sequence', 'acquisition_id', 'authorization_ref',
       ];
-      const exactDecision = decision && typeof decision === 'object'
-        && !Array.isArray(decision)
-        && Object.getPrototypeOf(decision) === Object.prototype
-        && Reflect.ownKeys(decision).length === allowedKeys.length
-        && allowedKeys.every((key) => Object.hasOwn(decision, key))
-        && Reflect.ownKeys(decision).every((key) => typeof key === 'string' && allowedKeys.includes(key));
+      const exactDecision = exactDataRecord(decision, allowedKeys);
       if (!exactDecision) {
         throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
           'The visibility authorizer returned a malformed decision.', 403);
