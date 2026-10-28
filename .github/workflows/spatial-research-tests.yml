@@ -7,6 +7,8 @@ on:
       - 'tests/spatial-reasoning-feasibility.test.js'
       - 'tests/spatial-scene-multiperson-feasibility.test.js'
       - 'experiments/spatial-scene-lab/**'
+      - 'docs/research/spatial-scene-multiperson-prototype-2026-10-28.md'
+      - 'README.md'
       - 'src/**'
       - 'schemas/**'
       - 'package.json'
