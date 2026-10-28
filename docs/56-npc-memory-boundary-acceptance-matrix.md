@@ -360,3 +360,57 @@ These are pure NPC helper/unit-test guarantees only. They do not establish that 
 Do not call the pure oracle from production with arbitrary Provider/model/caller data. Required real path remains: pinned Host capture with durable identity → Provider persistence and complete reconciliation → Core-authorized result with approved contract version, trusted provenance, per-source version/lineage and complete inventory → NPC admission → owner-defined disclosure-time boundary → actual host serialization evidence. Repeat after restart and exercise edit, swipe, delete, cancel, rollback, revocation-after-check and duplicate/conflicting responses.
 
 No Core, Memory Provider, Host/Adapter, Personality or Relationships files were changed by this NPC work.
+
+## 8. Execution order for the NPC-owned integration work
+
+This section turns the existing acceptance contract into work that can be completed independently of an unapproved Memory runtime. It does not authorize a new API, storage, Core runtime change, or production Memory read.
+
+### Work package NPC-1 — Freeze the consumer input/output contract
+
+**Owner:** NPC. **Can proceed now.**
+
+- Treat `memory-candidate-eligibility.js` as a metadata-only admission oracle, not as a content reader or authorization service.
+- Keep the caller's trusted scope separate from candidate metadata: world, subject/actor, purpose, and snapshot marker must come from an approved trusted boundary.
+- Keep the output limited to safe reference projections and a generic non-ready result. No raw Memory payload, candidate rejection reasons/counts, or fallback to a raw snapshot.
+- Keep retrieval eligibility, authorized content projection, prompt inclusion, delivery, acquisition, and belief as distinct stages.
+
+**Exit evidence:** the consumer contract and field vocabulary are agreed by NPC/Core/Memory owners; any field not backed by an owner-approved source is explicitly marked unavailable rather than inferred.
+
+### Work package NPC-2 — Map initial knowledge to actor-relative context
+
+**Owner:** NPC defines semantics; Core owns authoritative records and filtering. **Contract work can proceed; runtime work is gated.**
+
+- Support only the already-defined first-slice kinds: `author_initial` and `imported`.
+- Require explicit subject assignment and provenance; canonical world truth, a retrieval hit, a context manifest, or prompt inclusion does not imply that an actor acquired knowledge.
+- Preserve `known`, `known_absent`, `unknown`, `withheld`, `incomplete`, and `unsupported` as distinct outcomes.
+- Exclude author-reserved content before model-bound serialization. Never treat missing authorization or incomplete source evidence as a negative fact.
+
+**Exit evidence:** each consumer-facing field has a documented owner, source of authority, failure behavior, and mapping to the first-slice acquisition contract in `docs/50-npc-initial-knowledge-acquisition-contract.md`.
+
+### Work package NPC-3 — Resolve the trusted boundary handoff
+
+**Owners:** Core + Memory, with NPC review. **Blocked on owner decisions.**
+
+Before connecting a real Memory result to the NPC consumer, the owners must identify and approve:
+1. the trusted requester/actor binding and bounded purpose;
+2. the actual content-disclosure authorization boundary;
+3. source identity/version and summary-lineage authority;
+4. retrieval completeness and index health versus source freshness;
+5. rollback-aware source invalidation and recoverable reconciliation;
+6. the exact safe envelope delivered to the NPC consumer.
+
+The NPC side must not invent a replacement permission system, acquisition store, revision cursor, source-change feed, or API to bypass these decisions.
+
+**Exit evidence:** a recorded owner decision maps each required semantic field to an existing approved contract or explicitly approves the smallest new contract. “A helper accepts the shape” is not sufficient evidence.
+
+### Work package NPC-4 — Connect only after the contract gate
+
+**Owners:** Core/Memory implement their approved boundary; NPC integrates as consumer. **Not authorized by this document.**
+
+The first connected path must read only the approved actor-specific initial-knowledge slice. It must not enable general Memory retrieval, delivery/receipt, persistent belief, autonomous scheduling, or off-screen execution by implication. Any unsupported stage remains disabled/fail-closed.
+
+**Exit evidence:** the real production path demonstrates authorized disclosure and safe serialization at the boundary, with exact commit/Actions evidence. Pure-helper tests alone do not satisfy this gate.
+
+### Current work boundary
+
+The permitted NPC-side work while the owner decision is pending is contract alignment, field/ownership mapping, and acceptance criteria. Do not substitute additional fixture tests for missing integration work, and do not implement the blocked runtime path without separate approval. The next useful deliverable is the completed NPC-1/NPC-2 mapping; the next runtime dependency is the Core/Memory decision in NPC-3.
