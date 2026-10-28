@@ -667,6 +667,13 @@ export class SQLiteStore {
         },
       },
     ];
+    if (this.acceptedHeadConfig) {
+      const pendingMigrations = migrations.filter((migration) =>
+        !this.db.prepare('SELECT 1 AS applied FROM schema_migrations WHERE version=?').get(migration.version));
+      if (pendingMigrations.length) {
+        throw new Error('CORE_SCHEMA_MIGRATION_REQUIRED');
+      }
+    }
     for (const migration of migrations) {
       const applied = this.db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
       if (applied) continue;
