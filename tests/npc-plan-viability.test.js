@@ -122,3 +122,42 @@ test("input values are not mutated", () => {
   assessNpcPlanViability(input);
   assert.deepEqual(input, before);
 });
+
+
+test("fails closed on Object.prototype pollution without invoking inherited getters", () => {
+  let invoked = false;
+  Object.defineProperty(Object.prototype, "npcInjectedDeadline", {
+    configurable: true,
+    get() { invoked = true; return "not_due"; },
+  });
+  let result;
+  try {
+    result = assessNpcPlanViability({
+      plan: { id: "p", status: "active", assumptions: [], blockers: [] },
+      assessment: { assumptions: [], blockers: [] },
+    });
+  } finally {
+    delete Object.prototype.npcInjectedDeadline;
+  }
+  assert.deepEqual(result, { status: "non_ready", disposition: null, reasons: [] });
+  assert.equal(invoked, false);
+});
+
+test("fails closed when Array.prototype iterator is replaced", () => {
+  const original = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  let result;
+  try {
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true,
+      writable: true,
+      value: function* pollutedIterator() { throw new Error("iterator invoked"); },
+    });
+    result = assessNpcPlanViability({
+      plan: { id: "p", status: "active", assumptions: [], blockers: [] },
+      assessment: { assumptions: [], blockers: [], deadline: "not_due" },
+    });
+  } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, original);
+  }
+  assert.deepEqual(result, { status: "non_ready", disposition: null, reasons: [] });
+});
