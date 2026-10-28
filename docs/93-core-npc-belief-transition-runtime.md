@@ -12,7 +12,7 @@
 
 ## Runtime path
 
-1. Read actor-scoped Core acquisitions at an exact current snapshot.
+1. Read actor-scoped Core acquisitions at an exact current snapshot. The reader probes one item beyond the configured limit; if the acquisition window is truncated, belief-context preparation and belief-state reconciliation fail closed rather than assuming the unseen remainder contains no conflicting evidence.
 2. Apply per-acquisition visibility decisions. Denied items are omitted; malformed, unbound, or failing decisions abort context preparation. If any acquisition for the proposed proposition is withheld, the reducer rejects that belief update without exposing the hidden value or identifying which source was withheld.
 3. Validate every proposed evidence reference against the visible acquisition set.
 4. Require both support and contradiction references when the proposal marks an unresolved conflict. Contradictory evidence cannot be forced into a winning stance by this reducer.
