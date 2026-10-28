@@ -25,7 +25,7 @@ function setup(t, options = {}) {
   const scope = { world_id: 'world-a', subject_id: 'npc-a', purpose: 'npc_decision' };
   const record = {
     ...scope, record_ref: 'memory:record-a', record_version: 'record-v1',
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: 'source-v1',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: s.record.source_version, source_version: 'source-v1',
     content_kind: 'claim', epistemic_kind: 'acquired_report', producer_kind: 'memory-index',
     content_disposition: 'usable', evidence_assessment: 'unassessed',
     lineage: [{ source_kind: 'canonical_entity', entity_id: 'entity-source-a', source_version: 'source-v1' }],
@@ -425,6 +425,7 @@ test('candidate authorization snapshots identity before an awaited source check'
     record_version: s.record.record_version,
     source_kind: s.record.source_kind,
     source_entity_id: s.record.source_entity_id,
+    source_version: s.record.source_version,
   };
   const pending = s.provider.authorizeCandidate(mutableInput);
   await enteredPromise;
@@ -465,6 +466,7 @@ test('external SQLite writes during source validation invalidate candidate autho
     record_version: s.record.record_version,
     source_kind: s.record.source_kind,
     source_entity_id: s.record.source_entity_id,
+    source_version: s.record.source_version,
   });
   await enteredPromise;
 
@@ -502,6 +504,7 @@ test('source validators receive immutable nested lineage during reconciliation a
     record_version: s.record.record_version,
     source_kind: s.record.source_kind,
     source_entity_id: s.record.source_entity_id,
+    source_version: s.record.source_version,
   }), true);
   assert.equal(checks, 2, 'both reconciliation and authorization receive the immutable callback snapshot');
 });
@@ -564,12 +567,12 @@ test('denies by default and immediately honors record revocation', async (t) => 
   assert.equal((await s.provider.reconcile('world-a')).status, 'current');
   assert.equal(await s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: s.record.source_version,
   }), true);
   s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
   assert.equal(await s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: s.record.source_version,
   }), false);
   await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_RECORDS_WITHHELD/);
 });
@@ -649,7 +652,7 @@ test('rechecks provider grants after asynchronous source validation', async (t) 
 
   const authorization = s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: s.record.source_version,
   });
   await started;
   s.provider.revokeRecord(s.scope, s.record.record_ref, s.record.record_version);
@@ -681,7 +684,7 @@ test('rejects authorization when another Provider connection changes readiness d
 
   const authorization = s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: s.record.source_version,
   });
   await started;
 
@@ -726,7 +729,7 @@ test('rejects cross-connection query-grant revoke/re-grant ABA during source val
 
   const authorization = s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: s.record.source_version,
   });
   await started;
 
@@ -772,7 +775,7 @@ test('rejects cross-connection revoke/re-grant ABA during source validation', as
 
   const authorization = s.provider.authorizeCandidate({
     ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+    source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: s.record.source_version,
   });
   await started;
 
@@ -919,7 +922,7 @@ test('source validator outage is not collapsed into ordinary record denial', asy
   await assert.rejects(
     () => s.provider.authorizeCandidate({
       ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-      source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+      source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: s.record.source_version,
     }),
     (error) => error.message === 'MEMORY_SOURCE_VALIDATION_UNAVAILABLE'
       && !error.message.includes('private host'),
@@ -959,7 +962,7 @@ test('source version becoming unverifiable at candidate authorization is not fil
   await assert.rejects(
     () => s.provider.authorizeCandidate({
       ...s.scope, record_ref: s.record.record_ref, record_version: s.record.record_version,
-      source_kind: 'canonical_entity', source_entity_id: 'entity-source-a',
+      source_kind: 'canonical_entity', source_entity_id: 'entity-source-a', source_version: s.record.source_version,
     }),
     (error) => error.message === 'MEMORY_SOURCE_VERSION_UNVERIFIABLE',
   );
@@ -1040,6 +1043,7 @@ test('record revocation survives Provider restart and index rebuild cannot resto
     record_version: s.record.record_version,
     source_kind: 'canonical_entity',
     source_entity_id: s.record.source_entity_id,
+    source_version: s.record.source_version,
   }), false, 'revoked record grant must remain revoked after restart');
   await s.provider.rebuildIndex(s.scope.world_id);
   assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'current');
