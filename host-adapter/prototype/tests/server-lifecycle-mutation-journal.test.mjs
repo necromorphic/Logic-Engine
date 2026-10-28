@@ -428,6 +428,68 @@ test('character deletion with chat cleanup is rejected before enrolled history i
     }
 });
 
+test('chat rename and deletion routes refuse enrolled source paths before mutation', async () => {
+    const identity = '00000000-0000-4000-8000-000000000002';
+    const conversationId = '00000000-0000-4000-8000-000000000001:' + identity;
+    const persistedChat = '{"chat_metadata":{"logic_engine_conversation_id":"' + identity + '"}}\n{"mes":"before"}\n';
+    const cases = [
+        {
+            route: '/api/chats/delete',
+            domain: 'chats',
+            sourceLocator: 'chat-1',
+            sourcePath: 'character-a/chat-1.jsonl',
+            body: { avatar_url: 'character-a.png', chatfile: 'chat-1.jsonl' },
+        },
+        {
+            route: '/api/chats/rename',
+            domain: 'chats',
+            sourceLocator: 'chat-1',
+            sourcePath: 'character-a/chat-1.jsonl',
+            body: { avatar_url: 'character-a.png', original_file: 'chat-1.jsonl', renamed_file: 'chat-2.jsonl', is_group: false },
+        },
+        {
+            route: '/api/chats/group/delete',
+            domain: 'group_chats',
+            sourceLocator: 'group-chat-a',
+            sourcePath: 'group-chat-a.jsonl',
+            body: { id: 'group-chat-a' },
+        },
+    ];
+    for (const scenario of cases) {
+        const { root, directories, request } = await fixture();
+        try {
+            const domainRoot = scenario.domain === 'chats' ? directories.chats : directories.groupChats;
+            const filePath = path.join(domainRoot, ...scenario.sourcePath.split('/'));
+            await mkdir(path.dirname(filePath), { recursive: true });
+            await writeFile(filePath, persistedChat);
+            await registerHostConversation(request, {
+                conversationId,
+                sourceLocator: scenario.sourceLocator,
+                sourcePath: scenario.sourcePath,
+                domain: scenario.domain,
+            });
+            request.path = scenario.route;
+            request.originalUrl = request.path;
+            request.body = scenario.body;
+
+            const response = responseMock();
+            let reachedHandler = false;
+            await createHostLifecycleMutationMiddleware()(request, response, async () => {
+                reachedHandler = true;
+                response.json({ ok: true });
+            });
+            await response.finished;
+
+            assert.equal(reachedHandler, false, scenario.route + ' must reject before the handler');
+            assert.equal(response.statusCode, 409);
+            assert.match(String(response.body), /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
+            assert.equal(await readFile(filePath, 'utf8'), persistedChat);
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    }
+});
+
 test('replayed operation ID is rejected before a second mutation', async () => {
     const { root, directories, request } = await fixture();
     try {
