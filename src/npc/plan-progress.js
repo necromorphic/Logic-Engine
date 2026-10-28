@@ -105,7 +105,7 @@ function validatePlan(plan) {
  * - { type: "step_unblocked", step_id }
  * - { type: "abandon" }
  */
-export function advanceNpcPlan(plan, event) {
+function advanceNpcPlanUnsafe(plan, event) {
   if (!validatePlan(plan) || !isPlainDataObject(event) || !nonEmptyString(event.type)) {
     return nonReady();
   }
@@ -149,4 +149,14 @@ export function advanceNpcPlan(plan, event) {
       steps: Object.freeze(nextPlan.steps.map((step) => Object.freeze(step))),
     }),
   });
+}
+
+
+/** Reflection traps from malformed objects must not escape the NPC boundary. */
+export function advanceNpcPlan(plan, event) {
+  try {
+    return advanceNpcPlanUnsafe(plan, event);
+  } catch {
+    return nonReady();
+  }
 }
