@@ -79,6 +79,21 @@ function request(store, overrides = {}) {
   };
 }
 
+
+test('untrusted reader requests with getters and proxies fail before access', () => {
+  let invoked = false;
+  const unsafe = request({
+    world: () => ({ world_revision: 1 }),
+  });
+  Object.defineProperty(unsafe, 'world_id', {
+    enumerable: true,
+    get() { invoked = true; return 'world-a'; },
+  });
+  assert.equal(validateNpcKnowledgeRead(unsafe, { world_id: 'world-a', status: 'active', world_revision: 1 }, 1, {}).status, 'non_ready');
+  assert.equal(invoked, false);
+  assert.equal(validateNpcKnowledgeReadInput(new Proxy({}, {})).status, 'non_ready');
+});
+
 test('reader returns only facts acquired by the requesting NPC and binds the exact snapshot', (t) => {
   const { store, engine } = setup(t);
   const result = engine.readNpcKnowledge(request(store));
