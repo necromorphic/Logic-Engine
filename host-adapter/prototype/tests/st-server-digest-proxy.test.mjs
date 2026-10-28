@@ -12,6 +12,7 @@ const capture = {
   conversation_id: 'chat-1',
   message_id: 'message-1',
   version_id: 'version-1',
+  parent_version_id: null,
   content_sha256: 'a'.repeat(64),
   active: true,
   deleted: false,
@@ -65,6 +66,7 @@ test('proxy rejects caller URLs, world IDs, raw text and malformed digests befor
     { ...capture, url: 'http://attacker.invalid' },
     { ...capture, world_id: 'attacker-world' },
     { ...capture, content: 'raw prompt content' },
+    (() => { const { parent_version_id, ...missingParent } = capture; return missingParent; })(),
     { ...capture, content_sha256: 'not-a-digest' },
     { ...capture, active: true, deleted: true },
   ]) {
