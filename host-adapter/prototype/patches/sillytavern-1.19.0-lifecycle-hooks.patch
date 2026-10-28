@@ -2477,7 +2477,7 @@ new file mode 100644
 +const sha256 = (bytes) => createHash('sha256').update(bytes).digest('hex');
 +const sameFileIdentity = (a, b) => a.dev === b.dev
 +  && (a.ino === b.ino || (process.platform === 'win32' && (!a.ino || !b.ino)));
-+const sameStat = (a, b) => sameFileIdentity(a, b)
++const sameStat = (a, b) => (process.platform === 'win32' || sameFileIdentity(a, b))
 +  && a.size === b.size && a.mtimeMs === b.mtimeMs;
 +
 +/**
