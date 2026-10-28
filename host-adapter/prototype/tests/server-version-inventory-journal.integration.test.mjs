@@ -154,7 +154,8 @@ test('request-bound capability permits only append/select transitions and reject
     const selectedBytes = await readFile(chatPath, 'utf8');
     await acknowledge(messageId, version1, 'private-before', { active: false });
     await acknowledge(messageId, version2, 'private-after', { parentVersionId: version1, active: true });
-    assert.equal((await getHostConversationInventory(request)).complete, true);
+    const afterSelectInventory = await getHostConversationInventory(request);
+    assert.equal(afterSelectInventory.complete, true, JSON.stringify({ errors: afterSelectInventory.errors, mutationJournal: afterSelectInventory.mutationJournal }));
 
     // A consumed token cannot be replayed; the persisted file stays byte-identical.
     const replay = await invokeSave(selectPayload, selectCapability.token);
