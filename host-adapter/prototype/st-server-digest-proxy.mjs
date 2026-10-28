@@ -2,7 +2,7 @@ const validId = (value) => typeof value === 'string' && value === value.trim()
   && value.length > 0 && value.length <= 200
   && ![...value].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127);
 const ALLOWED_FIELDS = new Set([
-  'conversation_id', 'message_id', 'version_id', 'content_sha256', 'active', 'deleted',
+  'conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted',
 ]);
 
 function configuredTarget(env) {
@@ -35,6 +35,11 @@ function validCapture(body) {
   return body && typeof body === 'object' && !Array.isArray(body)
     && Object.keys(body).every((key) => ALLOWED_FIELDS.has(key))
     && ['conversation_id', 'message_id', 'version_id'].every((key) => validId(body[key]))
+    // Core's parent-lineage contract distinguishes an explicit null root from
+    // missing/undefined metadata. Never infer root ancestry in the Host proxy.
+    && Object.hasOwn(body, 'parent_version_id')
+    && (body.parent_version_id === null || validId(body.parent_version_id))
+    && body.parent_version_id !== body.version_id
     && typeof body.content_sha256 === 'string' && /^[a-f0-9]{64}$/.test(body.content_sha256)
     && typeof body.active === 'boolean' && typeof body.deleted === 'boolean'
     && !(body.deleted && body.active);
@@ -44,7 +49,6 @@ function validCapture(body) {
  * Same-origin SillyTavern server proxy for digest-only Host capture.
  * Credentials and the Core URL are server environment configuration; the
  * browser can provide neither an upstream URL nor an authorization header.
- * Request bodies are allowlisted and never logged.
  */
 export function createHostDigestProxyHandler({
   env = process.env,
@@ -68,13 +72,14 @@ export function createHostDigestProxyHandler({
     }
     if (!validCapture(request?.body)) {
       return response.status(400).json({
-        error: { code: 'INVALID_HOST_VERSION_CAPTURE', message: 'Only digest-only Host version identity and lifecycle fields are accepted.' },
+        error: { code: 'INVALID_HOST_VERSION_CAPTURE', message: 'Only digest-only Host version identity, explicit parent lineage, and lifecycle fields are accepted.' },
       });
     }
     const body = {
       conversation_id: request.body.conversation_id,
       message_id: request.body.message_id,
       version_id: request.body.version_id,
+      parent_version_id: request.body.parent_version_id,
       content_sha256: request.body.content_sha256,
       active: request.body.active,
       deleted: request.body.deleted,
