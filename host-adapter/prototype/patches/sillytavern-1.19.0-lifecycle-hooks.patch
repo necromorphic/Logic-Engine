@@ -734,7 +734,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1618 @@
+@@ -0,0 +1,1659 @@
 +import { createHash, randomBytes, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -1571,6 +1571,46 @@ new file mode 100644
 +            return fail(response, 'HOST_JOURNAL_PREPARE_FAILED');
 +        }
 +
++        if (saveCapability) {
++            let immediateSnapshot = null;
++            let preStateStillCurrent = false;
++            try {
++                const root = paths.roots.find(item => item.domain === saveTarget.domain)?.path;
++                if (!root) throw new Error('HOST_SAVE_CAPABILITY_ROOT_UNAVAILABLE');
++                const sourceFilePath = path.resolve(root, ...saveTarget.sourcePath.split('/'));
++                const relative = path.relative(root, sourceFilePath);
++                if (!relative || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
++                    throw new Error('HOST_SAVE_CAPABILITY_PATH_UNSAFE');
++                }
++                await readStableHostChatFile(sourceFilePath, saveCapability.preStateFileDigest);
++                immediateSnapshot = await scanMutationSnapshot(paths, registry, requirePersistedInventory);
++                preStateStillCurrent = immediateSnapshot.complete
++                    && immediateSnapshot.conversationInventory?.inventory_sha256 === saveCapability.preStateInventoryDigest
++                    && targetArtifactDigest(immediateSnapshot, saveTarget) === saveCapability.preStateFileDigest;
++            } catch {
++                preStateStillCurrent = false;
++            }
++            if (!preStateStillCurrent) {
++                try {
++                    await appendRecord(paths.journalPath, chain.lastHash, {
++                        version: 1,
++                        kind: 'outcome',
++                        operationId,
++                        status: 'UNRESOLVED',
++                        completedAt: new Date().toISOString(),
++                        httpStatus: 409,
++                        afterSnapshotStatus: 'HOST_SAVE_CAPABILITY_STALE_PRESTATE',
++                        afterSnapshotDigest: immediateSnapshot ? snapshotDigest(immediateSnapshot) : null,
++                        afterConversationInventoryDigest: immediateSnapshot?.conversationInventory?.inventory_sha256 ?? null,
++                    });
++                } catch {
++                    // Keep the request blocked even if the journal outcome itself cannot be recorded.
++                }
++                release();
++                return fail(response, 'HOST_SAVE_CAPABILITY_STALE_PRESTATE', 409);
++            }
++        }
++
 +        // Buffer the complete response until the post-mutation inventory and
 +        // durable outcome are known. Buffering only end() is insufficient:
 +        // handlers can call writeHead(), write(), or flushHeaders() first,
@@ -2254,6 +2294,7 @@ new file mode 100644
 + * SHA-256 digests and identity/lineage metadata are retained in the capability.
 + */
 +export async function prepareHostSaveCapability(request, { route, payload } = {}) {
++    purgeExpiredSaveCapabilities();
 +    const target = resolveSaveTarget(route, payload);
 +    const paths = await statePaths(request);
 +    const registry = await readRegistry(paths.registryPath);
