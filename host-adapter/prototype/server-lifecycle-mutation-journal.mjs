@@ -225,57 +225,49 @@ function sameHostMessage(a, b, { includeActive = true } = {}) {
 function classifyHostSaveTransition(before, after) {
     const oldMessages = before.messages;
     const newMessages = after.messages;
-    if (oldMessages.length === newMessages.length + 1) {
-        for (let removed = 0; removed < oldMessages.length; removed++) {
-            const remaining = oldMessages.filter((_, index) => index !== removed);
-            if (remaining.every((message, index) => sameHostMessage(message, newMessages[index]))) {
-                return 'delete-message';
-            }
-        }
-        return null;
+
+    // Metadata-only/no-op saves do not alter the persisted conversation inventory.
+    if (oldMessages.length === newMessages.length
+        && oldMessages.every((message, index) => sameHostMessage(message, newMessages[index]))) {
+        return 'no-op';
     }
+
+    // Only append one complete new message; never delete or reorder existing messages.
     if (newMessages.length === oldMessages.length + 1
         && oldMessages.every((message, index) => sameHostMessage(message, newMessages[index]))
         && newMessages.at(-1).versions.length === 1
         && newMessages.at(-1).versions[0].parentVersionId === null) {
         return 'create-message';
     }
+
     if (oldMessages.length !== newMessages.length
         || oldMessages.some((message, index) => message.messageId !== newMessages[index].messageId)) return null;
 
-    const changed = oldMessages.map((oldMessage, index) => ({ oldMessage, newMessage: newMessages[index], index }))
+    const changed = oldMessages.map((oldMessage, index) => ({ oldMessage, newMessage: newMessages[index] }))
         .filter(({ oldMessage, newMessage }) => !sameHostMessage(oldMessage, newMessage));
     if (changed.length !== 1) return null;
     const { oldMessage, newMessage } = changed[0];
 
+    // Active-version selection is safe only when the full version lineage is preserved.
     if (oldMessage.versions.length === newMessage.versions.length
         && oldMessage.versions.every((version, index) => sameHostVersion(version, newMessage.versions[index]))
         && oldMessage.activeVersionIndex !== newMessage.activeVersionIndex) {
         return 'swipe-select';
     }
-    if (oldMessage.versions.length === newMessage.versions.length + 1) {
-        for (let removed = 0; removed < oldMessage.versions.length; removed++) {
-            const remaining = oldMessage.versions.filter((_, index) => index !== removed);
-            if (remaining.every((version, index) => sameHostVersion(version, newMessage.versions[index]))) {
-                return 'delete-swipe';
-            }
-        }
-        return null;
-    }
-    if (oldMessage.versions.length === newMessage.versions.length
-        && oldMessage.activeVersionIndex === newMessage.activeVersionIndex) {
-        const replacements = oldMessage.versions.map((version, index) => ({ version, next: newMessage.versions[index], index }))
-            .filter(({ version, next }) => !sameHostVersion(version, next));
-        if (replacements.length === 1) {
-            const { version, next } = replacements[0];
-            if (next.versionId !== version.versionId
-                && next.payloadSha256 !== version.payloadSha256
-                && next.parentVersionId === version.versionId
-                && !newMessages.some(message => message.versions.some(item => item.versionId === version.versionId))) {
-                return 'edit-message';
-            }
+
+    // A new version must be appended while every previous version remains byte/digest-identical.
+    if (newMessage.versions.length === oldMessage.versions.length + 1
+        && oldMessage.versions.every((version, index) => sameHostVersion(version, newMessage.versions[index]))) {
+        const appended = newMessage.versions.at(-1);
+        const parent = oldMessage.versions[oldMessage.activeVersionIndex];
+        if (appended.parentVersionId === parent.versionId
+            && newMessage.activeVersionIndex === newMessage.versions.length - 1) {
+            return 'append-version';
         }
     }
+
+    // Deletions, replacement edits, in-place mutation, and reordering remain unsupported
+    // until a separately reviewed tombstone/history-retention contract exists.
     return null;
 }
 
