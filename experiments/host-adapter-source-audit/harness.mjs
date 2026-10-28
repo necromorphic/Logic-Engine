@@ -110,7 +110,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
     "'POST /api/characters/create'", "'POST /api/characters/rename'", "'POST /api/characters/edit'",
     "'POST /api/characters/edit-avatar'", "'POST /api/characters/edit-attribute'", "'POST /api/characters/merge-attributes'",
     "'POST /api/characters/delete'", "'POST /api/characters/import'", "'POST /api/characters/duplicate'",
-    "'POST /api/backups/chat/delete'", "'POST /api/data-maid/delete'",
+    "'POST /api/backups/chat/delete'", "'POST /api/data-maid/delete'", "'POST /api/users/reset-step2'",
   ]) assert.ok(hostJournal.includes(route), `Host journal must intercept direct route ${route}`);
 
   assert.match(hostJournal, /kind: 'intent'/);
@@ -121,6 +121,10 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.match(hostJournal, /operationTargetsEnrolledHistory/);
   assert.match(hostJournal, /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
   assert.match(hostJournal, /HOST_OPERATION_ALREADY_RECORDED/);
+  assert.match(hostJournal, /targetUserHasEnrolledState/);
+  assert.match(hostJournal, /HOST_ENROLLED_USER_PURGE_UNSUPPORTED/);
+  assert.match(startup, /getUserDirectories/);
+  assert.match(startup, /createHostLifecycleMutationMiddleware\(\{\s*requirePersistedInventory:\s*true,\s*getUserDirectories\s*\}\)/);
   assert.match(hostJournal, /beforeArtifacts:/);
   assert.match(hostJournal, /UNCERTAINTY_ACKNOWLEDGED/);
   assert.match(hostJournal, /HOST_POST_MUTATION_SCAN_INCOMPLETE/);
