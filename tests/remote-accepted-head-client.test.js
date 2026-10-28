@@ -98,22 +98,22 @@ test('fetch client requires HTTPS and fails closed on HTTP, invalid response, an
     installationId,
     serviceToken: 'x'.repeat(40),
     publicKey: publicPem,
-    fetchImpl: async () => ({ status: 200, text: async () => JSON.stringify(makeEnvelope()) }),
+    fetchImpl: async () => new Response(JSON.stringify(makeEnvelope()), { status: 200 }),
   };
   await assert.rejects(() => fetchVerifiedRemoteAnchorHead({
     ...common, endpoint: 'http://anchor.example',
   }), /Invalid remote anchor client configuration/);
 
   await assert.rejects(() => fetchVerifiedRemoteAnchorHead({
-    ...common, endpoint: 'https://anchor.example', fetchImpl: async () => ({ status: 503, text: async () => '' }),
+    ...common, endpoint: 'https://anchor.example', fetchImpl: async () => new Response('', { status: 503 }),
   }), /REMOTE_ANCHOR_UNAVAILABLE/);
 
   await assert.rejects(() => fetchVerifiedRemoteAnchorHead({
-    ...common, endpoint: 'https://anchor.example', fetchImpl: async () => ({ status: 200, text: async () => 'not json' }),
+    ...common, endpoint: 'https://anchor.example', fetchImpl: async () => new Response('not json', { status: 200 }),
   }), /REMOTE_ANCHOR_RESPONSE_INVALID/);
 
   await assert.rejects(() => fetchVerifiedRemoteAnchorHead({
-    ...common, endpoint: 'https://anchor.example', fetchImpl: async () => ({ status: 200, text: async () => 'x'.repeat(16385) }),
+    ...common, endpoint: 'https://anchor.example', fetchImpl: async () => new Response('x'.repeat(16385), { status: 200 }),
   }), /REMOTE_ANCHOR_RESPONSE_TOO_LARGE/);
 });
 
@@ -128,7 +128,7 @@ test('fetch client uses bearer auth and verifies returned signature', async () =
     fetchImpl: async (url, options) => {
       requestedUrl = url;
       requestedOptions = options;
-      return { status: 200, text: async () => JSON.stringify(makeEnvelope()) };
+      return new Response(JSON.stringify(makeEnvelope()), { status: 200 });
     },
   });
   assert.equal(requestedUrl.href, 'https://anchor.example/base/v1/installations/install-test-01/head');
