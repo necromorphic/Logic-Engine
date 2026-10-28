@@ -161,6 +161,22 @@ test('request-bound capability permits only append/select transitions and reject
     await writeFile(chatPath, persistedBeforeRejectedBody);
     assert.equal((await getHostConversationInventory(request)).complete, true);
 
+    // Expired one-shot capabilities are purged during preparation, without waiting for the real TTL.
+    const expiringCapability = await prepare(selectPayload);
+    assert.equal(expiringCapability.status, 'CAPABILITY_ISSUED');
+    const realDateNow = Date.now;
+    try {
+      Date.now = () => expiringCapability.expiresAt + 1;
+      const purgeTrigger = await prepare(selectPayload);
+      assert.equal(purgeTrigger.status, 'CAPABILITY_ISSUED');
+    } finally {
+      Date.now = realDateNow;
+    }
+    const expiredAttempt = await invokeSave(selectPayload, expiringCapability.token);
+    assert.equal(expiredAttempt.reachedNativeSave, false);
+    assert.notEqual(expiredAttempt.response.statusCode, 200);
+    assert.equal(await readFile(chatPath, 'utf8'), persistedBeforeRejectedBody);
+
     // The one-shot capability permits one save and rejects replay before another native write.
     const selectCapability = await prepare(selectPayload);
     assert.equal(selectCapability.status, 'CAPABILITY_ISSUED');
