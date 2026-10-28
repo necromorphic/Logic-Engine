@@ -131,6 +131,10 @@ export function createRemoteAnchorServer({
   }
 
   async function handleAppend(request, response, installationId, credential) {
+    const contentType = request.headers['content-type'];
+    if (typeof contentType !== 'string' || !/^application\\/json(?:\\s*;|$)/i.test(contentType)) {
+      fail(415, 'CONTENT_TYPE_INVALID');
+    }
     const body = await readJsonBody(request);
     const expectedFields = [
       'expected_sequence',
