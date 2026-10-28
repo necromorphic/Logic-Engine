@@ -1,0 +1,52 @@
+name: Host protected dispatch deny guard
+
+on:
+  pull_request:
+    paths:
+      - "host-adapter/prototype/protected-dispatch-deny-guard.mjs"
+      - "host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs"
+      - "host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch"
+      - ".github/workflows/host-protected-dispatch-deny-check.yml"
+  push:
+    paths:
+      - "host-adapter/prototype/protected-dispatch-deny-guard.mjs"
+      - "host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs"
+      - "host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch"
+      - ".github/workflows/host-protected-dispatch-deny-check.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  host-protected-dispatch-deny:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout Logic-Engine branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Set up Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22
+      - name: Run deny-guard tests
+        run: node --test host-adapter/prototype/tests/protected-dispatch-deny-guard.test.mjs
+      - name: Checkout pinned SillyTavern
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: SillyTavern/SillyTavern
+          ref: 06bde939fb1e9c4c8d8641d810f0a916b5bce127
+          path: sillytavern-host-checkout
+          persist-credentials: false
+      - name: Stage guard and validate patch
+        run: |
+          cp host-adapter/prototype/protected-dispatch-deny-guard.mjs sillytavern-host-checkout/src/endpoints/logic-engine-protected-dispatch-guard.mjs
+          cd sillytavern-host-checkout
+          git apply --check ../host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch
+          git apply ../host-adapter/prototype/patches/sillytavern-1.19.0-protected-dispatch-deny.patch
+          git diff --check
+          node --check src/endpoints/logic-engine-protected-dispatch-guard.mjs
+          node --check src/server-startup.js
+      - name: Ensure guard is installed before native endpoint routers
+        run: |
+          node --input-type=module -e "import { readFileSync } from 'node:fs'; const s=readFileSync('sillytavern-host-checkout/src/server-startup.js','utf8'); const g=s.indexOf('app.use(createProtectedDispatchDenyMiddleware())'); const r=s.indexOf("app.use('/api/backends/chat-completions', chatCompletionsRouter)"); if (g<0 || r<0 || g>r) process.exit(1);"
