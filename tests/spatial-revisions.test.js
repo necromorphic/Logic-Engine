@@ -13,6 +13,7 @@ const makeScene = (revision, overrides = {}) => ({
   rooms: [{ id: 'room-a', name: 'Office', bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 10, z: 3 } } }],
   zones: [{ id: 'zone-a', name: 'Desk', roomId: 'room-a', bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 5, y: 5, z: 3 } } }],
   doors: [{ id: 'door-a', name: 'Office door', roomA: 'room-a', roomB: 'room-b', state: 'open' }],
+  blockers: [],
   ...overrides,
 });
 
@@ -81,4 +82,18 @@ test('detects added and removed objects as dependency changes', () => {
   const current = makeScene(10, { zones: [] });
   const result = diffSceneRevisions(previous, current);
   assert.deepEqual(result.changedDependencies, ['zone:zone-a']);
+});
+
+
+test('detects obstacle changes and marks predictions depending on that obstacle stale', () => {
+  const previous = makeScene(11, { blockers: [{ id: 'wall-a', min: { x: 3, y: 0, z: 0 }, max: { x: 4, y: 4, z: 3 } }] });
+  const current = makeScene(12, { blockers: [{ id: 'wall-a', min: { x: 3, y: 0, z: 0 }, max: { x: 4, y: 5, z: 3 } }] });
+  const diff = diffSceneRevisions(previous, current);
+  assert.deepEqual(diff.changedDependencies, ['blocker:wall-a']);
+  const freshness = assessPredictionFreshness({
+    id: 'line-of-sight-prediction', worldId: previous.worldId, basedOnRevision: 11,
+    dependencies: ['blocker:wall-a'],
+  }, previous, current);
+  assert.equal(freshness.freshness, 'STALE');
+  assert.deepEqual(freshness.affectedDependencies, ['blocker:wall-a']);
 });
