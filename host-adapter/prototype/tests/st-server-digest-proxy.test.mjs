@@ -12,6 +12,7 @@ const capture = {
   conversation_id: 'chat-1',
   message_id: 'message-1',
   version_id: 'version-1',
+  parent_version_id: null,
   content_sha256: 'a'.repeat(64),
   active: true,
   deleted: false,
