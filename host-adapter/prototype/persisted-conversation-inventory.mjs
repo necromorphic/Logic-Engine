@@ -111,8 +111,11 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
           if (!lines.length) continue;
           parsed = lines.map(line => JSON.parse(line));
           if (!parsed.every(value => value && typeof value === 'object' && !Array.isArray(value))) throw Error('JSONL_RECORD_INVALID');
-        } catch {
-          parseErrors.push('CHAT_JSONL_UNREADABLE:' + domain);
+        } catch (error) {
+          // Keep diagnostics platform-safe: include only a stable OS error code,
+          // never the absolute path or chat contents.
+          const code = typeof error?.code === 'string' ? error.code : 'UNCLASSIFIED';
+          parseErrors.push('CHAT_JSONL_UNREADABLE:' + domain + ':' + code);
           continue;
         }
         const header = parsed[0];
