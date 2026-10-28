@@ -170,6 +170,7 @@ test('real Host → Core → Provider path preserves digest-only capture and fai
     conversation_id: conversationId,
     message_id: messageId,
     version_id: versionId,
+    parent_version_id: null,
     content_sha256: digest('b'),
     active: true,
     deleted: false,
