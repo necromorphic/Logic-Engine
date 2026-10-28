@@ -891,6 +891,7 @@ export class SQLiteMemoryProvider {
     // SQLite writer reservation. This narrows the race but cannot make a later
     // model dispatch atomic with revocation.
     return this.#withImmediateTransaction(() => {
+    this.#assertAcceptedHeadCurrent();
     if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
     const currentGrant = this.#db.prepare(`SELECT allowed FROM memory_record_grants
       WHERE world_id=? AND subject_id=? AND purpose=? AND record_ref=? AND record_version=?`)
@@ -1257,6 +1258,7 @@ export class SQLiteMemoryProvider {
     let lockedResult;
     try {
       lockedResult = this.#withImmediateTransaction(() => {
+        this.#assertAcceptedHeadCurrent();
         if (!this.#authorizeQuery(scope)) throw new Error('MEMORY_QUERY_DENIED');
         if ((this.#queryAuthorizationGeneration.get(queryGrantKey) ?? 0) !== queryAuthorizationGeneration
           || this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
