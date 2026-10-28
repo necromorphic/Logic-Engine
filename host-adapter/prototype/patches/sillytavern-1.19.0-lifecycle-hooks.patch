@@ -701,7 +701,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1621 @@
+@@ -0,0 +1,1624 @@
 +import { createHash, randomBytes, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -1486,11 +1486,9 @@ new file mode 100644
 +                return fail(response, 'HOST_INVENTORY_INCOMPLETE');
 +            }
 +            if (requiresSaveCapability) {
-+                const acceptedInventory = await getHostConversationInventory(request);
-+                if (!acceptedInventory.complete) {
-+                    release();
-+                    return fail(response, 'HOST_SAVE_CAPABILITY_INVENTORY_NOT_READY', 503);
-+                }
++                // Consume/validate the one-shot token first. A replay must be
++                // rejected as such even if the previous accepted write has not
++                // yet been acknowledged by the inventory publisher.
 +                try {
 +                    saveCapability = consumeHostSaveCapability(request, saveTarget, before, saveCapabilityHeader);
 +                } catch (error) {
@@ -1498,6 +1496,11 @@ new file mode 100644
 +                    const code = typeof error?.message === 'string' && error.message.startsWith('HOST_SAVE_CAPABILITY_')
 +                        ? error.message : 'HOST_SAVE_CAPABILITY_INVALID';
 +                    return fail(response, code, 409);
++                }
++                const acceptedInventory = await getHostConversationInventory(request);
++                if (!acceptedInventory.complete) {
++                    release();
++                    return fail(response, 'HOST_SAVE_CAPABILITY_INVENTORY_NOT_READY', 503);
 +                }
 +            }
 +            const suppliedOperationId = request.headers?.['x-logic-engine-operation-id'];
