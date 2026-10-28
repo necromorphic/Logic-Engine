@@ -113,6 +113,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.match(hostJournal, /await handle\.sync\(\)/);
   assert.match(hostJournal, /HOST_JOURNAL_RECONCILIATION_REQUIRED/);
   assert.match(hostJournal, /hasEnrolledChatUnderCharacter/);
+  assert.match(hostJournal, /operationTargetsEnrolledHistory/);
   assert.match(hostJournal, /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
   assert.match(hostJournal, /HOST_OPERATION_ALREADY_RECORDED/);
   assert.match(hostJournal, /beforeArtifacts:/);
