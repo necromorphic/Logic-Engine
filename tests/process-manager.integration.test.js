@@ -621,12 +621,14 @@ test('explicit reconciliation resets rolled-back milestones and re-arms the proc
       && entry.payload.reason === 'process_rollback_needs_review'), true);
 
   let process = engine.getProcess('world-a', 'journey-1');
+  const reconciliationRevision = engine.getState('world-a').world_revision;
   assert.equal(process.status, 'needs_review');
   assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'needs_review');
 
   assert.throws(
     () => engine.transitionProcess('world-a', 'journey-1', {
       action: 'reconcile',
+      expected_revision: reconciliationRevision,
       expected_version: process.version,
       idempotency_key: 'reconcile-without-confirmation',
     }),
@@ -637,6 +639,7 @@ test('explicit reconciliation resets rolled-back milestones and re-arms the proc
     () => engine.transitionProcess('world-a', 'journey-1', {
       action: 'reconcile',
       confirm_retry: true,
+      expected_revision: reconciliationRevision,
       expected_version: process.version,
       idempotency_key: 'reconcile-without-replan',
     }),
@@ -647,6 +650,7 @@ test('explicit reconciliation resets rolled-back milestones and re-arms the proc
     () => engine.transitionProcess('world-a', 'journey-1', {
       action: 'reconcile',
       confirm_retry: true,
+      expected_revision: reconciliationRevision,
       replan: [
         { milestone_id: 'depart', due_coordinate: 3000 },
         { milestone_id: 'arrive', due_coordinate: 2000 },
@@ -660,11 +664,26 @@ test('explicit reconciliation resets rolled-back milestones and re-arms the proc
   assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 0);
   assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
 
+  assert.throws(
+    () => engine.transitionProcess('world-a', 'journey-1', {
+      action: 'reconcile',
+      confirm_retry: true,
+      expected_revision: reconciliationRevision - 1,
+      replan: [{ milestone_id: 'depart', due_coordinate: 2000 }],
+      expected_version: process.version,
+      idempotency_key: 'reconcile-stale-world-revision',
+    }),
+    (error) => error.code === 'WORLD_REVISION_CONFLICT',
+  );
+  assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
+  assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 0);
+
   const reconciliationExpectedVersion = process.version;
   const reconciliationRequest = {
     action: 'reconcile',
     confirm_retry: true,
     replan: [{ milestone_id: 'depart', due_coordinate: 2000 }],
+    expected_revision: reconciliationRevision,
     expected_version: reconciliationExpectedVersion,
     idempotency_key: 'explicit-reconcile-after-rollback',
     reason: 'author_confirmed_retry',
@@ -677,6 +696,12 @@ test('explicit reconciliation resets rolled-back milestones and re-arms the proc
   assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').due_coordinate, 2000);
   assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 2);
   const reconciledTriggerIds = process.milestones.map((milestone) => milestone.trigger_id);
+  const planAudit = engine.getAudit('world-a').find((entry) =>
+    entry.action === 'process.plan.reconciled' && entry.payload.plan_id);
+  assert.ok(planAudit);
+  assert.equal(planAudit.payload.plan_version, reconciliationExpectedVersion + 1);
+  assert.equal(planAudit.payload.previous_plan.find((item) => item.milestone_id === 'depart').due_coordinate, 1000);
+  assert.equal(planAudit.payload.accepted_plan.find((item) => item.milestone_id === 'depart').due_coordinate, 2000);
 
   // Reconciliation must be durable: reopening cannot resurrect quarantined
   // trigger IDs or lose the author-approved replacement schedule.
