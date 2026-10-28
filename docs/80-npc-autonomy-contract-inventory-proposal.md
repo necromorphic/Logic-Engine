@@ -7,7 +7,7 @@
 
 ## 1. Executive finding
 
-The repository contains useful Core primitives, a proposed NPC decision boundary, and pure NPC helpers on open draft PR #532. It does **not** currently demonstrate a complete autonomous NPC loop.
+The repository contains useful Core primitives, a proposed NPC decision boundary, and pure NPC autonomy helpers merged by PR #532. It does **not** currently demonstrate a complete autonomous NPC loop.
 
 The most important distinctions are:
 
@@ -15,7 +15,7 @@ The most important distinctions are:
 - A Core time-trigger scheduler exists for registered time triggers; it is **not** a wall-clock worker or proof of an autonomous NPC background loop.
 - Actor-bound, policy-filtered Core reads exist for a bounded set of entity fields; this does **not** establish a general Personality/Relationships-to-NPC decision-context contract.
 - Core proposal lifecycle and validation exist; they do **not** mean an NPC can execute arbitrary candidate actions or commit world effects.
-- PR #532 provides local pure helpers for choosing from supplied goals/actions and advancing supplied goal/plan state; it does not generate goals from world/personality data, discover world actions, persist NPC state, schedule NPCs, or execute actions.
+- PR #532 merged the local pure helpers for choosing from supplied goals/actions and advancing supplied goal/plan state; they do not generate goals from world/personality data, discover world actions, persist NPC state, schedule NPCs, or execute actions.
 
 Anything not proven by the source paths below is marked **UNCONFIRMED / BLOCKED** rather than inferred.
 
@@ -30,11 +30,9 @@ Anything not proven by the source paths below is marked **UNCONFIRMED / BLOCKED*
 | Core evaluation and canonical commit | `src/application/engine.js`; `src/application/proposals.js`; `src/core/rules.js`; `src/core/mechanics.js` | Core validates supported requests/effects and owns proposal lifecycle and canonical state transitions. Unknown effect kinds are rejected; a proposal is not itself a commit. | Supported request/proposal and available evidence → validation/lifecycle result; canonical effects only through the supported Core path. | Existing bounded mechanisms; not a universal NPC action executor. | `docs/57-core-evaluation-recalculation-boundary.md` documents these boundaries and warns against assuming general dependency closure. Specific supported effect vocabulary must be checked per operation. |
 | Time-trigger scheduling | `src/time/scheduler.js`; `planDueWork(...)`; time-advance routes | Core plans due work over canonical game-time coordinates and processes it only through explicit time-advance operations. The pure planner itself does not advance time, execute effects, commit state, or grant NPC knowledge. | Registered trigger records + `[from, to]` coordinates → due-work plan; explicit Core operation drives the commit path. | Existing bounded scheduler; no wall-clock worker. | `docs/57-core-evaluation-recalculation-boundary.md` distinguishes scheduling from evaluation. `docs/22-process-manager-runtime.md` confirms no wall-clock scheduler or downtime catch-up. |
 | Generic durable Process Manager | `src/process/contract.js`; `src/storage/process-store.js`; `src/application/engine.js::createProcess`, `getProcess`, `listProcesses`, `transitionProcess`; `src/api/server.js`; `docs/22-process-manager-runtime.md` | Core owns a bounded world-scoped process/milestone lifecycle layered on time triggers and segment transactions. It supports create/read/list/pause/resume/cancel and durable milestone checkpoints. | Authored process definition with due coordinates, prerequisites, read/write sets and event proposals → stored process state and milestone events after explicit time advance. | Implemented generic runtime; internal routes require bearer and `x-engine-internal-token`. Not an NPC goal/plan store or autonomous reasoning caller. | `tests/process-manager.integration.test.js` covers persistence/restart, milestone progress and lifecycle; `tests/process-knowledge-isolation.test.js` verifies process completion does not create NPC knowledge/delivery records. `docs/22` states no wall-clock scheduling and bounded rollback/reconciliation. |
-| NPC intention selection | PR #532: `src/npc/autonomous-intention-selector.js` | Pure helper chooses among caller-supplied eligible goals/actions, retains a still-eligible intention unless a higher-priority eligible goal supersedes it, and fails closed on malformed references. | Supplied goals, action candidates and previous intention → selected intention/action or no eligible choice. | Isolated helper on **open draft PR #532**, not mainline production integration. | Exact-head PR CI run #40593500991 reported `npm test`, recalculation-oracle harness and NPC boundary suite passing. This does not test a real caller, world-state action discovery, persistence or model dispatch. |
-| Goal lifecycle | PR #532: `src/npc/goal-lifecycle.js` | Pure validator permits only documented goal-state transitions; completed/abandoned are terminal. It does not determine whether an event actually occurred or persist state. | Caller-supplied current/proposed status → accepted transition or fail-closed refusal. | Isolated helper on open draft PR #532. | Same exact-head PR CI run; no persistence or trusted event source established. |
-| Plan progress | PR #532: `src/npc/plan-progress.js` | Pure reducer applies explicit step success/block/unblock/abandon outcomes to a supplied ordered plan. | Supplied plan and explicit progress event → updated plan state or refusal. | Isolated helper on open draft PR #532. | Same exact-head PR CI run; it does not execute actions or verify the truth of caller-supplied outcomes. |
-| Autonomous NPC invocation between player messages | Generic process runtime exists, but no NPC-specific caller is verified. | `docs/22-process-manager-runtime.md` and `src/application/engine.js` establish a generic durable process lifecycle. They do not establish an NPC model-call dispatcher, NPC-owned goals/plans, or autonomous decisions between player messages. | **UNCONFIRMED**: trigger-to-NPC decision dispatch, actor/context assembly, candidate generation, action-result routing and off-screen knowledge/report delivery are not demonstrated as one working path. | **BLOCKED** for NPC autonomy integration; generic process lifecycle may be a candidate seam only after an explicit contract review. | `tests/process-manager.integration.test.js` proves generic process persistence/progress, not NPC invocation. `tests/process-knowledge-isolation.test.js` explicitly protects the boundary between process completion and NPC knowledge/delivery. `docs/22` says there is no wall-clock scheduler or downtime catch-up. |
-| Memory → NPC | `src/application/memory-npc-consumer.js`; `docs/07-knowledge-and-narrative-boundaries.md` | Consumer is an injected retrieval/admission seam using Core-authorized field reads; retrieval alone is not actor knowledge and it is not a production receiver/dispatch route. | Request → admitted retrieval/context candidates or fail-closed result. | Production integration remains **DISABLED / FAIL-CLOSED**. | Existing docs state no verified final model-dispatch gate and incomplete Host lifecycle/egress coverage. Do not broaden this work to enable Memory → NPC. |
+| NPC intention selection | PR #532: `src/npc/autonomous-intention-selector.js` | Pure helper chooses among caller-supplied eligible goals/actions, retains a still-eligible intention unless a higher-priority eligible goal supersedes it, and fails closed on malformed references. | Supplied goals, action candidates and previous intention → selected intention/action or no eligible choice. | **Merged into main** by merge commit `3a0eff710d89d516a292b2d20dcbf040e0398fae`; isolated helper, not production orchestration. | Exact-head PR CI run #40593500991 reported `npm test`, recalculation-oracle harness and NPC boundary suite passing. This does not test a real caller, world-state action discovery, persistence or model dispatch. |
+| Goal lifecycle | PR #532: `src/npc/goal-lifecycle.js` | Pure validator permits only documented goal-state transitions; completed/abandoned are terminal. It does not determine whether an event actually occurred or persist state. | Caller-supplied current/proposed status → accepted transition or fail-closed refusal. | **Merged into main** by PR #532. | Same exact-head PR CI run; no persistence or trusted event source established. |
+| Plan progress | PR #532: `src/npc/plan-progress.js` | Pure reducer applies explicit step success/block/unblock/abandon outcomes to a supplied ordered plan. | Supplied plan and explicit progress event → updated plan state or refusal. | **Merged into main** by PR #532. | Same exact-head PR CI run; it does not execute actions or verify the truth of caller-supplied outcomes. |
 
 ## 3. Question A — goal generation dependencies
 
@@ -53,7 +51,7 @@ NPC may own the formation and lifecycle of its own goals, while Personality/Rela
 
 - No verified single interface currently joins authorized personality, relationship, world-state and NPC-local goal inputs.
 - No agreed policy contract defines which goal categories are permitted, how conflicts with world rules are classified, or which checks are authoritative.
-- The existing PR #532 helpers consume goals; they do not generate them.
+- The merged PR #532 helpers consume goals; they do not generate them.
 
 **Request for review:** identify the existing approved source/read path for each input category and the authoritative owner of goal admissibility. If no such contract exists, return a separate proposal rather than creating shared interfaces in this workstream.
 
@@ -126,7 +124,7 @@ Reviewers are asked to answer the following explicitly:
 - No new generic interface merely to make the design appear connected.
 - No NPC self-certification of action success and no direct world mutation by NPC helpers.
 - Memory → NPC remains **DISABLED / FAIL-CLOSED**.
-- PR #532 remains open and draft; no merge is requested or performed.
+- PR #532 is merged; the merge does not establish a complete autonomous NPC runtime or authorize production integration.
 - Any unverified dependency remains labelled **UNCONFIRMED / BLOCKED**.
 
 ## 8. Source basis
@@ -140,6 +138,6 @@ Reviewers are asked to answer the following explicitly:
 - `docs/34-npc-decision-context-and-proposal.md` — proposed bounded decision context and non-committing proposal.
 - `docs/57-core-evaluation-recalculation-boundary.md` — Core ownership and existing boundaries.
 - `docs/personality/01-personality-and-relationship-semantics.md` — Personality ownership boundaries.
-- PR #532 — isolated intention-selection, goal-lifecycle and plan-progress helpers; exact-head CI run #40593500991.
+- PR #532 — merged isolated intention-selection, goal-lifecycle and plan-progress helpers; exact-head CI run #40593500991.
 
-This inventory is based on repository documentation and source references; this documentation change does not claim that tests were re-run locally or that an end-to-end NPC autonomy path was exercised.
+This inventory is based on repository documentation and source references; it does not claim that an end-to-end NPC autonomy path was exercised.
