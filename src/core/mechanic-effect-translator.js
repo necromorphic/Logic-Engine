@@ -43,6 +43,40 @@ function object(value, label) {
   if (!isObject(value) || (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null)) {
     fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be a plain JSON object.');
   }
+  const keys = Reflect.ownKeys(value);
+  if (keys.length > MAX_CONTAINER_ITEMS) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded object field count.');
+  }
+  for (const key of keys) {
+    if (typeof key !== 'string') {
+      fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must not contain symbol keys.');
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must contain only enumerable data properties.');
+    }
+  }
+  return value;
+}
+
+function jsonArray(value, label, maxItems = MAX_CONTAINER_ITEMS) {
+  if (!Array.isArray(value) || Object.getPrototypeOf(value) !== Array.prototype
+    || value.length > maxItems || Object.getOwnPropertySymbols(value).length > 0) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be a plain JSON array of at most ' + maxItems + ' items.');
+  }
+  const keys = Reflect.ownKeys(value);
+  if (keys.length !== value.length + 1 || !keys.includes('length')
+    || !keys.every((key) => key === 'length'
+      || (typeof key === 'string' && /^(0|[1-9][0-9]*)$/.test(key)
+        && Number(key) < value.length && String(Number(key)) === key))) {
+    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must not contain holes or custom properties.');
+  }
+  for (let index = 0; index < value.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must contain only enumerable data items.');
+    }
+  }
   return value;
 }
 
@@ -52,11 +86,10 @@ function exactKeys(value, allowed, label) {
 }
 
 function stringList(value, label) {
-  if (!Array.isArray(value) || value.length > 128) {
-    fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must be an array of at most 128 non-empty strings.');
-  }
+  jsonArray(value, label, 128);
   const seen = new Set();
-  for (const item of value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const item = Object.getOwnPropertyDescriptor(value, String(index)).value;
     if (typeof item !== 'string' || !item.trim() || item.length > MAX_ID || seen.has(item.trim())) {
       fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' must contain unique, non-empty strings of at most 200 characters.');
     }
@@ -85,21 +118,24 @@ function cloneJson(value, label, active = new Set(), budget = { nodes: 0 }, dept
   active.add(value);
   let result;
   if (Array.isArray(value)) {
-    if (value.length > MAX_CONTAINER_ITEMS) {
-      fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded array length.');
+    jsonArray(value, label, MAX_CONTAINER_ITEMS);
+    result = [];
+    for (let index = 0; index < value.length; index += 1) {
+      const item = Object.getOwnPropertyDescriptor(value, String(index)).value;
+      result.push(cloneJson(item, label + '[' + index + ']', active, budget, depth + 1));
     }
-    result = value.map((item, index) => cloneJson(item, label + '[' + index + ']', active, budget, depth + 1));
   } else {
     object(value, label);
-    const entries = Object.entries(value);
-    if (entries.length > MAX_CONTAINER_ITEMS) {
+    const keys = Object.keys(value);
+    if (keys.length > MAX_CONTAINER_ITEMS) {
       fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' exceeds the bounded object field count.');
     }
     result = {};
-    for (const [key, item] of entries) {
+    for (const key of keys) {
       if (UNSAFE_OBJECT_KEYS.has(key)) {
         fail('INVALID_MECHANIC_EFFECT_INTENT', label + ' contains an unsafe object key: ' + key + '.');
       }
+      const item = Object.getOwnPropertyDescriptor(value, key).value;
       Object.defineProperty(result, key, { value: cloneJson(item, label + '.' + key, active, budget, depth + 1), enumerable: true, writable: true, configurable: true });
     }
   }
@@ -134,7 +170,7 @@ function translateOne(effect, index, jsonBudget) {
   }
 
   for (const key of ['source_refs', 'caused_by']) {
-    if (effect[key] !== undefined) stringList(effect[key], label + '.' + key);
+    if (Object.hasOwn(effect, key)) stringList(effect[key], label + '.' + key);
     if (effect[key]?.length) {
       fail('TRANSLATION_REQUIRES_PROVENANCE_MAPPING', 'Non-empty ' + key + ' requires an approved event-level provenance mapping.', { effect_id: effect.effect_id, field: key });
     }
@@ -172,16 +208,16 @@ function translateOne(effect, index, jsonBudget) {
       translated.attributes = cloneJson(object(payload.attributes, label + '.payload.attributes'), label + '.payload.attributes', new Set(), jsonBudget);
     }
     if (hasRemovals) {
-      if (!Array.isArray(payload.remove_attributes) || payload.remove_attributes.length > 200) {
-        fail('INVALID_MECHANIC_EFFECT_INTENT', label + '.payload.remove_attributes must be an array of at most 200 attribute names.');
-      }
+      jsonArray(payload.remove_attributes, label + '.payload.remove_attributes', 200);
       const seen = new Set();
-      translated.remove_attributes = payload.remove_attributes.map((key) => {
+      translated.remove_attributes = [];
+      for (let index = 0; index < payload.remove_attributes.length; index += 1) {
+        const key = Object.getOwnPropertyDescriptor(payload.remove_attributes, String(index)).value;
         const normalized = text(key, label + '.payload.remove_attributes[]', 200);
         if (seen.has(normalized)) fail('INVALID_MECHANIC_EFFECT_INTENT', 'remove_attributes must not contain duplicates.');
         seen.add(normalized);
-        return normalized;
-      });
+        translated.remove_attributes.push(normalized);
+      }
       if (hasAttributes && translated.remove_attributes.some((key) => Object.hasOwn(translated.attributes, key))) {
         fail('INVALID_MECHANIC_EFFECT_INTENT', 'An attribute cannot be patched and removed in the same effect.');
       }
@@ -216,13 +252,15 @@ function translateOne(effect, index, jsonBudget) {
  * Pure and all-or-nothing: this function never reads or mutates world state.
  */
 export function translateMechanicEffectIntents(intents) {
-  if (!Array.isArray(intents) || intents.length === 0 || intents.length > MAX_BATCH) {
+  jsonArray(intents, 'intents', MAX_BATCH);
+  if (intents.length === 0) {
     fail('INVALID_MECHANIC_EFFECT_INTENT', 'intents must be a non-empty array of at most ' + MAX_BATCH + ' items.');
   }
 
   const seenIds = new Set();
-  for (const [index, intent] of intents.entries()) {
-    if (!isObject(intent) || typeof intent.effect_id !== 'string' || !intent.effect_id.trim()) {
+  for (let index = 0; index < intents.length; index += 1) {
+    const intent = object(Object.getOwnPropertyDescriptor(intents, String(index)).value, 'intents[' + index + ']');
+    if (typeof intent.effect_id !== 'string' || !intent.effect_id.trim()) {
       fail('INVALID_MECHANIC_EFFECT_INTENT', 'intents[' + index + '] must have a non-empty effect_id.');
     }
     const id = intent.effect_id.trim();

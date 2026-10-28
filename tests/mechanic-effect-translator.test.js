@@ -275,3 +275,255 @@ test('empty mechanic intent batches are rejected explicitly', () => {
     code('INVALID_MECHANIC_EFFECT_INTENT'),
   );
 });
+
+test('effect translation rejects getters without executing them', () => {
+  let getterCalls = 0;
+  const accessorIntent = intent();
+  Object.defineProperty(accessorIntent, 'effect_id', {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return 'effect-001';
+    },
+  });
+  assert.throws(
+    () => translateMechanicEffectIntents([accessorIntent]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+
+  const accessorPayload = { entity_type: 'person' };
+  Object.defineProperty(accessorPayload, 'entity_type', {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return 'person';
+    },
+  });
+  assert.throws(
+    () => translateMechanicEffectIntents([intent({ payload: accessorPayload })]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+
+  const accessorValue = {};
+  Object.defineProperty(accessorValue, 'secret', {
+    enumerable: true,
+    get() {
+      getterCalls += 1;
+      return 'value';
+    },
+  });
+  assert.throws(
+    () => translateMechanicEffectIntents([intent({
+      kind: 'assert_fact',
+      target_ref: 'fact.example',
+      payload: { predicate: 'p', value: accessorValue },
+    })]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+  assert.equal(getterCalls, 0);
+});
+
+test('effect translation rejects sparse arrays and custom array properties', () => {
+  const sparse = [];
+  sparse.length = 1;
+  const custom = [1];
+  custom.extra = true;
+
+  for (const value of [sparse, custom]) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({
+        kind: 'assert_fact',
+        target_ref: 'fact.example',
+        payload: { predicate: 'p', value },
+      })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+
+  const sparseBatch = [];
+  sparseBatch.length = 1;
+  assert.throws(
+    () => translateMechanicEffectIntents(sparseBatch),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+});
+
+test('remove_attributes rejects accessors and sparse arrays without executing getters', () => {
+  let getterCalls = 0;
+  const accessorRemovals = ['old_rank'];
+  Object.defineProperty(accessorRemovals, '0', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      return 'old_rank';
+    },
+  });
+  const sparseRemovals = [];
+  sparseRemovals.length = 1;
+
+  for (const remove_attributes of [accessorRemovals, sparseRemovals]) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({
+        kind: 'update_attribute',
+        payload: { remove_attributes },
+      })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+  assert.equal(getterCalls, 0);
+});
+
+test('explicitly undefined provenance fields are rejected as non-JSON input', () => {
+  for (const field of ['source_refs', 'caused_by']) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({ [field]: undefined })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+});
+
+test('object field counts are bounded before intent and payload interpretation', () => {
+  const oversizedIntent = intent();
+  for (let index = 0; index < 1001; index += 1) {
+    oversizedIntent['extra_' + index] = index;
+  }
+  const oversizedPayload = Object.fromEntries(
+    Array.from({ length: 1001 }, (_, index) => ['extra_' + index, index]),
+  );
+
+  assert.throws(
+    () => translateMechanicEffectIntents([oversizedIntent]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+  assert.throws(
+    () => translateMechanicEffectIntents([intent({ payload: oversizedPayload })]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+});
+
+test('effect translation rejects symbol and non-enumerable object properties', () => {
+  const symbolIntent = intent();
+  symbolIntent[Symbol('hidden')] = true;
+
+  const nonEnumerableIntent = intent();
+  Object.defineProperty(nonEnumerableIntent, 'hidden', {
+    value: true,
+    enumerable: false,
+  });
+
+  const symbolPayload = { entity_type: 'person' };
+  symbolPayload[Symbol('hidden')] = true;
+
+  const nonEnumerablePayload = { entity_type: 'person' };
+  Object.defineProperty(nonEnumerablePayload, 'hidden', {
+    value: true,
+    enumerable: false,
+  });
+
+  for (const value of [symbolIntent, nonEnumerableIntent]) {
+    assert.throws(
+      () => translateMechanicEffectIntents([value]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+  for (const payload of [symbolPayload, nonEnumerablePayload]) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({ payload })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+});
+
+test('nested JSON rejects prototype-pollution keys and symbol-bearing arrays', () => {
+  const unsafe = {};
+  Object.defineProperty(unsafe, '__proto__', {
+    value: { polluted: true },
+    enumerable: true,
+    configurable: true,
+  });
+  const symbolArray = [1];
+  symbolArray[Symbol('hidden')] = true;
+
+  for (const value of [unsafe, symbolArray]) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({
+        kind: 'assert_fact',
+        target_ref: 'fact.example',
+        payload: { predicate: 'p', value },
+      })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+    );
+  }
+  assert.equal(Object.prototype.polluted, undefined);
+});
+
+test('effect translation rejects array index accessors without executing them', () => {
+  let getterCalls = 0;
+
+  const accessorBatch = [];
+  Object.defineProperty(accessorBatch, '0', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      return intent();
+    },
+  });
+  accessorBatch.length = 1;
+
+  const accessorNestedArray = [];
+  Object.defineProperty(accessorNestedArray, '0', {
+    enumerable: true,
+    configurable: true,
+    get() {
+      getterCalls += 1;
+      return 'value';
+    },
+  });
+  accessorNestedArray.length = 1;
+
+  assert.throws(
+    () => translateMechanicEffectIntents(accessorBatch),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+  assert.throws(
+    () => translateMechanicEffectIntents([intent({
+      kind: 'assert_fact',
+      target_ref: 'fact.example',
+      payload: { predicate: 'p', value: accessorNestedArray },
+    })]),
+    code('INVALID_MECHANIC_EFFECT_INTENT'),
+  );
+  assert.equal(getterCalls, 0);
+});
+
+test('nested fact values reject JavaScript values outside the JSON data model', () => {
+  const customPrototype = Object.create({ inherited: true });
+  customPrototype.own = 'value';
+
+  const invalidValues = [
+    undefined,
+    1n,
+    Symbol('not-json'),
+    () => 'not-json',
+    Number.POSITIVE_INFINITY,
+    Number.NEGATIVE_INFINITY,
+    new Date('2026-01-01T00:00:00.000Z'),
+    new Map([['key', 'value']]),
+    new Set(['value']),
+    customPrototype,
+  ];
+
+  for (const value of invalidValues) {
+    assert.throws(
+      () => translateMechanicEffectIntents([intent({
+        kind: 'assert_fact',
+        target_ref: 'fact.example',
+        payload: { predicate: 'p', value },
+      })]),
+      code('INVALID_MECHANIC_EFFECT_INTENT'),
+      String(value),
+    );
+  }
+});
