@@ -101,8 +101,13 @@ jobs:
           const privateEnd = startup.indexOf('\n}', privateStart);
           if (privateStart < 0 || privateEnd < 0) throw new Error('Pinned private endpoint router block not found');
           const privateBlock = startup.slice(privateStart, privateEnd);
-          const mounts = [...privateBlock.matchAll(/app\\.use\\(\\s*['"]([^'"]+)['"]\\s*,\\s*([A-Za-z_$][\\w$]*)\\s*\\)/g)]
-            .map((match) => `${match[1]}:${match[2]}`);
+          const mounts = privateBlock.split('\\n').map((line) => {
+            const trimmed = line.trim();
+            if (!trimmed.startsWith('app.use(')) return null;
+            const match = trimmed.match(/^app[.]use[(][ ]*['"]([^'"]+)['"][ ]*,[ ]*([A-Za-z_$][A-Za-z0-9_$]*)[ ]*[)][;]$/);
+            if (!match) throw new Error(`Unclassified pinned router mount syntax: ${trimmed}`);
+            return `${match[1]}:${match[2]}`;
+          }).filter(Boolean);
           const expectedMounts = [
             '/:userDataRouter',
             '/api/users:usersPrivateRouter', '/api/users:usersAdminRouter',
