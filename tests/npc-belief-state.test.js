@@ -171,3 +171,33 @@ test('context refuses actor or snapshot mismatch and evidence removed after redu
   assert.equal(buildNpcBeliefContext(knowledgeRead({ items: [] }), reduced.transition).reason,
     'context_evidence_no_longer_authorized');
 });
+
+test('a false belief remains explicit when Core evidence contradicts the proposed proposition value', () => {
+  const result = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead(),
+    proposal: proposal({
+      proposition_value: 'Sotenbori',
+      stance: 'believes_false',
+      supporting_acquisition_ids: [],
+      contradicting_acquisition_ids: ['acq-support'],
+    }),
+  });
+  assert.equal(result.status, 'ready');
+  assert.equal(result.transition.stance, 'believes_false');
+  assert.equal(result.transition.proposition_value, 'Sotenbori');
+});
+
+test('a model cannot omit contradictory evidence or cite a different proposition', () => {
+  assert.equal(reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead({ items: evidenceItems }),
+    proposal: proposal({
+      supporting_acquisition_ids: ['acq-support'],
+      contradicting_acquisition_ids: [],
+    }),
+  }).reason, 'all_current_proposition_evidence_must_be_accounted_for');
+  assert.equal(reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead(),
+    proposal: proposal({ proposition_value: 'Sotenbori' }),
+  }).reason, 'evidence_side_does_not_match_proposition_value');
+});
+
