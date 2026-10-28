@@ -128,7 +128,7 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   assert.equal(result.candidates[0].record_ref, 'memory:record-a');
   assert.deepEqual(result.candidates[0].content, { 'attributes.public_note': 'visible source-a' });
   assert.equal(result.candidates[0].source_version, String(
-    engine.getSnapshot(worldId, { entityIds: ['source-a'] }).entities[0].updated_revision,
+    s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'] }).entities[0].updated_revision,
   ));
 
   assert.equal(JSON.stringify(result).includes('never disclose'), false);
@@ -158,28 +158,18 @@ test('Core mutation after source validation but before Provider authorization co
   assert.equal(JSON.stringify(result).includes('changed during validation'), false);
 });
 
-test('provider rejects a candidate whose presented source token differs from the persisted token', async (t) => {
+test('Provider rejects a candidate whose presented source token differs from the persisted token', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
-  const retrieve = s.provider.retrieveCandidates.bind(s.provider);
-  s.provider.retrieveCandidates = async (scope) => {
-    const result = await retrieve(scope);
-    return {
-      ...result,
-      candidates: result.candidates.map((candidate) => ({
-        ...candidate,
-        source: { ...candidate.source, version: '999999' },
-      })),
-    };
-  };
-
-  const result = await s.consumer.retrieveForNpc({
-    worldId: s.scope.world_id,
-    adapterId: 'provider-e2e-adapter',
-    actorEntityId: s.scope.subject_id,
-  });
-  assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  const record = s.records[0];
+  await assert.rejects(() => s.provider.authorizeCandidate({
+    ...s.scope,
+    record_ref: record.record_ref,
+    record_version: record.record_version,
+    source_kind: record.source_kind,
+    source_entity_id: record.source_entity_id,
+    source_version: '999999',
+  }), /MEMORY_SOURCE_VERSION_UNVERIFIABLE/);
 });
 
 test('real provider revocation during candidate B authorization excludes previously allowed A', async (t) => {
