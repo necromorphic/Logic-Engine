@@ -133,3 +133,13 @@ node --test tests/time-advance-operation.test.js
 **Result: 6 tests passed, 0 failed.** The six tests cover due-coordinate commits, idempotent replay, rejection of changed request content under the same key, blocked due work, sub-second rejection, and recovery from the last persisted segment checkpoint without replaying that segment.
 
 **Scope limitation:** this execution was against the uploaded archive, not a fresh checkout of the current remote `main` or the PR branch. It confirms those six tests pass in the archive; it does not establish that the current remote revision has identical code or that the full repository suite passes.
+
+
+## 10. Additional test evidence: timed-action interruption
+
+Inspection of `tests/time-trigger-registry.test.js` found explicit runtime tests for:
+- a timed action resolving duration through TimePolicy and processing due triggers before final action effects;
+- a due trigger interrupting a timed action, where the operation is marked `interrupted`, the final action status is `not_executed_interrupted`, and the trigger is completed;
+- refusing ambiguous policy duration before claiming triggers.
+
+This narrows the earlier concern: the repository does have an interruption contract for a **single timed action**. The remaining proposed gap is narrower: a generic composite/multi-step action with durable partial progress and explicit resume semantics. Do not describe all interruption handling as missing.
