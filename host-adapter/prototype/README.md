@@ -196,3 +196,20 @@ For enrolled conversations, the pinned server middleware now checks the Core dig
 After a successful persisted-state readback, the server publishes only version IDs, content digests, active flags and tombstones to Core **before returning the buffered success response**. If Core rejects or cannot durably accept the capture, the response becomes `503` and the operation remains `UNRESOLVED`. This closes the browser-after-save capture gap for the supported save path.
 
 Routes that can delete, rename, replace, import, or relocate enrolled history are blocked before their native handlers until identity-preserving/tombstone-aware server handlers exist. This is intentionally restrictive; it avoids reporting a failure only after destructive work has already occurred.
+
+## Request-scoped transport capability — implementation-review candidate
+
+`request-scoped-transport-capability.mjs` implements the narrow transport half of Core's approved Option B contract. It is **not wired into SillyTavern provider branches** and is not a production Gateway.
+
+- A trusted provider caller supplies the already-resolved endpoint, headers, method, streaming mode, and exact serialized body. The capability hashes the endpoint and headers rather than exposing raw endpoint/credential material to authorization evidence.
+- The transport invocation receives the exact body string; this helper never parses or reserializes it.
+- The capability is one-shot. It invokes the configured transport once, returns its response promise, and provides no retry or fallback.
+- `dispatchThroughRequestScopedCapability` refuses to send unless one owner-provided operation returns a matching `STARTED` decision. That operation must perform current authorization and durable `DISPATCH_STARTED` under the **same serialization boundary** used by source invalidation/revocation.
+- Denial, missing authorization/start operation, thrown authority call, or request-digest mismatch results in zero transport calls. A rejected response after the durable start is `UNKNOWN`; it is never retried.
+
+### Explicit blockers
+
+The repository does not yet expose a verified Core/Provider operation that satisfies the atomic `authorize + persist DISPATCH_STARTED` contract. Two sequential checks are not equivalent. The helper therefore accepts that operation as a required dependency and does not invent a local ledger, route, schema, or production substitute.
+
+This candidate does **not** prove integration with any real SillyTavern provider branch, complete egress mediation, revocation serialization, durable storage, or end-to-end Memory→NPC authorization. The tests use a recording fake transport to validate the helper's contract only. Keep the deny-only guard active and Memory→NPC disabled until the real provider branches are patched and exact-body, pre-start revocation, no-bypass, and unknown-outcome tests pass.
+
