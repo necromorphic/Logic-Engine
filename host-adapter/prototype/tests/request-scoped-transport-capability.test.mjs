@@ -113,10 +113,14 @@ test('invalid endpoint, non-string body, and URL credentials are rejected', () =
   assert.throws(() => makeCapability({ endpoint: 'file:///tmp/provider' }), /resolved HTTP\(S\) endpoint/);
   assert.throws(() => makeCapability({ endpoint: 'https://user:pass@provider.example/v1' }), /resolved HTTP\(S\) endpoint/);
   assert.throws(() => makeCapability({ serializedBody: { model: 'test' } }), /exact serialized request body/);
+  assert.throws(() => makeCapability({ headers: { Authorization: 'Bearer one', authorization: 'Bearer two' } }), /unique normalized string pairs/);
+  assert.throws(() => makeCapability({ headers: { 'x-provider': 'value\\r\\nInjected: yes' } }), /unique normalized string pairs/);
 });
 
-test('request digest binds endpoint, headers, streaming mode, and exact body bytes', () => {
+test('request digest binds endpoint, headers, streaming mode, and exact body bytes without exposing secrets', () => {
   const base = makeCapability();
+  assert.equal(JSON.stringify(base.requestMetadata).includes('provider.example'), false);
+  assert.equal(JSON.stringify(base.requestMetadata).includes('test-secret'), false);
   assert.notEqual(base.requestDigest, makeCapability({ serializedBody: '{"model":"different"}' }).requestDigest);
   assert.notEqual(base.requestDigest, makeCapability({ endpoint: 'https://provider.example/v2/chat/completions' }).requestDigest);
   assert.notEqual(base.requestDigest, makeCapability({ streaming: true }).requestDigest);
