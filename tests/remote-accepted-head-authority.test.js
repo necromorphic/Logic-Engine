@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createHash, generateKeyPairSync } from 'node:crypto';
+import { createHash, generateKeyPairSync, sign } from 'node:crypto';
 import { once } from 'node:events';
 import { createRemoteAnchorServer } from '../src/security/remote-accepted-head-authority.js';
 import { serializeRemoteAnchorRecord } from '../src/security/remote-accepted-head-client.js';
@@ -97,6 +97,38 @@ test('remote authority signs genesis and serves it only to the enrolled service 
   });
   assert.equal(wrongTokenResponse.status, 403);
   assert.equal(typeof authority.publicKey, 'string');
+});
+
+test('sequence exhaustion fails closed without mutating the anchor store', async (t) => {
+  const record = {
+    installation_id: installationId,
+    epoch_id: 'epoch-server-test',
+    key_id: 'key-server-test',
+    sequence: Number.MAX_SAFE_INTEGER,
+    previous_record_digest: 'd'.repeat(64),
+    core_head_digest: coreDigestA,
+    provider_readiness_digest: providerDigest,
+    contract_version: 1,
+    record_type: 'ADVANCE',
+    recovery_reason: null,
+  };
+  const envelope = {
+    record,
+    signature: sign(null, Buffer.from(serializeRemoteAnchorRecord(record), 'utf8'), privateKey).toString('base64url'),
+  };
+  let appendCalls = 0;
+  const store = {
+    async getHead() { return envelope; },
+    async appendIfHead() { appendCalls += 1; return true; },
+  };
+  const { base } = await withServer(t, { store });
+  const response = await append(base, requestBody({
+    expected_sequence: Number.MAX_SAFE_INTEGER,
+    expected_digest: recordDigest(envelope),
+  }));
+  assert.equal(response.status, 503);
+  assert.deepEqual(await response.json(), { error: 'ANCHOR_SEQUENCE_EXHAUSTED' });
+  assert.equal(appendCalls, 0);
 });
 
 test('compare-and-append rejects stale heads and concurrent append forks', async (t) => {
