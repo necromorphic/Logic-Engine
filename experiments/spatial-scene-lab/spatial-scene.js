@@ -67,6 +67,26 @@ function segmentIntersectsAabb(start, end, box) {
   return tMax >= 0 && tMin <= 1;
 }
 
+function segmentAabbIntersectionInterval(start, end, box) {
+  let tMin = 0;
+  let tMax = 1;
+  for (const axis of ['x', 'y', 'z']) {
+    const direction = end[axis] - start[axis];
+    if (direction === 0) {
+      if (start[axis] < box.min[axis] || start[axis] > box.max[axis]) return null;
+      continue;
+    }
+    let a = (box.min[axis] - start[axis]) / direction;
+    let b = (box.max[axis] - start[axis]) / direction;
+    if (a > b) [a, b] = [b, a];
+    tMin = Math.max(tMin, a);
+    tMax = Math.min(tMax, b);
+    if (tMin > tMax) return null;
+  }
+  if (tMax < 0 || tMin > 1) return null;
+  return { enter: Math.max(0, tMin), exit: Math.min(1, tMax) };
+}
+
 function bodyOffsets(entity) {
   return entity.body ?? {
     minOffset: { x: 0, y: 0, z: 0 },
@@ -356,12 +376,15 @@ export function detectSimultaneousTrajectoryCollisions(scene, horizonSeconds) {
           z: bBody.maxOffset.z - aBody.minOffset.z,
         },
       };
-      if (segmentIntersectsAabb(relativeStart, relativeEnd, combined)) {
+      const overlapInterval = segmentAabbIntersectionInterval(relativeStart, relativeEnd, combined);
+      if (overlapInterval) {
         collisions.push({
           entityA: a.id,
           entityB: b.id,
           status: 'POSSIBLE',
           reason: 'SYNCHRONIZED_SWEPT_AABB_OVERLAP',
+          timeStartSeconds: overlapInterval.enter * horizonSeconds,
+          timeEndSeconds: overlapInterval.exit * horizonSeconds,
           horizonSeconds,
         });
       }
