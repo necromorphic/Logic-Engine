@@ -50,10 +50,10 @@ UNKNOWN, DENIED, INCOMPLETE, STALE, and UNAVAILABLE MUST NOT silently become fal
 |---|---|---|---|
 | **Host / Adapter** | Host-session identity, capture of host events, request construction, delivery of approved outputs, transport status, host-specific source inventory | Authenticated requests, exact request/response references, capture-completeness evidence, delivery receipts, bounded context manifest | Declare world truth; invent NPC knowledge; bypass Core policy; fall back to unprotected egress after a protected path rejects |
 | **Memory Provider** | Stored source records, source/version lineage, retrieval mechanics, tombstones/revocations, retention and provider integrity | Candidates with source identity/version, scope, validity, lineage, completeness and retrieval status | Decide what an NPC may know; turn text into world facts; resurrect revoked content; represent incomplete retrieval as complete empty |
-| **Core** | Canonical world state/time/events/revisions/causality, actor bindings, policy-filtered canonical reads, authoritative acquisition records where implemented, effect validation, proposal lifecycle, commit/rollback/replay | Snapshot-bound facts, actor/purpose-filtered records, admissibility decisions, authoritative outcomes | Treat model text as committed fact; infer knowledge from world truth; accept an action because the model proposed it |
-| **NPC** | NPC-local goals/plans/tasks/intentions, ranking among admissible candidates, bounded non-committing proposals | Goal/plan/action proposals and requests for missing adjudication | Write canonical state directly; create authoritative knowledge records; self-approve or commit effects; invent missing source data |
+| **Core** | Canonical world state/time/events/revisions/causality; actor bindings; policy-filtered reads; authoritative acquisition and persistent subject-relative belief records where implemented; canonical persisted Relationship state; effect validation; proposal lifecycle; commit/rollback/replay | Snapshot-bound facts, actor/purpose-filtered records, admissibility decisions, authoritative outcomes | Treat model text as committed fact; infer knowledge from world truth; accept an action because the model proposed it |
+| **NPC** | NPC-local goals/plans/tasks/intentions, ranking among admissible candidates, character-relative interpretation and bounded proposals for belief changes | Goal/plan/action/belief-update proposals and requests for missing adjudication | Write canonical state or authoritative persistent belief/acquisition records directly; self-approve or commit effects; invent missing source data |
 | **Personality / Profile** | Stable traits, values, habits, authored constraints, characterization and declared capabilities | Versioned profile facts and constraints | Overwrite world state; grant technical permissions; force deterministic behavior; invent hidden biography |
-| **Relationships** | Typed, directed social relationship state and its semantics under its own persistence/visibility contract | Actor-scoped relationship facts with version/provenance/status | Grant access by itself; imply shared knowledge; turn one character's view into objective truth; bypass Core writes |
+| **Relationships** | Relationship-domain semantics and evaluation of typed, directed, multidimensional social state and interpretation candidates; Core remains authoritative for canonical persisted relationship records, revisions, commit, provenance and rollback | Actor-scoped relationship facts/interpretations with version, provenance and status supplied through the approved Core read path | Maintain a competing authoritative persistence store; grant access by itself; imply shared knowledge; turn one character's view into objective truth; bypass Core writes |
 | **World Pack / Mechanics** | Setting rules, supported mechanics, action/effect vocabulary, capability definitions, precondition semantics | Version-pinned rules/templates and legal candidate vocabulary | Execute effects because they are defined; change runtime authorization; silently update a live world's pinned rules |
 | **Time / Process Manager** | Scheduling and trigger lifecycle within the approved contract; Core remains authority for canonical game time and effects | Due-work candidates, trigger identity, claim/idempotency and timing evidence | Create a second clock or event log; execute effects outside Core; infer in-world time from OS time/chat turns |
 | **Narrative / Presentation** | Wording, style, viewpoint and formatting of permitted content | Player-facing text derived from authorized context and confirmed results | Commit events, grant knowledge, widen visibility, turn proposals into facts, disclose hidden data |
@@ -133,7 +133,7 @@ Core must not copy every world fact into every NPC's knowledge. Actor, purpose, 
 
 ### 7.3 NPC
 
-NPC consumes only actor-relative records explicitly admitted by the trusted caller. It may reason about them and propose hypotheses only where that capability is allowed. A thought, summary, dialogue line or model response cannot create an authoritative acquisition record.
+NPC consumes only actor-relative records explicitly admitted by the trusted caller. It may reason about them, maintain character-relative interpretations, and propose belief revisions under the approved contract. NPC belief may be mistaken and may motivate an action, but a belief is not canonical truth, proof of acquisition, or a permission grant. Persistent authoritative belief state remains Core-owned. A thought, summary, dialogue line or model response cannot create an authoritative acquisition or persistent-belief record.
 
 ### 7.4 Final disclosure boundary
 
@@ -323,3 +323,56 @@ The project owner authorized this comprehensive cross-block contract draft. It d
 It does **not** claim that missing APIs, schemas, events, storage records, permission checks or adapters exist; grant technical credentials or OS/database permissions; approve all actions or knowledge-acquisition methods; allow NPC to write Core state directly; authorize production Memory → NPC; mark tests as run; or supersede a merged contract without explicit conflict resolution.
 
 **Required next implementation artifact:** a contract-to-code traceability table listing each requirement, current source/test evidence, missing owner/source, implementation PR and acceptance result. Only verified evidence may be marked implemented.
+
+
+## 18. Reconciliation with existing project decisions
+
+This contract must be read alongside existing project decisions; it does not replace them. The following precedence applies:
+
+1. **Explicit project-author decisions** recorded in `docs/38-npc-author-decisions-and-semantic-delta.md` govern NPC semantics.
+2. **Merged current-main runtime contracts and code** govern what is actually executable. A semantic target does not create a missing runtime capability.
+3. **Core-owned implementation plans and contracts** define Core-owned record, authorization, proposal, commit, revision, and rollback boundaries. A branch-local proposal does not supersede them.
+4. **This cross-block contract** supplies the cross-block target interpretation where the above sources leave a gap. If it conflicts with a higher-precedence source, implementation is blocked until the conflict is resolved explicitly.
+
+### 18.1 Author-confirmed NPC semantics that this contract preserves
+
+- Canonical truth, plausible-source acquisition, inference/hypothesis, rumor, and an NPC's belief (including a false belief) are distinct. Prompt inclusion or retrieval alone does not mean acquisition.
+- NPCs may draw different conclusions from the same evidence; source reliability does not mechanically dictate belief.
+- An NPC may act on an incorrect belief when the resulting action passes the existing Core validation, capability, precondition, causality, world-rule, and player-agency checks. The system must not silently equate “not canonical” with “forbidden to believe”.
+- Stable character profile, situational motives/emotions/goals, and longer-term character development are distinct. A temporary emotion does not automatically become a permanent trait.
+- A directly author-mandated outcome must not be silently cancelled merely because an NPC would ordinarily choose otherwise. The engine must find a plausible path where possible, subject to higher-priority system constraints and preservation of player agency; it must not rewrite established history or present invented prior causes as facts.
+- Off-screen continuity is a desired behavior, not permission for uncontrolled background execution or implicit in-world time advancement.
+- Relationship state is multidimensional and may be asymmetric or ambiguous. Unknown is not neutral; one score/label must not collapse independent dimensions; relationship state does not imply knowledge or reciprocal feelings.
+- Secrets and viewpoint-specific disclosure remain separate from canonical truth and actor knowledge.
+
+### 18.2 Canonical persistence ownership correction
+
+The authority matrix above describes **domain responsibility**, not a license for every domain module to own canonical persistence. In line with `docs/42-npc-relationship-state-contract-proposal.md` and `docs/43-npc-relationship-core-integration-decision.md`:
+
+- Core owns canonical persisted Relationship state, entity/event identity, validated commits, world revisions/time, causal provenance, audit and rollback.
+- Relationships owns relationship-domain interpretation/evaluation and may prepare bounded candidates; it does not create a competing authoritative store.
+- Core owns persistent subject-relative belief state as a target capability, logically separate from canonical truth and acquisition history. The current executable representation/reconciliation interface remains a gate until verified in code.
+- NPC may propose a belief change or relationship-relevant interpretation, but it cannot persist that proposal as canonical truth or a Core-owned record by itself.
+- Personality/Profile supplies character semantics; profile version/source and any persistence path must be traced to the actual owning record. It does not grant technical access or effect permissions.
+
+### 18.3 First-slice scope is narrower than the complete target
+
+The cross-block target describes the eventual system, but the first executable vertical slice remains bounded by `docs/43-core-npc-knowledge-runtime-implementation-plan.md` and `docs/34-npc-decision-context-and-proposal.md`:
+
+- trusted actor resolution;
+- Core-owned initial/imported acquisition and provenance;
+- snapshot-bound authorized read/filter;
+- a safe actor-specific decision context;
+- a bounded non-committing NPC proposal through the existing lifecycle.
+
+Persistent belief updates, general observations, communication/receipt, rumor, documents, inference-as-acquired-knowledge, autonomous scheduling, off-screen progression, and a universal NPC action catalogue remain out of the first slice until their real source/authority paths are implemented and tested.
+
+### 18.4 Current-main boundaries that must not be overstated
+
+- `POST /v1/worlds/:id/authorized-read` is actor-bound and policy-filtered, but the runtime documentation explicitly says it is not a complete knowledge/belief system.
+- A context manifest binds limited generation/snapshot metadata; it does not by itself prove that the exact serialized model context was authorized, that source lineage is complete, or that the model received only admitted records.
+- `MemoryNpcConsumer.revalidateForFinalDispatch(...)` is a freshness re-read, not a transport lease. Its source comments explicitly leave the durable dispatch-start/sole-egress gateway and the TOCTOU closure to Host.
+- The accepted-head/revocation gate protects part of the Core/Provider write lifecycle, but the current production-dispatch gate remains closed pending Host inventory, final-send reauthorization, sole-egress and deployment/restore evidence.
+- A pure NPC selector/lifecycle/progress helper proves only its local transformation. It does not prove candidate discovery, trusted input sourcing, persistence, scheduling, action authorization, dispatch, or Core commit.
+
+These limits are part of the contract and must be kept visible in status reports and future PRs.
