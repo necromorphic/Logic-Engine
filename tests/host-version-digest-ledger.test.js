@@ -718,9 +718,10 @@ test('explicit null records a verified root and child ancestry survives tombston
   const root = entry({ version_id: 'root-v', parent_version_id: null, active: false });
   const child = entry({ version_id: 'child-v', parent_version_id: 'root-v', active: true });
   const snapshot = { world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [root, child] };
-  assert.deepEqual(await ledger.reconcileConversation(snapshot), {
-    status: 'ready', snapshot_sha256: assert.match.string, version_count: 2
-  });
+  const reconciled = await ledger.reconcileConversation(snapshot);
+  assert.equal(reconciled.status, 'ready');
+  assert.equal(reconciled.version_count, 2);
+  assert.match(reconciled.snapshot_sha256, /^[a-f0-9]{64}$/);
   const storedRoot = ledger.db.prepare('SELECT parent_version_id,lineage_status FROM host_version_digest_ledger WHERE version_id=?').get('root-v');
   assert.equal(storedRoot.parent_version_id, null);
   assert.equal(storedRoot.lineage_status, 'VERIFIED');
