@@ -497,11 +497,11 @@ diff --git a/src/endpoints/logic-engine-lifecycle.js b/src/endpoints/logic-engin
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-lifecycle.js
-@@ -0,0 +1,100 @@
+@@ -0,0 +1,114 @@
 +import express from 'express';
 +import { createHostDigestProxyHandler } from './logic-engine-lifecycle-proxy.mjs';
 +import { scanHostArtifactRoots } from './logic-engine-host-inventory.mjs';
-+import { getHostConversationInventory, getHostMutationJournalStatus, reconcileHostMutation, recordHostCaptureAcknowledgement, recordHostCaptureConflict, registerHostConversation } from './logic-engine-host-journal.mjs';
++import { getHostConversationInventory, getHostMutationJournalStatus, prepareHostSaveCapability, reconcileHostMutation, recordHostCaptureAcknowledgement, recordHostCaptureConflict, registerHostConversation } from './logic-engine-host-journal.mjs';
 +
 +export const router = express.Router();
 +router.post('/host-version-ledger/capture', createHostDigestProxyHandler({
@@ -522,6 +522,20 @@ new file mode 100644
 +            ? error.message
 +            : 'HOST_ENROLLMENT_UNAVAILABLE';
 +        return response.status(code === 'HOST_ENROLLMENT_UNAVAILABLE' ? 503 : 400).json({ error: { code } });
++    }
++});
++
++router.post('/host-lifecycle/save-capability/prepare', async (request, response) => {
++    try {
++        const result = await prepareHostSaveCapability(request, request.body ?? {});
++        return response.status(200).json(result);
++    } catch (error) {
++        const message = typeof error?.message === 'string' ? error.message : '';
++        const code = message.startsWith('HOST_SAVE_') ? message : 'HOST_SAVE_CAPABILITY_NOT_READY';
++        const status = code.includes('SESSION_REQUIRED') ? 401
++            : code.includes('NOT_READY') || code.includes('UNAVAILABLE') ? 503
++                : 409;
++        return response.status(status).json({ error: { code } });
 +    }
 +});
 +
