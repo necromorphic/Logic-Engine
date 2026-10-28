@@ -1,7 +1,8 @@
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from './coordinator-lock.js';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
+import { advanceAcceptedHeadSync, finalizeAcceptedHeadSync, getAcceptedHeadStatusSync, getAcceptedHeadsSync } from '../security/accepted-head-client-sync.js';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { EngineError } from '../core/errors.js';
@@ -9,6 +10,29 @@ import { hashRequest } from '../core/request-hash.js';
 import { evaluateRelationshipCandidate } from '../relationship/evaluate-candidate.js';
 
 const now = () => new Date().toISOString();
+
+function databaseSchemaDigest(db) {
+  return hashRequest(db.prepare(`
+    SELECT type, name, tbl_name, sql FROM sqlite_master
+    WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name
+  `).all());
+}
+const acceptedHeadConfigFromEnv = () => {
+  const required = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED === '1';
+  const portRaw = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_PORT;
+  const token = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_CORE_TOKEN;
+  const anyConfigured = portRaw !== undefined || token !== undefined;
+  if (!anyConfigured) {
+    if (required) throw new Error('CORE_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
+    return null;
+  }
+  const port = Number(portRaw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535
+    || typeof token !== 'string' || token.length < 32) {
+    throw new Error('CORE_ACCEPTED_HEAD_AUTHORITY_CONFIGURATION_INVALID');
+  }
+  return Object.freeze({ port, token });
+};
 const enc = (x) => JSON.stringify(x);
 const dec = (x) => x == null ? null : JSON.parse(x);
 const timeAdvanceOperation = (row) => row && ({
@@ -195,6 +219,10 @@ export class SQLiteStore {
     }
     if (corePath !== ':memory:') mkdirSync(dirname(corePath), { recursive: true });
     if (coordinatorPath) mkdirSync(dirname(resolve(coordinatorPath)), { recursive: true });
+    this.acceptedHeadConfig = acceptedHeadConfigFromEnv();
+    if (this.acceptedHeadConfig && (corePath === ':memory:' || !coordinatorPath)) {
+      throw new Error('CORE_ACCEPTED_HEAD_REQUIRES_FILE_BACKED_STORE_AND_COORDINATOR');
+    }
     this.coordinatorDb = coordinatorPath ? openCoordinatorDatabase(coordinatorPath) : null;
     this.coordinatorRelease = null;
     this.coordinatorLeaseDepth = 0;
@@ -204,9 +232,25 @@ export class SQLiteStore {
         this.coordinatorRelease = beginCoordinatorLock(this.coordinatorDb);
         this.coordinatorLeaseDepth = 1;
       }
-      this.db.exec(`
+      const schemaSql = `
       PRAGMA foreign_keys=ON;
       PRAGMA busy_timeout=5000;
+      CREATE TABLE IF NOT EXISTS accepted_head_state(
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        head INTEGER NOT NULL CHECK(head>=0),
+        enrolled INTEGER NOT NULL DEFAULT 0 CHECK(enrolled IN (0,1)),
+        last_operation_id TEXT,
+        last_operation_digest TEXT
+      );
+      CREATE TABLE IF NOT EXISTS accepted_head_enrollment_audit(
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        domain TEXT NOT NULL CHECK(domain IN ('core','provider')),
+        approval_id TEXT NOT NULL,
+        baseline_digest TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        enrolled_head INTEGER NOT NULL CHECK(enrolled_head=1),
+        enrolled_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS worlds(
         world_id TEXT PRIMARY KEY, world_pack_id TEXT NOT NULL, world_pack_version TEXT NOT NULL,
         initial_game_time TEXT NOT NULL, game_time TEXT NOT NULL, world_revision INTEGER NOT NULL DEFAULT 0,
@@ -298,7 +342,28 @@ export class SQLiteStore {
       CREATE TABLE IF NOT EXISTS schema_migrations(
         version INTEGER PRIMARY KEY, applied_at TEXT NOT NULL
       );
-      `);
+      `;
+
+      if (!this.acceptedHeadConfig) {
+        const hasHeadTable = this.db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='accepted_head_state'").get();
+        if (hasHeadTable && this.db.prepare('SELECT enrolled FROM accepted_head_state WHERE singleton=1').get()?.enrolled === 1) {
+          throw new Error('CORE_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
+        }
+      }
+      if (this.acceptedHeadConfig) {
+        const existingObjects = new Set(this.db.prepare(
+          "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+        ).all().map((row) => row.object_name));
+        const requiredObjects = [...schemaSql.matchAll(/CREATE\s+(?:UNIQUE\s+)?(TABLE|INDEX)\s+IF\s+NOT\s+EXISTS\s+([A-Za-z_][A-Za-z0-9_]*)/gi)]
+          .map((match) => match[1].toLowerCase() + ':' + match[2]);
+        if (requiredObjects.some((objectName) => !existingObjects.has(objectName))) {
+          throw new Error('CORE_SCHEMA_INCOMPLETE');
+        }
+      }
+      this.db.exec(schemaSql);
+      if (!this.acceptedHeadConfig) {
+        this.db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
+      }
       this.migrate();
       if (this.coordinatorRelease) {
         this.coordinatorRelease();
@@ -620,6 +685,29 @@ export class SQLiteStore {
         this.tx(applyMigration);
       }
     }
+    if (this.acceptedHeadConfig) {
+      let status = getAcceptedHeadStatusSync({ port: this.acceptedHeadConfig.port, token: this.acceptedHeadConfig.token });
+      const local = this.db.prepare('SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1').get();
+      if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1) {
+        throw new Error('CORE_ACCEPTED_HEAD_NOT_ENROLLED');
+      }
+      const pending = status.operations.core;
+      if (pending) {
+        if (local.head !== pending.head || local.last_operation_id !== pending.operation_id
+          || local.last_operation_digest !== pending.operation_digest) {
+          throw new Error('CORE_ACCEPTED_HEAD_RECOVERY_REQUIRED');
+        }
+        finalizeAcceptedHeadSync({ domain: 'core', operationId: pending.operation_id,
+          operationDigest: pending.operation_digest, token: this.acceptedHeadConfig.token,
+          port: this.acceptedHeadConfig.port });
+        status = getAcceptedHeadStatusSync({ port: this.acceptedHeadConfig.port, token: this.acceptedHeadConfig.token });
+      }
+      if (status.pending.core || status.pending.provider || status.heads.core !== local.head
+        || !status.enrolled.core || !status.enrolled.provider || status.heads.provider < 1
+        || status.operations.core || status.operations.provider) {
+        throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
+      }
+    }
   }
 
   close() {
@@ -661,20 +749,66 @@ export class SQLiteStore {
         release?.();
       };
     }
+    let acceptedHeadSession = null;
     try {
       this.db.exec('BEGIN IMMEDIATE');
       this.txDepth = 1;
+      const beforeSchemaDigest = this.acceptedHeadConfig ? databaseSchemaDigest(this.db) : null;
+      acceptedHeadSession = this.acceptedHeadConfig ? this.db.createSession() : null;
+      const changesBefore = this.db.prepare('SELECT total_changes() AS count').get().count;
       const result = fn();
       if (result !== null && (typeof result === 'object' || typeof result === 'function')
         && typeof result.then === 'function') {
         throw new TypeError('SQLiteStore.tx callback must be synchronous; do not await while a coordinator lease is held.');
       }
+      let acceptedHeadOperation = null;
+      const changesAfter = this.db.prepare('SELECT total_changes() AS count').get().count;
+      if (this.acceptedHeadConfig && changesAfter > changesBefore) {
+        const local = this.db.prepare('SELECT head,enrolled FROM accepted_head_state WHERE singleton=1').get();
+        if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1) {
+          throw new Error('CORE_ACCEPTED_HEAD_NOT_ENROLLED');
+        }
+        const heads = getAcceptedHeadsSync({ port: this.acceptedHeadConfig.port, token: this.acceptedHeadConfig.token });
+        if (heads.core !== local.head) throw new Error('CORE_ACCEPTED_HEAD_MISMATCH');
+        const changeset = acceptedHeadSession.changeset();
+        acceptedHeadSession.close();
+        acceptedHeadSession = null;
+        const operationDigest = hashRequest({
+          domain: 'core', expected_head: local.head,
+          before_schema_digest: beforeSchemaDigest,
+          after_schema_digest: databaseSchemaDigest(this.db),
+          changeset_digest: createHash('sha256').update(changeset).digest('hex'),
+        });
+        const operationId = 'core-' + operationDigest;
+        const advanced = advanceAcceptedHeadSync({
+          domain: 'core', operationId, operationDigest, expectedHead: local.head,
+          token: this.acceptedHeadConfig.token, port: this.acceptedHeadConfig.port,
+        });
+        if (advanced.status !== 'pending' || advanced.head !== local.head + 1 || advanced.replayed) {
+          throw new Error('CORE_ACCEPTED_HEAD_ADVANCE_INVALID');
+        }
+        this.db.prepare('UPDATE accepted_head_state SET head=?,last_operation_id=?,last_operation_digest=? WHERE singleton=1')
+          .run(advanced.head, operationId, operationDigest);
+        acceptedHeadOperation = { operationId, operationDigest };
+      }
       this.db.exec('COMMIT');
+      if (acceptedHeadOperation) {
+        try {
+          finalizeAcceptedHeadSync({
+            domain: 'core', operationId: acceptedHeadOperation.operationId,
+            operationDigest: acceptedHeadOperation.operationDigest,
+            token: this.acceptedHeadConfig.token, port: this.acceptedHeadConfig.port,
+          });
+        } catch {
+          // Pending authority state blocks future writes and protected dispatch until recovery.
+        }
+      }
       return result;
     } catch (error) {
       try { this.db.exec('ROLLBACK'); } catch {}
       throw error;
     } finally {
+      try { acceptedHeadSession?.close(); } catch {}
       this.txDepth = 0;
       releaseCoordinator?.();
     }
