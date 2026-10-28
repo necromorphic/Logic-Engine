@@ -29,6 +29,7 @@ export async function createMemoryDispatchGatewayServer({
   gateway,
   hostToken,
   hostSigningKey,
+  createTransportCapability,
   host = '127.0.0.1',
   port = 0,
   maxBodyBytes = 5_000_000,
@@ -36,6 +37,7 @@ export async function createMemoryDispatchGatewayServer({
   if (!gateway || typeof gateway.dispatchProtectedRequest !== 'function'
     || typeof hostToken !== 'string' || hostToken.length < 32
     || typeof hostSigningKey !== 'string' || hostSigningKey.length < 32
+    || typeof createTransportCapability !== 'function'
     || hostToken === hostSigningKey
     || !loopbackHosts.has(host)
     || !Number.isInteger(port) || port < 0 || port > 65535
@@ -108,8 +110,19 @@ export async function createMemoryDispatchGatewayServer({
     };
 
     try {
+      // This synchronous factory is trusted Host code. It must only construct a
+      // dormant, request-bound capability; it must not initiate network I/O.
+      // The Gateway invokes that capability only after durable DISPATCH_STARTED.
+      const transport = createTransportCapability(Object.freeze({
+        route: dispatchRequest.route,
+        model: dispatchRequest.model,
+        stream: dispatchRequest.stream,
+        body: dispatchRequest.body,
+      }));
+      if (typeof transport !== 'function') throw new Error('MEMORY_DISPATCH_NOT_READY');
       await gateway.dispatchProtectedRequest({
         ...dispatchRequest,
+        transport,
         forwardResponse,
         signal: controller.signal,
       });
