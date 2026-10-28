@@ -47,7 +47,7 @@ Applying changes requires an elevated PowerShell session, explicit `-Apply`, and
 
 ## Evidence limits / remaining gates
 
-The Windows CI smoke workflow uses disposable local users, services, and a temporary fixture. It checks ACL shape only. The apply guard detects direct local Administrators membership but does not resolve nested/domain-group membership or every elevated token privilege; target-machine effective-token checks remain mandatory. It does not prove effective access denial on the target PC, inherited group/privilege access, alternate paths, backup/restore isolation, or that the authority's accepted-head semantics are monotonic and correct.
+The Windows CI smoke workflow uses disposable local users, services, and a temporary fixture. It checks ACL shape only. The apply guard rejects service identities directly listed in local Administrators and refuses to proceed if any group is directly listed there, because nested/domain-group membership cannot be proven safely by this script. It still does not prove every elevated token privilege; target-machine effective-token checks remain mandatory. It does not prove effective access denial on the target PC, inherited group/privilege access, alternate paths, backup/restore isolation, or that the authority's accepted-head semantics are monotonic and correct.
 
 Required before closure:
 1. Implement and review the authority service/protocol separately; authority state must not be advanced by caller-controlled IDs or partial inventory.
