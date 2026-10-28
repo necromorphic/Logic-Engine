@@ -283,6 +283,7 @@ test('Provider fails closed when authority advances but the local checkpoint tra
   const previousEnv = {};
   let child;
   let provider;
+  let providerReader;
   try {
     setEnv('LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath, previousEnv);
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', undefined, previousEnv);
