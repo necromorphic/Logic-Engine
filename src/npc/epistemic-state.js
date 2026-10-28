@@ -125,7 +125,10 @@ function validState(state) {
       || !validId(item.source_ref)
       || !validId(item.source_version)
       || !POLARITIES.has(item.polarity)
-      || !["valid", "invalidated"].includes(item.status)) return false;
+      || !["valid", "invalidated"].includes(item.status)
+      || !(item.invalidation_rule_ref === null || validId(item.invalidation_rule_ref))
+      || (item.status === "valid" && item.invalidation_rule_ref !== null)
+      || (item.status === "invalidated" && item.invalidation_rule_ref === null)) return false;
     const key = JSON.stringify([item.ref, item.version]);
     // Beliefs refer to stable evidence refs (not a ref/version pair), so one
     // ref cannot ambiguously name multiple versions in the same state.
@@ -224,6 +227,7 @@ function applyEventUnsafe(state, event) {
       source_version: event.source_version,
       polarity: event.polarity,
       status: "valid",
+      invalidation_rule_ref: null,
     };
     if (prior) {
       const same = prior.proposition_ref === nextEvidence.proposition_ref
@@ -297,9 +301,13 @@ function applyEventUnsafe(state, event) {
     }
     const prior = findEvidence(state, event.evidence_ref, event.evidence_version);
     if (!prior) return nonReady("evidence_not_found");
-    if (prior.status === "invalidated") return Object.freeze({ status: "unchanged", state, reason: null });
+    if (prior.status === "invalidated") {
+      return prior.invalidation_rule_ref === event.invalidation_rule_ref
+        ? Object.freeze({ status: "unchanged", state, reason: null })
+        : nonReady("invalidation_identity_conflict");
+    }
     const evidence = state.evidence.map((item) => item.ref === prior.ref && item.version === prior.version
-      ? { ...item, status: "invalidated" }
+      ? { ...item, status: "invalidated", invalidation_rule_ref: event.invalidation_rule_ref }
       : item);
     const beliefs = state.beliefs.map((belief) => {
       const usesEvidence = belief.supporting_evidence_refs.includes(prior.ref)
