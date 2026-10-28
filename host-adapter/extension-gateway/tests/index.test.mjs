@@ -41,30 +41,17 @@ test('arming is consumed once and interceptor aborts native generation before di
 
     assert.deepEqual(order, [['abort', true], ['dispatch', 'index-test-1']]);
     assert.equal(replayAborted, false);
-    assert.deepEqual(getStatus(), { status: 'DISPATCH_DELEGATED', hasPendingRequest: false, dispatchInFlight: false });
+    assert.deepEqual(getStatus(), { status: 'DISPATCH_DELEGATED', hasPendingRequest: false, dispatchInFlight: false, protectedFailureLockout: false });
 });
 
-test('missing dispatch callback aborts native generation and fails closed', async () => {
-    armProtectedRequest('index-test-2', null);
-    let aborted = false;
 
-    await globalThis.logicEngineExtensionGatewayGenerationInterceptor(
-        [],
-        4096,
-        immediately => { aborted = immediately; },
-        'normal',
-    );
-
-    assert.equal(aborted, true);
-    assert.deepEqual(getStatus(), { status: 'BLOCKED_NO_TRUSTED_DISPATCH', hasPendingRequest: false, dispatchInFlight: false });
-});
 
 test('cancel only affects the matching pending request', () => {
     armProtectedRequest('index-test-3', async () => {});
     assert.equal(cancelProtectedRequest('wrong-id'), false);
     assert.equal(getStatus().hasPendingRequest, true);
     assert.equal(cancelProtectedRequest('index-test-3'), true);
-    assert.deepEqual(getStatus(), { status: 'CANCELLED', hasPendingRequest: false, dispatchInFlight: false });
+    assert.deepEqual(getStatus(), { status: 'CANCELLED', hasPendingRequest: false, dispatchInFlight: false, protectedFailureLockout: false });
 });
 
 test('concurrent generation is aborted while protected dispatch is still in flight', async () => {
@@ -98,6 +85,7 @@ test('concurrent generation is aborted while protected dispatch is still in flig
 
     assert.equal(secondAborted, true);
     assert.equal(getStatus().dispatchInFlight, true);
+    assert.equal(getStatus().protectedFailureLockout, false);
     assert.deepEqual(order, [
         ['first-abort', true],
         ['dispatch-start', 'index-test-concurrent'],
@@ -107,9 +95,42 @@ test('concurrent generation is aborted while protected dispatch is still in flig
     await first;
 
     assert.equal(getStatus().dispatchInFlight, false);
+    assert.equal(getStatus().protectedFailureLockout, false);
     assert.deepEqual(order, [
         ['first-abort', true],
         ['dispatch-start', 'index-test-concurrent'],
         ['dispatch-end', 'index-test-concurrent'],
     ]);
+});
+
+test('missing dispatch callback locks out later native generation instead of allowing fallback', async () => {
+    armProtectedRequest('index-test-2', null);
+    let aborted = false;
+
+    await globalThis.logicEngineExtensionGatewayGenerationInterceptor(
+        [],
+        4096,
+        immediately => { aborted = immediately; },
+        'normal',
+    );
+
+    assert.equal(aborted, true);
+    assert.deepEqual(getStatus(), {
+        status: 'BLOCKED_NO_TRUSTED_DISPATCH',
+        hasPendingRequest: false,
+        dispatchInFlight: false,
+        protectedFailureLockout: true,
+    });
+    assert.throws(() => armProtectedRequest('retry-after-failure', async () => {}), /reload required/);
+
+    let retryAborted = false;
+    await globalThis.logicEngineExtensionGatewayGenerationInterceptor(
+        [{ mes: 'retry must not reach native provider' }],
+        4096,
+        immediately => { retryAborted = immediately; },
+        'normal',
+    );
+    assert.equal(retryAborted, true);
+    assert.equal(getStatus().status, 'BLOCKED_AFTER_PROTECTED_FAILURE');
+    assert.equal(getStatus().protectedFailureLockout, true);
 });
