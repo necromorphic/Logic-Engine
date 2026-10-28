@@ -75,7 +75,7 @@ These are required closure tests, not claims that raw retention is currently ena
 ## 7. Current disposition
 
 - **Provider-local record/index lifecycle:** executable and covered by repository tests, including SQLite restart/rebuild, grant revocation, lineage validation, rollback invalidation, reconciliation races, raw-first record persistence on derived-index failure, and partial-result fail-closed behavior.
-- **Raw scene retention:** **BLOCKED / NOT APPROVED**. No capture or disclosure is enabled by this proposal.
+- **Raw scene capture/disclosure:** **DISABLED / FAIL-CLOSED**. Product-owner retention policy direction is recorded in §10, but it does not enable capture or disclosure without Host/Core/Security implementation evidence.
 - **Host identity and complete inventory:** **BLOCKED / NON_READY** pending Host-owned evidence.
 - **Production Core source authority for Host messages and final dispatch serialization:** **BLOCKED / NO APPROVED CALLABLE SEAM**.
 - **Production Memory→NPC:** **DISABLED / FAIL-CLOSED**.
@@ -111,7 +111,7 @@ This mapping consumes the current Host/Provider evidence without certifying Host
 | Authorized empty vs query-denied, record-withheld, unavailable, stale, rebuilding and partial result remain distinct | Provider | `retrieveCandidates()`; `tests/sqlite-memory-provider.test.js`; partial end-to-end test in `tests/memory-provider-core-integration.test.js` | Exact-head Runtime CI #40308513276 | **PASS — Provider/test consumer path** |
 | Final reconciliation compares the full persisted record payload and atomically publishes current | Provider | Full record comparison plus final `BEGIN IMMEDIATE` compare-and-publish; `tests/memory-provider-lifecycle-regressions.test.js`; file-backed reconciliation tests | Exact-head Runtime CI #40308513276 | **PASS — SQLite Provider-local serialization only** |\n| Query/record revocation during awaited authorization does not become ready-empty; previously allowed A is rechecked after B | Provider + test consumer | `authorizeCandidate()` tracks exact query/record grant generations, rechecks Provider readiness/state generation after awaited source validation; `tests/memory-provider-query-revocation-race.test.js`; `tests/memory-provider-core-integration.test.js` | Exact-head Runtime CI #40308513276 | **PASS — Provider-local race guards; no cross-store atomicity claim** |
 | Retrieval through SQLite Provider → Core AuthorizedReadService → NPC consumer with no delivery/acquisition/belief side effects | Provider/Core/NPC test seam | `tests/memory-provider-core-integration.test.js` | Exact-head Runtime CI #40308513276 | **PASS — test seam only, not production receiver or dispatch** |
-| Raw source capture, active-version selection, read and derived-copy persistence | Product + Core + Provider; Host supplies trustworthy identity | `captureRawMessage()`, `readRawMessageVersion()`, `readActiveRawMessages()`, `selectActiveRawVersion()`, `registerRawDerivedCopy()`; `tests/memory-provider-raw-archive.test.js` | Exact-head Runtime CI #40308513276 | **BLOCKED / deliberately fail-closed pending retention approval and Host evidence** |
+| Raw source capture, active-version selection, read and derived-copy persistence | Product + Core + Provider; Host supplies trustworthy identity | `captureRawMessage()`, `readRawMessageVersion()`, `readActiveRawMessages()`, `selectActiveRawVersion()`, `registerRawDerivedCopy()`; `tests/memory-provider-raw-archive.test.js` | Exact-head Runtime CI #40308513276 | **BLOCKED / deliberately fail-closed; policy direction recorded, Host/Core evidence still required** |
 | Host tuple mapping and complete active/history/deleted inventory, including edit/import/restore/replay | Host/Adapter + Core | §8 mapping; Host owner result in issue #258 | Owner evidence/source inspection | **BLOCKED / NON_READY; Provider cannot certify caller inventory** |
 | Source-backed summary/episode disclosure with all lineage sources authorized/current | Provider + Core + NPC | Provider rejects summary records in `putRecord()`; summary rejection regression in `tests/sqlite-memory-provider.test.js` | Exact-head Runtime CI #40308513276 | **BLOCKED for summary support; safe rejection PASS** |
 | Revoke/source invalidation serialized with actual outbound model dispatch; zero-egress before dispatch-start | Core + Host + Product/Security | No approved callable serializer/dispatch gate identified; existing Provider checks are not atomic with external dispatch | Core/Host owner reports and code mapping | **BLOCKED / NO APPROVED SEAM** |
@@ -121,7 +121,7 @@ The current Provider code/test evidence is from Runtime CI run [#40311905777](ht
 
 
 
-## 9. Product-owner decision: raw source retention policy — 28 October 2026
+## 10. Product-owner decision: raw source retention policy — 28 October 2026
 
 **Decision status: product-owner direction approved in conversation; cross-owner implementation gates remain open.** The user explicitly instructed that the policy be approved rather than repeatedly rerunning tests. This records the decision direction; it does not falsely attribute approval to Core, Host/Adapter, or Security owners.
 
