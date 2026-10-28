@@ -322,11 +322,12 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, model, stream, body, adapterId, conversationId, worldId, actorId, purpose, sources, candidates, forwardResponse, signal }) {
+  async dispatchProtectedRequest({ requestId, route, model, stream, body, adapterId, conversationId, worldId, actorId, purpose, sources, candidates, transport, forwardResponse, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
+      || typeof transport !== 'function'
       || !validText(adapterId, 200) || !validText(conversationId, 200)
       || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -427,7 +428,7 @@ export class MemoryDispatchGateway {
         // only waiting for the response happens outside the lock.
         try {
           upstreamHandle = this.sendUpstream({
-            route, model, stream, body, requestId, requestDigest, forwardResponse, signal,
+            route, model, stream, body, requestId, requestDigest, transport, forwardResponse, signal,
           });
           if (!object(upstreamHandle) || upstreamHandle.started !== true
             || !upstreamHandle.response || typeof upstreamHandle.response.then !== 'function') {
