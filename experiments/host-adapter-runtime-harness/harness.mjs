@@ -4,7 +4,7 @@ import { createRequire } from 'node:module';
 import { join, resolve } from 'node:path';
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { once } from 'node:events';
 import { pathToFileURL } from 'node:url';
 
@@ -64,7 +64,8 @@ const stUtil = await import(pathToFileURL(resolve(stRoot, 'src/util.js')).href);
 stUtil.setConfigFilePath(resolve(stRoot, 'default/config.yaml'));
 const { router } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/backends/chat-completions.js')).href);
 const { router: chatsRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/chats.js')).href);
-const { createHostLifecycleMutationMiddleware, registerHostConversation } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-host-journal.mjs')).href);
+const { createHostLifecycleMutationMiddleware, getHostConversationInventory, recordHostCaptureAcknowledgement, registerHostConversation } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-host-journal.mjs')).href);
+const { router: logicEngineLifecycleRouter } = await import(pathToFileURL(resolve(stRoot, 'src/endpoints/logic-engine-lifecycle.js')).href);
 
 test('real pinned chat deletion route refuses an enrolled file before mutation', async (t) => {
   const { execFileSync } = await import('node:child_process');
@@ -123,6 +124,196 @@ test('real pinned chat deletion route refuses an enrolled file before mutation',
     error: { code: 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED' },
   });
   assert.equal(await readFile(chatPath, 'utf8'), persistedChat, 'the enrolled source file must remain unchanged');
+});
+
+test('real pinned regular and group save routes consume one-shot capabilities before native writes', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const actualSha = execFileSync('git', ['-C', stRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.equal(actualSha, expectedSha, 'test must run against the exact pinned SillyTavern checkout');
+
+  const root = await mkdtemp(join(os.tmpdir(), 'st-host-save-capability-'));
+  const directories = {
+    chats: join(root, 'chats'),
+    characters: join(root, 'characters'),
+    groups: join(root, 'groups'),
+    groupChats: join(root, 'group_chats'),
+    backups: join(root, 'backups'),
+  };
+  await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
+  await writeFile(join(directories.characters, 'character-a.png'), 'test avatar');
+  const regularDirectory = join(directories.chats, 'character-a');
+  await mkdir(regularDirectory, { recursive: true });
+
+  const user = { profile: { handle: 'runtime-save-capability-test' }, directories };
+  const regularUuid = randomUUID();
+  const groupUuid = randomUUID();
+  const regularConversationId = randomUUID() + ':' + regularUuid;
+  const groupConversationId = randomUUID() + ':' + groupUuid;
+  const regularMessageId = randomUUID();
+  const regularV1 = randomUUID();
+  const regularV2 = randomUUID();
+  const groupMessageId = randomUUID();
+  const groupV1 = randomUUID();
+  const groupV2 = randomUUID();
+  const groupV3 = randomUUID();
+  const hostDigest = value => createHash('sha256').update(JSON.stringify(String(value))).digest('hex');
+  const makeMessage = (messageId, versions, activeIndex) => ({
+    mes: versions[activeIndex].text,
+    swipes: versions.map(version => version.text),
+    swipe_id: activeIndex,
+    _logicEngineLifecycle: {
+      messageId,
+      activeVersionIndex: activeIndex,
+      versions: versions.map(version => ({
+        versionId: version.versionId,
+        payloadDigest: hostDigest(version.text),
+        parentVersionId: version.parentVersionId ?? null,
+      })),
+    },
+  });
+  const regularHeader = {
+    chat_metadata: { logic_engine_conversation_id: regularUuid },
+    user_name: 'unused',
+    character_name: 'unused',
+  };
+  const groupHeader = {
+    chat_metadata: { logic_engine_conversation_id: groupUuid },
+    user_name: 'unused',
+    character_name: 'unused',
+  };
+  const regularV1Text = 'regular-before';
+  const regularV2Text = 'regular-after';
+  const groupV1Text = 'group-old';
+  const groupV2Text = 'group-active';
+  const groupV3Text = 'group-new-swipe';
+  const regularInitial = [
+    regularHeader,
+    makeMessage(regularMessageId, [
+      { versionId: regularV1, text: regularV1Text },
+      { versionId: regularV2, text: regularV2Text, parentVersionId: regularV1 },
+    ], 0),
+  ];
+  const regularSelected = [
+    regularHeader,
+    makeMessage(regularMessageId, [
+      { versionId: regularV1, text: regularV1Text },
+      { versionId: regularV2, text: regularV2Text, parentVersionId: regularV1 },
+    ], 1),
+  ];
+  const groupInitial = [
+    groupHeader,
+    makeMessage(groupMessageId, [
+      { versionId: groupV1, text: groupV1Text },
+      { versionId: groupV2, text: groupV2Text, parentVersionId: groupV1 },
+    ], 1),
+  ];
+  const groupAppend = [
+    groupHeader,
+    makeMessage(groupMessageId, [
+      { versionId: groupV1, text: groupV1Text },
+      { versionId: groupV2, text: groupV2Text, parentVersionId: groupV1 },
+      { versionId: groupV3, text: groupV3Text, parentVersionId: groupV2 },
+    ], 2),
+  ];
+  const regularPath = join(regularDirectory, 'chat-a.jsonl');
+  const groupPath = join(directories.groupChats, 'group-a.jsonl');
+  const writeJsonl = (file, records) => writeFile(file, records.map(record => JSON.stringify(record)).join('\n'));
+  await writeJsonl(regularPath, regularInitial);
+  await writeJsonl(groupPath, groupInitial);
+
+  const enrollmentRequest = { user };
+  await registerHostConversation(enrollmentRequest, {
+    conversationId: regularConversationId, sourceLocator: 'chat-a',
+    sourcePath: 'character-a/chat-a.jsonl', domain: 'chats',
+  });
+  await registerHostConversation(enrollmentRequest, {
+    conversationId: groupConversationId, sourceLocator: 'group-a',
+    sourcePath: 'group-a.jsonl', domain: 'group_chats',
+  });
+  const acknowledge = (conversationId, messageId, versionId, text, { parentVersionId = null, active, deleted = false }) =>
+    recordHostCaptureAcknowledgement(enrollmentRequest, {
+      conversation_id: conversationId, message_id: messageId, version_id: versionId,
+      parent_version_id: parentVersionId, content_sha256: hostDigest(text), active, deleted,
+    });
+  await acknowledge(regularConversationId, regularMessageId, regularV1, regularV1Text, { active: true });
+  await acknowledge(regularConversationId, regularMessageId, regularV2, regularV2Text, { parentVersionId: regularV1, active: false });
+  await acknowledge(groupConversationId, groupMessageId, groupV1, groupV1Text, { active: false });
+  await acknowledge(groupConversationId, groupMessageId, groupV2, groupV2Text, { parentVersionId: groupV1, active: true });
+  assert.equal((await getHostConversationInventory(enrollmentRequest)).complete, true);
+
+  const app = express();
+  app.use(express.json({ limit: '2mb' }));
+  app.use((req, _res, next) => {
+    req.user = user;
+    req.sessionID = 'runtime-save-session';
+    next();
+  });
+  app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true }));
+  app.use('/api/logic-engine', logicEngineLifecycleRouter);
+  app.use('/api/chats', chatsRouter);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+  t.after(async () => {
+    await new Promise(resolveClose => server.close(resolveClose));
+    await rm(root, { recursive: true, force: true });
+  });
+
+  const regularPayload = {
+    ch_name: 'Character A', file_name: 'chat-a', chat: regularSelected,
+    avatar_url: 'character-a.png', force: false,
+  };
+  const beforeRegular = await readFile(regularPath, 'utf8');
+  const deniedRegular = await fetch('http://127.0.0.1:' + address.port + '/api/chats/save', {
+    method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(regularPayload),
+  });
+  assert.equal(deniedRegular.status, 409, 'an enrolled native save without a capability must be rejected before write');
+  assert.match(JSON.stringify(await deniedRegular.json()), /HOST_ENROLLED_HISTORY_SAVE_CAPABILITY_REQUIRED/);
+  assert.equal(await readFile(regularPath, 'utf8'), beforeRegular);
+
+  const prepareRegular = await fetch('http://127.0.0.1:' + address.port + '/api/logic-engine/host-lifecycle/save-capability/prepare', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ route: '/api/chats/save', payload: regularPayload }),
+  });
+  assert.equal(prepareRegular.status, 200);
+  const regularCapability = await prepareRegular.json();
+  assert.equal(regularCapability.status, 'CAPABILITY_ISSUED');
+  assert.equal(typeof regularCapability.token, 'string');
+  const regularSave = await fetch('http://127.0.0.1:' + address.port + '/api/chats/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-logic-engine-save-capability': regularCapability.token },
+    body: JSON.stringify(regularPayload),
+  });
+  assert.equal(regularSave.status, 200, 'pinned native regular save should consume a valid capability');
+  assert.deepEqual(await regularSave.json(), { ok: true });
+  await acknowledge(regularConversationId, regularMessageId, regularV1, regularV1Text, { active: false });
+  await acknowledge(regularConversationId, regularMessageId, regularV2, regularV2Text, { parentVersionId: regularV1, active: true });
+  assert.equal((await getHostConversationInventory(enrollmentRequest)).complete, true);
+
+  const groupPayload = { id: 'group-a', chat: groupAppend, force: false };
+  const prepareGroup = await fetch('http://127.0.0.1:' + address.port + '/api/logic-engine/host-lifecycle/save-capability/prepare', {
+    method: 'POST', headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ route: '/api/chats/group/save', payload: groupPayload }),
+  });
+  assert.equal(prepareGroup.status, 200);
+  const groupCapability = await prepareGroup.json();
+  assert.equal(groupCapability.status, 'CAPABILITY_ISSUED');
+  const groupSave = await fetch('http://127.0.0.1:' + address.port + '/api/chats/group/save', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-logic-engine-save-capability': groupCapability.token },
+    body: JSON.stringify(groupPayload),
+  });
+  assert.equal(groupSave.status, 200, 'pinned native group save should consume a valid capability');
+  await groupSave.json();
+  await acknowledge(groupConversationId, groupMessageId, groupV2, groupV2Text, { parentVersionId: groupV1, active: false });
+  await acknowledge(groupConversationId, groupMessageId, groupV3, groupV3Text, { parentVersionId: groupV2, active: true });
+  const finalInventory = await getHostConversationInventory(enrollmentRequest);
+  assert.equal(finalInventory.complete, true);
+  assert.equal(finalInventory.currentVersionCount, 5);
+
+  const journal = await readFile(join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
+  assert.doesNotMatch(journal, /regular-before|regular-after|group-old|group-active|group-new-swipe/);
 });
 
 test('real pinned server Chat Completions handler reaches a recording fake provider exactly once', async (t) => {
