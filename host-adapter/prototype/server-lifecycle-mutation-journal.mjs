@@ -3,7 +3,7 @@ import { constants } from 'node:fs';
 import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { scanHostArtifactRoots } from './logic-engine-host-inventory.mjs';
-import { scanPersistedConversationInventories } from './persisted-conversation-inventory.mjs';
+import { scanPersistedConversationInventories } from './logic-engine-persisted-conversation-inventory.mjs';
 
 const MUTATIONS = new Map([
     ['POST /api/chats/save', 'chat-save'],
