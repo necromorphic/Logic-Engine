@@ -485,6 +485,11 @@ export class LogicEngine {
 
   getState(id) { return this.store.state(id); }
   getSnapshot(id, request = {}) { return this.store.readSnapshot(id, request); }
+  /**
+   * @internal Provider reconciliation only. Not an HTTP/public client endpoint.
+   * Callers must use the trusted Core-owned inventory validator; a raw inventory
+   * response is evidence for reconciliation, not authorization to expose Memory.
+   */
   getCanonicalEntityInventory(id, request = {}) { return this.store.readCanonicalEntityInventory(id, request); }
   getEvents(id, includeInvalid = false) { return this.store.events(id, includeInvalid); }
   getAudit(id) { return this.store.audit(id); }
