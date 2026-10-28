@@ -353,6 +353,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       }
     }
 
+    if (['create-message', 'message-send', 'message-receive'].includes(operation)
+      && rawVersions(chat[createdMessageIndex]).length > 1) {
+      throw Error('NON_READY: newly created multi-swipe message has no source-backed parent lineage; checkpoint refused');
+    }
+
     const versionPayloads = [];
     for (let i = 0; i < chat.length; i++) {
       const message = chat[i], versions = rawVersions(message);
