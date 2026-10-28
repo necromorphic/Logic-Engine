@@ -8,7 +8,45 @@
 
 const TERMINAL_STATUSES = new Set(["completed", "abandoned"]);
 
+const INTRINSIC_OBJECT_PROTOTYPE_KEYS = new Set([
+  "constructor", "__defineGetter__", "__defineSetter__", "hasOwnProperty",
+  "__lookupGetter__", "__lookupSetter__", "isPrototypeOf", "propertyIsEnumerable",
+  "toString", "valueOf", "__proto__", "toLocaleString",
+]);
+const INTRINSIC_ARRAY_ITERATOR = Array.prototype[Symbol.iterator];
+
+function hasSafeObjectPrototype() {
+  try {
+    const keys = Reflect.ownKeys(Object.prototype);
+    for (const key of keys) {
+      if (typeof key !== "string" || !INTRINSIC_OBJECT_PROTOTYPE_KEYS.has(key)) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, key);
+      if (!descriptor) return false;
+      if (key === "__proto__") {
+        if (!Object.hasOwn(descriptor, "get") || !Object.hasOwn(descriptor, "set")) return false;
+      } else if (!Object.hasOwn(descriptor, "value")) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasSafeArrayIterator() {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+    return descriptor != null
+      && Object.hasOwn(descriptor, "value")
+      && descriptor.value === INTRINSIC_ARRAY_ITERATOR;
+  } catch {
+    return false;
+  }
+}
+
 function isPlainDataObject(value) {
+  if (!hasSafeObjectPrototype()) return false;
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
@@ -37,12 +75,13 @@ const TRANSITIONS = Object.freeze({
  *
  * Terminal goals cannot be reopened or changed. The returned goal is a copy.
  */
-export function transitionNpcGoal(goal, event) {
+function transitionNpcGoalUnsafe(goal, event) {
   if (
     !isPlainDataObject(goal)
     || typeof goal.id !== "string"
     || goal.id.trim().length === 0
     || !["active", "blocked", "completed", "abandoned"].includes(goal.status)
+    || typeof event !== "string"
     || !Object.hasOwn(TRANSITIONS, event)
   ) return invalidTransition();
 
@@ -54,4 +93,13 @@ export function transitionNpcGoal(goal, event) {
     status: "transitioned",
     goal: Object.freeze({ ...goal, status: transition.to }),
   });
+}
+
+/** Reflection traps from malformed objects must not escape the NPC boundary. */
+export function transitionNpcGoal(goal, event) {
+  try {
+    return transitionNpcGoalUnsafe(goal, event);
+  } catch {
+    return invalidTransition();
+  }
 }

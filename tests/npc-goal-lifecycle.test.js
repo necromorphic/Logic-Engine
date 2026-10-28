@@ -56,3 +56,38 @@ test("rejects accessor-backed goal objects without reading accessor values", () 
   assert.deepEqual(transitionNpcGoal(goal, "complete"), { status: "non_ready", goal: null });
   assert.equal(invoked, false);
 });
+
+test("rejects non-string lifecycle events without coercing them", () => {
+  let coerced = false;
+  const event = { [Symbol.toPrimitive]() { coerced = true; return "complete"; } };
+  assert.deepEqual(transitionNpcGoal({ id: "g", status: "active" }, event), {
+    status: "non_ready",
+    goal: null,
+  });
+  assert.equal(coerced, false);
+});
+
+
+test("fails closed when goal reflection traps throw", () => {
+  const goal = new Proxy({}, {
+    getPrototypeOf() { throw new Error("prototype trap"); },
+  });
+  assert.deepEqual(transitionNpcGoal(goal, "complete"), { status: "non_ready", goal: null });
+});
+
+
+test("fails closed on Object.prototype pollution without invoking inherited getters", () => {
+  let invoked = false;
+  Object.defineProperty(Object.prototype, "npcInjectedStatus", {
+    configurable: true,
+    get() { invoked = true; return "active"; },
+  });
+  let result;
+  try {
+    result = transitionNpcGoal({ id: "g", status: "active" }, "complete");
+  } finally {
+    delete Object.prototype.npcInjectedStatus;
+  }
+  assert.deepEqual(result, { status: "non_ready", goal: null });
+  assert.equal(invoked, false);
+});
