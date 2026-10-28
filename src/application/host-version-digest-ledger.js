@@ -189,11 +189,12 @@ export class HostVersionDigestLedger {
   #put(v, now) {
     const prior = this.#get(v);
     if (prior && (prior.content_sha256 !== v.content_sha256 || prior.parent_version_id !== v.parent_version_id)) {
+      const conflictCode = prior.parent_version_id !== v.parent_version_id ? 'HOST_VERSION_PARENT_CONFLICT' : 'HOST_VERSION_DIGEST_CONFLICT';
       this.db.prepare('INSERT INTO host_version_ledger_conflicts (world_id,conversation_id,message_id,version_id,persisted_digest,observed_digest,observed_at) VALUES(?,?,?,?,?,?,?)')
         .run(...tuple(v), prior.content_sha256, v.content_sha256, now);
-      this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,failure_code,updated_at) VALUES(?,?,'NON_READY','HOST_VERSION_DIGEST_CONFLICT',?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='NON_READY',failure_code='HOST_VERSION_DIGEST_CONFLICT',updated_at=excluded.updated_at")
-        .run(v.world_id, v.conversation_id, this.#nextStateTimestamp(v.world_id, v.conversation_id));
-      return { status: 'conflict', code: 'HOST_VERSION_DIGEST_CONFLICT' };
+      this.db.prepare("INSERT INTO host_version_inventory_state (world_id,conversation_id,status,failure_code,updated_at) VALUES(?,?,'NON_READY',?,?) ON CONFLICT(world_id,conversation_id) DO UPDATE SET status='NON_READY',failure_code=excluded.failure_code,updated_at=excluded.updated_at")
+        .run(v.world_id, v.conversation_id, conflictCode, this.#nextStateTimestamp(v.world_id, v.conversation_id));
+      return { status: 'conflict', code: conflictCode };
     }
     if (prior) {
       if (prior.lifecycle === 'tombstoned' && !v.deleted) {
@@ -212,7 +213,7 @@ export class HostVersionDigestLedger {
       }
       return { status: prior.lifecycle === 'tombstoned' ? 'tombstoned' : 'duplicate' };
     }
-    this.db.prepare('INSERT INTO host_version_digest_ledger (world_id,conversation_id,message_id,version_id,content_sha256,parent_version_id,lineage_status,lifecycle,created_at,updated_at,tombstoned_at) VALUES(?,?,?,?,?,?,'VERIFIED',?,?,?,?)')
+    this.db.prepare("INSERT INTO host_version_digest_ledger (world_id,conversation_id,message_id,version_id,content_sha256,parent_version_id,lineage_status,lifecycle,created_at,updated_at,tombstoned_at) VALUES(?,?,?,?,?,?,'VERIFIED',?,?,?,?)")
       .run(...tuple(v), v.content_sha256, v.parent_version_id, v.deleted ? 'tombstoned' : 'present', now, now, v.deleted ? now : null);
     if (v.active && !v.deleted) this.#setActive(v, now);
     return { status: v.deleted ? 'tombstoned' : 'captured' };
@@ -444,7 +445,6 @@ export class HostVersionDigestLedger {
     // Parent references are scoped to the same world, conversation and logical message.
     // The full snapshot includes present and tombstoned versions; absent parents are
     // unknown, not roots. Explicit null alone declares a root.
-    const byIdentity = new Map(snapshot.versions.map((v) => [JSON.stringify(tuple(v)), v]));
     const byVersion = new Map(snapshot.versions.map((v) => [JSON.stringify([v.world_id, v.conversation_id, v.message_id, v.version_id]), v]));
     for (const v of snapshot.versions) {
       if (v.parent_version_id === null) continue;
