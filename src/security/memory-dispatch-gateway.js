@@ -40,7 +40,7 @@ export function verifyDispatchRequestSignature(secret, request, signature) {
 }
 
 export const SUPPORTED_PROTECTED_MEMORY_ROUTES = Object.freeze([
-  'google-ai-studio-chat-completions',
+  'host-selected-chat-generation',
 ]);
 
 const validText = (value, max = 200) => typeof value === 'string'
@@ -245,7 +245,7 @@ export class MemoryDispatchGateway {
           CREATE TABLE dispatch_ledger (
             request_id TEXT PRIMARY KEY,
             request_digest TEXT NOT NULL CHECK(length(request_digest)=64),
-            route TEXT NOT NULL CHECK(route='google-ai-studio-chat-completions'),
+            route TEXT NOT NULL CHECK(route='host-selected-chat-generation'),
             model TEXT NOT NULL,
             stream INTEGER NOT NULL CHECK(stream IN (0,1)),
             world_id TEXT NOT NULL,
