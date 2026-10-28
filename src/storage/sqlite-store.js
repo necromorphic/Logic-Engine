@@ -2216,11 +2216,6 @@ export class SQLiteStore {
   }
 
   rebuild(id, revision) {
-    this.db.prepare('DELETE FROM mechanic_instances WHERE world_id=?').run(id);
-    this.db.prepare('DELETE FROM entities WHERE world_id=?').run(id);
-    this.db.prepare('DELETE FROM facts WHERE world_id=?').run(id);
-    this.db.prepare('DELETE FROM fact_claims WHERE world_id=?').run(id);
-    this.db.prepare('DELETE FROM relationships WHERE world_id=?').run(id);
     const events = this.db.prepare("SELECT * FROM world_events WHERE world_id=? AND validity='valid' ORDER BY commit_sequence").all(id);
 
     // Validate identity history before clearing any projection. A valid event log must
@@ -2252,6 +2247,11 @@ export class SQLiteStore {
       }
     }
 
+    this.db.prepare('DELETE FROM mechanic_instances WHERE world_id=?').run(id);
+    this.db.prepare('DELETE FROM entities WHERE world_id=?').run(id);
+    this.db.prepare('DELETE FROM facts WHERE world_id=?').run(id);
+    this.db.prepare('DELETE FROM fact_claims WHERE world_id=?').run(id);
+    this.db.prepare('DELETE FROM relationships WHERE world_id=?').run(id);
     const upsertEntity = this.db.prepare(`INSERT INTO entities(
       world_id,entity_id,entity_type,status,attributes_json,created_by_event_id,updated_revision
     ) VALUES(?,?,?,?,?,?,?) ON CONFLICT(world_id,entity_id) DO UPDATE SET
