@@ -281,13 +281,27 @@ export class ProcessStore {
     });
   }
 
-  reconcileMilestones(worldId, processId, updates) {
+  reconcileMilestones(worldId, processId, updates, { reason, idempotencyKey, requestHash }) {
     return this.store.tx(() => {
       const row = this.db.prepare('SELECT * FROM world_processes WHERE world_id=? AND process_id=?')
         .get(worldId, processId);
       if (!row) throw new EngineError('PROCESS_NOT_FOUND', 'Process not found in this world.', 404);
       const definition = dec(row.definition_json);
+      const oldById = new Map(definition.milestones.map((milestone) => [milestone.milestone_id, milestone]));
       const updateById = new Map(updates.map((item) => [item.milestone_id, item]));
+      const planId = 'process-plan:' + hashRequest({
+        world_id: worldId, process_id: processId, request_hash: requestHash,
+      }).slice(0, 40);
+      const planChanges = updates.map((update) => {
+        const previous = oldById.get(update.milestone_id);
+        return {
+          milestone_id: update.milestone_id,
+          old_due_coordinate: previous.due_coordinate,
+          new_due_coordinate: update.due_coordinate ?? previous.due_coordinate,
+          old_trigger_id: previous.trigger_id,
+          new_trigger_id: update.trigger_id,
+        };
+      });
       definition.milestones = definition.milestones.map((milestone) => {
         const update = updateById.get(milestone.milestone_id);
         return update ? {
@@ -312,6 +326,22 @@ export class ProcessStore {
       }
       this.db.prepare('UPDATE world_processes SET definition_json=?,updated_at=? WHERE world_id=? AND process_id=?')
         .run(enc(definition), stamp, worldId, processId);
+      const world = this.store.world(worldId);
+      this.db.prepare('INSERT INTO audit_entries(world_id,world_revision,action,target_id,payload_json,occurred_at) VALUES(?,?,?,?,?,?)')
+        .run(worldId, world.world_revision, 'process.plan.reconciled', processId, enc({
+          reason,
+          idempotency_key: idempotencyKey,
+          request_hash: requestHash,
+          plan_id: planId,
+          plan_version: row.version + 1,
+          definition_version: row.definition_version,
+          previous_plan: planChanges.map(({ milestone_id, old_due_coordinate, old_trigger_id }) => ({
+            milestone_id, due_coordinate: old_due_coordinate, trigger_id: old_trigger_id,
+          })),
+          accepted_plan: planChanges.map(({ milestone_id, new_due_coordinate, new_trigger_id }) => ({
+            milestone_id, due_coordinate: new_due_coordinate, trigger_id: new_trigger_id,
+          })),
+        }), stamp);
       return this.get(worldId, processId);
     });
   }
