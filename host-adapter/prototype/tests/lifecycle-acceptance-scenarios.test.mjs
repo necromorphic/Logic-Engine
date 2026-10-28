@@ -140,12 +140,10 @@ test('pinned patch finalizes enrolled identities before its single native save',
     'delete-last checkpoint must follow the awaited native save');
 
   const bulkDeleteHook = patch.indexOf("beforeMutation('delete-message', messageIds)");
-  const bulkDeleteDebounce = patch.indexOf('saveChatDebounced();', bulkDeleteHook);
-  const bulkDeleteSave = findNativeSaveAfter(bulkDeleteDebounce);
+  const bulkDeleteSave = patch.indexOf("if (lifecycleBefore.status === 'NOT_ENROLLED') saveChatDebounced();", bulkDeleteHook);
   const bulkDeleteCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('delete-message'", bulkDeleteHook);
-  assert.ok(bulkDeleteHook >= 0 && bulkDeleteDebounce > bulkDeleteHook
-    && bulkDeleteSave > bulkDeleteDebounce && bulkDeleteCheckpoint > bulkDeleteSave,
-    'bulk-delete checkpoint must follow the awaited native save');
+  assert.ok(bulkDeleteHook >= 0 && bulkDeleteSave > bulkDeleteHook && bulkDeleteCheckpoint > bulkDeleteSave,
+    'bulk-delete must preserve debounced save only for non-enrolled chats and finalize enrolled identities first');
 
   assert.doesNotMatch(patch, /afterMutation\('(message-send|edit-message|delete-message|delete-swipe)'[^\n]*sourceAlreadyPersisted/,
     'enrolled handlers must let afterMutation finalize identities before its one native save');
