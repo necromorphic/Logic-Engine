@@ -302,16 +302,18 @@ test('belief context final validation uses one atomic Core snapshot read', (t) =
     reason_rule_ref: 'rule:belief-update-v1',
   };
 
-  // The context path must compare a single canonical snapshot cursor, not
-  // separately read world_revision and commit_sequence around a possible rollback.
-  const originalWorld = store.world.bind(store);
-  store.world = () => { throw new Error('non-atomic world read must not be used'); };
-  try {
-    const prepared = engine.prepareNpcBeliefContext(readRequest, proposal);
-    assert.equal(prepared.status, 'ready');
-  } finally {
-    store.world = originalWorld;
-  }
+  // readNpcKnowledge performs two snapshot reads (before and after the
+  // authorized query); context preparation must perform a third atomic read
+  // after visibility authorization, rather than separately reading world/sequence.
+  const originalGetSnapshot = engine.getSnapshot.bind(engine);
+  let snapshotReads = 0;
+  engine.getSnapshot = (...args) => {
+    snapshotReads += 1;
+    return originalGetSnapshot(...args);
+  };
+  const prepared = engine.prepareNpcBeliefContext(readRequest, proposal);
+  assert.equal(prepared.status, 'ready');
+  assert.equal(snapshotReads, 3);
 });
 
 test('Core omits denied acquisitions from the belief context and rejects proposals relying on them', (t) => {
