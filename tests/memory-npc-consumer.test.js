@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
+import { HostConversationWorldBindingService } from '../src/application/host-conversation-world-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
 
@@ -11,6 +12,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   const store = new SQLiteStore(':memory:');
   const engine = new LogicEngine(store);
   const bindings = new ActorBindingService(engine);
+  const hostConversationBindings = new HostConversationWorldBindingService(engine);
   engine.createWorld({
     world_id: 'memory-npc-world',
     world_pack_id: 'test.memory-npc',
@@ -28,6 +30,7 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
     ],
   });
   bindings.bind('memory-npc-world', 'adapter-a', 'npc-a');
+  hostConversationBindings.bind({ adapterId: 'adapter-a', conversationId: 'chat-a', worldId: 'memory-npc-world' });
   engine.commitEvent('memory-npc-world', {
     event_id: 'unrelated-memory-npc',
     idempotency_key: 'unrelated-memory-npc',
@@ -89,12 +92,13 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
   const consumer = new MemoryNpcConsumer({
     authorizedReadService,
     actorBindingService: bindings,
+    hostConversationWorldBindingService: hostConversationBindings,
     memoryProvider: provider,
     contentFields: ['attributes.public_note'],
   });
   t.after(() => store.close());
   return {
-    store, engine, bindings, consumer, provider, scope, snapshot, sourceVersion,
+    store, engine, bindings, hostConversationBindings, consumer, provider, scope, snapshot, sourceVersion,
     setCandidates(next) { candidateList = next; },
     getLastCandidateAuthorization() { return lastCandidateAuthorization; },
     revokeContent() { contentVisible = false; },
@@ -103,8 +107,8 @@ function setup(t, { allowContent = true, authorizeQuery = true, authorizeCandida
 }
 
 const request = () => ({
-  worldId: 'memory-npc-world',
   adapterId: 'adapter-a',
+  conversationId: 'chat-a',
   actorEntityId: 'npc-a',
 });
 
@@ -382,6 +386,7 @@ test('Memory provider must supply all trusted host callbacks; no default policy 
   assert.throws(() => new MemoryNpcConsumer({
     authorizedReadService: { readEntityFields() {} },
     actorBindingService: { resolve() {} },
+    hostConversationWorldBindingService: { resolve() {} },
     memoryProvider: { retrieveCandidates() {} },
     contentFields: ['attributes.public_note'],
   }), /trusted Memory query, retrieval, and record authorization functions/);
@@ -394,6 +399,7 @@ test('content field configuration must match fields the Core read boundary can d
   assert.throws(() => new MemoryNpcConsumer({
     authorizedReadService: { readEntityFields() {} },
     actorBindingService: { resolve() {} },
+    hostConversationWorldBindingService: { resolve() {} },
     memoryProvider: {
       authorizeQuery() {},
       retrieveCandidates() {},
@@ -404,6 +410,7 @@ test('content field configuration must match fields the Core read boundary can d
   assert.throws(() => new MemoryNpcConsumer({
     authorizedReadService: { readEntityFields() {} },
     actorBindingService: { resolve() {} },
+    hostConversationWorldBindingService: { resolve() {} },
     memoryProvider: {
       authorizeQuery() {},
       retrieveCandidates() {},
@@ -928,4 +935,48 @@ test('malformed Memory snapshot cursor values are non-ready, including matching 
     assert.deepEqual(result.candidates, []);
     assert.equal(JSON.stringify(result).includes(JSON.stringify(malformedSnapshot)), false);
   }
+});
+
+
+test('Memory consumer rejects caller-supplied world and rechecks conversation binding before releasing content', async (t) => {
+  const { consumer, hostConversationBindings } = setup(t);
+
+  const spoofed = await consumer.retrieveForNpc({ ...request(), worldId: 'attacker-selected-world' });
+  assert.equal(spoofed.status, 'non_ready');
+  assert.equal(spoofed.reason, 'caller_world_not_authoritative');
+  assert.deepEqual(spoofed.candidates, []);
+
+  const originalAuthorize = consumer.memoryProvider.authorizeCandidate.bind(consumer.memoryProvider);
+  let revoked = false;
+  consumer.memoryProvider.authorizeCandidate = async (...args) => {
+    const result = await originalAuthorize(...args);
+    if (!revoked) {
+      revoked = true;
+      hostConversationBindings.revoke({
+        adapterId: 'adapter-a', conversationId: 'chat-a', reason: 'Test revokes binding during read',
+      });
+    }
+    return result;
+  };
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'trusted_scope_changed');
+  assert.deepEqual(result.candidates, []);
+  assert.equal(JSON.stringify(result).includes('authorized source text'), false);
+});
+
+test('Memory consumer fails closed when the Host conversation binding is absent or revoked', async (t) => {
+  const { consumer, hostConversationBindings, provider } = setup(t);
+  hostConversationBindings.revoke({
+    adapterId: 'adapter-a', conversationId: 'chat-a', reason: 'Test revokes binding before read',
+  });
+  let queried = false;
+  provider.authorizeQuery = async () => { queried = true; return true; };
+
+  const result = await consumer.retrieveForNpc(request());
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'host_conversation_binding_unavailable');
+  assert.equal(queried, false);
+  assert.deepEqual(result.candidates, []);
 });
