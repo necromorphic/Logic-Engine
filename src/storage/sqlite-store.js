@@ -697,12 +697,15 @@ export class SQLiteStore {
             contradicting_acquisition_ids_json TEXT NOT NULL,
             evidence_acquisition_ids_json TEXT NOT NULL,
             reason_rule_ref TEXT NOT NULL,
+            idempotency_key TEXT NOT NULL,
+            request_hash TEXT NOT NULL,
             snapshot_revision INTEGER NOT NULL,
             snapshot_commit_sequence INTEGER NOT NULL,
             event_id TEXT NOT NULL,
             committed_revision INTEGER NOT NULL,
             PRIMARY KEY(world_id,transition_id),
             UNIQUE(world_id,event_id),
+            UNIQUE(world_id,idempotency_key),
             FOREIGN KEY(world_id,event_id) REFERENCES world_events(world_id,event_id)
           );
           CREATE INDEX IF NOT EXISTS npc_belief_transitions_current
