@@ -28,7 +28,7 @@ Catalog shape (one immutable artifact per exact ID/version):
 ```
 
 - `artifact_path` must be a relative path to a regular file below the catalog directory; symlink/path traversal outside that directory is rejected.
-- The artifact bytes must match the catalog SHA-256 and parse as JSON whose `world_pack_id` and `version` exactly match the entry.
+- The artifact bytes must match the catalog SHA-256 and parse as JSON whose `world_pack_id` and `version` exactly match the entry. SHA-256 is calculated over the original bytes (including whitespace and line endings), not re-serialized JSON.
 - IDs/versions are immutable within the catalog. A changed artifact requires a new version and updated deployment catalog. Restart the runtime to load a changed catalog; it is read once at startup.
 - Newly created worlds persist the artifact SHA-256 as `world_pack_digest`, and the `world.created` audit record includes that pin. Existing worlds retain a null digest because the prior runtime did not capture an artifact identity; migration does not retroactively assert trust.
 - This is **artifact identity and trust pinning, not full World Pack conformance validation**. The existing World Pack format remains partial; unsupported pack fields are not thereby executed or validated. The digest is not a signature: trust derives from control of the deployment catalog and artifact directory.
