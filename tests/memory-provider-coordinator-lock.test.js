@@ -254,6 +254,7 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
         'second identical ingest should resolve as duplicate, not fail with a primary-key race');
     } finally {
       secondProviderProc.child.kill();
+      await secondProviderProc.exited.catch(() => {});
     }
 
     // A fresh Provider DB must also take the shared lock around schema creation/migration.
@@ -271,8 +272,15 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
     migrationProc.child.stdin.end(JSON.stringify({ id: 999, operation: 'close' }) + '\n');
     await migrationProc.exited;
   } finally {
-    providerChild?.kill();
-    coreChild?.kill();
+    const stopChild = async (child) => {
+      if (!child) return;
+      if (child.exitCode === null && child.signalCode === null) child.kill();
+      if (child.exitCode === null && child.signalCode === null) {
+        await new Promise((resolve) => child.once('exit', resolve));
+      }
+    };
+    await stopChild(providerChild);
+    await stopChild(coreChild);
     rmSync(dir, { recursive: true, force: true });
   }
 });
