@@ -44,6 +44,39 @@ const segment = (overrides = {}) => ({
   ...overrides,
 });
 
+test('segment rolls back every event when a later event attempts tombstone reuse', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+  engine.commitEvent('segment-world', {
+    idempotency_key: 'seed-old', turn_id: 'seed-old', event_type: 'action.completed',
+    expected_revision: 0, effects: [{ kind: 'entity.upsert', entity_id: 'dead', entity_type: 'object' }],
+  });
+  engine.commitEvent('segment-world', {
+    idempotency_key: 'seed-death', turn_id: 'seed-death', event_type: 'action.completed',
+    expected_revision: 1, effects: [{ kind: 'entity.delete', entity_id: 'dead' }],
+  });
+
+  assert.throws(() => engine.commitSegment('segment-world', {
+    idempotency_key: 'atomic-tombstone-segment',
+    expected_revision: 2,
+    expected_commit_sequence: 2,
+    events: [
+      event('new-before-failure', 'new-before-failure-key', [
+        { kind: 'entity.upsert', entity_id: 'new-entity', entity_type: 'object' },
+      ]),
+      event('resurrect-dead', 'resurrect-dead-key', [
+        { kind: 'entity.upsert', entity_id: 'dead', entity_type: 'object' },
+      ]),
+    ],
+  }), (error) => error.code === 'ENTITY_TOMBSTONE_REUSE' && error.status === 409);
+
+  const state = engine.getState('segment-world');
+  assert.equal(state.world_revision, 2);
+  assert.equal(state.entities.some((entity) => entity.entity_id === 'new-entity'), false);
+  assert.equal(state.entities.find((entity) => entity.entity_id === 'dead').status, 'destroyed');
+  assert.deepEqual(engine.getEvents('segment-world').map((item) => item.event_id), []);
+});
+
 test('independent events commit as one atomic segment and rebuild projections once', (t) => {
   const { store, engine } = setup();
   t.after(() => store.close());
