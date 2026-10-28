@@ -119,3 +119,33 @@ This mapping consumes the current Host/Provider evidence without certifying Host
 
 The current Provider code/test evidence is from Runtime CI run [#40311905777](https://github.com/necromorphic/Logic-Engine/actions/runs/40311905777) on exact head `62647f66f0596e5b332e6c23e586007d4a156ab7`; Runtime CI passed on this head. The final reconciliation compare-and-publish is serialized under `BEGIN IMMEDIATE`; per-record/query grant lifecycle generations and Provider index-state generation are checked across awaited authorization; regression tests cover metadata mutation during reconciliation, index transition during candidate authorization, record revocation, and revoke→regrant of the same grant. These results remain Provider-local and must not be represented as production Host/Core/dispatch verification.
 
+
+
+## 9. Product-owner decision: raw source retention policy — 28 October 2026
+
+**Decision status: product-owner direction approved in conversation; cross-owner implementation gates remain open.** The user explicitly instructed that the policy be approved rather than repeatedly rerunning tests. This records the decision direction; it does not falsely attribute approval to Core, Host/Adapter, or Security owners.
+
+### Approved policy defaults
+
+1. **Purpose limitation.** Retain source text only to support source-grounded long-term narrative memory, version/lineage verification, correction, and deletion. No unrelated analytics, training, or secondary use.
+2. **Scope.** Only text messages from explicitly enabled conversations. Attachments, images, audio, credentials, secrets, and other binary payloads are out of scope until separately approved. Preserve source identity/version metadata needed for integrity and lifecycle handling.
+3. **Retention duration.** Keep a source version only while its conversation remains enabled and the version has not been deleted/retracted; impose a hard maximum of **365 days from capture**. A newer edit does not silently overwrite an older version. Expired versions become ineligible for retrieval and are purged from Provider-owned storage and known Provider-local derived copies.
+4. **Access.** Provider storage is not itself an authorization grant. Raw text must not be returned to an NPC or model by direct Provider API. Any future disclosure must be purpose-bound, source- and lineage-authorized by Core, and enforced at the actual outbound dispatch boundary. Until that callable boundary is implemented and verified, raw-text disclosure stays disabled.
+5. **Derived material.** Every derived item must retain lineage to exact source versions. If any required source is deleted, expired, revoked, stale, unavailable, or unauthorized, the dependent item is ineligible until safely recomputed from permitted sources; no summary bypasses source restrictions.
+6. **Deletion and revocation.** User deletion, conversation opt-out, source retraction, or access revocation immediately makes affected source and dependent material ineligible. Provider must tombstone exact known versions and purge known local copies. External indexes, backups, caches, and other stores must be included in the owning component's deletion contract; Provider-local deletion alone must never be reported as global deletion.
+7. **Backups and restore.** Backups inherit the same retention and deletion restrictions. A restore must replay tombstones/revocations before any retrieval becomes ready. If deletion/revocation state or source inventory cannot be proven complete after restore, the affected scope remains non-ready and undisclosable. Restore must not resurrect grants or expired/deleted source versions.
+8. **Audit and failure behavior.** Record non-content audit metadata for capture/deletion/purge/denial and policy version; do not place raw message text in diagnostic logs. Unknown identity, incomplete inventory, ambiguous ancestry, failed authorization, expired retention, or uncertain deletion state means deny / non-ready.
+9. **No implicit activation.** This decision establishes the policy direction, not proof that the current Host path can satisfy it. Raw capture remains disabled until Host identity, pre-mutation edit/delete evidence, complete inventory, and restore/replay guarantees are accepted. Disclosure remains disabled until Core/Host provide and test the actual final-dispatch authorization boundary.
+
+### Closure ownership
+
+| Gate | Owner | Status after this decision |
+|---|---|---|
+| Product purpose, scope, and 365-day maximum retention | Product owner | **DECISION RECORDED** |
+| Core authorization, lineage and expiry semantics | Core | **PENDING owner adoption / contract** |
+| Durable IDs, pre-mutation lifecycle capture, complete inventory | Host/Adapter | **BLOCKED / evidence missing** |
+| Secret exclusion, audit, backup and deletion assurance | Security + storage owners | **PENDING implementation evidence** |
+| Actual final-send authorization and revoke-before-dispatch behavior | Core + Host/Adapter + NPC | **BLOCKED / no approved callable seam** |
+| Provider-local enforcement and tests | Memory Provider | **NEXT: implement only after dependent contracts are specified; do not enable raw APIs prematurely** |
+
+This decision supersedes the earlier statement that no product-owner retention direction had been selected. It does **not** supersede the fail-closed method guards or authorize production capture/disclosure by itself.
