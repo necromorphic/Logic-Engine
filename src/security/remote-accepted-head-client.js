@@ -3,11 +3,14 @@ import { createHash, verify as verifySignature } from 'node:crypto';
 const RECORD_KEYS = [
   'installation_id',
   'epoch_id',
+  'key_id',
   'sequence',
   'previous_record_digest',
   'core_head_digest',
   'provider_readiness_digest',
+  'contract_version',
   'record_type',
+  'recovery_reason',
 ];
 const DIGEST = /^[a-f0-9]{64}$/;
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/;
@@ -26,11 +29,14 @@ function canonicalRecord(record) {
   return JSON.stringify({
     installation_id: record.installation_id,
     epoch_id: record.epoch_id,
+    key_id: record.key_id,
     sequence: record.sequence,
     previous_record_digest: record.previous_record_digest,
     core_head_digest: record.core_head_digest,
     provider_readiness_digest: record.provider_readiness_digest,
+    contract_version: record.contract_version,
     record_type: record.record_type,
+    recovery_reason: record.recovery_reason,
   });
 }
 
@@ -41,8 +47,11 @@ function validateRecord(record, expectedInstallationId) {
     fail('REMOTE_ANCHOR_RECORD_FIELDS_INVALID');
   }
   if (!validId(record.installation_id) || record.installation_id !== expectedInstallationId
-    || !validId(record.epoch_id)) fail('REMOTE_ANCHOR_IDENTITY_MISMATCH');
+    || !validId(record.epoch_id) || !validId(record.key_id)) fail('REMOTE_ANCHOR_IDENTITY_MISMATCH');
   if (!Number.isSafeInteger(record.sequence) || record.sequence < 1) fail('REMOTE_ANCHOR_SEQUENCE_INVALID');
+  if (!Number.isSafeInteger(record.contract_version) || record.contract_version < 1) {
+    fail('REMOTE_ANCHOR_CONTRACT_VERSION_INVALID');
+  }
   if (record.sequence === 1) {
     if (record.previous_record_digest !== null) fail('REMOTE_ANCHOR_CHAIN_INVALID');
   } else if (typeof record.previous_record_digest !== 'string' || !DIGEST.test(record.previous_record_digest)) {
@@ -53,6 +62,14 @@ function validateRecord(record, expectedInstallationId) {
     fail('REMOTE_ANCHOR_DIGEST_INVALID');
   }
   if (!['ADVANCE', 'RECOVERY', 'REENROLL'].includes(record.record_type)) fail('REMOTE_ANCHOR_RECORD_TYPE_INVALID');
+  if (record.record_type === 'RECOVERY') {
+    if (typeof record.recovery_reason !== 'string' || record.recovery_reason.trim().length < 1
+      || record.recovery_reason.length > 256 || /[\\x00-\\x1f\\x7f]/.test(record.recovery_reason)) {
+      fail('REMOTE_ANCHOR_RECOVERY_REASON_INVALID');
+    }
+  } else if (record.recovery_reason !== null) {
+    fail('REMOTE_ANCHOR_RECOVERY_REASON_INVALID');
+  }
 }
 
 function decodeSignature(signature) {
@@ -124,7 +141,10 @@ export function verifyRemoteAnchorEnvelope({
   return Object.freeze({
     installationId: record.installation_id,
     epochId: record.epoch_id,
+    keyId: record.key_id,
     sequence: record.sequence,
+    contractVersion: record.contract_version,
+    recoveryReason: record.recovery_reason,
     previousRecordDigest: record.previous_record_digest,
     coreHeadDigest: record.core_head_digest,
     providerReadinessDigest: record.provider_readiness_digest,
