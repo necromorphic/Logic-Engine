@@ -137,3 +137,29 @@ Exact-head CI for this code HEAD:
 - [Host lifecycle patch validation #40276125986](https://github.com/necromorphic/Logic-Engine/actions/runs/40276125986) — SUCCESS.
 
 This refresh records repository CI only. It does not establish live browser/Android/Termux behavior, real IndexedDB durability, persisted chat-file before/after evidence, or full lifecycle coverage. PR #323 remains Draft/review-only. Core approval of the Host↔Core/Provider handoff and real persisted-state acceptance evidence are still required; production Memory→NPC remains DISABLED / FAIL-CLOSED.
+
+## Local module placement and ACL requirements (proposal; not installed)
+
+**Review-only candidate. Do not copy this into the live SillyTavern installation or enable Memory→NPC.** The lifecycle hooks do not establish complete inventory, anti-rollback protection, or a positive final-send gateway.
+
+For a disposable checkout of the exact pinned SillyTavern source, apply the patch first, then copy these four modules separately:
+
+| Source in `host-adapter/prototype/` | Destination in SillyTavern | Role |
+|---|---|---|
+| `conversation-identity.mjs` | `public/scripts/logic-engine-lifecycle/conversation-identity.mjs` | Stable conversation identity and locator guard |
+| `lifecycle-journal.mjs` | `public/scripts/logic-engine-lifecycle/lifecycle-journal.mjs` | Digest-only IndexedDB journal |
+| `st-lifecycle-bridge.mjs` | `public/scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs` | Bridge between instrumented ST paths and the journal |
+| `st-server-digest-proxy.mjs` | `src/endpoints/logic-engine-lifecycle-proxy.mjs` | Server-side digest-only proxy; rename on copy because the patched endpoint imports this path |
+
+The patch itself adds `src/endpoints/logic-engine-lifecycle.js` and wires it into the server. Keep the three browser modules under `public/scripts/logic-engine-lifecycle/`; do not place the server proxy in `public/`. Proxy credentials and environment variables are server-only and must never be sent to browser JavaScript.
+
+### Minimum ACL proposal (not applied)
+
+- **SillyTavern installation tree:** the ST service identity needs read/execute. Grant write only to runtime data and configured backup destinations. Ordinary users and unrelated services must not be able to replace server code or endpoint modules.
+- **Secrets/configuration:** readable only by the owning service identity and authorized administrators. Do not put tokens in command-line arguments, browser config, source control, or diagnostic output.
+- **Core database:** only Core may modify its database and SQLite sidecars. Other identities must not replace, rename, delete, or write the Core DB or its parent directory.
+- **Provider database:** only Provider may modify its database and sidecars. Core and ST must not write Provider-owned storage.
+- **Gateway:** read-only access to Core/Provider data; write access only to its own dispatch ledger and the minimum shared coordinator state required by the reviewed locking design. If SQLite/WAL/SHM requires broader rights, stop and revise the design rather than granting broad `Modify` rights to Core/Provider directories.
+- **Accepted-head authority:** only the authority service may modify its database. Gateway uses authenticated loopback reads rather than opening the authority DB directly.
+- **Logs:** each service writes only to its own log directory. Never log raw prompts, Memory text, Host messages, provider keys, or secrets. Retain only content-free dispatch/correlation IDs, outcomes/reason codes, and minimum necessary version/scope metadata; approved default audit retention is 30 days.
+- **Verification:** test effective Windows ACLs under the intended service identities with SQLite WAL/SHM present; verify denial of writes, replacement, rename/delete, parent-directory mutation, reparse-point paths, and unauthorized restore. These are requirements, not claims that ACLs have been applied.
