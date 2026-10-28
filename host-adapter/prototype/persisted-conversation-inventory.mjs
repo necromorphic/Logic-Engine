@@ -117,7 +117,13 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
         const headerId = header.chat_metadata?.logic_engine_conversation_id;
         if (typeof headerId !== 'string') continue;
         const enrollment = enrollmentByUuid.get(headerId);
-        if (!enrollment) continue;
+        if (!enrollment) {
+          // A Host-marked persisted artifact absent from the enrollment registry
+          // is evidence that the registry is incomplete or has been rolled back.
+          // Do not silently omit it from a supposedly complete current inventory.
+          parseErrors.push('HOST_CONVERSATION_ID_WITHOUT_ENROLLMENT');
+          continue;
+        }
         if (enrollment.domain !== domain || path.parse(relativePath).name !== enrollment.sourceLocator
           || relativePath !== enrollment.sourcePath) {
           parseErrors.push('ENROLLED_CONVERSATION_LOCATOR_OR_DOMAIN_MISMATCH');
