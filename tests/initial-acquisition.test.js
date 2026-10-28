@@ -30,6 +30,9 @@ function seed(policy = trustedPolicy()) {
       { kind: 'fact.set', fact_id: 'fact-a', predicate: 'knows', value: 'secret-x' },
     ],
   });
+  engine.createWorld({ world_id: 'w2', world_pack_id: 'other.pack', world_pack_version: '1', game_time: '2026-01-01T00:00:00Z' });
+  engine.commitEvent('w2', { event_id: 'seed-other-world', idempotency_key: 'seed-other-world', turn_id: 'seed', event_type: 'action.completed', expected_revision: 0,
+    effects: [{ kind: 'entity.create', entity_id: 'npc-c', entity_type: 'character' }, { kind: 'fact.set', fact_id: 'fact-b', predicate: 'knows', value: 'other-world' }] });
   const bindings = new ActorBindingService(engine);
   bindings.bind('w1', 'adapter-a', 'npc-a');
   return { store, engine, bindings };
@@ -85,7 +88,8 @@ test('unknown/unbound subject, cross-world source, and unsupported acquisition k
   try {
     assert.throws(() => engine.recordInitialAcquisition(input({ subject_id: 'missing' })), { code: 'ACTOR_NOT_AUTHORIZED' });
     assert.throws(() => engine.recordInitialAcquisition(input({ adapter_id: 'unbound-adapter' })), { code: 'ACTOR_NOT_AUTHORIZED' });
-    assert.throws(() => engine.recordInitialAcquisition(input({ fact_id: 'fact-from-other-world' })), { code: 'ACQUISITION_SOURCE_NOT_ELIGIBLE' });
+    assert.throws(() => engine.recordInitialAcquisition(input({ fact_id: 'fact-b' })), { code: 'ACQUISITION_SOURCE_NOT_ELIGIBLE' });
+    assert.throws(() => engine.recordInitialAcquisition(input({ world_id: 'w2' })), { code: 'ACTOR_NOT_AUTHORIZED' });
     assert.throws(() => engine.recordInitialAcquisition(input({ acquisition_kind: 'observed' })), { code: 'UNSUPPORTED_ACQUISITION_KIND' });
   } finally { store.close(); }
 });
