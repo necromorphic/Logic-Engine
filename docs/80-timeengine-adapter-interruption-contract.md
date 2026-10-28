@@ -39,3 +39,27 @@ When a timed-action response reports `final_action_status: not_executed_interrup
 ## Non-goals
 
 This proposal does not add automatic continuation, retry loops, a generic action DSL, or runtime code. It does not make the TimeEngine invariants normative. Keep the PR in Draft until the response contract and credential boundary are reviewed.
+
+
+## Source-audited API authority mismatch
+
+A follow-up read of `src/api/server.js`, `docs/28-proposal-api-stage1.md`, and `docs/63-time-advance-operation-runtime-slice.md` identifies a concrete unresolved boundary:
+
+- `POST /v1/worlds/:id/time-actions` and `POST /v1/worlds/:id/time-advances`, including their read/resume routes, require both the normal API bearer and `x-engine-internal-token`.
+- The documented Host/Adapter contract says the adapter submits actions/time advances, but the adapter credential is distinct from the internal credential. The security contract explicitly separates credential classes.
+- The adapter-authenticated proposal API can create and commit approved event proposals under adapter identity. It is not documented as a wrapper for the durable timed-action/time-advance operation APIs; these operations must not be assumed interchangeable.
+- Therefore, the existing documents do **not** establish which trusted component is allowed to create/resubmit a timed action after interruption. Giving the SillyTavern adapter the internal token would cross the current trust boundary and is not proposed here.
+
+### Required decision before implementation
+
+Choose and document one authorized orchestration path:
+1. A trusted orchestration service, separate from the SillyTavern adapter, owns the internal credential and submits timed-action/time-advance operations; the adapter sends bounded intent to that service; or
+2. A deliberately designed adapter-facing API is added with narrowly scoped authorization and server-side orchestration, without exposing the internal credential. This would require a separate security review and API proposal.
+
+Neither option is approved by this review. Do not implement a direct credential-sharing workaround. Until the owner and API path are decided, the adapter re-evaluation sequence above is a desired behavior, not an implementable end-to-end contract.
+
+Source locations:
+- `src/api/server.js`: internal-token checks on `time-actions` and `time-advances`; adapter-token checks on proposal routes.
+- `docs/28-proposal-api-stage1.md`: proposal lifecycle and credential separation.
+- `docs/63-time-advance-operation-runtime-slice.md`: time-advance API routes and internal-token requirement.
+- `docs/13-sillytavern-adapter-contract.md`: adapter responsibilities and request/response envelope.
