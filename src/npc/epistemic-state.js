@@ -46,6 +46,14 @@ function isPlainDataObject(value) {
   }
 }
 
+function hasExactKeys(value, expected) {
+  if (!isPlainDataObject(value)) return false;
+  const keys = Reflect.ownKeys(value);
+  return keys.length === expected.length
+    && expected.every((key) => Object.hasOwn(value, key))
+    && keys.every((key) => typeof key === "string" && expected.includes(key));
+}
+
 function isSafeDataTree(value, active = new Set()) {
   if (value === null || typeof value === "string" || typeof value === "boolean") return true;
   if (typeof value === "number") return Number.isFinite(value);
@@ -98,7 +106,7 @@ function freezeState(state) {
 }
 
 function validState(state) {
-  if (!isPlainDataObject(state)
+  if (!hasExactKeys(state, ["world_id", "subject_id", "received", "evidence", "beliefs"])
     || !validId(state.world_id)
     || !validId(state.subject_id)
     || !denseArray(state.received)
@@ -107,7 +115,7 @@ function validState(state) {
 
   const receivedKeys = new Set();
   for (const item of state.received) {
-    if (!isPlainDataObject(item)
+    if (!hasExactKeys(item, ["event_ref", "source_ref", "source_version"])
       || !validId(item.event_ref)
       || !validId(item.source_ref)
       || !validId(item.source_version)
@@ -119,7 +127,7 @@ function validState(state) {
   const evidenceRefs = new Set();
   const evidenceByRef = new Map();
   for (const item of state.evidence) {
-    if (!isPlainDataObject(item)
+    if (!hasExactKeys(item, ["ref", "version", "proposition_ref", "acquisition_ref", "source_ref", "source_version", "polarity", "status", "invalidation_rule_ref"])
       || !validId(item.ref)
       || !validId(item.version)
       || !validId(item.proposition_ref)
@@ -142,7 +150,7 @@ function validState(state) {
 
   const propositionKeys = new Set();
   for (const belief of state.beliefs) {
-    if (!isPlainDataObject(belief)
+    if (!hasExactKeys(belief, ["proposition_ref", "stance", "supporting_evidence_refs", "conflicting_evidence_refs", "revision_rule_ref", "review_required", "history"])
       || !validId(belief.proposition_ref)
       || !STANCES.has(belief.stance)
       || !validId(belief.revision_rule_ref)
@@ -161,7 +169,7 @@ function validState(state) {
       || new Set(belief.conflicting_evidence_refs).size !== belief.conflicting_evidence_refs.length
       || belief.supporting_evidence_refs.some((ref) => belief.conflicting_evidence_refs.includes(ref))) return false;
     for (const entry of belief.history) {
-      if (!isPlainDataObject(entry)
+      if (!hasExactKeys(entry, ["stance", "revision_rule_ref", "evidence_refs"])
         || !STANCES.has(entry.stance)
         || !validId(entry.revision_rule_ref)
         || !denseArray(entry.evidence_refs)
