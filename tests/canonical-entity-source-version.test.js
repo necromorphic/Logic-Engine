@@ -205,7 +205,7 @@ test('migration backfills Core source tokens for entities already persisted befo
     expected_revision: 0,
     effects: [{ kind: 'entity.create', entity_id: 'source-a', entity_type: 'character', attributes: { note: 'legacy' } }],
   });
-  store.db.exec('DROP TABLE entity_source_versions; DELETE FROM schema_migrations WHERE version=13;');
+  store.db.exec('DROP TABLE entity_source_versions; DELETE FROM schema_migrations WHERE version=14;');
   store.close();
 
   store = new SQLiteStore(dbPath);
