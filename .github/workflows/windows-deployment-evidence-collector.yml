@@ -86,6 +86,23 @@ jobs:
             $backupWriteRefused = $_.Exception.Message -like '*outside supplied backup roots*'
           }
           if (-not $backupWriteRefused -or (Test-Path -LiteralPath $backupOutputPath)) { throw 'Collector must refuse to write its report inside a backup tree.' }
+          $backupJunction = Join-Path $env:RUNNER_TEMP 'logic-engine-backup-junction'
+          if (Test-Path -LiteralPath $backupJunction) { Remove-Item -LiteralPath $backupJunction -Force }
+          New-Item -ItemType Junction -Path $backupJunction -Target $backupFixture | Out-Null
+          try {
+            $junctionOutputPath = Join-Path $backupJunction 'must-not-write.json'
+            $junctionWriteRefused = $false
+            try {
+              & .\scripts\security\Collect-DeploymentEvidence.ps1 -ProcessName @('powershell.exe') -OutputPath $junctionOutputPath
+            } catch {
+              $junctionWriteRefused = $_.Exception.Message -like '*reparse point*'
+            }
+            if (-not $junctionWriteRefused -or (Test-Path -LiteralPath (Join-Path $backupFixture 'must-not-write.json'))) {
+              throw 'Collector must refuse output through a junction into a backup tree.'
+            }
+          } finally {
+            if (Test-Path -LiteralPath $backupJunction) { Remove-Item -LiteralPath $backupJunction -Force }
+          }
           $missingBackupPath = Join-Path $env:RUNNER_TEMP 'logic-engine-missing-backup-fixture'
           $missingBackupReportPath = Join-Path $env:RUNNER_TEMP 'logic-engine-missing-backup-report.json'
           if (Test-Path -LiteralPath $missingBackupPath) { Remove-Item -LiteralPath $missingBackupPath -Recurse -Force }
