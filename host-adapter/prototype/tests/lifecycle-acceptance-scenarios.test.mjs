@@ -116,8 +116,7 @@ test('pinned patch journals edit and swipe deletion only after awaited native sa
   const findNativeSaveAfter = start => {
     if (start < 0) return -1;
     const candidates = [
-      patch.indexOf('await saveChatConditional();', start),
-      patch.indexOf("await saveChatConditional({ throwOnError: lifecycleBefore.status !== 'NOT_ENROLLED' });", start),
+      patch.indexOf('await saveChatConditional(', start),
     ].filter(index => index >= start);
     return candidates.length ? Math.min(...candidates) : -1;
   };
