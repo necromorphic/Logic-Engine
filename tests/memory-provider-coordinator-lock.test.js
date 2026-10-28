@@ -136,7 +136,6 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
     const record = ${JSON.stringify(record)};
     // Seed a raw capture solely to exercise the existing tombstone mutation path.
     testDb.prepare('INSERT OR IGNORE INTO memory_raw_captures (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,metadata_json,captured_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,NULL)').run('world-coordinator','conversation','message','v1','user','text','digest','{}',new Date().toISOString());
-    testDb.close();
     writeFileSync(readyPath, 'ready');
     const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
     for await (const line of rl) {
@@ -271,6 +270,9 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
     await coreProc.exited;
     migrationProc.child.stdin.end(JSON.stringify({ id: 999, operation: 'close' }) + '\n');
     await migrationProc.exited;
+    providerProc.child.stdin.end(JSON.stringify({ id: 1000, operation: 'close' }) + '\n');
+    await providerProc.exited;
+    providerChild = null;
   } finally {
     const stopChild = async (child) => {
       if (!child) return;
