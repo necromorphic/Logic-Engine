@@ -107,4 +107,4 @@ test('malformed navigation constraint objects fail closed instead of throwing', 
   assert.equal(rankRoomRoutes(scene([]), 'a', 'd', []).reason, 'INVALID_NAVIGATION_CONSTRAINTS');
   assert.equal(rankRoomRoutes(scene([]), 'a', 'd', { forbiddenDoorIds: 'door-a' }).reason, 'NAVIGATION_INPUT_INCOMPLETE');
 });
-\n
+
