@@ -796,3 +796,26 @@ test('revoked inventory authority does not authorize a previously consistent sna
   });
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'READY');
 });
+
+test('pre-lineage database rows migrate as LEGACY/UNVERIFIED and are never guessed to be roots', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-digest-legacy-'));
+  const path = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const oldDb = new DatabaseSync(path);
+  oldDb.exec("CREATE TABLE host_version_digest_ledger (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, content_sha256 TEXT NOT NULL, lifecycle TEXT NOT NULL CHECK(lifecycle IN ('present','tombstoned')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tombstoned_at TEXT, PRIMARY KEY(world_id,conversation_id,message_id,version_id));");
+  oldDb.prepare('INSERT INTO host_version_digest_ledger (world_id,conversation_id,message_id,version_id,content_sha256,lifecycle,created_at,updated_at,tombstoned_at) VALUES(?,?,?,?,?,?,?,?,NULL)')
+    .run(tuple.world_id, tuple.conversation_id, tuple.message_id, tuple.version_id, digest('legacy'), 'present', '2026-01-01T00:00:00.000Z', '2026-01-01T00:00:00.000Z');
+  oldDb.close();
+
+  const ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  t.after(() => {
+    try { ledger.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const migrated = ledger.db.prepare('SELECT parent_version_id,lineage_status FROM host_version_digest_ledger WHERE version_id=?').get(tuple.version_id);
+  assert.equal(migrated.parent_version_id, null);
+  assert.equal(migrated.lineage_status, 'LEGACY/UNVERIFIED');
+  assert.deepEqual(ledger.captureVersion(entry({ content_sha256: digest('legacy') })), {
+    status: 'non_ready', code: 'HOST_LINEAGE_LEGACY_UNVERIFIED'
+  });
+});
