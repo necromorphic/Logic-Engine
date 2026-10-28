@@ -665,7 +665,13 @@ test('validator outage during reconciliation persists non-ready state across res
 
 
 test('raw-text operations remain disabled until policy approval', async (t) => {
-  const s = setup(t, { authorizeRawRead: async () => true });
+  let rawReadAuthorizationCalls = 0;
+  const s = setup(t, {
+    authorizeRawRead: async () => {
+      rawReadAuthorizationCalls += 1;
+      return true;
+    },
+  });
   assert.throws(
     () => s.provider.captureRawMessage({
       world_id: 'world-a', conversation_id: 'conversation-a', message_id: 'message-a',
@@ -686,6 +692,22 @@ test('raw-text operations remain disabled until policy approval', async (t) => {
     }),
     /MEMORY_RAW_DISCLOSURE_NOT_APPROVED/,
   );
+  assert.throws(
+    () => s.provider.selectActiveRawVersion({
+      world_id: 'world-a', conversation_id: 'conversation-a', message_id: 'message-a',
+      version_id: 'version-a',
+    }),
+    /MEMORY_RAW_SOURCE_NOT_APPROVED/,
+  );
+  assert.throws(
+    () => s.provider.registerRawDerivedCopy({
+      world_id: 'world-a', conversation_id: 'conversation-a', message_id: 'message-a',
+      source_version_id: 'version-a', copy_ref: 'copy-a', copy_version: 'v1',
+      copy_kind: 'summary', content: 'derived fixture text',
+    }),
+    /MEMORY_RAW_DERIVED_COPY_NOT_APPROVED/,
+  );
+  assert.equal(rawReadAuthorizationCalls, 0, 'an allow callback cannot override the policy gate');
 });
 
 test('exact-version raw tombstones invalidate only dependent copies and purge cascades locally', (t) => {
