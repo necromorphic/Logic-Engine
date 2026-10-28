@@ -394,6 +394,40 @@ test('character rename is rejected before it can orphan an enrolled chat path', 
     }
 });
 
+test('character deletion with chat cleanup is rejected before enrolled history is removed', async () => {
+    const { root, directories, request } = await fixture();
+    try {
+        const chatDirectory = path.join(directories.chats, 'character-a');
+        await mkdir(chatDirectory, { recursive: true });
+        const chatPath = path.join(chatDirectory, 'chat-1.jsonl');
+        await writeFile(chatPath, '{"mes":"before"}\n');
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            sourcePath: 'character-a/chat-1.jsonl',
+            domain: 'chats',
+        });
+        request.path = '/api/characters/delete';
+        request.originalUrl = request.path;
+        request.body = { avatar_url: 'character-a.png', delete_chats: true };
+
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            reachedHandler = true;
+            response.json({ ok: true });
+        });
+        await response.finished;
+
+        assert.equal(reachedHandler, false);
+        assert.equal(response.statusCode, 409);
+        assert.match(String(response.body), /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
+        assert.equal(await readFile(chatPath, 'utf8'), '{"mes":"before"}\n');
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test('replayed operation ID is rejected before a second mutation', async () => {
     const { root, directories, request } = await fixture();
     try {
