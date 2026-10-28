@@ -323,3 +323,17 @@ test("state validation rejects unknown beliefs with active evidence and unreview
     type: "canonical_truth_changed",
   }).status, "non_ready");
 });
+
+test("unsupported primitive values fail closed in event metadata", () => {
+  const base = {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "information_received",
+    event_ref: "receipt-unsafe",
+    source_ref: "source-1",
+    source_version: "v1",
+  };
+  assert.equal(applyNpcEpistemicEvent(emptyState(), { ...base, extra: () => "not data" }).status, "non_ready");
+  assert.equal(applyNpcEpistemicEvent(emptyState(), { ...base, extra: Number.NaN }).status, "non_ready");
+  assert.equal(applyNpcEpistemicEvent(emptyState(), { ...base, extra: undefined }).status, "non_ready");
+});
