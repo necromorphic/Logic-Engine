@@ -189,3 +189,13 @@ test('revoked actor binding during policy evaluation prevents disclosure', (t) =
   assert.throws(() => service.read(request(engine)),
     (error) => error.code === 'READ_NOT_AVAILABLE' && error.status === 404);
 });
+
+test('policy callback cannot mutate the canonical fact through its input object', (t) => {
+  const { engine, service } = setup(t, (_context, _acquisition, fact) => {
+    if (fact.fact_id === 'secret-fact') fact.value.text = 'tampered by policy';
+    return true;
+  });
+  const result = service.read(request(engine));
+  const secret = result.facts.find((fact) => fact.fact_id === 'secret-fact');
+  assert.equal(secret.value.text, 'private payload');
+});
