@@ -120,3 +120,16 @@ The current repository sources provide stronger evidence for several cases than 
 | Action-level partial progress | No general contract established by these sources | Resolve separately; do not infer it from time-advance segment checkpoints |
 
 **Correction to the earlier gap assessment:** idempotency and some blocked-work behavior are not merely undocumented; targeted runtime tests are present. The remaining question is breadth of coverage, especially crash points and end-to-end recovery—not absence of all tests.
+
+
+## 9. Test execution performed during this review
+
+I extracted the user-provided archive `Logic-Engine-main (1).zip` (archive commit identifier `de0d8d10faf71c521fc68f246f7322963abd41ab`) and ran:
+
+```sh
+node --test tests/time-advance-operation.test.js
+```
+
+**Result: 6 tests passed, 0 failed.** The six tests cover due-coordinate commits, idempotent replay, rejection of changed request content under the same key, blocked due work, sub-second rejection, and recovery from the last persisted segment checkpoint without replaying that segment.
+
+**Scope limitation:** this execution was against the uploaded archive, not a fresh checkout of the current remote `main` or the PR branch. It confirms those six tests pass in the archive; it does not establish that the current remote revision has identical code or that the full repository suite passes.
