@@ -60,6 +60,12 @@ Review WP-1–WP-4 evidence and update #140, #251 and #252. Record exact commits
 
 **Exit criteria:** gate-by-gate evidence review. Memory → NPC remains `DISABLED / FAIL-CLOSED`; Host remains `NON_READY` until all mandatory governing gates pass. This plan does not authorize merge or production activation.
 
+## Representation decision proposal
+
+The coordinator has drafted [doc 85 — Core-owned event-sourced acquisition representation](docs/85-core-initial-knowledge-acquisition-representation-decision.md). Recommended target: a Core-owned acquisition effect in the existing event/validity lifecycle plus a derived projection, explicitly not `fact.set`, context manifests, or an NPC-owned source-of-truth table. This is a proposal, not approved runtime behavior.
+
+The representation decision remains conditional on WP-1 source-path discovery and WP-2 proof that source invalidation, independent support, replay and rollback can be represented correctly. If they cannot, stop and review the smallest missing Core lifecycle extension before implementing the read path.
+
 ## Dependency order
 
 `WP-1 → WP-2 → WP-3 → WP-4 → WP-5`
