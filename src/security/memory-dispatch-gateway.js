@@ -272,7 +272,6 @@ export class MemoryDispatchGateway {
             purpose TEXT NOT NULL,
             sources_json TEXT NOT NULL,
             candidates_json TEXT NOT NULL,
-            transport_target TEXT NOT NULL,
             core_head INTEGER NOT NULL CHECK(core_head > 0),
             provider_head INTEGER NOT NULL CHECK(provider_head > 0),
             status TEXT NOT NULL CHECK(status IN ('DISPATCH_STARTED','COMPLETED','UNKNOWN')),
@@ -297,7 +296,7 @@ export class MemoryDispatchGateway {
         const columns = new Set(this.db.prepare('PRAGMA table_info(dispatch_ledger)').all().map((row) => row.name));
         const required = [
           'request_id', 'request_digest', 'route', 'model', 'stream', 'world_id', 'actor_id', 'purpose',
-          'sources_json', 'candidates_json', 'transport_target', 'core_head', 'provider_head', 'status', 'outcome_code',
+          'sources_json', 'candidates_json', 'core_head', 'provider_head', 'status', 'outcome_code',
           'started_at', 'finished_at',
         ];
         if (required.some((column) => !columns.has(column))) throw new Error('DISPATCH_LEDGER_SCHEMA_INCOMPLETE');
@@ -411,9 +410,9 @@ export class MemoryDispatchGateway {
         if (unresolvedReplay) throw new Error('MEMORY_DISPATCH_REPLAY_BLOCKED');
         this.db.prepare(`
           INSERT INTO dispatch_ledger(
-            request_id,request_digest,route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,transport_target,
+            request_id,request_digest,route,model,stream,world_id,actor_id,purpose,sources_json,candidates_json,
             core_head,provider_head,status,outcome_code,started_at,finished_at
-          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
+          ) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'DISPATCH_STARTED',NULL,?,NULL)
         `).run(
           requestId,
           requestDigest,
@@ -425,7 +424,6 @@ export class MemoryDispatchGateway {
           purpose,
           JSON.stringify(sourceSet),
           JSON.stringify(candidateSet),
-          transportTarget,
           coreHead,
           providerHead,
           new Date().toISOString(),
