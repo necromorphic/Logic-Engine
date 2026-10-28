@@ -584,3 +584,63 @@ test('paused lifecycle state and trigger cancellation survive restart before res
   assert.equal(process.progress.completed, 1);
   assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'completed');
 }));
+
+
+test('explicit reconciliation resets rolled-back milestones and re-arms the process', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  const created = engine.createProcess('world-a', processInput());
+  const initialTriggerIds = created.process.milestones.map((milestone) => milestone.trigger_id);
+
+  const beforeAdvance = engine.getState('world-a');
+  const advanced = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-before-explicit-reconcile',
+    expected_revision: beforeAdvance.world_revision,
+    to_coordinate: 1000,
+  });
+  assert.equal(advanced.status, 'completed');
+  const completed = engine.getProcess('world-a', 'journey-1');
+  const departed = completed.milestones.find((milestone) => milestone.milestone_id === 'depart');
+  assert.equal(departed.status, 'completed');
+  assert.ok(departed.completed_event_ids.length > 0);
+
+  const rollback = engine.rollbackEvent('world-a', {
+    root_event_id: departed.completed_event_ids[0],
+    idempotency_key: 'rollback-before-explicit-reconcile',
+  });
+  assert.equal(rollback.accepted, true);
+  let process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'needs_review');
+  assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'needs_review');
+
+  assert.throws(
+    () => engine.transitionProcess('world-a', 'journey-1', {
+      action: 'reconcile',
+      expected_version: process.version,
+      idempotency_key: 'reconcile-without-confirmation',
+    }),
+    (error) => error.code === 'PROCESS_RECONCILIATION_CONFIRMATION_REQUIRED',
+  );
+
+  const reconciled = engine.transitionProcess('world-a', 'journey-1', {
+    action: 'reconcile',
+    confirm_retry: true,
+    expected_version: process.version,
+    idempotency_key: 'explicit-reconcile-after-rollback',
+    reason: 'author_confirmed_retry',
+  });
+  process = reconciled.process;
+  assert.equal(process.status, 'scheduled');
+  assert.equal(process.milestones.every((milestone) => milestone.status === 'pending'), true);
+  assert.equal(process.milestones.every((milestone) => !initialTriggerIds.includes(milestone.trigger_id)), true);
+  assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 2);
+
+  const afterReconcile = engine.getState('world-a');
+  const retry = engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-after-explicit-reconcile',
+    expected_revision: afterReconcile.world_revision,
+    to_coordinate: 1000,
+  });
+  assert.equal(retry.status, 'completed');
+  process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'completed');
+}));
