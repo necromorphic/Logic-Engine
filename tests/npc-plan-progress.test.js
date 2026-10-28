@@ -155,3 +155,14 @@ test("rejects accessor-backed plan steps without invoking them", () => {
   assert.deepEqual(advanceNpcPlan(candidate, { type: "abandon" }), { status: "non_ready", plan: null });
   assert.equal(invoked, false);
 });
+
+
+test("fails closed when plan reflection traps throw", () => {
+  const candidate = new Proxy({}, {
+    getPrototypeOf() { throw new Error("prototype trap"); },
+  });
+  assert.deepEqual(advanceNpcPlan(candidate, { type: "abandon" }), {
+    status: "non_ready",
+    plan: null,
+  });
+});
