@@ -79,6 +79,13 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   const serverMain = await readFile(resolve(root, 'src/server-main.js'), 'utf8');
   const hostJournal = await readFile(resolve(root, 'src/endpoints/logic-engine-host-journal.mjs'), 'utf8');
   const lifecycleRoutes = await readFile(resolve(root, 'src/endpoints/logic-engine-lifecycle.js'), 'utf8');
+  const groupChatScript = await readFile(resolve(root, 'public/scripts/group-chats.js'), 'utf8');
+
+  assert.match(script, /prepareSaveCapability[^\n]*'\/api\/chats\/save'/);
+  assert.match(script, /X-Logic-Engine-Save-Capability/);
+  assert.match(groupChatScript, /prepareSaveCapability[^\n]*'\/api\/chats\/group\/save'/);
+  assert.match(groupChatScript, /X-Logic-Engine-Save-Capability/);
+  assert.match(script, /Reload this chat to restore the last persisted state/);
 
   for (const route of [
     "router.post('/save'", "router.post('/rename'", "router.post('/delete'",
@@ -135,6 +142,9 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.match(lifecycleRoutes, /host-lifecycle\/enroll/);
   assert.match(lifecycleRoutes, /host-lifecycle\/status/);
   assert.match(lifecycleRoutes, /host-lifecycle\/reconcile/);
+  assert.match(lifecycleRoutes, /host-lifecycle\/save-capability\/prepare/);
+  assert.match(hostJournal, /beforeSavePrestateRecheck/);
+  assert.match(hostJournal, /HOST_SAVE_CAPABILITY_STALE_PRESTATE/);
 });
 
 test('server-side Core digest proxy exists and never exposes its credentials to browser code', async () => {
