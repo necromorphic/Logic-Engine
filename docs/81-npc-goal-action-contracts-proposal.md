@@ -249,3 +249,16 @@ These are required test cases for a future implementation; **they were not run b
 - NPC plan reconciliation: **DISABLED / BLOCKED**.
 - Runtime/API/schema/storage/dispatcher/scheduler/worker changes: **NOT AUTHORIZED**.
 - `Memory → NPC`: **DISABLED / FAIL-CLOSED**; Host: **NON_READY** until independent gates pass.
+
+### 11.7 Source audit and cross-contract reconciliation gate
+
+A source-level check of current `main` confirms a sharper boundary than “the translator has no knowledge intent”:
+
+- `src/core/mechanic-effect-translator.js` lists `propose_knowledge` among known intent names, but its executable `SUPPORTED_INTENTS` allowlist contains only `create_entity`, `update_attribute`, and `assert_fact`. A `propose_knowledge` intent is therefore explicitly rejected as unsupported by the current translator. Recognition as a known name is not implementation.
+- `MechanicExecutor.evaluate(...)` is a bounded, read-only evaluator for a caller-supplied action ID on an enabled instance's exact pinned template. It requires a trusted context provider and fails closed for unsupported capability/input/policy cases. It does not discover NPC actions or independently grant actor-purpose authorization.
+- `ProposalService` is a generic proposal boundary; its documented validation gaps include actor authorization and semantic alignment. A generic `pending` record is not evidence that an NPC observed or learned anything.
+- `docs/34-npc-decision-context-and-proposal.md` and `docs/39-npc-core-knowledge-contract-proposal.md` define separate, still-blocked knowledge/acquisition prerequisites. In particular, the accepted direction in `docs/39` scopes the candidate first runtime knowledge path to explicit `author_initial`/imported acquisition with provenance, and says its executable source/record/filter contract is not yet implemented. The newer `observe` decision authorizes semantic **design**, not a replacement implementation path or a bypass around those Core-owned gates.
+
+Before any implementation request, the coordinator/core owner must explicitly reconcile whether `observe` is a later semantic slice or a revision to the existing `author_initial`/imported first-slice decision. The owner must also identify the real authoritative observation source, the supported knowledge-proposal mapping, and the trusted actor/purpose/source filter. Until then these are separate design tracks, not a single executable route.
+
+**Implementation entry gate:** provide source references to a real enabled instance and exact pinned template/action, the authoritative source and evidence type, the explicit authorization owner/decision, the supported effect/proposal mapping, the snapshot/provenance correlation, and production-path negative tests. If any item is absent, stop at `unknown/denied/needs_review`; do not add a substitute NPC-local store, permission system, or effect mapping in this PR.
