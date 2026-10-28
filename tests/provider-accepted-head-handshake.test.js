@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -336,6 +336,72 @@ test('Provider fails closed when authority advances but the local checkpoint tra
   } finally {
     try { provider?.close(); } catch {}
     try { providerDb?.close(); } catch {}
+    if (child) {
+      child.stdin.end('stop');
+      await once(child, 'exit');
+    }
+    for (const [name, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+    rmSync(directory, { recursive: true, force: true });
+  }
+});
+
+
+test('Provider rejects restoration of an older enrolled database snapshot', async () => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-provider-accepted-head-restore-'));
+  const providerPath = join(directory, 'provider.sqlite');
+  const baselinePath = join(directory, 'provider-baseline.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const authorityPath = join(directory, 'authority.sqlite');
+  const previousEnv = {};
+  let child;
+  let provider;
+  try {
+    setEnv('LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', undefined, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', undefined, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', undefined, previousEnv);
+    const bootstrap = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
+    bootstrap.close();
+
+    const service = await startAuthorityProcess(authorityPath);
+    child = service.child;
+    const port = service.port;
+    const coreEnrollment = enrollAcceptedHeadSync({
+      domain: 'core', operationId: 'core-restore-test-baseline',
+      operationDigest: digestA, token: coreToken, port,
+    });
+    finalizeAcceptedHeadSync({
+      domain: 'core', operationId: coreEnrollment.operation_id,
+      operationDigest: digestA, token: coreToken, port,
+    });
+    enrollAcceptedHeadDomain({
+      domain: 'provider', databasePath: providerPath, coordinatorPath, port,
+      token: providerToken, approvalId: 'approval-provider-restore-test', baselineDigest: digestB,
+    });
+
+    // This copy represents a legitimate backup taken at the enrolled baseline.
+    copyFileSync(providerPath, baselinePath);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', String(port), previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', providerToken, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', '1', previousEnv);
+    provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
+    provider.grantQuery({ world_id: 'world-restore', subject_id: 'npc-restore', purpose: 'recall' }, true);
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 2 });
+    provider.close();
+    provider = null;
+
+    // Restoring the old local DB cannot roll back the independent authority.
+    copyFileSync(baselinePath, providerPath);
+    assert.throws(
+      () => new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath)),
+      /PROVIDER_ACCEPTED_HEAD_MISMATCH/,
+    );
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 2 });
+  } finally {
+    try { provider?.close(); } catch {}
     if (child) {
       child.stdin.end('stop');
       await once(child, 'exit');
