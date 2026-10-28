@@ -35,7 +35,7 @@ const stableJson = (value) => {
     JSON.stringify(key) + ':' + stableJson(value[key])).join(',') + '}';
   return JSON.stringify(value);
 };
-const propositionRefFor = (item) => validRef(item?.subject_ref) && validRef(item?.predicate)
+export const npcPropositionRefFor = (item) => validRef(item?.subject_ref) && validRef(item?.predicate)
   ? 'proposition:' + encodeURIComponent(item.subject_ref) + '/' + encodeURIComponent(item.predicate)
   : validRef(item?.fact_id) && validRef(item?.predicate)
     ? 'proposition:fact/' + encodeURIComponent(item.fact_id)
@@ -104,8 +104,12 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     return Object.freeze({ status: 'non_ready', reason: 'belief_transition_requires_evidence', transition: null });
   }
 
+  if (Array.isArray(knowledgeRead.withheld_proposition_refs)
+    && knowledgeRead.withheld_proposition_refs.includes(proposal.proposition_ref)) {
+    return Object.freeze({ status: 'non_ready', reason: 'proposition_has_withheld_evidence', transition: null });
+  }
   const propositionItems = knowledgeRead.items.filter((item) =>
-    propositionRefFor(item) === proposal.proposition_ref);
+    npcPropositionRefFor(item) === proposal.proposition_ref);
   if (propositionItems.length === 0) {
     return Object.freeze({ status: 'non_ready', reason: 'proposition_has_no_matching_core_evidence', transition: null });
   }
@@ -113,7 +117,7 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
   if (propositionItems.some((item) => !cited.has(item.acquisition_id))) {
     return Object.freeze({ status: 'non_ready', reason: 'all_current_proposition_evidence_must_be_accounted_for', transition: null });
   }
-  if (allRefs.some((ref) => propositionRefFor(active.get(ref)) !== proposal.proposition_ref)) {
+  if (allRefs.some((ref) => npcPropositionRefFor(active.get(ref)) !== proposal.proposition_ref)) {
     return Object.freeze({ status: 'non_ready', reason: 'evidence_does_not_match_proposition', transition: null });
   }
   let propositionValueKey;
