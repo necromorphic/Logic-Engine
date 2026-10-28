@@ -103,7 +103,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
     "'POST /api/chats/group/import'", "'POST /api/chats/import'",
     "'POST /api/chats/group/delete'", "'POST /api/chats/group/save'",
     "'POST /api/groups/create'", "'POST /api/groups/edit'", "'POST /api/groups/delete'",
-    "'POST /api/characters/rename'", "'POST /api/characters/delete'",
+    "'POST /api/characters/create'", "'POST /api/characters/rename'", "'POST /api/characters/edit-avatar'", "'POST /api/characters/delete'",
     "'POST /api/characters/import'", "'POST /api/characters/duplicate'",
     "'POST /api/backups/chat/delete'", "'POST /api/data-maid/delete'",
   ]) assert.ok(hostJournal.includes(route), `Host journal must intercept direct route ${route}`);
