@@ -684,6 +684,31 @@ export class SQLiteStore {
             ON knowledge_acquisitions(world_id,subject_id,acquisition_id);`);
         },
       },
+      {
+        version: 14,
+        apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS npc_belief_transitions(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            transition_id TEXT NOT NULL,
+            actor_id TEXT NOT NULL,
+            proposition_ref TEXT NOT NULL,
+            stance TEXT NOT NULL CHECK(stance IN ('believes_true','believes_false','suspects_true','suspects_false','unresolved_conflict')),
+            supporting_acquisition_ids_json TEXT NOT NULL,
+            contradicting_acquisition_ids_json TEXT NOT NULL,
+            evidence_acquisition_ids_json TEXT NOT NULL,
+            reason_rule_ref TEXT NOT NULL,
+            snapshot_revision INTEGER NOT NULL,
+            snapshot_commit_sequence INTEGER NOT NULL,
+            event_id TEXT NOT NULL,
+            committed_revision INTEGER NOT NULL,
+            PRIMARY KEY(world_id,transition_id),
+            UNIQUE(world_id,event_id),
+            FOREIGN KEY(world_id,event_id) REFERENCES world_events(world_id,event_id)
+          );
+          CREATE INDEX IF NOT EXISTS npc_belief_transitions_current
+            ON npc_belief_transitions(world_id,actor_id,proposition_ref,committed_revision);`);
+        },
+      },
     ];
     for (const migration of migrations) {
       const applied = this.db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
