@@ -99,6 +99,15 @@ test('requires an explicit recovery reason for recovery records', () => {
   }), /REMOTE_ANCHOR_RECOVERY_REASON_INVALID/);
 });
 
+test('rejects unimplemented re-enrollment records', () => {
+  assert.throws(() => verifyRemoteAnchorEnvelope({
+    envelope: makeEnvelope({ record_type: 'REENROLL' }),
+    installationId,
+    expectedKeyId: 'key-01',
+    publicKey: publicPem,
+  }), /REMOTE_ANCHOR_RECORD_TYPE_INVALID/);
+});
+
 test('rejects records signed under an unexpected key identifier', () => {
   assert.throws(() => verifyRemoteAnchorEnvelope({
     envelope: makeEnvelope(),
