@@ -390,7 +390,9 @@ foreach ($dataFile in $requestedDataPaths) {
     try {
         $expectedDataPath = [System.IO.Path]::GetFullPath($dataFile)
         $rootEvidence = @($pathEvidence | Where-Object {
-            $_.requestedPath -eq $dataFile -and $_.path -eq $expectedDataPath
+            $_.requestedPath -eq $dataFile -and
+            ($_.PSObject.Properties.Name -contains "path") -and
+            $_.path -eq $expectedDataPath
         } | Select-Object -First 1)
         if ($rootEvidence.Count -eq 0) {
             $incompleteReasons.Add("A supplied data database path is missing, inaccessible, invalid, or not a file.")
