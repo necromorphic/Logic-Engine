@@ -141,6 +141,18 @@ test('real HTTP response cannot leak a success body when post-scan is incomplete
             request.baseUrl = '';
             request.path = '/api/characters/create';
             request.originalUrl = '/api/characters/create';
+            // The middleware is mounted in Express in SillyTavern. This raw
+            // node:http harness supplies the two Express response helpers it
+            // relies on, while keeping the test on a real HTTP socket.
+            response.status = function status(code) {
+                this.statusCode = code;
+                return this;
+            };
+            response.json = function json(value) {
+                if (!this.headersSent) this.setHeader('Content-Type', 'application/json; charset=utf-8');
+                this.end(JSON.stringify(value));
+                return this;
+            };
             void middleware(request, response, async () => {
                 await rm(directories.backups, { recursive: true, force: true });
                 response.statusCode = 200;
