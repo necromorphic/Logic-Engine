@@ -59,6 +59,22 @@ The current implementation has **two bounded dependency systems**, not one unive
 
 **Finding:** the next Core competency is not “build a universal graph” immediately. First establish an evidence inventory for each currently supported dependency form: where it is declared, validated, consumed by rollback/planning, and covered by a test. Mark omitted-read detection, complete dependency capture, arbitrary derived-state recalculation, and cross-block invalidation as unsupported until proven. No new graph schema, queue, API, or storage is proposed by this audit.
 
+## Authorized-read / result-publication competency — deeper source findings
+
+The narrow Core read service is stronger than a simple snapshot wrapper, but it is not the full result-publication pipeline:
+
+- `AuthorizedReadService.readEntityFields()` binds the request to a Core-resolved actor/adapter, bounds the target set and requested fields, requires an explicit trusted field-policy callback, omits denied fields, and returns the composite snapshot cursor.
+- Missing targets and fully withheld targets share `READ_NOT_AVAILABLE`; a partially unavailable target set fails atomically rather than returning a subset.
+- After policy evaluation, the service rechecks actor binding and reads the same bounded snapshot again. Tests cover field-policy exceptions, binding revocation during evaluation, canonical mutation during evaluation, wrong actor/adapter, missing-vs-withheld equivalence, and no partial target disclosure.
+- The default API behavior is self-identity metadata only. A trusted host policy hook is opt-in; the repository does not define a universal field-sensitivity/visibility schema.
+- The recheck narrows an in-process time-of-check/time-of-use window. The source explicitly says it is **not a cross-process atomic lease**.
+- Direct internal methods such as `getSnapshot`, `getState`, `getEvents`, and `getAudit` remain trusted internal APIs. The audit has not proven that every downstream consumer/serializer routes through an authorized boundary.
+- The proposed final-disclosure contract says a Core preflight followed by a separate phone-side outbound call is insufficient: the final decision must be bound to the exact protected request and ordered against source/grant invalidation at a sole dispatch boundary. That is still a proposal, not a callable production contract.
+
+**Finding:** the existing service can prove a bounded, policy-filtered read for the tested in-process path. It does not prove safe final model-send authorization, full disclosure revocation ordering, relationship projection authorization, or a production Memory → NPC path.
+
+Next proof should be a **read-path inventory**, not a new API: enumerate every route and in-process consumer that can serialize canonical state, relationship projections, Memory candidates, summaries, events, or mechanic state; classify each as privileged-internal, authorized-filtered, or unverified; then trace the actual consumer to the final serializer. No runtime changes are proposed here.
+
 ## Current Core assessment
 
 The existing README estimate of **Core = 55%** remains an approximate portfolio estimate, not a test-derived metric. It is reasonable only if read as “substantial canonical/proposal/snapshot primitives exist, while several engine-wide guarantees remain incomplete.” It must not be read as 55% production-ready.
