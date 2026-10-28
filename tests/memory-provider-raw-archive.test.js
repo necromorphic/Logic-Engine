@@ -198,3 +198,66 @@ test('exact-version tombstone invalidates only dependent copies and preserves an
   assert.equal(testDbFor(provider).prepare('SELECT status FROM memory_raw_derived_copies WHERE copy_ref=?').get('copy-v2').status,
     'current');
 });
+
+test('exact-version tombstone persists across Provider restart without resurrecting the deleted version', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-memory-tombstone-restart-'));
+  const path = join(directory, 'memory-provider.sqlite');
+  let provider = new SQLiteMemoryProvider({
+    path,
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+    authorizeRawRead: async () => true,
+  });
+  const testDb = createProviderTestDb(t, { path });
+  providerTestDbs.set(provider, testDb);
+  t.after(() => {
+    try { provider.close(); } catch {}
+    testDb.close();
+    rmSync(directory, { recursive: true, force: true });
+  });
+
+  const deleted = {
+    world_id: 'restart-w',
+    conversation_id: 'restart-c',
+    message_id: 'restart-m',
+    version_id: 'restart-v1',
+  };
+  const alternate = { ...deleted, version_id: 'restart-v2' };
+  insertLegacyRawVersion(provider, { ...deleted, content: 'deleted immutable version' });
+  insertLegacyRawVersion(provider, { ...alternate, content: 'alternate immutable version' });
+  testDbFor(provider).prepare(`INSERT INTO memory_raw_active_versions
+    (world_id,conversation_id,message_id,version_id,selected_at) VALUES(?,?,?,?,?)`)
+    .run(deleted.world_id, deleted.conversation_id, deleted.message_id, deleted.version_id,
+      '2026-01-01T00:00:00.000Z');
+
+  assert.deepEqual(provider.markRawSourceDeleted(deleted), { status: 'deleted', invalidated_copies: 0 });
+  provider.close();
+  provider = new SQLiteMemoryProvider({
+    path,
+    getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+    validateSourceVersion: async () => true,
+    validateInventory: async () => true,
+    authorizeRawRead: async () => true,
+  });
+  providerTestDbs.set(provider, testDb);
+
+  const persisted = testDbFor(provider).prepare(`SELECT deleted_at FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get(deleted.world_id, deleted.conversation_id, deleted.message_id, deleted.version_id);
+  assert.notEqual(persisted.deleted_at, null, 'the exact-version tombstone must survive restart');
+  assert.equal(testDbFor(provider).prepare(`SELECT COUNT(*) AS n FROM memory_raw_active_versions
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get(deleted.world_id, deleted.conversation_id, deleted.message_id, deleted.version_id).n, 0,
+  'the deleted version must not regain active selection after restart');
+  assert.equal(testDbFor(provider).prepare(`SELECT content_text FROM memory_raw_captures
+    WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?`)
+    .get(alternate.world_id, alternate.conversation_id, alternate.message_id, alternate.version_id).content_text,
+  'alternate immutable version', 'the unrelated alternate version must remain unchanged');
+
+  await assert.rejects(
+    () => provider.readRawMessageVersion(deleted),
+    (error) => error.message === 'MEMORY_RAW_DISCLOSURE_NOT_APPROVED',
+  );
+});
+
