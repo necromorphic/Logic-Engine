@@ -30,7 +30,10 @@ function validate(scene, constraints) {
       (!Number.isFinite(constraints.maxCost) || constraints.maxCost < 0)) {
     return { status: 'UNKNOWN', reason: 'INVALID_MAX_COST' };
   }
-  if (constraints.maxRoutes !== undefined && (!Number.isSafeInteger(constraints.maxRoutes) || constraints.maxRoutes < 1 || constraints.maxRoutes > 20)) {\n    return { status: 'UNKNOWN', reason: 'INVALID_MAX_ROUTES' };\n  }\n  if ((constraints.forbiddenDoorIds ?? []).some((id) => typeof id !== 'string' || !doorIds.has(id))) {
+  if (constraints.maxRoutes !== undefined && (!Number.isSafeInteger(constraints.maxRoutes) || constraints.maxRoutes < 1 || constraints.maxRoutes > 20)) {
+    return { status: 'UNKNOWN', reason: 'INVALID_MAX_ROUTES' };
+  }
+  if ((constraints.forbiddenDoorIds ?? []).some((id) => typeof id !== 'string' || !doorIds.has(id))) {
     return { status: 'UNKNOWN', reason: 'UNKNOWN_FORBIDDEN_DOOR_ID' };
   }
   return { status: 'CONFIRMED' };

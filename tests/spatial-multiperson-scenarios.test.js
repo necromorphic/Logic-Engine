@@ -1,0 +1,70 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { buildLanguageModelSceneContext, evaluateSpatialTopology } from '../experiments/spatial-scene-lab/spatial-topology.js';
+import { estimateSoundAudibility } from '../experiments/spatial-scene-lab/spatial-sound.js';
+
+const makeScene = (doorState) => ({
+  worldId: 'multi-npc-doorway',
+  boundary: 'synthetic-turn-1',
+  entities: [
+    { id: 'speaker', position: { x: 2, y: 2, z: 1 }, soundLevelDb: 55 },
+    { id: 'listener-behind-door', position: { x: 12, y: 2, z: 1 }, hearingThresholdDb: 30 },
+    { id: 'unlocated-npc', position: { x: 40, y: 2, z: 1 } },
+  ],
+  rooms: [
+    { id: 'office', name: 'Office', bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 10, z: 3 } } },
+    { id: 'hall', name: 'Hall', bounds: { min: { x: 10.1, y: 0, z: 0 }, max: { x: 20, y: 10, z: 3 } } },
+  ],
+  zones: [
+    { id: 'office-zone', name: 'Office area', roomId: 'office', bounds: { min: { x: 0, y: 0, z: 0 }, max: { x: 10, y: 10, z: 3 } } },
+    { id: 'hall-zone', name: 'Hall area', roomId: 'hall', bounds: { min: { x: 10.1, y: 0, z: 0 }, max: { x: 20, y: 10, z: 3 } } },
+  ],
+  doors: [{
+    id: 'office-door',
+    name: 'Office door',
+    roomA: 'office',
+    roomB: 'hall',
+    state: doorState,
+    soundAttenuationDb: { open: 5, closed: 35 },
+  }],
+});
+
+test('multi-NPC scene: a closed door blocks the route and the sound estimate stays below threshold', () => {
+  const scene = makeScene('closed');
+  const topology = evaluateSpatialTopology(scene);
+  assert.equal(topology.status, 'CONFIRMED');
+
+  const context = buildLanguageModelSceneContext(scene, 'speaker');
+  assert.equal(context.status, 'CONFIRMED');
+  assert.match(context.text, /Entity listener-behind-door: Hall \/ Hall area/);
+  assert.match(context.text, /Do not infer visibility, hearing, noticing/);
+
+  const sound = estimateSoundAudibility(scene, 'speaker', 'listener-behind-door');
+  assert.equal(sound.status, 'CONFIRMED');
+  assert.equal(sound.audible, false);
+  assert.equal(sound.reason, 'ALL_POSSIBLE_ROUTES_BELOW_THRESHOLD_OR_BLOCKED');
+});
+
+test('multi-NPC scene: an open doorway may make sound audible but does not assert actual hearing', () => {
+  const scene = makeScene('open');
+  const sound = estimateSoundAudibility(scene, 'speaker', 'listener-behind-door');
+  assert.equal(sound.status, 'CONFIRMED');
+  assert.equal(sound.audible, true);
+  assert.equal(sound.reason, 'KNOWN_ROUTE_ABOVE_THRESHOLD');
+
+  const context = buildLanguageModelSceneContext(scene, 'speaker');
+  assert.doesNotMatch(context.text, /listener-behind-door heard the sound/i);
+  assert.match(context.text, /Do not infer visibility, hearing, noticing/);
+});
+
+test('multi-NPC scene: an entity outside declared rooms remains explicitly unknown in model context', () => {
+  const scene = makeScene('open');
+  const topology = evaluateSpatialTopology(scene);
+  const location = topology.locations.find((item) => item.entityId === 'unlocated-npc');
+  assert.equal(location.status, 'UNKNOWN');
+  assert.equal(location.reason, 'POSITION_OUTSIDE_DECLARED_ROOMS');
+
+  const context = buildLanguageModelSceneContext(scene, 'speaker');
+  assert.equal(context.status, 'CONFIRMED');
+  assert.match(context.text, /Entity unlocated-npc: location UNKNOWN \(POSITION_OUTSIDE_DECLARED_ROOMS\)/);
+});
