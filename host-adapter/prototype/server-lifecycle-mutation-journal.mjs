@@ -48,6 +48,44 @@ function hasEnrolledChatUnderCharacter(registry, avatarUrl) {
         && conversation.sourcePath.startsWith(prefix));
 }
 
+function operationTargetsEnrolledHistory(operation, request, registry) {
+    const body = request.body ?? {};
+    if (operation === 'chat-delete') {
+        const characterDirectory = path.parse(String(body.avatar_url ?? '').replace('.png', '')).name;
+        const chatName = path.parse(String(body.chatfile ?? '')).name;
+        if (!characterDirectory || !chatName) return false;
+        return registry.conversations.some(conversation => conversation.domain === 'chats'
+            && conversation.sourcePath === characterDirectory + '/' + chatName + '.jsonl');
+    }
+    if (operation === 'group-chat-delete') {
+        const chatName = path.parse(String(body.id ?? '')).name;
+        if (!chatName) return false;
+        return registry.conversations.some(conversation => conversation.domain === 'group_chats'
+            && typeof conversation.sourcePath === 'string'
+            && !conversation.sourcePath.includes('/')
+            && path.parse(conversation.sourcePath).name === chatName);
+    }
+    if (operation === 'chat-rename') {
+        const isGroup = Boolean(body.is_group);
+        const domain = isGroup ? 'group_chats' : 'chats';
+        const sourceName = path.parse(String(body.original_file ?? '')).name;
+        if (!sourceName) return false;
+        const characterDirectory = path.parse(String(body.avatar_url ?? '').replace('.png', '')).name;
+        return registry.conversations.some(conversation => {
+            if (conversation.domain !== domain || typeof conversation.sourcePath !== 'string'
+                || path.parse(conversation.sourcePath).name !== sourceName) return false;
+            return isGroup
+                ? !conversation.sourcePath.includes('/')
+                : Boolean(characterDirectory) && conversation.sourcePath.startsWith(characterDirectory + '/');
+        });
+    }
+    if (operation === 'character-rename'
+        || (operation === 'character-delete' && body.delete_chats === true)) {
+        return hasEnrolledChatUnderCharacter(registry, body.avatar_url);
+    }
+    return false;
+}
+
 const safeUserDirectories = request => {
     const directories = request.user?.directories;
     const roots = [
@@ -295,9 +333,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 if (enforce) return fail(response, 'HOST_ENROLLMENT_REQUIRED', 503);
                 return next();
             }
-            const deletesEnrolledChats = operation === 'character-rename'
-                || (operation === 'character-delete' && request.body?.delete_chats === true);
-            if (deletesEnrolledChats && hasEnrolledChatUnderCharacter(registry, request.body?.avatar_url)) {
+            if (operationTargetsEnrolledHistory(operation, request, registry)) {
                 return fail(response, 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED', 409);
             }
             paths = await statePaths(request);
