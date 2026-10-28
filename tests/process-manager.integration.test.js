@@ -634,7 +634,7 @@ test('explicit reconciliation resets rolled-back milestones and re-arms the proc
   const reconciled = engine.transitionProcess('world-a', 'journey-1', {
     action: 'reconcile',
     confirm_retry: true,
-    replan: [{ milestone_id: 'depart', due_coordinate: 1500 }],
+    replan: [{ milestone_id: 'depart', due_coordinate: 2000 }],
     expected_version: process.version,
     idempotency_key: 'explicit-reconcile-after-rollback',
     reason: 'author_confirmed_retry',
@@ -643,14 +643,14 @@ test('explicit reconciliation resets rolled-back milestones and re-arms the proc
   assert.equal(process.status, 'scheduled');
   assert.equal(process.milestones.every((milestone) => milestone.status === 'pending'), true);
   assert.equal(process.milestones.every((milestone) => !initialTriggerIds.includes(milestone.trigger_id)), true);
-  assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').due_coordinate, 1500);
+  assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').due_coordinate, 2000);
   assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 2);
 
   const afterReconcile = engine.getState('world-a');
   const retry = engine.startTimeAdvance('world-a', {
     idempotency_key: 'advance-after-explicit-reconcile',
     expected_revision: afterReconcile.world_revision,
-    to_coordinate: 1500,
+    to_coordinate: 2000,
   });
   assert.equal(retry.status, 'completed');
   process = engine.getProcess('world-a', 'journey-1');
