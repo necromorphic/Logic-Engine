@@ -192,6 +192,26 @@ test('completed trigger IDs cannot contradict pending trigger records', () => {
 });
 
 
+test('large direct dependency sets preserve deterministic segment boundaries', () => {
+  const prerequisites = Array.from({ length: 1000 }, (_, index) =>
+    trigger('prerequisite-' + String(index).padStart(4, '0'), 5));
+  const dependent = trigger('zz-dependent', 5, {
+    dependencies: prerequisites.map((item) => item.trigger_id),
+  });
+  const plan = planDueWork({
+    world_id: 'world-a',
+    from_coordinate: 0,
+    to_coordinate: 5,
+    triggers: [dependent, ...prerequisites.reverse()],
+  });
+  assert.equal(plan.status, 'planned');
+  assert.equal(plan.segments.length, 2);
+  assert.equal(plan.segments[0].trigger_ids.length, 1000);
+  assert.equal(plan.segments[0].trigger_ids[0], 'prerequisite-0000');
+  assert.equal(plan.segments[0].trigger_ids[999], 'prerequisite-0999');
+  assert.deepEqual(plan.segments[1].trigger_ids, ['zz-dependent']);
+});
+
 test('large same-coordinate trigger sets remain deterministically ordered', () => {
   const triggers = Array.from({ length: 2500 }, (_, index) => trigger('trigger-' + String(index).padStart(4, '0'), 5));
   const plan = planDueWork({
