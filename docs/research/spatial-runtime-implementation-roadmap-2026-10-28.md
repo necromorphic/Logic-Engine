@@ -172,6 +172,25 @@ The architecture/research task is not complete merely because a document exists 
 
 The first five technical items are still blockers. Until they close, the research can become more precise, but the spatial contract cannot honestly be declared implementation-ready.
 
+## Traceability to the parent task
+
+The parent task is [Issue #351](https://github.com/necromorphic/Logic-Engine/issues/351). This table prevents documentation progress from being mistaken for runtime readiness.
+
+| Parent-task requirement | Existing evidence / artifact | Disposition |
+|---|---|---|
+| A1. Read Core/Time/knowledge boundaries | [Core boundary Issue #262](https://github.com/necromorphic/Logic-Engine/issues/262), [Time/Process Issue #243](https://github.com/necromorphic/Logic-Engine/issues/243), [knowledge/narrative boundaries](https://github.com/necromorphic/Logic-Engine/blob/main/docs/07-knowledge-and-narrative-boundaries.md) | Reviewed as design/source context; no second clock, Core, or process scheduler proposed |
+| A2–A4. Identify current paths and evidence classes | [Spatial/Temporal evidence report](https://github.com/necromorphic/Logic-Engine/blob/main/docs/research/spatial-temporal-world-model-evidence-2026-10-26.md), [canonical writer inventory](https://github.com/necromorphic/Logic-Engine/blob/main/docs/research/spatial-canonical-writer-inventory-2026-10-28.md) | Existing Core read/commit/rebuild and TimeEngine primitives are documented; typed spatial source and full historical time/cursor mapping remain unproven |
+| B. Define minimal spatial model and epistemic states | [Typed spatial contract revision 2](https://github.com/necromorphic/Logic-Engine/blob/main/docs/research/world-pack-typed-spatial-attributes-contract-2026-10-28.md) | Semantics direction is documented, but contract approval remains blocked on runtime guarantees; do not treat the proposal as implemented |
+| C. Compare representations | [Evidence report §3](https://github.com/necromorphic/Logic-Engine/blob/main/docs/research/spatial-temporal-world-model-evidence-2026-10-26.md) and the disposition table above | Comparison exists; no storage/projection option is authorized for implementation |
+| D. Bounded read/replay feasibility | Issue #351 records an earlier source-boundary feasibility result and exact CI details; this pass did not rerun tests | Use the canonical report, do not duplicate its harness. Prior test evidence applies only to its recorded exact SHA and does not establish typed position semantics |
+| Position v1 axis/frame meaning | Coordinator decision recorded in [Issue #351](https://github.com/necromorphic/Logic-Engine/issues/351#issuecomment-6464413177) and typed spatial contract revision 2 | +X logical east, +Y logical north, +Z up; right-handed ENU; logical units; entity-origin; frame convention world-enu-logical-v1 scoped by world identity |
+| Required technical gates | [Issue #351 delegated-authority decision](https://github.com/necromorphic/Logic-Engine/issues/351#issuecomment-6465647345) | Process/authority question resolved. Technical blockers remain: canonical typed validation across writers, immutable/historical schema identity, lifecycle/replay coverage, and durable TimeEngine-boundary ↔ Core composite-cursor association |
+| Production and consumer boundaries | Issue #351 and [knowledge/narrative boundaries](https://github.com/necromorphic/Logic-Engine/blob/main/docs/07-knowledge-and-narrative-boundaries.md) | Production NO-GO; Memory → NPC DISABLED / FAIL-CLOSED; no NPC knowledge or disclosure is inferred from world position |
+
+### Why the parent task cannot yet be marked complete
+
+The remaining blockers require new, verifiable technical evidence and explicit implementation authorization, not more explanatory prose. In the current authorized scope, I can finish source mapping and the architecture proposal, but I must not silently implement a new schema validator, digest registry, canonical commit gate, spatial projection, or TimeEngine cursor mechanism. Those would be runtime/schema/storage changes explicitly excluded by the task's current authorization.
+
 ## Current blockers and next concrete decisions
 
 | Priority | Decision / evidence needed | Why it blocks progress |
