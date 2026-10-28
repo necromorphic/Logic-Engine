@@ -593,6 +593,34 @@ test('historically completed prerequisites at earlier coordinates remain satisfi
 });
 
 
+test('due-work planning rejects arrays with custom prototypes', () => {
+  const triggers = [trigger('due', 10)];
+  Object.setPrototypeOf(triggers, { inherited: true });
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 10,
+      triggers,
+    }),
+    (error) => error.code === 'INVALID_TRIGGER_LIST',
+  );
+
+  const completedIds = ['already-done'];
+  Object.setPrototypeOf(completedIds, { inherited: true });
+  assert.throws(
+    () => planDueWork({
+      world_id: 'world-a',
+      from_coordinate: 0,
+      to_coordinate: 10,
+      triggers: [],
+      completed_trigger_ids: completedIds,
+    }),
+    (error) => error.code === 'INVALID_REFERENCE_LIST',
+  );
+});
+
+
 test('inherited completed_trigger_ids cannot alter due-work planning', () => {
   const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'completed_trigger_ids');
   Object.defineProperty(Object.prototype, 'completed_trigger_ids', {
