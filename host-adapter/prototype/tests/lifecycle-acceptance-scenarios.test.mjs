@@ -101,7 +101,7 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
 test('unsupported swipe/regenerate is rejected at Generate entry before generation dispatch', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
-  const generateHunk = patch.indexOf('@@ -4290,5 +4481,10 @@ export async function Generate');
+  const generateHunk = patch.indexOf('@@ -4290,10 +4481,15 @@ export async function Generate');
   const guard = patch.indexOf("await lifecycleBridge.beforeMutation('create-swipe'", generateHunk);
   const started = patch.indexOf('await eventSource.emit(event_types.GENERATION_STARTED', generateHunk);
   assert.ok(generateHunk >= 0, 'pinned patch must include the Generate entry hunk');
