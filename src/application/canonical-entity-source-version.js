@@ -78,6 +78,8 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
       if (!object(entity)
         || entity.entity_id !== sourceEntityId
         || entity.status !== 'active'
+        || !Number.isSafeInteger(entity.updated_revision)
+        || entity.updated_revision < 0
         || canonicalEntitySourceVersion(entity) === null) return false;
       return sourceVersion === canonicalEntitySourceVersion(entity);
     } catch {
