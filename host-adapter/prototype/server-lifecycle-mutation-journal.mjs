@@ -97,13 +97,12 @@ async function targetUserHasEnrolledState(directories) {
     }
     let registry;
     try {
-        registry = await readRegistry(path.join(stateDirectory, 'enrollments.json'), { allowMissing: !markerExists });
+        registry = await readRegistry(path.join(stateDirectory, 'enrollments.json'));
     } catch {
         throw new Error('HOST_TARGET_USER_REGISTRY_UNAVAILABLE');
     }
     if (registry.conversations.length > 0) return true;
-    if (markerExists) throw new Error('HOST_TARGET_USER_ENROLLMENT_STATE_LOST');
-    return false;
+    throw new Error('HOST_TARGET_USER_ENROLLMENT_STATE_AMBIGUOUS');
 }
 
 function operationTargetsEnrolledHistory(operation, request, registry) {
