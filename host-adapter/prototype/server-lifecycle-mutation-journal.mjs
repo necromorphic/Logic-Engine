@@ -42,6 +42,7 @@ const safeUserDirectories = request => {
     const directories = request.user?.directories;
     const roots = [
         { domain: 'chats', path: directories?.chats },
+        { domain: 'characters', path: directories?.characters },
         { domain: 'groups', path: directories?.groups },
         { domain: 'group_chats', path: directories?.groupChats },
         { domain: 'backups', path: directories?.backups },
