@@ -5,23 +5,29 @@ const validId = (value) => typeof value === 'string' && value === value.trim()
     const code = character.charCodeAt(0);
     return code < 32 || code === 127;
   });
-const validSourceVersion = (value) => typeof value === 'string'
-  && /^core-entity-v1:[1-9][0-9]*:(0|[1-9][0-9]*)$/.test(value);
+const canonicalSourceVersion = (value) => typeof value === 'string'
+  && /^core-entity-v1:[1-9][0-9]*$/.test(value)
+  && Number.isSafeInteger(Number(value.slice('core-entity-v1:'.length)));
+
+/** Opaque Core-issued token for one active canonical entity projection. */
+export function canonicalEntitySourceVersion(entity) {
+  if (!object(entity) || !canonicalSourceVersion(entity.source_version)) return null;
+  return entity.source_version;
+}
 
 /**
  * Core-owned source-version validation for direct canonical_entity Memory
- * records. The source token is derived atomically from the current entity
- * projection, retained canonical event history, and durable rollback records.
- * It is not a public API and does not authorize Host messages, derived
- * summaries, or production Memory→NPC wiring.
+ * records. The opaque token comes from Core's durable per-entity source-version
+ * counter, not from updated_revision or a world snapshot cursor. This factory
+ * returns a trusted Provider callback; it is not a public API and does not
+ * authorize Host messages, derived summaries, or production Memory→NPC wiring.
  *
  * Only status='active' is accepted. Unknown/custom statuses and incomplete
- * history fail closed. The token is intentionally distinct from Provider
- * record_version and from the world snapshot cursor.
+ * history fail closed.
  */
 export function createCanonicalEntitySourceVersionValidator(engine) {
-  if (typeof engine?.getCanonicalEntitySourceState !== 'function') {
-    throw new TypeError('A trusted Core engine with canonical source-state readback is required');
+  if (typeof engine?.getSnapshot !== 'function') {
+    throw new TypeError('A trusted Core engine with getSnapshot is required');
   }
 
   return (input) => {
@@ -33,7 +39,7 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
         || input.source_kind !== 'canonical_entity'
         || !validId(input.world_id)
         || !validId(input.source_entity_id)
-        || !validSourceVersion(input.source_version)
+        || !canonicalSourceVersion(input.source_version)
         || !Array.isArray(input.lineage)
         || input.lineage.length !== 1) return false;
 
@@ -50,30 +56,30 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
       return false;
     }
 
-    let state;
+    let snapshot;
     try {
-      state = engine.getCanonicalEntitySourceState(worldId, sourceEntityId);
+      snapshot = engine.getSnapshot(worldId, { entityIds: [sourceEntityId], includeSourceVersions: true });
     } catch (error) {
       if (error?.code === 'WORLD_NOT_FOUND' || error?.code === 'ENTITY_NOT_FOUND') return false;
-      // Preserve Provider's distinction between a stale/denied source and an
-      // unavailable Core authority. Do not convert outages into ordinary false.
       throw new Error('CORE_SOURCE_SNAPSHOT_UNAVAILABLE');
     }
 
     try {
-      if (!object(state)
-        || state.world_id !== worldId
-        || state.entity_id !== sourceEntityId
-        || state.status !== 'active'
-        || !Number.isSafeInteger(state.updated_revision)
-        || state.updated_revision < 0
-        || !Number.isSafeInteger(state.world_revision)
-        || state.world_revision < 0
-        || !Number.isSafeInteger(state.commit_sequence)
-        || state.commit_sequence < 0
-        || !validSourceVersion(state.source_version)) return false;
+      if (!object(snapshot)
+        || snapshot.world_id !== worldId
+        || !Number.isSafeInteger(snapshot.world_revision)
+        || snapshot.world_revision < 0
+        || !Number.isSafeInteger(snapshot.commit_sequence)
+        || snapshot.commit_sequence < 0
+        || !Array.isArray(snapshot.entities)
+        || snapshot.entities.length !== 1) return false;
 
-      return sourceVersion === state.source_version;
+      const [entity] = snapshot.entities;
+      if (!object(entity)
+        || entity.entity_id !== sourceEntityId
+        || entity.status !== 'active'
+        || canonicalEntitySourceVersion(entity) === null) return false;
+      return sourceVersion === canonicalEntitySourceVersion(entity);
     } catch {
       return false;
     }

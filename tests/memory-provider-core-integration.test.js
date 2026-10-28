@@ -71,20 +71,21 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
   const scope = { world_id: worldId, subject_id: actorId, purpose: 'npc_decision' };
   provider.grantQuery(scope, true);
   const records = sources.map((sourceId, index) => {
-    const sourceState = engine.getCanonicalEntitySourceState(worldId, sourceId);
+    const sourceSnapshot = engine.getSnapshot(worldId, { entityIds: [sourceId], includeSourceVersions: true });
+    const sourceVersion = sourceSnapshot.entities[0]?.source_version ?? 'unverifiable';
     return {
       ...scope,
       record_ref: index === 0 ? 'memory:record-a' : 'memory:record-b',
       record_version: 'record-v1',
       source_kind: 'canonical_entity',
       source_entity_id: sourceId,
-      source_version: sourceState.source_version,
+      source_version: sourceVersion,
       content_kind: 'claim',
       epistemic_kind: 'acquired_report',
       producer_kind: 'memory-index',
       content_disposition: 'usable',
       evidence_assessment: 'unassessed',
-      lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: sourceState.source_version }],
+      lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: sourceVersion }],
     };
   });
   for (const record of records) {
@@ -131,7 +132,7 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   assert.equal(result.candidates[0].record_ref, 'memory:record-a');
   assert.deepEqual(result.candidates[0].content, { 'attributes.public_note': 'visible source-a' });
   assert.equal(result.candidates[0].source_version,
-    s.engine.getCanonicalEntitySourceState(s.scope.world_id, 'source-a').source_version);
+    s.engine.getSnapshot(s.scope.world_id, { entityIds: ['source-a'], includeSourceVersions: true }).entities[0].source_version);
 
   assert.equal(JSON.stringify(result).includes('never disclose'), false);
 });
@@ -249,11 +250,12 @@ test('direct Core source validator rejects unknown status and negative revisions
   ]) {
     const s = setup(t);
     assert.equal((await s.prepare()).status, 'current');
-    const originalGetSourceState = s.engine.getCanonicalEntitySourceState.bind(s.engine);
-    s.engine.getCanonicalEntitySourceState = (worldId, entityId) => {
-      const state = originalGetSourceState(worldId, entityId);
-      if (worldId !== s.scope.world_id || entityId !== 'source-a') return state;
-      return mutate(state);
+    const originalGetSnapshot = s.engine.getSnapshot.bind(s.engine);
+    s.engine.getSnapshot = (worldId, options) => {
+      const snapshot = originalGetSnapshot(worldId, options);
+      if (worldId !== s.scope.world_id || options?.includeSourceVersions !== true
+        || !options?.entityIds?.includes('source-a')) return snapshot;
+      return { ...snapshot, entities: snapshot.entities.map(mutate) };
     };
     assert.equal((await s.provider.reconcile(s.scope.world_id)).status, 'stale', label);
     await assert.rejects(() => s.provider.retrieveCandidates(s.scope), /MEMORY_INDEX_NOT_READY/);

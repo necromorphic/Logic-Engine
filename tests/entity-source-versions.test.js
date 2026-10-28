@@ -1,0 +1,193 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+import { SQLiteStore } from '../src/storage/sqlite-store.js';
+import { LogicEngine } from '../src/application/engine.js';
+
+function fixture(t) {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-core-source-version-'));
+  const path = join(directory, 'core.sqlite');
+  let store = new SQLiteStore(path);
+  let engine = new LogicEngine(store);
+  engine.createWorld({
+    world_id: 'source-version-world',
+    world_pack_id: 'test.source-version',
+    world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  t.after(() => {
+    try { store?.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const readVersion = (entityId) => store.db.prepare(
+    'SELECT source_version FROM entity_source_versions WHERE world_id=? AND entity_id=?',
+  ).get('source-version-world', entityId)?.source_version ?? null;
+  const commit = (eventId, expectedRevision, effects, causalLinks = []) => engine.commitEvent('source-version-world', {
+    event_id: eventId,
+    idempotency_key: eventId,
+    turn_id: eventId,
+    event_type: 'action.completed',
+    expected_revision: expectedRevision,
+    causal_links: causalLinks,
+    effects,
+  });
+  return {
+    directory, path,
+    get store() { return store; },
+    get engine() { return engine; },
+    readVersion,
+    commit,
+    reopen() {
+      store.close();
+      store = new SQLiteStore(path);
+      engine = new LogicEngine(store);
+    },
+  };
+}
+
+test('canonical entity source versions advance on every committed entity mutation and survive restart', (t) => {
+  const s = fixture(t);
+  s.commit('create-source', 0, [{
+    kind: 'entity.create',
+    entity_id: 'source-a',
+    entity_type: 'character',
+    attributes: { public_note: 'first' },
+  }]);
+  assert.equal(s.readVersion('source-a'), 1);
+  assert.equal(s.engine.getSnapshot('source-version-world', { entityIds: ['source-a'] }).entities[0].attributes.public_note, 'first');
+
+  s.commit('update-source', 1, [{
+    kind: 'entity.update',
+    entity_id: 'source-a',
+    attributes: { public_note: 'second' },
+  }], [{
+    relation: 'REQUIRES',
+    predicate: { kind: 'entity_exists', entity_id: 'source-a' },
+  }]);
+  assert.equal(s.readVersion('source-a'), 2);
+  assert.equal(s.engine.getSnapshot('source-version-world', { entityIds: ['source-a'] }).entities[0].attributes.public_note, 'second');
+
+  s.reopen();
+  assert.equal(s.readVersion('source-a'), 2);
+  s.commit('update-source-again', 2, [{
+    kind: 'entity.update',
+    entity_id: 'source-a',
+    attributes: { public_note: 'third' },
+  }], [{
+    relation: 'REQUIRES',
+    predicate: { kind: 'entity_exists', entity_id: 'source-a' },
+  }]);
+  assert.equal(s.readVersion('source-a'), 3);
+});
+
+test('rollback advances canonical source version instead of rewinding to the restored projection', (t) => {
+  const s = fixture(t);
+  s.commit('create-source', 0, [{
+    kind: 'entity.create',
+    entity_id: 'source-a',
+    entity_type: 'character',
+    attributes: { public_note: 'before' },
+  }]);
+  s.commit('update-source', 1, [{
+    kind: 'entity.update',
+    entity_id: 'source-a',
+    attributes: { public_note: 'after' },
+  }], [{
+    relation: 'REQUIRES',
+    predicate: { kind: 'entity_exists', entity_id: 'source-a' },
+  }]);
+  assert.equal(s.readVersion('source-a'), 2);
+
+  const result = s.engine.rollbackEvent('source-version-world', {
+    root_event_id: 'update-source',
+    idempotency_key: 'rollback-source-update',
+  });
+  assert.equal(result.rollback_outcome, 'resolved');
+  assert.equal(s.engine.getSnapshot('source-version-world', { entityIds: ['source-a'] }).entities[0].attributes.public_note, 'before');
+  assert.equal(s.readVersion('source-a'), 3);
+});
+
+test('upsert, delete, and rollback preserve monotonic source versions', (t) => {
+  const s = fixture(t);
+  s.commit('create-upsert-delete-source', 0, [{
+    kind: 'entity.create',
+    entity_id: 'source-lifecycle',
+    entity_type: 'character',
+    attributes: { public_note: 'created' },
+  }]);
+  assert.equal(s.readVersion('source-lifecycle'), 1);
+
+  s.commit('upsert-existing-source', 1, [{
+    kind: 'entity.upsert',
+    entity_id: 'source-lifecycle',
+    entity_type: 'character',
+    attributes: { public_note: 'upserted' },
+  }]);
+  assert.equal(s.readVersion('source-lifecycle'), 2);
+
+  s.commit('delete-source', 2, [{
+    kind: 'entity.delete',
+    entity_id: 'source-lifecycle',
+  }]);
+  assert.equal(s.readVersion('source-lifecycle'), 3);
+  assert.equal(
+    s.engine.getSnapshot('source-version-world', { entityIds: ['source-lifecycle'] }).entities[0].status,
+    'destroyed',
+  );
+
+  const rollback = s.engine.rollbackEvent('source-version-world', {
+    root_event_id: 'delete-source',
+    idempotency_key: 'rollback-source-delete',
+  });
+  assert.equal(rollback.rollback_outcome, 'resolved');
+  assert.equal(
+    s.engine.getSnapshot('source-version-world', { entityIds: ['source-lifecycle'] }).entities[0].status,
+    'active',
+  );
+  assert.equal(s.readVersion('source-lifecycle'), 4,
+    'rollback must issue a fresh token rather than reuse the pre-delete token');
+});
+
+test('migration seeds a non-colliding baseline for an existing Core database', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-core-source-version-migration-'));
+  const path = join(directory, 'core.sqlite');
+  let store = new SQLiteStore(path);
+  const engine = new LogicEngine(store);
+  engine.createWorld({
+    world_id: 'source-version-world',
+    world_pack_id: 'test.source-version',
+    world_pack_version: '1',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('source-version-world', {
+    event_id: 'legacy-create-source', idempotency_key: 'legacy-create-source',
+    turn_id: 'legacy-create-source', event_type: 'action.completed', expected_revision: 0,
+    effects: [{ kind: 'entity.create', entity_id: 'legacy-source', entity_type: 'character', attributes: { public_note: 'one' } }],
+  });
+  engine.commitEvent('source-version-world', {
+    event_id: 'legacy-update-source', idempotency_key: 'legacy-update-source',
+    turn_id: 'legacy-update-source', event_type: 'action.completed', expected_revision: 1,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'legacy-source' } }],
+    effects: [{ kind: 'entity.update', entity_id: 'legacy-source', attributes: { public_note: 'two' } }],
+  });
+  const oldRevision = engine.getSnapshot('source-version-world', { entityIds: ['legacy-source'] }).entities[0].updated_revision;
+  store.close();
+
+  const legacyDb = new DatabaseSync(path);
+  legacyDb.exec('DROP TABLE entity_source_versions; DELETE FROM schema_migrations WHERE version=13;');
+  legacyDb.close();
+
+  store = new SQLiteStore(path);
+  t.after(() => {
+    try { store.close(); } catch {}
+    rmSync(directory, { recursive: true, force: true });
+  });
+  const migratedVersion = store.db.prepare(
+    'SELECT source_version FROM entity_source_versions WHERE world_id=? AND entity_id=?',
+  ).get('source-version-world', 'legacy-source')?.source_version;
+  assert.ok(Number.isSafeInteger(migratedVersion));
+  assert.ok(migratedVersion > oldRevision, 'migration baseline must not reuse an old projection revision');
+});

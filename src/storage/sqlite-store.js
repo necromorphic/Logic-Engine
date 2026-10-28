@@ -226,6 +226,13 @@ export class SQLiteStore {
         status TEXT NOT NULL, attributes_json TEXT NOT NULL, created_by_event_id TEXT NOT NULL,
         updated_revision INTEGER NOT NULL, PRIMARY KEY(world_id,entity_id)
       );
+      CREATE TABLE IF NOT EXISTS entity_source_versions(
+        world_id TEXT NOT NULL REFERENCES worlds(world_id),
+        entity_id TEXT NOT NULL,
+        source_version INTEGER NOT NULL CHECK(source_version >= 1),
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY(world_id,entity_id)
+      );
       CREATE TABLE IF NOT EXISTS relationships(
         world_id TEXT NOT NULL REFERENCES worlds(world_id),
         subject_id TEXT NOT NULL,
@@ -598,6 +605,45 @@ export class SQLiteStore {
           }
         },
       },
+      {
+        version: 13,
+        apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS entity_source_versions(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            entity_id TEXT NOT NULL,
+            source_version INTEGER NOT NULL CHECK(source_version >= 1),
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY(world_id,entity_id)
+          );`);
+
+          const historicalTouches = new Map();
+          for (const event of this.db.prepare('SELECT world_id,effects_json FROM world_events').all()) {
+            const effects = dec(event.effects_json);
+            if (!Array.isArray(effects)) {
+              throw new EngineError('ENTITY_SOURCE_VERSION_MIGRATION_UNVERIFIABLE', 'Cannot seed source versions from malformed event history.', 500);
+            }
+            for (const effect of effects) {
+              if (!effect || !['entity.create', 'entity.update', 'entity.upsert', 'entity.delete'].includes(effect.kind)
+                || typeof effect.entity_id !== 'string') continue;
+              const key = JSON.stringify([event.world_id, effect.entity_id]);
+              historicalTouches.set(key, (historicalTouches.get(key) ?? 0) + 1);
+            }
+          }
+          const insert = this.db.prepare(`INSERT OR IGNORE INTO entity_source_versions
+            (world_id,entity_id,source_version,updated_at) VALUES(?,?,?,?)`);
+          const stamp = now();
+          for (const entity of this.db.prepare(
+            'SELECT world_id,entity_id,updated_revision FROM entities',
+          ).all()) {
+            const touched = historicalTouches.get(JSON.stringify([entity.world_id, entity.entity_id])) ?? 0;
+            const baseline = Math.max(0, Number(entity.updated_revision) || 0, touched) + 1;
+            if (!Number.isSafeInteger(baseline)) {
+              throw new EngineError('ENTITY_SOURCE_VERSION_OVERFLOW', 'Cannot initialize a safe canonical source version.', 500);
+            }
+            insert.run(entity.world_id, entity.entity_id, baseline, stamp);
+          }
+        },
+      },
     ];
     for (const migration of migrations) {
       const applied = this.db.prepare('SELECT version FROM schema_migrations WHERE version=?').get(migration.version);
@@ -815,12 +861,15 @@ export class SQLiteStore {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request must be an object.', 400);
     }
-    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'includeMechanicEvaluationState']);
+    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'includeMechanicEvaluationState', 'includeSourceVersions']);
     if (Object.keys(request).some((key) => !allowedKeys.has(key))) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request contains an unsupported field.', 400);
     }
     if (request.includeMechanicEvaluationState !== undefined && typeof request.includeMechanicEvaluationState !== 'boolean') {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'includeMechanicEvaluationState must be a boolean.', 400);
+    }
+    if (request.includeSourceVersions !== undefined && typeof request.includeSourceVersions !== 'boolean') {
+      throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'includeSourceVersions must be a boolean.', 400);
     }
     const normalizeIds = (value, fieldName) => {
       if (value === undefined) return [];
@@ -896,12 +945,19 @@ export class SQLiteStore {
       const snapshotFactIds = combineIds(factIds, derivedFactIds, 'factIds');
       const snapshotEventIds = combineIds(eventIds, derivedEventIds, 'eventIds');
 
-      const entities = snapshotEntityIds.length
-        ? this.db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...snapshotEntityIds).map((r) => ({
-          entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
-          created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
-        }))
+      const entityRows = snapshotEntityIds.length
+        ? (request.includeSourceVersions === true
+          ? this.db.prepare('SELECT entities.*, entity_source_versions.source_version AS source_version_token FROM entities LEFT JOIN entity_source_versions ON entity_source_versions.world_id=entities.world_id AND entity_source_versions.entity_id=entities.entity_id WHERE entities.world_id=? AND entities.entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entities.entity_id').all(id, ...snapshotEntityIds)
+          : this.db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...snapshotEntityIds))
         : [];
+      const entities = entityRows.map((r) => ({
+        entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
+        created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
+        ...(request.includeSourceVersions === true ? {
+          source_version: Number.isSafeInteger(r.source_version_token) && r.source_version_token > 0
+            ? 'core-entity-v1:' + String(r.source_version_token) : null,
+        } : {}),
+      }));
       const missingEntityIds = snapshotEntityIds.filter((entityId) => !entities.some((entity) => entity.entity_id === entityId));
       if (missingEntityIds.length) {
         throw new EngineError('ENTITY_NOT_FOUND', 'One or more requested entities were not found in this world snapshot.', 404, { entity_ids: missingEntityIds });
@@ -1141,109 +1197,32 @@ export class SQLiteStore {
     return this.db.prepare('SELECT COALESCE(MAX(commit_sequence),0) AS value FROM world_events WHERE world_id=?').get(worldId).value;
   }
 
-  // Derive a rollback-safe per-entity source token from the current canonical
-  // revision plus existing durable rollback records. No parallel ledger/schema
-  // is introduced. A rollback that rewinds updated_revision increments the
-  // entity-specific rollback component, preventing token reuse.
-  canonicalEntitySourceState(worldId, entityId) {
-    if (typeof worldId !== 'string' || !worldId.trim()
-      || typeof entityId !== 'string' || !entityId.trim()) {
-      throw new EngineError('INVALID_SOURCE_ID', 'A canonical world and entity ID are required.', 400);
+  bumpEntitySourceVersion(worldId, entityId, stamp = now(), allowInitialize = false) {
+    const current = this.db.prepare(
+      'SELECT source_version FROM entity_source_versions WHERE world_id=? AND entity_id=?',
+    ).get(worldId, entityId);
+    if (!current) {
+      if (!allowInitialize) {
+        throw new EngineError('ENTITY_SOURCE_VERSION_MISSING', 'Canonical source version is missing for an existing entity.', 500, {
+          world_id: worldId, entity_id: entityId,
+        });
+      }
+      this.db.prepare(`INSERT INTO entity_source_versions
+        (world_id,entity_id,source_version,updated_at) VALUES(?,?,1,?)`)
+        .run(worldId, entityId, stamp);
+      return 1;
     }
-
-    const read = () => {
-      const world = this.world(worldId);
-      if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
-      const entity = this.db.prepare(
-        'SELECT entity_id,status,updated_revision,created_by_event_id FROM entities WHERE world_id=? AND entity_id=?',
-      ).get(worldId, entityId);
-      if (!entity) throw new EngineError('ENTITY_NOT_FOUND', 'Entity not found.', 404);
-      if (!Number.isSafeInteger(entity.updated_revision) || entity.updated_revision < 1
-        || typeof entity.created_by_event_id !== 'string' || !entity.created_by_event_id) {
-        throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical entity revision is incomplete.', 503);
-      }
-
-      const eventTouchesEntity = new Map();
-      const readEventTouchesEntity = (eventId) => {
-        if (eventTouchesEntity.has(eventId)) return eventTouchesEntity.get(eventId);
-        const event = this.db.prepare(
-          'SELECT effects_json FROM world_events WHERE world_id=? AND event_id=?',
-        ).get(worldId, eventId);
-        if (!event) {
-          throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical rollback history references a missing event.', 503);
-        }
-        let effects;
-        try { effects = dec(event.effects_json); } catch {
-          throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical source history is malformed.', 503);
-        }
-        if (!Array.isArray(effects)) {
-          throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical source history is incomplete.', 503);
-        }
-        let touches;
-        try { touches = refs(effects).includes('entity:' + entityId); } catch {
-          throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical source history is incomplete.', 503);
-        }
-        eventTouchesEntity.set(eventId, touches);
-        return touches;
-      };
-
-      if (!readEventTouchesEntity(entity.created_by_event_id)) {
-        throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Entity creation history does not match its identity.', 503);
-      }
-
-      const rollbackRows = this.db.prepare(
-        'SELECT invalidated_event_ids_json FROM rollbacks WHERE world_id=? ORDER BY world_revision,rollback_id',
-      ).all(worldId);
-      let rollbackCount = 0;
-      for (const rollback of rollbackRows) {
-        let invalidated;
-        try { invalidated = dec(rollback.invalidated_event_ids_json); } catch {
-          throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical rollback history is malformed.', 503);
-        }
-        if (!Array.isArray(invalidated) || invalidated.some((id) => typeof id !== 'string')) {
-          throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical rollback history is incomplete.', 503);
-        }
-        let affectsEntity = false;
-        for (const eventId of invalidated) {
-          if (readEventTouchesEntity(eventId)) {
-            affectsEntity = true;
-            break;
-          }
-        }
-        if (affectsEntity) rollbackCount += 1;
-      }
-      if (!Number.isSafeInteger(rollbackCount)) {
-        throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical rollback history exceeds safe bounds.', 503);
-      }
-
-      return {
-        world_id: worldId,
-        entity_id: entity.entity_id,
-        status: entity.status,
-        updated_revision: entity.updated_revision,
-        world_revision: world.world_revision,
-        commit_sequence: this.currentCommitSequence(worldId),
-        source_version: `core-entity-v1:${entity.updated_revision}:${rollbackCount}`,
-      };
-    };
-
-    if (this.txDepth > 0) {
-      throw new EngineError('SNAPSHOT_READ_DURING_WRITE_TRANSACTION', 'A canonical source version cannot be read from inside a store write transaction.', 409);
+    if (!Number.isSafeInteger(current.source_version) || current.source_version >= Number.MAX_SAFE_INTEGER) {
+      throw new EngineError('ENTITY_SOURCE_VERSION_OVERFLOW', 'Canonical source version exceeded the safe integer range.', 500);
     }
-    let began = false;
-    try {
-      this.db.exec('BEGIN');
-      began = true;
-      const state = read();
-      this.db.exec('COMMIT');
-      began = false;
-      return state;
-    } catch (error) {
-      if (began) {
-        try { this.db.exec('ROLLBACK'); } catch {}
-      }
-      throw error;
+    const next = current.source_version + 1;
+    const result = this.db.prepare(`UPDATE entity_source_versions
+      SET source_version=?,updated_at=? WHERE world_id=? AND entity_id=? AND source_version=?`)
+      .run(next, stamp, worldId, entityId, current.source_version);
+    if (result.changes !== 1) {
+      throw new EngineError('ENTITY_SOURCE_VERSION_CONFLICT', 'Canonical source version changed during mutation.', 409);
     }
+    return next;
   }
 
   registerContextManifest(worldId, manifest) {
@@ -1663,6 +1642,12 @@ export class SQLiteStore {
         enc(x.caused_by), enc(x.depends_on), enc(x.read_set), enc(x.causal_links ?? []), enc(x.effects), x.time_advance_seconds, durationMs,
         x.source_message_id || null, x.mechanic_execution ? enc(x.mechanic_execution) : null, createdAt,
       );
+      for (const effect of x.effects) {
+        if (['entity.create', 'entity.update', 'entity.upsert', 'entity.delete'].includes(effect.kind)) {
+          this.bumpEntitySourceVersion(id, effect.entity_id, createdAt,
+            effect.kind === 'entity.create' || (effect.kind === 'entity.upsert' && !currentEntities.has(effect.entity_id)));
+        }
+      }
       this.db.prepare('UPDATE worlds SET world_revision=?,game_time=?,game_time_coordinate=? WHERE world_id=?')
         .run(revision, time, gameTimeCoordinate, id);
       if (!options.deferRebuild) this.rebuild(id, revision);
@@ -2324,6 +2309,12 @@ export class SQLiteStore {
       if (this.processStore) this.processStore.invalidateEvents(id, ids, rollbackId);
       this.db.prepare('INSERT INTO rollbacks(rollback_id,world_id,root_event_id,invalidated_event_ids_json,world_revision,created_at,idempotency_key) VALUES(?,?,?,?,?,?,?)')
         .run(rollbackId, id, rootId, enc(ids), revision, createdAt, key);
+      const invalidatedEntityIds = new Set(all
+        .filter((event) => invalid.has(event.event_id))
+        .flatMap((event) => event.effects
+          .filter((effect) => ['entity.create', 'entity.update', 'entity.upsert', 'entity.delete'].includes(effect.kind))
+          .map((effect) => effect.entity_id)));
+      for (const entityId of invalidatedEntityIds) this.bumpEntitySourceVersion(id, entityId, createdAt);
       this.rebuild(id, revision);
       const result = {
         accepted: true, rollback_id: rollbackId, root_event_id: rootId, invalidated_event_ids: ids,
