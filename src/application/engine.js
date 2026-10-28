@@ -633,13 +633,8 @@ export class LogicEngine {
     assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
     assert(world.world_pack_id === source.world_pack_id && world.world_pack_version === source.world_pack_version,
       'TRUSTED_SOURCE_WORLD_PACK_MISMATCH', 'Approved source identity does not match the target world pack.', 409);
-    assert(world.world_revision === input.expected_revision
-      && this.store.currentCommitSequence(input.world_id) === input.expected_commit_sequence,
-    'STALE_TRUSTED_SOURCE_SNAPSHOT', 'Source assignments must be resolved against the current expected world snapshot.', 409, {
-      expected_revision: input.expected_revision, current_revision: world.world_revision,
-      expected_commit_sequence: input.expected_commit_sequence,
-      current_commit_sequence: this.store.currentCommitSequence(input.world_id),
-    });
+    // Let the canonical commit boundary check idempotent replay before cursor
+    // freshness. This preserves safe retries after a successful ingestion.
 
     const assignments = [];
     const sourceEventIds = new Set();
