@@ -237,33 +237,35 @@ These cases are derived from the existing semantic boundaries in `docs/31-npc-su
 
 ### 7.2 Test-preparation classification — what can be tested before integration
 
-This classification applies the existing test-boundary rules in `docs/32-npc-semantic-acceptance-matrix.md` and `docs/35-npc-test-boundary-map.md`. It identifies possible **pure semantic tests** versus tests that must remain blocked. It does not add runtime behavior or assert that any new tests have been written or run.
+This section distinguishes **writing a test specification** from **having an executable semantic seam**. The detailed source audit is in `docs/87-npc-semantic-test-seam-audit.md`; input/expected-result definitions are in `docs/86-npc-pure-semantic-test-specification.md`. The audit inspected current `main` source/test views, but this proposal branch is diverged and paths must be rechecked at the exact implementation commit before writing tests.
 
-| Candidate | Suitable test boundary now | Minimum assertion | What the result must not claim |
+| Candidate | Current evidence | Safe next step | What remains unproven / blocked |
 |---|---|---|---|
-| Goal survives a failed plan | Pure reducer/contract test with explicit trusted input | A failed prerequisite invalidates/revises that plan; the goal is not erased solely for that reason. | No proof of persistent goal state, authoritative task outcome, or runtime replanning. |
-| Missing/ambiguous evidence | Pure semantic decision test | Return an unresolved/unknown/denied result as defined by the supplied contract; do not invent a fact or rationale. | No proof of production access control or completeness. |
-| Pending report versus awareness | Pure lifecycle distinction test using explicit status inputs | Pending/sent/received/acknowledged/understood/player-aware are not interchangeable. | No proof that any real send, receipt, or acknowledgement signal exists. |
-| Off-screen event versus player knowledge | Pure viewpoint/semantic test | An event does not itself imply NPC knowledge or player awareness. | No proof of actual communication, visibility, or knowledge persistence. |
-| Player-controlled character agency | Pure output/intent validator test with an explicit policy fixture | Reject an NPC result that asserts the player's voluntary action, thought, dialogue, consent, or decision as already chosen. | No proof of enforcement at the production narration/Host/commit boundary. |
-| Chat turn versus game time | Pure trigger eligibility test with explicit time coordinates | A chat turn without a canonical time-advance input does not advance deadlines or fire time-dependent work. | No proof of scheduler or dispatcher integration. |
-| Action-result truth | Pure result-correlation contract test with synthetic labelled records | Model text or a pending proposal alone is not a confirmed committed outcome; mismatched/missing correlation remains unresolved. | No proof of a real NPC attempt-to-Core-event correlation path. |
-| Secret exclusion | Not sufficient as a pure semantic test for the security claim | A synthetic test may check expected decisions for known access labels. | Must remain BLOCKED as an access-control claim until a real trusted filter proves omission at the exact model-input serialization boundary. |
-| Initial acquisition, belief and source invalidation | Not sufficient as a pure semantic test for persistence/reconciliation | Pure tests may assert distinctions over explicit input records. | Must remain BLOCKED for Core-owned writes, provenance, actor isolation, restart, replay and rollback until real Core boundaries exist. |
-| Proposal rejection and canonical non-mutation | Existing Core regression tests can cover generic proposal behavior; NPC contract needs its own caller path | Rejected generic proposals do not commit supported canonical effects under existing Core tests. | Do not claim NPC-originated end-to-end behavior without the real NPC caller and correlated result. |
-| Identity/document lifecycle | Pure semantic tests may check distinctions among profile claims, identities, documents and disclosure | An identity declaration does not itself issue a canonical document or disclose private fields. | No proof of identity persistence, document issuance, or observer-specific disclosure. |
-| Causal rollback and independent support | Existing Core rollback tests can cover their documented world-effect semantics | Only assert the dependencies the existing Core contract actually defines. | Do not claim NPC goal, belief, report, relationship or OR-style alternative-support reconciliation. |
+| Goal survives a failed plan | Process/milestone contracts exist; no verified NPC goal/plan runtime or reducer was identified. | Keep the semantic case specified; request the real owner-approved goal/plan seam. | Executable test of the NPC claim, persistence and runtime replanning. |
+| Missing/ambiguous evidence | `evaluateConditionResult(...)` has tests for unknown vs proven absence; NPC memory candidate admission has separate fail-closed tests. | Reuse only those exact tests/contracts. | General NPC decision-context completeness, actor authorization, and universal unknown/withheld semantics. |
+| Pending report versus awareness | Process tests explicitly avoid inferring delivery from process status; no authoritative NPC report lifecycle was identified. | Keep the report-state case specified; request the report lifecycle owner/boundary. | Real sending, receipt, acknowledgement, understanding and player-awareness evidence. |
+| Off-screen event versus player knowledge | Generic Core events can establish occurrence; the NPC test-boundary map marks awareness/channel integration blocked. | Reuse occurrence/commit tests only for occurrence. | Actor-relative knowledge, valid communication/viewpoint, player awareness and persistence. |
+| Player-controlled character agency | Communicative-intent corpus tests cover their own intent/consent distinctions; no real narration/Host output gate was identified. | Reuse the corpus tests only for their exact invariants. | Enforcement at the actual narration/Host/commit boundary. |
+| Chat turn versus game time | Explicit time-advance and process tests exist. They do not exercise an NPC chat-turn path. | Reuse time-operation tests for explicit time semantics. | Proof that an actual NPC turn cannot implicitly advance canonical time. |
+| Action-result truth | Generic proposal tests cover pending/non-committing/stale proposal behavior; no NPC attempt-to-authoritative-result correlation function was identified. | Reuse generic proposal regression tests unchanged. | NPC caller identity, action correlation and authoritative outcome reconciliation. |
+| Secret exclusion | Memory candidate admission is reference-only and fail-closed on supplied metadata; it is not a trusted pre-model filter. | Preserve the existing helper tests as narrow admission tests. | Exact secret omission at the real model-input serialization boundary. |
+| Initial acquisition, belief and source invalidation | Existing Core snapshots, authorized reads and NPC memory admission cover bounded adjacent primitives. | Reuse tests only for their defined contracts. | Core-owned acquisition/provenance, belief persistence, actor isolation, replay/restart and rollback reconciliation. |
+| Identity/document lifecycle | Design documents define distinctions; no verified social-identity/document runtime seam was identified. | Keep semantic cases specified. | Identity/document persistence and observer-specific disclosure. |
+| Causal rollback and independent support | Generic Core rollback tests cover documented world-effect behavior. | Reuse only the exact causal semantics they exercise. | NPC goal, belief, report, relationship and alternative-support reconciliation. |
 
 #### Order for preparing future tests
 
-1. **First:** prepare only pure, deterministic semantic tests for goal-versus-plan distinction, unknown/missing evidence, report-state distinction, off-screen awareness, player-agency output checks, and chat-turn/game-time separation. Inputs and expected outputs must be explicit; no model call, fake persistence, or hidden side effect is needed.
-2. **Separately:** reuse existing Core tests as evidence only for the exact generic behavior they exercise. Keep generic proposal/rollback coverage separate from NPC integration claims.
-3. **Blocked until real boundaries exist:** secret omission before model input; acquisition/provenance and belief persistence; delivery/receipt; NPC-originated proposal authorization; committed-result correlation and plan reconciliation; identity/document persistence; NPC state after rollback/restart.
-4. **Report status precisely:** “pure semantic test passed” is not “NPC integration passed.” A mock or fixture can validate a contract decision but cannot stand in for missing production authorization, storage, serialization, delivery, or canonical state.
+1. **Specification first:** retain deterministic inputs and expected outcomes in document 86; this is preparation, not an executable test.
+2. **Reuse existing Core tests** as evidence only for the exact generic behavior they exercise. Do not duplicate them under NPC labels.
+3. **Do not create a mock semantic engine or new test-only runtime interface** to make a blocked case pass. If no real approved pure function exists, leave the case spec-ready and request the missing owner/boundary decision.
+4. **Remain blocked** on secret omission before model input; acquisition/provenance and belief persistence; delivery/receipt; NPC-originated proposal authorization; committed-result correlation and plan reconciliation; identity/document persistence; and NPC state after rollback/restart.
+5. **Report status precisely:** “existing adjacent Core test” is not “NPC semantic test passed,” and neither means “NPC integration passed.”
 
 No implementation owner is inferred here. This classification does not select the concrete `observe` evidence source, resolve the trusted NPC caller/purpose policy, or change the coordinator's sequencing decision that `author_initial` / `imported` acquisition comes first.
 
+#### Specification and seam-audit links
 
-#### Specification link
+- Concrete input/expected-result cases: `docs/86-npc-pure-semantic-test-specification.md`.
+- Source-checked existing seam map: `docs/87-npc-semantic-test-seam-audit.md`.
 
-Concrete input/expected-result cases for the first seven pure semantic checks are specified in `docs/86-npc-pure-semantic-test-specification.md`. This is a test design artifact only: it does not assert that a suitable pure function exists, that tests have been implemented or run, or that any production integration gate is satisfied.
+This is documentation-only. It does not assert tests were implemented or run, nor that any production integration gate is satisfied.
