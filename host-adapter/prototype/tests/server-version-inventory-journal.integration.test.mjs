@@ -156,7 +156,7 @@ test('request-bound capability permits only append/select transitions and reject
     await acknowledge(messageId, version2, 'private-after', { parentVersionId: version1, active: true });
     const afterSelectInventory = await getHostConversationInventory(request);
     const journalRecordsForDiagnostics = (await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8'))
-      .trim().split('\\n').map(line => JSON.parse(line));
+      .trim().split('\n').map(line => JSON.parse(line));
     const versionDiagnostics = journalRecordsForDiagnostics.flatMap(record => ['beforeConversationInventories', 'afterConversationInventories']
       .flatMap(field => (record[field] ?? []).flatMap(conversation => (conversation.versions ?? []).map(version => ({
         kind: record.kind, field, version_id: version.version_id, payload_sha256: version.payload_sha256,
