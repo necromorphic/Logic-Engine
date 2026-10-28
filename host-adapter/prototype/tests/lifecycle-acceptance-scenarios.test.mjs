@@ -74,7 +74,7 @@ test('write-ahead failure prevents the simulated destructive mutation', async ()
   assert.equal((await f.bridge.reconcileCurrentConversation()).status, 'NON_READY');
 });
 
-test('clear-chat is rejected before source mutation because no native deletion hook exists', async () => {
+test('clear-chat unload is not a persisted deletion operation', async () => {
   const f = fixture();
   await f.bridge.enrollCurrentConversation();
   const before = f.chat.map(m => m._logicEngineLifecycle.messageId);
@@ -85,7 +85,7 @@ test('clear-chat is rejected before source mutation because no native deletion h
   assert.deepEqual(f.chat.map(m => m._logicEngineLifecycle.messageId), before);
   const readiness = await f.bridge.reconcileCurrentConversation();
   assert.equal(readiness.status, 'NON_READY');
-  assert.ok(readiness.missingPaths.includes('clear-chat'));
+  assert.ok(!readiness.missingPaths.includes('clear-chat'));
 });
 
 test('pinned patch explicitly hooks core mutations but does not pretend uncovered paths are hooked', async () => {
@@ -109,35 +109,44 @@ test('pinned patch explicitly hooks core mutations but does not pretend uncovere
 });
 
 
-test('pinned patch journals edit and swipe deletion only after awaited native save', async () => {
+test('pinned patch finalizes enrolled identities before its single native save', async () => {
   const here = dirname(fileURLToPath(import.meta.url));
   const patch = await readFile(resolve(here, '../patches/sillytavern-1.19.0-lifecycle-hooks.patch'), 'utf8');
 
+  const findNativeSaveAfter = start => {
+    if (start < 0) return -1;
+    const candidates = [
+      patch.indexOf("if (lifecycleBefore.status === 'NOT_ENROLLED') await saveChatConditional();", start),
+    ].filter(index => index >= start);
+    return candidates.length ? Math.min(...candidates) : -1;
+  };
+
   const editEmit = patch.indexOf('await eventSource.emit(event_types.MESSAGE_UPDATED, this_edit_mes_id);');
-  const editSave = patch.indexOf('await saveChatConditional();', editEmit);
-  const editCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('edit-message')", editEmit);
+  const editSave = findNativeSaveAfter(editEmit);
+  const editCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('edit-message'", editEmit);
   assert.ok(editEmit >= 0 && editSave > editEmit && editCheckpoint > editSave,
     'edit checkpoint must follow the awaited native save');
 
   const swipeHook = patch.indexOf("beforeMutation('delete-swipe'");
-  const swipeSave = patch.indexOf('await saveChatConditional();', swipeHook);
+  const swipeSave = findNativeSaveAfter(swipeHook);
   const swipeCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('delete-swipe'", swipeHook);
   assert.ok(swipeHook >= 0 && swipeSave > swipeHook && swipeCheckpoint > swipeSave,
     'swipe-delete checkpoint must follow the awaited native save');
 
   const deleteLastHook = patch.indexOf("beforeMutation('delete-message', [chat.length - 1])");
-  const deleteLastSave = patch.indexOf('await saveChatConditional();', deleteLastHook);
-  const deleteLastCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('delete-message')", deleteLastHook);
+  const deleteLastSave = findNativeSaveAfter(deleteLastHook);
+  const deleteLastCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('delete-message'", deleteLastHook);
   assert.ok(deleteLastHook >= 0 && deleteLastSave > deleteLastHook && deleteLastCheckpoint > deleteLastSave,
     'delete-last checkpoint must follow the awaited native save');
 
   const bulkDeleteHook = patch.indexOf("beforeMutation('delete-message', messageIds)");
-  const bulkDeleteDebounce = patch.indexOf('saveChatDebounced();', bulkDeleteHook);
-  const bulkDeleteSave = patch.indexOf('await saveChatConditional();', bulkDeleteDebounce);
-  const bulkDeleteCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('delete-message')", bulkDeleteHook);
-  assert.ok(bulkDeleteHook >= 0 && bulkDeleteDebounce > bulkDeleteHook
-    && bulkDeleteSave > bulkDeleteDebounce && bulkDeleteCheckpoint > bulkDeleteSave,
-    'bulk-delete checkpoint must follow the awaited native save');
+  const bulkDeleteSave = patch.indexOf("if (lifecycleBefore.status === 'NOT_ENROLLED') saveChatDebounced();", bulkDeleteHook);
+  const bulkDeleteCheckpoint = patch.indexOf("lifecycleBridge.afterMutation('delete-message'", bulkDeleteHook);
+  assert.ok(bulkDeleteHook >= 0 && bulkDeleteSave > bulkDeleteHook && bulkDeleteCheckpoint > bulkDeleteSave,
+    'bulk-delete must preserve debounced save only for non-enrolled chats and finalize enrolled identities first');
+
+  assert.equal(patch.includes('sourceAlreadyPersisted: lifecycleBefore.status !== \'NOT_ENROLLED\''), false,
+    'enrolled handlers must let afterMutation finalize identities before its one native save');
 });
 
 

@@ -1,0 +1,108 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
+
+const patchPath = fileURLToPath(new URL('../patches/sillytavern-1.19.0-lifecycle-hooks.patch', import.meta.url));
+
+test('pinned ST patch mounts lifecycle middleware before user-data route handlers', async () => {
+  const patch = await readFile(patchPath, 'utf8');
+  const start = patch.indexOf('diff --git a/src/server-startup.js');
+  const end = patch.indexOf('\ndiff --git ', start + 1);
+  assert.ok(start >= 0 && end > start, 'server-startup patch section exists');
+  const section = patch.slice(start, end);
+  const userBinding = section.indexOf(" app.use('/', userDataRouter);");
+  const lifecycleGuard = section.indexOf('+    app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, getUserDirectories }));');
+  assert.ok(userBinding >= 0, 'authenticated user-data middleware is mounted');
+  assert.ok(lifecycleGuard >= 0 && userBinding >= 0 && lifecycleGuard < userBinding, 'lifecycle guard precedes user-data route handlers; global user binding is installed in server-main.js');
+});
+
+test('pinned ST patch exposes server-derived persisted inventory, not caller-supplied inventory', async () => {
+  const patch = await readFile(patchPath, 'utf8');
+  assert.match(patch, /router\.post\('\/host-conversation-inventory\/scan',[\s\S]*?getHostConversationInventory\(request\)/);
+  assert.match(patch, /export async function getHostConversationInventory\(request\)[\s\S]*?readRegistry\(paths\.registryPath\)[\s\S]*?scanPersistedConversationInventories\(/);
+  assert.match(patch, /CURRENT_PERSISTED_SNAPSHOT_NON_AUTHORITATIVE/);
+  assert.match(patch, /historicalCompleteness: 'UNKNOWN'/);
+});
+
+
+test('server mutation journal covers character routes that can alter chat identity bindings', async () => {
+  const journalPath = fileURLToPath(new URL('../server-lifecycle-mutation-journal.mjs', import.meta.url));
+  const journal = await readFile(journalPath, 'utf8');
+  for (const route of [
+    'POST /api/chats/save',
+    'POST /api/chats/rename',
+    'POST /api/chats/delete',
+    'POST /api/chats/group/import',
+    'POST /api/chats/import',
+    'POST /api/chats/group/delete',
+    'POST /api/chats/group/save',
+    'POST /api/groups/create',
+    'POST /api/groups/edit',
+    'POST /api/groups/delete',
+    'POST /api/backups/chat/delete',
+    'POST /api/data-maid/delete',
+    'POST /api/users/reset-step2',
+    'POST /api/characters/create',
+    'POST /api/characters/rename',
+    'POST /api/characters/edit-avatar',
+    'POST /api/characters/edit',
+    'POST /api/characters/edit-attribute',
+    'POST /api/characters/merge-attributes',
+    'POST /api/characters/delete',
+  ]) {
+    assert.ok(journal.includes("['" + route + "'"), 'mutation route is journaled: ' + route);
+  }
+});
+
+
+test('pinned ST enrollment binds the exact persisted source path before registering it', async () => {
+  const patch = await readFile(patchPath, 'utf8');
+  assert.match(patch, /const sourcePath = selected_group[\s\S]*?sourceLocator \+ '\.jsonl'/);
+  assert.match(patch, /conversationId,\r?\n\+                        sourceLocator,\r?\n\+                        sourcePath,/);
+  assert.match(patch, /HOST_ENROLLMENT_SOURCE_PATH_REQUIRED/);
+  assert.match(patch, /validateEnrolledSourcePath\(paths, \{ conversationId, sourceLocator, domain, sourcePath \}\)/);
+});
+
+
+test('production middleware requires persisted version inventory and journals version-level deltas', async () => {
+  const patch = await readFile(patchPath, 'utf8');
+  const journalPath = fileURLToPath(new URL('../server-lifecycle-mutation-journal.mjs', import.meta.url));
+  const journal = await readFile(journalPath, 'utf8');
+  assert.match(patch, /createHostLifecycleMutationMiddleware\(\{ requirePersistedInventory: true, getUserDirectories \}\)/);
+  assert.match(journal, /beforeConversationInventories/);
+  assert.match(journal, /afterConversationInventories/);
+  assert.match(journal, /const versionChanges = diffConversationInventories\(before, after\)/);
+  assert.match(journal, /\n\s+versionChanges,/);
+});
+
+
+test('production inventory scan compares against the last committed local mutation checkpoint', async () => {
+  const patch = await readFile(patchPath, 'utf8');
+  assert.match(patch, /readAndValidateJournal\(paths\.journalPath\)/);
+  assert.match(patch, /MATCHES_LAST_COMMITTED_LOCAL_CHECKPOINT/);
+  assert.match(patch, /DIVERGES_FROM_LAST_LOCAL_CHECKPOINT/);
+  assert.match(patch, /CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT/);
+});
+
+
+test('pinned ST patch journals Core-accepted captures and requires tombstone evidence for disappeared versions', async () => {
+  const patch = await readFile(patchPath, 'utf8');
+  assert.match(patch, /onAcceptedCapture: recordHostCaptureAcknowledgement/);
+  assert.match(patch, /kind: 'capture_ack'/);
+  assert.match(patch, /VERSION_DISAPPEARED_WITHOUT_ACCEPTED_TOMBSTONE/);
+  assert.match(patch, /ENROLLMENT_FORWARD_ONLY_OBSERVED_INVENTORY_NON_AUTHORITATIVE/);
+});
+
+test('enrollment loss-detection marker is persisted before the registry entry', async () => {
+  const journalPath = fileURLToPath(new URL('../server-lifecycle-mutation-journal.mjs', import.meta.url));
+  const journal = await readFile(journalPath, 'utf8');
+  const start = journal.indexOf('export async function registerHostConversation(');
+  const end = journal.indexOf('export async function recordHostCaptureAcknowledgement(', start + 1);
+  assert.ok(start >= 0 && end > start, 'registration function exists');
+  const registration = journal.slice(start, end);
+  const markerWrite = registration.indexOf('await ensureEnrollmentMarker(paths);');
+  const registryWrite = registration.indexOf('await atomicWriteJson(paths.registryPath, registry);');
+  assert.ok(markerWrite >= 0 && registryWrite > markerWrite,
+    'loss-detection marker must be persisted before the enrollment registry can become durable');
+});

@@ -338,3 +338,31 @@ A desktop Chromium harness now writes the Host journal to real IndexedDB, closes
 
 Exact current candidate head at this audit update: `5bdbfe2dc75811a6f8857c23d3917e560885ce1d`. The corresponding exact-head workflow results are pending re-check after the latest target-aware guard changes. Production Memory→NPC remains DISABLED / FAIL-CLOSED.
 
+
+
+## Host coordinator decision — enrolled native saves (28 Oct 2026)
+
+**Interim decision: Option B — keep regular-chat and group-chat native save routes fail-closed until a request-bound pre-write transition mechanism has received the required independent Core review.** This is a safety decision, not a claim that the Host lifecycle blocker is closed. An enrolled conversation currently cannot complete normal edits/saves through the guarded native save routes.
+
+Why this is the selected interim state:
+- The existing post-save scan runs after the native JSONL write and cannot undo an overwrite or recover deleted message bytes.
+- A digest-only journal records integrity evidence, not message content; it cannot reconstruct a replaced history.
+- Silently introducing a new request header, capability API, schema field, or lifecycle protocol would bypass the project's required second Core review of the exact contract/diff.
+- Therefore, a failed or missing pre-write authorization must not fall back to the native save handler.
+
+**Conditions to reconsider Option B:** an exact implementation diff must bind the authenticated session, conversation/source path, expected pre-state digest, allowed transition, and submitted post-state digest; consume authorization atomically before the native write; and reject stale/replayed requests, malformed identities, version loss, and path mismatch. Acceptance must prove both regular and group save routes preserve source bytes on rejection and that normal create/edit/swipe/select/delete transitions persist on the exact pinned SillyTavern commit. A failed native save must not advance the accepted checkpoint.
+
+**Separate closure gates remain open:** live installed SillyTavern/Android-Termux validation, complete route coverage including plugins/external filesystem tools, authoritative historical inventory, and independent anti-rollback/restore evidence. The Windows pinned-source audit passed on implementation HEAD `352eed1c4b5e80c5054dc3debda0789058b76e15`; see the exact-head CI record below. This decision does not authorize Gateway positive integration or Memory→NPC enablement.
+
+## Current candidate validation and limits — 29 Oct 2026
+
+The active fresh current-main Host candidate is [Draft PR #680](https://github.com/necromorphic/Logic-Engine/pull/680). Implementation commit `bca87e4ea3463365cc01838d417f520c440bdb16` passed all five repository workflows after adding the fail-closed `POST /api/groups/delete` guard and a real pinned-route regression test.
+
+The new test exercises the actual pinned group router and proves that group metadata and the enrolled group-chat file remain unchanged when cascade deletion is rejected. This closes that specific direct-server mutation gap only.
+
+Repository CI does not establish independent security approval, complete lifecycle interception, authoritative all-time inventory, a trusted anti-rollback root, sole controlled provider egress, final-send revocation ordering, or live installed SillyTavern/Android-Termux behavior. Host remains `NON_READY`; Stage 2 remains `NO-GO`; production Memory→NPC remains `DISABLED / FAIL-CLOSED`.
+
+
+### Additional direct-route fix — character deletion flag coercion
+
+The pinned `POST /api/characters/delete` handler uses loose equality when checking `delete_chats`. The Host guard now rejects character deletion whenever that character owns any enrolled chat, rather than relying on strict boolean interpretation of the request flag. The real pinned-route test sends the JSON string value `"1"` and verifies that both the character file and enrolled chat file remain unchanged. This closes the identified flag-coercion bypass; it does not close unrelated external mutation or anti-rollback gaps.
