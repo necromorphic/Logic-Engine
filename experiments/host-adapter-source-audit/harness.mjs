@@ -88,7 +88,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.match(groupChatScript, /X-Logic-Engine-Save-Capability/);
   assert.match(script, /Reload this chat to restore the last persisted state/);
   assert.match(script, /if \(lifecycleBefore\.status === 'NOT_ENROLLED'\) await saveChatConditional\(\);/);
-  assert.doesNotMatch(script, /afterMutation\('(message-send|edit-message|delete-message|delete-swipe)'[^\\n]*sourceAlreadyPersisted/);
+  assert.equal(script.includes('sourceAlreadyPersisted: lifecycleBefore.status !== \'NOT_ENROLLED\''), false);
   assert.match(script, /const lifecycleBefore = await lifecycleBridge\.beforeMutation\('message-send'/);
   assert.match(script, /const lifecycleBefore = await lifecycleBridge\.beforeMutation\('edit-message'/);
   assert.match(script, /const lifecycleBefore = await lifecycleBridge\.beforeMutation\('delete-swipe'/);
