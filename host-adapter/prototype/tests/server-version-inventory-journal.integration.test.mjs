@@ -151,7 +151,7 @@ test('request-bound capability permits only append/select transitions and reject
 
     // A capability cannot authorize bytes that changed after preparation.
     const staleFileCapability = await prepare(selectPayload);
-    const tamperedBytes = persistedBeforeRejectedBody.replace('"user_name":"unused"', '"user_name":"changed"');
+    const tamperedBytes = persistedBeforeRejectedBody + '\n';
     assert.notEqual(tamperedBytes, persistedBeforeRejectedBody);
     await writeFile(chatPath, tamperedBytes);
     const staleFileResult = await invokeSave(selectPayload, staleFileCapability.token);
@@ -265,6 +265,93 @@ test('request-bound capability permits only append/select transitions and reject
     assert.ok(rollback.errors.includes('CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT'));
     assert.equal(rollback.mutationJournal.snapshotConsistency, 'DIVERGES_FROM_LAST_LOCAL_CHECKPOINT');
     assert.equal(persistedBefore, await readFile(chatPath, 'utf8'));
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+
+test('durable intent rechecks persisted bytes immediately before native save', async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'host-version-prewrite-race-'));
+  try {
+    const directories = {
+      chats: path.join(root, 'chats'), characters: path.join(root, 'characters'), groups: path.join(root, 'groups'),
+      groupChats: path.join(root, 'group_chats'), backups: path.join(root, 'backups'),
+    };
+    await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
+    const chatDirectory = path.join(directories.chats, 'character-a');
+    await mkdir(chatDirectory, { recursive: true });
+    const conversationUuid = randomUUID();
+    const installationUuid = randomUUID();
+    const messageId = randomUUID();
+    const version1 = randomUUID();
+    const version2 = randomUUID();
+    const version3 = randomUUID();
+    const conversationId = installationUuid + ':' + conversationUuid;
+    const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
+    const header = { chat_metadata: { logic_engine_conversation_id: conversationUuid }, user_name: 'unused', character_name: 'unused' };
+    const writeChat = records => writeFile(chatPath, records.map(record => JSON.stringify(record)).join('\n'));
+    const request = {
+      method: 'POST', baseUrl: '', path: '/api/chats/save', originalUrl: '/api/chats/save',
+      sessionID: 'test-session-race', user: { profile: { handle: 'test-user-race' }, directories }, headers: {},
+    };
+    const initialMessage = makeMessage({
+      messageId,
+      versions: [
+        { versionId: version1, text: 'before' },
+        { versionId: version2, text: 'after', parentVersionId: version1 },
+      ],
+      activeVersionIndex: 0,
+    });
+    const appendedMessage = makeMessage({
+      messageId,
+      versions: [
+        { versionId: version1, text: 'before' },
+        { versionId: version2, text: 'after', parentVersionId: version1 },
+        { versionId: version3, text: 'third', parentVersionId: version2 },
+      ],
+      activeVersionIndex: 2,
+    });
+    const payload = {
+      ch_name: 'Character A', file_name: 'chat-a', chat: [header, appendedMessage],
+      avatar_url: 'character-a.png', force: false,
+    };
+    await writeChat([header, initialMessage]);
+    await registerHostConversation(request, {
+      conversationId, sourceLocator: 'chat-a', sourcePath: 'character-a/chat-a.jsonl', domain: 'chats',
+    });
+    const acknowledge = async (id, text, active, parentVersionId = null) => recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId, message_id: messageId, version_id: id, parent_version_id: parentVersionId,
+      content_sha256: digest(text), active, deleted: false,
+    });
+    await acknowledge(version1, 'before', true);
+    await acknowledge(version2, 'after', false, version1);
+    const inventory = await getHostConversationInventory(request);
+    assert.equal(inventory.complete, true, JSON.stringify({ errors: inventory.errors }));
+
+    const capability = await prepareHostSaveCapability(request, { route: '/api/chats/save', payload });
+    assert.equal(capability.status, 'CAPABILITY_ISSUED');
+    const persistedBefore = await readFile(chatPath, 'utf8');
+    const tamperedBytes = persistedBefore + '\n';
+    const saveRequest = {
+      ...request, body: payload,
+      headers: { 'x-logic-engine-save-capability': capability.token },
+    };
+    const response = responseMock();
+    let reachedNativeSave = false;
+    await createHostLifecycleMutationMiddleware({
+      requirePersistedInventory: true,
+      beforeSavePrestateRecheck: async () => writeFile(chatPath, tamperedBytes),
+    })(saveRequest, response, async () => {
+      reachedNativeSave = true;
+      await writeChat(payload.chat);
+      response.json({ ok: true });
+    });
+    await response.finished;
+
+    assert.equal(reachedNativeSave, false);
+    assert.equal(response.statusCode, 409);
+    assert.equal(await readFile(chatPath, 'utf8'), tamperedBytes);
   } finally {
     await rm(root, { recursive: true, force: true });
   }
