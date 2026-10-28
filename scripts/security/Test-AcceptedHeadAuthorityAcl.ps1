@@ -7,6 +7,50 @@ $password = ([guid]::NewGuid().ToString('N') + 'Aa1!')
 $securePassword = ConvertTo-SecureString $password -AsPlainText -Force
 $root = $null
 $evidence = $null
+
+# Unit-test the production maintenance gate without touching ACLs or services.
+$productionScript = Join-Path $PSScriptRoot 'Set-AcceptedHeadAuthorityAcl.ps1'
+$tokens = $null
+$parseErrors = $null
+$productionAst = [System.Management.Automation.Language.Parser]::ParseFile($productionScript, [ref]$tokens, [ref]$parseErrors)
+if ($parseErrors.Count -gt 0) { throw 'Production ACL script has PowerShell parse errors.' }
+$gateFunctionAst = $productionAst.Find({
+  param($node)
+  $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and $node.Name -eq 'Assert-ServicesStopped'
+}, $true)
+if (-not $gateFunctionAst) { throw 'Production maintenance precondition function is missing.' }
+. ([scriptblock]::Create($gateFunctionAst.Extent.Text))
+
+foreach ($badService in @(
+  [pscustomobject]@{ serviceName = 'FixtureRunning'; state = 'Running'; processId = 123 },
+  [pscustomobject]@{ serviceName = 'FixtureStoppedWithPid'; state = 'Stopped'; processId = 42 }
+)) {
+  $rejected = $false
+  try { Assert-ServicesStopped -Services @($badService) } catch {
+    $rejected = $_.Exception.Message -match 'Maintenance precondition failed'
+  }
+  if (-not $rejected) { throw "Maintenance gate accepted unsafe service state for $($badService.serviceName)." }
+}
+Assert-ServicesStopped -Services @(
+  [pscustomobject]@{ serviceName = 'FixtureStopped'; state = 'Stopped'; processId = 0 }
+)
+
+$gateCalls = @($productionAst.FindAll({
+  param($node)
+  $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Assert-ServicesStopped'
+}, $true))
+$aclWrites = @($productionAst.FindAll({
+  param($node)
+  $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Set-Acl'
+}, $true))
+if ($gateCalls.Count -lt 2 -or $aclWrites.Count -lt 1) {
+  throw 'Expected repeated maintenance checks and ACL writes were not found in the production script.'
+}
+if ($gateCalls[0].Extent.StartOffset -ge $aclWrites[0].Extent.StartOffset -or
+    $gateCalls[1].Extent.StartOffset -ge $aclWrites[0].Extent.StartOffset) {
+  throw 'Maintenance gate must be invoked before the first ACL write and again near each write.'
+}
+
 try {
   foreach ($role in $roles) {
     $account = "leHead$role$suffix"
