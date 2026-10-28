@@ -45,12 +45,13 @@ The admin-only `GET /v1/worlds/:world_id/knowledge-assignments` route is diagnos
 
 ## Current evidence and remaining work
 
-The focused test file `tests/knowledge-acquisition.test.js` covers:
+The focused test files `tests/knowledge-acquisition.test.js` and `tests/authorized-knowledge-read.test.js` cover:
 - initial assignment creation, exact replay, and projection;
 - conflicting assignment identity reuse;
 - source-event rollback while preserving an independent World Pack support;
 - subject-scoped snapshot reads at a shared cursor;
-- rejection of generic untrusted event commits.
+- rejection of generic untrusted event commits;
+- actor-bound disclosure, default-deny policy, wrong-actor rejection, and stale-cursor rejection.
 
 Required next steps:
 1. Obtain exact-head CI results and fix failures.
