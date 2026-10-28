@@ -48,7 +48,7 @@ export function createProtectedDispatchDenyMiddleware({ env = process.env } = {}
     }
 
     const path = typeof request?.path === 'string' ? request.path : '';
-    if (!PROTECTED_MODEL_ROUTE_PREFIXES.some((prefix) => isWithinPrefix(path, prefix))) {
+    if (!PROTECTED_EGRESS_ROUTE_PREFIXES.some((prefix) => isWithinPrefix(path, prefix))) {
       return next();
     }
 
@@ -62,4 +62,4 @@ export function createProtectedDispatchDenyMiddleware({ env = process.env } = {}
   };
 }
 
-export { PROTECTED_MODEL_ROUTE_PREFIXES };
+export { PROTECTED_EGRESS_ROUTE_PREFIXES };
