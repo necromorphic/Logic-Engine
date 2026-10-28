@@ -99,7 +99,8 @@ export async function scanHostArtifactRoots(roots, { fs = { lstat, open, readdir
           const bytes = await handle.readFile();
           const afterHandle = await handle.stat();
           const afterPath = await fs.lstat(absolutePath);
-          if (!sameStat(opened, afterHandle) || !sameStat(opened, afterPath) || bytes.length !== afterHandle.size) {
+          if (afterPath.isSymbolicLink() || !afterPath.isFile()
+            || !sameStat(opened, afterHandle) || !sameStat(opened, afterPath) || bytes.length !== afterHandle.size) {
             errors.push('Artifact changed during scan: ' + root.domain);
             continue;
           }
