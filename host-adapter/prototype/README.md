@@ -31,7 +31,7 @@ Before capture can succeed, an administrator must bind the authenticated adapter
 
 ## Pinned-source hook patch
 
-The candidate patch also replaces the pinned MakerSuite/Vertex sender's raw `console.debug(`${apiName} request:`, body)` with metadata-only logging (`model`, `stream`, and message count). The pinned-source CI fails if the raw-body log returns and syntax-checks/lints the changed endpoint. This is a patch-artifact mitigation only; it is not installed into a live ST instance and does not create a final-send authorization gateway.
+The candidate patch also replaces a provider sender's raw request-body debug log with metadata-only logging (`model`, `stream`, and message count). The pinned-source CI fails if the raw-body log returns and syntax-checks/lints the changed endpoint. This is a patch-artifact mitigation only; it is not installed into a live ST instance and does not create a final-send authorization gateway.
 
 Source audit: [`SOURCE-LIFECYCLE-AUDIT.md`](./SOURCE-LIFECYCLE-AUDIT.md) records pinned-source evidence and explicitly distinguishes source-confirmed behavior from unrun runtime experiments.
 
