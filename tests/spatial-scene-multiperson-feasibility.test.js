@@ -514,7 +514,7 @@ test('movement snapshot deep-copies nested body and motion data for every entity
     ],
   });
 
-  const moved = moveEntityInSyntheticScene(initial, 'alice', { x: 1, y: 0, z: 0 }, 'scene-2');
+  const moved = moveEntityInSyntheticScene(initial, 'alice', { x: 1, y: 0, z: 0 }, 'scene-2', { durationSeconds: 1 });
   assert.equal(moved.status, 'CONFIRMED');
 
   moved.scene.entities[0].body.minOffset.x = -99;
