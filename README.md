@@ -9,9 +9,9 @@
 >
 > **Состояние проекта:** есть исполняемый прототип с HTTP API, SQLite-журналом событий, базовыми сущностями и фактами, идемпотентностью, аудитом, ограниченным причинным откатом, реестром механик и базовым жизненным циклом предложений. Это ещё не завершённая автономная симуляция и не готовая production-интеграция с SillyTavern.
 >
-> **Memory → NPC: прогресс есть, но нужно отделять main от кандидатных веток.** В `main` уже включён контракт #527, который различает отказ в доступе и полный пустой результат. Core source-version ledger/readback (#521), Host inventory/reconciliation chain (#524 → #531 → #555) и точная привязка версии источника в Provider → NPC (#588) остаются открытыми PR; их изменения пока не входят в `main`. Успешные проверки отдельных feature-HEAD не означают, что эти изменения уже приняты основной веткой. Startup migration guard (#526) также остаётся только в feature-ветке #524, не в `main`.
+> **Memory → NPC: Provider blocker #3 уже интегрирован в `main`; остальные блокеры остаются отдельными.** PR #618 добавил в основную ветку accepted-head контроль реальных записей Core/Provider, отзывов, tombstone/purge, reconciliation/readiness и восстановления, плюс защищённый Gateway pre-dispatch gate. Точная передача source-version token не перепроверялась в этой работе. Core source-version ledger/readback (#521), Host inventory/reconciliation chain (#524 → #531 → #555) и pinned SillyTavern sole-egress proof остаются отдельными незавершёнными линиями; успешные feature-HEAD не считаются интегрированными. Startup migration guard (#526) слит только в feature-ветку #524, не в `main`.
 >
-> **Production Memory → NPC остаётся DISABLED / FAIL-CLOSED.** Host inventory всё ещё не доказывает полноту всей активной, исторической и удалённой переписки. В текущем Host-кандидате trusted inventory verifier намеренно отклоняет reconciliation; новая API-точка сама по себе не делает inventory READY. Не доказаны также привязка финального сериализованного тела запроса к допущенным кандидатам памяти, единственный защищённый путь отправки, атомарная проверка revoke/tombstone перед раскрытием и целевые deployment/ACL/backup/restore гарантии.
+> **Production Memory → NPC остаётся DISABLED / FAIL-CLOSED.** Provider blocker #3 закрыт на уровне реализации и тестов: если отзыв записи/запроса или потеря readiness зафиксированы до durable `DISPATCH_STARTED`, Gateway обязан выполнить ноль исходящих вызовов и не создавать запись dispatch ledger. Проверено и восстановление старой Provider DB против независимого accepted head. Но независимый remote anti-rollback для самой authority, целевые ACL/backup-restore, полнота Host inventory, окончательная привязка сериализованного тела и доказательство единственного outbound-пути в установленном SillyTavern пока не подтверждены.
 >
 ## Оценка прогресса
 
@@ -32,13 +32,13 @@
 | Memory → NPC — техническая реализация | 70% | +5 п.п. |
 | Memory → NPC — production readiness | **0% — BLOCKED** | без изменения |
 
-Проценты обновлены с учётом свежих изменений, вошедших в `main`, включая тесты отката и восстановления Core, согласованность сегментов и зависимостей Time, а также проверки Provider. Это оценка прогресса реализации, не утверждение, что все функции направления завершены. Host-работа в отдельных feature-ветках не засчитывается как готовая интеграция.
+Проценты учитывают свежие изменения в `main`, включая интегрированный Provider accepted-head/revocation gate и тесты отката/восстановления Core. Это оценка прогресса реализации, а не готовности production. Host-работа в отдельных feature-ветках не засчитывается как готовая интеграция.
 
 ### Memory → NPC: что готово и что блокирует включение
 
 Технический прогресс и разрешение на реальное использование — разные показатели. Production Memory → NPC остаётся **DISABLED / FAIL-CLOSED**.
 
-**Изменения в основной ветке:** в `main` присутствует контракт #527, разделяющий полный пустой результат и отказ/неполноту. Дополнительные проверки Core, Time и Provider укрепляют отдельные части движка, но сами по себе не доказывают сквозную доставку памяти конкретному NPC.
+**Изменения в основной ветке:** в `main` присутствуют контракт #527 (полный пустой результат отличается от отказа/неполноты) и PR #618 — accepted-head защита реальных Core/Provider writes, revoke, tombstone/purge, reconciliation/readiness и recovery с pre-dispatch Gateway gate. Это закрывает Provider blocker #3 на уровне кода и тестов, но не доказывает полноту Host inventory или сквозную доставку памяти конкретному NPC.
 
 **Кандидатные изменения, не считать частью `main`, пока PR не слит:**
 - [PR #521](https://github.com/necromorphic/Logic-Engine/pull/521) — долговечный Core source-version ledger/readback.
@@ -52,7 +52,7 @@
 1. Доказать полный Host inventory активных, исторических и удалённых версий переписки, включая пропущенные изменения, импорт, ветвление и восстановление.
 2. Подключить доверенный verifier, который разрешает reconciliation только при доказанной полноте inventory. Сейчас отсутствие доказательства должно приводить к отказу.
 3. Связать финальное сериализованное тело запроса SillyTavern с точными допущенными кандидатами памяти через один защищённый outbound-путь.
-4. Проверять revoke/tombstone/scope непосредственно на границе раскрытия и исключить гонку между проверкой и отправкой.
+4. Provider/Gateway pre-dispatch revoke/readiness race покрыт тестами; остаётся доказать, что реальный pinned SillyTavern final-send использует именно Gateway как единственный outbound-путь, без обходного sender/retry.
 5. Подтвердить на целевом развёртывании identity процесса, ACL базы и файлов WAL/SHM, а также изоляцию backup/restore.
 6. Проверить фактическую интеграцию с установленным SillyTavern и сохранность данных после перезапуска; Android/Termux persistence пока не подтверждена.
 
@@ -119,7 +119,7 @@
 
 - **[Issue #264 — Host → Provider evidence and production-readiness gate](https://github.com/necromorphic/Logic-Engine/issues/264):** единый пакет доказательств, Host inventory, Provider reconciliation, точный disclosure boundary и список минимальных решений Core. Не создавать параллельные mapping-документы.
 - **[Issue #258 — Host/Adapter lifecycle evidence](https://github.com/necromorphic/Logic-Engine/issues/258):** проверить идентичность и lifecycle на закреплённой версии SillyTavern `1.19.0-1-g06bde939f` (SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`). Пока нет доказанного полного inventory; кандидат patch не считается применённым или runtime-проверенным.
-- **[Issue #181 — Memory Provider](https://github.com/necromorphic/Logic-Engine/issues/181):** Provider-local archive/reconciliation операции существуют, но их тесты не заменяют доказательства полноты источника Host и сквозной интеграции.
+- **[Issue #181 — Memory Provider](https://github.com/necromorphic/Logic-Engine/issues/181):** Provider blocker #3 интегрирован в `main` через PR #618; Host inventory, внешний anti-rollback authority и production deployment controls остаются вне этого закрытого среза.
 - **[Issue #226 — Mechanics acceptance](https://github.com/necromorphic/Logic-Engine/issues/226):** остаётся блокер policy-freshness — авторитетный источник политики должен быть проверен при approval/commit, включая end-to-end rotation версии политики.
 - **[Issue #252 — Portfolio manager](https://github.com/necromorphic/Logic-Engine/issues/252):** общий реестр активных блоков, зависимостей, доказательств, владельцев и следующих действий.
 
