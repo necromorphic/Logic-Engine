@@ -67,7 +67,7 @@ test('fails closed when the enrollment marker survives state-directory loss befo
   const f = await fixture({ enrolled: true, legacy: true });
   const marker = path.join(f.root, '.logic-engine-host-enrollment-marker');
   const publicCharacters = path.join(f.root, 'public', 'characters');
-  await writeFile(marker, JSON.stringify({ version: 1, purpose: 'host-enrollment-present' }) + '\\n');
+  await writeFile(marker, JSON.stringify({ version: 1, purpose: 'host-enrollment-present' }) + '\n');
   await rm(path.join(f.root, '.logic-engine-host'), { recursive: true });
   await mkdir(publicCharacters, { recursive: true });
   try {
