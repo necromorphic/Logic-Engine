@@ -137,6 +137,7 @@ test('real HTTP response cannot leak a success body when post-scan is incomplete
         });
         const middleware = createHostLifecycleMutationMiddleware();
         server = createServer((request, response) => {
+            response.status = function status(code) { this.statusCode = code; return this; };
             request.user = fixtureRequest.user;
             request.baseUrl = '';
             request.path = '/api/characters/edit';
