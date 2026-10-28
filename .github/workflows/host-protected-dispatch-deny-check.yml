@@ -77,7 +77,7 @@ jobs:
           const script = readFileSync('sillytavern-host-checkout/public/script.js', 'utf8');
 
           const serverGuard = startup.indexOf('app.use(createProtectedDispatchDenyMiddleware())');
-          const apiRouterMounts = [...startup.matchAll(/app\\.use\\(\\s*['"]\\/api\\//g)].map(match => match.index);
+          const apiRouterMounts = [...startup.matchAll(/app\.use\(\s*['"]\/api\//g)].map(match => match.index);
           const generate = script.indexOf('export async function Generate(type,');
           const browserGuard = script.indexOf('assertProtectedDispatchAllowed({ locator: getCurrentChatId(), messages: chat, storage: localStorage })', generate);
 
