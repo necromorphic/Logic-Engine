@@ -142,6 +142,12 @@ The current repository evidence supports a *read-only research path*, not a prod
 
 These findings align with the current blocker recorded in [Issue #351](https://github.com/necromorphic/Logic-Engine/issues/351): the process/authority question has been resolved by delegated coordinator authority, but the technical gates remain open. The required work is now evidence closure, not another duplicate read/replay harness.
 
+### Restore/anti-rollback boundary
+
+The current main branch includes [tests/memory-provider-coordinated-restore.characterization.test.js](https://github.com/necromorphic/Logic-Engine/blob/main/tests/memory-provider-coordinated-restore.characterization.test.js). Its test is explicitly named to characterize that a coordinated restore of the Core and Provider databases is undetectable by current snapshot markers alone. The fixture demonstrates that after restoring matching older database copies, both the entity state and the stored revision/commit-sequence markers can agree with each other again. This is test-source evidence of a known limitation; this pass did not execute the test.
+
+The current [coordinator-lock.js](https://github.com/necromorphic/Logic-Engine/blob/main/src/storage/coordinator-lock.js) describes its separate database as a lock primitive, not a business-data store. Therefore, the lock database cannot be assumed to provide an independent accepted-head ledger. Any future anti-rollback requirement must either use an authority that survives the same coordinated restore or explicitly make a restore unverifiable/non-ready pending recovery. A digest stored only inside the restored Core database cannot by itself prove that it is the newest accepted state.
+
 ## Representation choice — current disposition
 
 The existing research report compares in-memory projection, persisted rebuildable projection, scene/episode records, snapshots/checkpoints, and a hybrid. The practical disposition is:
