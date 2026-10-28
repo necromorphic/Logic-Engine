@@ -111,11 +111,11 @@ The Provider-owned implementation/test slice is present in main and has strong a
 ## 8. Supplemental Windows execution record (2026-10-28)
 
 - Self-hosted runner: `DESKTOP-77V96AV` (Windows, X64).
-- Confirmed Windows self-hosted run: [GitHub Actions run 40740707455](https://github.com/necromorphic/Logic-Engine/actions/runs/40740707455), runner `DESKTOP-77V96AV`, tested merge checkout `cd88f79cd402cfda094b80586687aa95d77113c9` (PR #636 head `b1a487c270e5debae5993ae5736e72f2f3cf95ef` merged into inspected main snapshot).
+- Confirmed Windows self-hosted run: [GitHub Actions run 40741375647](https://github.com/necromorphic/Logic-Engine/actions/runs/40741375647), runner `DESKTOP-77V96AV`, tested merge checkout `5de5da714bf5971f1ebcbec8432f5da840aa9da5` (PR #636 head `67575453a3bb3b460453a06088a7a87a7a6153bd` merged into inspected main snapshot).
 - Runtime: Node.js `v22.18.0`; npm `10.9.3`; Git `2.50.1.windows.1`.
 - Results: focused Provider/Gateway/process-restart suite **93/93 PASS**; full Runtime suite **1023/1023 PASS**; recalculation oracle **20/20 PASS**; both workflow jobs succeeded.
-- The new process test opens a temporary file-backed Provider DB in child processes, forcibly exits the writer process without `Provider.close()`, opens a fresh process, verifies the record, revokes it, and confirms the fresh process withholds records. This is an OS-process restart test of the Provider implementation, not a long-running separately deployed Provider service or a real SillyTavern integration.
-- The initial environment-capture command did not emit the OS/SQLite JSON in the successful run. A portable script `scripts/record-test-environment.mjs` was added; run [40740940856](https://github.com/necromorphic/Logic-Engine/actions/runs/40740940856) is queued to capture exact Windows OS build and embedded SQLite version. Do not count those values as recorded until that run's logs show them.
+- The process test opens a temporary file-backed Provider DB in child processes, forcibly exits the writer process without `Provider.close()`, opens a fresh process, verifies the record, revokes it, and confirms the fresh process withholds records. This is an OS-process restart test of the Provider implementation, not a long-running separately deployed Provider service or a real SillyTavern integration.
+- The environment recorder script was present, but its output was skipped because the Windows batch step stopped after invoking `npm.cmd`. The workflow order was corrected and `npm --version` now uses `call`; [run 40741643822](https://github.com/necromorphic/Logic-Engine/actions/runs/40741643822) is queued to verify the fix and capture exact Windows OS build and embedded SQLite version. Do not count those values as recorded until its logs show them.
 - **Still NOT TESTED:** installed pinned SillyTavern lifecycle; target-PC ACL/restore/anti-rollback; complete sole-egress proof. The Provider child-process test does not close these gaps.
 
 
