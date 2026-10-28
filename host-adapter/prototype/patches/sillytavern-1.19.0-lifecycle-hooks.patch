@@ -2610,7 +2610,7 @@ diff --git a/src/endpoints/logic-engine-persisted-conversation-inventory.mjs b/s
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-persisted-conversation-inventory.mjs
-@@ -0,0 +1,220 @@
+@@ -0,0 +1,243 @@
 +import { createHash } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { lstat, open, readdir, realpath } from 'node:fs/promises';
@@ -2629,8 +2629,9 @@ new file mode 100644
 +const validDigest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 +const sameFileIdentity = (a, b) => a.dev === b.dev
 +  && (a.ino === b.ino || (process.platform === 'win32' && (!a.ino || !b.ino)));
-+const sameStat = (a, b) => (process.platform === 'win32' || sameFileIdentity(a, b))
-+  && a.size === b.size && a.mtimeMs === b.mtimeMs;
++const sameStat = (a, b) => process.platform === 'win32'
++  ? a.size === b.size
++  : sameFileIdentity(a, b) && a.size === b.size && a.mtimeMs === b.mtimeMs;
 +const digestHostValue = value => sha256(JSON.stringify(String(value)));
 +
 +async function readStableFile(absolutePath, fs) {
@@ -2640,16 +2641,26 @@ new file mode 100644
 +  try {
 +    const opened = await handle.stat();
 +    if (!opened.isFile()) throw Error('ARTIFACT_OPENED_NOT_FILE');
-+    if (process.platform !== 'win32' && before.dev !== opened.dev) throw Error('ARTIFACT_CHANGED_BEFORE_READ_DEVICE');
-+    if (process.platform !== 'win32' && before.ino !== opened.ino) {
-+      throw Error('ARTIFACT_CHANGED_BEFORE_READ_INODE');
-+    }
 +    if (before.size !== opened.size) throw Error('ARTIFACT_CHANGED_BEFORE_READ_SIZE');
-+    if (before.mtimeMs !== opened.mtimeMs) throw Error('ARTIFACT_CHANGED_BEFORE_READ_MTIME');
++    // Windows does not expose comparable device/inode/timestamp metadata for
++    // every path-stat versus handle-stat pair. Exact bytes are verified twice below.
++    if (process.platform !== 'win32') {
++      if (process.platform !== 'win32' && before.dev !== opened.dev) throw Error('ARTIFACT_CHANGED_BEFORE_READ_DEVICE');
++      if (before.ino !== opened.ino) throw Error('ARTIFACT_CHANGED_BEFORE_READ_INODE');
++      if (before.mtimeMs !== opened.mtimeMs) throw Error('ARTIFACT_CHANGED_BEFORE_READ_MTIME');
++    }
 +    const bytes = await handle.readFile();
 +    const afterHandle = await handle.stat();
 +    const afterPath = await fs.lstat(absolutePath);
-+    if (!sameStat(opened, afterHandle) || !sameStat(opened, afterPath) || bytes.length !== afterHandle.size) {
++    const pathHandle = await fs.open(absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
++    let pathBytes;
++    try {
++      pathBytes = await pathHandle.readFile();
++    } finally {
++      await pathHandle.close().catch(() => {});
++    }
++    if (!sameStat(opened, afterHandle) || !sameStat(opened, afterPath)
++        || bytes.length !== afterHandle.size || !pathBytes.equals(bytes)) {
 +      throw Error('ARTIFACT_CHANGED_DURING_READ');
 +    }
 +    return bytes.toString('utf8');
@@ -2750,10 +2761,22 @@ new file mode 100644
 +          continue;
 +        }
 +        const header = parsed[0];
-+        const headerId = header.chat_metadata?.logic_engine_conversation_id;
-+        if (typeof headerId !== 'string') continue;
++        const metadata = header.chat_metadata;
++        if (!metadata || typeof metadata !== 'object'
++          || !Object.hasOwn(metadata, 'logic_engine_conversation_id')) continue;
++        const headerId = metadata.logic_engine_conversation_id;
++        if (typeof headerId !== 'string' || !validUuid(headerId)) {
++          parseErrors.push('HOST_CONVERSATION_ID_INVALID');
++          continue;
++        }
 +        const enrollment = enrollmentByUuid.get(headerId);
-+        if (!enrollment) continue;
++        if (!enrollment) {
++          // A Host-marked persisted artifact absent from the enrollment registry
++          // is evidence that the registry is incomplete or has been rolled back.
++          // Do not silently omit it from a supposedly complete current inventory.
++          parseErrors.push('HOST_CONVERSATION_ID_WITHOUT_ENROLLMENT');
++          continue;
++        }
 +        if (enrollment.domain !== domain || path.parse(relativePath).name !== enrollment.sourceLocator
 +          || relativePath !== enrollment.sourcePath) {
 +          parseErrors.push('ENROLLED_CONVERSATION_LOCATOR_OR_DOMAIN_MISMATCH');
