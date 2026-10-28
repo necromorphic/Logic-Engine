@@ -303,8 +303,9 @@ export function createAcceptedHeadAuthorityServer({
       const token = request.headers.authorization?.startsWith('Bearer ')
         ? request.headers.authorization.slice(7) : '';
       // Status is read-only, but must not disclose cross-domain authority state to
-      // unauthenticated local processes. Either enrolled service credential may read;
-      // mutation endpoints still require the matching domain-specific credential.
+      // unauthenticated local processes. Core and Provider service credentials may
+      // read; a distinct Gateway read token may only read this endpoint. Mutation
+      // endpoints still require the matching domain-specific Core/Provider credential.
       if (!safeTokenEqual(tokens.core, token) && !safeTokenEqual(tokens.provider, token)
         && !(typeof tokens.read === 'string' && safeTokenEqual(tokens.read, token))) {
         reply(response, 403, { error: 'DENIED' });
