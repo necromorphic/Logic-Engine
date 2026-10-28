@@ -1,8 +1,9 @@
 # Spatial canonical writer inventory — research note
 
 **Date:** 2026-10-28  
-**Audited source revision:** `main` at `8d48021399824e96907541832cde4ce2a5012224`  
-**Relevant source blob identities:** `src/storage/sqlite-store.js` = `e92f5b23cda9c0777af9624748c0549434300f3e`; `src/application/engine.js` = `dcb8b84e54b29e8697f14eb7e709cc6e0cd65a13`; `src/core/rules.js` = `ce874841e90cad18db020f038388c35008708349`; `schemas/world-pack-manifest.schema.json` = `73b59694280ebf4e6c5affd98a41c09e4da6031c`.  
+**Initial source inventory:** `main` at `8d48021399824e96907541832cde4ce2a5012224`.  
+**Temporal follow-up source:** `main` at `670d24b0021cf286c94958248870f62145977b33` (2026-10-28 09:56 UTC).  
+**Relevant current source blob identities at the temporal follow-up:** `src/storage/sqlite-store.js` = `80cbc54fb174a8074088ee9234524e401b7dbb68`; `src/application/engine.js` = `dcb8b84e54b29e8697f14eb7e709cc6e0cd65a13`; `schemas/world-pack-manifest.schema.json` = `73b59694280ebf4e6c5affd98a41c09e4da6031c`. The `src/core/rules.js` blob from the initial inventory was `ce874841e90cad18db020f038388c35008708349`.  
 **Status:** bounded source inventory; research only, not an implementation contract or authorization.
 
 ## 1. Finding
@@ -53,6 +54,8 @@ Until those are closed, generic `position: {x,y,z}` remains unconfirmed, product
 
 
 ## 6. TimeEngine boundary-to-Core cursor mapping
+
+**Current-main source recheck:** `src/storage/sqlite-store.js` blob `80cbc54fb174a8074088ee9234524e401b7dbb68` at commit `670d24b0021cf286c94958248870f62145977b33`. This revision adds explicit recovery validation that `next_segment_index` and `confirmed_coordinate` agree with the persisted segment plan; it does not itself validate the reconstructed Core commit cursor for every segment.
 
 A follow-up source inspection refined the earlier conclusion: the operation does persist more cursor evidence than the table's top-level columns show.
 
