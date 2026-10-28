@@ -171,6 +171,11 @@ test('Provider mutations advance accepted head before commit and fail closed whe
       assert.equal(getAcceptedHeadsSync({ port, token: providerToken }).provider, after);
     };
 
+    const queryRevokeScope = { world_id: 'world-query-revoke', subject_id: 'npc-query-revoke', purpose: 'revoke-check' };
+    await assertHeadAdvanced(() => provider.grantQuery(queryRevokeScope, true));
+    await assertHeadAdvanced(() => provider.grantQuery(queryRevokeScope, false));
+    assert.equal(provider.authorizeQuery(queryRevokeScope), false);
+
     // Restore an older Provider-only backup while the independent authority
     // remains newer. Startup must refuse service instead of trusting the
     // restored local head. Restore the current copy afterwards for later checks.
