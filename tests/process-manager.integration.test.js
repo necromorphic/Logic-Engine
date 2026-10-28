@@ -586,6 +586,75 @@ test('paused lifecycle state and trigger cancellation survive restart before res
 }));
 
 
+
+test('reconciliation rejects registered-schedule conflicts before mutating the process', (t) => withDatabase(t, ({ engine, store }) => {
+  store.createWorld(worldInput());
+  const definition = processInput();
+  definition.milestones = [{
+    ...definition.milestones[0],
+    write_set: ['entity:shared-target'],
+  }];
+  engine.createProcess('world-a', definition);
+
+  const beforeAdvance = engine.getState('world-a');
+  engine.startTimeAdvance('world-a', {
+    idempotency_key: 'advance-conflict-source',
+    expected_revision: beforeAdvance.world_revision,
+    to_coordinate: 1000,
+  });
+  const completed = engine.getProcess('world-a', 'journey-1');
+  const eventId = completed.milestones[0].completed_event_ids[0];
+  assert.ok(eventId);
+  engine.rollbackEvent('world-a', {
+    root_event_id: eventId,
+    idempotency_key: 'rollback-conflict-source',
+  });
+  let process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'needs_review');
+
+  engine.registerTimeTrigger('world-a', {
+    trigger_id: 'external-conflict',
+    due_coordinate: 2000,
+    dependencies: [],
+    read_set: [],
+    write_set: ['entity:shared-target'],
+    processing_mode: 'exact',
+    interrupt_after_coordinate: false,
+    payload: { event: { turn_id: 'external-conflict-event', event_type: 'external.conflict', effects: [] } },
+  });
+  const revisionWithConflict = engine.getState('world-a').world_revision;
+
+  assert.throws(
+    () => engine.transitionProcess('world-a', 'journey-1', {
+      action: 'reconcile',
+      confirm_retry: true,
+      expected_revision: revisionWithConflict,
+      expected_version: process.version,
+      replan: [{ milestone_id: 'depart', due_coordinate: 2000 }],
+      idempotency_key: 'reconcile-scheduler-conflict',
+    }),
+    (error) => error.code === 'PROCESS_RECONCILE_SCHEDULE_CONFLICT',
+  );
+  process = engine.getProcess('world-a', 'journey-1');
+  assert.equal(process.status, 'needs_review');
+  assert.equal(process.version, 2);
+  assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 1);
+  assert.equal(engine.getAudit('world-a').some((entry) => entry.action === 'process.plan.reconciled'), false);
+
+  engine.cancelTimeTrigger('world-a', 'external-conflict', 'remove-conflict-for-retry');
+  const retryRevision = engine.getState('world-a').world_revision;
+  const reconciled = engine.transitionProcess('world-a', 'journey-1', {
+    action: 'reconcile',
+    confirm_retry: true,
+    expected_revision: retryRevision,
+    expected_version: process.version,
+    replan: [{ milestone_id: 'depart', due_coordinate: 2000 }],
+    idempotency_key: 'reconcile-after-conflict-removed',
+  });
+  assert.equal(reconciled.process.status, 'scheduled');
+  assert.equal(reconciled.process.milestones[0].due_coordinate, 2000);
+}));
+
 test('explicit reconciliation resets rolled-back milestones and re-arms the process', (t) => withDatabase(t, ({ engine, store, reopen }) => {
   store.createWorld(worldInput());
   const created = engine.createProcess('world-a', processInput());
