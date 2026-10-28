@@ -50,6 +50,25 @@ function hasEnrolledChatUnderCharacter(registry, avatarUrl) {
 
 function operationTargetsEnrolledHistory(operation, request, registry) {
     const body = request.body ?? {};
+    if (operation === 'chat-save') {
+        // The native /api/chats/save handler overwrites the JSONL file before
+        // the post-mutation snapshot can run. No request-bound, one-shot Host
+        // transition capability is currently implemented, so accepting this
+        // write would make post-write detection the only safeguard.
+        const enrolledChats = registry.conversations.filter(conversation => conversation.domain === 'chats');
+        const characterDirectory = path.parse(String(body.avatar_url ?? '').replace('.png', '')).name;
+        const chatName = path.parse(String(body.file_name ?? '')).name;
+        if (!characterDirectory || !chatName || enrolledChats.some(conversation => typeof conversation.sourcePath !== 'string')) {
+            return enrolledChats.length > 0;
+        }
+        const sourcePath = characterDirectory + '/' + chatName + '.jsonl';
+        return enrolledChats.some(conversation => conversation.sourcePath === sourcePath);
+    }
+    if (operation === 'group-chat-save') {
+        // Group-save payloads can vary across pinned ST call paths; without a
+        // request-bound lifecycle capability, fail closed for the enrolled domain.
+        return registry.conversations.some(conversation => conversation.domain === 'group_chats');
+    }
     if (operation === 'chat-import') {
         return registry.conversations.some(conversation => conversation.domain === 'chats');
     }
@@ -346,7 +365,9 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 return next();
             }
             if (operationTargetsEnrolledHistory(operation, request, registry)) {
-                return fail(response, 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED', 409);
+                return fail(response, ['chat-save', 'group-chat-save'].includes(operation)
+                    ? 'HOST_ENROLLED_HISTORY_SAVE_CAPABILITY_REQUIRED'
+                    : 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED', 409);
             }
             paths = await statePaths(request);
         } catch {
