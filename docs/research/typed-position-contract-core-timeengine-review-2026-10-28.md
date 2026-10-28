@@ -249,16 +249,19 @@ No row above is marked PASS. The tombstone cases have identified regression test
 
 ### A. Confirmed by inspected source/docs
 
-1. The Logic-Engine exposes `getState(worldId)` and `getEvents(worldId, include_invalid)`; the API passes `include_invalid=true` only when explicitly requested. Therefore `getEvents(worldId, false)` is the intended valid-events read.
-2. Event records include `commit_sequence`, `committed_revision`, game time, and game-time coordinate fields in the inspected commit path.
-3. Core documentation distinguishes `world_revision`, `commit_sequence`, and game time, and warns that a snapshot cursor is not a universal source-version journal.
-4. World Pack manifest schema declares `entity_types[]` with `type_id` and `attributes_schema`, but `attributes_schema` is generic at the inspected schema boundary.
-5. `validateEffects` validates generic effect shape/attributes, not spatial semantics against a pinned World Pack schema.
-6. The inspected `commit()` body checks canonical commit preconditions but does not itself resolve a World Pack entity schema or demonstrate spatial validation.
-7. `commitSegment()` commits segment events through the Core store and rebuild path.
-8. Rebuild replays valid events in `commit_sequence` order.
-9. PR #554 is merged to main and documents a tombstone reuse guard plus regression cases for commit, rebuild, and segment rollback.
-10. The architecture docs assign temporal progression/boundary semantics to Time/TimeEngine and canonical state/commit to Core.
+The line ranges below were checked against the repository's `main` source during this revision. They are source evidence, not a claim that tests ran.
+
+1. **Core read methods:** `src/application/engine.js:487` defines `getState`, `getSnapshot`, and `getEvents`; `getEvents` defaults `includeInvalid=false`. The wrapper delegates `getSnapshot` to `store.readSnapshot`. [Source](https://github.com/necromorphic/Logic-Engine/blob/main/src/application/engine.js#L487)
+2. **Snapshot scope and raw-data warning:** `src/storage/sqlite-store.js:740-750` documents that snapshot data is raw internal source data, not actor-authorized/model-safe context, and begins `readSnapshot`. [Source](https://github.com/necromorphic/Logic-Engine/blob/main/src/storage/sqlite-store.js#L740-L750)
+3. **Snapshot transaction:** `src/storage/sqlite-store.js:747-940` contains the `readSnapshot` implementation and its transaction-bound read path. The returned cursor must be treated as one Core boundary; this does not prove atomic pairing with a separately fetched event list. [Source](https://github.com/necromorphic/Logic-Engine/blob/main/src/storage/sqlite-store.js#L747-L940)
+4. **Composite freshness marker and rollback:** `docs/73-core-1.5-cross-block-integration-matrix.md:195-196, 281-282` documents the transactional state snapshot, both `world_revision` and `commit_sequence`, and why the event cursor alone is insufficient after rollback. [Source](https://github.com/necromorphic/Logic-Engine/blob/main/docs/73-core-1.5-cross-block-integration-matrix.md#L195-L196)
+5. **Raw snapshot is not model-safe:** `docs/51-npc-acquisition-source-reconciliation.md:26` distinguishes a consistent canonical read cursor from an actor-authorized/model-safe projection. [Source](https://github.com/necromorphic/Logic-Engine/blob/main/docs/51-npc-acquisition-source-reconciliation.md#L26)
+6. **Time coordinates:** `src/time/model.js:1-10, 120-135` defines canonical safe-integer millisecond coordinates relative to the configured world epoch and validates coordinate/interval values. [Source](https://github.com/necromorphic/Logic-Engine/blob/main/src/time/model.js#L1-L10)
+7. **Equal-time trigger tie-break:** `src/time/scheduler.js:182-185` compares `due_coordinate` first and `trigger_id` second. The claim is limited to the due-work planner. [Source](https://github.com/necromorphic/Logic-Engine/blob/main/src/time/scheduler.js#L182-L185)
+8. **Tombstone/ID reuse:** PR #554 documents a Core guard and selected regression cases; its scope does not establish an immutable incarnation identifier or every writer/import/migration/recovery path. [PR #554](https://github.com/necromorphic/Logic-Engine/pull/554)
+9. **Spatial schema validation:** the coordinator review identifies generic attribute/schema handling but no proven spatial validator bound to an immutable historical World Pack schema. This remains a blocker, not an implementation guarantee.
+10. **TimeEngine boundary mapping:** the reviewed model and scheduler symbols above do not establish a durable confirmed-boundary identifier mapped to the Core composite cursor, nor global equal-game-time order for all canonical events.
+11. **Test execution:** no tests were executed for the coordinator review or this documentation revision. A test file or historical CI result is not a pass for this revision's head SHA.
 
 ### B. Requires confirmation from Core or TimeEngine
 
