@@ -124,7 +124,7 @@ try {
 
   # Regression: refuse an Administrators group entry because nested/effective membership cannot be proven.
   $nestedGroupName = "LEHeadNested$suffix"
-  New-LocalGroup -Name $nestedGroupName -Description 'Disposable ACL nested-membership regression fixture' | Out-Null
+  New-LocalGroup -Name $nestedGroupName -Description 'ACL nested-membership fixture' | Out-Null
   Add-LocalGroupMember -Group $nestedGroupName -Member "$env:COMPUTERNAME\$($testAccounts[2])"
   Add-LocalGroupMember -Group $administratorsGroupName -Member $nestedGroupName
   try {
