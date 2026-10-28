@@ -744,6 +744,10 @@ export async function registerHostConversation(request, { conversationId, source
     const userKey = digest(String(request.user.profile?.handle ?? paths.roots[0].path));
     const release = await acquireUserLock(userKey);
     try {
+        // Re-check under the enrollment lock: statePaths() may create a missing
+        // directory, so the first check alone cannot distinguish first setup
+        // from a concurrent loss of previously enrolled state.
+        await assertEnrollmentStateNotLost(request);
         let registryExists = true;
         try {
             const stat = await lstat(paths.registryPath);
