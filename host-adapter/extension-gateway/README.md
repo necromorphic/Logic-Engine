@@ -12,6 +12,7 @@ The extension gateway is therefore the intended **SillyTavern extension boundary
 
 - Leaves ordinary SillyTavern generation unchanged when no protected request has been explicitly armed.
 - For an explicitly armed protected request, aborts native SillyTavern generation before any provider-specific send.
+- While that protected callback is in flight, aborts a concurrent generation rather than allowing it to enter the native provider path.
 - Hands the captured generation context to an injected dispatch callback.
 - If the callback is absent or fails, remains fail-closed: the native provider send stays aborted.
 - Does not log chat text or dispatch payloads.
