@@ -111,7 +111,9 @@ async function targetUserHasEnrolledState(directories) {
 const validHostUuid = value => typeof value === 'string'
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 const hostTextDigest = value => digest(JSON.stringify(String(value)));
-const sameFileStat = (a, b) => a.dev === b.dev && a.ino === b.ino
+const sameFileIdentity = (a, b) => a.dev === b.dev
+    && (a.ino === b.ino || (process.platform === 'win32' && (!a.ino || !b.ino)));
+const sameFileStat = (a, b) => sameFileIdentity(a, b)
     && a.size === b.size && a.mtimeMs === b.mtimeMs;
 
 function purgeExpiredSaveCapabilities(now = Date.now()) {
@@ -1135,7 +1137,8 @@ async function validateEnrolledSourcePath(paths, { conversationId, sourceLocator
         const sourceChanged = {
             descriptorIdentity: before.dev !== after.dev || before.ino !== after.ino,
             descriptorMetadata: before.size !== after.size || before.mtimeMs !== after.mtimeMs,
-            pathIdentity: before.dev !== pathAfter.dev || before.ino !== pathAfter.ino,
+            pathIdentity: pathAfter.isSymbolicLink() || !sameFileIdentity(before, pathAfter)
+                || pathAfter.size !== after.size || pathAfter.mtimeMs !== after.mtimeMs,
             byteLength: bytes.length !== after.size,
         };
         if (!before.isFile() || Object.values(sourceChanged).some(Boolean)) {
