@@ -699,7 +699,7 @@ diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-e
 new file mode 100644
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1618 @@
+@@ -0,0 +1,1621 @@
 +import { createHash, randomBytes, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -2279,6 +2279,9 @@ new file mode 100644
 +            projectHostChatRecords(currentFile.records, expectedUuid),
 +            targetEnrollment,
 +        );
++        if (canonical(stableValue(currentFile.records[0])) !== canonical(stableValue(payload.chat[0]))) {
++            throw new Error('HOST_SAVE_CAPABILITY_HEADER_CHANGED');
++        }
 +        if (currentProjection.inventory.inventory_sha256 !== currentInventory.inventory_sha256) {
 +            throw new Error('HOST_SAVE_CAPABILITY_PRESTATE_INVENTORY_MISMATCH');
 +        }
