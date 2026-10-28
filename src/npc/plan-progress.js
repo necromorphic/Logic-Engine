@@ -27,7 +27,8 @@ function nonEmptyString(value) {
 function denseArray(value) {
   if (!Array.isArray(value)) return false;
   for (let i = 0; i < value.length; i += 1) {
-    if (!Object.hasOwn(value, i)) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
+    if (descriptor == null || !Object.hasOwn(descriptor, "value")) return false;
   }
   return true;
 }
