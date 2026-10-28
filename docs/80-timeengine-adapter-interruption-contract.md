@@ -72,3 +72,6 @@ The repository inventory currently exposes a review-only `host-adapter/prototype
 Consequently, the repository itself does not yet provide an evidenced end-to-end path from a SillyTavern adapter intent through authorized timed-action execution and post-interruption re-evaluation. This is an integration readiness gap, not a reason to bypass the internal-token boundary.
 
 Evidence: `docs/27-host-adapter-lifecycle-evidence.md`, `docs/13-sillytavern-adapter-contract.md`, `src/api/server.js`, and the current `host-adapter/prototype` tree.
+
+
+The proposal route is not a drop-in substitute for timed-action execution for a second reason: the current Stage 1 proposal contract places every new proposal in `pending` and requires a separate approval step before commit. Its purpose is durable event-proposal review, while the timed-action operation owns duration resolution, due-trigger processing, interruption state, and resumable operation checkpoints. Routing a retried action through proposals would therefore change the workflow semantics rather than solve the authorization mismatch.
