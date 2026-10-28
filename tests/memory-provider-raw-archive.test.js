@@ -199,7 +199,7 @@ test('exact-version tombstone invalidates only dependent copies and preserves an
     'current');
 });
 
-test('exact-version tombstone persists across Provider restart without resurrecting the deleted version', (t) => {
+test('exact-version tombstone persists across Provider restart without resurrecting the deleted version', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-tombstone-restart-'));
   const path = join(directory, 'memory-provider.sqlite');
   let provider = new SQLiteMemoryProvider({
