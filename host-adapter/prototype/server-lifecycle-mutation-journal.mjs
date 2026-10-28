@@ -311,6 +311,71 @@ function targetArtifactDigest(snapshot, target) {
     return snapshot.artifacts.find(item => item.artifactId === artifactId)?.sha256 ?? null;
 }
 
+
+function finalizeProjectedHostInventory(projected, enrollment) {
+    const inventory = {
+        ...projected.inventory,
+        conversation_id: enrollment.conversationId,
+        domain: enrollment.domain,
+        locator: enrollment.sourcePath,
+    };
+    inventory.inventory_sha256 = digest(canonical(stableValue(inventory)));
+    return { ...projected, inventory };
+}
+
+function overallProjectedInventoryDigest(beforeInventory, projectedInventory, conversationId) {
+    const inventories = beforeInventory.inventories
+        .map(item => item.conversation_id === conversationId ? projectedInventory : item)
+        .sort((a, b) => a.conversation_id.localeCompare(b.conversation_id));
+    return digest(canonical(stableValue(inventories)));
+}
+
+function consumeHostSaveCapability(request, target, before, headerToken) {
+    purgeExpiredSaveCapabilities();
+    if (typeof headerToken !== 'string' || headerToken.length < 32) {
+        throw new Error('HOST_SAVE_CAPABILITY_REQUIRED');
+    }
+    const key = digest(headerToken);
+    const capability = saveCapabilities.get(key);
+    if (!capability) throw new Error('HOST_SAVE_CAPABILITY_INVALID');
+    // Consume before validating scope: a token can never be replayed on another
+    // path/session, including after a failed attempt.
+    saveCapabilities.delete(key);
+    if (capability.expiresAt <= Date.now()) throw new Error('HOST_SAVE_CAPABILITY_EXPIRED');
+    const userHandle = request.user?.profile?.handle;
+    if (typeof request.sessionID !== 'string' || request.sessionID !== capability.sessionId
+        || typeof userHandle !== 'string' || userHandle !== capability.userHandle
+        || (request.baseUrl + request.path) !== capability.route
+        || target.route !== capability.route
+        || target.domain !== capability.domain || target.sourcePath !== capability.sourcePath) {
+        throw new Error('HOST_SAVE_CAPABILITY_SCOPE_MISMATCH');
+    }
+    if (!before.complete || !before.conversationInventory?.complete
+        || before.conversationInventory.inventory_sha256 !== capability.preStateInventoryDigest
+        || targetArtifactDigest(before, target) !== capability.preStateFileDigest) {
+        throw new Error('HOST_SAVE_CAPABILITY_STALE_PRESTATE');
+    }
+    const payloadDigest = digest(canonical(stableValue(request.body ?? null)));
+    if (payloadDigest !== capability.payloadDigest
+        || payloadFileDigest(request.body ?? {}) !== capability.postStateFileDigest) {
+        throw new Error('HOST_SAVE_CAPABILITY_BODY_MISMATCH');
+    }
+    const enrollment = capability.enrollment;
+    const projected = finalizeProjectedHostInventory(
+        projectHostChatRecords(request.body.chat, enrollment.conversationId.split(':')[1]),
+        enrollment,
+    );
+    const proposedInventoryDigest = overallProjectedInventoryDigest(
+        before.conversationInventory,
+        projected.inventory,
+        enrollment.conversationId,
+    );
+    if (proposedInventoryDigest !== capability.postStateInventoryDigest) {
+        throw new Error('HOST_SAVE_CAPABILITY_POSTSTATE_MISMATCH');
+    }
+    return capability;
+}
+
 function operationTargetsEnrolledHistory(operation, request, registry) {
     const body = request.body ?? {};
     if (operation === 'chat-save') {
