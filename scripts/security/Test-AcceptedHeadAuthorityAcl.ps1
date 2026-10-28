@@ -184,6 +184,21 @@ try {
     if (Test-Path -LiteralPath $authorityUnsafeParent) { Remove-Item -LiteralPath $authorityUnsafeParent -Recurse -Force }
   }
 
+# Regression: reject NTFS alternate data stream syntax before path normalization or ACL mutation.
+  $adsEvidencePath = $evidence + [char]58 + 'stream'
+  $adsEvidenceRefused = $false
+  try {
+    & .\\scripts\\security\\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $adsEvidencePath
+  } catch { $adsEvidenceRefused = $_.Exception.Message -match 'NTFS alternate data stream' }
+  if (-not $adsEvidenceRefused) { throw 'An ADS-shaped evidence output path was not rejected before normalization.' }
+
+  $adsDatabasePath = $db + [char]58 + 'stream'
+  $adsDatabaseRefused = $false
+  try {
+    & .\\scripts\\security\\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $adsDatabasePath -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath ($evidence + '.ads-db')
+  } catch { $adsDatabaseRefused = $_.Exception.Message -match 'NTFS alternate data stream' }
+  if (-not $adsDatabaseRefused) { throw 'An ADS-shaped authority database path was not rejected before normalization.' }
+
 # Regression: an existing evidence file must not be overwritten.
   $existingEvidence = $evidence + '.existing'
   $evidenceMarker = 'preserve-prior-security-evidence'
