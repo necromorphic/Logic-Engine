@@ -31,3 +31,20 @@ The source audit found `evaluateMemoryCandidateAdmission(request, result)` in `s
 - **NPC-PURE-002 and 006 have adjacent testable primitives only.** Keep tests scoped to the existing functions and their documented contracts; do not claim the broader NPC case passed.
 - **The next safe action is review/decision, not code:** identify the owner-approved function/boundary for each blocked case. For goals/plans and report lifecycle in particular, the current evidence does not identify a pure seam that can be tested without inventing a new subsystem.
 - No test was executed during this audit. `Memory → NPC` remains **DISABLED / FAIL-CLOSED**; Host remains **NON_READY**.
+
+
+## Minimum evidence required to unblock each case
+
+These are evidence requirements, not proposed implementations or inferred assignments.
+
+| Blocked case | Minimum prerequisite before test implementation can be reconsidered |
+|---|---|
+| Goal survives failed plan | Coordinator-approved goal/plan contract plus an identified real pure transition/reducer seam and an explicit authoritative plan-failure input. |
+| Report lifecycle | Coordinator-approved lifecycle vocabulary/transition ownership plus a trusted source for each send/receipt/acknowledgement/understanding/player-awareness transition. |
+| Off-screen awareness | Identified actor-relative knowledge and player-awareness boundary, including the valid communication/viewpoint evidence used by each. |
+| Player agency | Identified real output/narration/Host boundary where generated claims are validated before becoming visible or canonical, with the approved policy available to that boundary. |
+| Chat turn versus game time | Identified actual NPC turn/dispatch entry path plus a way to assert canonical time, event log and scheduled progress are unchanged absent an explicit time-advance operation. |
+| Action-result truth | Approved NPC attempt identity and correlation rule connecting the attempt to an authoritative Core result; pending proposal/model output must remain non-authoritative. |
+| Missing evidence beyond existing helpers | Explicit context-completeness and actor/purpose authorization contract identifying when absence is known, unknown, withheld, incomplete or unsupported. |
+
+The initial knowledge path remains sequenced behind the coordinator's existing decision: `author_initial` / `imported` acquisition with Core-owned provenance/validity and actor-/purpose-scoped safe filtering must be established first. Nothing in this table authorizes `observe` to bypass that foundation, selects an `observe` evidence source, assigns an individual implementation owner, or permits runtime/API/schema/storage/dispatcher/scheduler/worker changes.
