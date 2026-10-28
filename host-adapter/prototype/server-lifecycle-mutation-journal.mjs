@@ -700,6 +700,13 @@ async function assertEnrollmentStateNotLost(request) {
         if (error?.code === 'ENOENT') throw new Error('HOST_ENROLLMENT_STATE_LOST');
         throw error;
     }
+    try {
+        const journalStat = await lstat(path.join(stateDirectory, 'mutation-ledger.jsonl'));
+        if (!journalStat.isFile() || journalStat.isSymbolicLink()) throw new Error('HOST_JOURNAL_UNSAFE');
+    } catch (error) {
+        if (error?.code === 'ENOENT') throw new Error('HOST_ENROLLMENT_STATE_LOST');
+        throw error;
+    }
 }
 
 async function ensureEnrollmentMarker(paths) {
