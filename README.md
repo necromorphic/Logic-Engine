@@ -215,9 +215,11 @@
 В исследовательской ветке [research/spatial-language-model-layer-2026-10-28](https://github.com/necromorphic/Logic-Engine/tree/research/spatial-language-model-layer-2026-10-28) добавлен отдельный синтетический модуль комнат, зон и дверей. Он определяет принадлежность позиции к объявленной зоне, ищет маршруты только через явно открытые двери и формирует компактный текстовый контекст для языковой модели. Неизвестные положения и состояния дверей не угадываются. Это алгоритмический эксперимент, не production-интеграция.
 
 - Комнаты/двери и LLM-контекст: [spatial-topology.js](experiments/spatial-scene-lab/spatial-topology.js)
+- Ранжирование маршрутов по явной синтетической стоимости и ограничениям: [spatial-navigation.js](experiments/spatial-scene-lab/spatial-navigation.js)
 - Синтетическая оценка слышимости: [spatial-sound.js](experiments/spatial-scene-lab/spatial-sound.js)
 - Версии синтетической сцены и устаревшие прогнозы: [spatial-revisions.js](experiments/spatial-scene-lab/spatial-revisions.js)
 - Тесты топологии: [spatial-topology.test.js](tests/spatial-topology.test.js)
+- Тесты стоимости маршрутов: [spatial-navigation.test.js](tests/spatial-navigation.test.js)
 - Тесты звука: [spatial-sound.test.js](tests/spatial-sound.test.js)
 - Тесты версий сцены: [spatial-revisions.test.js](tests/spatial-revisions.test.js)
 - Сквозные сценарии смены сцены: [spatial-scene-traces.test.js](tests/spatial-scene-traces.test.js)
