@@ -793,3 +793,31 @@ test('joint Core/Provider database rollback cannot republish an older accepted s
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
   t.after(() => { try { ledger.close(); } catch {} rmSync(directory, { recursive: true, force: true }); });
 });
+
+
+test('legacy rows without provable ancestry remain LEGACY/UNVERIFIED and cannot be upgraded by guessing root', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-legacy-lineage-'));
+  const path = join(directory, 'ledger.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const oldDb = new DatabaseSync(path);
+  oldDb.exec("CREATE TABLE host_version_digest_ledger (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, content_sha256 TEXT NOT NULL, lifecycle TEXT NOT NULL CHECK(lifecycle IN ('present','tombstoned')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tombstoned_at TEXT, PRIMARY KEY(world_id,conversation_id,message_id,version_id));");
+  oldDb.prepare("INSERT INTO host_version_digest_ledger VALUES(?,?,?,?,?,'present','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z',NULL)")
+    .run(tuple.world_id, tuple.conversation_id, tuple.message_id, tuple.version_id, digest('sample raw message not stored'));
+  oldDb.close();
+  const ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  const row = ledger.db.prepare('SELECT parent_version_id,lineage_status FROM host_version_digest_ledger WHERE version_id=?').get(tuple.version_id);
+  assert.equal(row.parent_version_id, null);
+  assert.equal(row.lineage_status, 'LEGACY/UNVERIFIED');
+  assert.deepEqual(ledger.captureVersion(entry({ parent_version_id: null })), {
+    status: 'non_ready', code: 'HOST_VERSION_PARENT_CONFLICT_OR_UNVERIFIED'
+  });
+  t.after(() => { try { ledger.close(); } catch {} rmSync(directory, { recursive: true, force: true }); });
+});
+
+test('a parent from another conversation is rejected as a cross-context link', (t) => {
+  const ledger = setup(t);
+  assert.deepEqual(ledger.captureVersion(entry({ conversation_id: 'other-chat', version_id: 'foreign-parent', parent_version_id: null })), { status: 'captured' });
+  assert.deepEqual(ledger.captureVersion(entry({ parent_version_id: 'foreign-parent' })), {
+    status: 'non_ready', code: 'HOST_VERSION_PARENT_UNKNOWN'
+  });
+});
