@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -504,12 +505,15 @@ test('reconciliation cannot publish current after a concurrent index rebuild cha
 
 
 test('reconciliation refuses current when index inventory changes outside its Provider instance', async (t) => {
+  const testDb = createProviderTestDb(t, { prefix: 'logic-memory-index-inventory-race-' });
   let holdValidation = false;
   let releaseValidation;
   let signalValidation;
   const validationStarted = new Promise((resolve) => { signalValidation = resolve; });
   const validationGate = new Promise((resolve) => { releaseValidation = resolve; });
   const provider = new SQLiteMemoryProvider({
+    path: testDb.path,
+    coordinatorPath: `${testDb.path}.coordinator.sqlite`,
     getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
     validateSourceVersion: async () => {
       if (holdValidation) {
@@ -520,7 +524,7 @@ test('reconciliation refuses current when index inventory changes outside its Pr
     },
     validateInventory: async () => true,
   });
-  t.after(() => provider.close());
+  t.after(() => { provider.close(); testDb.close(); testDb.cleanup(); });
 
   const scope = { world_id: 'reconcile-index-inventory-race-world', subject_id: 'reconcile-index-inventory-race-npc', purpose: 'npc_decision' };
   const record = {
@@ -552,25 +556,28 @@ test('reconciliation refuses current when index inventory changes outside its Pr
   await validationStarted;
   // Simulate an out-of-band durable index mutation that bypasses Provider
   // methods and therefore does not advance this instance's in-memory generation.
-  provider.db.prepare('DELETE FROM memory_index_entries WHERE world_id=? AND record_ref=?')
+  testDb.db.prepare('DELETE FROM memory_index_entries WHERE world_id=? AND record_ref=?')
     .run(scope.world_id, record.record_ref);
   releaseValidation();
 
   assert.deepEqual(await pending, {
     status: 'stale',
-    reason: 'INDEX_INVENTORY_MISMATCH',
+    reason: 'PROVIDER_STATE_CHANGED',
   });
   assert.notEqual(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'current');
 });
 
 
 test('failed index rebuild rolls back index deletion instead of leaving a partial index', async (t) => {
+  const testDb = createProviderTestDb(t, { prefix: 'logic-memory-index-rebuild-failure-' });
   const provider = new SQLiteMemoryProvider({
+    path: testDb.path,
+    coordinatorPath: `${testDb.path}.coordinator.sqlite`,
     getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
   });
-  t.after(() => provider.close());
+  t.after(() => { provider.close(); testDb.close(); testDb.cleanup(); });
 
   const scope = { world_id: 'atomic-index-rebuild-world', subject_id: 'atomic-index-rebuild-npc', purpose: 'npc_decision' };
   const record = {
@@ -592,14 +599,14 @@ test('failed index rebuild rolls back index deletion instead of leaving a partia
     }],
   };
   provider.putRecord(record);
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=?')
+  assert.equal(testDb.db.prepare('SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=?')
     .get(scope.world_id).count, 1);
 
-  provider.db.exec(`CREATE TRIGGER fail_index_rebuild BEFORE INSERT ON memory_index_entries
+  testDb.db.exec(`CREATE TRIGGER fail_index_rebuild BEFORE INSERT ON memory_index_entries
     BEGIN SELECT RAISE(ABORT, 'injected index write failure'); END;`);
   await assert.rejects(() => provider.rebuildIndex(scope.world_id), /injected index write failure/);
 
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=?')
+  assert.equal(testDb.db.prepare('SELECT COUNT(*) AS count FROM memory_index_entries WHERE world_id=?')
     .get(scope.world_id).count, 1, 'the pre-existing index entry must survive transaction rollback');
   assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).index_health, 'unavailable');
   assert.equal(provider.getIndexStatusForDiagnostics(scope.world_id).source_reconciliation, 'stale');

@@ -1,16 +1,24 @@
 import test from 'node:test';
+import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
+const providerTestDbs = new WeakMap();
+const testDbFor = (provider) => providerTestDbs.get(provider).db;
+
 function setup(t, overrides = {}) {
+  const testDb = createProviderTestDb(t, { prefix: 'logic-memory-source-separation-' });
   const provider = new SQLiteMemoryProvider({
+    path: testDb.path,
+    coordinatorPath: `${testDb.path}.coordinator.sqlite`,
     getSnapshot: async () => ({ world_revision: 7, commit_sequence: 3 }),
     validateSourceVersion: async () => true,
     validateInventory: async () => true,
     ...overrides,
   });
-  t.after(() => provider.close());
+  t.after(() => { provider.close(); testDb.close(); testDb.cleanup(); });
+  providerTestDbs.set(provider, testDb);
   return provider;
 }
 
@@ -34,7 +42,7 @@ const sourceRecord = (overrides = {}) => ({
 test('source archive rows stay separate from fact records and rebuildable search index', async (t) => {
   const provider = setup(t);
   const sceneText = 'Original scene: two people stood by the doorway; the glass was broken.';
-  provider.db.prepare(`INSERT INTO memory_raw_captures
+  testDbFor(provider).prepare(`INSERT INTO memory_raw_captures
     (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,
      metadata_json,captured_at,deleted_at)
     VALUES(?,?,?,?,?,?,?,?,?,NULL)`).run(
@@ -49,11 +57,11 @@ test('source archive rows stay separate from fact records and rebuildable search
   await provider.rebuildIndex('world-a');
   assert.equal((await provider.reconcile('world-a')).status, 'current');
 
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_raw_captures').get().n, 1);
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_records').get().n, 1);
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS n FROM memory_index_entries').get().n, 1);
+  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_raw_captures').get().n, 1);
+  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_records').get().n, 1);
+  assert.equal(testDbFor(provider).prepare('SELECT COUNT(*) AS n FROM memory_index_entries').get().n, 1);
   assert.deepEqual(
-    provider.db.prepare('SELECT record_ref,record_version FROM memory_index_entries')
+    testDbFor(provider).prepare('SELECT record_ref,record_version FROM memory_index_entries')
       .all().map((row) => ({ ...row })),
     [{ record_ref: 'memory:fact-1', record_version: 'v1' }],
   );

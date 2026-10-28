@@ -1,6 +1,7 @@
 import test from 'node:test';
+import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync, existsSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync, linkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
@@ -64,6 +65,26 @@ test('file-backed Provider rejects coordinator and Provider DB path aliases', ()
   }
 });
 
+test('file-backed Provider rejects distinct paths that are hard links to the same database file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'logic-provider-hardlink-alias-'));
+  const providerPath = join(dir, 'provider.sqlite');
+  const coordinatorPath = join(dir, 'coordinator.sqlite');
+  try {
+    writeFileSync(providerPath, '');
+    linkSync(providerPath, coordinatorPath);
+    assert.notEqual(providerPath, coordinatorPath);
+    assert.throws(() => new SQLiteMemoryProvider({
+      path: providerPath,
+      coordinatorPath,
+      getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
+      validateSourceVersion: async () => true,
+      validateInventory: async () => true,
+    }), /Coordinator DB must be separate from the Memory Provider DB/);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('file-backed Provider rejects a relative coordinator path', () => {
   const dir = mkdtempSync(join(tmpdir(), 'logic-provider-relative-coordinator-'));
   try {
@@ -98,9 +119,12 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
   `;
   const providerScript = `
     import { createInterface } from 'node:readline';
+    import { DatabaseSync } from 'node:sqlite';
     import { writeFileSync } from 'node:fs';
     import { SQLiteMemoryProvider } from ${JSON.stringify(new URL('../src/application/sqlite-memory-provider.js', import.meta.url).href)};
     const [dbPath, readyPath] = process.argv.slice(1);
+    const testDb = new DatabaseSync(dbPath);
+    testDb.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000;');
     const provider = new SQLiteMemoryProvider({
       path: dbPath,
       coordinatorPath: process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH,
@@ -111,7 +135,7 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
     const scope = ${JSON.stringify(scope)};
     const record = ${JSON.stringify(record)};
     // Seed a raw capture solely to exercise the existing tombstone mutation path.
-    provider.db.prepare('INSERT OR IGNORE INTO memory_raw_captures (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,metadata_json,captured_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,NULL)').run('world-coordinator','conversation','message','v1','user','text','digest','{}',new Date().toISOString());
+    testDb.prepare('INSERT OR IGNORE INTO memory_raw_captures (world_id,conversation_id,message_id,version_id,role,content_text,content_sha256,metadata_json,captured_at,deleted_at) VALUES(?,?,?,?,?,?,?,?,?,NULL)').run('world-coordinator','conversation','message','v1','user','text','digest','{}',new Date().toISOString());
     writeFileSync(readyPath, 'ready');
     const rl = createInterface({ input: process.stdin, crlfDelay: Infinity });
     for await (const line of rl) {
@@ -123,13 +147,13 @@ test('Provider startup, grants, source-version records, tombstones, indexing and
         else if (operation === 'revokeRecord') provider.revokeRecord(scope, record.record_ref, record.record_version);
         else if (operation === 'putRecord') provider.putRecord(record);
         // Test-only fixture mutation: simulate a previously durable record whose derived index write failed.
-        else if (operation === 'removeIndexEntryForTest') provider.db.prepare('DELETE FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?').run(record.world_id, record.record_ref, record.record_version);
-        else if (operation === 'clearRecordForRaceTest') { provider.db.prepare('DELETE FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?').run(record.world_id, record.record_ref, record.record_version); provider.db.prepare('DELETE FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?').run(record.world_id, record.record_ref, record.record_version); }
+        else if (operation === 'removeIndexEntryForTest') testDb.prepare('DELETE FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?').run(record.world_id, record.record_ref, record.record_version);
+        else if (operation === 'clearRecordForRaceTest') { testDb.prepare('DELETE FROM memory_index_entries WHERE world_id=? AND record_ref=? AND record_version=?').run(record.world_id, record.record_ref, record.record_version); testDb.prepare('DELETE FROM memory_records WHERE world_id=? AND record_ref=? AND record_version=?').run(record.world_id, record.record_ref, record.record_version); }
         else if (operation === 'tombstone') provider.markRawSourceDeleted({ world_id:'world-coordinator', conversation_id:'conversation', message_id:'message', version_id:'v1' });
         else if (operation === 'purge') provider.purgeRawSource({ world_id:'world-coordinator', conversation_id:'conversation', message_id:'message', version_id:'v1' });
         else if (operation === 'rebuildIndex') await provider.rebuildIndex(scope.world_id);
         else if (operation === 'reconcile') await provider.reconcile(scope.world_id);
-        else if (operation === 'close') { provider.close(); process.stdout.write(JSON.stringify({id, ok:true})+'\\n'); process.exit(0); }
+        else if (operation === 'close') { testDb.close(); provider.close(); process.stdout.write(JSON.stringify({id, ok:true})+'\\n'); process.exit(0); }
         process.stdout.write(JSON.stringify({id, ok:true})+'\\n');
       } catch (error) {
         process.stdout.write(JSON.stringify({id, ok:false, error:error.message})+'\\n');

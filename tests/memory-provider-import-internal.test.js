@@ -1,16 +1,20 @@
 import test from 'node:test';
+import { createProviderTestDb } from './helpers/provider-test-db.js';
 import assert from 'node:assert/strict';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 import { createInternalMemoryImportFacadeForTest } from '../src/application/memory-provider-import-internal.js';
 
 function setup(t) {
   const scope = { world_id: 'world-import-test', subject_id: 'npc-import-test', purpose: 'npc_decision' };
+  const testDb = createProviderTestDb(t, { prefix: 'logic-memory-import-internal-' });
   const provider = new SQLiteMemoryProvider({
+    path: testDb.path,
+    coordinatorPath: `${testDb.path}.coordinator.sqlite`,
     getSnapshot: async () => ({ world_revision: 1, commit_sequence: 1 }),
     validateSourceVersion: async (record) => record.source_version === 'source-v1',
     validateInventory: async () => true,
   });
-  t.after(() => provider.close());
+  t.after(() => { provider.close(); testDb.close(); testDb.cleanup(); });
   const record = {
     ...scope,
     record_ref: 'memory:import-test',
@@ -29,7 +33,7 @@ function setup(t) {
       source_version: 'source-v1',
     }],
   };
-  return { provider, record, scope };
+  return { provider, record, scope, db: testDb.db };
 }
 
 test('internal import facade exposes only one-record import and preserves provider idempotency', (t) => {
@@ -67,17 +71,17 @@ test('internal import facade refuses an object without the provider import opera
 });
 
 test('internal import facade does not grant query or record access', (t) => {
-  const { provider, record, scope } = setup(t);
+  const { provider, record, scope, db } = setup(t);
   const importer = createInternalMemoryImportFacadeForTest(provider);
 
   assert.equal(importer.importRecord(record).status, 'stored');
   assert.equal(provider.authorizeQuery(scope), false);
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_record_grants WHERE world_id=?')
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_record_grants WHERE world_id=?')
     .get(scope.world_id).count, 0);
 });
 
 test('rejected import leaves no record behind', (t) => {
-  const { provider, record, scope } = setup(t);
+  const { provider, record, scope, db } = setup(t);
   const importer = createInternalMemoryImportFacadeForTest(provider);
 
   assert.throws(
@@ -87,6 +91,106 @@ test('rejected import leaves no record behind', (t) => {
     }),
     /Invalid direct-source Memory record/,
   );
-  assert.equal(provider.db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
     .get(scope.world_id).count, 0);
+});
+
+
+test('provider rejects executable extra lineage fields before persistence', (t) => {
+  const { provider, record, scope, db } = setup(t);
+  let toJSONCalled = false;
+  const lineageEntry = {
+    ...record.lineage[0],
+    toJSON() {
+      toJSONCalled = true;
+      return this;
+    },
+  };
+
+  assert.throws(
+    () => provider.putRecord({ ...record, lineage: [lineageEntry] }),
+    /Invalid direct-source Memory record/,
+  );
+  assert.equal(toJSONCalled, false, 'caller-owned serialization hooks must not execute');
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+    .get(scope.world_id).count, 0, 'rejected lineage must not be persisted');
+});
+
+
+test('provider rejects null-prototype input when inherited serialization hooks are polluted', (t) => {
+  const { provider, record, scope, db } = setup(t);
+  const input = Object.assign(Object.create(null), record);
+  let toJSONCalled = false;
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'toJSON');
+  try {
+    Object.defineProperty(Object.prototype, 'toJSON', {
+      configurable: true,
+      value() { toJSONCalled = true; return this; },
+    });
+    assert.throws(
+      () => provider.putRecord(input),
+      /Invalid direct-source Memory record/,
+    );
+    assert.equal(toJSONCalled, false, 'inherited serialization hook must not execute');
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+      .get(scope.world_id).count, 0);
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'toJSON', previous);
+    else delete Object.prototype.toJSON;
+  }
+});
+
+test('provider rejects lineage arrays when Array.prototype serialization hooks are polluted', (t) => {
+  const { provider, record, scope, db } = setup(t);
+  let toJSONCalled = false;
+  const previous = Object.getOwnPropertyDescriptor(Array.prototype, 'toJSON');
+  try {
+    Object.defineProperty(Array.prototype, 'toJSON', {
+      configurable: true,
+      value() { toJSONCalled = true; return this; },
+    });
+    assert.throws(
+      () => provider.putRecord(record),
+      /Invalid direct-source Memory record/,
+    );
+    assert.equal(toJSONCalled, false, 'inherited array serialization hook must not execute');
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+      .get(scope.world_id).count, 0);
+  } finally {
+    if (previous) Object.defineProperty(Array.prototype, 'toJSON', previous);
+    else delete Array.prototype.toJSON;
+  }
+});
+
+
+test('provider rejects lineage arrays with a polluted prototype chain', (t) => {
+  const { provider, record, scope, db } = setup(t);
+  const previous = Object.getPrototypeOf(Array.prototype);
+  let toJSONCalled = false;
+  try {
+    Object.setPrototypeOf(Array.prototype, {
+      toJSON() { toJSONCalled = true; return this; },
+    });
+    assert.throws(
+      () => provider.putRecord(record),
+      /Invalid direct-source Memory record/,
+    );
+    assert.equal(toJSONCalled, false);
+    assert.equal(db.prepare('SELECT COUNT(*) AS count FROM memory_records WHERE world_id=?')
+      .get(scope.world_id).count, 0);
+  } finally {
+    Object.setPrototypeOf(Array.prototype, previous);
+  }
+});
+
+
+test('provider method surface cannot be replaced through its shared prototype', (t) => {
+  const { provider } = setup(t);
+  const original = SQLiteMemoryProvider.prototype.retrieveCandidates;
+  assert.equal(Object.isFrozen(SQLiteMemoryProvider.prototype), true);
+  assert.throws(() => {
+    SQLiteMemoryProvider.prototype.retrieveCandidates = async () => ({ candidates: [], completeness: 'complete' });
+  }, TypeError);
+  assert.equal(SQLiteMemoryProvider.prototype.retrieveCandidates, original);
+  assert.equal(Object.isExtensible(provider), false);
 });
