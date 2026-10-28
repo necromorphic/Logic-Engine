@@ -72,7 +72,10 @@ const validRef = (value) => typeof value === 'string'
   && value.length > 0
   && value.length <= 200
   && value === value.trim()
-  && !/[\\u0000-\\u001f\\u007f]/u.test(value);
+  && ![...value].some((character) => {
+    const code = character.charCodeAt(0);
+    return code < 32 || code === 127;
+  });
 
 const uniqueRefs = (value, label) => {
   if (!isDenseDataArray(value, 200)) {
