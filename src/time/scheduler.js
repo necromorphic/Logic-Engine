@@ -284,12 +284,12 @@ function buildDependencyOrder(due, allById, completedIds) {
         blocked.push({ trigger_id: trigger.trigger_id, dependency_id: dependencyId, reason: 'dependency_not_due_in_interval' });
         continue;
       }
-      required.push(dependencyId);
+      required.add(dependencyId);
       const children = dependents.get(dependencyId) || [];
       children.push(trigger.trigger_id);
       dependents.set(dependencyId, children);
     }
-    dependencies.set(trigger.trigger_id, required);
+    dependencies.set(trigger.trigger_id, new Set(required));
   }
   if (blocked.length) {
     blocked.sort((a, b) => (
@@ -300,7 +300,7 @@ function buildDependencyOrder(due, allById, completedIds) {
     return { blocked, ordered: [], dependencies };
   }
 
-  const degree = new Map([...dependencies].map(([id, refs]) => [id, refs.length]));
+  const degree = new Map([...dependencies].map(([id, refs]) => [id, refs.size]));
   const ready = [];
   for (const trigger of due) if (degree.get(trigger.trigger_id) === 0) heapPush(ready, trigger);
   const ordered = [];
@@ -345,8 +345,8 @@ function segmentAtCoordinate(triggers, dependencies) {
     currentWrites = new Set();
   };
 
-  const directlyOrdered = (leftId, rightId) => (dependencies.get(leftId) || []).includes(rightId)
-    || (dependencies.get(rightId) || []).includes(leftId);
+  const directlyOrdered = (leftId, rightId) => (dependencies.get(leftId) || new Set()).has(rightId)
+    || (dependencies.get(rightId) || new Set()).has(leftId);
   const assertNoUnorderedConflict = (trigger, reference, existingId) => {
     if (!directlyOrdered(trigger.trigger_id, existingId)) {
       fail('TRIGGER_CONFLICT_NEEDS_REVIEW', 'Same-coordinate triggers conflict without an explicit direct dependency order.', {
