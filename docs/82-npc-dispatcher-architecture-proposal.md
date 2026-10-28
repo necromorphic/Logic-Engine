@@ -174,7 +174,7 @@ If no existing NPC-specific path is found, record that fact as **UNCONFIRMED / B
 
 The coordinator's decision is recorded in [PR #537 comment](https://github.com/necromorphic/Logic-Engine/pull/537#issuecomment-6455273246).
 
-**Approved for design only:** the first technical seam is the existing read-only MechanicExecutor.evaluate(...) followed by ProposalService.createFromMechanicEvaluation(...) to create a normal pending proposal. This does not authorize implementation or choose a semantic action family.
+**Approved for design only:** the existing read-only `MechanicExecutor.evaluate(...)` followed by `ProposalService.createFromMechanicEvaluation(...)` is a candidate technical seam for a normal pending proposal. The coordinator later selected `observe` as the first semantic action for design only (§8). Neither decision authorizes implementation, and the current seam is not proven to support observation or a knowledge-proposal effect.
 
 **Still BLOCKED:** no verified NPC-specific authorization path currently establishes that a particular NPC may request a particular action for a particular purpose. The source tests demonstrate that ActorBindingService, AuthorizedReadService, a trusted context provider, and a validateMechanicPolicy callback can be composed in a fixture. That is evidence for narrow reusable primitives and a test scenario—not evidence of a production NPC caller, its owner, or an approved action-purpose policy. Adapter identity and actor binding must not be treated as action permission.
 
