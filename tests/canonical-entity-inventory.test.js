@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { hashRequest } from '../src/core/request-hash.js';
+import { createCanonicalEntityInventoryValidator } from '../src/application/canonical-entity-source-version.js';
 
 function setup(t) {
   const store = new SQLiteStore(':memory:');
@@ -34,7 +35,7 @@ function setup(t) {
     });
     revision += 1;
   }
-  return { engine, worldId, createEntities, get revision() { return revision; } };
+  return { store, engine, worldId, createEntities, get revision() { return revision; } };
 }
 
 test('canonical entity inventory paginates all entities and marks only the final page complete', (t) => {
@@ -131,4 +132,13 @@ test('canonical inventory includes destroyed entities with a fresh source versio
   assert.equal(after.entities.length, 1);
   assert.equal(after.entities[0].status, 'destroyed');
   assert.notEqual(after.entities[0].source_version, versionBefore);
+});
+
+test('inventory validator fails closed if any canonical entity lacks its Core source token', async (t) => {
+  const s = setup(t);
+  s.createEntities(['entity-a']);
+  s.store.db.prepare('DELETE FROM entity_source_versions WHERE world_id=? AND entity_id=?')
+    .run(s.worldId, 'entity-a');
+  const validateInventory = createCanonicalEntityInventoryValidator(s.engine);
+  assert.equal(await validateInventory(s.worldId, []), false);
 });
