@@ -325,3 +325,103 @@ test('an invalidated segment boundary is rejected instead of reconstructed as a 
     'an invalid boundary must fail validation; no nearby event may be substituted',
   );
 });
+
+test('rollback of a causal predecessor invalidates a dependent spatial boundary', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-spatial-cursor-causal-rollback-'));
+  const path = join(directory, 'state.sqlite');
+  const store = new SQLiteStore(path);
+  const engine = new LogicEngine(store);
+  const worldId = 'spatial-cursor-causal-rollback-world';
+
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    try { store.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  engine.registerTimeTrigger(worldId, trigger('causal-boundary-at-10', 10000, 'causal-boundary-entity'));
+  const operation = engine.startTimeAdvance(worldId, {
+    idempotency_key: 'spatial-cursor-causal-boundary-operation',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(operation.status, 'completed');
+
+  const segments = readSegmentRows(store, worldId, operation.operation_id);
+  const boundaryEventId = segments[0].events.at(-1).event_id;
+  const state = engine.getState(worldId);
+  const dependent = engine.commitEvent(worldId, {
+    event_id: 'causal-boundary-dependent-update',
+    idempotency_key: 'causal-boundary-dependent-update',
+    turn_id: 'causal-boundary-dependent-update-turn',
+    event_type: 'action.completed',
+    expected_revision: state.world_revision,
+    causal_links: [{
+      relation: 'REQUIRES',
+      predicate: { kind: 'entity_exists', entity_id: 'causal-boundary-entity' },
+    }],
+    effects: [{
+      kind: 'entity.update',
+      entity_id: 'causal-boundary-entity',
+      attributes: { dependent_update: true },
+    }],
+    caused_by: [boundaryEventId],
+    depends_on: ['entity:causal-boundary-entity'],
+    read_set: ['entity:causal-boundary-entity'],
+  });
+  assert.equal(dependent.accepted, true);
+
+  const rollback = engine.rollbackEvent(worldId, {
+    root_event_id: boundaryEventId,
+    idempotency_key: 'rollback-causal-spatial-boundary',
+  });
+  assert.ok(rollback.invalidated_event_ids.includes(boundaryEventId));
+  assert.ok(rollback.invalidated_event_ids.includes('causal-boundary-dependent-update'));
+  assert.throws(
+    () => assertSegmentCursorMapping(store, worldId, segments),
+    /valid/,
+    'a boundary whose causal predecessor was invalidated cannot remain confirmed',
+  );
+});
+
+test('coordinate mismatch at an otherwise valid boundary is rejected', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-spatial-cursor-coordinate-mismatch-'));
+  const path = join(directory, 'state.sqlite');
+  const store = new SQLiteStore(path);
+  const engine = new LogicEngine(store);
+  const worldId = 'spatial-cursor-coordinate-mismatch-world';
+
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    try { store.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  engine.registerTimeTrigger(worldId, trigger('coordinate-mismatch-at-10', 10000, 'coordinate-mismatch-entity'));
+  const operation = engine.startTimeAdvance(worldId, {
+    idempotency_key: 'spatial-cursor-coordinate-mismatch-operation',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(operation.status, 'completed');
+
+  const segments = readSegmentRows(store, worldId, operation.operation_id);
+  const boundaryEventId = segments[0].events.at(-1).event_id;
+  store.db.prepare(
+    'UPDATE world_events SET game_time_coordinate=? WHERE world_id=? AND event_id=?',
+  ).run(9999, worldId, boundaryEventId);
+
+  assert.throws(
+    () => assertSegmentCursorMapping(store, worldId, segments),
+    /strictEqual|10000/,
+    'coordinate disagreement must fail instead of selecting a different event',
+  );
+});
