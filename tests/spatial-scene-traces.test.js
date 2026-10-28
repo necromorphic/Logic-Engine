@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { evaluateSpatialTopology, findRoomRoute } from '../experiments/spatial-scene-lab/spatial-topology.js';
 import { estimateSoundAudibility } from '../experiments/spatial-scene-lab/spatial-sound.js';
 import { assessPredictionFreshness, diffSceneRevisions } from '../experiments/spatial-scene-lab/spatial-revisions.js';
+import { rankRoomRoutes } from '../experiments/spatial-scene-lab/spatial-navigation.js';
 
 const scene = (revision, doorState) => ({
   worldId: 'office-trace',
@@ -66,4 +67,52 @@ test('scene trace: unchanged door preserves only predictions that do not depend 
   }, before, after);
   assert.equal(freshness.freshness, 'FRESH_WITH_RESPECT_TO_DECLARED_DEPENDENCIES');
   assert.deepEqual(freshness.changedDependencies, ['entity:listener']);
+});
+
+
+test('scene trace: door closure changes the cheapest route and stale-marks the old route prediction', () => {
+  const before = {
+    worldId: 'route-trace', revision: 1, boundary: 'before',
+    rooms: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }],
+    doors: [
+      { id: 'a-b', roomA: 'a', roomB: 'b', state: 'open', traversalCost: 1 },
+      { id: 'b-d', roomA: 'b', roomB: 'd', state: 'open', traversalCost: 1 },
+      { id: 'a-c', roomA: 'a', roomB: 'c', state: 'open', traversalCost: 3 },
+      { id: 'c-d', roomA: 'c', roomB: 'd', state: 'open', traversalCost: 3 },
+    ],
+  };
+  const after = structuredClone(before);
+  after.revision = 2;
+  after.boundary = 'after';
+  after.doors.find((door) => door.id === 'a-b').state = 'closed';
+
+  const oldRoute = rankRoomRoutes(before, 'a', 'd');
+  const newRoute = rankRoomRoutes(after, 'a', 'd');
+  assert.equal(oldRoute.status, 'CONFIRMED');
+  assert.deepEqual(oldRoute.routes[0].doorPath, ['a-b', 'b-d']);
+  assert.equal(oldRoute.routes[0].cost, 2);
+  assert.deepEqual(newRoute.routes[0].doorPath, ['a-c', 'c-d']);
+  assert.equal(newRoute.routes[0].cost, 6);
+
+  const freshness = assessPredictionFreshness({
+    id: 'cheapest-route', worldId: before.worldId, basedOnRevision: before.revision,
+    dependencies: ['door:a-b', 'door:b-d', 'door:a-c', 'door:c-d'],
+  }, before, after);
+  assert.equal(freshness.freshness, 'STALE');
+  assert.deepEqual(freshness.affectedDependencies, ['door:a-b']);
+});
+
+test('scene trace: an unknown shortcut does not justify claiming route optimality', () => {
+  const fixture = {
+    worldId: 'unknown-shortcut', revision: 1, boundary: 'single',
+    rooms: [{ id: 'a' }, { id: 'b' }, { id: 'c' }],
+    doors: [
+      { id: 'a-b', roomA: 'a', roomB: 'b', state: 'open', traversalCost: 4 },
+      { id: 'b-c', roomA: 'b', roomB: 'c', state: 'open', traversalCost: 4 },
+      { id: 'a-c', roomA: 'a', roomB: 'c', state: 'unknown', traversalCost: 1 },
+    ],
+  };
+  const result = rankRoomRoutes(fixture, 'a', 'c');
+  assert.equal(result.reachable, true);
+  assert.equal(result.optimality, 'UNKNOWN');
 });
