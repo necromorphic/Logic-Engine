@@ -295,3 +295,23 @@ The distinction is between a *knowledge-acquisition foundation* and a *semantic 
 5. **Next gate:** Core must verify the real author/import source and lifecycle, implement the narrow Core-owned record/read boundary, and add production-boundary tests for actor isolation, provenance, secret exclusion, snapshot freshness and replay/reconciliation. Only after that gate passes should the team decide whether to implement `observe` as the next acquisition path.
 
 This sequencing decision does not claim the blocker is already fixed in executable code. Until the Core implementation and tests exist, the first NPC knowledge slice remains **BLOCKED**, `Memory → NPC` remains **DISABLED / FAIL-CLOSED**, and Host remains **NON_READY**. No API/schema/storage or runtime behavior is authorized by this documentation change.
+
+
+## 13. Post-decision author/import source audit (2026-10-28)
+
+This is a bounded source check against Core `main`, not a runtime change or exhaustive proof that no source exists elsewhere.
+
+### Verified entry points
+
+- `src/application/engine.js` — `LogicEngine.createWorld(x)` validates `world_pack_id`, `world_pack_version`, and `game_time`, then delegates world creation. It does not load a world-pack payload or accept a subject-specific initial-knowledge assignment in this method.
+- `src/storage/sqlite-store.js` — `createWorld(w)` inserts the world identity/version/time and a `world.created` audit entry. The inspected schema contains canonical `world_events`, `fact_claims`, and `facts`; no Core-owned actor-acquisition record was identified in this schema.
+- `src/api/server.js` — `POST /v1/worlds` is admin-gated and forwards the request to `engine.createWorld`. This route creates the world record; it is not an author/import knowledge-assignment route.
+- `LogicEngine.registerContextManifest(...)` stores generation/cursor/item references. It does not create subject-specific acquisition records and must not be repurposed as their source.
+
+### Gate result
+
+**The authoritative author/import assignment source and its lifecycle are not verified in the inspected production entry points.** The current evidence supports a narrow conclusion: the visible world-creation path records a world-pack identifier/version, not an imported pack's subject-level knowledge assignments. It does not prove that no other loader exists elsewhere in the repository or deployment.
+
+Before implementation, Core must identify the actual author/import entry point (or explicitly confirm that one does not exist), show how it binds a source item to a canonical subject and world, and establish how that assignment is versioned, replayed, replaced, invalidated, and audited. If no such path exists, Core must approve a minimal Core-owned representation and lifecycle before code is written. Do not infer assignment from `fact.set`, `world.created`, canonical facts, context manifests, or prompt content.
+
+No runtime tests were run for this documentation audit. No executable code, API, schema, or storage was changed. `Memory → NPC` remains **DISABLED / FAIL-CLOSED** and Host remains **NON_READY**.
