@@ -322,3 +322,18 @@ This is a bounded source check against Core `main`, not a runtime change or exha
 Before implementation, Core must identify the actual author/import entry point (or explicitly confirm that one does not exist), show how it binds a source item to a canonical subject and world, and establish how that assignment is versioned, replayed, replaced, invalidated, and audited. If no such path exists, Core must approve a minimal Core-owned representation and lifecycle before code is written. Do not infer assignment from `fact.set`, `world.created`, canonical facts, context manifests, or prompt content.
 
 No runtime tests were run for this documentation audit. No executable code, API, schema, or storage was changed. `Memory → NPC` remains **DISABLED / FAIL-CLOSED** and Host remains **NON_READY**.
+
+## 13. Coordinator decision A — initial acquisition contract design (2026-10-28)
+
+The coordinator approved the minimal Core-owned `author_initial` / `imported` acquisition contract for **design only**. The bounded source audit did not identify an authoritative production loader that assigns either kind to a canonical NPC; this is a bounded finding, not proof that no deployment-specific source exists.
+
+The detailed proposal and contract-review acceptance criteria are in [`docs/83-core-owned-initial-knowledge-acquisition-contract-proposal.md`](83-core-owned-initial-knowledge-acquisition-contract-proposal.md). It is governed by `docs/50-npc-initial-knowledge-acquisition-contract.md` and `docs/43-core-npc-knowledge-runtime-implementation-plan.md`.
+
+Core owns the acquisition contract, records, provenance and authorization checks, validity lifecycle, snapshot consistency, and actor-/purpose-scoped safe filtering. No individual implementation assignee is established by available evidence.
+
+The proposal binds each assignment semantically to world, canonical subject, assigned proposition/source, acquisition kind, trusted source and assignment authorization, initial boundary, validity, lifecycle identity, and relevant restrictions. It specifies deterministic replay, replacement, invalidation, restart/reconstruction, and safe-read requirements without selecting a physical schema or API.
+
+**Review gate:** review the contract and KAC-01 through KAC-15 acceptance criteria before requesting a separate implementation authorization. The decision does not authorize runtime/API/schema/storage/migration/prompt changes, dispatcher/scheduler/worker, plan reconciliation, an NPC-local store, or any new permission system. Do not infer acquisition from canonical facts, World Pack channel metadata, context manifests, Memory candidate labels, or model-generated text.
+
+`Memory → NPC` remains **DISABLED / FAIL-CLOSED**; Host remains **NON_READY**. No runtime readiness is claimed, and this documentation update does not claim tests were run.
+
