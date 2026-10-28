@@ -134,6 +134,30 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   assert.equal(JSON.stringify(result).includes('never disclose'), false);
 });
 
+test('provider rejects a candidate whose presented source token differs from the persisted token', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  const retrieve = s.provider.retrieveCandidates.bind(s.provider);
+  s.provider.retrieveCandidates = async (scope) => {
+    const result = await retrieve(scope);
+    return {
+      ...result,
+      candidates: result.candidates.map((candidate) => ({
+        ...candidate,
+        source: { ...candidate.source, version: '999999' },
+      })),
+    };
+  };
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    adapterId: 'provider-e2e-adapter',
+    actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+});
+
 test('real provider revocation during candidate B authorization excludes previously allowed A', async (t) => {
   const s = setup(t, { twoRecords: true });
   assert.equal((await s.prepare()).status, 'current');
