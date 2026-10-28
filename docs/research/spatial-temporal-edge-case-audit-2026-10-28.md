@@ -138,3 +138,7 @@ The existing World Pack typed spatial contract explicitly selects one world-scop
 - **S1 temporal evidence:** test-source coverage has been extended for restart mapping, rollback invalidation, intervening writes, equal-time identity/order, and invalid boundary rejection. Full exact-head CI and crash/coordinated-restore evidence are still required.
 - **S2 position-v1 geometry:** synthetic arithmetic is covered in test source; real spatial support remains blocked on immutable World Pack schema identity, full canonical post-state validation, writer-path coverage, and confirmed temporal mapping. No runtime spatial query is authorized.
 - **S3 observer-relative visibility:** synthetic math tests cover explicit FOV/range/occlusion/lighting/staleness inputs. Production perception remains unsupported until typed orientation, geometry/occluder source, and relevant-state invalidation contracts are independently approved and implemented. It must never imply knowledge or memory permission.
+
+## Exact-head validation branch
+
+A dedicated `work/spatial-3d-research-validation-2026-10-28` branch was cut from the research snapshot to obtain a fresh runtime-test workflow run for the new research tests. This branch is for validation only; it does not authorize runtime changes or merging the research contract.
