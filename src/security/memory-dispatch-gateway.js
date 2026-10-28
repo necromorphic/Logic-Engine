@@ -319,7 +319,7 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, model, stream, body, worldId, actorId, purpose, sources, candidates, forwardResponse, signal }) {
+  async dispatchProtectedRequest({ requestId, route, model, stream, body, worldId, actorId, purpose, sources, candidates, forwardResponse, signal, prepareUpstream }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
@@ -334,7 +334,9 @@ export class MemoryDispatchGateway {
     try {
       // Resolve the configured target and construct a request-scoped capability
       // before authorization. Preparation must not perform network I/O.
-      preparedTransport = this.prepareUpstream({ route, model, stream, body, signal, forwardResponse });
+      const prepare = prepareUpstream === undefined ? this.prepareUpstream : prepareUpstream;
+      if (typeof prepare !== 'function') throw new Error('MEMORY_DISPATCH_TRANSPORT_PREPARATION_INVALID');
+      preparedTransport = prepare({ route, model, stream, body, signal, forwardResponse });
       if (!preparedTransport || typeof preparedTransport !== 'object'
         || typeof preparedTransport.then === 'function'
         || typeof preparedTransport.target !== 'string'
