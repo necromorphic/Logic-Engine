@@ -130,3 +130,73 @@ test("does not mutate caller-owned goals or action candidates", () => {
   selectNpcIntention(input);
   assert.deepEqual(input, before);
 });
+
+test("rejects accessor-backed array entries without invoking them", () => {
+  let invoked = false;
+  const goals = [];
+  Object.defineProperty(goals, "0", {
+    enumerable: true,
+    configurable: true,
+    get() { invoked = true; return goal("g", 10); },
+  });
+  goals.length = 1;
+  assert.deepEqual(selectNpcIntention({ goals, actions: [action("a", "g")] }), {
+    status: "non_ready",
+    intention: null,
+  });
+  assert.equal(invoked, false);
+});
+
+
+test("fails closed when input reflection traps throw", () => {
+  const input = new Proxy({}, {
+    getPrototypeOf() { throw new Error("prototype trap"); },
+  });
+  assert.deepEqual(selectNpcIntention(input), { status: "non_ready", intention: null });
+});
+
+test("fails closed when candidate array reflection traps throw", () => {
+  const goals = new Proxy([], {
+    get(target, key, receiver) {
+      if (key === "length") throw new Error("length trap");
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  assert.deepEqual(selectNpcIntention({ goals, actions: [] }), {
+    status: "non_ready",
+    intention: null,
+  });
+});
+
+
+test("fails closed on Object.prototype pollution without invoking inherited getters", () => {
+  let invoked = false;
+  Object.defineProperty(Object.prototype, "npcInjectedStatus", {
+    configurable: true,
+    get() { invoked = true; return "active"; },
+  });
+  let result;
+  try {
+    result = selectNpcIntention({ goals: [goal("g", 1)], actions: [action("a", "g")] });
+  } finally {
+    delete Object.prototype.npcInjectedStatus;
+  }
+  assert.deepEqual(result, { status: "non_ready", intention: null });
+  assert.equal(invoked, false);
+});
+
+test("fails closed when Array.prototype iterator is replaced", () => {
+  const original = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  let result;
+  try {
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true,
+      writable: true,
+      value: function* pollutedIterator() { throw new Error("iterator invoked"); },
+    });
+    result = selectNpcIntention({ goals: [goal("g", 1)], actions: [action("a", "g")] });
+  } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, original);
+  }
+  assert.deepEqual(result, { status: "non_ready", intention: null });
+});

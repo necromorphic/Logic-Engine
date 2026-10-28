@@ -15,7 +15,45 @@ function nonEmptyString(value) {
   return typeof value === "string" && value.trim().length > 0;
 }
 
+const INTRINSIC_OBJECT_PROTOTYPE_KEYS = new Set([
+  "constructor", "__defineGetter__", "__defineSetter__", "hasOwnProperty",
+  "__lookupGetter__", "__lookupSetter__", "isPrototypeOf", "propertyIsEnumerable",
+  "toString", "valueOf", "__proto__", "toLocaleString",
+]);
+const INTRINSIC_ARRAY_ITERATOR = Array.prototype[Symbol.iterator];
+
+function hasSafeObjectPrototype() {
+  try {
+    const keys = Reflect.ownKeys(Object.prototype);
+    for (const key of keys) {
+      if (typeof key !== "string" || !INTRINSIC_OBJECT_PROTOTYPE_KEYS.has(key)) return false;
+      const descriptor = Object.getOwnPropertyDescriptor(Object.prototype, key);
+      if (!descriptor) return false;
+      if (key === "__proto__") {
+        if (!Object.hasOwn(descriptor, "get") || !Object.hasOwn(descriptor, "set")) return false;
+      } else if (!Object.hasOwn(descriptor, "value")) {
+        return false;
+      }
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function hasSafeArrayIterator() {
+  try {
+    const descriptor = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+    return descriptor != null
+      && Object.hasOwn(descriptor, "value")
+      && descriptor.value === INTRINSIC_ARRAY_ITERATOR;
+  } catch {
+    return false;
+  }
+}
+
 function isPlainDataObject(value) {
+  if (!hasSafeObjectPrototype()) return false;
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const prototype = Object.getPrototypeOf(value);
   if (prototype !== Object.prototype && prototype !== null) return false;
@@ -34,9 +72,10 @@ function compareLexically(a, b) {
 }
 
 function isDenseArray(value) {
-  if (!Array.isArray(value)) return false;
+  if (!hasSafeArrayIterator() || !Array.isArray(value)) return false;
   for (let i = 0; i < value.length; i += 1) {
-    if (!Object.hasOwn(value, i)) return false;
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(i));
+    if (descriptor == null || !Object.hasOwn(descriptor, "value")) return false;
   }
   return true;
 }
@@ -57,7 +96,7 @@ function invalidDecision() {
  * is retained unless an eligible action belongs to a strictly higher-priority
  * goal. Otherwise higher goal priority wins; then lower cost; then lexical IDs.
  */
-export function selectNpcIntention(input) {
+function selectNpcIntentionUnsafe(input) {
   if (!isPlainDataObject(input)) return invalidDecision();
   const { goals, actions } = input;
   if (!isDenseArray(goals) || !isDenseArray(actions)) return invalidDecision();
@@ -135,4 +174,16 @@ export function selectNpcIntention(input) {
       action_id: winner.action_id,
     }),
   });
+}
+
+/**
+ * Treat exceptions from hostile or malformed object traps as invalid input.
+ * JSON-like inputs are expected; a Proxy can throw from reflection operations.
+ */
+export function selectNpcIntention(input) {
+  try {
+    return selectNpcIntentionUnsafe(input);
+  } catch {
+    return invalidDecision();
+  }
 }
