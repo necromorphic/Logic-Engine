@@ -4,7 +4,13 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
-import { createHostLifecycleMutationMiddleware, getHostConversationInventory, recordHostCaptureAcknowledgement, registerHostConversation } from '../server-lifecycle-mutation-journal.mjs';
+import {
+  createHostLifecycleMutationMiddleware,
+  getHostConversationInventory,
+  prepareHostSaveCapability,
+  recordHostCaptureAcknowledgement,
+  registerHostConversation,
+} from '../server-lifecycle-mutation-journal.mjs';
 
 const digest = value => createHash('sha256').update(JSON.stringify(String(value))).digest('hex');
 const makeMessage = ({ messageId, versions, activeVersionIndex }) => ({
@@ -39,69 +45,182 @@ function responseMock() {
   return response;
 }
 
-test('enrolled chat save fails closed until request-bound lifecycle capability exists', async () => {
+test('request-bound capability permits a verified swipe-select and swipe-delete transition only once', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-version-inventory-journal-'));
   const directories = {
     chats: path.join(root, 'chats'), characters: path.join(root, 'characters'), groups: path.join(root, 'groups'),
     groupChats: path.join(root, 'group_chats'), backups: path.join(root, 'backups'),
   };
   await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
-  const request = { method: 'POST', baseUrl: '', path: '/api/chats/save', originalUrl: '/api/chats/save',
-    user: { profile: { handle: 'test-user' }, directories } };
+  const chatDirectory = path.join(directories.chats, 'character-a');
+  await mkdir(chatDirectory, { recursive: true });
+  const request = {
+    method: 'POST', baseUrl: '', path: '/api/chats/save', originalUrl: '/api/chats/save',
+    sessionID: 'test-session-1',
+    user: { profile: { handle: 'test-user' }, directories },
+    headers: {},
+  };
   const conversationUuid = randomUUID();
   const installationUuid = randomUUID();
   const messageId = randomUUID();
   const version1 = randomUUID();
   const version2 = randomUUID();
-  const chatPath = path.join(directories.chats, 'chat-a.jsonl');
-  const writeChat = messages => writeFile(chatPath, [
-    JSON.stringify({ chat_metadata: { logic_engine_conversation_id: conversationUuid } }),
-    ...messages.map(JSON.stringify),
-  ].join('\n') + '\n');
+  const conversationId = installationUuid + ':' + conversationUuid;
+  const chatPath = path.join(chatDirectory, 'chat-a.jsonl');
+  const header = {
+    chat_metadata: { logic_engine_conversation_id: conversationUuid },
+    user_name: 'unused',
+    character_name: 'unused',
+  };
+  const writeChat = records => writeFile(chatPath, records.map(record => JSON.stringify(record)).join('\\n'));
+  const initialMessage = makeMessage({
+    messageId,
+    versions: [
+      { versionId: version1, text: 'private-before' },
+      { versionId: version2, text: 'private-after', parentVersionId: version1 },
+    ],
+    activeVersionIndex: 0,
+  });
+  const selectedMessage = makeMessage({
+    messageId,
+    versions: [
+      { versionId: version1, text: 'private-before' },
+      { versionId: version2, text: 'private-after', parentVersionId: version1 },
+    ],
+    activeVersionIndex: 1,
+  });
+  const deletedSwipeMessage = makeMessage({
+    messageId,
+    versions: [{ versionId: version2, text: 'private-after', parentVersionId: version1 }],
+    activeVersionIndex: 0,
+  });
+  const initialRecords = [header, initialMessage];
+  const selectPayload = {
+    ch_name: 'Character A',
+    file_name: 'chat-a',
+    chat: [header, selectedMessage],
+    avatar_url: 'character-a.png',
+    force: false,
+  };
+  const deletePayload = {
+    ch_name: 'Character A',
+    file_name: 'chat-a',
+    chat: [header, deletedSwipeMessage],
+    avatar_url: 'character-a.png',
+    force: false,
+  };
+
   try {
-    const initial = makeMessage({
-      messageId,
-      versions: [{ versionId: version1, text: 'private-before' }],
-      activeVersionIndex: 0,
-    });
-    await writeChat([initial]);
+    await writeChat(initialRecords);
     const persistedBefore = await readFile(chatPath, 'utf8');
-    const conversationId = installationUuid + ':' + conversationUuid;
     await registerHostConversation(request, {
       conversationId,
-      sourceLocator: 'chat-a', sourcePath: 'chat-a.jsonl', domain: 'chats',
+      sourceLocator: 'chat-a',
+      sourcePath: 'character-a/chat-a.jsonl',
+      domain: 'chats',
     });
     await recordHostCaptureAcknowledgement(request, {
       conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
       content_sha256: digest('private-before'), active: true, deleted: false,
     });
-
-    const response = responseMock();
-    let reachedNativeSave = false;
-    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, response, async () => {
-      reachedNativeSave = true;
-      await writeChat([makeMessage({
-        messageId,
-        versions: [
-          { versionId: version1, text: 'private-before' },
-          { versionId: version2, text: 'private-after', parentVersionId: version1 },
-        ],
-        activeVersionIndex: 1,
-      })]);
-      response.json({ ok: true });
+    await recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId, message_id: messageId, version_id: version2, parent_version_id: version1,
+      content_sha256: digest('private-after'), active: false, deleted: false,
     });
-    await response.finished;
+    const before = await getHostConversationInventory(request);
+    assert.equal(before.complete, true);
+    assert.equal(before.currentVersionCount, 2);
 
-    assert.equal(reachedNativeSave, false);
-    assert.equal(response.statusCode, 409);
-    assert.match(String(response.body), /HOST_ENROLLED_HISTORY_SAVE_CAPABILITY_REQUIRED/);
-    assert.equal(await readFile(chatPath, 'utf8'), persistedBefore);
+    const selectCapability = await prepareHostSaveCapability(request, {
+      route: '/api/chats/save',
+      payload: selectPayload,
+    });
+    assert.equal(selectCapability.status, 'CAPABILITY_ISSUED');
+    request.body = selectPayload;
+    request.headers = { 'x-logic-engine-save-capability': selectCapability.token };
+    const selectResponse = responseMock();
+    let selectReachedNativeSave = false;
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, selectResponse, async () => {
+      selectReachedNativeSave = true;
+      await writeChat(selectPayload.chat);
+      selectResponse.json({ ok: true });
+    });
+    await selectResponse.finished;
+    assert.equal(selectReachedNativeSave, true);
+    assert.equal(selectResponse.statusCode, 200);
+    assert.equal(await readFile(chatPath, 'utf8'), selectPayload.chat.map(JSON.stringify).join('\\n'));
 
-    const inventory = await getHostConversationInventory(request);
-    assert.equal(inventory.complete, true);
-    assert.equal(inventory.currentVersionCount, 1);
-    assert.equal(inventory.versionCount, 1);
-    assert.doesNotMatch(JSON.stringify(inventory), /private-before|private-after/);
+    // A replay of the same one-shot token is rejected before the native handler.
+    const replayResponse = responseMock();
+    let replayReachedNativeSave = false;
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, replayResponse, async () => {
+      replayReachedNativeSave = true;
+      await writeChat(selectPayload.chat);
+      replayResponse.json({ ok: true });
+    });
+    await replayResponse.finished;
+    assert.equal(replayReachedNativeSave, false);
+    assert.equal(replayResponse.statusCode, 409);
+    assert.match(String(replayResponse.body), /HOST_SAVE_CAPABILITY_INVALID/);
+
+    await recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
+      content_sha256: digest('private-before'), active: false, deleted: false,
+    });
+    await recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId, message_id: messageId, version_id: version2, parent_version_id: version1,
+      content_sha256: digest('private-after'), active: true, deleted: false,
+    });
+    const selectedInventory = await getHostConversationInventory(request);
+    assert.equal(selectedInventory.complete, true);
+    assert.equal(selectedInventory.currentVersionCount, 2);
+    const journal = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
+    const records = journal.trim().split('\\n').map(line => JSON.parse(line));
+    const committed = records.filter(record => record.kind === 'outcome' && record.status === 'COMMITTED');
+    assert.equal(committed.length, 1);
+    assert.ok(committed[0].versionChanges.some(change => change.change === 'ACTIVE_CHANGED' && change.version_id === version1));
+    assert.doesNotMatch(journal, /private-before|private-after/);
+
+    const deleteCapability = await prepareHostSaveCapability(request, {
+      route: '/api/chats/save',
+      payload: deletePayload,
+    });
+    assert.equal(deleteCapability.status, 'CAPABILITY_ISSUED');
+    request.body = deletePayload;
+    request.headers = { 'x-logic-engine-save-capability': deleteCapability.token };
+    const deleteResponse = responseMock();
+    let deleteReachedNativeSave = false;
+    await createHostLifecycleMutationMiddleware({ requirePersistedInventory: true })(request, deleteResponse, async () => {
+      deleteReachedNativeSave = true;
+      await writeChat(deletePayload.chat);
+      deleteResponse.json({ ok: true });
+    });
+    await deleteResponse.finished;
+    assert.equal(deleteReachedNativeSave, true);
+    assert.equal(deleteResponse.statusCode, 200);
+
+    await recordHostCaptureAcknowledgement(request, {
+      conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
+      content_sha256: digest('private-before'), active: false, deleted: true,
+    });
+    const tombstoneSnapshot = await getHostConversationInventory(request);
+    assert.equal(tombstoneSnapshot.complete, true);
+    assert.equal(tombstoneSnapshot.historicalCompleteness, 'ENROLLMENT_FORWARD_ONLY');
+    assert.equal(tombstoneSnapshot.currentVersionCount, 1);
+    assert.equal(tombstoneSnapshot.versionCount, 2);
+    assert.equal(tombstoneSnapshot.inventories[0].versions.find(v => v.version_id === version1).deleted, true);
+    assert.equal(tombstoneSnapshot.inventories[0].versions.find(v => v.version_id === version2).active, true);
+
+    await writeChat([header, makeMessage({
+      messageId,
+      versions: [{ versionId: version1, text: 'private-before' }],
+      activeVersionIndex: 0,
+    })]);
+    const rollback = await getHostConversationInventory(request);
+    assert.equal(rollback.complete, false);
+    assert.ok(rollback.errors.includes('CURRENT_SNAPSHOT_DIVERGES_FROM_LAST_COMMITTED_JOURNAL_SNAPSHOT'));
+    assert.equal(rollback.mutationJournal.snapshotConsistency, 'DIVERGES_FROM_LAST_LOCAL_CHECKPOINT');
+    assert.notEqual(persistedBefore, await readFile(chatPath, 'utf8'));
   } finally {
     await rm(root, { recursive: true, force: true });
   }
