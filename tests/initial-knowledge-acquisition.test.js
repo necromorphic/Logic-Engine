@@ -78,7 +78,7 @@ test('initial knowledge assignment is admin-gated and records author/import prov
     fact_id: 'fact-secret',
     acquisition_kind: 'author_initial',
     source_ref: 'world-pack:characters/npc-a/initial-knowledge',
-    source_content: SOURCE_A,
+    source_sha256: SHA_A,
     authority: 'admin_credential',
   }]);
 
