@@ -106,3 +106,12 @@ Research requirements only; this section does not authorize runtime changes.
 5. Runtime remains NO-GO until an implementation contract is reviewed and approved.
 
 Do not add a cursor receipt/table pre-emptively. First prove whether canonical events and existing markers can satisfy S1; propose new persistence only if tests demonstrate a gap.
+
+## Progress log — 2026-10-28
+
+Research-only test work on this branch:
+- Added assertions for `committed_revision` and stable event identity / commit ordering for equal-time planned events.
+- Added coverage that a canonical non-TimeEngine write makes the completed TimeEngine checkpoint stale without rewriting the historical boundary.
+- Added a negative test proving an invalidated boundary is rejected instead of being treated as confirmed.
+- The first full CI run for the equal-time test failed because the query also included a separate event at the same coordinate (3 rows, while the test expected the 2 planned trigger events). The test query was narrowed to the exact planned event IDs in commit `fdca75abf06aefb6f62e543ea78e877d6cd58759`. This corrects the test's selection, not production behavior.
+- The corrected commit's workflow result has not yet been observed. Do not treat this test slice as green until CI completes successfully.
