@@ -1389,9 +1389,9 @@ export { EngineError };  prepareEventForWorld(id, x, options = {}) {
       WHERE a.world_id=? AND a.subject_id=? AND f.status='active'
       ORDER BY a.acquisition_id
       LIMIT ?
-    `).all(request.world_id, request.actor_id, checked.request.limit);
-
-    const items = rows.map((row) => {
+    `).all(request.world_id, request.actor_id, checked.request.limit + 1);
+    const truncated = rows.length > checked.request.limit;
+    const items = rows.slice(0, checked.request.limit).map((row) => {
       let value;
       let sourceEventIds;
       try {
@@ -1435,6 +1435,7 @@ export { EngineError };  prepareEventForWorld(id, x, options = {}) {
         commit_sequence: checked.request.commit_sequence,
       }),
       authorization_ref: checked.request.authorization_ref,
+      truncated,
       items: Object.freeze(items),
     });
   }
@@ -1450,6 +1451,8 @@ export { EngineError };  prepareEventForWorld(id, x, options = {}) {
       'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
       'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
     const read = this.readNpcKnowledge(input);
+    assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
+      'The actor knowledge read exceeded its bounded limit; belief context requires a complete acquisition window.', 409);
     const visibleItems = [];
     const withheldPropositionRefs = new Set();
     for (const item of read.items) {
@@ -1724,6 +1727,8 @@ export { EngineError };  prepareEventForWorld(id, x, options = {}) {
       expected_commit_sequence: input.expected_commit_sequence,
       limit: input.limit ?? 200,
     });
+    assert(read.truncated !== true, 'NPC_KNOWLEDGE_READ_INCOMPLETE',
+      'The actor knowledge read exceeded its bounded limit; belief support cannot be reconciled from a partial window.', 409);
     const row = this.store.db.prepare(`
       SELECT b.transition_id, b.proposition_ref, b.proposition_value_json, b.stance,
         b.supporting_acquisition_ids_json, b.contradicting_acquisition_ids_json,
