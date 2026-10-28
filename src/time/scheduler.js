@@ -408,7 +408,10 @@ export function planDueWork(input) {
   const to = safeInteger(input.to_coordinate, 'to_coordinate');
   if (to < from) fail('REVERSED_INTERVAL', 'Due-work interval end must not precede its start.');
   if (!Array.isArray(input.triggers) || input.triggers.length > 10000) fail('INVALID_TRIGGER_LIST', 'triggers must be an array of at most 10000 entries.');
-  const completedIds = new Set(stringSet(input.completed_trigger_ids, 'completed_trigger_ids', 10000));
+  const completedTriggerIds = Object.hasOwn(input, 'completed_trigger_ids')
+    ? input.completed_trigger_ids
+    : undefined;
+  const completedIds = new Set(stringSet(completedTriggerIds, 'completed_trigger_ids', 10000));
   const triggerEntries = denseArrayValues(input.triggers, 'triggers', 10000, 'INVALID_TRIGGER_LIST');
   const triggers = triggerEntries.map((trigger) => normalizeTimeTrigger(trigger, worldId));
   const allById = new Map();
