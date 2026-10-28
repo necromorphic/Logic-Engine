@@ -56,14 +56,14 @@ function setup(t, authorizer = (scope) => ({
       { kind: 'fact.set', fact_id: 'fact-a', predicate: 'secret', value: 'source-backed-value' },
     ],
   });
-  engine.recordTrustedInitialKnowledgeSource({
+  const acquisition = engine.recordTrustedInitialKnowledgeSource({
     world_id: 'world-a',
     source_bytes: sourceBytes,
     idempotency_key: 'author-source-1',
     expected_revision: 1,
     expected_commit_sequence: 1,
   });
-  return { store, engine };
+  return { store, engine, acquisition };
 }
 
 function request(store, overrides = {}) {
@@ -143,11 +143,11 @@ test('reader rejects unsupported purpose, unknown actor, and malformed limits', 
 
 
 test('reader stops returning an acquisition after its canonical source is rolled back', (t) => {
-  const { store, engine } = setup(t);
+  const { store, engine, acquisition } = setup(t);
   assert.equal(engine.readNpcKnowledge(request(store)).items.length, 1);
   const rollback = engine.rollbackEvent('world-a', {
-    root_event_id: 'author-seed',
-    idempotency_key: 'rollback-author-seed',
+    root_event_id: acquisition.event_id,
+    idempotency_key: 'rollback-knowledge-acquisition',
   });
   assert.equal(rollback.accepted, true);
   const result = engine.readNpcKnowledge(request(store));
