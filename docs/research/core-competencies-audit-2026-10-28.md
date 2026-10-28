@@ -35,6 +35,30 @@
 
 This is evidence for the tested segment failure path only. The latest-main combined-status query returned no status checks in the inspected response; that absence is not a green CI result for the latest `main` head.
 
+## Dependency/recalculation competency — deeper source findings
+
+The current implementation has **two bounded dependency systems**, not one universal graph:
+
+1. **Event causality / rollback** in `src/storage/sqlite-store.js`:
+   - `caused_by[]`, `depends_on[]`, `read_set[]`, and `causal_links[]` are persisted event metadata.
+   - The supported typed links include `READS_SOURCE`, `READS_ENTITY`, `READS_CLAIM`, and `REQUIRES`.
+   - Supported `REQUIRES` predicates are limited to entity existence/absence, entity attribute equality, fact value, and fact absence.
+   - Rollback traverses declared links and affected projections, evaluates supported predicates against reconstructed history, and rebuilds entity/fact projections from still-valid events.
+   - If a relevant historical predicate remains unknown, rollback can return `requires_review` instead of applying a guessed mutation.
+   - **Limit:** the algorithm cannot discover a dependency omitted by the producer. Passing reference validation proves that submitted edges are well-formed, not that the edge set is complete.
+
+2. **Time-trigger due-work planning** in `src/time/scheduler.js`:
+   - Trigger dependencies are topologically ordered; missing/cancelled/not-yet-due dependencies block the plan, and cycles fail closed.
+   - Same-coordinate read/write conflicts require an explicit direct dependency order; otherwise the planner returns `TRIGGER_CONFLICT_NEEDS_REVIEW`.
+   - The planner is pure. It does not evaluate arbitrary world rules, execute effects, commit canonical state, or recalculate arbitrary derived state. The resulting work must return through Core commit.
+
+3. **Recalculation oracle** in `experiments/recalculation-oracle/harness.mjs` with tests in `experiments/recalculation-oracle/harness.test.mjs`:
+   - Strategy A recomputes all declared nodes; B recomputes declared transitive dependents; C checks invariants and may fall back to A / `needs_review`.
+   - Tests explicitly demonstrate that B can preserve a stale value when a conditional read is omitted from the declared graph. This is evidence that incremental graph metadata alone does not prove dependency completeness.
+   - The oracle tests cycles, unknown dependencies, and invariant-triggered fallback. They are harness tests, not a production Core recalculation path.
+
+**Finding:** the next Core competency is not “build a universal graph” immediately. First establish an evidence inventory for each currently supported dependency form: where it is declared, validated, consumed by rollback/planning, and covered by a test. Mark omitted-read detection, complete dependency capture, arbitrary derived-state recalculation, and cross-block invalidation as unsupported until proven. No new graph schema, queue, API, or storage is proposed by this audit.
+
 ## Current Core assessment
 
 The existing README estimate of **Core = 55%** remains an approximate portfolio estimate, not a test-derived metric. It is reasonable only if read as “substantial canonical/proposal/snapshot primitives exist, while several engine-wide guarantees remain incomplete.” It must not be read as 55% production-ready.
