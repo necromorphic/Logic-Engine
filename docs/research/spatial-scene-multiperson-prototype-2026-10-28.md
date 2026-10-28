@@ -21,7 +21,7 @@ Module: `experiments/spatial-scene-lab/spatial-scene.js`
 - Deterministic pairwise visibility for every ordered observer/target pair.
 - Explicit orientation vectors, field-of-view half-angle, maximum distance and lighting state.
 - Segment-vs-axis-aligned-box occlusion.
-- Optional target body volumes sampled at nine points, distinguishing FULL, PARTIAL and NONE visibility in the synthetic model.
+- Optional target body volumes sampled at nine points, distinguishing SAMPLED_ALL, SAMPLED_PARTIAL and SAMPLED_NONE. Nine rays are an approximation and cannot prove continuous visibility of the whole body.
 - Conservative swept-body collision checks against AABB blockers and other declared entity bodies (Minkowski-expanded boxes; no mesh/physics engine).
 - Optional explicit maximum-speed and maximum-turn-rate checks during movement; speed/turn limits require a positive duration and otherwise fail closed.
 - Constant-velocity prediction to a caller-declared future synthetic boundary, only when every entity supplies explicit velocity.
@@ -51,7 +51,7 @@ This is a geometry experiment, not a physics engine or NPC cognition system.
 | Elevated target | Z affects Euclidean distance and range |
 | Wall between observer and target | Visibility blocked |
 | Entity moves around a wall | New snapshot recalculates visibility |
-| Target body partly behind low cover | PARTIAL visibility from body sample points |
+| Target body partly behind low cover | SAMPLED_PARTIAL visibility from body sample points; no claim of continuous surface coverage |
 | Movement segment crosses a wall | Movement rejected without mutating input |
 | Multiple entities have explicit velocity | Constant-velocity future positions computed at a new boundary |
 | Lighting unknown/dark | Visibility UNKNOWN, never guessed |
@@ -74,3 +74,6 @@ The movement helper checks declared body extents along the entire path rather th
 ## Synchronized trajectory collision analysis
 
 The lab can compare two entities' relative motion over the same bounded time interval. It reports `POSSIBLE` when their swept axis-aligned body bounds overlap at matching times, and returns `timeStartSeconds` / `timeEndSeconds` as the estimated overlap interval within the requested horizon. Collision reports are sorted by earliest estimated overlap time, with entity IDs as deterministic tie-breakers. It does not flag path intersections that occur at different times. Intervals are conservative AABB estimates, not exact contact times: no acceleration, rotation, dynamic response, or collision avoidance is modelled. All entities must provide explicit velocity; otherwise the report is `UNKNOWN`.
+
+
+Visibility-label clarification: body sampling outputs `SAMPLED_ALL`, `SAMPLED_PARTIAL`, or `SAMPLED_NONE`. These describe only the nine tested rays, not a geometric proof for every point of a target's body. Empty or duplicate blocker IDs now make the synthetic scene invalid/UNKNOWN.
