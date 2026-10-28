@@ -70,3 +70,9 @@ Core PRs #94–#96 are merged and exact-head Runtime tests passed. They provide 
 ## Current Core boundary extension (2026-10-24)
 
 PR #101 adds an opt-in trusted host field policy for bounded authorized reads, while the default remains self-identity-only; PR #102 tests non-self denial without leakage. PR #103 binds public proposal commit to the creating adapter. PR #106 requires the internal-host credential to register context manifests. These reduce specific trust-boundary gaps but do not establish a concrete Memory/NPC visibility policy, prove which context was actually prepared/used, or create Core-owned acquisition/provenance records, Memory source-change reconciliation, delivery/receipt evidence, or belief persistence. Production knowledge reads remain blocked.
+
+## Stage B implementation-branch follow-up (2026-10-28)
+
+The Core implementation candidate now contains an internal `author_initial` acquisition primitive and event-rebuilt projection; the previous statement that no acquisition representation exists is superseded for this branch only. The implementation is not on `main` and does not establish end-to-end NPC readiness.
+
+The first-slice blocker remains: imported source authority has no executable trusted importer/manifest contract, the authoring service has no production caller, visibility is `unclassified`, and no actor/purpose-bound knowledge read or exact model-serialization filter exists. Imported acquisition fails closed. See `docs/90-core-initial-knowledge-acquisition-stage-b-implementation.md`.
