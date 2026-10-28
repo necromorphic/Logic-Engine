@@ -3,7 +3,7 @@ import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
-import { validateNpcKnowledgeRead } from './npc-knowledge-read.js';
+import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from './npc-knowledge-read.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
@@ -505,27 +505,28 @@ export class LogicEngine {
    * current world snapshot before any acquired fact value is returned.
    */
   readNpcKnowledge(input) {
-    assert(obj(input) && typeof input.world_id === 'string' && input.world_id.trim(),
-      'INVALID_NPC_KNOWLEDGE_READ', 'world_id is required.');
+    const inputCheck = validateNpcKnowledgeReadInput(input);
+    assert(inputCheck.status === 'ready', 'INVALID_NPC_KNOWLEDGE_READ',
+      'NPC knowledge read request is malformed or unsupported.', 400,
+      { reason: inputCheck.reason });
+    const request = inputCheck.request;
     assert(typeof this.npcKnowledgeReadAuthorizer === 'function',
       'NPC_KNOWLEDGE_READ_NOT_CONFIGURED', 'A trusted deployment-owned NPC knowledge read authorizer is required.', 403);
-    const world = this.store.world(input.world_id);
+    const world = this.store.world(request.world_id);
     assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
-    const commitSequence = this.store.currentCommitSequence(input.world_id);
-    assert(typeof input.actor_id === 'string' && input.actor_id.trim(),
-      'INVALID_NPC_KNOWLEDGE_READ', 'actor_id is required.');
+    const commitSequence = this.store.currentCommitSequence(request.world_id);
     const actor = this.store.db.prepare(
       "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?"
-    ).get(input.world_id, input.actor_id);
+    ).get(request.world_id, request.actor_id);
     assert(actor && actor.status !== 'destroyed',
       'NPC_KNOWLEDGE_READER_NOT_ELIGIBLE', 'The requesting NPC must be a non-destroyed entity in this world.', 403);
 
     let authorization;
     try {
       authorization = this.npcKnowledgeReadAuthorizer(Object.freeze({
-        world_id: input.world_id,
-        actor_id: input.actor_id,
-        purpose: input.purpose,
+        world_id: request.world_id,
+        actor_id: request.actor_id,
+        purpose: request.purpose,
         world_revision: world.world_revision,
         commit_sequence: commitSequence,
       }));
@@ -533,11 +534,10 @@ export class LogicEngine {
       throw new EngineError('NPC_KNOWLEDGE_READ_NOT_AUTHORIZED',
         'The trusted read authorizer did not approve this request.', 403);
     }
-    const checked = validateNpcKnowledgeRead(input, world, commitSequence, authorization);
+    const checked = validateNpcKnowledgeRead(request, world, commitSequence, authorization);
     if (checked.status !== 'ready') {
       const status = checked.reason === 'stale_snapshot' ? 409
-        : checked.reason === 'world_not_found' ? 404
-          : checked.reason === 'invalid_request_shape' || checked.reason === 'invalid_request_fields' ? 400 : 403;
+        : checked.reason === 'world_not_found' ? 404 : 403;
       throw new EngineError('NPC_KNOWLEDGE_READ_NOT_READY',
         'NPC knowledge read was denied or its snapshot is no longer current.', status,
         { reason: checked.reason });
@@ -552,7 +552,7 @@ export class LogicEngine {
       WHERE a.world_id=? AND a.subject_id=? AND f.status='active'
       ORDER BY a.acquisition_id
       LIMIT ?
-    `).all(input.world_id, input.actor_id, checked.request.limit);
+    `).all(request.world_id, request.actor_id, checked.request.limit);
 
     const items = rows.map((row) => {
       let value;
@@ -590,9 +590,9 @@ export class LogicEngine {
 
     return Object.freeze({
       status: 'ready',
-      world_id: input.world_id,
-      actor_id: input.actor_id,
-      purpose: input.purpose,
+      world_id: request.world_id,
+      actor_id: request.actor_id,
+      purpose: request.purpose,
       snapshot: Object.freeze({
         world_revision: checked.request.world_revision,
         commit_sequence: checked.request.commit_sequence,
@@ -600,122 +600,6 @@ export class LogicEngine {
       authorization_ref: checked.request.authorization_ref,
       items: Object.freeze(items),
     });
-  }
-
-  registerMechanicTemplate(value) {
-    const template = validateMechanicTemplate(value);
-    return this.store.registerMechanicTemplate(template, hashRequest(template));
-  }
-
-  getMechanicTemplate(templateId, version) {
-    return this.store.getMechanicTemplate(templateId, version);
-  }
-
-  listMechanicTemplates(templateId = null) {
-    return this.store.listMechanicTemplates(templateId);
-  }
-
-  registerRuleModuleManifest(value) {
-    const manifest = validateRuleModuleManifest(value);
-    return this.store.registerRuleModuleManifest(manifest, hashRequest(manifest));
-  }
-
-  getRuleModuleManifest(moduleId, version) {
-    return this.store.getRuleModuleManifest(moduleId, version);
-  }
-
-  listRuleModuleManifests(moduleId = null) {
-    return this.store.listRuleModuleManifests(moduleId);
-  }
-
-  getMechanicRegistryAudit() {
-    return this.store.mechanicRegistryAudit();
-  }
-  getMechanicInstance(worldId, instanceId) { return this.store.getMechanicInstance(worldId, instanceId); }
-  listMechanicInstances(worldId) { return this.store.listMechanicInstances(worldId); }
-
-  prepareEvent(x, options = {}) {
-    assert(obj(x), 'INVALID_BODY', 'Body must be an object.');
-    const allowedFields = ['idempotency_key', 'turn_id', 'event_type', 'event_id', 'expected_revision', 'expected_commit_sequence', 'context_manifest_id', 'generation_id', 'source_message_id', 'time_advance_seconds', 'time_mode', 'duration_proposal', 'caused_by', 'depends_on', 'read_set', 'causal_links', 'effects'];
-    assert(Object.keys(x).every((key) => allowedFields.includes(key)), 'UNSUPPORTED_EVENT_FIELD', 'Event proposal contains an unsupported top-level field.');
-    assert(typeof x.idempotency_key === 'string' && x.idempotency_key.trim() && x.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key required.');
-    assert(typeof x.turn_id === 'string' && x.turn_id.trim() && x.turn_id.length <= 200, 'TURN_ID_REQUIRED', 'turn_id required.');
-    assert(typeof x.event_type === 'string' && x.event_type.trim() && x.event_type.length <= 200, 'EVENT_TYPE_REQUIRED', 'event_type required.');
-    if (x.event_id !== undefined && x.event_id !== null) {
-      assert(typeof x.event_id === 'string' && x.event_id.trim() && x.event_id.length <= 200, 'INVALID_EVENT_ID', 'event_id must be a non-empty string of at most 200 characters.');
-      assert(!x.event_id.trim().startsWith('entity:') && !x.event_id.trim().startsWith('fact:'), 'INVALID_EVENT_ID', 'event_id cannot use the reserved entity: or fact: reference prefixes.');
-    }
-    if (x.expected_revision !== undefined) assert(Number.isSafeInteger(x.expected_revision) && x.expected_revision >= 0, 'INVALID_REVISION', 'expected_revision must be non-negative.');
-    if (x.expected_commit_sequence !== undefined) assert(Number.isSafeInteger(x.expected_commit_sequence) && x.expected_commit_sequence >= 0, 'INVALID_COMMIT_SEQUENCE', 'expected_commit_sequence must be non-negative.');
-    if (x.context_manifest_id !== undefined) assert(typeof x.context_manifest_id === 'string' && x.context_manifest_id.trim() && x.context_manifest_id.length <= 200, 'INVALID_CONTEXT_MANIFEST_ID', 'context_manifest_id must be a non-empty string of at most 200 characters.');
-    if (x.generation_id !== undefined && x.generation_id !== null) assert(typeof x.generation_id === 'string' && x.generation_id.trim() && x.generation_id.length <= 200, 'INVALID_GENERATION_ID', 'generation_id must be a non-empty string of at most 200 characters.');
-
-    const seconds = x.time_advance_seconds ?? 0;
-    const skip = x.time_mode === 'explicit_skip';
-    assert(Number.isSafeInteger(seconds) && seconds >= 0, 'INVALID_TIME_ADVANCE', 'time_advance_seconds must be non-negative.');
-    assert(x.time_mode === undefined || x.time_mode === 'action' || skip, 'INVALID_TIME_MODE', 'time_mode must be action or explicit_skip.');
-    const maxSeconds = skip ? (options.maxSkipDurationSeconds ?? 604800) : (options.maxActionDurationSeconds ?? 43200);
-    assert(seconds <= maxSeconds, 'TIME_ADVANCE_TOO_LARGE', 'Time advance exceeds the active duration limit.');
-    if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
-
-    const effects = x.effects ?? [];
-    validateEffects(effects, {
-      allowRelationshipTransition: options.allowRelationshipTransition === true,
-      allowKnowledgeAcquisition: options.allowKnowledgeAcquisition === true,
-    });
-    const request = {
-      operation: 'event.commit',
-      event_id: x.event_id ?? null,
-      turn_id: x.turn_id.trim(),
-      generation_id: x.generation_id == null ? null : x.generation_id.trim(),
-      context_manifest_id: x.context_manifest_id == null ? null : x.context_manifest_id.trim(),
-      source_message_id: x.source_message_id ?? null,
-      event_type: x.event_type.trim(),
-      expected_revision: x.expected_revision ?? null,
-      expected_commit_sequence: x.expected_commit_sequence ?? null,
-      time_advance_seconds: seconds,
-      time_mode: x.time_mode ?? 'action',
-      ...(x.duration_proposal !== undefined ? { duration_proposal: x.duration_proposal } : {}),
-      ...(options.durationDecision ? { duration_decision: options.durationDecision } : {}),
-      caused_by: strings(x.caused_by, 'caused_by'),
-      depends_on: strings(x.depends_on, 'depends_on'),
-      read_set: strings(x.read_set, 'read_set'),
-      causal_links: causalLinks(x.causal_links),
-      effects,
-    };
-    return {
-      ...request,
-      request_hash: hashRequest(request),
-      idempotency_key: x.idempotency_key.trim(),
-    };
-  }
-
-  assertNoScheduledTriggerCrossing(id, events, expectedRevision) {
-    const durationMs = events.reduce((sum, event) => sum + (event.time_advance_seconds ?? 0) * 1000, 0);
-    if (durationMs === 0) return;
-    const world = this.getState(id);
-    // Do not reject stale revisions here: SQLiteStore checks idempotency replay
-    // before revision freshness, so an identical completed request can replay.
-    // A new stale request is still rejected by the canonical commit boundary.
-    let targetCoordinate;
-    try {
-      targetCoordinate = addTimeDuration(world.game_time_coordinate, durationMs);
-    } catch (error) {
-      const code = error.code === 'COORDINATE_OVERFLOW' ? 'TIME_COORDINATE_OVERFLOW' : (error.code || 'INVALID_TIME_COORDINATE');
-      throw new EngineError(code, error.message || 'Timed event target is outside the coordinate range.', 400);
-    }
-    assert(Number.isSafeInteger(expectedRevision) && expectedRevision >= 0,
-      'TIMED_EVENT_REVISION_REQUIRED', 'A direct timed commit requires expected_revision so trigger registration cannot race the time boundary.');
-    const due = this.store.listTimeTriggers(id)
-      .filter((trigger) => trigger.status === 'pending'
-        && trigger.due_coordinate > world.game_time_coordinate
-        && trigger.due_coordinate <= targetCoordinate)
-      .map((trigger) => trigger.trigger_id);
-    if (due.length) {
-      throw new EngineError('TIME_ADVANCE_OPERATION_REQUIRED',
-        'A direct timed commit cannot cross registered scheduled work; use the Core timed-action or time-advance operation.',
-        409, { trigger_ids: due, from_coordinate: world.game_time_coordinate, to_coordinate: targetCoordinate });
-    }
   }
 
   /**
