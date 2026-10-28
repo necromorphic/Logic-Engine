@@ -1141,11 +1141,10 @@ export class SQLiteStore {
     return this.db.prepare('SELECT COALESCE(MAX(commit_sequence),0) AS value FROM world_events WHERE world_id=?').get(worldId).value;
   }
 
-  // Derive a rollback-safe per-entity source token from the existing immutable
-  // event history plus durable rollback records. This adds no parallel ledger
-  // or schema: every source-affecting event remains in world_events, and each
-  // applied rollback remains in rollbacks. A rollback changes the token even
-  // when the restored projection reuses an earlier updated_revision.
+  // Derive a rollback-safe per-entity source token from the current canonical
+  // revision plus existing durable rollback records. No parallel ledger/schema
+  // is introduced. A rollback that rewinds updated_revision increments the
+  // entity-specific rollback component, preventing token reuse.
   canonicalEntitySourceState(worldId, entityId) {
     if (typeof worldId !== 'string' || !worldId.trim()
       || typeof entityId !== 'string' || !entityId.trim()) {
@@ -1156,35 +1155,40 @@ export class SQLiteStore {
       const world = this.world(worldId);
       if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
       const entity = this.db.prepare(
-        'SELECT entity_id,status,updated_revision FROM entities WHERE world_id=? AND entity_id=?',
+        'SELECT entity_id,status,updated_revision,created_by_event_id FROM entities WHERE world_id=? AND entity_id=?',
       ).get(worldId, entityId);
       if (!entity) throw new EngineError('ENTITY_NOT_FOUND', 'Entity not found.', 404);
+      if (!Number.isSafeInteger(entity.updated_revision) || entity.updated_revision < 1
+        || typeof entity.created_by_event_id !== 'string' || !entity.created_by_event_id) {
+        throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical entity revision is incomplete.', 503);
+      }
 
-      const events = this.db.prepare(
-        'SELECT event_id,commit_sequence,effects_json FROM world_events WHERE world_id=? ORDER BY commit_sequence,event_id',
-      ).all(worldId);
-      const sourceEventIds = new Set();
-      let maxSourceSequence = 0;
-      for (const event of events) {
+      const eventTouchesEntity = new Map();
+      const readEventTouchesEntity = (eventId) => {
+        if (eventTouchesEntity.has(eventId)) return eventTouchesEntity.get(eventId);
+        const event = this.db.prepare(
+          'SELECT effects_json FROM world_events WHERE world_id=? AND event_id=?',
+        ).get(worldId, eventId);
+        if (!event) {
+          throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical rollback history references a missing event.', 503);
+        }
         let effects;
         try { effects = dec(event.effects_json); } catch {
           throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical source history is malformed.', 503);
         }
-        if (!Array.isArray(effects) || typeof event.event_id !== 'string'
-          || !Number.isSafeInteger(event.commit_sequence) || event.commit_sequence < 1) {
+        if (!Array.isArray(effects)) {
           throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical source history is incomplete.', 503);
         }
-        let touchesEntity;
-        try { touchesEntity = refs(effects).includes('entity:' + entityId); } catch {
+        let touches;
+        try { touches = refs(effects).includes('entity:' + entityId); } catch {
           throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical source history is incomplete.', 503);
         }
-        if (touchesEntity) {
-          sourceEventIds.add(event.event_id);
-          maxSourceSequence = Math.max(maxSourceSequence, event.commit_sequence);
-        }
-      }
-      if (sourceEventIds.size === 0) {
-        throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'No canonical source history proves this entity version.', 503);
+        eventTouchesEntity.set(eventId, touches);
+        return touches;
+      };
+
+      if (!readEventTouchesEntity(entity.created_by_event_id)) {
+        throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Entity creation history does not match its identity.', 503);
       }
 
       const rollbackRows = this.db.prepare(
@@ -1199,7 +1203,14 @@ export class SQLiteStore {
         if (!Array.isArray(invalidated) || invalidated.some((id) => typeof id !== 'string')) {
           throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical rollback history is incomplete.', 503);
         }
-        if (invalidated.some((eventId) => sourceEventIds.has(eventId))) rollbackCount += 1;
+        let affectsEntity = false;
+        for (const eventId of invalidated) {
+          if (readEventTouchesEntity(eventId)) {
+            affectsEntity = true;
+            break;
+          }
+        }
+        if (affectsEntity) rollbackCount += 1;
       }
       if (!Number.isSafeInteger(rollbackCount)) {
         throw new EngineError('SOURCE_VERSION_UNVERIFIABLE', 'Canonical rollback history exceeds safe bounds.', 503);
@@ -1212,7 +1223,7 @@ export class SQLiteStore {
         updated_revision: entity.updated_revision,
         world_revision: world.world_revision,
         commit_sequence: this.currentCommitSequence(worldId),
-        source_version: `core-entity-v1:${maxSourceSequence}:${rollbackCount}`,
+        source_version: `core-entity-v1:${entity.updated_revision}:${rollbackCount}`,
       };
     };
 
