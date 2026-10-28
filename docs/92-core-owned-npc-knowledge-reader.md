@@ -22,7 +22,7 @@ The read result includes the snapshot cursor and source/acquisition provenance. 
 
 - readNpcKnowledge is an internal LogicEngine method and is not registered as an HTTP route.
 - The deployment must provide a real trusted authorizer. No default allow policy exists.
-- This is not yet an NPC belief/evidence reducer adapter. A successful read means “the Core has an active acquisition for this NPC,” not “the NPC believes the fact” or “the NPC should disclose it in every context.”
+- A successful read means only “the Core has an active acquisition for this NPC,” not “the NPC believes the fact” or “the NPC should disclose it in every context.” The separate belief/context contract is documented in `docs/93-core-npc-belief-transition-runtime.md` and remains subject to its own visibility and lifecycle gates.
 - There is no prompt injection or automatic Memory dispatch.
 - imported source ingestion remains disabled until a trusted importer exists.
 - Memory → NPC remains **DISABLED / FAIL-CLOSED** pending full lifecycle, visibility, disclosure, rollback, and integration review.
