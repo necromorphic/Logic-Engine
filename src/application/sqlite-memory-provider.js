@@ -816,6 +816,7 @@ export class SQLiteMemoryProvider {
   }
 
   async authorizeCandidate(input) {
+    this.#assertAcceptedHeadCurrent();
     // Snapshot request identity before the first await. Caller mutation during
     // source validation must not rebind the final grant/readiness checks.
     if (!isPlainDataRecord(input)) return false;
@@ -1178,6 +1179,7 @@ export class SQLiteMemoryProvider {
   }
 
   async retrieveCandidates(scope) {
+    this.#assertAcceptedHeadCurrent();
     // Snapshot the scope before the first await. Reusing a mutable caller object
     // after getSnapshot() would let the eventual SQL query switch subjects.
     if (!isPlainDataRecord(scope)) throw new TypeError('Invalid Memory scope');
