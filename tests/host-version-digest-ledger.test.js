@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { HostVersionDigestLedger } from '../src/application/host-version-digest-ledger.js';
@@ -23,7 +23,7 @@ function setup(t, verifyInventorySnapshot = async () => true) {
 const digest = (text) => createHash('sha256').update(text).digest('hex');
 const tuple = { world_id: 'world-a', conversation_id: 'chat-a', message_id: 'message-a', version_id: 'version-a' };
 const entry = (overrides = {}) => ({
-  ...tuple, content_sha256: digest('sample raw message not stored'), active: true, deleted: false, ...overrides
+  ...tuple, parent_version_id: null, content_sha256: digest('sample raw message not stored'), active: true, deleted: false, ...overrides
 });
 
 test('ledger rejects missing, relative, and aliased coordinator paths before creating its database', (t) => {
@@ -60,7 +60,7 @@ test('bound capture resolves canonical scope while holding the shared coordinato
 
   const result = ledger.captureBoundVersion({
     adapterId: 'adapter-a', conversationId: 'chat-a',
-    message_id: 'message-a', version_id: 'version-a',
+    message_id: 'message-a', version_id: 'version-a', parent_version_id: null,
     content_sha256: digest('bound capture'), active: true, deleted: false,
     resolveBinding: ({ adapterId, conversationId }) => {
       assert.equal(adapterId, 'adapter-a');
@@ -73,7 +73,7 @@ test('bound capture resolves canonical scope while holding the shared coordinato
   assert.equal(ledger.db.prepare('SELECT world_id FROM host_version_digest_ledger').get().world_id, 'canonical-world');
   assert.throws(() => ledger.captureBoundVersion({
     adapterId: 'adapter-a', conversationId: 'chat-a', world_id: 'caller-world',
-    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('untrusted scope'),
+    message_id: 'message-b', version_id: 'version-b', parent_version_id: null, content_sha256: digest('untrusted scope'),
     active: false, deleted: false, resolveBinding: () => ({ world_id: 'caller-world', conversation_id: 'chat-a' }),
   }), /Invalid bound Host version entry/);
 });
@@ -95,7 +95,7 @@ test('Provider mutation entry points reject Proxy and accessor-backed records be
 
   let resolverCalls = 0;
   const boundEntry = {
-    adapterId: 'adapter-a', conversationId: 'chat-a', message_id: 'message-a', version_id: 'version-a',
+    adapterId: 'adapter-a', conversationId: 'chat-a', message_id: 'message-a', version_id: 'version-a', parent_version_id: null,
     content_sha256: digest('bound'), active: true, deleted: false,
     resolveBinding: () => { resolverCalls += 1; return { world_id: 'world-a', conversation_id: 'chat-a' }; }
   };
@@ -171,8 +171,13 @@ test('reconciliation rejects metadata outside the current Provider snapshot shap
     status: 'non_ready', code: 'HOST_INVENTORY_INVALID'
   });
   assert.deepEqual(await ledger.reconcileConversation({
-    ...base, versions: [entry({ parent_version_id: 'unapproved-parent-field' })]
+    ...base, versions: [{ ...entry(), unapproved_parent_field: 'x' }]
   }), { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' });
+  const { parent_version_id: omittedParent, ...missingParent } = entry();
+  assert.equal(omittedParent, null);
+  assert.deepEqual(await ledger.reconcileConversation({ ...base, versions: [missingParent] }), {
+    status: 'non_ready', code: 'HOST_INVENTORY_INVALID'
+  });
 
   assert.equal(verifierCalls, 0);
   assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
@@ -292,7 +297,7 @@ test('duplicate identities in a snapshot are rejected', async (t) => {
 test('snapshot conflict is preflighted before any earlier version from that snapshot is applied', async (t) => {
   const ledger = setup(t);
   ledger.captureVersion(entry());
-  const newEntry = entry({ message_id: 'message-b', version_id: 'version-b', content_sha256: digest('new'), active: true });
+  const newEntry = entry({ message_id: 'message-b', version_id: 'version-b', parent_version_id: null, content_sha256: digest('new'), active: true });
   const conflict = entry({ content_sha256: digest('mutated bytes') });
   const result = await ledger.reconcileConversation({
     world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true,
@@ -344,20 +349,20 @@ test('ledger mutations after READY invalidate the published inventory state', as
   assert.equal((await ledger.reconcileConversation(snapshot([entry()]))).status, 'ready');
 
   ledger.captureVersion(entry({
-    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('second'), active: false
+    message_id: 'message-b', version_id: 'version-b', parent_version_id: null, content_sha256: digest('second'), active: false
   }));
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).failure_code,
     'HOST_LEDGER_MUTATED_AFTER_RECONCILIATION');
 
   assert.equal((await ledger.reconcileConversation(snapshot([entry(), entry({
-    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('second'), active: false
+    message_id: 'message-b', version_id: 'version-b', parent_version_id: null, content_sha256: digest('second'), active: false
   })]))).status, 'ready');
   ledger.selectActiveVersion({ ...tuple, message_id: 'message-b', version_id: 'version-b' });
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
 
   assert.equal((await ledger.reconcileConversation(snapshot([entry(), entry({
-    message_id: 'message-b', version_id: 'version-b', content_sha256: digest('second'), active: false
+    message_id: 'message-b', version_id: 'version-b', parent_version_id: null, content_sha256: digest('second'), active: false
   })]))).status, 'ready');
   ledger.tombstoneVersion(tuple);
   assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
@@ -712,3 +717,112 @@ test('untrusted incomplete snapshot cannot poison a caller-selected conversation
     .get(victim.world_id, victim.conversation_id).n, 1);
 });
 
+
+
+test('parent lineage is explicit, immutable, parent-first, and survives restart/tombstone', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-lineage-'));
+  const path = join(directory, 'ledger.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  let ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  const root = entry({ version_id: 'root-v', parent_version_id: null, active: false });
+  const child = entry({ version_id: 'child-v', parent_version_id: 'root-v', content_sha256: digest('child'), active: true });
+  const reconciled = await ledger.reconcileConversation({ world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [child, root] });
+  assert.equal(reconciled.status, 'ready');
+  assert.match(reconciled.snapshot_sha256, /^[a-f0-9]{64}$/);
+  const childRow = ledger.db.prepare('SELECT parent_version_id,lineage_status FROM host_version_digest_ledger WHERE version_id=?').get('child-v');
+  assert.deepEqual({ ...childRow }, { parent_version_id: 'root-v', lineage_status: 'VERIFIED' });
+  assert.deepEqual(ledger.tombstoneVersion({ world_id: tuple.world_id, conversation_id: tuple.conversation_id, message_id: tuple.message_id, version_id: 'child-v' }), { status: 'tombstoned' });
+  const tombstone = ledger.db.prepare('SELECT parent_version_id,lineage_status,lifecycle FROM host_version_digest_ledger WHERE version_id=?').get('child-v');
+  assert.deepEqual({ ...tombstone }, { parent_version_id: 'root-v', lineage_status: 'VERIFIED', lifecycle: 'tombstoned' });
+  ledger.close();
+  ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  assert.equal(ledger.db.prepare('SELECT parent_version_id FROM host_version_digest_ledger WHERE version_id=?').get('child-v').parent_version_id, 'root-v');
+  t.after(() => { try { ledger.close(); } catch {} rmSync(directory, { recursive: true, force: true }); });
+});
+
+test('changing parent_version_id for an immutable version_id fails closed', (t) => {
+  const ledger = setup(t);
+  assert.deepEqual(ledger.captureVersion(entry({ version_id: 'parent-v', parent_version_id: null })), { status: 'captured' });
+  assert.deepEqual(ledger.captureVersion(entry({ version_id: 'parent-v', parent_version_id: 'some-other-parent' })), {
+    status: 'non_ready', code: 'HOST_VERSION_PARENT_CONFLICT_OR_UNVERIFIED'
+  });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+});
+
+test('unknown, self-parent, cyclic and incomplete lineage chains fail closed before writes', async (t) => {
+  const ledger = setup(t);
+  const base = { world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true };
+  for (const version of [
+    entry({ version_id: 'child', parent_version_id: 'missing' }),
+    entry({ version_id: 'self', parent_version_id: 'self' }),
+  ]) {
+    const result = await ledger.reconcileConversation({ ...base, versions: [version] });
+    assert.equal(result.status, 'non_ready');
+  }
+  const cycle = await ledger.reconcileConversation({ ...base, versions: [
+    entry({ version_id: 'cycle-a', parent_version_id: 'cycle-b' }),
+    entry({ version_id: 'cycle-b', parent_version_id: 'cycle-a', active: false }),
+  ] });
+  assert.equal(cycle.status, 'non_ready');
+  assert.equal(cycle.code, 'HOST_VERSION_LINEAGE_CYCLE');
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+});
+
+test('joint Core/Provider database rollback cannot republish an older accepted snapshot while the independent anchor survives', async (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-rollback-anchor-'));
+  const path = join(directory, 'ledger.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const backupPath = join(directory, 'ledger-old.sqlite');
+  const backupCoordinatorPath = join(directory, 'coordinator-old.sqlite');
+  let ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  const root = entry({ version_id: 'rollback-root', parent_version_id: null, active: true });
+  const oldSnapshot = { world_id: tuple.world_id, conversation_id: tuple.conversation_id, complete: true, versions: [root] };
+  assert.equal((await ledger.reconcileConversation(oldSnapshot)).status, 'ready');
+  ledger.close();
+  copyFileSync(path, backupPath);
+  copyFileSync(coordinatorPath, backupCoordinatorPath);
+
+  ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  const newerRoot = { ...root, active: false };
+  const newerChild = entry({ version_id: 'rollback-child', parent_version_id: 'rollback-root', content_sha256: digest('new version'), active: true });
+  assert.equal((await ledger.reconcileConversation({ ...oldSnapshot, versions: [newerRoot, newerChild] })).status, 'ready');
+  ledger.close();
+
+  // Restore both databases to their old mutually-consistent snapshot; leave the
+  // independently persisted monotonic witness untouched.
+  copyFileSync(backupPath, path);
+  copyFileSync(backupCoordinatorPath, coordinatorPath);
+  ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  const rollback = await ledger.reconcileConversation(oldSnapshot);
+  assert.deepEqual(rollback, { status: 'non_ready', code: 'HOST_MONOTONIC_ANCHOR_MISMATCH' });
+  assert.equal(ledger.getInventoryState(tuple.world_id, tuple.conversation_id).status, 'NON_READY');
+  t.after(() => { try { ledger.close(); } catch {} rmSync(directory, { recursive: true, force: true }); });
+});
+
+
+test('legacy rows without provable ancestry remain LEGACY/UNVERIFIED and cannot be upgraded by guessing root', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-host-legacy-lineage-'));
+  const path = join(directory, 'ledger.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
+  const oldDb = new DatabaseSync(path);
+  oldDb.exec("CREATE TABLE host_version_digest_ledger (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, content_sha256 TEXT NOT NULL, lifecycle TEXT NOT NULL CHECK(lifecycle IN ('present','tombstoned')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tombstoned_at TEXT, PRIMARY KEY(world_id,conversation_id,message_id,version_id));");
+  oldDb.prepare("INSERT INTO host_version_digest_ledger VALUES(?,?,?,?,?,'present','2026-01-01T00:00:00.000Z','2026-01-01T00:00:00.000Z',NULL)")
+    .run(tuple.world_id, tuple.conversation_id, tuple.message_id, tuple.version_id, digest('sample raw message not stored'));
+  oldDb.close();
+  const ledger = new HostVersionDigestLedger({ path, coordinatorPath, verifyInventorySnapshot: async () => true });
+  const row = ledger.db.prepare('SELECT parent_version_id,lineage_status FROM host_version_digest_ledger WHERE version_id=?').get(tuple.version_id);
+  assert.equal(row.parent_version_id, null);
+  assert.equal(row.lineage_status, 'LEGACY/UNVERIFIED');
+  assert.deepEqual(ledger.captureVersion(entry({ parent_version_id: null })), {
+    status: 'non_ready', code: 'HOST_VERSION_PARENT_CONFLICT_OR_UNVERIFIED'
+  });
+  t.after(() => { try { ledger.close(); } catch {} rmSync(directory, { recursive: true, force: true }); });
+});
+
+test('a parent from another conversation is rejected as a cross-context link', (t) => {
+  const ledger = setup(t);
+  assert.deepEqual(ledger.captureVersion(entry({ conversation_id: 'other-chat', version_id: 'foreign-parent', parent_version_id: null })), { status: 'captured' });
+  assert.deepEqual(ledger.captureVersion(entry({ parent_version_id: 'foreign-parent' })), {
+    status: 'non_ready', code: 'HOST_VERSION_PARENT_UNKNOWN'
+  });
+});

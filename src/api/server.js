@@ -145,23 +145,25 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         const adapterId = adapterIdFor(req);
         if (!adapterId) return send(res, 403, { error: { code: 'ADAPTER_REQUIRED', message: 'An authenticated adapter identity is required.' } });
         const body = await readBody(req);
-        const allowed = ['conversation_id', 'message_id', 'version_id', 'content_sha256', 'active', 'deleted'];
+        const allowed = ['conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted'];
         if (!body || typeof body !== 'object' || Array.isArray(body)
           || Object.keys(body).some((key) => !allowed.includes(key))
           || !['conversation_id', 'message_id', 'version_id'].every((key) => typeof body[key] === 'string'
             && body[key] === body[key].trim() && body[key].length > 0 && body[key].length <= 200
             && ![...body[key]].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127))
+          || !Object.hasOwn(body, 'parent_version_id') || !(body.parent_version_id === null || (typeof body.parent_version_id === 'string' && body.parent_version_id === body.parent_version_id.trim() && body.parent_version_id.length > 0 && body.parent_version_id.length <= 200))
           || typeof body.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(body.content_sha256)
           || typeof body.active !== 'boolean' || typeof body.deleted !== 'boolean'
           || (body.deleted && body.active)) {
           throw new EngineError('INVALID_HOST_VERSION_CAPTURE',
-            'Capture accepts only conversation/message/version IDs, a SHA-256 digest, active and deleted flags; raw content and world_id are forbidden.', 400);
+            'Capture requires explicit parent_version_id (null only for a declared root); raw content and world_id are forbidden.', 400);
         }
         const result = hostVersionLedger.captureBoundVersion({
           adapterId,
           conversationId: body.conversation_id,
           message_id: body.message_id,
           version_id: body.version_id,
+          parent_version_id: body.parent_version_id,
           content_sha256: body.content_sha256,
           active: body.active,
           deleted: body.deleted,

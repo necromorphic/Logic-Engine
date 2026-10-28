@@ -4,6 +4,7 @@ import { isProxy } from 'node:util/types';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { openCoordinatorDatabase, beginCoordinatorLock } from '../storage/coordinator-lock.js';
+import { MonotonicSourceAnchor } from '../storage/monotonic-source-anchor.js';
 
 const validId = (v) => typeof v === 'string' && v === v.trim() && v.length > 0 && v.length <= 200;
 const validDigest = (v) => typeof v === 'string' && /^[a-f0-9]{64}$/.test(v);
@@ -25,7 +26,7 @@ const isPlainDataRecord = (value) => {
 const asyncFunctionPrototype = Object.getPrototypeOf(async function asyncFunctionPrototypeMarker() {});
 const snapshotInputKeys = new Set(['world_id', 'conversation_id', 'complete', 'versions']);
 const versionInputKeys = new Set([
-  'world_id', 'conversation_id', 'message_id', 'version_id', 'content_sha256', 'active', 'deleted'
+  'world_id', 'conversation_id', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted'
 ]);
 const isPlainDataArray = (value) => {
   if (!Array.isArray(value) || isProxy(value) || Object.getPrototypeOf(value) !== Array.prototype) return false;
@@ -81,6 +82,7 @@ export class HostVersionDigestLedger {
       throw new TypeError('A trusted inventory verifier is required');
     }
     this.verifyInventorySnapshot = verifyInventorySnapshot;
+    this.monotonicAnchor = new MonotonicSourceAnchor(resolve(coordinatorPath) + '.monotonic-anchor.log');
     this.coordinator = openCoordinatorDatabase(coordinatorPath);
     this.db = null;
     let startupError = null;
@@ -91,11 +93,16 @@ export class HostVersionDigestLedger {
       this.db.exec([
         'PRAGMA foreign_keys=ON;',
         'PRAGMA busy_timeout=5000;',
-        "CREATE TABLE IF NOT EXISTS host_version_digest_ledger (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, content_sha256 TEXT NOT NULL, lifecycle TEXT NOT NULL CHECK(lifecycle IN ('present','tombstoned')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tombstoned_at TEXT, PRIMARY KEY(world_id,conversation_id,message_id,version_id));",
+        "CREATE TABLE IF NOT EXISTS host_version_digest_ledger (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, content_sha256 TEXT NOT NULL, parent_version_id TEXT, lineage_status TEXT NOT NULL DEFAULT 'LEGACY/UNVERIFIED' CHECK(lineage_status IN ('VERIFIED','LEGACY/UNVERIFIED')), lifecycle TEXT NOT NULL CHECK(lifecycle IN ('present','tombstoned')), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, tombstoned_at TEXT, PRIMARY KEY(world_id,conversation_id,message_id,version_id));",
         'CREATE TABLE IF NOT EXISTS host_version_active_pointer (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, updated_at TEXT NOT NULL, PRIMARY KEY(world_id,conversation_id,message_id), FOREIGN KEY(world_id,conversation_id,message_id,version_id) REFERENCES host_version_digest_ledger(world_id,conversation_id,message_id,version_id));',
         'CREATE TABLE IF NOT EXISTS host_version_ledger_conflicts (id INTEGER PRIMARY KEY AUTOINCREMENT, world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL, version_id TEXT NOT NULL, persisted_digest TEXT NOT NULL, observed_digest TEXT NOT NULL, observed_at TEXT NOT NULL);',
         "CREATE TABLE IF NOT EXISTS host_version_inventory_state (world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, status TEXT NOT NULL CHECK(status IN ('NON_READY','READY')), snapshot_digest TEXT, failure_code TEXT, updated_at TEXT NOT NULL, PRIMARY KEY(world_id,conversation_id));"
       ].join('\n'));
+      // Rows from the old schema have no provable ancestry; missing is not a root.
+      const ledgerColumns = new Set(this.db.prepare('PRAGMA table_info(host_version_digest_ledger)').all().map((column) => column.name));
+      if (!ledgerColumns.has('parent_version_id')) this.db.exec('ALTER TABLE host_version_digest_ledger ADD COLUMN parent_version_id TEXT');
+      if (!ledgerColumns.has('lineage_status')) this.db.exec("ALTER TABLE host_version_digest_ledger ADD COLUMN lineage_status TEXT NOT NULL DEFAULT 'LEGACY/UNVERIFIED'");
+      this.db.exec("UPDATE host_version_digest_ledger SET lineage_status='LEGACY/UNVERIFIED' WHERE lineage_status IS NULL OR lineage_status=''");
     } catch (error) {
       startupError = error;
     } finally {
@@ -122,7 +129,7 @@ export class HostVersionDigestLedger {
   }
 
   #fingerprint(worldId, conversationId) {
-    const versions = this.db.prepare('SELECT message_id,version_id,content_sha256,lifecycle,created_at,updated_at,tombstoned_at FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? ORDER BY message_id,version_id')
+    const versions = this.db.prepare('SELECT message_id,version_id,content_sha256,parent_version_id,lineage_status,lifecycle,created_at,updated_at,tombstoned_at FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? ORDER BY message_id,version_id')
       .all(worldId, conversationId);
     const pointers = this.db.prepare('SELECT message_id,version_id,updated_at FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? ORDER BY message_id')
       .all(worldId, conversationId);
@@ -133,11 +140,11 @@ export class HostVersionDigestLedger {
   }
 
   #matchesSnapshot(snapshot) {
-    const stored = this.db.prepare('SELECT world_id,conversation_id,message_id,version_id,content_sha256,lifecycle FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? ORDER BY message_id,version_id')
+    const stored = this.db.prepare('SELECT world_id,conversation_id,message_id,version_id,content_sha256,parent_version_id,lineage_status,lifecycle FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? ORDER BY message_id,version_id')
       .all(snapshot.world_id, snapshot.conversation_id);
     const expected = snapshot.versions.map((v) => ({
       world_id: v.world_id, conversation_id: v.conversation_id, message_id: v.message_id,
-      version_id: v.version_id, content_sha256: v.content_sha256, lifecycle: v.deleted ? 'tombstoned' : 'present'
+      version_id: v.version_id, content_sha256: v.content_sha256, parent_version_id: v.parent_version_id, lineage_status: 'VERIFIED', lifecycle: v.deleted ? 'tombstoned' : 'present'
     })).sort((a, b) => a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id));
     if (JSON.stringify(stored) !== JSON.stringify(expected)) return false;
     const pointers = this.db.prepare('SELECT message_id,version_id FROM host_version_active_pointer WHERE world_id=? AND conversation_id=? ORDER BY message_id')
@@ -180,6 +187,22 @@ export class HostVersionDigestLedger {
 
   #put(v, now) {
     const prior = this.#get(v);
+    if (prior && (prior.parent_version_id !== v.parent_version_id || prior.lineage_status !== 'VERIFIED')) {
+      this.#markNonReady(v.world_id, v.conversation_id, 'HOST_VERSION_PARENT_CONFLICT_OR_UNVERIFIED', now);
+      return { status: 'non_ready', code: 'HOST_VERSION_PARENT_CONFLICT_OR_UNVERIFIED' };
+    }
+    if (v.parent_version_id === v.version_id) {
+      this.#markNonReady(v.world_id, v.conversation_id, 'HOST_VERSION_LINEAGE_SELF_PARENT', now);
+      return { status: 'non_ready', code: 'HOST_VERSION_LINEAGE_SELF_PARENT' };
+    }
+    if (v.parent_version_id !== null) {
+      const parent = this.db.prepare('SELECT world_id,conversation_id,message_id,version_id,lineage_status FROM host_version_digest_ledger WHERE world_id=? AND conversation_id=? AND message_id=? AND version_id=?')
+        .get(v.world_id, v.conversation_id, v.message_id, v.parent_version_id);
+      if (!parent || parent.lineage_status !== 'VERIFIED') {
+        this.#markNonReady(v.world_id, v.conversation_id, parent ? 'HOST_VERSION_LINEAGE_INVALID' : 'HOST_VERSION_PARENT_UNKNOWN', now);
+        return { status: 'non_ready', code: parent ? 'HOST_VERSION_LINEAGE_INVALID' : 'HOST_VERSION_PARENT_UNKNOWN' };
+      }
+    }
     if (prior && prior.content_sha256 !== v.content_sha256) {
       this.db.prepare('INSERT INTO host_version_ledger_conflicts (world_id,conversation_id,message_id,version_id,persisted_digest,observed_digest,observed_at) VALUES(?,?,?,?,?,?,?)')
         .run(...tuple(v), prior.content_sha256, v.content_sha256, now);
@@ -200,8 +223,8 @@ export class HostVersionDigestLedger {
       }
       return { status: prior.lifecycle === 'tombstoned' ? 'tombstoned' : 'duplicate' };
     }
-    this.db.prepare('INSERT INTO host_version_digest_ledger (world_id,conversation_id,message_id,version_id,content_sha256,lifecycle,created_at,updated_at,tombstoned_at) VALUES(?,?,?,?,?,?,?,?,?)')
-      .run(...tuple(v), v.content_sha256, v.deleted ? 'tombstoned' : 'present', now, now, v.deleted ? now : null);
+    this.db.prepare("INSERT INTO host_version_digest_ledger (world_id,conversation_id,message_id,version_id,content_sha256,parent_version_id,lineage_status,lifecycle,created_at,updated_at,tombstoned_at) VALUES(?,?,?,?,?,?, 'VERIFIED', ?,?,?,?)")
+      .run(...tuple(v), v.content_sha256, v.parent_version_id, v.deleted ? 'tombstoned' : 'present', now, now, v.deleted ? now : null);
     if (v.active && !v.deleted) this.#setActive(v, now);
     return { status: v.deleted ? 'tombstoned' : 'captured' };
   }
@@ -212,7 +235,8 @@ export class HostVersionDigestLedger {
   }
 
   captureVersion(v) {
-    if (!isPlainDataRecord(v) || !validTuple(v) || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
+    if (!isPlainDataRecord(v) || !validTuple(v) || !Object.hasOwn(v, 'parent_version_id') || !(v.parent_version_id === null || validId(v.parent_version_id)) || !Object.hasOwn(v, 'parent_version_id') || !(v.parent_version_id === null || validId(v.parent_version_id))
+        || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
       throw new TypeError('Invalid digest-only Host version entry');
     }
     return this.#write(() => this.#captureVersionInWrite(v));
@@ -224,13 +248,14 @@ export class HostVersionDigestLedger {
    * (including revocation) can interleave. The callback must be synchronous.
    */
   captureBoundVersion(v) {
-    const allowedKeys = new Set(['adapterId', 'conversationId', 'message_id', 'version_id', 'content_sha256', 'active', 'deleted', 'resolveBinding']);
+    const allowedKeys = new Set(['adapterId', 'conversationId', 'message_id', 'version_id', 'parent_version_id', 'content_sha256', 'active', 'deleted', 'resolveBinding']);
     if (!isPlainDataRecord(v)
       || Object.keys(v).some((key) => !allowedKeys.has(key))
       || !validId(v.adapterId) || !validId(v.conversationId)
       || typeof v.resolveBinding !== 'function'
       || typeof v.message_id !== 'string' || !validId(v.message_id)
       || typeof v.version_id !== 'string' || !validId(v.version_id)
+      || !Object.hasOwn(v, 'parent_version_id') || !(v.parent_version_id === null || validId(v.parent_version_id))
       || !validDigest(v.content_sha256)
       || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean'
       || (v.deleted && v.active)) {
@@ -251,6 +276,7 @@ export class HostVersionDigestLedger {
         conversation_id: binding.conversation_id,
         message_id: v.message_id,
         version_id: v.version_id,
+        parent_version_id: v.parent_version_id,
         content_sha256: v.content_sha256,
         active: v.active,
         deleted: v.deleted,
@@ -356,7 +382,9 @@ export class HostVersionDigestLedger {
     if (Object.keys(input).some((key) => !snapshotInputKeys.has(key))
       || typeof input.complete !== 'boolean' || !isPlainDataArray(input.versions)
       || input.versions.some((v) => !isPlainDataRecord(v)
-        || Object.keys(v).some((key) => !versionInputKeys.has(key)))) {
+        || Object.keys(v).some((key) => !versionInputKeys.has(key))
+        || !Object.hasOwn(v, 'parent_version_id')
+        || (v.parent_version_id !== null && !validId(v.parent_version_id)))) {
       return { status: 'non_ready', code: 'HOST_INVENTORY_INVALID' };
     }
     // Snapshot caller input synchronously before the first await. Validation,
@@ -406,6 +434,8 @@ export class HostVersionDigestLedger {
     const seen = new Set();
     for (const v of snapshot.versions) {
       if (!validTuple(v) || v.world_id !== snapshot.world_id || v.conversation_id !== snapshot.conversation_id
+        || !Object.hasOwn(v, 'parent_version_id')
+        || (v.parent_version_id !== null && !validId(v.parent_version_id))
         || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
         return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INVALID', true);
       }
@@ -426,11 +456,36 @@ export class HostVersionDigestLedger {
       if (activeByMessage.has(key)) return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_MULTIPLE_ACTIVE_VERSIONS', true);
       activeByMessage.add(key);
     }
-    const canonical = snapshot.versions.map((v) => [...tuple(v), v.content_sha256, v.active, v.deleted])
+    const byVersionInMessage = new Map(snapshot.versions.map((v) => [JSON.stringify([v.world_id, v.conversation_id, v.message_id, v.version_id]), v]));
+    const visitState = new Map();
+    const orderedVersions = [];
+    const visit = (v) => {
+      const key = JSON.stringify(tuple(v));
+      const state = visitState.get(key);
+      if (state === 1) return 'HOST_VERSION_LINEAGE_CYCLE';
+      if (state === 2) return null;
+      visitState.set(key, 1);
+      if (v.parent_version_id !== null) {
+        if (v.parent_version_id === v.version_id) return 'HOST_VERSION_LINEAGE_SELF_PARENT';
+        const parent = byVersionInMessage.get(JSON.stringify([v.world_id, v.conversation_id, v.message_id, v.parent_version_id]));
+        if (!parent) return 'HOST_VERSION_PARENT_UNKNOWN_OR_HISTORY_INCOMPLETE';
+        const error = visit(parent);
+        if (error) return error;
+      }
+      visitState.set(key, 2);
+      orderedVersions.push(v);
+      return null;
+    };
+    for (const v of snapshot.versions) {
+      const lineageError = visit(v);
+      if (lineageError) return this.#rejectSnapshot(snapshot, lineageError, true);
+    }
+    snapshot = Object.freeze({ ...snapshot, versions: Object.freeze(orderedVersions) });
+    const canonical = snapshot.versions.map((v) => [...tuple(v), v.parent_version_id, v.content_sha256, v.active, v.deleted])
       .sort((a, b) => JSON.stringify(a).localeCompare(JSON.stringify(b)));
     const snapshotDigest = digest(JSON.stringify(canonical));
     return this.#write(() => {
-      const currentState = this.db.prepare('SELECT status,failure_code,updated_at FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
+      const currentState = this.db.prepare('SELECT status,failure_code,updated_at,snapshot_digest FROM host_version_inventory_state WHERE world_id=? AND conversation_id=?')
         .get(snapshot.world_id, snapshot.conversation_id) ?? null;
       const invalidatedDuringVerification = currentState?.status === 'NON_READY'
         && currentState.updated_at !== (preVerification.state?.updated_at ?? null);
@@ -454,6 +509,10 @@ export class HostVersionDigestLedger {
       // must not leave earlier entries from the same snapshot partially applied.
       for (const v of snapshot.versions) {
         const prior = this.#get(v);
+        if (prior && (prior.parent_version_id !== v.parent_version_id || prior.lineage_status !== 'VERIFIED')) {
+          this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_VERSION_PARENT_CONFLICT_OR_UNVERIFIED', now, snapshotDigest);
+          return { status: 'non_ready', code: 'HOST_VERSION_PARENT_CONFLICT_OR_UNVERIFIED' };
+        }
         if (prior && prior.content_sha256 !== v.content_sha256) {
           this.db.prepare('INSERT INTO host_version_ledger_conflicts (world_id,conversation_id,message_id,version_id,persisted_digest,observed_digest,observed_at) VALUES(?,?,?,?,?,?,?)')
             .run(...tuple(v), prior.content_sha256, v.content_sha256, now);
@@ -464,6 +523,22 @@ export class HostVersionDigestLedger {
           this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_TOMBSTONE_REAPPEARED', now, snapshotDigest);
           return { status: 'non_ready', code: 'HOST_TOMBSTONE_REAPPEARED' };
         }
+      }
+      // The anchor is a separate append-only witness. If Core and Provider DBs are
+      // restored together to an older snapshot while the anchor survives, this CAS
+      // rejects the rollback before READY can be republished.
+      let anchorAdvanced = false;
+      try {
+        anchorAdvanced = this.monotonicAnchor.advance({
+          world_id: snapshot.world_id,
+          conversation_id: snapshot.conversation_id,
+          expected_snapshot_sha256: currentState?.snapshot_digest ?? null,
+          next_snapshot_sha256: snapshotDigest,
+        });
+      } catch { anchorAdvanced = false; }
+      if (!anchorAdvanced) {
+        this.#markNonReady(snapshot.world_id, snapshot.conversation_id, 'HOST_MONOTONIC_ANCHOR_MISMATCH', now, snapshotDigest);
+        return { status: 'non_ready', code: 'HOST_MONOTONIC_ANCHOR_MISMATCH' };
       }
       // The verified snapshot is authoritative for active pointers: remove stale
       // pointers for this conversation, then rebuild them from the validated inventory.

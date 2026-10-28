@@ -72,6 +72,31 @@ export class MemoryNpcConsumer {
     this.contentFields = Object.freeze([...contentFields]);
   }
 
+  /**
+   * Re-read Core sources and Memory authorization immediately before the Host
+   * begins a protected dispatch. This is a freshness check, not a transport
+   * lease: Host must still serialize this call with durable DISPATCH_STARTED
+   * and the only outbound Gateway path to close the remaining TOCTOU window.
+   */
+  async revalidateForFinalDispatch(request, preparedResult) {
+    if (!object(preparedResult) || preparedResult.status !== 'ready'
+      || !Array.isArray(preparedResult.admitted) || !Array.isArray(preparedResult.candidates)
+      || !validSnapshot(preparedResult.snapshot)) {
+      return nonReady('prepared_dispatch_result_invalid');
+    }
+    let current;
+    try { current = await this.retrieveForNpc(request); }
+    catch { return nonReady('final_dispatch_revalidation_unavailable'); }
+    if (current.status !== 'ready') return nonReady('final_dispatch_source_not_current');
+    if (!isDeepStrictEqual(current, preparedResult)) {
+      return nonReady('final_dispatch_source_or_authorization_changed');
+    }
+    // Return the freshly re-read values; callers must not dispatch the stale
+    // prepared object. This object alone does not authorize bypassing Host's
+    // durable dispatch-start/sole-egress gateway contract.
+    return current;
+  }
+
   async retrieveForNpc(request) {
     let worldId;
     let adapterId;
