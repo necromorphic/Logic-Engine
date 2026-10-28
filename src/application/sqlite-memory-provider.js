@@ -743,19 +743,6 @@ export class SQLiteMemoryProvider {
       throw new Error('MEMORY_SOURCE_VERSION_UNVERIFIABLE');
     }
 
-    // Re-read Core after the awaited source validator. A source can change
-    // after validation but before Provider authorization completes; comparing
-    // the composite cursor with the last reconciled snapshot fails closed.
-    let latestCoreSnapshot;
-    try { latestCoreSnapshot = snapshotOf(await this.#getSnapshot(input.world_id)); }
-    catch { throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE'); }
-    if (!latestCoreSnapshot) throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
-    if (String(latestCoreSnapshot.world_revision) !== initialState.snapshot_revision
-      || String(latestCoreSnapshot.commit_sequence) !== initialState.snapshot_sequence) {
-      this.#setState(input.world_id, 'stale', 'stale', null, 'SNAPSHOT_STALE');
-      throw new Error('MEMORY_SNAPSHOT_STALE');
-    }
-
     // The external source-version validator above may await and therefore must
     // never hold the shared lock. Final Provider-side grant, revocation, and
     // readiness checks run synchronously under both the coordinator lease and
