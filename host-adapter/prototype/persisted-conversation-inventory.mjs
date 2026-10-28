@@ -16,7 +16,7 @@ const validUuid = value => typeof value === 'string'
 const validDigest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
 const sameFileIdentity = (a, b) => a.dev === b.dev
   && (a.ino === b.ino || (process.platform === 'win32' && (!a.ino || !b.ino)));
-const sameStat = (a, b) => sameFileIdentity(a, b)
+const sameStat = (a, b) => (process.platform === 'win32' || sameFileIdentity(a, b))
   && a.size === b.size && a.mtimeMs === b.mtimeMs;
 const digestHostValue = value => sha256(JSON.stringify(String(value)));
 
@@ -30,7 +30,15 @@ async function readStableFile(absolutePath, fs) {
     const bytes = await handle.readFile();
     const afterHandle = await handle.stat();
     const afterPath = await fs.lstat(absolutePath);
-    if (!sameStat(opened, afterHandle) || !sameStat(opened, afterPath) || bytes.length !== afterHandle.size) {
+    const pathHandle = await fs.open(absolutePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
+    let pathBytes;
+    try {
+      pathBytes = await pathHandle.readFile();
+    } finally {
+      await pathHandle.close().catch(() => {});
+    }
+    if (!sameStat(opened, afterHandle) || !sameStat(opened, afterPath)
+        || bytes.length !== afterHandle.size || !pathBytes.equals(bytes)) {
       throw Error('ARTIFACT_CHANGED_DURING_READ');
     }
     return bytes.toString('utf8');
