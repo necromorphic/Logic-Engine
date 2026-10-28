@@ -213,6 +213,46 @@ Source inspected: `src/endpoints/backends/chat-completions.js` at pinned SillyTa
 
 Trace the dispatcher to each C01–C13 call site and record the branch predicate, final target/header/body construction, response/streaming behavior, and any early return. Then extend the same inventory to the separate Text Completions and other enabled model-capable routes. No runtime hook, route allowlist, new API/schema, or production wiring is introduced by this audit. Each unreviewed path remains unsupported for protected Memory→NPC content pending exact-diff Core approval and a real no-egress/revocation-race test.
 
+## Provider-neutral Text Completions and adjacent model-call inventory (pinned source, 28 Oct 2026)
+
+Source inspected: `src/endpoints/backends/text-completions.js` at pinned SillyTavern SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`. Line numbers are 1-based in that exact file. This file combines user-turn generation with model discovery, diagnostics, captioning, and model-management operations; these must not be treated as one policy class.
+
+### User-turn generation
+
+| Call-site ID | Source line(s) | Route/function | Final request construction | Disposition |
+|---|---:|---|---|---|
+| T01 | 402 | `POST /generate`, streaming Ollama | `url` selected by `api_type`; `args.body` is rebuilt into the local-model request shape at lines 391–399 | Independent final-send branch |
+| T02 | 405 | `POST /generate`, streaming non-Ollama | Uses `url` and the fully transformed `args`; filtering/rewrites occur at lines 336–399 | Independent final-send branch |
+| T03 | 409 | `POST /generate`, non-streaming | Same transformation family as T02, but separate fetch branch and response handling | Independent final-send branch |
+
+The outbound target is derived from the request's `api_server` and `api_type` at lines 276–324. The serialized body is initially formed at lines 326–332 and then rewritten for multiple API types through line 399. Therefore, any future enforcement point must see the final `url`, final headers and exact final `args.body` after all rewrites. An earlier check would authorize a different request than the one sent. T01, T02 and T03 must all be covered; a streaming/non-streaming branch split is a bypass risk if only one is gated.
+
+### Other outbound calls in the same file
+
+| Call-site ID | Source line(s) | Purpose | Classification |
+|---|---:|---|---|
+| T-AUX01 | 89 | Abort an in-flight generation request | Cancellation control path; not a new generation request |
+| T-AUX02 | 153 | Fetch model list | Discovery traffic |
+| T-AUX03 | 191, 208 | Fetch model metadata/info | Discovery/configuration traffic |
+| T-AUX04 | 251 | Fetch backend properties | Configuration/diagnostic traffic |
+| T-AUX05 | 453 | Pull/download a model | Model-management operation |
+| T-AUX06 | 484 | Caption an image through a model | Separate inference path; request includes prompt and image data |
+| T-AUX07 | 530 | Fetch local backend properties | Configuration/diagnostic traffic |
+| T-AUX08 | 563, 574 | Query or mutate local backend slots | State-management path; some operations are destructive |
+| T-AUX09 | 614, 630 | Check permissions and download a model | Model-management path with two outbound calls |
+
+This list is based on direct `fetch` call sites in the pinned file. It does not imply every listed route should be subject to the same protected Memory→NPC policy. The image-caption path is model inference but is not the ordinary text-generation route; it needs an explicit scope decision. Model downloads and slot mutations need separate authorization/safety rules, not accidental inclusion in an inference gate.
+
+### Source-level disclosure finding
+
+At line 282, `POST /generate` logs the full inbound `request.body`. That body can contain prompts and generation input. At line 481, the image-caption route logs its full request body, which can contain the caption prompt and image data. These are potential sensitive-data disclosures in server logs. This audit records the findings only; no logging code is changed here.
+
+### Coverage limit and next step
+
+Together with the Chat Completions matrix above, this establishes that the pinned backend files have multiple distinct generation send boundaries plus auxiliary model-capable routes. It does not establish a universal interception point or complete coverage of every model-capable endpoint, extension, native caller, or custom route.
+
+Next: trace how the pinned server mounts these routers, inventory other model-capable endpoint files and extension routes, and classify each path as (a) protected user-turn inference, (b) other inference such as captioning, (c) discovery/diagnostic, or (d) management/control. Every unreviewed path remains unsupported for protected Memory→NPC content. No runtime hook, API/schema, or production wiring is introduced by this source audit.
+
 ## Target-aware destructive/import guard follow-up (26 Oct 2026)
 
 The pinned candidate now checks the affected chat locator before direct single-chat delete paths and direct group-chat rename. Bulk group/character deletion, chat import, and chat-backup restore fail closed whenever any Host enrollment marker exists, because the current prototype cannot prove a complete inventory for every affected non-current chat. These guards prevent known UI entry points from silently mutating an enrolled history; they do not make those operations supported or provide tombstone-complete deletion.
