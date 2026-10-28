@@ -1,14 +1,20 @@
-import { hostLocatorHasEnrollment } from './conversation-identity.mjs';
+import { hasAnyHostEnrollment, hostLocatorHasEnrollment } from './conversation-identity.mjs';
 
 /**
  * Fail closed for enrolled Host conversations until the PC-side dispatch
  * authority owns final authorization and the only upstream transport.
- * Ordinary non-enrolled conversations retain native SillyTavern behavior.
+ *
+ * If any Host enrollment exists but this locator has lost its own markers,
+ * treat the missing binding as ambiguous/corrupt state, not proof that the
+ * conversation is unprotected. This intentionally blocks unknown chats once
+ * the installation has enrolled Host conversations.
  */
 export function assertProtectedDispatchAllowed({ locator, storage = globalThis.localStorage } = {}) {
   let enrolled = true;
   try {
-    enrolled = hostLocatorHasEnrollment(locator, storage);
+    const locatorEnrolled = hostLocatorHasEnrollment(locator, storage);
+    const installationHasEnrollments = hasAnyHostEnrollment(storage);
+    enrolled = locatorEnrolled || installationHasEnrollments;
   } catch {
     enrolled = true;
   }
