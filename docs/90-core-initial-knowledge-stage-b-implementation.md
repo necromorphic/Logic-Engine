@@ -43,4 +43,9 @@ Memory → NPC remains **DISABLED / FAIL-CLOSED**. This PR does not authorize a 
 
 ## Test evidence
 
-The final status must be updated only from CI for the exact final PR head. Do not infer success from test-file existence or from an earlier commit.
+CI passed on implementation commit `65a7eeb229d5a2ad756b77d1b307e3b1b8d5a7d7`:
+- Runtime test suite: **1,028 passed, 0 failed**.
+- Provider acceptance suite: **20 passed, 0 failed**.
+- The six acquisition-specific integration tests passed, including Core-computed digest matching/mismatch, same-world validation, replay/duplicate behavior, and rollback invalidation.
+
+The subsequent report-only commit does not change runtime code. The PR remains a draft and is not merged; no production dispatch or Memory → NPC read path is enabled.
