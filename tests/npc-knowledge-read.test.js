@@ -91,6 +91,12 @@ function request(store, overrides = {}) {
   };
 }
 
+function propositionRefFor(item) {
+  return item.subject_ref && item.predicate
+    ? 'proposition:' + encodeURIComponent(item.subject_ref) + '/' + encodeURIComponent(item.predicate)
+    : 'proposition:fact/' + encodeURIComponent(item.fact_id);
+}
+
 
 test('untrusted reader requests with getters and proxies fail before access', () => {
   let invoked = false;
@@ -264,7 +270,7 @@ test('Core prepares an actor-bound belief context only after per-acquisition vis
     world_id: read.world_id,
     actor_id: read.actor_id,
     snapshot: read.snapshot,
-    proposition_ref: 'proposition:secret',
+    proposition_ref: propositionRefFor(read.items[0]),
     stance: 'believes_true',
     supporting_acquisition_ids: [read.items[0].acquisition_id],
     contradicting_acquisition_ids: [],
@@ -400,7 +406,7 @@ test('Core persists an explicit belief transition, supports idempotent replay, a
   const read = engine.readNpcKnowledge(current);
   const input = {
     ...current,
-    proposition_ref: 'proposition:npc-a-secret',
+    proposition_ref: propositionRefFor(read.items[0]),
     stance: 'believes_true',
     supporting_acquisition_ids: [read.items[0].acquisition_id],
     contradicting_acquisition_ids: [],
@@ -422,7 +428,7 @@ test('Core persists an explicit belief transition, supports idempotent replay, a
   const after = request(store);
   const state = engine.getNpcBeliefState({
     ...after,
-    proposition_ref: 'proposition:npc-a-secret',
+    proposition_ref: input.proposition_ref,
   });
   assert.equal(state.status, 'ready');
   assert.equal(state.stance, 'believes_true');
@@ -436,7 +442,7 @@ test('belief transition idempotency key cannot be reused for a different stance'
   const read = engine.readNpcKnowledge(current);
   const input = {
     ...current,
-    proposition_ref: 'proposition:npc-a-secret',
+    proposition_ref: propositionRefFor(read.items[0]),
     stance: 'believes_true',
     supporting_acquisition_ids: [read.items[0].acquisition_id],
     contradicting_acquisition_ids: [],
@@ -470,7 +476,7 @@ test('rollback of an acquisition invalidates its belief support but preserves th
   const fresh = request(store);
   const state = engine.getNpcBeliefState({
     ...fresh,
-    proposition_ref: 'proposition:npc-a-secret',
+    proposition_ref: propositionRefFor(read.items[0]),
   });
   assert.equal(state.status, 'ready');
   assert.equal(state.stance, 'believes_true');
