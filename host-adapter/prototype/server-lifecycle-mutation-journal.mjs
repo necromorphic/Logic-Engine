@@ -56,7 +56,10 @@ function operationTargetsEnrolledHistory(operation, request, registry) {
     if (operation === 'group-chat-import') {
         return registry.conversations.some(conversation => conversation.domain === 'group_chats');
     }
-    if (operation === 'data-maid-delete') {
+    if (operation === 'data-maid-delete' || operation === 'backup-delete') {
+        // Backup deletion can destroy the only remaining copy of an enrolled
+        // chat version. Until backups have an identity-preserving lifecycle,
+        // reject the operation whenever any Host conversation is enrolled.
         return registry.conversations.length > 0;
     }
     if (operation === 'chat-delete') {
