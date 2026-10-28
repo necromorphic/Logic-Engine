@@ -72,7 +72,7 @@ test('request-bound capability permits a verified swipe-select and swipe-delete 
     user_name: 'unused',
     character_name: 'unused',
   };
-  const writeChat = records => writeFile(chatPath, records.map(record => JSON.stringify(record)).join('\\n'));
+  const writeChat = records => writeFile(chatPath, records.map(record => JSON.stringify(record)).join('\n'));
   const initialMessage = makeMessage({
     messageId,
     versions: [
@@ -148,7 +148,7 @@ test('request-bound capability permits a verified swipe-select and swipe-delete 
     await selectResponse.finished;
     assert.equal(selectReachedNativeSave, true);
     assert.equal(selectResponse.statusCode, 200);
-    assert.equal(await readFile(chatPath, 'utf8'), selectPayload.chat.map(JSON.stringify).join('\\n'));
+    assert.equal(await readFile(chatPath, 'utf8'), selectPayload.chat.map(JSON.stringify).join('\n'));
 
     // A replay of the same one-shot token is rejected before the native handler.
     const replayResponse = responseMock();
@@ -175,7 +175,7 @@ test('request-bound capability permits a verified swipe-select and swipe-delete 
     assert.equal(selectedInventory.complete, true);
     assert.equal(selectedInventory.currentVersionCount, 2);
     const journal = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
-    const records = journal.trim().split('\\n').map(line => JSON.parse(line));
+    const records = journal.trim().split('\n').map(line => JSON.parse(line));
     const committed = records.filter(record => record.kind === 'outcome' && record.status === 'COMMITTED');
     assert.equal(committed.length, 1);
     assert.ok(committed[0].versionChanges.some(change => change.change === 'ACTIVE_CHANGED' && change.version_id === version1));
