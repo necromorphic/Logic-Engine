@@ -145,6 +145,13 @@ This isolated validation branch preserves the current-main README and adds the f
 - `HOST-LIFECYCLE-INTERCEPTION-MATRIX.md`
 - `PINNED-SOURCE-INVENTORY-EVIDENCE.md`
 
-The latest candidate's server mutation journal refuses regular and group-chat saves that target enrolled histories until a request-bound, one-shot lifecycle capability exists. The same capability gap is covered by regression tests. This intentionally blocks edits/saves to enrolled histories; it is not a usable lifecycle-complete implementation.
+The current candidate accepts regular and group-chat saves for enrolled histories only when a server-issued, one-shot capability matches the authenticated session/user, exact route and path, current persisted-file and inventory digests, exact request-body digest, and expected post-state inventory. The accepted transition allowlist is deliberately narrow: no-op/metadata-only save, selecting an existing version, appending one version with preserved lineage, or appending one new message. Destructive edits, deletion, reorder, multi-transition saves, stale body/file state, replay, and expired capabilities fail closed before the native write. The post-intent prewrite check re-reads the target file with stable-stat/no-follow checks immediately before the native handler handoff.
 
 The current branch is validated by Draft PR #632. Passing CI does not establish a complete all-time history, a universal final-send boundary, independent anti-rollback protection, or target-PC ACL/restore evidence. Host capture/reconciliation remains `NON_READY`; production Memory→NPC remains `DISABLED / FAIL-CLOSED`. Do not merge this validation port until the required gates in the PR description are satisfied.
+
+
+## Request-bound save capability — exact-host validation update (29 Oct 2026)
+
+Regression coverage now includes real pinned SillyTavern regular and group save routes, rejection of enrolled chat deletion before mutation, one-shot/replay protection, stale request-body and persisted-file rejection, a deterministic post-intent prewrite race, expired-capability cleanup during preparation, supported append/select transitions, and rejection of destructive/reordered transitions without overwriting the file. These tests exercise the candidate against pinned SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
+
+CI results must be checked against the exact current branch HEAD. A passing run on an earlier commit does not validate later changes; the Windows pinned-source job and any in-progress exact-head jobs are not PASS until completed successfully. This remains repository test evidence, not live deployment evidence. Independent Core/security review, route-complete lifecycle coverage, external anti-rollback/ACL-restore evidence, sole controlled Gateway egress and revocation-order proof, and live SillyTavern/Android-Termux validation remain required. Host readiness remains `NON_READY`; Memory→NPC remains `DISABLED / FAIL-CLOSED`.
