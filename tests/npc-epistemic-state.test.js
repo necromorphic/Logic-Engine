@@ -182,6 +182,8 @@ test("reducer does not mutate input state or event", () => {
 test("nested getters and proxy inputs fail closed without executing getters", () => {
   let invoked = false;
   const event = {
+    world_id: "world-a",
+    subject_id: "npc-1",
     type: "information_received",
     event_ref: "receipt-1",
     source_ref: "message-1",
@@ -191,9 +193,11 @@ test("nested getters and proxy inputs fail closed without executing getters", ()
     enumerable: true,
     get() { invoked = true; return "unsafe"; },
   });
-  assert.equal(apply(emptyState(), event).status, "non_ready");
+  assert.equal(applyNpcEpistemicEvent(emptyState(), event).status, "non_ready");
   assert.equal(invoked, false);
-  assert.equal(apply(new Proxy(emptyState(), {}), {
+  assert.equal(applyNpcEpistemicEvent(new Proxy(emptyState(), {}), {
+    world_id: "world-a",
+    subject_id: "npc-1",
     type: "information_received",
     event_ref: "receipt-1",
     source_ref: "message-1",
