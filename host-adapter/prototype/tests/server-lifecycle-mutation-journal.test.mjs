@@ -614,7 +614,7 @@ test('deleting an enrolled journal fails closed instead of starting a new empty 
         await response.finished;
         assert.equal(reachedHandler, false);
         assert.equal(response.statusCode, 503);
-        assert.match(String(response.body), /HOST_JOURNAL_PREPARE_FAILED/);
+        assert.match(String(response.body), /HOST_JOURNAL_UNAVAILABLE/);
     } finally {
         await rm(root, { recursive: true, force: true });
     }
