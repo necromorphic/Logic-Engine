@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -170,6 +170,36 @@ test('Provider mutations advance accepted head before commit and fail closed whe
       assert.ok(after > before, 'Provider-visible mutation must advance the accepted head');
       assert.equal(getAcceptedHeadsSync({ port, token: providerToken }).provider, after);
     };
+
+    // Restore an older Provider-only backup while the independent authority
+    // remains newer. Startup must refuse service instead of trusting the
+    // restored local head. Restore the current copy afterwards for later checks.
+    const backupPath = join(directory, 'provider-old-backup.sqlite');
+    const latestPath = join(directory, 'provider-latest.sqlite');
+    provider.close();
+    provider = null;
+    copyFileSync(providerPath, backupPath);
+    provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
+    provider.grantQuery({ world_id: 'restore-world', subject_id: 'restore-npc', purpose: 'restore-check' }, true);
+    provider.close();
+    provider = null;
+    copyFileSync(providerPath, latestPath);
+    rmSync(providerPath, { force: true });
+    rmSync(providerPath + '-wal', { force: true });
+    rmSync(providerPath + '-shm', { force: true });
+    copyFileSync(backupPath, providerPath);
+    assert.throws(
+      () => new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath)),
+      /PROVIDER_ACCEPTED_HEAD_MISMATCH/,
+      'restoring an older Provider backup must fail closed against the newer independent head',
+    );
+    rmSync(providerPath, { force: true });
+    rmSync(providerPath + '-wal', { force: true });
+    rmSync(providerPath + '-shm', { force: true });
+    copyFileSync(latestPath, providerPath);
+    provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
+    rmSync(backupPath, { force: true });
+    rmSync(latestPath, { force: true });
 
     const record = {
       world_id: scope.world_id,
