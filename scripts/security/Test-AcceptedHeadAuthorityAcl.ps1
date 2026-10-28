@@ -14,7 +14,7 @@ try {
     New-LocalUser -Name $account -Password $securePassword -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
     $testAccounts += $account
     $accountName = "$env:COMPUTERNAME\$account"
-    & sc.exe create $service binPath= "$env:WINDIR\System32\cmd.exe /c exit" obj= $accountName password= $password start= demand | Out-Null
+    & sc.exe create $service binPath= "$env:WINDIR\System32\cmd.exe /c exit" obj= $accountName password= $password start= disabled | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Failed to create disposable service identity fixture for $role." }
     $testServices += $service
   }
@@ -46,7 +46,7 @@ try {
     New-Item -ItemType SymbolicLink -Path $sidecar -Target $outsideTarget | Out-Null
     $rejected = $false
     try {
-      & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $sidecarEvidence -Apply -Confirm:$false
+      & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $sidecarEvidence -Apply -MaintenanceWindowConfirmed -Confirm:$false
     } catch { $rejected = $_.Exception.Message -match 'reparse point' }
     if (-not $rejected) { throw 'An accepted-head SQLite sidecar symlink was not rejected specifically as a reparse point.' }
   } finally {
@@ -76,7 +76,7 @@ try {
   try {
     $rejected = $false
     try {
-      & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $unsafeDb -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $unsafeEvidence -Apply -Confirm:$false
+      & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $unsafeDb -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $unsafeEvidence -Apply -MaintenanceWindowConfirmed -Confirm:$false
     } catch { $rejected = $_.Exception.Message -match 'Parent path grants directory replacement/ACL-control rights' }
     if (-not $rejected) { throw 'A replaceable accepted-head authority parent path was not rejected specifically by parent ACL screening.' }
   } finally {
@@ -104,7 +104,7 @@ try {
     Set-Acl -LiteralPath $authorityUnsafeParent -AclObject $authorityParentAcl
     $rejected = $false
     try {
-      & .\\scripts\\security\\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $authorityUnsafeDb -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $authorityUnsafeEvidence -Apply -Confirm:$false
+      & .\\scripts\\security\\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $authorityUnsafeDb -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $authorityUnsafeEvidence -Apply -MaintenanceWindowConfirmed -Confirm:$false
     } catch { $rejected = $_.Exception.Message -match 'Parent path grants directory replacement/ACL-control rights' }
     if (-not $rejected) { throw 'Authority identity was incorrectly trusted for dangerous ancestor ACL rights.' }
   } finally {
@@ -130,7 +130,35 @@ try {
     if (Test-Path -LiteralPath $existingEvidence) { Remove-Item -LiteralPath $existingEvidence -Force }
   }
 
-  & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $evidence -Apply -Confirm:$false
+  # Regression: a stopped service that can still be started must fail the maintenance gate.
+  $startableServiceEvidence = $evidence + '.startable-service'
+  try {
+    & sc.exe config $testServices[0] start= demand | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not prepare disposable service fixture for start-mode gate test.' }
+    $rejected = $false
+    try {
+      & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $startableServiceEvidence -Apply -MaintenanceWindowConfirmed -Confirm:$false
+    } catch { $rejected = $_.Exception.Message -match 'must be Disabled and Stopped with PID 0' }
+    if (-not $rejected) { throw 'Apply was not refused when a service remained startable during maintenance.' }
+    if (-not (Test-Path -LiteralPath $startableServiceEvidence)) { throw 'Maintenance refusal did not record its evidence.' }
+    $startableReport = Get-Content -LiteralPath $startableServiceEvidence -Raw | ConvertFrom-Json
+    if ($startableReport.status -ne 'REFUSED_NO_ACL_CHANGES') { throw 'Startable-service refusal did not record REFUSED_NO_ACL_CHANGES.' }
+  } finally {
+    & sc.exe config $testServices[0] start= disabled | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not restore disposable service fixture to disabled start mode.' }
+    if (Test-Path -LiteralPath $startableServiceEvidence) { Remove-Item -LiteralPath $startableServiceEvidence -Force }
+  }
+
+  # Regression: Apply must require an explicit maintenance-window attestation.
+  $noMaintenanceEvidence = $evidence + '.no-maintenance'
+  $rejected = $false
+  try {
+    & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $noMaintenanceEvidence -Apply -Confirm:$false
+  } catch { $rejected = $_.Exception.Message -match 'requires -MaintenanceWindowConfirmed' }
+  if (-not $rejected) { throw 'Apply was not refused when maintenance-window attestation was omitted.' }
+  if (Test-Path -LiteralPath $noMaintenanceEvidence) { throw 'Refused Apply unexpectedly created evidence or modified ACLs before maintenance attestation.' }
+
+  & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $evidence -Apply -MaintenanceWindowConfirmed -Confirm:$false
   $report = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
   if ($report.status -ne 'APPLIED_AND_ACL_SHAPE_VERIFIED') {
     throw "Unexpected ACL smoke status: $($report.status)"

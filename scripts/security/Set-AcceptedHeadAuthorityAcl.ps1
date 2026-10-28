@@ -10,7 +10,8 @@ param(
     [Parameter(Mandatory = $true)][string]$CoordinatorDbPath,
     [Parameter(Mandatory = $true)][string[]]$BackupRoots,
     [Parameter(Mandatory = $true)][string]$EvidencePath,
-    [switch]$Apply
+    [switch]$Apply,
+    [switch]$MaintenanceWindowConfirmed
 )
 
 Set-StrictMode -Version Latest
@@ -39,6 +40,19 @@ function Get-ServiceIdentity {
         account = $account
         sid = $sid
         processId = [int]$service.ProcessId
+    }
+}
+
+function Assert-MaintenanceWindow {
+    param([Parameter(Mandatory = $true)][string[]]$ServiceNames)
+    foreach ($name in $ServiceNames) {
+        $service = Get-CimInstance Win32_Service -ErrorAction Stop |
+            Where-Object { $_.Name -eq $name } |
+            Select-Object -First 1
+        if (-not $service) { throw "Required Windows service not found during maintenance check: $name" }
+        if ([string]$service.State -ne 'Stopped' -or [int]$service.ProcessId -ne 0 -or [string]$service.StartMode -ne 'Disabled') {
+            throw "Maintenance gate refused: service '$name' must be Disabled and Stopped with PID 0 (startMode=$($service.StartMode), state=$($service.State), pid=$($service.ProcessId)). No ACL mutation is permitted."
+        }
     }
 }
 
@@ -286,7 +300,11 @@ $report = [ordered]@{
     targetDirectory = $directory
     targetPaths = $targets
     priorAcl = $before
+    maintenanceWindowConfirmed = [bool]$MaintenanceWindowConfirmed
     limitations = @(
+        'Apply requires explicit operator attestation that the maintenance window is active and all authority DB/SQLite sidecar handles are closed.',
+        'The script requires all four named services to have StartMode Disabled, State Stopped, and PID 0 before and immediately before each ACL mutation; an external administrator can still re-enable/start a service, so this is not an OS-level lock.',
+        'The script cannot enumerate every arbitrary process handle; the operator attestation and approved handle-closure procedure remain required.',
         'Protects only the dedicated authority DB directory and current SQLite sidecars.',
         'Does not create or validate the authority service, protocol, monotonic semantics, or inventory authority.',
         'Administrators/SYSTEM remain trusted recovery principals; audited recovery controls are separate.',
@@ -301,6 +319,9 @@ if (-not $Apply) {
     Write-Output "PLAN_ONLY: authority identities and target paths recorded at $evidenceFullPath; no ACLs changed."
     exit 0
 }
+if (-not $MaintenanceWindowConfirmed) {
+    throw 'Apply requires -MaintenanceWindowConfirmed after the operator has verified the maintenance window and closed all authority DB/SQLite sidecar handles.'
+}
 if (-not $PSCmdlet.ShouldProcess($directory, 'Replace ACLs on the dedicated accepted-head authority database directory and SQLite files')) {
     Write-Output 'No ACL changes applied.'
     exit 0
@@ -311,14 +332,18 @@ if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.Win
     throw 'Applying the boundary requires an elevated PowerShell session.'
 }
 $evidenceStream = New-EvidenceStream -Path $evidenceFullPath
+$aclMutationStarted = $false
 try {
     Write-EvidenceReport -Stream $evidenceStream -Report $report
+    Assert-MaintenanceWindow -ServiceNames @($AuthorityServiceName, $CoreServiceName, $ProviderServiceName, $GatewayServiceName)
     foreach ($target in $targets) {
         Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints -TrustedSids $trustedParentSids
         $current = Get-Acl -LiteralPath $target
         $isDirectory = ([System.IO.File]::GetAttributes($target) -band [System.IO.FileAttributes]::Directory) -ne 0
         $replacement = New-AuthorityAcl -CurrentAcl $current -AuthorityAccount $authority.account -Directory:$isDirectory
         Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints -TrustedSids $trustedParentSids
+        Assert-MaintenanceWindow -ServiceNames @($AuthorityServiceName, $CoreServiceName, $ProviderServiceName, $GatewayServiceName)
+        $aclMutationStarted = $true
         Set-Acl -LiteralPath $target -AclObject $replacement
     }
     foreach ($target in $targets) {
@@ -339,20 +364,36 @@ try {
     Write-EvidenceReport -Stream $evidenceStream -Report $report
     Write-Output "APPLIED_AND_ACL_SHAPE_VERIFIED: evidence written to $evidenceFullPath."
 } catch {
-    $report.status = 'PARTIAL_OR_FAILED_APPLY'
+    $report.status = if ($aclMutationStarted) { 'PARTIAL_OR_FAILED_APPLY' } else { 'REFUSED_NO_ACL_CHANGES' }
     $report.error = $_.Exception.GetType().Name
     $rollbackErrors = @()
-    foreach ($prior in $before) {
+    if ($aclMutationStarted) {
+        $rollbackGatePassed = $true
         try {
-            $restoreAcl = Get-Acl -LiteralPath $prior.path
-            $restoreAcl.SetSecurityDescriptorSddlForm([string]$prior.sddl)
-            Set-Acl -LiteralPath $prior.path -AclObject $restoreAcl
+            Assert-MaintenanceWindow -ServiceNames @($AuthorityServiceName, $CoreServiceName, $ProviderServiceName, $GatewayServiceName)
         } catch {
-            $rollbackErrors += [pscustomobject]@{ path = $prior.path; error = $_.Exception.GetType().Name }
+            $rollbackGatePassed = $false
+            $rollbackErrors += [pscustomobject]@{ path = '<maintenance-gate>'; error = $_.Exception.GetType().Name }
         }
+        if ($rollbackGatePassed) {
+            foreach ($prior in $before) {
+                try {
+                    Assert-MaintenanceWindow -ServiceNames @($AuthorityServiceName, $CoreServiceName, $ProviderServiceName, $GatewayServiceName)
+                    $restoreAcl = Get-Acl -LiteralPath $prior.path
+                    $restoreAcl.SetSecurityDescriptorSddlForm([string]$prior.sddl)
+                    Set-Acl -LiteralPath $prior.path -AclObject $restoreAcl
+                } catch {
+                    $rollbackErrors += [pscustomobject]@{ path = $prior.path; error = $_.Exception.GetType().Name }
+                }
+            }
+        }
+        $report.rollback = if ($rollbackErrors.Count -eq 0) { 'RESTORED_PRIOR_SDDL' } else { 'ROLLBACK_INCOMPLETE' }
+        $report.rollbackErrors = $rollbackErrors
+    } else {
+        # Do not write ACLs during a fail-closed precondition refusal.
+        $report.rollback = 'NOT_NEEDED_NO_ACL_MUTATION_STARTED'
+        $report.rollbackErrors = @()
     }
-    $report.rollback = if ($rollbackErrors.Count -eq 0) { 'RESTORED_PRIOR_SDDL' } else { 'ROLLBACK_INCOMPLETE' }
-    $report.rollbackErrors = $rollbackErrors
     Write-EvidenceReport -Stream $evidenceStream -Report $report
     throw
 } finally {
