@@ -30,6 +30,20 @@ function isWithinPrefix(path, prefix) {
 }
 
 /**
+ * Preserve the existing SillyTavern vectorization routes explicitly excluded
+ * from this workstream. These exact endpoints are used for embedding/model
+ * discovery, not native chat generation. Do not broaden these exceptions.
+ */
+function isVectorizationCompatibilityRoute(path, method) {
+  const normalizedPath = typeof path === 'string' ? path.toLowerCase() : '';
+  const normalizedMethod = typeof method === 'string' ? method.toUpperCase() : '';
+  if (normalizedMethod !== 'POST') return false;
+  if (normalizedPath === '/api/backends/kobold/embed') return true;
+  if (normalizedPath === '/api/openrouter/models/embedding') return true;
+  return /^\/api\/openai\/(?:chutes\/models\/embedding|nanogpt\/models\/embedding|electronhub\/models|siliconflow\/models\/embedding|workers-ai\/models\/embedding)$/.test(normalizedPath);
+}
+
+/**
  * Deny-only deployment guard for SillyTavern's known model-capable and unclassified egress route
  * families. It intentionally does not proxy or authorize requests: the current
  * Core/Provider contract cannot yet prove inventory readiness or final-send
@@ -49,6 +63,7 @@ export function createProtectedDispatchDenyMiddleware({ env = process.env } = {}
     }
 
     const path = typeof request?.path === 'string' ? request.path : '';
+    if (isVectorizationCompatibilityRoute(path, request?.method)) return next();
     if (!PROTECTED_EGRESS_ROUTE_PREFIXES.some((prefix) => isWithinPrefix(path, prefix))) {
       return next();
     }
