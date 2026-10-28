@@ -275,11 +275,14 @@ function validateEffectJson(value, label) {
 export function validateEffects(effects, options = {}) {
   assertDenseDataArray(effects, 200, 'INVALID_EFFECTS', 'effects');
   assertPlainDataObject(options, 'INVALID_EFFECT_OPTIONS', 'Effect validation options');
-  if (Object.keys(options).some((key) => key !== 'allowRelationshipTransition')) {
+  if (Object.keys(options).some((key) => !['allowRelationshipTransition', 'allowKnowledgeAcquisition'].includes(key))) {
     throw new EngineError('INVALID_EFFECT_OPTIONS', 'Effect validation options contain an unsupported field.');
   }
   if (options.allowRelationshipTransition !== undefined && typeof options.allowRelationshipTransition !== 'boolean') {
     throw new EngineError('INVALID_EFFECT_OPTIONS', 'allowRelationshipTransition must be boolean.');
+  }
+  if (options.allowKnowledgeAcquisition !== undefined && typeof options.allowKnowledgeAcquisition !== 'boolean') {
+    throw new EngineError('INVALID_EFFECT_OPTIONS', 'allowKnowledgeAcquisition must be boolean.');
   }
 
   for (const effect of effects) {
