@@ -261,8 +261,8 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
         if (parts.length === 6 && ['pause', 'resume', 'cancel', 'reconcile'].includes(parts[5]) && req.method === 'POST') {
           const body = await readBody(req);
           if (!body || typeof body !== 'object' || Array.isArray(body)
-            || Object.keys(body).some((key) => !['expected_version', 'idempotency_key', 'reason', 'confirm_retry'].includes(key))) {
-            throw new EngineError('INVALID_PROCESS_TRANSITION', 'Process transition accepts expected_version, idempotency_key, optional reason, and confirm_retry for reconciliation.', 400);
+            || Object.keys(body).some((key) => !['expected_version', 'idempotency_key', 'reason', 'confirm_retry', 'replan'].includes(key))) {
+            throw new EngineError('INVALID_PROCESS_TRANSITION', 'Process transition accepts expected_version, idempotency_key, optional reason, and reconciliation confirmation/replan fields.', 400);
           }
           const result = engine.transitionProcess(worldId, decodeURIComponent(parts[4]), { ...body, action: parts[5] });
           return send(res, result.process.status === 'needs_review' ? 409 : 200, result);
