@@ -623,6 +623,7 @@ test('reconciliation rejects registered-schedule conflicts before mutating the p
     payload: { event: { turn_id: 'external-conflict-event', event_type: 'external.conflict', effects: [] } },
   });
   const revisionWithConflict = engine.getState('world-a').world_revision;
+  const versionBeforeConflict = process.version;
 
   assert.throws(
     () => engine.transitionProcess('world-a', 'journey-1', {
@@ -637,7 +638,7 @@ test('reconciliation rejects registered-schedule conflicts before mutating the p
   );
   process = engine.getProcess('world-a', 'journey-1');
   assert.equal(process.status, 'needs_review');
-  assert.equal(process.version, 2);
+  assert.equal(process.version, versionBeforeConflict);
   assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 1);
   assert.equal(engine.getAudit('world-a').some((entry) => entry.action === 'process.plan.reconciled'), false);
 
