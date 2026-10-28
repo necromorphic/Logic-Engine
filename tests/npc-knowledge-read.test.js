@@ -141,7 +141,7 @@ test('reader rejects unsupported purpose, unknown actor, and malformed limits', 
   });
 });
 
-test('pure read contract rejects extra keys and authorization from another snapshot', () => {
+test('pure read contract rejects extra keys and authorization from another snapshot', (t) => {
   const { store } = setup(t);
   const world = store.world('world-a');
   const commitSequence = store.currentCommitSequence('world-a');
