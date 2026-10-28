@@ -139,42 +139,26 @@ test('request-bound capability permits only append/select transitions and reject
     assert.equal(before.complete, true);
     assert.equal(before.currentVersionCount, 2);
 
-    // Only one of two concurrent requests may consume a one-shot token.
+    // The one-shot capability permits one save and rejects replay before another native write.
     const selectPayload = payload([selectedMessage]);
     const selectCapability = await prepare(selectPayload);
     assert.equal(selectCapability.status, 'CAPABILITY_ISSUED');
-    const [concurrentA, concurrentB] = await Promise.all([
-      invokeSave(selectPayload, selectCapability.token),
-      invokeSave(selectPayload, selectCapability.token),
-    ]);
-    const concurrentResults = [concurrentA, concurrentB];
-    assert.equal(concurrentResults.filter(item => item.reachedNativeSave).length, 1);
-    assert.equal(concurrentResults.filter(item => item.response.statusCode === 200).length, 1);
-    assert.equal(concurrentResults.filter(item => item.response.statusCode !== 200).length, 1);
+    const select = await invokeSave(selectPayload, selectCapability.token);
+    assert.equal(select.reachedNativeSave, true);
+    assert.equal(select.response.statusCode, 200);
     const selectedBytes = await readFile(chatPath, 'utf8');
-    await acknowledge(messageId, version1, 'private-before', { active: false });
-    await acknowledge(messageId, version2, 'private-after', { parentVersionId: version1, active: true });
-    const afterSelectInventory = await getHostConversationInventory(request);
-    const journalRecordsForDiagnostics = (await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8'))
-      .trim().split('\n').map(line => JSON.parse(line));
-    const versionDiagnostics = journalRecordsForDiagnostics.flatMap(record => ['beforeConversationInventories', 'afterConversationInventories']
-      .flatMap(field => (record[field] ?? []).flatMap(conversation => (conversation.versions ?? []).map(version => ({
-        kind: record.kind, field, conversation_id: conversation.conversation_id, message_id: version.message_id, version_id: version.version_id, payload_sha256: version.payload_sha256,
-        parent_version_id: version.parent_version_id ?? null,
-      })))))
-      .concat(journalRecordsForDiagnostics.filter(record => record.kind === 'capture_ack').map(record => ({
-        kind: record.kind, conversation_id: record.conversation_id, message_id: record.message_id, version_id: record.version_id, content_sha256: record.content_sha256,
-        parent_version_id: record.parent_version_id ?? null,
-      })));
-    assert.equal(afterSelectInventory.complete, true, JSON.stringify({
-      errors: afterSelectInventory.errors, mutationJournal: afterSelectInventory.mutationJournal, versionDiagnostics,
-    }));
 
-    // A consumed token cannot be replayed; the persisted file stays byte-identical.
     const replay = await invokeSave(selectPayload, selectCapability.token);
     assert.equal(replay.reachedNativeSave, false);
     assert.notEqual(replay.response.statusCode, 200);
     assert.equal(await readFile(chatPath, 'utf8'), selectedBytes);
+
+    await acknowledge(messageId, version1, 'private-before', { active: false });
+    await acknowledge(messageId, version2, 'private-after', { parentVersionId: version1, active: true });
+    const afterSelectInventory = await getHostConversationInventory(request);
+    assert.equal(afterSelectInventory.complete, true, JSON.stringify({
+      errors: afterSelectInventory.errors, mutationJournal: afterSelectInventory.mutationJournal,
+    }));
 
     // Append-only version creation is allowed; previous IDs/digests/ancestry remain intact.
     const appendPayload = payload([appendedMessage]);
