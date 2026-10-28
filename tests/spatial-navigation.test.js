@@ -62,3 +62,40 @@ test('same-room route has zero cost and no doors', () => {
   const result = rankRoomRoutes(scene([]), 'a', 'a');
   assert.deepEqual(result.routes, [{ roomPath: ['a'], doorPath: [], cost: 0 }]);
 });
+
+test('unknown door in an irrelevant dead end does not poison a confirmed route', () => {
+  const result = rankRoomRoutes(scene([
+    door('known-route', 'a', 'd', 5),
+    door('unknown-dead-end', 'a', 'b', 1, 'unknown'),
+  ]), 'a', 'd');
+
+  assert.equal(result.status, 'CONFIRMED');
+  assert.equal(result.reachable, true);
+  assert.equal(result.optimality, 'CONFIRMED');
+  assert.deepEqual(result.routes.map((route) => route.doorPath), [['known-route']]);
+});
+
+test('unknown door that cannot fit the max-cost constraint does not make route status uncertain', () => {
+  const result = rankRoomRoutes(scene([
+    door('known-route', 'a', 'd', 3),
+    door('too-expensive-unknown', 'a', 'b', 2, 'unknown'),
+    door('b-d', 'b', 'd', 2),
+  ]), 'a', 'd', { maxCost: 3 });
+
+  assert.equal(result.status, 'CONFIRMED');
+  assert.equal(result.reachable, true);
+  assert.equal(result.optimality, 'CONFIRMED');
+  assert.deepEqual(result.routes.map((route) => route.doorPath), [['known-route']]);
+});
+
+test('unknown-only connection to a dead end does not imply destination reachability uncertainty', () => {
+  const result = rankRoomRoutes(scene([
+    door('unknown-dead-end', 'a', 'b', 1, 'unknown'),
+  ]), 'a', 'd');
+
+  assert.equal(result.status, 'CONFIRMED');
+  assert.equal(result.reachable, false);
+  assert.equal(result.optimality, 'CONFIRMED');
+  assert.equal(result.reason, 'NO_ROUTE_WITH_DECLARED_CONSTRAINTS');
+});
+\n
