@@ -137,7 +137,7 @@ test('preserves prior belief stance when its evidence was revoked or is no longe
     currentBelief: {
       world_id: 'world-a',
       actor_id: 'npc-a',
-      proposition_ref: 'proposition:target-location',
+      proposition_ref: propositionRef,
       stance: 'believes_true',
       evidence_acquisition_ids: ['revoked-acquisition'],
     },
