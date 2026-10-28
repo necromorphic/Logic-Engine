@@ -624,6 +624,8 @@ export async function recordHostCaptureAcknowledgement(request, capture) {
         || typeof capture.conversation_id !== 'string'
         || typeof capture.message_id !== 'string' || !uuidPattern.test(capture.message_id)
         || typeof capture.version_id !== 'string' || !uuidPattern.test(capture.version_id)
+        || !Object.hasOwn(capture, 'parent_version_id')
+        || !(capture.parent_version_id === null || (typeof capture.parent_version_id === 'string' && uuidPattern.test(capture.parent_version_id)))
         || typeof capture.content_sha256 !== 'string' || !/^[a-f0-9]{64}$/.test(capture.content_sha256)
         || typeof capture.active !== 'boolean' || typeof capture.deleted !== 'boolean'
         || (capture.deleted && capture.active)) {
@@ -644,7 +646,8 @@ export async function recordHostCaptureAcknowledgement(request, capture) {
             && record.message_id === capture.message_id
             && record.version_id === capture.version_id);
         if (prior) {
-            if (prior.content_sha256 !== capture.content_sha256) throw new Error('HOST_CAPTURE_ACK_DIGEST_CONFLICT');
+            if (prior.content_sha256 !== capture.content_sha256
+                || prior.parent_version_id !== capture.parent_version_id) throw new Error('HOST_CAPTURE_ACK_LINEAGE_CONFLICT');
             if (prior.deleted && !capture.deleted) throw new Error('HOST_CAPTURE_ACK_TOMBSTONE_REAPPEARED');
             if (prior.deleted === capture.deleted && prior.active === capture.active) return { status: 'ALREADY_ACKNOWLEDGED' };
         } else if (capture.deleted) {
@@ -657,6 +660,7 @@ export async function recordHostCaptureAcknowledgement(request, capture) {
             conversation_id: capture.conversation_id,
             message_id: capture.message_id,
             version_id: capture.version_id,
+            parent_version_id: capture.parent_version_id,
             content_sha256: capture.content_sha256,
             active: capture.active,
             deleted: capture.deleted,
