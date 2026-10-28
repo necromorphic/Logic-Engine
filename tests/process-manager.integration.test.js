@@ -660,14 +660,16 @@ test('explicit reconciliation resets rolled-back milestones and re-arms the proc
   assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 0);
   assert.equal(engine.getProcess('world-a', 'journey-1').status, 'needs_review');
 
-  const reconciled = engine.transitionProcess('world-a', 'journey-1', {
+  const reconciliationExpectedVersion = process.version;
+  const reconciliationRequest = {
     action: 'reconcile',
     confirm_retry: true,
     replan: [{ milestone_id: 'depart', due_coordinate: 2000 }],
-    expected_version: process.version,
+    expected_version: reconciliationExpectedVersion,
     idempotency_key: 'explicit-reconcile-after-rollback',
     reason: 'author_confirmed_retry',
-  });
+  };
+  const reconciled = engine.transitionProcess('world-a', 'journey-1', reconciliationRequest);
   process = reconciled.process;
   assert.equal(process.status, 'scheduled');
   assert.equal(process.milestones.every((milestone) => milestone.status === 'pending'), true);
@@ -683,6 +685,15 @@ test('explicit reconciliation resets rolled-back milestones and re-arms the proc
   assert.equal(process.status, 'scheduled');
   assert.deepEqual(process.milestones.map((milestone) => milestone.trigger_id), reconciledTriggerIds);
   assert.deepEqual(process.milestones.map((milestone) => milestone.status), ['pending', 'pending']);
+  assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 2);
+
+  // Retrying the same author request after restart must replay the original
+  // operation instead of cancelling/replacing triggers a second time.
+  const auditBeforeReplay = engine.getAudit('world-a');
+  const replayed = engine.transitionProcess('world-a', 'journey-1', reconciliationRequest);
+  assert.equal(replayed.idempotent_replay, true);
+  assert.deepEqual(replayed.process.milestones.map((milestone) => milestone.trigger_id), reconciledTriggerIds);
+  assert.deepEqual(engine.getAudit('world-a'), auditBeforeReplay);
   assert.equal(engine.listTimeTriggers('world-a').filter((trigger) => trigger.status === 'pending').length, 2);
 
   const afterReconcile = engine.getState('world-a');
