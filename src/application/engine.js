@@ -483,6 +483,83 @@ export class LogicEngine {
     });
   }
 
+  /**
+   * Assign one explicitly authorized initial-knowledge item through the existing
+   * Core event journal. This method is only called by the separately
+   * authenticated administrative route; generic event/proposal paths cannot
+   * create knowledge.acquire effects.
+   *
+   * The record means the subject was assigned a source/fact at initialization.
+   * It does not assert truth, belief, discovery, delivery, or comprehension.
+   */
+  assignInitialKnowledge(id, input) {
+    assert(obj(input), 'INVALID_KNOWLEDGE_ACQUISITION', 'Initial knowledge assignment must be an object.');
+    const allowed = [
+      'idempotency_key', 'expected_revision', 'expected_commit_sequence',
+      'subject_id', 'fact_id', 'acquisition_kind', 'source_ref', 'source_sha256',
+    ];
+    assert(Object.keys(input).every((key) => allowed.includes(key)),
+      'UNSUPPORTED_KNOWLEDGE_ACQUISITION_FIELD', 'Initial knowledge assignment contains an unsupported field.');
+    for (const key of ['subject_id', 'fact_id', 'source_ref']) {
+      assert(typeof input[key] === 'string' && input[key] === input[key].trim()
+        && input[key].length > 0 && input[key].length <= 200
+        && ![...input[key]].some((character) => character.charCodeAt(0) < 32 || character.charCodeAt(0) === 127),
+      'INVALID_KNOWLEDGE_ACQUISITION', key + ' must be a non-empty bounded identifier without control characters.', 400);
+    }
+    assert(['author_initial', 'imported'].includes(input.acquisition_kind),
+      'UNSUPPORTED_ACQUISITION_KIND', 'Only author_initial and imported acquisitions are supported.', 400);
+    assert(typeof input.source_sha256 === 'string' && /^[a-f0-9]{64}$/.test(input.source_sha256),
+      'INVALID_KNOWLEDGE_PROVENANCE', 'source_sha256 must be a lowercase SHA-256 digest.', 400);
+    assert(typeof input.idempotency_key === 'string' && input.idempotency_key.trim()
+      && input.idempotency_key.length <= 200, 'IDEMPOTENCY_KEY_REQUIRED', 'idempotency_key is required.');
+    const snapshot = this.getSnapshot(id, { entityIds: [input.subject_id], factIds: [input.fact_id] });
+    const subject = snapshot.entities.find((entity) => entity.entity_id === input.subject_id);
+    const fact = snapshot.facts.find((item) => item.fact_id === input.fact_id);
+    if (!subject || subject.status === 'destroyed') {
+      throw new EngineError('KNOWLEDGE_SUBJECT_NOT_ELIGIBLE', 'Knowledge subject must be an existing non-destroyed entity in this world.', 409);
+    }
+    if (!fact) {
+      throw new EngineError('KNOWLEDGE_SOURCE_NOT_FOUND', 'The referenced canonical fact must exist in the same world.', 404);
+    }
+    const expectedRevision = input.expected_revision ?? snapshot.world_revision;
+    const expectedSequence = input.expected_commit_sequence ?? snapshot.commit_sequence;
+    assert(Number.isSafeInteger(expectedRevision) && expectedRevision >= 0
+      && Number.isSafeInteger(expectedSequence) && expectedSequence >= 0,
+    'INVALID_KNOWLEDGE_SNAPSHOT', 'Expected revision and commit sequence must be non-negative safe integers.', 400);
+    const effect = {
+      kind: 'knowledge.acquire',
+      subject_id: input.subject_id,
+      fact_id: input.fact_id,
+      acquisition_kind: input.acquisition_kind,
+      source_ref: input.source_ref,
+      source_sha256: input.source_sha256,
+      authority: 'admin_credential',
+    };
+    const result = this.commitEvent(id, {
+      idempotency_key: input.idempotency_key.trim(),
+      turn_id: 'core-initial-knowledge',
+      event_type: 'knowledge.initial_assigned',
+      expected_revision: expectedRevision,
+      expected_commit_sequence: expectedSequence,
+      effects: [effect],
+    }, { allowKnowledgeAcquisition: true });
+    return {
+      acquisition: {
+        world_id: id,
+        subject_id: effect.subject_id,
+        fact_id: effect.fact_id,
+        acquisition_kind: effect.acquisition_kind,
+        source_ref: effect.source_ref,
+        source_sha256: effect.source_sha256,
+        authority: effect.authority,
+        event_id: result.event_id,
+        assigned_revision: result.committed_revision,
+        validity: 'valid',
+      },
+      event: result,
+    };
+  }
+
   getState(id) { return this.store.state(id); }
   getSnapshot(id, request = {}) { return this.store.readSnapshot(id, request); }
   getEvents(id, includeInvalid = false) { return this.store.events(id, includeInvalid); }
@@ -545,7 +622,10 @@ export class LogicEngine {
     if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
 
     const effects = x.effects ?? [];
-    validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
+    validateEffects(effects, {
+      allowRelationshipTransition: options.allowRelationshipTransition === true,
+      allowKnowledgeAcquisition: options.allowKnowledgeAcquisition === true,
+    });
     const request = {
       operation: 'event.commit',
       event_id: x.event_id ?? null,
