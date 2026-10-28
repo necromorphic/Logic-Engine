@@ -7,7 +7,7 @@ diff --git a/public/script.js b/public/script.js
  import { userStatsHandler, statMesProcess, initStats } from './scripts/stats.js';
 @@ -4290,2 +4291,3 @@
  export async function Generate(type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage, quietName, jsonSchema = null, depth = 0 } = {}, dryRun = false) {
-+    assertProtectedDispatchAllowed({ locator: getCurrentChatId(), storage: localStorage });
++    assertProtectedDispatchAllowed({ locator: getCurrentChatId(), messages: chat, storage: localStorage });
      // Reject alternate generation before dispatch; the Host cannot prove its parent lineage yet.
 diff --git a/src/server-startup.js b/src/server-startup.js
 --- a/src/server-startup.js
