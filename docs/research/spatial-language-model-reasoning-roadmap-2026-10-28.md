@@ -33,7 +33,7 @@ The spatial layer should help a language model narrate physically and causally c
 | S9 | Actual noticing, recognition, and knowledge acquisition | Separates objective world facts from what each NPC believes | **Planned, separate workstream** | Requires dedicated observer/knowledge contract; no Memory/NPC integration implied |
 | S10 | Scene changes and stale prediction invalidation | A changed door/obstacle/action should invalidate affected forecasts | **Implemented in isolated synthetic research module** | Caller must declare complete dependencies; no Core event/rollback integration |
 | S11 | Dynamic movement and synchronized trajectory collision | Supports interceptions, missed encounters, and timing | Existing synthetic prototype | Constant velocity and conservative AABB intervals only |
-| S12 | Navigation costs, route choice, and constraints | Supports shortest/safer/accessible route decisions | Planned | Build on room/door graph; costs and character constraints must be explicit |
+| S12 | Navigation costs, route choice, and constraints | Supports explicit cost-based route ranking | **Implemented in isolated synthetic research module** | Explicit per-door traversal costs and forbidden-door/max-cost constraints; unknown doors can leave optimality UNKNOWN; not real travel time or safety |
 | S13 | Event-to-spatial-action proposals | Lets the LLM suggest “walks to the window” without authoring truth | Planned architecture direction | No action accepted without future approved validator and canonical commit |
 | S14 | Per-NPC world models / different beliefs | NPCs can have different, incomplete, or mistaken information | Planned; not part of current prototype | Objective state and individual beliefs must remain separate; Memory → NPC remains disabled |
 | S15 | Optional articulated body / richer geometry | Useful for close combat and fine-grained interactions | Deferred | Only if use cases justify complexity; not needed for ordinary dialogue |
@@ -55,7 +55,7 @@ It cannot:
 - prove that positions came from canonical Core state;
 - infer visibility, sound, attention, recognition, knowledge, or memory;
 - model doors as precise physical geometry or verify that a body fits through a doorway;
-- model navigation cost, acceleration, turning, dynamic obstacles, or physical collision response.
+- model acceleration, turning, dynamic obstacles, or physical collision response. Navigation cost is only a sum of explicit synthetic door costs, not real travel time or safety.
 
 The context text is an adapter output for the LLM, not a canonical record and not a grant of access to memory.
 
@@ -68,7 +68,7 @@ The context text is an adapter output for the LLM, not a canonical record and no
 - [x] Add synthetic scenario traces across two immutable scene boundaries (door state → route/sound change → dependent prediction invalidation).
 - [ ] Test invalidation across actual event/restart/rollback boundaries; production evidence remains unavailable.
 - [x] Add auditory propagation as a separate result from visibility, using explicit sound levels and door attenuation.
-- [ ] Add deterministic route costs and explicit traversal constraints.
+- [x] Add deterministic route costs and explicit traversal constraints (synthetic weighted routes; unknown-state doors preserve uncertainty).
 - [ ] Add scenario-based evaluation for multi-NPC scenes (ambush, doorway, sound behind a wall, out-of-room NPC).
 
 ### Phase B — evidence and contracts
@@ -110,3 +110,8 @@ New module: `experiments/spatial-scene-lab/spatial-revisions.js`. It compares tw
 ### Fourth research increment: cross-boundary scenario traces
 
 New test: `tests/spatial-scene-traces.test.js`. The synthetic trace changes one door from open to closed across two immutable revisions and checks that room reachability and sound audibility change, while a prediction that declared the door as a dependency becomes STALE. A second trace changes a listener position and shows that a door-only prediction remains fresh only relative to its declared dependency. These are synthetic algorithm checks, not event-sourcing or production rollback evidence.
+
+
+### Fifth research increment: weighted room routes
+
+New module: `experiments/spatial-scene-lab/spatial-navigation.js`. It ranks simple room paths by the sum of explicit positive per-door traversal costs, supports explicit forbidden doors and a maximum total cost, and rejects missing costs or invalid constraints. Unknown-state doors are not traversed; when they could affect the result, route optimality remains UNKNOWN. These costs are synthetic ranking weights, not measured travel time, accessibility, or safety. No action is selected or committed, and production integration remains NO-GO.
