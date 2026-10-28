@@ -216,7 +216,6 @@ export class MemoryDispatchGateway {
     readProviderEvidence,
     coreDatabasePath,
     providerDatabasePath,
-    sendUpstream,
   }) {
     const injectedReaders = typeof readCoreEvidence === 'function' && typeof readProviderEvidence === 'function';
     const configuredReaderPaths = typeof coreDatabasePath === 'string' && typeof providerDatabasePath === 'string';
@@ -227,9 +226,8 @@ export class MemoryDispatchGateway {
       || injectedReaders === configuredReaderPaths
       || (!injectedReaders && (readCoreEvidence !== undefined || readProviderEvidence !== undefined))
       || (!configuredReaderPaths && (coreDatabasePath !== undefined || providerDatabasePath !== undefined))
-      || typeof sendUpstream !== 'function'
-      || sendUpstream.constructor?.name === 'AsyncFunction') {
-      throw new TypeError('MemoryDispatchGateway requires exactly one pair of trusted Core/Provider readers (injected functions or read-only database paths) and a synchronous transport-start callback returning { started: true, response: Promise }.');
+    ) {
+      throw new TypeError('MemoryDispatchGateway requires exactly one pair of trusted Core/Provider readers (injected functions or read-only database paths). A trusted request-scoped transport capability is required for each dispatch.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
       throw new Error('DISPATCH_LEDGER_COORDINATOR_PATH_ALIAS');
@@ -244,7 +242,6 @@ export class MemoryDispatchGateway {
       : null;
     this.readCoreEvidence = this.evidenceReaders?.readCoreEvidence ?? readCoreEvidence;
     this.readProviderEvidence = this.evidenceReaders?.readProviderEvidence ?? readProviderEvidence;
-    this.sendUpstream = sendUpstream;
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
@@ -427,8 +424,10 @@ export class MemoryDispatchGateway {
         // This serializes transport initiation against Core/Provider revocation;
         // only waiting for the response happens outside the lock.
         try {
-          upstreamHandle = this.sendUpstream({
-            route, model, stream, body, requestId, requestDigest, transport, forwardResponse, signal,
+          // The Gateway itself invokes the sole request-scoped capability. No
+          // secondary sender callback may ignore it or start an alternate send.
+          upstreamHandle = transport({
+            route, model, stream, body, requestId, requestDigest, forwardResponse, signal,
           });
           if (!object(upstreamHandle) || upstreamHandle.started !== true
             || !upstreamHandle.response || typeof upstreamHandle.response.then !== 'function') {
