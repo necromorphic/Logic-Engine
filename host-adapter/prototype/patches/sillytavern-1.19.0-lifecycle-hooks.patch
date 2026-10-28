@@ -244,11 +244,11 @@ diff --git a/public/script.js b/public/script.js
      setGenerationProgress(0);
      generation_started = new Date();
  
-+    // Prevent generation from shallow characters
-+    await unshallowCharacter(this_chid);
-+
-+    // Occurs every time, even if the generation is aborted due to slash commands execution
-+    await eventSource.emit(event_types.GENERATION_STARTED, type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage }, dryRun);
+     // Prevent generation from shallow characters
+     await unshallowCharacter(this_chid);
+ 
+     // Occurs every time, even if the generation is aborted due to slash commands execution
+     await eventSource.emit(event_types.GENERATION_STARTED, type, { automatic_trigger, force_name2, quiet_prompt, quietToLoud, skipWIAN, force_chid, signal, quietImage }, dryRun);
 @@ -5905,16 +6001,21 @@
 +    const lifecycleBridge = await getLogicEngineLifecycleBridge();
 +    await lifecycleBridge.beforeMutation('message-send', []);
