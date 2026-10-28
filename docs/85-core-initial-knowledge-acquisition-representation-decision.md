@@ -101,6 +101,43 @@ This proposal does not approve:
 
 **Stop condition:** if Core cannot tie the assignment and its source validity to a trusted source contract and the existing event/replay boundary, do not implement a partial acquisition read. Return explicit unsupported/non-ready and bring the smallest missing Core-owned lifecycle contract back for review.
 
-## 9. Current recommendation
+## 9. Current-main source-authority decision record
+
+**Disposition: runtime remains blocked; documentation proposal only.** This section records the current-main decision path after the Stage B runtime revert. It does not approve implementation, merge, or production use.
+
+The audit found no production World Pack loader or bootstrap/authoring adapter that takes trusted authoring input and emits subject-specific initial assignments. The World Pack contract remains proposed/incomplete (docs/04-world-pack-format.md). LogicEngine.createWorld() creates a world from pack ID/version and game time; it does not load subject-specific acquisition assignments. The known propose_knowledge intent is not a supported acquisition effect. Therefore the presence of a fact, pack ID, event, manifest, admin session, or caller-supplied digest is not an authoritative assignment source.
+
+### Source decision matrix
+
+| Acquisition kind | Required trust root | Current-main disposition | What must exist before writes are enabled |
+|---|---|---|---|
+| author_initial | Server-owned world-authoring/bootstrap adapter reading trusted authoring input | unsupported / non-ready | Named adapter and input contract; immutable source identity/version; explicit world + canonical subject + item mapping; authorization rule identity/version; tests proving client payload cannot forge the assignment |
+| imported | Server-owned importer validating a package's identity, version, origin and contents | unsupported / non-ready | Named importer and package verification contract; stable package/source identity/version; explicit per-subject mapping; rejection tests for modified, untrusted, mismatched and cross-world packages |
+
+A Core-computed digest can identify bytes; it does not prove who authored them or whether they are trusted. An admin-authenticated caller is an administrator, not automatically the original author/import source. A deployment callback that is unset by default is a policy seam, not proof that a trusted source exists.
+
+### Minimum acceptance contract for a future trusted adapter
+
+Before a runtime writer is added, the source owner must demonstrate all of the following:
+
+1. **Trust-root ownership:** the input originates from a server-controlled authoring or import boundary, not from arbitrary request fields, NPC output, Memory, Host, or model context.
+2. **Canonical binding:** Core resolves the target world and canonical subject and verifies that the source item is explicitly assigned to that subject; world-level fact existence is insufficient.
+3. **Stable provenance:** Core can persist the source identity and immutable version, assignment rule identity/version, acquisition kind, and source-to-item mapping. Caller-selected provenance is rejected.
+4. **Replay and invalidation:** source replacement/revocation and assignment changes have explicit Core-owned validity transitions; duplicate replay is deterministic; independent valid supports survive invalidation of another support.
+5. **Lifecycle integration:** assignment is committed through the existing Core event/revision/transaction/replay/rollback lifecycle. No parallel canonical store, revision counter, or public assignment endpoint is introduced.
+6. **Negative evidence:** tests reject untrusted input, forged source identity, digest-only claims, unknown/cross-world subjects and items, stale cursors, duplicate/conflicting identities, revoked sources, and rollback/replay inconsistencies.
+7. **Separate disclosure approval:** trusted provenance does not imply permission to disclose. Restriction classification, recipient/purpose checks, snapshot-safe read, and exact model-boundary tests remain separately governed by #140/#264/#356.
+
+### Required order of work
+
+- **Now:** keep runtime unchanged and Stage B blocked. Do not restore the reverted writer merely to make Stage C compile or pass.
+- **Next:** identify and review a real trusted authoring/bootstrap or package-import boundary. If none exists, implement that source boundary as a separately reviewed prerequisite before acquisition writes.
+- **Then:** implement the smallest Core-owned acquisition effect against current main, with exact-head lifecycle tests.
+- **Only after that:** rebase/reimplement Stage C against the then-current main, prove status fidelity and disclosure filtering, and submit the evidence to the existing gates.
+- **Never as part of this work:** enable Memory → NPC, add prompt injection, or bypass the Host/Provider dispatch gate.
+
+This is a coordinator recommendation for review, not an approval by the project owner. The source-path findings are bounded to the inspected repository state and must be revisited if a production adapter is added.
+
+## 10. Current recommendation
 
 Approve the event-sourced effect + derived projection as the target representation **in principle**, subject to the source-entry and validity review in steps 1–2. This narrows the design choice while preserving the existing Core authority and avoids pretending that the missing importer or lifecycle has already been solved.
