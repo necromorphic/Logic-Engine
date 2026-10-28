@@ -500,3 +500,31 @@ test('kinematic position forecast and blocker-intersection forecast remain separ
   assert.equal(initial.entities[0].position.x, 0);
 });
 
+test('movement snapshot deep-copies nested body and motion data for every entity', () => {
+  const initial = scene({
+    entities: [
+      { ...entity('alice', { x: 0, y: 0, z: 0 }), body: {
+        minOffset: { x: -0.5, y: -0.5, z: 0 },
+        maxOffset: { x: 0.5, y: 0.5, z: 1.8 },
+      }, motion: { velocity: { x: 1, y: 0, z: 0 }, maxSpeed: 3 } },
+      { ...entity('bob', { x: 8, y: 4, z: 0 }), body: {
+        minOffset: { x: -0.4, y: -0.4, z: 0 },
+        maxOffset: { x: 0.4, y: 0.4, z: 1.7 },
+      }, motion: { velocity: { x: 0, y: 1, z: 0 } } },
+    ],
+  });
+
+  const moved = moveEntityInSyntheticScene(initial, 'alice', { x: 1, y: 0, z: 0 }, 'scene-2');
+  assert.equal(moved.status, 'CONFIRMED');
+
+  moved.scene.entities[0].body.minOffset.x = -99;
+  moved.scene.entities[0].motion.velocity.x = 99;
+  moved.scene.entities[1].body.maxOffset.y = 99;
+  moved.scene.entities[1].motion.velocity.y = 99;
+
+  assert.equal(initial.entities[0].body.minOffset.x, -0.5);
+  assert.equal(initial.entities[0].motion.velocity.x, 1);
+  assert.equal(initial.entities[1].body.maxOffset.y, 0.4);
+  assert.equal(initial.entities[1].motion.velocity.y, 1);
+});
+\n
