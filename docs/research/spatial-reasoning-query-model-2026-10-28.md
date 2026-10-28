@@ -42,7 +42,7 @@ L0–L1 are the first useful target. L2 requires temporal boundary mapping. L3�
 | `axis_relation(A, B, axis, boundary)` | Compare the two coordinate values on a named axis | Same as distance; axis must be X, Y or Z | “North/east/above” labels only after the frame convention is approved and applied |
 | `nearest(entity, candidate_set, boundary)` | Rank confirmed point distances; preserve equal-distance ties | Confirmed source position and complete, explicitly scoped candidate set | Cannot claim “nearest in the world” if the candidate inventory is incomplete or filtered without saying so |
 
-For this project, the documented convention is +X = logical east, +Y = logical north, +Z = up; right-handed ENU, abstract logical units, entity-origin anchor, frame ID `world-enu-logical-v1` scoped by world identity. This is recorded in draft PR #565, not yet independent contract approval.
+For this project, the selected v1 convention is +X = logical east, +Y = logical north, +Z = up; right-handed ENU, abstract logical units, entity-origin anchor, frame ID `world-enu-logical-v1` scoped by world identity. The coordinator decision is recorded in the World Pack typed spatial attributes contract revision 2. This closes the axis-label decision at the design level only: the full contract is still not approved for implementation, and the current runtime does not enforce or emit confirmed `position-v1` evidence.
 
 ### 3.2 Queries requiring additional typed semantics
 
