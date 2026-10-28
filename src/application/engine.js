@@ -676,7 +676,7 @@ export class LogicEngine {
 
   readNpcKnowledge(input) {
     const inputCheck = validateNpcKnowledgeReadInput(input);
-    assert(inputCheck.status === 'ready', 'INVALID_NPC_KNOWLEDGE_READ',
+    assert(inputCheck.status === 'ready', 'NPC_KNOWLEDGE_READ_NOT_READY',
       'NPC knowledge read request is malformed or unsupported.', 400,
       { reason: inputCheck.reason });
     const request = inputCheck.request;
