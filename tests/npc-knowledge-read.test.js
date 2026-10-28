@@ -563,6 +563,28 @@ test('rollback of an acquisition invalidates its belief support but preserves th
   ).get().count, 1);
 });
 
+test('rolling back a belief transition removes its derived projection on rebuild', (t) => {
+  const { store, engine } = setup(t);
+  const current = request(store);
+  const read = engine.readNpcKnowledge(current);
+  const first = engine.recordNpcBeliefTransition({
+    ...current,
+    proposition_ref: propositionRefFor(read.items[0]),
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-transition-rollback',
+  });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 1);
+  engine.rollbackEvent('world-a', {
+    root_event_id: first.transition.event_id,
+    idempotency_key: 'rollback-belief-transition',
+  });
+  store.rebuild('world-a', store.world('world-a').world_revision);
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 0);
+});
+
 test('belief transition refuses a stale snapshot and does not write a projection row', (t) => {
   const { store, engine } = setup(t);
   const stale = request(store);
