@@ -608,6 +608,18 @@ test('explicit reconciliation resets rolled-back milestones and re-arms the proc
     idempotency_key: 'rollback-before-explicit-reconcile',
   });
   assert.equal(rollback.accepted, true);
+
+  // The still-pending dependent milestone must be quarantined immediately,
+  // before the author decides whether and when it should be retried.
+  const quarantinedArrival = engine.listTimeTriggers('world-a')
+    .find((trigger) => trigger.trigger_id === 'journey-arrive');
+  assert.equal(quarantinedArrival.status, 'cancelled');
+  assert.equal(quarantinedArrival.cancellation_reason, 'process_rollback_needs_review');
+  assert.equal(engine.getAudit('world-a').some((entry) =>
+    entry.action === 'time.trigger.cancelled'
+      && entry.target_id === 'journey-arrive'
+      && entry.payload.reason === 'process_rollback_needs_review'), true);
+
   let process = engine.getProcess('world-a', 'journey-1');
   assert.equal(process.status, 'needs_review');
   assert.equal(process.milestones.find((milestone) => milestone.milestone_id === 'depart').status, 'needs_review');
