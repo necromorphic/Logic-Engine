@@ -30,7 +30,7 @@ test('enforcement mode denies each known model-capable route family before its h
   const middleware = createProtectedDispatchDenyMiddleware({
     env: { SILLYTAVERN_REQUIRE_PROTECTED_EGRESS_GATEWAY: 'true' },
   });
-  for (const prefix of PROTECTED_MODEL_ROUTE_PREFIXES) {
+  for (const prefix of PROTECTED_EGRESS_ROUTE_PREFIXES) {
     const result = invoke(middleware, prefix + '/generate');
     assert.equal(result.nextCalls, 0, prefix);
     assert.equal(result.response.statusCode, 503, prefix);
