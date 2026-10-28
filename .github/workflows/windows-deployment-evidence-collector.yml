@@ -102,6 +102,22 @@ jobs:
           if ($missingBackupReport.collectionStatus -ne 'INCOMPLETE') { throw 'A supplied but missing backup root must make the report INCOMPLETE.' }
           $missingBackupEvidence = @($missingBackupReport.pathAclEvidence | Where-Object { $_.requestedPath -eq $missingBackupPath -and $_.itemType -eq 'Descendant enumeration' -and $_.error })
           if (-not $missingBackupEvidence) { throw 'Missing backup root must have an explicit enumeration error.' }
+
+          $emptyInputReportPath = Join-Path $env:RUNNER_TEMP 'logic-engine-empty-input-report.json'
+          & .\scripts\security\Collect-DeploymentEvidence.ps1 -ProcessName @('powershell.exe') -OutputPath $emptyInputReportPath
+          $emptyInputReport = Get-Content -LiteralPath $emptyInputReportPath -Raw | ConvertFrom-Json
+          if ($emptyInputReport.collectionStatus -ne 'INCOMPLETE') { throw 'Omitting both data and backup paths must make the report INCOMPLETE.' }
+          if (-not ($emptyInputReport.incompleteReasons -match 'No data database paths were supplied')) { throw 'Missing data path-list reason was not recorded.' }
+          if (-not ($emptyInputReport.incompleteReasons -match 'No backup roots were supplied')) { throw 'Missing backup path-list reason was not recorded.' }
+
+          $missingDataReportPath = Join-Path $env:RUNNER_TEMP 'logic-engine-missing-data-report.json'
+          & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath) -BackupPath @($backupFixture) -ProcessName @('powershell.exe') -OutputPath $missingDataReportPath
+          $missingDataReport = Get-Content -LiteralPath $missingDataReportPath -Raw | ConvertFrom-Json
+          if ($missingDataReport.collectionStatus -ne 'INCOMPLETE') { throw 'A supplied but missing data database must make the report INCOMPLETE.' }
+          if (-not ($missingDataReport.incompleteReasons -match 'A supplied data database path is missing')) { throw 'Missing data database reason was not recorded.' }
+
+          Remove-Item -LiteralPath $missingDataReportPath -Force
+          Remove-Item -LiteralPath $emptyInputReportPath -Force
           Remove-Item -LiteralPath $missingBackupReportPath -Force
           Remove-Item -LiteralPath $reportPath -Force
           Remove-Item -LiteralPath $backupFixture -Recurse -Force
