@@ -21,6 +21,9 @@ Module: `experiments/spatial-scene-lab/spatial-scene.js`
 - Deterministic pairwise visibility for every ordered observer/target pair.
 - Explicit orientation vectors, field-of-view half-angle, maximum distance and lighting state.
 - Segment-vs-axis-aligned-box occlusion.
+- Optional target body volumes sampled at nine points, distinguishing FULL, PARTIAL and NONE visibility in the synthetic model.
+- Movement-path rejection when the moving point's segment intersects a declared blocker.
+- Constant-velocity prediction to a caller-declared future synthetic boundary, only when every entity supplies explicit velocity.
 - Mandatory declaration that the synthetic occluder inventory is complete; otherwise the scene is UNKNOWN.
 - Synthetic movement that returns a new scene snapshot and recomputes visibility without mutating the input.
 - Fail-closed handling of missing/non-finite coordinates, duplicate IDs, invalid orientation/range, unknown entities, uncertain lighting and incomplete geometry inventory.
@@ -32,9 +35,10 @@ Test file: `tests/spatial-scene-multiperson-feasibility.test.js`
 This is a geometry experiment, not a physics engine or NPC cognition system.
 
 - Positions are synthetic fixture data, not typed, schema-verified Core positions.
-- A target is represented by its origin point, not a body volume; partial-body visibility is not modeled.
+- Entities without a `body` field remain point targets. When `body` is supplied, visibility samples the center and eight corners of an axis-aligned body volume; this is an approximation, not exact pixel/mesh visibility.
 - Orientation is an explicit vector supplied by the test fixture; gaze, attention, hearing, noticing, knowledge and memory are not inferred.
-- Blockers are axis-aligned boxes. Doors, transparent surfaces, moving obstacles, portals, navigation, collision and destructible environments are not modeled.
+- Blockers are axis-aligned boxes. Movement rejects point paths intersecting blockers, but there is no body-radius collision, sliding, navigation, moving obstacles, doors, transparent surfaces, portals or destructible environments.
+- Future position uses constant-velocity straight-line extrapolation for at most 60 synthetic seconds. It does not model acceleration, turns, collisions, stopping, or response to other entities; predicted visibility is not a guarantee of actual future visibility.
 - The caller must declare the full scene state at each synthetic boundary. The movement helper does not establish canonical game time, event validity or Core cursor provenance.
 - `CONFIRMED` means only that the computation is valid inside this synthetic model. It is not a production evidence status.
 
@@ -46,13 +50,16 @@ This is a geometry experiment, not a physics engine or NPC cognition system.
 | Elevated target | Z affects Euclidean distance and range |
 | Wall between observer and target | Visibility blocked |
 | Entity moves around a wall | New snapshot recalculates visibility |
+| Target body partly behind low cover | PARTIAL visibility from body sample points |
+| Movement segment crosses a wall | Movement rejected without mutating input |
+| Multiple entities have explicit velocity | Constant-velocity future positions computed at a new boundary |
 | Lighting unknown/dark | Visibility UNKNOWN, never guessed |
 | Occluder inventory incomplete | Whole scene UNKNOWN |
 | Missing Z, duplicate ID or unknown mover | Fail closed |
 
 ## Next safe increments
 
-1. Run the focused tests and full project suite on the exact branch head.
-2. Add a small scenario trace showing positions, blockers, visibility changes and reasons across two synthetic boundaries.
+1. Add a small scenario trace showing positions, blockers, visibility changes and reasons across two synthetic boundaries.
+2. Extend movement to body-volume collision and stop/turn constraints without pretending it is a full physics engine.
 3. Only after the synthetic harness is stable, study a read-only bridge to canonical Core state. That bridge remains blocked until typed World Pack schema identity and temporal provenance are demonstrable.
 4. Keep production runtime and Memory → NPC unchanged.
