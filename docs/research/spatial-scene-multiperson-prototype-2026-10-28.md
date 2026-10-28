@@ -77,3 +77,8 @@ The lab can compare two entities' relative motion over the same bounded time int
 
 
 Visibility-label clarification: body sampling outputs `SAMPLED_ALL`, `SAMPLED_PARTIAL`, or `SAMPLED_NONE`. These describe only the nine tested rays, not a geometric proof for every point of a target's body. Empty or duplicate blocker IDs now make the synthetic scene invalid/UNKNOWN.
+
+
+## Static-blocker trajectory forecast
+
+The lab now includes `detectTrajectoryBlockerIntersections(scene, horizonSeconds)`. For each entity with explicit velocity, it estimates the time interval during which the entity's declared axis-aligned body could overlap each static blocker. The blocker is expanded by the body extents before a segment/AABB interval check, and results are sorted by earliest time and stable IDs. Output status is `POSSIBLE`, not a guaranteed physical collision. Missing velocity or an invalid horizon returns `UNKNOWN`. This remains constant-velocity synthetic geometry: moving blockers, acceleration, turning, collision response and production integration are not modelled.
