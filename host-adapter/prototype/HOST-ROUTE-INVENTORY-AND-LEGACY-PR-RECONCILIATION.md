@@ -141,3 +141,30 @@ Compared each named PR head against repository `main` using GitHub's commit comp
 | [#307](https://github.com/necromorphic/Logic-Engine/pull/307) | `f02a1a7fc76e0b9b4fb6df82d357ae01668d804b` | `diverged`, 1 ahead / 5 behind | One added 64-line lifecycle evidence doc | Superseded by #332; do not maintain as parallel source. |
 
 Patch-level observation from exact PR diffs: #275's patch adds pre-delete snapshots and a persistence-intent sequence in the ST source; #322's patch wires a journal/bridge and enrollment entry point; #323 expands that bridge and pre-mutation swipe checkpointing. Those are different implementation proposals, not interchangeable guarantees. Because raw-source retention and journal authority/failure semantics are not approved, the #275 content remains a list of requirements to resolve rather than a change to transplant. No PR was merged/closed and no patch was installed into the active host.
+
+
+## Follow-up — deny-only egress guard placement and proxy bypass closure (28 Oct 2026)
+
+The protected-dispatch candidate was tightened after reviewing the actual pinned `src/server-main.js` order. The earlier middleware mount inside `setupPrivateEndpoints()` occurred **after** the generic `/proxy/:url(*)` handler and therefore could not intercept requests already handled by that earlier route. That mount was removed.
+
+Current candidate patch [`sillytavern-1.19.0-protected-dispatch-deny.patch`](patches/sillytavern-1.19.0-protected-dispatch-deny.patch):
+- Browser: calls `assertProtectedDispatchAllowed(...)` at the start of native `Generate(type)`, before generation dispatch. This includes the native normal/regenerate/swipe entry path; enrolled Host conversations fail closed before the native request is made.
+- Server: mounts `createProtectedDispatchDenyMiddleware()` in `src/server-main.js` immediately after `requireLoginMiddleware` and before the generic CORS proxy and `setupPrivateEndpoints(app)`.
+- With `SILLYTAVERN_REQUIRE_PROTECTED_EGRESS_GATEWAY=true`, the server guard denies the enumerated native model/media route families plus `/proxy`, `/api/extensions`, and `/api/search`. The latter three are blocked because they can carry requests through unreviewed outbound transports or transmit user-supplied text. Denial is HTTP 503, `PROTECTED_EGRESS_GATEWAY_REQUIRED`, `Cache-Control: no-store`; no fallback is attempted through those routes.
+- `/api/vector` remains deliberately outside this guard; the existing vectorization/remote-store path was not changed.
+
+### Exact-pin CI evidence
+
+The following CI jobs passed on the candidate code before its squash merge into the protected-dispatch branch:
+- [Protected-dispatch guard + route-order contract](https://github.com/necromorphic/Logic-Engine/actions/runs/40670118273) — SUCCESS.
+- [Pinned-source audit + real Chat Completions handler / recording fake provider](https://github.com/necromorphic/Logic-Engine/actions/runs/40670125715) — SUCCESS.
+- [Pinned patch apply-check and lint](https://github.com/necromorphic/Logic-Engine/actions/runs/40670125682) — SUCCESS.
+- [Runtime tests / NPC boundary](https://github.com/necromorphic/Logic-Engine/actions/runs/40670125882) — SUCCESS.
+- [Host browser IndexedDB restart test](https://github.com/necromorphic/Logic-Engine/actions/runs/40670125883) — SUCCESS.
+- [Host lifecycle patch check](https://github.com/necromorphic/Logic-Engine/actions/runs/40670125996) — SUCCESS.
+
+The runtime harness proves one bounded no-egress property against the actual pinned Chat Completions handler: enforcement on returns 503 and the recording fake provider receives zero calls; a test-only toggle then reaches the fake provider once. Static contract checks prove the candidate server guard is before the proxy and private routers.
+
+### Remaining acceptance boundary
+
+This is still **deny-only candidate behavior**, not a positive Gateway and not a claim of universal egress control. It does not intercept direct browser-side extension fetches to external providers, unknown native/plugin transports outside the server route inventory, or every media/provider branch with its own recording-transport test. The pinned source audit is a bounded lexical inventory, not proof that every enabled outbound call has been traced. No live SillyTavern installation or Android/Termux run is claimed. Stage 2 remains **NO-GO** and Memory→NPC remains **DISABLED / FAIL-CLOSED** until the complete enabled-path inventory, final-send authorization/revocation race, and live deployment gates pass.
