@@ -28,12 +28,14 @@ async function readStableFile(absolutePath, fs) {
   try {
     const opened = await handle.stat();
     if (!opened.isFile()) throw Error('ARTIFACT_OPENED_NOT_FILE');
-    if (before.dev !== opened.dev) throw Error('ARTIFACT_CHANGED_BEFORE_READ_DEVICE');
-    if (before.ino !== opened.ino && !(process.platform === 'win32' && (!before.ino || !opened.ino))) {
-      throw Error('ARTIFACT_CHANGED_BEFORE_READ_INODE');
-    }
     if (before.size !== opened.size) throw Error('ARTIFACT_CHANGED_BEFORE_READ_SIZE');
-    if (before.mtimeMs !== opened.mtimeMs) throw Error('ARTIFACT_CHANGED_BEFORE_READ_MTIME');
+    // Windows does not expose comparable device/inode/timestamp metadata for
+    // every path-stat versus handle-stat pair. Exact bytes are verified twice below.
+    if (process.platform !== 'win32') {
+      if (before.dev !== opened.dev) throw Error('ARTIFACT_CHANGED_BEFORE_READ_DEVICE');
+      if (before.ino !== opened.ino) throw Error('ARTIFACT_CHANGED_BEFORE_READ_INODE');
+      if (before.mtimeMs !== opened.mtimeMs) throw Error('ARTIFACT_CHANGED_BEFORE_READ_MTIME');
+    }
     const bytes = await handle.readFile();
     const afterHandle = await handle.stat();
     const afterPath = await fs.lstat(absolutePath);
