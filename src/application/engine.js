@@ -941,32 +941,95 @@ export class LogicEngine {
       reason_rule_ref: input.reason_rule_ref,
     });
 
+    // Canonical snapshot reads and deployment authorizers must run outside the
+    // store's write transaction. Authenticate replays against the current cursor
+    // before returning even the minimal acknowledgement.
+    const existingReplay = this.store.db.prepare(`
+      SELECT transition_id, request_hash, event_id, committed_revision
+      FROM npc_belief_transitions
+      WHERE world_id=? AND idempotency_key=?
+    `).get(input.world_id, input.idempotency_key);
+    if (existingReplay) {
+      assert(existingReplay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
+        'Belief transition idempotency key was already used for a different request.', 409);
+      const currentWorld = this.store.world(input.world_id);
+      assert(currentWorld && currentWorld.status === 'active',
+        'WORLD_NOT_FOUND', 'World not found or inactive.', 404);
+      this.readNpcKnowledge({
+        world_id: input.world_id,
+        actor_id: input.actor_id,
+        purpose: input.purpose,
+        expected_revision: currentWorld.world_revision,
+        expected_commit_sequence: this.store.currentCommitSequence(input.world_id),
+        limit: input.limit ?? 200,
+      });
+      return {
+        status: 'ready',
+        idempotent_replay: true,
+        transition: {
+          transition_id: existingReplay.transition_id,
+          event_id: existingReplay.event_id,
+          committed_revision: existingReplay.committed_revision,
+        },
+      };
+    }
+
+    const readRequest = {
+      world_id: input.world_id,
+      actor_id: input.actor_id,
+      purpose: input.purpose,
+      expected_revision: input.expected_revision,
+      expected_commit_sequence: input.expected_commit_sequence,
+      limit: input.limit ?? 200,
+    };
+    const read = this.readNpcKnowledge(readRequest);
+    const currentRow = this.store.db.prepare(`
+      SELECT b.stance, b.evidence_acquisition_ids_json
+      FROM npc_belief_transitions AS b
+      JOIN world_events AS e ON e.world_id=b.world_id AND e.event_id=b.event_id
+      WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
+      ORDER BY e.commit_sequence DESC LIMIT 1
+    `).get(input.world_id, input.actor_id, input.proposition_ref);
+    const currentBelief = currentRow ? {
+      world_id: input.world_id,
+      actor_id: input.actor_id,
+      proposition_ref: input.proposition_ref,
+      stance: currentRow.stance,
+      evidence_acquisition_ids: JSON.parse(currentRow.evidence_acquisition_ids_json),
+    } : null;
+    const proposal = {
+      world_id: read.world_id,
+      actor_id: read.actor_id,
+      snapshot: read.snapshot,
+      proposition_ref: input.proposition_ref,
+      proposition_value: input.proposition_value,
+      stance: input.stance,
+      supporting_acquisition_ids: input.supporting_acquisition_ids,
+      contradicting_acquisition_ids: input.contradicting_acquisition_ids,
+      reason_rule_ref: input.reason_rule_ref,
+    };
+    const prepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
+    const transition = prepared.transition;
+    const transitionId = 'npc-belief:' + hashRequest({
+      world_id: input.world_id,
+      idempotency_key: input.idempotency_key,
+    }).slice(0, 40);
+
     return this.store.tx(() => {
+      // A concurrent write between the authorized read and this transaction
+      // must not let a stale proposal be committed. commitEvent performs the
+      // canonical revision/sequence compare-and-swap.
       const replay = this.store.db.prepare(`
-        SELECT transition_id, request_hash, stance, proposition_value_json, supporting_acquisition_ids_json,
-          contradicting_acquisition_ids_json, evidence_acquisition_ids_json,
-          reason_rule_ref, snapshot_revision, snapshot_commit_sequence,
-          event_id, committed_revision
+        SELECT transition_id, request_hash, event_id, committed_revision
         FROM npc_belief_transitions
         WHERE world_id=? AND idempotency_key=?
       `).get(input.world_id, input.idempotency_key);
       if (replay) {
         assert(replay.request_hash === requestHash, 'IDEMPOTENCY_KEY_REUSED',
           'Belief transition idempotency key was already used for a different request.', 409);
-        // Idempotent replay is still an authenticated operation. Re-check the
-        // actor and trusted read authority at the current snapshot, but return
-        // only an acknowledgement so stale evidence values cannot leak.
-        const currentWorld = this.store.world(input.world_id);
-        assert(currentWorld && currentWorld.status === 'active',
-          'WORLD_NOT_FOUND', 'World not found or inactive.', 404);
-        this.readNpcKnowledge({
-          world_id: input.world_id,
-          actor_id: input.actor_id,
-          purpose: input.purpose,
-          expected_revision: currentWorld.world_revision,
-          expected_commit_sequence: this.store.currentCommitSequence(input.world_id),
-          limit: input.limit ?? 200,
-        });
+        assert(this.store.world(input.world_id)?.world_revision === input.expected_revision
+          && this.store.currentCommitSequence(input.world_id) === input.expected_commit_sequence,
+        'STALE_WORLD_SNAPSHOT', 'World changed during belief transition authorization; retry against the current snapshot.', 409);
         return {
           status: 'ready',
           idempotent_replay: true,
@@ -977,47 +1040,6 @@ export class LogicEngine {
           },
         };
       }
-
-      const readRequest = {
-        world_id: input.world_id,
-        actor_id: input.actor_id,
-        purpose: input.purpose,
-        expected_revision: input.expected_revision,
-        expected_commit_sequence: input.expected_commit_sequence,
-        limit: input.limit ?? 200,
-      };
-      const read = this.readNpcKnowledge(readRequest);
-      const currentRow = this.store.db.prepare(`
-        SELECT b.stance, b.evidence_acquisition_ids_json
-        FROM npc_belief_transitions AS b
-        JOIN world_events AS e ON e.world_id=b.world_id AND e.event_id=b.event_id
-        WHERE b.world_id=? AND b.actor_id=? AND b.proposition_ref=? AND e.validity='valid'
-        ORDER BY e.commit_sequence DESC LIMIT 1
-      `).get(input.world_id, input.actor_id, input.proposition_ref);
-      const currentBelief = currentRow ? {
-        world_id: input.world_id,
-        actor_id: input.actor_id,
-        proposition_ref: input.proposition_ref,
-        stance: currentRow.stance,
-        evidence_acquisition_ids: JSON.parse(currentRow.evidence_acquisition_ids_json),
-      } : null;
-      const proposal = {
-        world_id: read.world_id,
-        actor_id: read.actor_id,
-        snapshot: read.snapshot,
-        proposition_ref: input.proposition_ref,
-        proposition_value: input.proposition_value,
-        stance: input.stance,
-        supporting_acquisition_ids: input.supporting_acquisition_ids,
-        contradicting_acquisition_ids: input.contradicting_acquisition_ids,
-        reason_rule_ref: input.reason_rule_ref,
-      };
-      const prepared = this.prepareNpcBeliefContext(readRequest, proposal, currentBelief);
-      const transition = prepared.transition;
-      const transitionId = 'npc-belief:' + hashRequest({
-        world_id: input.world_id,
-        idempotency_key: input.idempotency_key,
-      }).slice(0, 40);
       const event = this.commitEvent(input.world_id, {
         event_id: transitionId,
         idempotency_key: input.idempotency_key,
@@ -1057,7 +1079,6 @@ export class LogicEngine {
       };
     });
   }
-
 
   /**
    * Read the latest non-rolled-back Core belief and report whether its evidence
