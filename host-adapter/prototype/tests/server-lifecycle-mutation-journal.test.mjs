@@ -11,6 +11,7 @@ async function fixture() {
     const root = await fsMkdtemp();
     const directories = {
         chats: path.join(root, 'chats'),
+        characters: path.join(root, 'characters'),
         groups: path.join(root, 'groups'),
         groupChats: path.join(root, 'groupChats'),
         backups: path.join(root, 'backups'),
@@ -325,6 +326,69 @@ test('5xx response with no persisted changes remains unresolved', async () => {
         assert.equal(reachedHandler, false);
         assert.equal(second.statusCode, 503);
         assert.match(String(second.body), /HOST_JOURNAL_RECONCILIATION_REQUIRED/);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('character file mutations are included in the durable before/after snapshot', async () => {
+    const { root, directories, request } = await fixture();
+    try {
+        const avatarPath = path.join(directories.characters, 'character-a.png');
+        await writeFile(avatarPath, 'avatar-before');
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        request.path = '/api/characters/edit-avatar';
+        request.originalUrl = request.path;
+
+        const response = responseMock();
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            await writeFile(avatarPath, 'avatar-after');
+            response.json({ ok: true });
+        });
+        await response.finished;
+
+        const ledger = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
+        const records = ledger.trim().split('\n').map(record => JSON.parse(record));
+        assert.equal(records.at(-1).status, 'COMMITTED');
+        assert.ok(records.at(-1).changes.some(change => change.artifactId === 'characters:character-a.png'));
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('character rename is rejected before it can orphan an enrolled chat path', async () => {
+    const { root, directories, request } = await fixture();
+    try {
+        const chatDirectory = path.join(directories.chats, 'character-a');
+        await mkdir(chatDirectory, { recursive: true });
+        const chatPath = path.join(chatDirectory, 'chat-1.jsonl');
+        await writeFile(chatPath, '{"mes":"before"}\n');
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            sourcePath: 'character-a/chat-1.jsonl',
+            domain: 'chats',
+        });
+        request.path = '/api/characters/rename';
+        request.originalUrl = request.path;
+        request.body = { avatar_url: 'character-a.png', new_name: 'renamed' };
+
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            reachedHandler = true;
+            response.json({ ok: true });
+        });
+        await response.finished;
+
+        assert.equal(reachedHandler, false);
+        assert.equal(response.statusCode, 409);
+        assert.match(String(response.body), /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
+        assert.equal(await readFile(chatPath, 'utf8'), '{"mes":"before"}\n');
     } finally {
         await rm(root, { recursive: true, force: true });
     }
