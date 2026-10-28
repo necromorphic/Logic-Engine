@@ -100,7 +100,8 @@ test('unknown-only connection to a dead end does not imply destination reachabil
   assert.equal(result.optimality, 'CONFIRMED');
   assert.equal(result.reason, 'NO_ROUTE_WITH_DECLARED_CONSTRAINTS');
 });
-\n
+
+
 
 test('malformed navigation constraint objects fail closed instead of throwing', () => {
   assert.equal(rankRoomRoutes(scene([]), 'a', 'd', null).reason, 'INVALID_NAVIGATION_CONSTRAINTS');
