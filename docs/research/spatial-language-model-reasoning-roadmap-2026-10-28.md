@@ -65,7 +65,8 @@ The context text is an adapter output for the LLM, not a canonical record and no
 - [x] Rooms, zones, containment, door graph, conservative reachability.
 - [x] Compact text context with explicit unknowns and epistemic limits.
 - [x] Add immutable synthetic scene revision diffing and declared-dependency freshness checks.
-- [ ] Add scenario traces across two immutable scene boundaries and test invalidation across event/rollback boundaries.
+- [x] Add synthetic scenario traces across two immutable scene boundaries (door state → route/sound change → dependent prediction invalidation).
+- [ ] Test invalidation across actual event/restart/rollback boundaries; production evidence remains unavailable.
 - [x] Add auditory propagation as a separate result from visibility, using explicit sound levels and door attenuation.
 - [ ] Add deterministic route costs and explicit traversal constraints.
 - [ ] Add scenario-based evaluation for multi-NPC scenes (ambush, doorway, sound behind a wall, out-of-room NPC).
@@ -105,3 +106,7 @@ New module: `experiments/spatial-scene-lab/spatial-sound.js`. It estimates wheth
 ### Third research increment: scene revision and prediction freshness
 
 New module: `experiments/spatial-scene-lab/spatial-revisions.js`. It compares two complete synthetic snapshots with the same world ID and increasing revision numbers, and reports changed dependency keys for entities, rooms, zones, and doors. A prediction can declare the keys it depends on; if one changes, the result is STALE. Missing or malformed revision/prediction metadata returns UNKNOWN. A result with no changed declared dependency is only `FRESH_WITH_RESPECT_TO_DECLARED_DEPENDENCIES`, not proof that the dependency list is complete. This module does not subscribe to events and does not prove restart, rollback, or production state provenance.
+
+### Fourth research increment: cross-boundary scenario traces
+
+New test: `tests/spatial-scene-traces.test.js`. The synthetic trace changes one door from open to closed across two immutable revisions and checks that room reachability and sound audibility change, while a prediction that declared the door as a dependency becomes STALE. A second trace changes a listener position and shows that a door-only prediction remains fresh only relative to its declared dependency. These are synthetic algorithm checks, not event-sourcing or production rollback evidence.
