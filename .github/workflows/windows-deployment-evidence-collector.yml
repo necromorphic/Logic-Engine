@@ -87,7 +87,7 @@ jobs:
           }
           if (-not $backupWriteRefused -or (Test-Path -LiteralPath $backupOutputPath)) { throw 'Collector must refuse to write its report inside a backup tree.' }
           $backupJunction = Join-Path $env:RUNNER_TEMP 'logic-engine-backup-junction'
-          if (Test-Path -LiteralPath $backupJunction) { Remove-Item -LiteralPath $backupJunction -Force }
+          if (Test-Path -LiteralPath $backupJunction) { [System.IO.Directory]::Delete($backupJunction, $false) }
           New-Item -ItemType Junction -Path $backupJunction -Target $backupFixture | Out-Null
           try {
             $junctionOutputPath = Join-Path $backupJunction 'must-not-write.json'
