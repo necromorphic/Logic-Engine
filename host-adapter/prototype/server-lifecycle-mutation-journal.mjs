@@ -113,7 +113,7 @@ const validHostUuid = value => typeof value === 'string'
 const hostTextDigest = value => digest(JSON.stringify(String(value)));
 const sameFileIdentity = (a, b) => a.dev === b.dev
     && (a.ino === b.ino || (process.platform === 'win32' && (!a.ino || !b.ino)));
-const sameFileStat = (a, b) => sameFileIdentity(a, b)
+const sameFileStat = (a, b) => (process.platform === 'win32' || sameFileIdentity(a, b))
     && a.size === b.size && a.mtimeMs === b.mtimeMs;
 
 function purgeExpiredSaveCapabilities(now = Date.now()) {
@@ -283,7 +283,9 @@ async function readStableHostChatFile(filePath, expectedDigest = null) {
         const bytes = await handle.readFile();
         const afterHandle = await handle.stat();
         const afterPath = await lstat(filePath);
-        if (!sameFileStat(opened, afterHandle) || !sameFileStat(opened, afterPath) || bytes.length !== afterHandle.size) {
+        const pathBytes = await readFile(filePath);
+        if (!sameFileStat(opened, afterHandle) || !sameFileStat(opened, afterPath)
+            || bytes.length !== afterHandle.size || digest(pathBytes) !== digest(bytes)) {
             throw new Error('HOST_SAVE_SOURCE_CHANGED');
         }
         const fileDigest = digest(bytes);
@@ -1134,12 +1136,15 @@ async function validateEnrolledSourcePath(paths, { conversationId, sourceLocator
         const bytes = await handle.readFile();
         const after = await handle.stat();
         const pathAfter = await lstat(cursor);
+        const pathBytes = await readFile(cursor);
         const sourceChanged = {
-            descriptorIdentity: !sameFileIdentity(before, after),
+            descriptorIdentity: process.platform !== 'win32' && !sameFileIdentity(before, after),
             descriptorMetadata: before.size !== after.size || before.mtimeMs !== after.mtimeMs,
-            pathIdentity: pathAfter.isSymbolicLink() || !sameFileIdentity(before, pathAfter)
+            pathIdentity: pathAfter.isSymbolicLink() || !pathAfter.isFile()
+                || (process.platform !== 'win32' && !sameFileIdentity(before, pathAfter))
                 || pathAfter.size !== after.size || pathAfter.mtimeMs !== after.mtimeMs,
             byteLength: bytes.length !== after.size,
+            pathContent: digest(pathBytes) !== digest(bytes),
         };
         if (!before.isFile() || Object.values(sourceChanged).some(Boolean)) {
             const error = new Error('HOST_ENROLLMENT_SOURCE_CHANGED');
