@@ -194,3 +194,33 @@ test('generic HTTP event cannot forge a Core-authorized acquisition', async (t) 
   assert.equal(response.status, 403);
   assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
 });
+
+test('stale world revision and commit-sequence cursors cannot create acquisitions', () => {
+  const { store, engine } = seed();
+  try {
+    assert.throws(() => engine.recordInitialAcquisition(input({
+      idempotency_key: 'stale-revision', expected_revision: 0, expected_commit_sequence: 1,
+    })), { code: 'REVISION_CONFLICT' });
+    assert.throws(() => engine.recordInitialAcquisition(input({
+      idempotency_key: 'stale-commit-sequence', expected_revision: 1, expected_commit_sequence: 0,
+    })), { code: 'COMMIT_SEQUENCE_CONFLICT' });
+    assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
+    assert.equal(store.db.prepare("SELECT COUNT(*) AS n FROM world_events WHERE event_type='knowledge.acquisition.initial'").get().n, 0);
+  } finally { store.close(); }
+});
+
+test('a changed/conflicted canonical proposition invalidates its acquisition projection', () => {
+  const { store, engine } = seed();
+  try {
+    engine.recordInitialAcquisition(input());
+    assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 1);
+    engine.commitEvent('w1', {
+      idempotency_key: 'conflict-source-fact', turn_id: 'source-change', event_type: 'action.completed',
+      expected_revision: 2,
+      effects: [{ kind: 'fact.set', fact_id: 'fact-a', predicate: 'knows', value: 'different-proposition' }],
+    });
+    assert.equal(store.db.prepare("SELECT status FROM facts WHERE world_id='w1' AND fact_id='fact-a'").get().status, 'conflicted');
+    assert.equal(store.db.prepare('SELECT COUNT(*) AS n FROM knowledge_acquisitions').get().n, 0);
+  } finally { store.close(); }
+});
+
