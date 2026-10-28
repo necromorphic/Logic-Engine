@@ -295,3 +295,31 @@ test("history cannot reference evidence for another proposition", () => {
     type: "canonical_truth_changed",
   }).status, "non_ready");
 });
+
+test("state validation rejects unknown beliefs with active evidence and unreviewed invalidation", () => {
+  let state = admit(emptyState()).state;
+  state = apply(state, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-initial",
+    evidence_refs: ["evidence-1"],
+  }).state;
+
+  const unknownWithEvidence = structuredClone(state);
+  unknownWithEvidence.beliefs[0].stance = "unknown";
+  assert.equal(applyNpcEpistemicEvent(unknownWithEvidence, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "canonical_truth_changed",
+  }).status, "non_ready");
+
+  const invalidatedWithoutReview = structuredClone(state);
+  invalidatedWithoutReview.evidence[0].status = "invalidated";
+  invalidatedWithoutReview.evidence[0].invalidation_rule_ref = "rule-source-revoked";
+  assert.equal(applyNpcEpistemicEvent(invalidatedWithoutReview, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    type: "canonical_truth_changed",
+  }).status, "non_ready");
+});
