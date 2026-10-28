@@ -178,7 +178,10 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         const identity = result.mapping[i];
         chat[i]._logicEngineLifecycle = {
           messageId: identity.messageId,
-          versions: identity.versions.map(version => ({ ...version })),
+          // Multi-swipe legacy messages were rejected above because their
+          // ancestry is ambiguous. A single observed version is the only
+          // baseline shape this Host prototype can currently represent as a root.
+          versions: identity.versions.map(version => ({ ...version, parentVersionId: null })),
           activeVersionIndex: identity.activeVersionIndex,
         };
       }
