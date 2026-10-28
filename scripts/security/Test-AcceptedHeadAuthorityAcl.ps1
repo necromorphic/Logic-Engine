@@ -49,15 +49,15 @@ $aclWrites = @($productionAst.FindAll({
   param($node)
   $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Set-Acl'
 }, $true))
+if ($gateCalls.Count -lt 2 -or $aclWrites.Count -lt 1) {
+  throw 'Expected repeated maintenance checks and ACL writes were not found in the production script.'
+}
 $adminGateCalls = @($productionAst.FindAll({
   param($node)
   $node -is [System.Management.Automation.Language.CommandAst] -and $node.GetCommandName() -eq 'Assert-ServiceIdentitiesNotLocalAdministrators'
 }, $true))
 if ($adminGateCalls.Count -lt 1 -or $adminGateCalls[0].Extent.StartOffset -ge $aclWrites[0].Extent.StartOffset) {
   throw 'Local-Administrators gate must run before the first ACL write.'
-}
-if ($gateCalls.Count -lt 2 -or $aclWrites.Count -lt 1) {
-  throw 'Expected repeated maintenance checks and ACL writes were not found in the production script.'
 }
 if ($gateCalls[0].Extent.StartOffset -ge $aclWrites[0].Extent.StartOffset -or
     $gateCalls[1].Extent.StartOffset -ge $aclWrites[0].Extent.StartOffset) {
@@ -76,10 +76,9 @@ try {
     $testServices += $service
   }
   # Regression: a service identity that is a direct local Administrator must be refused before ACL mutation.
-  $authorityAdminGroup = Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop
-  $authorityDirBefore = $null
+  $administratorsGroupName = (Get-LocalGroup -SID 'S-1-5-32-544' -ErrorAction Stop).Name
   $testProviderSid = (New-Object System.Security.Principal.NTAccount("$env:COMPUTERNAME\$($testAccounts[2])")).Translate([System.Security.Principal.SecurityIdentifier]).Value
-  Add-LocalGroupMember -SID 'S-1-5-32-544' -Member "$env:COMPUTERNAME\$($testAccounts[2])"
+  Add-LocalGroupMember -Group $administratorsGroupName -Member "$env:COMPUTERNAME\$($testAccounts[2])"
   try {
     $serviceObjects = @(
       [pscustomobject]@{ serviceName = 'Authority'; sid = (New-Object System.Security.Principal.NTAccount("$env:COMPUTERNAME\$($testAccounts[0])")).Translate([System.Security.Principal.SecurityIdentifier]).Value },
@@ -93,7 +92,7 @@ try {
     }
     if (-not $adminRejected) { throw 'Local Administrators service identity was not rejected.' }
   } finally {
-    Remove-LocalGroupMember -SID 'S-1-5-32-544' -Member "$env:COMPUTERNAME\$($testAccounts[2])" -ErrorAction SilentlyContinue
+    Remove-LocalGroupMember -Group $administratorsGroupName -Member "$env:COMPUTERNAME\$($testAccounts[2])" -ErrorAction SilentlyContinue
   }
 
   $root = Join-Path $env:RUNNER_TEMP ('accepted-head-acl-smoke-' + [guid]::NewGuid().ToString('N'))
