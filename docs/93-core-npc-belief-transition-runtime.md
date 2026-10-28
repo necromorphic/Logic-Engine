@@ -18,7 +18,7 @@
 4. Require both support and contradiction references when the proposal marks an unresolved conflict. Contradictory evidence cannot be forced into a winning stance by this reducer.
 5. Recheck world revision and commit sequence immediately before returning the context.
 6. Persist an accepted transition through `recordNpcBeliefTransition()` as a no-effect canonical Core event plus a Core-owned SQLite projection row. The row is linked to the event and is filtered out if that transition event is rolled back.
-7. `getNpcBeliefState()` returns the latest valid transition and compares its evidence references with current actor acquisitions. Source rollback/revocation makes support `unsupported` or `partially_supported`; it does not silently rewrite the character's stance or delete its history.
+7. `getNpcBeliefState()` returns the latest valid transition only after per-acquisition visibility checks. If the proposition's current evidence is withheld, it returns a non-disclosing `unavailable` result with no stance or value. Source rollback/revocation makes support `unsupported` or `partially_supported`; it does not silently rewrite the character's stance or delete its history, and invalidated acquisition IDs are not exposed.
 
 ## API contract (internal Core methods only)
 
