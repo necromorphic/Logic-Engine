@@ -192,6 +192,17 @@ test('request-bound capability permits only append/select transitions and reject
 
     // Append-only version creation is allowed; previous IDs/digests/ancestry remain intact.
     const appendPayload = payload([appendedMessage]);
+    const staleFileToken = await prepare(appendPayload);
+    const bytesBeforeStaleFile = await readFile(chatPath, 'utf8');
+    await writeFile(chatPath, bytesBeforeStaleFile + '\n');
+    const changedBytes = await readFile(chatPath, 'utf8');
+    const staleFile = await invokeSave(appendPayload, staleFileToken.token);
+    assert.equal(staleFile.reachedNativeSave, false);
+    assert.equal(staleFile.response.statusCode, 409);
+    assert.match(String(staleFile.response.body), /HOST_SAVE_CAPABILITY_STALE_PRESTATE/);
+    assert.equal(await readFile(chatPath, 'utf8'), changedBytes);
+    await writeFile(chatPath, bytesBeforeStaleFile);
+
     const appendCapability = await prepare(appendPayload);
     assert.equal(appendCapability.status, 'CAPABILITY_ISSUED');
     const append = await invokeSave(appendPayload, appendCapability.token);
