@@ -293,6 +293,43 @@ test('rejected 4xx that changed an artifact remains unresolved', async () => {
     }
 });
 
+test('5xx response with no persisted changes remains unresolved', async () => {
+    const { root, directories, request } = await fixture();
+    try {
+        await writeFile(path.join(directories.chats, 'chat-1.jsonl'), '{"mes":"before"}\\n');
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+
+        const response = responseMock();
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            response.statusCode = 500;
+            response.end('internal error');
+        });
+        await response.finished;
+
+        const ledger = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
+        const records = ledger.trim().split('\\n').map(record => JSON.parse(record));
+        assert.equal(records.at(-1).status, 'UNRESOLVED');
+        assert.equal(records.at(-1).httpStatus, 500);
+
+        const second = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware()(request, second, async () => {
+            reachedHandler = true;
+            second.json({ ok: true });
+        });
+        await second.finished;
+        assert.equal(reachedHandler, false);
+        assert.equal(second.statusCode, 503);
+        assert.match(String(second.body), /HOST_JOURNAL_RECONCILIATION_REQUIRED/);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test('replayed operation ID is rejected before a second mutation', async () => {
     const { root, directories, request } = await fixture();
     try {
