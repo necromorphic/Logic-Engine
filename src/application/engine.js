@@ -264,7 +264,7 @@ export class LogicEngine {
 
   transitionProcess(id, processId, input) {
     assert(obj(input), 'INVALID_PROCESS_TRANSITION', 'Process transition request must be an object.');
-    const allowed = ['action', 'expected_version', 'idempotency_key', 'reason', 'confirm_retry'];
+    const allowed = ['action', 'expected_version', 'idempotency_key', 'reason', 'confirm_retry', 'replan'];
     assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_PROCESS_TRANSITION_FIELD', 'Process transition contains an unsupported field.');
     assert(['pause', 'resume', 'cancel', 'reconcile'].includes(input.action), 'INVALID_PROCESS_ACTION', 'Process action must be pause, resume, cancel, or reconcile.');
     assert(Number.isSafeInteger(input.expected_version) && input.expected_version >= 1, 'INVALID_PROCESS_VERSION', 'expected_version must be a positive safe integer.');
@@ -276,7 +276,10 @@ export class LogicEngine {
     const requestHash = hashRequest({
       operation: 'process.' + input.action, world_id: id, process_id: processId,
       expected_version: input.expected_version, idempotency_key: key, reason: reason.trim(),
-      ...(input.action === 'reconcile' ? { confirm_retry: input.confirm_retry === true } : {}),
+      ...(input.action === 'reconcile' ? {
+        confirm_retry: input.confirm_retry === true,
+        replan: input.replan ?? [],
+      } : {}),
     });
     return this.store.tx(() => {
       const replay = this.processStore.replayOperation(id, key, requestHash);
@@ -303,11 +306,40 @@ export class LogicEngine {
             'This process has no milestones awaiting review.', 409);
         }
         const world = this.getState(id);
-        const overdue = toRetry.filter((milestone) => milestone.due_coordinate <= world.game_time_coordinate);
+        const replans = input.replan ?? [];
+        assert(Array.isArray(replans) && replans.length <= toRetry.length
+          && replans.every((item) => obj(item)
+            && Object.keys(item).every((field) => ['milestone_id', 'due_coordinate'].includes(field))
+            && typeof item.milestone_id === 'string' && item.milestone_id.trim()
+            && Number.isSafeInteger(item.due_coordinate) && item.due_coordinate % 1000 === 0),
+        'INVALID_PROCESS_REPLAN', 'replan must be a list of milestone_id and whole-second due_coordinate pairs.');
+        const replanById = new Map();
+        for (const item of replans) {
+          assert(!replanById.has(item.milestone_id), 'INVALID_PROCESS_REPLAN', 'A milestone can be replanned only once.');
+          assert(toRetry.some((milestone) => milestone.milestone_id === item.milestone_id),
+            'INVALID_PROCESS_REPLAN', 'Only pending or needs-review milestones can be replanned.');
+          assert(item.due_coordinate > world.game_time_coordinate,
+            'INVALID_PROCESS_REPLAN', 'Replanned milestone due_coordinate must be in the future.');
+          replanById.set(item.milestone_id, item.due_coordinate);
+        }
+        const overdue = toRetry.filter((milestone) => milestone.due_coordinate <= world.game_time_coordinate
+          && !replanById.has(milestone.milestone_id));
         if (overdue.length) {
           throw new EngineError('PROCESS_RECONCILE_REQUIRES_REPLAN',
-            'Milestones due at or before the current game time require explicit re-planning before retry.', 409,
+            'Milestones due at or before the current game time require explicit future due coordinates.', 409,
             { milestone_ids: overdue.map((milestone) => milestone.milestone_id), current_coordinate: world.game_time_coordinate });
+        }
+        const dueById = new Map(current.milestones.map((milestone) => [
+          milestone.milestone_id, replanById.get(milestone.milestone_id) ?? milestone.due_coordinate,
+        ]));
+        for (const milestone of toRetry) {
+          for (const prerequisiteId of milestone.prerequisites) {
+            if (dueById.has(prerequisiteId) && dueById.get(milestone.milestone_id) < dueById.get(prerequisiteId)) {
+              throw new EngineError('INVALID_PROCESS_REPLAN',
+                'A milestone cannot be scheduled before one of its prerequisites.', 400,
+                { milestone_id: milestone.milestone_id, prerequisite_milestone_id: prerequisiteId });
+            }
+          }
         }
         for (const milestone of toRetry) {
           const oldTrigger = this.getTimeTrigger(id, milestone.trigger_id);
@@ -327,7 +359,7 @@ export class LogicEngine {
         for (const milestone of toRetry) {
           this.registerTimeTrigger(id, {
             trigger_id: newIds.get(milestone.milestone_id),
-            due_coordinate: milestone.due_coordinate,
+            due_coordinate: dueById.get(milestone.milestone_id),
             dependencies: milestone.prerequisites.map((prerequisiteId) => triggerIdByMilestone.get(prerequisiteId)),
             read_set: milestone.read_set,
             write_set: milestone.write_set,
@@ -337,7 +369,9 @@ export class LogicEngine {
           });
         }
         const updates = toRetry.map((milestone) => ({
-          milestone_id: milestone.milestone_id, trigger_id: newIds.get(milestone.milestone_id),
+          milestone_id: milestone.milestone_id,
+          trigger_id: newIds.get(milestone.milestone_id),
+          due_coordinate: dueById.get(milestone.milestone_id),
         }));
         this.processStore.reconcileMilestones(id, processId, updates);
         const target = current.progress.completed > 0 ? 'running' : 'scheduled';
