@@ -62,7 +62,7 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
-async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
+async function createFixture({ sendUpstream, startUpstreamOverride, coreHead = 1, providerHead = 1, initialProviderGrant = true, providerCandidatesOverride } = {}) {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-dispatch-gateway-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
@@ -108,11 +108,11 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       sources,
       candidates: providerCandidatesOverride ?? candidates,
     }),
-    sendUpstream: async (request) => {
+    startUpstream: startUpstreamOverride ?? ((request) => {
       calls.push(request);
-      if (sendUpstream) return sendUpstream(request);
-      return { status: 200, body: 'accepted' };
-    },
+      const response = sendUpstream ? sendUpstream(request) : Promise.resolve({ status: 200, body: 'accepted' });
+      return { started: true, response: Promise.resolve(response) };
+    }),
   });
   gateway = makeGateway();
 
@@ -306,6 +306,28 @@ test('unsupported route, denied Provider grant, and pending authority all produc
   }
 });
 
+test('async transport capability is rejected and unresolved dispatch is marked UNKNOWN', async () => {
+  const fixture = await createFixture({
+    startUpstreamOverride: async () => ({ started: true, response: Promise.resolve({ status: 200 }) }),
+  });
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('async-handoff-rejected')),
+      /MEMORY_DISPATCH_OUTCOME_UNKNOWN/,
+    );
+    assert.equal(fixture.calls.length, 0, 'an invalid async capability must not fall back to a transport');
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+        .get('async-handoff-rejected').status, 'UNKNOWN');
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('ambiguous transport outcome is recorded UNKNOWN and the request identity cannot be replayed', async () => {
   let sends = 0;
   const fixture = await createFixture({
@@ -484,7 +506,7 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
-      sendUpstream: async () => ({ status: 200 }),
+      startUpstream: () => ({ started: true, response: Promise.resolve({ status: 200 }) }),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {
@@ -624,11 +646,14 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
         };
       },
-      sendUpstream: async (outgoing) => {
+      startUpstream: (outgoing) => {
         calls.push(outgoing);
         signalTransportStart();
-        await transportGate;
-        return { status: 200, body: 'accepted' };
+        const response = (async () => {
+          await transportGate;
+          return { status: 200, body: 'accepted' };
+        })();
+        return { started: true, response };
       },
     });
 
