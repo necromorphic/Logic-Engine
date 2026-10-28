@@ -301,7 +301,7 @@ test('durable intent rechecks persisted bytes immediately before native save', a
         { versionId: version1, text: 'before' },
         { versionId: version2, text: 'after', parentVersionId: version1 },
       ],
-      activeVersionIndex: 0,
+      activeVersionIndex: 1,
     });
     const appendedMessage = makeMessage({
       messageId,
@@ -324,8 +324,8 @@ test('durable intent rechecks persisted bytes immediately before native save', a
       conversation_id: conversationId, message_id: messageId, version_id: id, parent_version_id: parentVersionId,
       content_sha256: digest(text), active, deleted: false,
     });
-    await acknowledge(version1, 'before', true);
-    await acknowledge(version2, 'after', false, version1);
+    await acknowledge(version1, 'before', false);
+    await acknowledge(version2, 'after', true, version1);
     const inventory = await getHostConversationInventory(request);
     assert.equal(inventory.complete, true, JSON.stringify({ errors: inventory.errors }));
 
