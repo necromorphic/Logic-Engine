@@ -63,6 +63,21 @@ jobs:
           }
           if (-not $overwriteRefused) { throw 'Collector did not refuse to overwrite an existing evidence report.' }
           if ((Get-Content -LiteralPath $reportPath -Raw) -cne $originalReport) { throw 'Existing evidence report changed after overwrite was refused.' }
+          $dataCollisionRefused = $false
+          try {
+            & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath) -OutputPath $fixturePath
+          } catch {
+            $dataCollisionRefused = $_.Exception.Message -like '*must not overwrite a supplied data path*'
+          }
+          if (-not $dataCollisionRefused -or (Test-Path -LiteralPath $fixturePath)) { throw 'Collector must refuse output that aliases a supplied data path.' }
+          $sidecarCollisionPath = "$fixturePath-wal"
+          $sidecarCollisionRefused = $false
+          try {
+            & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath) -OutputPath $sidecarCollisionPath
+          } catch {
+            $sidecarCollisionRefused = $_.Exception.Message -like '*must not overwrite a SQLite sidecar*'
+          }
+          if (-not $sidecarCollisionRefused -or (Test-Path -LiteralPath $sidecarCollisionPath)) { throw 'Collector must refuse output that aliases a SQLite sidecar.' }
           $backupOutputPath = Join-Path $backupFixture 'must-not-write.json'
           $backupWriteRefused = $false
           try {
