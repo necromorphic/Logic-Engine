@@ -478,9 +478,11 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     }
 
     const fingerprint = await currentFingerprint(chat);
-    // Save native state before advancing the journal checkpoint. If save or the
-    // subsequent append fails, the journal remains behind and the next pre-hook
-    // rejects the fingerprint mismatch instead of silently claiming completeness.
+    // Save native state before advancing the journal checkpoint unless the caller
+    // has just completed the request-bound one-shot native save successfully. In
+    // that case a second save would replay an already-consumed capability. If the
+    // save or journal append fails, the checkpoint remains behind and the next
+    // pre-hook rejects the fingerprint mismatch instead of claiming completeness.
     if (!sourceAlreadyPersisted) await saveChat();
     const changes = chat.map((message, messageIndex) => ({
       messageId: message._logicEngineLifecycle.messageId,
