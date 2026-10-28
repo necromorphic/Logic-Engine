@@ -357,3 +357,39 @@ test("state validation rejects unknown fields that could bypass shallow freezing
     type: "canonical_truth_changed",
   }).status, "non_ready");
 });
+
+test("state validation rejects unknown fields in receipt, belief, and history records", () => {
+  const received = apply(emptyState(), {
+    type: "information_received",
+    event_ref: "receipt-shape",
+    source_ref: "message-shape",
+    source_version: "v1",
+  }).state;
+  const withReceiptExtension = structuredClone(received);
+  withReceiptExtension.received[0].extension = { mutable: true };
+  assert.equal(apply(withReceiptExtension, { type: "canonical_truth_changed" }).status, "non_ready");
+
+  let withBelief = admit(emptyState()).state;
+  withBelief = apply(withBelief, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "believes_true",
+    revision_rule_ref: "rule-first",
+    evidence_refs: ["evidence-1"],
+  }).state;
+
+  const withBeliefExtension = structuredClone(withBelief);
+  withBeliefExtension.beliefs[0].extension = { mutable: true };
+  assert.equal(apply(withBeliefExtension, { type: "canonical_truth_changed" }).status, "non_ready");
+
+  const withHistory = apply(withBelief, {
+    type: "belief_updated",
+    proposition_ref: "prop-secret-location",
+    stance: "suspects_true",
+    revision_rule_ref: "rule-second",
+    evidence_refs: ["evidence-1"],
+  }).state;
+  const withHistoryExtension = structuredClone(withHistory);
+  withHistoryExtension.beliefs[0].history[0].extension = { mutable: true };
+  assert.equal(apply(withHistoryExtension, { type: "canonical_truth_changed" }).status, "non_ready");
+});
