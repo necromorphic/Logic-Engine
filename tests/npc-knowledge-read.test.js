@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { SQLiteStore } from '../src/storage/sqlite-store.js';
 import { LogicEngine } from '../src/application/engine.js';
 import { validateNpcKnowledgeRead } from '../src/application/npc-knowledge-read.js';
+import { buildNpcBeliefContext, reduceNpcBeliefTransition } from '../src/application/npc-belief-state.js';
 
 const sourceBytes = JSON.stringify({
   schema_version: 1,
@@ -34,9 +35,20 @@ function setup(t, authorizer = (scope) => ({
 })) {
   const store = new SQLiteStore(':memory:');
   t.after(() => store.close());
+  const visibilityAuthorizer = (scope) => ({
+    status: 'allowed',
+    world_id: scope.world_id,
+    actor_id: scope.actor_id,
+    purpose: scope.purpose,
+    world_revision: scope.world_revision,
+    commit_sequence: scope.commit_sequence,
+    acquisition_id: scope.acquisition_id,
+    authorization_ref: 'rule:npc-visibility-v1',
+  });
   const engine = new LogicEngine(store, {
     trustedInitialKnowledgeSources: trustedRegistry,
     npcKnowledgeReadAuthorizer: authorizer,
+    npcKnowledgeVisibilityAuthorizer: visibilityAuthorizer,
   });
   engine.createWorld({
     world_id: 'world-a',
@@ -243,3 +255,142 @@ test('pure read contract rejects extra keys and authorization from another snaps
     ...authorization, commit_sequence: commitSequence - 1,
   }).reason, 'read_not_authorized');
 });
+
+test('Core prepares an actor-bound belief context only after per-acquisition visibility authorization', (t) => {
+  const { store, engine } = setup(t);
+  const readRequest = request(store);
+  const read = engine.readNpcKnowledge(readRequest);
+  const proposal = {
+    world_id: read.world_id,
+    actor_id: read.actor_id,
+    snapshot: read.snapshot,
+    proposition_ref: 'proposition:secret',
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+  };
+  const prepared = engine.prepareNpcBeliefContext(readRequest, proposal);
+  assert.equal(prepared.status, 'ready');
+  assert.equal(prepared.context.actor_id, 'npc-a');
+  assert.equal(prepared.context.evidence.length, 1);
+  assert.equal(prepared.context.evidence[0].value, 'source-backed-value');
+  assert.equal(prepared.context.belief_stance, 'believes_true');
+  assert.equal(Object.isFrozen(prepared.context), true);
+});
+
+test('Core omits denied acquisitions from the belief context and rejects proposals relying on them', (t) => {
+  const { store } = setup(t);
+  const engine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeReadAuthorizer: (scope) => ({
+      status: 'authorized',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      authorization_ref: 'rule:npc-read-v1',
+    }),
+    npcKnowledgeVisibilityAuthorizer: (scope) => ({
+      status: 'denied',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      acquisition_id: scope.acquisition_id,
+      authorization_ref: 'rule:npc-visibility-deny-v1',
+    }),
+  });
+  const readRequest = request(store);
+  const read = engine.readNpcKnowledge(readRequest);
+  const proposal = {
+    world_id: read.world_id,
+    actor_id: read.actor_id,
+    snapshot: read.snapshot,
+    proposition_ref: 'proposition:secret',
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+  };
+  assert.throws(() => engine.prepareNpcBeliefContext(readRequest, proposal), {
+    code: 'NPC_BELIEF_TRANSITION_NOT_READY',
+  });
+});
+
+test('Core requires a trusted visibility authorizer before preparing model context', (t) => {
+  const { store } = setup(t);
+  const engine = new LogicEngine(store, { trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeReadAuthorizer: (scope) => ({
+      status: 'authorized',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      authorization_ref: 'rule:npc-read-v1',
+    }),
+  });
+  assert.throws(() => engine.prepareNpcBeliefContext(request(store), {}), {
+    code: 'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
+  });
+});
+
+test('Core refuses a belief context if the snapshot changes during visibility evaluation', (t) => {
+  const { store } = setup(t);
+  let engine;
+  let mutated = false;
+  engine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: trustedRegistry,
+    npcKnowledgeReadAuthorizer: (scope) => ({
+      status: 'authorized',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      authorization_ref: 'rule:npc-read-v1',
+    }),
+    npcKnowledgeVisibilityAuthorizer: (scope) => {
+      if (!mutated) {
+        mutated = true;
+        engine.commitEvent('world-a', {
+          event_id: 'snapshot-change-during-context',
+          idempotency_key: 'snapshot-change-during-context-key',
+          turn_id: 'snapshot-change-during-context',
+          event_type: 'action.completed',
+          expected_revision: scope.world_revision,
+          effects: [],
+        });
+      }
+      return {
+        status: 'allowed',
+        world_id: scope.world_id,
+        actor_id: scope.actor_id,
+        purpose: scope.purpose,
+        world_revision: scope.world_revision,
+        commit_sequence: scope.commit_sequence,
+        acquisition_id: scope.acquisition_id,
+        authorization_ref: 'rule:npc-visibility-v1',
+      };
+    },
+  });
+  const readRequest = request(store);
+  const read = engine.readNpcKnowledge(readRequest);
+  const proposal = {
+    world_id: read.world_id,
+    actor_id: read.actor_id,
+    snapshot: read.snapshot,
+    proposition_ref: 'proposition:secret',
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+  };
+  assert.throws(() => engine.prepareNpcBeliefContext(readRequest, proposal), {
+    code: 'NPC_BELIEF_CONTEXT_STALE',
+  });
+});
+
