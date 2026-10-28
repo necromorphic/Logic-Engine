@@ -54,7 +54,7 @@ test('missing traversal costs and malformed constraints fail closed', () => {
 
 test('unknown room and unknown forbidden door are not silently accepted', () => {
   assert.equal(rankRoomRoutes(scene([]), 'missing', 'd').reason, 'ROOM_NOT_FOUND');
-  assert.equal(rankRoomRoutes(scene([door('a-d', 'a', 'd', 1)]), 'a', 'd', { forbiddenDoorIds: ['missing-door'] }).reason, 'UNKNOWN_FORBIDDEN_DOOR_ID');
+  assert.equal(rankRoomRoutes(scene([door('a-d', 'a', 'd', 1)]), 'a', 'd', { forbiddenDoorIds: ['missing-door'] }).reason, 'UNKNOWN_FORBIDDEN_DOOR_ID');\n  assert.equal(rankRoomRoutes(scene([door('a-d', 'a', 'd', 1)]), 'a', 'd', { maxRoutes: 0 }).reason, 'INVALID_MAX_ROUTES');
 });
 
 test('same-room route has zero cost and no doors', () => {
