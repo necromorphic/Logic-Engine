@@ -552,6 +552,8 @@ test('create-message assigns identity only to the explicitly appended tail messa
   assert.equal(result.status, 'REVIEW_ONLY');
   assert.deepEqual(f.chat.slice(0, 2).map(message => message._logicEngineLifecycle.messageId), oldMessageIds);
   assert.ok(f.chat[2]._logicEngineLifecycle.messageId);
+  assert.equal(f.chat[2]._logicEngineLifecycle.versions[0].parentVersionId, null,
+    'the instrumented insertion boundary proves this newly created single version is a root');
 });
 
 test('message-send checkpoint records the inserted user message and receive preserves the lineage', async () => {
@@ -571,6 +573,8 @@ test('message-send checkpoint records the inserted user message and receive pres
   assert.equal(received.status, 'REVIEW_ONLY');
   assert.equal(f.chat[2]._logicEngineLifecycle.messageId, sentMessageId);
   assert.ok(f.chat[3]._logicEngineLifecycle.messageId);
+  assert.equal(f.chat[2]._logicEngineLifecycle.versions[0].parentVersionId, null);
+  assert.equal(f.chat[3]._logicEngineLifecycle.versions[0].parentVersionId, null);
 });
 
 test('message-send supports insertion at a requested historical index', async () => {
