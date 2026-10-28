@@ -840,3 +840,11 @@ test('event-only capture rejects unknown, cross-message, and legacy-unverified p
   });
   assert.equal(ledger.db.prepare("SELECT COUNT(*) AS n FROM host_version_digest_ledger WHERE version_id='child-v'").get().n, 0);
 });
+
+test('self-parent is rejected before any ledger mutation', (t) => {
+  const ledger = setup(t);
+  assert.throws(() => ledger.captureVersion(entry({
+    version_id: 'self-v', parent_version_id: 'self-v', active: false
+  })), /Invalid digest-only Host version entry/);
+  assert.equal(ledger.db.prepare('SELECT COUNT(*) AS n FROM host_version_digest_ledger').get().n, 0);
+});
