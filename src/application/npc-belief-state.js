@@ -59,6 +59,7 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     || !isPlainObject(knowledgeRead.snapshot)
     || !Number.isSafeInteger(knowledgeRead.snapshot.world_revision)
     || !Number.isSafeInteger(knowledgeRead.snapshot.commit_sequence)
+    || knowledgeRead.truncated === true
     || !Array.isArray(knowledgeRead.items)) {
     return Object.freeze({ status: 'non_ready', reason: 'core_knowledge_read_not_ready', transition: null });
   }
