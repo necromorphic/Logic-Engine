@@ -135,7 +135,7 @@ jobs:
             '/api/speech:speechRouter', '/api/azure:azureRouter',
             '/api/volcengine:volcengineRouter', '/api/minimax:minimaxRouter',
             '/api/data-maid:dataMaidRouter', '/api/backups:backupsRouter',
-            '/api/image-metadata:imageMetadataRouter',
+            '/api/image-metadata:imageMetadataRouter', '/api/logic-engine:logicEngineLifecycleRouter',
           ];
           if (JSON.stringify(mounts) !== JSON.stringify(expectedMounts)) {
             console.error({ mounts, expectedMounts });
