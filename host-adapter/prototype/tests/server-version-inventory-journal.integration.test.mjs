@@ -42,7 +42,7 @@ function responseMock() {
 test('enforced server mutation journal records before/after persisted version inventories and active-pointer changes', async () => {
   const root = await mkdtemp(path.join(os.tmpdir(), 'host-version-inventory-journal-'));
   const directories = {
-    chats: path.join(root, 'chats'), groups: path.join(root, 'groups'),
+    chats: path.join(root, 'chats'), characters: path.join(root, 'characters'), groups: path.join(root, 'groups'),
     groupChats: path.join(root, 'group_chats'), backups: path.join(root, 'backups'),
   };
   await Promise.all(Object.values(directories).map(directory => mkdir(directory, { recursive: true })));
