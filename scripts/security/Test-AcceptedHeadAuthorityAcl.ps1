@@ -21,19 +21,46 @@ $gateFunctionAst = $productionAst.Find({
 if (-not $gateFunctionAst) { throw 'Production maintenance precondition function is missing.' }
 . ([scriptblock]::Create($gateFunctionAst.Extent.Text))
 
-foreach ($badService in @(
-  [pscustomobject]@{ serviceName = 'FixtureRunning'; state = 'Running'; processId = 123 },
-  [pscustomobject]@{ serviceName = 'FixtureStoppedWithPid'; state = 'Stopped'; processId = 42 }
-)) {
-  $rejected = $false
-  try { Assert-ServicesStopped -Services @($badService) } catch {
-    $rejected = $_.Exception.Message -match 'Maintenance precondition failed'
+# Mock the live service lookup so tests prove that the gate re-queries state rather than
+# trusting the stale preflight snapshot passed to it.
+$script:gateServiceFixtures = @{}
+function Get-ServiceIdentity {
+  param([Parameter(Mandatory = $true)][string]$Name)
+  if (-not $script:gateServiceFixtures.ContainsKey($Name)) {
+    throw "Fixture service not found: $Name"
   }
-  if (-not $rejected) { throw "Maintenance gate accepted unsafe service state for $($badService.serviceName)." }
+  return $script:gateServiceFixtures[$Name]
 }
-Assert-ServicesStopped -Services @(
-  [pscustomobject]@{ serviceName = 'FixtureStopped'; state = 'Stopped'; processId = 0 }
-)
+function Assert-GateRejects {
+  param(
+    [Parameter(Mandatory = $true)]$Snapshot,
+    [Parameter(Mandatory = $true)]$Current,
+    [Parameter(Mandatory = $true)][string]$ExpectedMessage
+  )
+  $script:gateServiceFixtures[$Snapshot.serviceName] = $Current
+  $rejected = $false
+  try { Assert-ServicesStopped -Services @($Snapshot) } catch {
+    $rejected = $_.Exception.Message -match $ExpectedMessage
+  }
+  if (-not $rejected) { throw "Maintenance gate failed to reject fixture state for $($Snapshot.serviceName)." }
+}
+$fixtureSid = 'S-1-5-21-100-200-300-1001'
+$stoppedSnapshot = [pscustomobject]@{
+  serviceName = 'FixtureService'; state = 'Stopped'; processId = 0; sid = $fixtureSid
+}
+Assert-GateRejects -Snapshot $stoppedSnapshot -Current ([pscustomobject]@{
+  serviceName = 'FixtureService'; state = 'Running'; processId = 123; sid = $fixtureSid
+}) -ExpectedMessage 'Maintenance precondition failed'
+Assert-GateRejects -Snapshot $stoppedSnapshot -Current ([pscustomobject]@{
+  serviceName = 'FixtureService'; state = 'Stopped'; processId = 42; sid = $fixtureSid
+}) -ExpectedMessage 'Maintenance precondition failed'
+Assert-GateRejects -Snapshot $stoppedSnapshot -Current ([pscustomobject]@{
+  serviceName = 'FixtureService'; state = 'Stopped'; processId = 0; sid = 'S-1-5-21-100-200-300-1002'
+}) -ExpectedMessage 'service identity changed'
+$script:gateServiceFixtures['FixtureService'] = [pscustomobject]@{
+  serviceName = 'FixtureService'; state = 'Stopped'; processId = 0; sid = $fixtureSid
+}
+Assert-ServicesStopped -Services @($stoppedSnapshot)
 
 $gateCalls = @($productionAst.FindAll({
   param($node)
