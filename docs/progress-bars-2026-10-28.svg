@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="470" viewBox="0 0 1000 470" role="img" aria-labelledby="title desc">
+<title id="title">Logic-Engine progress as of 28 October 2026</title>
+<desc id="desc">Continuous horizontal progress bars. Estimated implementation progress is shown as green verified, orange partial-evidence, and red not yet completed. Production readiness for Memory to NPC is blocked at zero.</desc>
+<rect width="1000" height="470" rx="14" fill="#ffffff"/>
+<style>
+.label{font: 17px -apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;fill:#202124}
+.pct{font: 700 17px -apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;fill:#202124}
+.note{font: 13px -apple-system,BlinkMacSystemFont,Segoe UI,Arial,sans-serif;fill:#5f6368}
+</style>
+<text x="24" y="32" class="note">Оценка реализации · 28.10.2026 · экспертная, не автоматическая метрика</text>
+<g transform="translate(24,52)">
+<rect width="14" height="14" rx="3" fill="#238636"/><text x="21" y="12" class="note">подтверждено</text>
+<rect x="150" width="14" height="14" rx="3" fill="#d97706"/><text x="171" y="12" class="note">частично</text>
+<rect x="270" width="14" height="14" rx="3" fill="#b42318"/><text x="291" y="12" class="note">не завершено / блокер</text>
+</g>
+<g>
+<text x="24" y="103" class="label">Весь проект</text><text x="970" y="103" text-anchor="end" class="pct">38%</text>
+<rect x="24" y="114" width="946" height="15" rx="7.5" fill="#b42318"/><path d="M31.5 114H364V129H31.5A7.5 7.5 0 0 1 24 121.5A7.5 7.5 0 0 1 31.5 114Z" fill="#238636"/><rect x="364" y="114" width="113" height="15" fill="#d97706"/>
+<text x="24" y="160" class="label">Core — ядро и правила мира</text><text x="970" y="160" text-anchor="end" class="pct">60%</text>
+<rect x="24" y="171" width="946" height="15" rx="7.5" fill="#b42318"/><path d="M31.5 171H535V186H31.5A7.5 7.5 0 0 1 24 178.5A7.5 7.5 0 0 1 31.5 171Z" fill="#238636"/><rect x="535" y="171" width="113" height="15" fill="#d97706"/>
+<text x="24" y="217" class="label">Memory Provider</text><text x="970" y="217" text-anchor="end" class="pct">72%</text>
+<rect x="24" y="228" width="946" height="15" rx="7.5" fill="#b42318"/><path d="M31.5 228H648V243H31.5A7.5 7.5 0 0 1 24 235.5A7.5 7.5 0 0 1 31.5 228Z" fill="#238636"/><rect x="648" y="228" width="113" height="15" fill="#d97706"/>
+<text x="24" y="274" class="label">NPC</text><text x="970" y="274" text-anchor="end" class="pct">47%</text>
+<rect x="24" y="285" width="946" height="15" rx="7.5" fill="#b42318"/><path d="M31.5 285H431V300H31.5A7.5 7.5 0 0 1 24 292.5A7.5 7.5 0 0 1 31.5 285Z" fill="#238636"/><rect x="431" y="285" width="113" height="15" fill="#d97706"/>
+<text x="24" y="331" class="label">Host / Adapter</text><text x="970" y="331" text-anchor="end" class="pct">40%</text>
+<rect x="24" y="342" width="946" height="15" rx="7.5" fill="#b42318"/><path d="M31.5 342H365V357H31.5A7.5 7.5 0 0 1 24 349.5A7.5 7.5 0 0 1 31.5 342Z" fill="#238636"/><rect x="365" y="342" width="113" height="15" fill="#d97706"/>
+<text x="24" y="388" class="label">Memory → NPC · техническая реализация</text><text x="970" y="388" text-anchor="end" class="pct">70%</text>
+<rect x="24" y="399" width="946" height="15" rx="7.5" fill="#b42318"/><path d="M31.5 399H629V414H31.5A7.5 7.5 0 0 1 24 406.5A7.5 7.5 0 0 1 31.5 399Z" fill="#238636"/><rect x="629" y="399" width="113" height="15" fill="#d97706"/>
+<text x="24" y="449" class="label">Memory → NPC · production readiness</text><text x="970" y="449" text-anchor="end" class="pct" fill="#b42318">0% · BLOCKED</text>
+</g>
+</svg>
