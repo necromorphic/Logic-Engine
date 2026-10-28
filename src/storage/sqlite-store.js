@@ -2645,6 +2645,11 @@ export class SQLiteStore {
     for (const event of events) {
       for (const effect of dec(event.effects_json)) {
         if (effect.kind !== 'npc.belief.transition') continue;
+        if (event.event_type !== 'npc.belief.transitioned' || effect.transition_id !== event.event_id) {
+          throw new EngineError('NPC_BELIEF_PROJECTION_REBUILD_FAILED',
+            'Canonical NPC belief transition payload must match its event type and identity.', 500,
+            { event_id: event.event_id });
+        }
         insertBeliefTransition.run(
           id, effect.transition_id, effect.actor_id, effect.proposition_ref, effect.stance,
           enc(effect.supporting_acquisition_ids), enc(effect.contradicting_acquisition_ids),
