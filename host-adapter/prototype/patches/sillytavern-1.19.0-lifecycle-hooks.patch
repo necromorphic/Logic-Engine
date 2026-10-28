@@ -24,7 +24,7 @@ diff --git a/public/script.js b/public/script.js
 +
      // Make sure all the data is loaded.
      await unshallowCharacter(characterId);
-@@ -1583,23 +1593,144 @@
+@@ -1583,23 +1593,164 @@
   * @param {object} [options] Options
   * @param {boolean} [options.clearData=false] Optionally clear the chat array's contents.
   */
@@ -698,11 +698,10 @@ diff --git a/src/endpoints/backends/chat-completions.js b/src/endpoints/backends
      try {
 diff --git a/src/endpoints/logic-engine-host-journal.mjs b/src/endpoints/logic-engine-host-journal.mjs
 new file mode 100644
-index 0000000..0000000
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1197 @@
-+import { createHash, randomUUID } from 'node:crypto';
+@@ -0,0 +1,1618 @@
++import { createHash, randomBytes, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
 +import path from 'node:path';
@@ -735,6 +734,8 @@ index 0000000..0000000
 +]);
 +
 +const ENROLLMENT_MARKER_NAME = '.logic-engine-host-enrollment-marker';
++const SAVE_CAPABILITY_TTL_MS = 15_000;
++const saveCapabilities = new Map();
 +const digest = value => createHash('sha256').update(value).digest('hex');
 +const canonical = value => JSON.stringify(value);
 +const stableValue = value => {
@@ -809,26 +810,290 @@ index 0000000..0000000
 +    throw new Error('HOST_TARGET_USER_ENROLLMENT_STATE_AMBIGUOUS');
 +}
 +
++
++const validHostUuid = value => typeof value === 'string'
++    && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
++const hostTextDigest = value => digest(JSON.stringify(String(value)));
++const sameFileStat = (a, b) => a.dev === b.dev && a.ino === b.ino
++    && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
++
++function purgeExpiredSaveCapabilities(now = Date.now()) {
++    for (const [token, capability] of saveCapabilities) {
++        if (capability.expiresAt <= now) saveCapabilities.delete(token);
++    }
++}
++
++function resolveSaveTarget(route, payload) {
++    if (!payload || typeof payload !== 'object' || !Array.isArray(payload.chat) || !payload.chat.length) {
++        throw new Error('HOST_SAVE_PAYLOAD_INVALID');
++    }
++    if (route === '/api/chats/save') {
++        if (typeof payload.avatar_url !== 'string' || typeof payload.file_name !== 'string') {
++            throw new Error('HOST_SAVE_TARGET_INVALID');
++        }
++        const avatar = payload.avatar_url.replace(/\.png$/i, '');
++        const fileName = payload.file_name;
++        if (!avatar || path.isAbsolute(avatar) || avatar.includes('\\')
++            || avatar.split('/').some(part => !part || part === '.' || part === '..')
++            || path.parse(fileName).name !== fileName || fileName.includes('/') || fileName.includes('\\')
++            || !fileName || fileName === '.' || fileName === '..') {
++            throw new Error('HOST_SAVE_TARGET_INVALID');
++        }
++        return { route, operation: 'chat-save', domain: 'chats', sourcePath: avatar + '/' + fileName + '.jsonl' };
++    }
++    if (route === '/api/chats/group/save') {
++        if (typeof payload.id !== 'string' || path.parse(payload.id).name !== payload.id
++            || !payload.id || payload.id === '.' || payload.id === '..'
++            || payload.id.includes('/') || payload.id.includes('\\')) {
++            throw new Error('HOST_SAVE_TARGET_INVALID');
++        }
++        return { route, operation: 'group-chat-save', domain: 'group_chats', sourcePath: payload.id + '.jsonl' };
++    }
++    throw new Error('HOST_SAVE_ROUTE_UNSUPPORTED');
++}
++
++function projectHostChatRecords(records, expectedConversationUuid) {
++    if (!Array.isArray(records) || !records.length
++        || !records.every(record => record && typeof record === 'object' && !Array.isArray(record))) {
++        throw new Error('HOST_SAVE_CHAT_MALFORMED');
++    }
++    const marker = records[0]?.chat_metadata?.logic_engine_conversation_id;
++    if (!validHostUuid(marker) || marker !== expectedConversationUuid) {
++        throw new Error('HOST_SAVE_CONVERSATION_MARKER_MISMATCH');
++    }
++    const messageIds = new Set();
++    const versionIds = new Set();
++    const messages = [];
++    for (const message of records.slice(1)) {
++        const identity = message?._logicEngineLifecycle;
++        const nativeVersions = Array.isArray(message?.swipes) && message.swipes.length
++            ? message.swipes : [message?.mes ?? ''];
++        const activeVersionIndex = message?.swipe_id === undefined ? 0 : message.swipe_id;
++        if (!identity || !validHostUuid(identity.messageId) || messageIds.has(identity.messageId)
++            || !Array.isArray(identity.versions) || identity.versions.length !== nativeVersions.length
++            || !Number.isInteger(activeVersionIndex) || activeVersionIndex < 0
++            || activeVersionIndex >= nativeVersions.length
++            || identity.activeVersionIndex !== activeVersionIndex
++            || typeof message.mes !== 'string' || nativeVersions.some(value => typeof value !== 'string')
++            || message.mes !== nativeVersions[activeVersionIndex]) {
++            throw new Error('HOST_SAVE_MESSAGE_IDENTITY_INVALID');
++        }
++        messageIds.add(identity.messageId);
++        const versions = [];
++        for (let index = 0; index < nativeVersions.length; index++) {
++            const version = identity.versions[index];
++            if (!version || !validHostUuid(version.versionId) || versionIds.has(version.versionId)
++                || typeof version.payloadDigest !== 'string'
++                || !/^[a-f0-9]{64}$/.test(version.payloadDigest)
++                || version.payloadDigest !== hostTextDigest(nativeVersions[index])
++                || (version.parentVersionId != null && !validHostUuid(version.parentVersionId))) {
++                throw new Error('HOST_SAVE_VERSION_IDENTITY_INVALID');
++            }
++            versionIds.add(version.versionId);
++            versions.push({
++                versionId: version.versionId,
++                payloadSha256: version.payloadDigest,
++                parentVersionId: version.parentVersionId ?? null,
++            });
++        }
++        messages.push({ messageId: identity.messageId, activeVersionIndex, versions });
++    }
++    const inventory = {
++        conversation_id: null,
++        domain: null,
++        locator: null,
++        message_count: messages.length,
++        version_count: messages.reduce((sum, message) => sum + message.versions.length, 0),
++        versions: messages.flatMap(message => message.versions.map((version, index) => ({
++            message_id: message.messageId,
++            version_id: version.versionId,
++            payload_sha256: version.payloadSha256,
++            parent_version_id: version.parentVersionId,
++            active: index === message.activeVersionIndex,
++        }))).sort((a, b) => a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id)),
++    };
++    return { messages, inventory };
++}
++
++function sameHostVersion(a, b) {
++    return a.versionId === b.versionId && a.payloadSha256 === b.payloadSha256
++        && a.parentVersionId === b.parentVersionId;
++}
++function sameHostMessage(a, b, { includeActive = true } = {}) {
++    return a.messageId === b.messageId
++        && (!includeActive || a.activeVersionIndex === b.activeVersionIndex)
++        && a.versions.length === b.versions.length
++        && a.versions.every((version, index) => sameHostVersion(version, b.versions[index]));
++}
++function classifyHostSaveTransition(before, after) {
++    const oldMessages = before.messages;
++    const newMessages = after.messages;
++    if (oldMessages.length === newMessages.length + 1) {
++        for (let removed = 0; removed < oldMessages.length; removed++) {
++            const remaining = oldMessages.filter((_, index) => index !== removed);
++            if (remaining.every((message, index) => sameHostMessage(message, newMessages[index]))) {
++                return 'delete-message';
++            }
++        }
++        return null;
++    }
++    if (newMessages.length === oldMessages.length + 1
++        && oldMessages.every((message, index) => sameHostMessage(message, newMessages[index]))
++        && newMessages.at(-1).versions.length === 1
++        && newMessages.at(-1).versions[0].parentVersionId === null) {
++        return 'create-message';
++    }
++    if (oldMessages.length !== newMessages.length
++        || oldMessages.some((message, index) => message.messageId !== newMessages[index].messageId)) return null;
++
++    const changed = oldMessages.map((oldMessage, index) => ({ oldMessage, newMessage: newMessages[index], index }))
++        .filter(({ oldMessage, newMessage }) => !sameHostMessage(oldMessage, newMessage));
++    if (changed.length !== 1) return null;
++    const { oldMessage, newMessage } = changed[0];
++
++    if (oldMessage.versions.length === newMessage.versions.length
++        && oldMessage.versions.every((version, index) => sameHostVersion(version, newMessage.versions[index]))
++        && oldMessage.activeVersionIndex !== newMessage.activeVersionIndex) {
++        return 'swipe-select';
++    }
++    if (oldMessage.versions.length === newMessage.versions.length + 1) {
++        for (let removed = 0; removed < oldMessage.versions.length; removed++) {
++            const remaining = oldMessage.versions.filter((_, index) => index !== removed);
++            if (remaining.every((version, index) => sameHostVersion(version, newMessage.versions[index]))) {
++                return 'delete-swipe';
++            }
++        }
++        return null;
++    }
++    if (oldMessage.versions.length === newMessage.versions.length
++        && oldMessage.activeVersionIndex === newMessage.activeVersionIndex) {
++        const replacements = oldMessage.versions.map((version, index) => ({ version, next: newMessage.versions[index], index }))
++            .filter(({ version, next }) => !sameHostVersion(version, next));
++        if (replacements.length === 1) {
++            const { version, next } = replacements[0];
++            if (next.versionId !== version.versionId
++                && next.payloadSha256 !== version.payloadSha256
++                && next.parentVersionId === version.versionId
++                && !newMessages.some(message => message.versions.some(item => item.versionId === version.versionId))) {
++                return 'edit-message';
++            }
++        }
++    }
++    return null;
++}
++
++async function readStableHostChatFile(filePath, expectedDigest = null) {
++    const before = await lstat(filePath);
++    if (before.isSymbolicLink() || !before.isFile()) throw new Error('HOST_SAVE_SOURCE_UNSAFE');
++    const handle = await open(filePath, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0));
++    try {
++        const opened = await handle.stat();
++        if (!opened.isFile() || !sameFileStat(before, opened)) throw new Error('HOST_SAVE_SOURCE_CHANGED');
++        const bytes = await handle.readFile();
++        const afterHandle = await handle.stat();
++        const afterPath = await lstat(filePath);
++        if (!sameFileStat(opened, afterHandle) || !sameFileStat(opened, afterPath) || bytes.length !== afterHandle.size) {
++            throw new Error('HOST_SAVE_SOURCE_CHANGED');
++        }
++        const fileDigest = digest(bytes);
++        if (expectedDigest && expectedDigest !== fileDigest) throw new Error('HOST_SAVE_SOURCE_CHANGED');
++        const text = bytes.toString('utf8');
++        const records = text.split(/\r?\n/).filter(line => line.trim().length > 0).map(line => JSON.parse(line));
++        return { bytes, fileDigest, records };
++    } finally {
++        await handle.close().catch(() => {});
++    }
++}
++
++function payloadFileDigest(payload) {
++    return digest(payload.chat.map(record => JSON.stringify(record)).join('\n'));
++}
++
++function targetArtifactDigest(snapshot, target) {
++    const artifactId = target.domain + ':' + target.sourcePath;
++    return snapshot.artifacts.find(item => item.artifactId === artifactId)?.sha256 ?? null;
++}
++
++
++function finalizeProjectedHostInventory(projected, enrollment) {
++    const inventory = {
++        ...projected.inventory,
++        conversation_id: enrollment.conversationId,
++        domain: enrollment.domain,
++        locator: enrollment.sourcePath,
++    };
++    inventory.inventory_sha256 = digest(canonical(stableValue(inventory)));
++    return { ...projected, inventory };
++}
++
++function overallProjectedInventoryDigest(beforeInventory, projectedInventory, conversationId) {
++    const inventories = beforeInventory.inventories
++        .map(item => item.conversation_id === conversationId ? projectedInventory : item)
++        .sort((a, b) => a.conversation_id.localeCompare(b.conversation_id));
++    return digest(canonical(stableValue(inventories)));
++}
++
++function consumeHostSaveCapability(request, target, before, headerToken) {
++    purgeExpiredSaveCapabilities();
++    if (typeof headerToken !== 'string' || headerToken.length < 32) {
++        throw new Error('HOST_SAVE_CAPABILITY_REQUIRED');
++    }
++    const key = digest(headerToken);
++    const capability = saveCapabilities.get(key);
++    if (!capability) throw new Error('HOST_SAVE_CAPABILITY_INVALID');
++    // Consume before validating scope: a token can never be replayed on another
++    // path/session, including after a failed attempt.
++    saveCapabilities.delete(key);
++    if (capability.expiresAt <= Date.now()) throw new Error('HOST_SAVE_CAPABILITY_EXPIRED');
++    const userHandle = request.user?.profile?.handle;
++    if (typeof request.sessionID !== 'string' || request.sessionID !== capability.sessionId
++        || typeof userHandle !== 'string' || userHandle !== capability.userHandle
++        || (request.baseUrl + request.path) !== capability.route
++        || target.route !== capability.route
++        || target.domain !== capability.domain || target.sourcePath !== capability.sourcePath) {
++        throw new Error('HOST_SAVE_CAPABILITY_SCOPE_MISMATCH');
++    }
++    if (!before.complete || !before.conversationInventory?.complete
++        || before.conversationInventory.inventory_sha256 !== capability.preStateInventoryDigest
++        || targetArtifactDigest(before, target) !== capability.preStateFileDigest) {
++        throw new Error('HOST_SAVE_CAPABILITY_STALE_PRESTATE');
++    }
++    const payloadDigest = digest(canonical(stableValue(request.body ?? null)));
++    if (payloadDigest !== capability.payloadDigest
++        || payloadFileDigest(request.body ?? {}) !== capability.postStateFileDigest) {
++        throw new Error('HOST_SAVE_CAPABILITY_BODY_MISMATCH');
++    }
++    const enrollment = capability.enrollment;
++    const projected = finalizeProjectedHostInventory(
++        projectHostChatRecords(request.body.chat, enrollment.conversationId.split(':')[1]),
++        enrollment,
++    );
++    const proposedInventoryDigest = overallProjectedInventoryDigest(
++        before.conversationInventory,
++        projected.inventory,
++        enrollment.conversationId,
++    );
++    if (proposedInventoryDigest !== capability.postStateInventoryDigest) {
++        throw new Error('HOST_SAVE_CAPABILITY_POSTSTATE_MISMATCH');
++    }
++    return capability;
++}
++
 +function operationTargetsEnrolledHistory(operation, request, registry) {
 +    const body = request.body ?? {};
-+    if (operation === 'chat-save') {
-+        // The native /api/chats/save handler overwrites the JSONL file before
-+        // the post-mutation snapshot can run. No request-bound, one-shot Host
-+        // transition capability is currently implemented, so accepting this
-+        // write would make post-write detection the only safeguard.
-+        const enrolledChats = registry.conversations.filter(conversation => conversation.domain === 'chats');
-+        const characterDirectory = path.parse(String(body.avatar_url ?? '').replace('.png', '')).name;
-+        const chatName = path.parse(String(body.file_name ?? '')).name;
-+        if (!characterDirectory || !chatName || enrolledChats.some(conversation => typeof conversation.sourcePath !== 'string')) {
-+            return enrolledChats.length > 0;
++    if (operation === 'chat-save' || operation === 'group-chat-save') {
++        const route = operation === 'chat-save' ? '/api/chats/save' : '/api/chats/group/save';
++        let target;
++        try {
++            target = resolveSaveTarget(route, body);
++        } catch {
++            return registry.conversations.some(conversation => conversation.domain
++                === (operation === 'chat-save' ? 'chats' : 'group_chats'));
 +        }
-+        const sourcePath = characterDirectory + '/' + chatName + '.jsonl';
-+        return enrolledChats.some(conversation => conversation.sourcePath === sourcePath);
-+    }
-+    if (operation === 'group-chat-save') {
-+        // Group-save payloads can vary across pinned ST call paths; without a
-+        // request-bound lifecycle capability, fail closed for the enrolled domain.
-+        return registry.conversations.some(conversation => conversation.domain === 'group_chats');
++        const markerUuid = body.chat?.[0]?.chat_metadata?.logic_engine_conversation_id;
++        return registry.conversations.some(conversation =>
++            (conversation.domain === target.domain && conversation.sourcePath === target.sourcePath)
++            || conversation.conversationId.split(':')[1] === markerUuid);
 +    }
 +    if (operation === 'chat-import') {
 +        return registry.conversations.some(conversation => conversation.domain === 'chats');
@@ -1125,6 +1390,9 @@ index 0000000..0000000
 +
 +        let paths;
 +        let registry;
++        let saveTarget = null;
++        let requiresSaveCapability = false;
++        const saveCapabilityHeader = request.headers?.['x-logic-engine-save-capability'];
 +        try {
 +            const chatRootPath = request.user?.directories?.chats;
 +            if (typeof chatRootPath !== 'string' || !path.isAbsolute(chatRootPath)) {
@@ -1174,10 +1442,25 @@ index 0000000..0000000
 +            }
 +            // Migrate pre-marker enrollments before any covered mutation can proceed.
 +            await ensureEnrollmentMarker({ roots: safeUserDirectories(request) });
-+            if (operationTargetsEnrolledHistory(operation, request, registry)) {
-+                return fail(response, ['chat-save', 'group-chat-save'].includes(operation)
-+                    ? 'HOST_ENROLLED_HISTORY_SAVE_CAPABILITY_REQUIRED'
-+                    : 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED', 409);
++            const isSaveOperation = ['chat-save', 'group-chat-save'].includes(operation);
++            const targetsEnrolledHistory = operationTargetsEnrolledHistory(operation, request, registry);
++            if (isSaveOperation && targetsEnrolledHistory) {
++                if (typeof saveCapabilityHeader !== 'string') {
++                    return fail(response, 'HOST_ENROLLED_HISTORY_SAVE_CAPABILITY_REQUIRED', 409);
++                }
++                try {
++                    saveTarget = resolveSaveTarget(
++                        operation === 'chat-save' ? '/api/chats/save' : '/api/chats/group/save',
++                        request.body ?? {},
++                    );
++                } catch {
++                    return fail(response, 'HOST_SAVE_CAPABILITY_TARGET_INVALID', 409);
++                }
++                requiresSaveCapability = true;
++            } else if (targetsEnrolledHistory) {
++                return fail(response, 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED', 409);
++            } else if (saveCapabilityHeader !== undefined) {
++                return fail(response, 'HOST_SAVE_CAPABILITY_SCOPE_MISMATCH', 409);
 +            }
 +            paths = await statePaths(request);
 +        } catch {
@@ -1189,6 +1472,7 @@ index 0000000..0000000
 +        let before;
 +        let operationId;
 +        let chain;
++        let saveCapability = null;
 +        try {
 +            chain = await readAndValidateJournal(paths.journalPath);
 +            if (chain.unresolved) {
@@ -1199,6 +1483,21 @@ index 0000000..0000000
 +            if (!before.complete) {
 +                release();
 +                return fail(response, 'HOST_INVENTORY_INCOMPLETE');
++            }
++            if (requiresSaveCapability) {
++                const acceptedInventory = await getHostConversationInventory(request);
++                if (!acceptedInventory.complete) {
++                    release();
++                    return fail(response, 'HOST_SAVE_CAPABILITY_INVENTORY_NOT_READY', 503);
++                }
++                try {
++                    saveCapability = consumeHostSaveCapability(request, saveTarget, before, saveCapabilityHeader);
++                } catch (error) {
++                    release();
++                    const code = typeof error?.message === 'string' && error.message.startsWith('HOST_SAVE_CAPABILITY_')
++                        ? error.message : 'HOST_SAVE_CAPABILITY_INVALID';
++                    return fail(response, code, 409);
++                }
 +            }
 +            const suppliedOperationId = request.headers?.['x-logic-engine-operation-id'];
 +            if (suppliedOperationId !== undefined
@@ -1314,6 +1613,26 @@ index 0000000..0000000
 +                        return commitBufferedResponse(args, {
 +                            status: 503,
 +                            body: JSON.stringify({ error: { code: 'HOST_POST_MUTATION_SCAN_INCOMPLETE' } }),
++                        });
++                    }
++                    if (saveCapability && (
++                        targetArtifactDigest(after, saveTarget) !== saveCapability.postStateFileDigest
++                        || after.conversationInventory?.inventory_sha256 !== saveCapability.postStateInventoryDigest
++                    )) {
++                        await appendRecord(paths.journalPath, chain.lastHash, {
++                            version: 1,
++                            kind: 'outcome',
++                            operationId,
++                            status: 'UNRESOLVED',
++                            completedAt: new Date().toISOString(),
++                            httpStatus: response.statusCode,
++                            afterSnapshotStatus: 'HOST_SAVE_CAPABILITY_POSTSTATE_MISMATCH',
++                            afterSnapshotDigest: snapshotDigest(after),
++                            afterConversationInventoryDigest: after.conversationInventory?.inventory_sha256 ?? null,
++                        });
++                        return commitBufferedResponse(args, {
++                            status: 503,
++                            body: JSON.stringify({ error: { code: 'HOST_SAVE_CAPABILITY_POSTSTATE_MISMATCH' } }),
 +                        });
 +                    }
 +                    const changes = diffSnapshots(before, after);
@@ -1899,7 +2218,107 @@ index 0000000..0000000
 +        },
 +    };
 +}
-
++
++/**
++ * Prepare an ephemeral, server-owned one-shot capability for an exact
++ * enrolled-chat save. The proposed text exists only in request memory; only
++ * SHA-256 digests and identity/lineage metadata are retained in the capability.
++ */
++export async function prepareHostSaveCapability(request, { route, payload } = {}) {
++    const target = resolveSaveTarget(route, payload);
++    const paths = await statePaths(request);
++    const registry = await readRegistry(paths.registryPath);
++    if (!registry.conversations.length) return { status: 'NOT_ENROLLED' };
++
++    const proposedHeaderUuid = payload.chat?.[0]?.chat_metadata?.logic_engine_conversation_id;
++    const targetEnrollment = registry.conversations.find(item =>
++        item.domain === target.domain && item.sourcePath === target.sourcePath);
++    const markerEnrollment = registry.conversations.find(item =>
++        item.conversationId.split(':')[1] === proposedHeaderUuid);
++
++    if (!targetEnrollment) {
++        if (markerEnrollment) throw new Error('HOST_SAVE_CAPABILITY_TARGET_MISMATCH');
++        return { status: 'NOT_ENROLLED' };
++    }
++    if (markerEnrollment && markerEnrollment.conversationId !== targetEnrollment.conversationId) {
++        throw new Error('HOST_SAVE_CAPABILITY_TARGET_MISMATCH');
++    }
++    if (proposedHeaderUuid !== targetEnrollment.conversationId.split(':')[1]) {
++        throw new Error('HOST_SAVE_CAPABILITY_TARGET_MISMATCH');
++    }
++    if (typeof request.sessionID !== 'string' || !request.sessionID
++        || typeof request.user?.profile?.handle !== 'string' || !request.user.profile.handle) {
++        throw new Error('HOST_SAVE_CAPABILITY_SESSION_REQUIRED');
++    }
++
++    const userKey = digest(String(request.user.profile.handle));
++    const release = await acquireUserLock(userKey);
++    try {
++        const chain = await readAndValidateJournal(paths.journalPath);
++        if (chain.unresolved || chain.degraded) throw new Error('HOST_SAVE_CAPABILITY_JOURNAL_NOT_READY');
++        const before = await scanMutationSnapshot(paths, registry, true);
++        if (!before.complete || !before.conversationInventory?.complete) {
++            throw new Error('HOST_SAVE_CAPABILITY_INVENTORY_NOT_READY');
++        }
++        const observedInventory = await getHostConversationInventory(request);
++        if (!observedInventory.complete) throw new Error('HOST_SAVE_CAPABILITY_INVENTORY_NOT_READY');
++
++        const currentInventory = before.conversationInventory.inventories.find(
++            item => item.conversation_id === targetEnrollment.conversationId,
++        );
++        if (!currentInventory) throw new Error('HOST_SAVE_CAPABILITY_TARGET_NOT_IN_INVENTORY');
++        const root = paths.roots.find(item => item.domain === target.domain)?.path;
++        if (!root) throw new Error('HOST_SAVE_CAPABILITY_ROOT_UNAVAILABLE');
++        const sourcePath = path.resolve(root, ...target.sourcePath.split('/'));
++        const relative = path.relative(root, sourcePath);
++        if (!relative || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
++            throw new Error('HOST_SAVE_CAPABILITY_PATH_UNSAFE');
++        }
++        const currentFile = await readStableHostChatFile(sourcePath, targetArtifactDigest(before, target));
++        const expectedUuid = targetEnrollment.conversationId.split(':')[1];
++        const currentProjection = finalizeProjectedHostInventory(
++            projectHostChatRecords(currentFile.records, expectedUuid),
++            targetEnrollment,
++        );
++        if (currentProjection.inventory.inventory_sha256 !== currentInventory.inventory_sha256) {
++            throw new Error('HOST_SAVE_CAPABILITY_PRESTATE_INVENTORY_MISMATCH');
++        }
++
++        const proposedProjection = finalizeProjectedHostInventory(
++            projectHostChatRecords(payload.chat, expectedUuid),
++            targetEnrollment,
++        );
++        const transition = classifyHostSaveTransition(currentProjection, proposedProjection);
++        if (!transition) throw new Error('HOST_SAVE_CAPABILITY_TRANSITION_UNSUPPORTED');
++
++        const postStateInventoryDigest = overallProjectedInventoryDigest(
++            before.conversationInventory,
++            proposedProjection.inventory,
++            targetEnrollment.conversationId,
++        );
++        const token = randomBytes(32).toString('base64url');
++        const expiresAt = Date.now() + SAVE_CAPABILITY_TTL_MS;
++        saveCapabilities.set(digest(token), {
++            sessionId: request.sessionID,
++            userHandle: request.user.profile.handle,
++            route,
++            operation: transition,
++            domain: target.domain,
++            sourcePath: target.sourcePath,
++            conversationId: targetEnrollment.conversationId,
++            enrollment: targetEnrollment,
++            preStateFileDigest: currentFile.fileDigest,
++            preStateInventoryDigest: before.conversationInventory.inventory_sha256,
++            postStateFileDigest: payloadFileDigest(payload),
++            postStateInventoryDigest,
++            payloadDigest: digest(canonical(stableValue(payload))),
++            expiresAt,
++        });
++        return { status: 'CAPABILITY_ISSUED', token, expiresAt };
++    } finally {
++        release();
++    }
++}
 diff --git a/src/endpoints/logic-engine-host-inventory.mjs b/src/endpoints/logic-engine-host-inventory.mjs
 new file mode 100644
 --- /dev/null
