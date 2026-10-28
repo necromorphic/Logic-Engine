@@ -17,17 +17,13 @@ export function canonicalEntitySourceVersion(entity) {
 
 /**
  * Core-owned source-version validation for direct canonical_entity Memory
- * records. The opaque token comes from Core's durable per-entity source-version
- * counter, not from updated_revision or a world snapshot cursor. This factory
- * returns a trusted Provider callback; it is not a public API and does not
- * authorize Host messages, derived summaries, or production Memory→NPC wiring.
- *
- * Only status='active' is accepted. Unknown/custom statuses and incomplete
- * history fail closed.
+ * records. The token comes from Core's durable per-entity source-version counter,
+ * atomically advanced with entity mutations and rollback. This factory is an
+ * internal Provider callback, not a public API or production Memory→NPC switch.
  */
 export function createCanonicalEntitySourceVersionValidator(engine) {
-  if (typeof engine?.getSnapshot !== 'function') {
-    throw new TypeError('A trusted Core engine with getSnapshot is required');
+  if (typeof engine?.getCanonicalEntitySourceState !== 'function') {
+    throw new TypeError('A trusted Core engine with canonical source-state readback is required');
   }
 
   return (input) => {
@@ -56,32 +52,27 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
       return false;
     }
 
-    let snapshot;
+    let state;
     try {
-      snapshot = engine.getSnapshot(worldId, { entityIds: [sourceEntityId], includeSourceVersions: true });
+      state = engine.getCanonicalEntitySourceState(worldId, sourceEntityId);
     } catch (error) {
       if (error?.code === 'WORLD_NOT_FOUND' || error?.code === 'ENTITY_NOT_FOUND') return false;
       throw new Error('CORE_SOURCE_SNAPSHOT_UNAVAILABLE');
     }
 
     try {
-      if (!object(snapshot)
-        || snapshot.world_id !== worldId
-        || !Number.isSafeInteger(snapshot.world_revision)
-        || snapshot.world_revision < 0
-        || !Number.isSafeInteger(snapshot.commit_sequence)
-        || snapshot.commit_sequence < 0
-        || !Array.isArray(snapshot.entities)
-        || snapshot.entities.length !== 1) return false;
-
-      const [entity] = snapshot.entities;
-      if (!object(entity)
-        || entity.entity_id !== sourceEntityId
-        || entity.status !== 'active'
-        || !Number.isSafeInteger(entity.updated_revision)
-        || entity.updated_revision < 0
-        || canonicalEntitySourceVersion(entity) === null) return false;
-      return sourceVersion === canonicalEntitySourceVersion(entity);
+      if (!object(state)
+        || state.world_id !== worldId
+        || state.entity_id !== sourceEntityId
+        || state.status !== 'active'
+        || !Number.isSafeInteger(state.updated_revision)
+        || state.updated_revision < 0
+        || !Number.isSafeInteger(state.world_revision)
+        || state.world_revision < 0
+        || !Number.isSafeInteger(state.commit_sequence)
+        || state.commit_sequence < 0
+        || canonicalEntitySourceVersion(state) === null) return false;
+      return sourceVersion === canonicalEntitySourceVersion(state);
     } catch {
       return false;
     }
