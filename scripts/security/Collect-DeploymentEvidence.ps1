@@ -240,7 +240,9 @@ try {
     $serviceEvidence = @([pscustomobject]@{ unavailable = "Windows service identity query failed or is unavailable" })
 }
 
-$pathInputs = @($DataPath) + @($BackupPath) | Where-Object { $_ } | Select-Object -Unique
+$requestedDataPaths = @($DataPath | Where-Object { $_ -and $_.Trim() })
+$requestedBackupPaths = @($BackupPath | Where-Object { $_ -and $_.Trim() })
+$pathInputs = @($requestedDataPaths) + @($requestedBackupPaths) | Select-Object -Unique
 
 # Never let the evidence output overwrite an input, SQLite sidecar, or file in a backup tree.
 # Check the caller's raw path first: .NET Framework may reject an ADS path during
@@ -378,6 +380,31 @@ $firewallAllowRules = @($outboundFirewallRules | Where-Object { $_.action -eq "A
 $firewallBlockRules = @($outboundFirewallRules | Where-Object { $_.action -eq "Block" })
 
 $incompleteReasons = New-Object System.Collections.Generic.List[string]
+if ($requestedDataPaths.Count -eq 0) {
+    $incompleteReasons.Add("No data database paths were supplied; data-path and sidecar ACL evidence was not collected.")
+}
+if ($requestedBackupPaths.Count -eq 0) {
+    $incompleteReasons.Add("No backup roots were supplied; backup-tree ACL evidence was not collected.")
+}
+foreach ($dataFile in $requestedDataPaths) {
+    try {
+        $expectedDataPath = [System.IO.Path]::GetFullPath($dataFile)
+        $rootEvidence = @($pathEvidence | Where-Object {
+            $_.requestedPath -eq $dataFile -and $_.path -eq $expectedDataPath
+        } | Select-Object -First 1)
+        if ($rootEvidence.Count -eq 0) {
+            $incompleteReasons.Add("A supplied data database path is missing, inaccessible, invalid, or not a file.")
+        } else {
+            $rootItemEvidence = $rootEvidence[0]
+            $hasItemType = $rootItemEvidence.PSObject.Properties.Name -contains "itemType"
+            if ($rootItemEvidence.exists -ne $true -or -not $hasItemType -or $rootItemEvidence.itemType -ne "File") {
+                $incompleteReasons.Add("A supplied data database path is missing, inaccessible, invalid, or not a file.")
+            }
+        }
+    } catch {
+        $incompleteReasons.Add("A supplied data database path could not be canonicalized.")
+    }
+}
 if (@($pathEvidence | Where-Object { $_.error }).Count -gt 0) {
     $incompleteReasons.Add("One or more path, ACL, SQLite-sidecar, or backup-tree queries reported an error.")
 }
@@ -423,6 +450,7 @@ $report = [ordered]@{
     limitations = @(
         "Read-only inventory only; no settings or files were changed.",
         "An inaccessible path is reported as unknown, not as absent; validate all unknown/error entries manually.",
+        "Missing data paths or omitted data/backup path lists force INCOMPLETE; this status is not a security pass.",
         "Backup directories are enumerated recursively; any enumeration error means backup ACL evidence is incomplete.",
         "Service identity evidence covers Windows services whose process IDs match the selected processes; it does not discover every wrapper/child-process relationship.",
         "Firewall profile defaults and enabled outbound allow/block rules are inventory evidence only and do not prove exclusive egress or restore resistance.",
