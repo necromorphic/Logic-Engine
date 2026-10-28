@@ -101,7 +101,7 @@ jobs:
               throw 'Collector must refuse output through a junction into a backup tree.'
             }
           } finally {
-            if (Test-Path -LiteralPath $backupJunction) { Remove-Item -LiteralPath $backupJunction -Force }
+            if (Test-Path -LiteralPath $backupJunction) { Remove-Item -LiteralPath $backupJunction -Force -ErrorAction SilentlyContinue }
           }
           $missingBackupPath = Join-Path $env:RUNNER_TEMP 'logic-engine-missing-backup-fixture'
           $missingBackupReportPath = Join-Path $env:RUNNER_TEMP 'logic-engine-missing-backup-report.json'
