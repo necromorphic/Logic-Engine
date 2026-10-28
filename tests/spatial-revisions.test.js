@@ -109,3 +109,43 @@ test('fails closed when any revision collection contains duplicate or missing ID
   const missingBlockerId = makeScene(14, { blockers: [{ min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } }] });
   assert.equal(diffSceneRevisions(makeScene(13), missingBlockerId).status, 'UNKNOWN');
 });
+
+
+test('detects spatial body, motion, facing, and perception changes as entity dependencies', () => {
+  const previous = makeScene(15, {
+    entities: [{
+      id: 'npc-a',
+      position: { x: 1, y: 1, z: 0 },
+      forward: { x: 1, y: 0, z: 0 },
+      body: {
+        minOffset: { x: -0.3, y: -0.3, z: 0 },
+        maxOffset: { x: 0.3, y: 0.3, z: 1.8 },
+      },
+      motion: { velocity: { x: 1, y: 0, z: 0 }, maxSpeed: 2 },
+      perception: { halfAngleRadians: Math.PI / 3, maxDistance: 10 },
+    }, { id: 'npc-b', position: { x: 2, y: 1, z: 0 } }],
+  });
+  const current = makeScene(16, {
+    entities: [{
+      id: 'npc-a',
+      position: { x: 1, y: 1, z: 0 },
+      forward: { x: 0, y: 1, z: 0 },
+      body: {
+        minOffset: { x: -0.5, y: -0.3, z: 0 },
+        maxOffset: { x: 0.5, y: 0.3, z: 1.8 },
+      },
+      motion: { velocity: { x: 0, y: 1, z: 0 }, maxSpeed: 2 },
+      perception: { halfAngleRadians: Math.PI / 4, maxDistance: 8 },
+    }, { id: 'npc-b', position: { x: 2, y: 1, z: 0 } }],
+  });
+  const diff = diffSceneRevisions(previous, current);
+  assert.deepEqual(diff.changedDependencies, ['entity:npc-a']);
+  const freshness = assessPredictionFreshness({
+    id: 'movement-and-visibility-prediction',
+    worldId: previous.worldId,
+    basedOnRevision: previous.revision,
+    dependencies: ['entity:npc-a'],
+  }, previous, current);
+  assert.equal(freshness.freshness, 'STALE');
+  assert.deepEqual(freshness.affectedDependencies, ['entity:npc-a']);
+});
