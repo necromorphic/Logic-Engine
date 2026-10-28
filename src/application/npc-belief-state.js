@@ -60,6 +60,7 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     || Object.keys(proposal).sort().join(',') !== [
       'contradicting_acquisition_ids',
       'proposition_ref',
+      'proposition_value',
       'reason_rule_ref',
       'stance',
       'supporting_acquisition_ids',
@@ -115,11 +116,22 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
   if (allRefs.some((ref) => propositionRefFor(active.get(ref)) !== proposal.proposition_ref)) {
     return Object.freeze({ status: 'non_ready', reason: 'evidence_does_not_match_proposition', transition: null });
   }
+  let propositionValueKey;
+  try {
+    propositionValueKey = stableJson(proposal.proposition_value);
+    if (propositionValueKey === undefined) throw new TypeError('invalid proposition value');
+  } catch {
+    return Object.freeze({ status: 'non_ready', reason: 'invalid_proposition_value', transition: null });
+  }
   const valuesBySide = (refs) => new Set(refs.map((ref) => stableJson(active.get(ref).value)));
   const supportValues = valuesBySide(supporting);
   const contradictValues = valuesBySide(contradicting);
   if ([...supportValues].some((value) => contradictValues.has(value))) {
     return Object.freeze({ status: 'non_ready', reason: 'same_value_cannot_support_and_contradict', transition: null });
+  }
+  if (supporting.some((ref) => stableJson(active.get(ref).value) !== propositionValueKey)
+    || contradicting.some((ref) => stableJson(active.get(ref).value) === propositionValueKey)) {
+    return Object.freeze({ status: 'non_ready', reason: 'evidence_side_does_not_match_proposition_value', transition: null });
   }
   const propositionValues = new Set(propositionItems.map((item) => stableJson(item.value)));
   const hasConflict = propositionValues.size > 1;
@@ -127,8 +139,15 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     || supportValues.size === 0 || contradictValues.size === 0)) {
     return Object.freeze({ status: 'non_ready', reason: 'conflicting_evidence_must_remain_unresolved', transition: null });
   }
-  if (!hasConflict && (proposal.stance === 'unresolved_conflict' || contradictValues.size > 0)) {
-    return Object.freeze({ status: 'non_ready', reason: 'conflict_requires_distinct_core_values', transition: null });
+  if (!hasConflict) {
+    const evidenceMatchesClaim = propositionValues.has(propositionValueKey);
+    if (proposal.stance === 'unresolved_conflict'
+      || (evidenceMatchesClaim && (!['believes_true', 'suspects_true'].includes(proposal.stance)
+        || contradicting.length > 0))
+      || (!evidenceMatchesClaim && (!['believes_false', 'suspects_false'].includes(proposal.stance)
+        || supporting.length > 0))) {
+      return Object.freeze({ status: 'non_ready', reason: 'stance_does_not_match_available_evidence', transition: null });
+    }
   }
 
   let prior = null;
@@ -157,6 +176,7 @@ export function reduceNpcBeliefTransition({ knowledgeRead, currentBelief = null,
     purpose: knowledgeRead.purpose,
     snapshot: Object.freeze({ ...knowledgeRead.snapshot }),
     proposition_ref: proposal.proposition_ref,
+    proposition_value: proposal.proposition_value,
     stance: proposal.stance,
     supporting_acquisition_ids: Object.freeze(supporting),
     contradicting_acquisition_ids: Object.freeze(contradicting),
@@ -208,6 +228,7 @@ export function buildNpcBeliefContext(knowledgeRead, transition) {
     purpose: knowledgeRead.purpose,
     snapshot: Object.freeze({ ...knowledgeRead.snapshot }),
     proposition_ref: transition.proposition_ref,
+    proposition_value: transition.proposition_value,
     belief_stance: transition.stance,
     epistemic_status: transition.stance === 'unresolved_conflict' ? 'conflicted' : 'belief_proposal',
     evidence: Object.freeze(safeEvidence),
