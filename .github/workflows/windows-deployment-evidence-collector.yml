@@ -40,6 +40,8 @@ jobs:
           if (-not ($report.PSObject.Properties.Name -contains 'collectionStatus')) { throw 'Collection status is missing.' }
           if ($report.collectionStatus -ne 'INCOMPLETE') { throw 'An invalid-path query must make the report explicitly INCOMPLETE.' }
           if (-not $report.incompleteReasons -or $report.incompleteReasons.Count -lt 1) { throw 'Incomplete report must explain its evidence gaps.' }
+          $invalidEvidence = @($report.pathAclEvidence | Where-Object { $_.requestedPath -eq $invalidFixturePath -and $_.error })
+          if (-not $invalidEvidence -or $invalidEvidence[0].exists -ne $null) { throw 'An invalid path must be reported as unknown with an error, not absent.' }
           if (-not $report.os.powershellVersion) { throw 'PowerShell version evidence is missing.' }
           if (-not ($report.PSObject.Properties.Name -contains 'serviceEvidence')) { throw 'Windows service identity evidence field is missing.' }
           if ($report.pathAclEvidence.Count -lt 1) { throw 'Expected path ACL evidence for the supplied fixture.' }
