@@ -400,6 +400,15 @@ test('Provider rejects restoration of an older enrolled database snapshot', asyn
       /PROVIDER_ACCEPTED_HEAD_MISMATCH/,
     );
     assert.deepEqual(getAcceptedHeadsSync({ port, token: providerToken }), { core: 1, provider: 2 });
+
+    // Removing the authority endpoint/token while the deployment still
+    // requires accepted-head must not silently downgrade an enrolled Provider.
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PORT', undefined, previousEnv);
+    setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN', undefined, previousEnv);
+    assert.throws(
+      () => new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath)),
+      /PROVIDER_ACCEPTED_HEAD_AUTHORITY_REQUIRED/,
+    );
   } finally {
     try { provider?.close(); } catch {}
     if (child) {
