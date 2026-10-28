@@ -49,4 +49,10 @@ jobs:
           node --check src/server-startup.js
       - name: Ensure guard is installed before native endpoint routers
         run: |
-          node --input-type=module -e "import { readFileSync } from 'node:fs'; const s=readFileSync('sillytavern-host-checkout/src/server-startup.js','utf8'); const g=s.indexOf('app.use(createProtectedDispatchDenyMiddleware())'); const r=s.indexOf("app.use('/api/backends/chat-completions', chatCompletionsRouter)"); if (g<0 || r<0 || g>r) process.exit(1);"
+          node --input-type=module <<'NODE'
+          import { readFileSync } from 'node:fs';
+          const source = readFileSync('sillytavern-host-checkout/src/server-startup.js', 'utf8');
+          const guard = source.indexOf('app.use(createProtectedDispatchDenyMiddleware())');
+          const router = source.indexOf("app.use('/api/backends/chat-completions', chatCompletionsRouter)");
+          if (guard < 0 || router < 0 || guard > router) process.exit(1);
+          NODE
