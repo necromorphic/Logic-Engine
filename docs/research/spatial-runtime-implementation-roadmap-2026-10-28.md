@@ -33,7 +33,7 @@ Keep the selected position semantics from the typed-spatial contract revision 2:
 - Frame instance scoped to one world; no implicit transforms, interpolation, extrapolation, or narrative inference.
 - Unsupported or unproven spatial evidence returns a non-confirmed status.
 
-**Open decision:** Which JSON Schema validator/version and vocabulary are supported by the repository? Custom `spatial_semantics` metadata is not enforcement unless the selected validator and loader explicitly consume it.
+**Narrowed decision:** the manifest already declares JSON Schema Draft 2020-12 (`schemas/world-pack-manifest.schema.json`, `$schema`). The remaining choice is a pinned validator implementation/version that supports that dialect, strict configuration, and an explicit enforcement path for custom `spatial_semantics` metadata. Unknown/custom keywords must not be mistaken for enforcement merely because the base validator accepts the document.
 
 **Exit condition:** Core/World Pack owners accept the schema vocabulary, canonicalization rules, and fail-closed error behavior. No implementation before this decision.
 
@@ -230,6 +230,8 @@ Minimum closure evidence:
 
 ### Decision R2 — Make schema identity immutable and resolvable before spatial validation
 
+**Recommended contract for owner review:** use the manifest's declared JSON Schema Draft 2020-12 dialect with a pinned compatible validator configured strictly; define `spatial_semantics` as an explicitly checked application-level vocabulary rather than relying on an unrecognized JSON Schema keyword. For digest stability, prefer RFC 8785 JSON Canonicalization Scheme (JCS) followed by SHA-256, and pin both the canonicalization profile and digest algorithm in the identity record. This is a proposal, not an approved dependency/version choice.
+
 **Recommendation:** a World Pack is a content-addressed immutable artifact. A human-readable pack ID/version is not its identity.
 
 Proposed identity tuple:
@@ -293,7 +295,7 @@ This sequence intentionally postpones NPC integration and any inference-heavy sp
 |---|---|---|---|---|
 | World creation accepts pack ID/version but the inspected path does not show manifest resolution | `src/application/engine.js:451–485` (`createWorld`); `src/storage/sqlite-store.js:687+` (`createWorld`) | engine `dcb8b84e54b29e8697f14eb7e709cc6e0cd65a13`; store `80cbc54fb174a8074088ee9234524e401b7dbb68` | code-verified, bounded | World Pack identity is currently represented by ID/version at this seam; immutable manifest digest/history is not established here |
 | Manifest only constrains `attributes_schema` to an object | `schemas/world-pack-manifest.schema.json:117–124` | `73b59694280ebf4e6c5affd98a41c09e4da6031c` | code-verified | Typed spatial semantics are not enforced by this manifest fragment alone |
-| No runtime validator dependency declared in package manifest | `package.json:1–17` | `c9d6652d87cf90ff3b945cfa32c1957d83428cbd` | code-verified, bounded | No validator dependency is declared; bounded searches did not locate an in-repo loader/validator path. External loaders are not ruled out |
+| Manifest declares Draft 2020-12, but no runtime validator dependency is declared | `schemas/world-pack-manifest.schema.json:1–2`; `package.json:1–17` | manifest `73b59694280ebf4e6c5affd98a41c09e4da6031c`; package `c9d6652d87cf90ff3b945cfa32c1957d83428cbd` | code-verified, bounded | Dialect is known; implementation/version, strict settings, custom spatial metadata enforcement and loader binding remain unresolved |
 | Canonical read seams exist | `src/application/engine.js:486–488`; `src/storage/sqlite-store.js:814+` (`readSnapshot`), `1057+` (`state`), `1090+` (`events`) | engine `dcb8b84e54b29e8697f14eb7e709cc6e0cd65a13`; store `80cbc54fb174a8074088ee9234524e401b7dbb68` | code-verified | Existing state/snapshot/event reads can support a research projection, but do not define typed position semantics |
 | Segment commit and rollback are store-owned | `src/application/engine.js:670–705, 1224`; `src/storage/sqlite-store.js:1353+` (`commit`), `1580+` (`commitSegment`), `2078+` (`rollback`) | engine `dcb8b84e54b29e8697f14eb7e709cc6e0cd65a13`; store `80cbc54fb174a8074088ee9234524e401b7dbb68` | code-verified | Any future spatial acceptance must not bypass these canonical mutation/rebuild paths |
 | Coordinator DB is a lock primitive; accepted-head client integration exists but external authority deployment is not established | `src/storage/coordinator-lock.js:4–9, 52+`; `src/storage/sqlite-store.js:20–25, 347–365, 688–710, 752–805`; `src/security/accepted-head-client-sync.js` | coordinator `7df7121bdbbf71d8171759dbdcd2ca6626130014`; store `0c45e73020d69726946a01e5c7e39ea4c4a7fdd4`; client `97b0352c0e0ad8a1a52701e0c1c6108b4600ba51` | code-verified, bounded; authority service/ACL draft; Provider integration not merged | Do not build a parallel ledger. Verify authority service PR #480, ACL PR #469, Provider integration replacement for closed/unmerged #484/#496, target-PC deployment and coordinated restore behavior before claiming anti-rollback closure |
@@ -323,7 +325,7 @@ No tests were executed by this pass. Prior branch CI results cited elsewhere app
 
 | Priority | Decision / evidence needed | Why it blocks progress |
 |---|---|---|
-| P0 | Identify and pin the supported schema validator/dialect and custom spatial metadata vocabulary | Without it, typed semantics are descriptive only |
+| P0 | Pin a Draft 2020-12-compatible validator, strict settings, explicit custom `spatial_semantics` enforcement, and RFC 8785 JCS + SHA-256 digest profile (proposal pending owner review) | Without it, typed semantics are descriptive only and schema identity is not reproducible |
 | P0 | Identify the authoritative World Pack loader/registration path and alternate writers | Cannot guarantee one immutable pack identity |
 | P0 | Choose digest canonicalization and immutable registry/storage authority | Cannot prove which schema defined an accepted position |
 | P1 | Decide handling of legacy worlds without schema digests | Prevents silently treating old generic attributes as typed facts |
