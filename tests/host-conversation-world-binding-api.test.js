@@ -134,7 +134,7 @@ test('Host digest capture requires Core binding and accepts no raw text or calle
   const adapterHeaders = { ...headers, 'x-adapter-id': 'adapter-a', 'x-adapter-token': ADAPTER_A };
   const capture = {
     conversation_id: 'stable-chat-id', message_id: 'message-1', version_id: 'version-1',
-    content_sha256: 'a'.repeat(64), active: true, deleted: false,
+    content_sha256: 'a'.repeat(64), parent_version_id: null, active: true, deleted: false,
   };
 
   const unbound = await fetch(path, { method: 'POST', headers: adapterHeaders, body: json(capture) });
@@ -145,6 +145,14 @@ test('Host digest capture requires Core binding and accepts no raw text or calle
     method: 'POST', headers: { ...headers, 'x-admin-token': ADMIN },
     body: json({ adapter_id: 'adapter-a', conversation_id: 'stable-chat-id', world_id: 'host-binding-world-a' }),
   });
+
+  const missingParent = { ...capture };
+  delete missingParent.parent_version_id;
+  const missingParentResponse = await fetch(path, {
+    method: 'POST', headers: adapterHeaders, body: json(missingParent),
+  });
+  assert.equal(missingParentResponse.status, 400);
+  assert.equal((await missingParentResponse.json()).error.code, 'INVALID_HOST_VERSION_CAPTURE');
 
   const rawText = await fetch(path, {
     method: 'POST', headers: adapterHeaders, body: json({ ...capture, content_text: 'must not be accepted' }),
