@@ -12,7 +12,7 @@ Related:
 
 ## 1. Executive conclusion
 
-The first acquisition slice is semantically specified, but the existing Core primitives do not yet provide the actual acquisition source or actor-relative safe read. Existing canonical facts, event provenance, context manifests, actor bindings, proposal lifecycle, and partial rollback are useful dependencies only; none can be reinterpreted as a subject's acquisition record.
+The first acquisition slice is semantically specified. The Stage B feature branch now provides a canonical event-backed acquisition record, but the deployment-owned authoring/import policy is not configured by default and no actor-relative safe read exists; production use remains blocked pending exact-head tests and Stage C. Existing canonical facts, event provenance, context manifests, actor bindings, proposal lifecycle, and partial rollback are useful dependencies only; none can be reinterpreted as a subject's acquisition record.
 
 The most important implementation boundary is not a new NPC-local feature. It is a Core-owned mapping from an explicitly authorized initial assignment to a subject, a resolvable canonical proposition/source, and a validity basis that survives replay and can be reconciled under the existing event lifecycle. The Core owner must select a representation after inspecting seed/import and replay paths.
 
@@ -32,7 +32,7 @@ The most important implementation boundary is not a new NPC-local feature. It is
 
 Source basis: `src/application/engine.js`, `src/storage/sqlite-store.js`, `src/core/rules.js`, `src/application/actor-bindings.js`, `src/application/proposals.js`, `docs/21-stage1-causality-contract.md`, and the contracts linked above, all inspected as available on Core `main` or NPC `feat/npc-subsystem` at the audit time.
 
-No dedicated author-initial/imported acquisition representation was identified in the inspected Core files. No current source/import contract was found that proves a subject assignment can be stored, replayed, queried, and invalidated. This is a source audit result, not proof that no relevant implementation could exist elsewhere; Core must confirm the intended seed/import entry point before implementation.
+The Stage B feature branch now introduces a Core event effect and derived acquisition projection for explicit `author_initial`/`imported` assignments. This does not establish a general world-pack importer or a production acquisition reader: the trusted policy is deployment-owned and unset by default, and only canonical active facts are supported as sources. See `docs/88-core-stage-b-acquisition-traceability.md` for implementation/test mapping and the remaining limits.
 
 ## 3. Causality: precise limits that affect the acquisition contract
 
