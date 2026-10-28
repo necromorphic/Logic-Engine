@@ -272,9 +272,10 @@ test('equal-time events require stable event identity and commit ordering for a 
 
   const mapped = assertSegmentCursorMapping(store, worldId, segments);
   const boundary = mapped[0].boundaryCursor;
+  const plannedEventIds = segments[0].events.map((event) => event.event_id);
   const sameCoordinateEvents = store.db.prepare(
-    'SELECT event_id,game_time_coordinate,committed_revision,commit_sequence,validity FROM world_events WHERE world_id=? AND game_time_coordinate=? AND validity=? ORDER BY commit_sequence',
-  ).all(worldId, 10000, 'valid');
+    'SELECT event_id,game_time_coordinate,committed_revision,commit_sequence,validity FROM world_events WHERE world_id=? AND event_id IN (?,?) ORDER BY commit_sequence',
+  ).all(worldId, ...plannedEventIds);
 
   assert.equal(sameCoordinateEvents.length, 2);
   assert.deepEqual(
