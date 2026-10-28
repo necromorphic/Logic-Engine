@@ -1,0 +1,108 @@
+name: Windows deployment evidence collector
+on:
+  pull_request:
+    paths:
+      - 'scripts/security/Collect-DeploymentEvidence.ps1'
+      - '.github/workflows/windows-deployment-evidence-collector.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-deployment-evidence-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  powershell-51-smoke:
+    runs-on: windows-2022
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Run collector with Windows PowerShell 5.1
+        shell: powershell
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $reportPath = Join-Path $env:RUNNER_TEMP 'logic-engine-deployment-evidence-smoke.json'
+          $fixturePath = Join-Path $env:RUNNER_TEMP 'logic-engine-nonexistent-fixture.sqlite'
+          $invalidFixturePath = 'C:\\bad<path\\invalid.sqlite'
+          $backupFixture = Join-Path $env:RUNNER_TEMP 'logic-engine-backup-fixture'
+          $backupChild = Join-Path $backupFixture 'nested'
+          New-Item -ItemType Directory -Path $backupChild -Force | Out-Null
+          Set-Content -LiteralPath (Join-Path $backupChild 'fixture.bak') -Value 'non-sensitive test fixture'
+          & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath, $invalidFixturePath) -BackupPath @($backupFixture) -ProcessName @('powershell.exe') -OutputPath $reportPath
+          if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "Collector failed with exit code $LASTEXITCODE" }
+          if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Collector did not create the report.' }
+          $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
+          if ($report.reportType -ne 'Logic Engine deployment security evidence (read-only)') { throw 'Unexpected reportType.' }
+          if (-not ($report.PSObject.Properties.Name -contains 'collectionStatus')) { throw 'Collection status is missing.' }
+          if ($report.collectionStatus -ne 'INCOMPLETE') { throw 'An invalid-path query must make the report explicitly INCOMPLETE.' }
+          if (-not $report.incompleteReasons -or $report.incompleteReasons.Count -lt 1) { throw 'Incomplete report must explain its evidence gaps.' }
+          $invalidEvidence = @($report.pathAclEvidence | Where-Object { $_.requestedPath -eq $invalidFixturePath -and $_.error })
+          if (-not $invalidEvidence -or $invalidEvidence[0].exists -ne $null) { throw 'An invalid path must be reported as unknown with an error, not absent.' }
+          if (-not $report.os.powershellVersion) { throw 'PowerShell version evidence is missing.' }
+          if (-not ($report.PSObject.Properties.Name -contains 'serviceEvidence')) { throw 'Windows service identity evidence field is missing.' }
+          if ($report.pathAclEvidence.Count -lt 1) { throw 'Expected path ACL evidence for the supplied fixture.' }
+          if (-not ($report.PSObject.Properties.Name -contains 'firewallProfiles')) { throw 'Firewall profile evidence field is missing.' }
+          if (-not ($report.PSObject.Properties.Name -contains 'enabledOutboundAllowRules')) { throw 'Outbound allow-rule evidence field is missing.' }
+          if (-not ($report.PSObject.Properties.Name -contains 'enabledOutboundBlockRules')) { throw 'Outbound block-rule evidence field is missing.' }
+          $fixtureEvidence = @($report.pathAclEvidence | Where-Object { $_.requestedPath -eq $fixturePath -and $_.path -eq [System.IO.Path]::GetFullPath($fixturePath) })
+          if (-not $fixtureEvidence -or $fixtureEvidence[0].exists -ne $false) { throw 'A known-missing fixture must be reported as absent, not unknown.' }
+          $backupChildPath = [System.IO.Path]::GetFullPath((Join-Path $backupChild 'fixture.bak'))
+          $backupChildEvidence = @($report.pathAclEvidence | Where-Object { $_.path -eq $backupChildPath -and $_.exists -eq $true })
+          if (-not $backupChildEvidence) { throw 'A nested backup file must have ACL evidence.' }
+          if (-not $report.limitations -or $report.limitations.Count -lt 1) { throw 'Evidence limitations are missing.' }
+          $originalReport = Get-Content -LiteralPath $reportPath -Raw
+          $overwriteRefused = $false
+          try {
+            & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath, $invalidFixturePath) -BackupPath @($backupFixture) -ProcessName @('powershell.exe') -OutputPath $reportPath
+          } catch {
+            $overwriteRefused = $_.Exception.Message -like '*OutputPath already exists*'
+          }
+          if (-not $overwriteRefused) { throw 'Collector did not refuse to overwrite an existing evidence report.' }
+          if ((Get-Content -LiteralPath $reportPath -Raw) -cne $originalReport) { throw 'Existing evidence report changed after overwrite was refused.' }
+          $dataCollisionRefused = $false
+          try {
+            & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath) -OutputPath $fixturePath
+          } catch {
+            $dataCollisionRefused = $_.Exception.Message -like '*must not overwrite a supplied data path*'
+          }
+          if (-not $dataCollisionRefused -or (Test-Path -LiteralPath $fixturePath)) { throw 'Collector must refuse output that aliases a supplied data path.' }
+          $sidecarCollisionPath = "$fixturePath-wal"
+          $sidecarCollisionRefused = $false
+          try {
+            & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath) -OutputPath $sidecarCollisionPath
+          } catch {
+            $sidecarCollisionRefused = $_.Exception.Message -like '*must not overwrite a SQLite sidecar*'
+          }
+          if (-not $sidecarCollisionRefused -or (Test-Path -LiteralPath $sidecarCollisionPath)) { throw 'Collector must refuse output that aliases a SQLite sidecar.' }
+          $streamOutputPath = $fixturePath + [char]58 + 'evidence'
+          $streamRefused = $false
+          try {
+            & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath) -OutputPath $streamOutputPath
+          } catch {
+            $streamRefused = $_.Exception.Message -like '*alternate data stream*'
+          }
+          if (-not $streamRefused) { throw 'Collector must reject NTFS alternate data stream output paths.' }
+          $backupOutputPath = Join-Path $backupFixture 'must-not-write.json'
+          $backupWriteRefused = $false
+          try {
+            & .\scripts\security\Collect-DeploymentEvidence.ps1 -BackupPath @($backupFixture) -ProcessName @('powershell.exe') -OutputPath $backupOutputPath
+          } catch {
+            $backupWriteRefused = $_.Exception.Message -like '*outside supplied backup roots*'
+          }
+          if (-not $backupWriteRefused -or (Test-Path -LiteralPath $backupOutputPath)) { throw 'Collector must refuse to write its report inside a backup tree.' }
+          $missingBackupPath = Join-Path $env:RUNNER_TEMP 'logic-engine-missing-backup-fixture'
+          $missingBackupReportPath = Join-Path $env:RUNNER_TEMP 'logic-engine-missing-backup-report.json'
+          if (Test-Path -LiteralPath $missingBackupPath) { Remove-Item -LiteralPath $missingBackupPath -Recurse -Force }
+          & .\scripts\security\Collect-DeploymentEvidence.ps1 -BackupPath @($missingBackupPath) -ProcessName @('powershell.exe') -OutputPath $missingBackupReportPath
+          $missingBackupReport = Get-Content -LiteralPath $missingBackupReportPath -Raw | ConvertFrom-Json
+          if ($missingBackupReport.collectionStatus -ne 'INCOMPLETE') { throw 'A supplied but missing backup root must make the report INCOMPLETE.' }
+          $missingBackupEvidence = @($missingBackupReport.pathAclEvidence | Where-Object { $_.requestedPath -eq $missingBackupPath -and $_.itemType -eq 'Descendant enumeration' -and $_.error })
+          if (-not $missingBackupEvidence) { throw 'Missing backup root must have an explicit enumeration error.' }
+          Remove-Item -LiteralPath $missingBackupReportPath -Force
+          Remove-Item -LiteralPath $reportPath -Force
+          Remove-Item -LiteralPath $backupFixture -Recurse -Force
+          Write-Output 'PowerShell 5.1 collector smoke test passed; report was validated and removed.'
