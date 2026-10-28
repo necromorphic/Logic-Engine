@@ -1132,11 +1132,16 @@ async function validateEnrolledSourcePath(paths, { conversationId, sourceLocator
         const bytes = await handle.readFile();
         const after = await handle.stat();
         const pathAfter = await lstat(cursor);
-        if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino
-            || before.size !== after.size || before.mtimeMs !== after.mtimeMs
-            || before.dev !== pathAfter.dev || before.ino !== pathAfter.ino
-            || bytes.length !== after.size) {
-            throw new Error('HOST_ENROLLMENT_SOURCE_CHANGED');
+        const sourceChanged = {
+            descriptorIdentity: before.dev !== after.dev || before.ino !== after.ino,
+            descriptorMetadata: before.size !== after.size || before.mtimeMs !== after.mtimeMs,
+            pathIdentity: before.dev !== pathAfter.dev || before.ino !== pathAfter.ino,
+            byteLength: bytes.length !== after.size,
+        };
+        if (!before.isFile() || Object.values(sourceChanged).some(Boolean)) {
+            const error = new Error('HOST_ENROLLMENT_SOURCE_CHANGED');
+            error.cause = sourceChanged;
+            throw error;
         }
         const firstLine = bytes.toString('utf8').split(/\r?\n/).find(line => line.trim().length > 0);
         const header = firstLine ? JSON.parse(firstLine) : null;
