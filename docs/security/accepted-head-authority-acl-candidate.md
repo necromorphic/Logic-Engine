@@ -41,7 +41,7 @@ Applying changes requires an elevated PowerShell session, explicit `-Apply`, and
 - For `-Apply`, all four configured services must be stopped with PID 0; service state is rechecked immediately before each `Set-Acl` operation. A refusal before the first ACL write is recorded as `REFUSED_MAINTENANCE_PRECONDITION` with `noAclChanges: true`; services are never stopped automatically.
 - Built-in service identities are rejected for the authority.
 - ACL inheritance is replaced for the dedicated directory and existing SQLite database/sidecars.
-- Authority receives Modify; SYSTEM and local Administrators retain FullControl.
+- Authority receives Modify; SYSTEM and local Administrators retain FullControl. All four service identities are refused if directly present in the local Administrators group, because that membership bypasses the intended role ACL boundary.
 - Core, Provider and gateway receive no explicit allow ACE in the protected ACL.
 - Prior SDDL is recorded before mutation; partial apply attempts restoration.
 
