@@ -889,3 +889,54 @@ test('enrollment marker follows the canonical chat root when the configured chat
         await rm(root, { recursive: true, force: true });
     }
 });
+
+
+test('re-enrollment fails closed when the enrollment marker survives loss of Host state', async () => {
+    const { root, request } = await fixture();
+    try {
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        await rm(path.join(root, '.logic-engine-host'), { recursive: true, force: true });
+
+        await assert.rejects(
+            registerHostConversation(request, {
+                conversationId: 'conversation-2',
+                sourceLocator: 'chat-2',
+                domain: 'chats',
+            }),
+            /HOST_ENROLLMENT_STATE_LOST/,
+        );
+        await assert.rejects(
+            readFile(path.join(root, '.logic-engine-host', 'enrollments.json'), 'utf8'),
+            { code: 'ENOENT' },
+        );
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test('re-enrollment fails closed when the marker survives loss of the enrollment registry', async () => {
+    const { root, request } = await fixture();
+    try {
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        await rm(path.join(root, '.logic-engine-host', 'enrollments.json'), { force: true });
+
+        await assert.rejects(
+            registerHostConversation(request, {
+                conversationId: 'conversation-2',
+                sourceLocator: 'chat-2',
+                domain: 'chats',
+            }),
+            /HOST_ENROLLMENT_STATE_LOST/,
+        );
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
