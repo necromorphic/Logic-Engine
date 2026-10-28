@@ -89,3 +89,31 @@ test("abandonment is terminal and malformed plan sequences fail closed", () => {
   invalid.steps[1].status = "active";
   assert.deepEqual(advanceNpcPlan(invalid, { type: "abandon" }), { status: "non_ready", plan: null });
 });
+
+test("rejects blocked plans whose step order cannot be resumed sequentially", () => {
+  const pendingBeforeBlocked = {
+    id: "bad-plan",
+    status: "blocked",
+    steps: [
+      { id: "first", action_id: "first-action", status: "pending" },
+      { id: "second", action_id: "second-action", status: "blocked" },
+    ],
+  };
+  const completedAfterBlocked = {
+    id: "bad-plan",
+    status: "blocked",
+    steps: [
+      { id: "first", action_id: "first-action", status: "blocked" },
+      { id: "second", action_id: "second-action", status: "completed" },
+    ],
+  };
+
+  assert.deepEqual(advanceNpcPlan(pendingBeforeBlocked, { type: "step_unblocked", step_id: "second" }), {
+    status: "non_ready",
+    plan: null,
+  });
+  assert.deepEqual(advanceNpcPlan(completedAfterBlocked, { type: "step_unblocked", step_id: "first" }), {
+    status: "non_ready",
+    plan: null,
+  });
+});
