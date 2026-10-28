@@ -4,15 +4,24 @@
 
 export const SPATIAL_REVISION_MODEL = 'synthetic-scene-revision-v1';
 
+const hasUniqueIds = (items) => {
+  const ids = new Set();
+  for (const item of items) {
+    if (!item || typeof item.id !== 'string' || !item.id || ids.has(item.id)) return false;
+    ids.add(item.id);
+  }
+  return true;
+};
+
 const validRevision = (scene) => scene &&
   typeof scene.worldId === 'string' && scene.worldId.length > 0 &&
   Number.isSafeInteger(scene.revision) && scene.revision >= 0 &&
   typeof scene.boundary === 'string' && scene.boundary.length > 0 &&
-  Array.isArray(scene.entities) && Array.isArray(scene.rooms) &&
-  Array.isArray(scene.zones) && Array.isArray(scene.doors) &&
-  Array.isArray(scene.blockers);
-
-const stableJson = (value) => JSON.stringify(value, Object.keys(value ?? {}).sort());
+  Array.isArray(scene.entities) && hasUniqueIds(scene.entities) &&
+  Array.isArray(scene.rooms) && hasUniqueIds(scene.rooms) &&
+  Array.isArray(scene.zones) && hasUniqueIds(scene.zones) &&
+  Array.isArray(scene.doors) && hasUniqueIds(scene.doors) &&
+  Array.isArray(scene.blockers) && hasUniqueIds(scene.blockers);
 
 function normalizedEntity(entity) {
   return {
