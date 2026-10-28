@@ -2,6 +2,14 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { applyNpcEpistemicEvent, createNpcEpistemicState } from "../src/npc/epistemic-state.js";
 
+function apply(state, event) {
+  return applyNpcEpistemicEvent(state, {
+    world_id: "world-a",
+    subject_id: "npc-1",
+    ...event,
+  });
+}
+
 function emptyState() {
   const result = createNpcEpistemicState({ world_id: "world-a", subject_id: "npc-1" });
   assert.equal(result.status, "ready");
@@ -9,7 +17,7 @@ function emptyState() {
 }
 
 function admit(state, overrides = {}) {
-  return applyNpcEpistemicEvent(state, {
+  return apply(state, {
     type: "evidence_admitted",
     acquisition_ref: "acq-1",
     proposition_ref: "prop-secret-location",
@@ -23,7 +31,7 @@ function admit(state, overrides = {}) {
 }
 
 test("receiving information does not create evidence or belief", () => {
-  const result = applyNpcEpistemicEvent(emptyState(), {
+  const result = apply(emptyState(), {
     type: "information_received",
     event_ref: "receipt-1",
     source_ref: "message-1",
@@ -38,9 +46,9 @@ test("receiving information does not create evidence or belief", () => {
 test("receipt replay is idempotent and conflicting identity reuse fails closed", () => {
   const state = emptyState();
   const event = { type: "information_received", event_ref: "receipt-1", source_ref: "message-1", source_version: "v1" };
-  const first = applyNpcEpistemicEvent(state, event);
-  assert.equal(applyNpcEpistemicEvent(first.state, event).status, "unchanged");
-  assert.equal(applyNpcEpistemicEvent(first.state, { ...event, source_version: "v2" }).status, "non_ready");
+  const first = apply(state, event);
+  assert.equal(apply(first.state, event).status, "unchanged");
+  assert.equal(apply(first.state, { ...event, source_version: "v2" }).status, "non_ready");
 });
 
 test("admitted evidence does not automatically become belief", () => {
@@ -65,13 +73,13 @@ test("belief revision requires valid evidence for the same proposition and a rul
     revision_rule_ref: "rule-evaluate-source",
     evidence_refs: ["evidence-1"],
   };
-  const result = applyNpcEpistemicEvent(state, event);
+  const result = apply(state, event);
   assert.equal(result.status, "updated");
   assert.equal(result.state.beliefs[0].stance, "believes_true");
   assert.deepEqual(result.state.beliefs[0].supporting_evidence_refs, ["evidence-1"]);
   assert.deepEqual(result.state.beliefs[0].conflicting_evidence_refs, []);
-  assert.equal(applyNpcEpistemicEvent(state, { ...event, evidence_refs: ["missing"] }).status, "non_ready");
-  assert.equal(applyNpcEpistemicEvent(state, { ...event, revision_rule_ref: "" }).status, "non_ready");
+  assert.equal(apply(state, { ...event, evidence_refs: ["missing"] }).status, "non_ready");
+  assert.equal(apply(state, { ...event, revision_rule_ref: "" }).status, "non_ready");
 });
 
 test("conflicting admissible evidence remains explicit rather than choosing a winner", () => {
@@ -84,7 +92,7 @@ test("conflicting admissible evidence remains explicit rather than choosing a wi
   });
   assert.equal(second.status, "updated");
   state = second.state;
-  const result = applyNpcEpistemicEvent(state, {
+  const result = apply(state, {
     type: "belief_updated",
     proposition_ref: "prop-secret-location",
     stance: "believes_true",
@@ -98,14 +106,14 @@ test("conflicting admissible evidence remains explicit rather than choosing a wi
 
 test("invalidating evidence preserves the belief but marks it for review", () => {
   let state = admit(emptyState()).state;
-  state = applyNpcEpistemicEvent(state, {
+  state = apply(state, {
     type: "belief_updated",
     proposition_ref: "prop-secret-location",
     stance: "believes_true",
     revision_rule_ref: "rule-initial",
     evidence_refs: ["evidence-1"],
   }).state;
-  const result = applyNpcEpistemicEvent(state, {
+  const result = apply(state, {
     type: "evidence_invalidated",
     evidence_ref: "evidence-1",
     evidence_version: "v1",
@@ -115,7 +123,7 @@ test("invalidating evidence preserves the belief but marks it for review", () =>
   assert.equal(result.state.beliefs[0].stance, "believes_true");
   assert.equal(result.state.beliefs[0].review_required, true);
   assert.equal(result.state.evidence[0].status, "invalidated");
-  assert.equal(applyNpcEpistemicEvent(result.state, {
+  assert.equal(apply(result.state, {
     type: "belief_updated",
     proposition_ref: "prop-secret-location",
     stance: "believes_true",
@@ -126,14 +134,14 @@ test("invalidating evidence preserves the belief but marks it for review", () =>
 
 test("forgetting is explicit and traceable; it does not delete evidence history", () => {
   let state = admit(emptyState()).state;
-  state = applyNpcEpistemicEvent(state, {
+  state = apply(state, {
     type: "belief_updated",
     proposition_ref: "prop-secret-location",
     stance: "believes_true",
     revision_rule_ref: "rule-initial",
     evidence_refs: ["evidence-1"],
   }).state;
-  const result = applyNpcEpistemicEvent(state, {
+  const result = apply(state, {
     type: "belief_forgotten",
     proposition_ref: "prop-secret-location",
     forgetting_rule_ref: "rule-memory-decay",
@@ -148,11 +156,11 @@ test("forgetting is explicit and traceable; it does not delete evidence history"
 
 test("unknown events, malformed scope, and sparse evidence lists fail closed", () => {
   assert.equal(createNpcEpistemicState({ world_id: "", subject_id: "npc-1" }).status, "non_ready");
-  assert.equal(applyNpcEpistemicEvent(emptyState(), { type: "canonical_truth_changed" }).status, "non_ready");
+  assert.equal(apply(emptyState(), { type: "canonical_truth_changed" }).status, "non_ready");
   const state = admit(emptyState()).state;
   const sparse = [];
   sparse.length = 1;
-  assert.equal(applyNpcEpistemicEvent(state, {
+  assert.equal(apply(state, {
     type: "belief_updated",
     proposition_ref: "prop-secret-location",
     stance: "believes_true",
@@ -166,7 +174,7 @@ test("reducer does not mutate input state or event", () => {
   const event = { type: "information_received", event_ref: "receipt-1", source_ref: "message-1", source_version: "v1" };
   const stateBefore = structuredClone(state);
   const eventBefore = structuredClone(event);
-  applyNpcEpistemicEvent(state, event);
+  apply(state, event);
   assert.deepEqual(state, stateBefore);
   assert.deepEqual(event, eventBefore);
 });
@@ -183,9 +191,9 @@ test("nested getters and proxy inputs fail closed without executing getters", ()
     enumerable: true,
     get() { invoked = true; return "unsafe"; },
   });
-  assert.equal(applyNpcEpistemicEvent(emptyState(), event).status, "non_ready");
+  assert.equal(apply(emptyState(), event).status, "non_ready");
   assert.equal(invoked, false);
-  assert.equal(applyNpcEpistemicEvent(new Proxy(emptyState(), {}), {
+  assert.equal(apply(new Proxy(emptyState(), {}), {
     type: "information_received",
     event_ref: "receipt-1",
     source_ref: "message-1",
@@ -197,4 +205,21 @@ test("a stable evidence reference cannot ambiguously identify two versions", () 
   const first = admit(emptyState()).state;
   const result = admit(first, { evidence_version: "v2", source_version: "v2" });
   assert.equal(result.status, "non_ready");
+});
+
+test("events from another world or subject cannot alter this NPC state", () => {
+  const state = emptyState();
+  const event = {
+    type: "evidence_admitted",
+    acquisition_ref: "acq-1",
+    proposition_ref: "prop-secret-location",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    source_ref: "source-1",
+    source_version: "v1",
+    polarity: "supports_true",
+  };
+  assert.equal(apply(state, { ...event, world_id: "world-other" }).status, "non_ready");
+  assert.equal(apply(state, { ...event, subject_id: "npc-other" }).status, "non_ready");
+  assert.deepEqual(state.evidence, []);
 });
