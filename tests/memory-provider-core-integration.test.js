@@ -134,6 +134,30 @@ test('real SQLite provider flows through Core authorized read and NPC admission'
   assert.equal(JSON.stringify(result).includes('never disclose'), false);
 });
 
+test('Core mutation after source validation but before Provider authorization completes is non-ready', async (t) => {
+  const s = setup(t);
+  assert.equal((await s.prepare()).status, 'current');
+  s.setSourceValidator(async () => {
+    s.engine.commitEvent(s.scope.world_id, {
+      idempotency_key: 'mutate-source-during-provider-validation',
+      turn_id: 'mutate-source-during-provider-validation',
+      event_type: 'action.completed',
+      expected_revision: s.engine.getState(s.scope.world_id).world_revision,
+      effects: [{ kind: 'entity.update', entity_id: 'source-a', attributes: { public_note: 'changed during validation' } }],
+    });
+    return true;
+  });
+
+  const result = await s.consumer.retrieveForNpc({
+    worldId: s.scope.world_id,
+    adapterId: 'provider-e2e-adapter',
+    actorEntityId: s.scope.subject_id,
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  assert.equal(JSON.stringify(result).includes('changed during validation'), false);
+});
+
 test('provider rejects a candidate whose presented source token differs from the persisted token', async (t) => {
   const s = setup(t);
   assert.equal((await s.prepare()).status, 'current');
