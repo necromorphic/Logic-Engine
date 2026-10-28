@@ -619,7 +619,7 @@ new file mode 100644
 index 0000000..0000000
 --- /dev/null
 +++ b/src/endpoints/logic-engine-host-journal.mjs
-@@ -0,0 +1,1200 @@
+@@ -0,0 +1,1199 @@
 +import { createHash, randomUUID } from 'node:crypto';
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
@@ -719,13 +719,12 @@ index 0000000..0000000
 +    }
 +    let registry;
 +    try {
-+        registry = await readRegistry(path.join(stateDirectory, 'enrollments.json'), { allowMissing: !markerExists });
++        registry = await readRegistry(path.join(stateDirectory, 'enrollments.json'));
 +    } catch {
 +        throw new Error('HOST_TARGET_USER_REGISTRY_UNAVAILABLE');
 +    }
 +    if (registry.conversations.length > 0) return true;
-+    if (markerExists) throw new Error('HOST_TARGET_USER_ENROLLMENT_STATE_LOST');
-+    return false;
++    throw new Error('HOST_TARGET_USER_ENROLLMENT_STATE_AMBIGUOUS');
 +}
 +
 +function operationTargetsEnrolledHistory(operation, request, registry) {
