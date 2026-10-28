@@ -52,6 +52,22 @@ if (!requiredText(databasePath) || !requiredText(installationId)
     });
     process.once('SIGINT', () => { void stop().finally(() => process.exit()); });
     process.once('SIGTERM', () => { void stop().finally(() => process.exit()); });
+    // A controlled stdin command is useful for service wrappers and tests on
+    // Windows, where POSIX signal delivery differs from Unix.
+    let controlBuffer = '';
+    process.stdin.setEncoding('utf8');
+    process.stdin.on('data', (chunk) => {
+      controlBuffer += chunk;
+      if (controlBuffer.length > 1024) {
+        controlBuffer = '';
+        return;
+      }
+      const lines = controlBuffer.split(/\\r?\\n/);
+      controlBuffer = lines.pop() ?? '';
+      if (lines.some((line) => line.trim() === 'stop')) {
+        void stop().finally(() => process.exit());
+      }
+    });
   } catch {
     process.stderr.write('ACCEPTED_HEAD_AUTHORITY_START_FAILED\n');
     process.exitCode = 1;
