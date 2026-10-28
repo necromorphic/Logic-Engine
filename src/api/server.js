@@ -49,7 +49,7 @@ function send(res, status, data) {
   res.end(body);
 }
 
-export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
+export function createApiServer({ engine, token, internalToken = null, approvalToken = null, adminToken = null, adapterTokens = {}, authorizedReadFieldPolicy = null, authorizedKnowledgePolicy = null, getActiveMechanicContextProvider = () => null, hostVersionLedger = null }) {
   if (!engine) throw new TypeError('engine required');
   if (typeof token !== 'string' || token.length < 16) throw new TypeError('API token must be at least 16 characters');
   if (internalToken !== null && (typeof internalToken !== 'string' || internalToken.length < 16 || internalToken === token)) {
@@ -63,6 +63,9 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   }
   if (authorizedReadFieldPolicy !== null && typeof authorizedReadFieldPolicy !== 'function') {
     throw new TypeError('Authorized-read field policy must be trusted application configuration.');
+  }
+  if (authorizedKnowledgePolicy !== null && typeof authorizedKnowledgePolicy !== 'function') {
+    throw new TypeError('Authorized-knowledge policy must be trusted application configuration.');
   }
   if (typeof getActiveMechanicContextProvider !== 'function') throw new TypeError('getActiveMechanicContextProvider must be a trusted application callback.');
   const configuredAdapterSecrets = Object.values(adapterTokens || {});
@@ -87,7 +90,7 @@ export function createApiServer({ engine, token, internalToken = null, approvalT
   // application configuration and is never accepted from an HTTP request.
   // Without one, preserve the narrow self-identity-only default.
   const authorizedReads = new AuthorizedReadService(engine, actorBindings,
-    authorizedReadFieldPolicy || defaultAuthorizedReadFieldPolicy);
+    authorizedReadFieldPolicy || defaultAuthorizedReadFieldPolicy, authorizedKnowledgePolicy);
 
   return createServer(async (req, res) => {
     try {
