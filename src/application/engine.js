@@ -264,7 +264,7 @@ export class LogicEngine {
 
   transitionProcess(id, processId, input) {
     assert(obj(input), 'INVALID_PROCESS_TRANSITION', 'Process transition request must be an object.');
-    const allowed = ['action', 'expected_version', 'idempotency_key', 'reason', 'confirm_retry', 'replan'];
+    const allowed = ['action', 'expected_version', 'expected_revision', 'idempotency_key', 'reason', 'confirm_retry', 'replan'];
     assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_PROCESS_TRANSITION_FIELD', 'Process transition contains an unsupported field.');
     assert(['pause', 'resume', 'cancel', 'reconcile'].includes(input.action), 'INVALID_PROCESS_ACTION', 'Process action must be pause, resume, cancel, or reconcile.');
     assert(Number.isSafeInteger(input.expected_version) && input.expected_version >= 1, 'INVALID_PROCESS_VERSION', 'expected_version must be a positive safe integer.');
@@ -277,6 +277,7 @@ export class LogicEngine {
       operation: 'process.' + input.action, world_id: id, process_id: processId,
       expected_version: input.expected_version, idempotency_key: key, reason: reason.trim(),
       ...(input.action === 'reconcile' ? {
+        expected_revision: input.expected_revision,
         confirm_retry: input.confirm_retry === true,
         replan: input.replan ?? [],
       } : {}),
@@ -305,7 +306,14 @@ export class LogicEngine {
           throw new EngineError('PROCESS_RECONCILIATION_NOT_REQUIRED',
             'This process has no milestones awaiting review.', 409);
         }
+        assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0,
+          'INVALID_EXPECTED_REVISION', 'Reconciliation requires a non-negative expected_revision.');
         const world = this.getState(id);
+        if (world.world_revision !== input.expected_revision) {
+          throw new EngineError('WORLD_REVISION_CONFLICT',
+            'World revision changed before process reconciliation.', 409,
+            { expected_revision: input.expected_revision, current_revision: world.world_revision });
+        }
         const replans = input.replan ?? [];
         assert(Array.isArray(replans) && replans.length <= toRetry.length
           && replans.every((item) => obj(item)
@@ -373,7 +381,9 @@ export class LogicEngine {
           trigger_id: newIds.get(milestone.milestone_id),
           due_coordinate: dueById.get(milestone.milestone_id),
         }));
-        this.processStore.reconcileMilestones(id, processId, updates);
+        this.processStore.reconcileMilestones(id, processId, updates, {
+          reason: reason.trim(), idempotencyKey: key, requestHash,
+        });
         const target = current.progress.completed > 0 ? 'running' : 'scheduled';
         return this.processStore.transition(id, processId, target, {
           expectedVersion: input.expected_version, idempotencyKey: key, requestHash,
