@@ -155,3 +155,114 @@ This is a coordinator recommendation for review, not an approval by the project 
 ## 10. Current recommendation
 
 Approve the event-sourced effect + derived projection as the target representation **in principle**, subject to the source-entry and validity review in steps 1–2. This narrows the design choice while preserving the existing Core authority and avoids pretending that the missing importer or lifecycle has already been solved.
+
+## 11. First-slice implementation contract (proposal; not runtime approval)
+
+This section makes the recommended authoring-catalog slice testable. It does not authorize runtime changes.
+
+### 11.1 Deployment catalog boundary
+
+Use a deployment-provided, read-only catalog loaded during Core startup from a configured local artifact directory or deployment-owned configuration. The first implementation must not expose catalog create/update/delete operations over the Core HTTP API.
+
+Each immutable catalog entry contains:
+- world_pack_id;
+- exact version;
+- a digest computed by Core over the canonical pack bytes;
+- the validated pack manifest and payload, or a stable read-only reference to those exact bytes;
+- the supported schema/contract version.
+
+Requirements:
+- Catalog entry identity is the tuple (world_pack_id, version); duplicate tuples fail startup rather than use last-write-wins.
+- A digest mismatch between catalog metadata and the bytes loaded by Core fails startup or the relevant pack resolution. A digest proves byte identity only; trust comes from deployment control of the catalog location and configuration.
+- The catalog must not follow mutable remote URLs or paths supplied by a create-world request.
+- An unknown pack/version returns a deterministic non-success error before a world row is created.
+- The public request may select an available ID/version, but cannot supply/override the trusted manifest, digest, assignments, canonical mapping, source identity, or trust policy.
+- Catalog reload/replacement is a deployment operation. Existing worlds remain pinned to their exact catalog version and digest; no implicit update or rewrite is allowed.
+
+The storage schema currently records pack ID/version but no catalog digest. A future implementation must add the pin through a reviewed migration or an explicitly justified equivalent immutable record. Do not silently repurpose an unrelated field.
+
+### 11.2 createWorld() validation order
+
+Required order for a future implementation:
+
+1. Validate the request shape and reject unknown fields.
+2. Resolve exactly one installed catalog entry by (world_pack_id, world_pack_version).
+3. Validate that entry against the selected, supported World Pack schema/conformance contract. If the complete contract is not implemented, reject packs requiring unsupported fields; do not claim conformance from partial schema checks.
+4. Compute/verify the canonical content digest against the exact bytes being consumed.
+5. Validate all pack-local references and assignment declarations without writing canonical world state.
+6. Prepare the complete bootstrap plan and detect duplicate IDs, unresolved references, conflicting writes, unsupported rules, and invalid assignment rules.
+7. Commit world identity/pin plus the planned initial canonical records and author_initial assignment effects through one Core-owned transaction/commit boundary.
+8. Return success only after durable commit. A failure at any step before commit leaves no partially initialized world or assignment.
+
+Do not create the world first and then asynchronously populate assignments. That would expose a valid-looking but incomplete world. If current persistence cannot make the complete bootstrap atomic, the first implementation must either add a reviewed transaction primitive or explicitly split world creation into a non-usable staging state that cannot be read or dispatched; do not improvise partial activation.
+
+### 11.3 Canonical mapping and assignment rules
+
+A pack uses stable pack-local references, not runtime database IDs or display names. For each initial assignment, the pack contract must identify:
+- stable assignment ID unique within the immutable pack version;
+- pack-local subject reference;
+- source item/proposition reference that resolves to a canonical item created or validated in the same target world;
+- explicit assignment-rule ID and version;
+- acquisition kind fixed to author_initial for this first slice.
+
+The trusted bootstrap adapter resolves local references to canonical IDs. It must reject:
+- missing or ambiguous subject/item references;
+- references that resolve only in another world;
+- a source item that is not part of the trusted pack/bootstrap plan;
+- duplicate assignment IDs with identical or conflicting content;
+- assignment declarations supplied only by the caller rather than the installed pack;
+- unsupported rule versions or implicit “all facts are known to all NPCs” behavior.
+
+A world-level fact and a subject-level assignment are separate concepts. Creating a fact must never automatically assign it to every subject.
+
+### 11.4 Atomicity, replay and idempotency
+
+The transaction boundary must cover the world pin, bootstrap entities/facts and all initial-assignment effects as one unit. Either all are durable or none are. Do not use a second database/table as an independent authority.
+
+The operation needs a stable idempotency identity derived from the trusted catalog entry and bootstrap operation, not from an arbitrary caller-supplied provenance field. Repeating the same operation must not duplicate entities, facts, events or assignments. Reusing the same identity with different canonical content must fail with a conflict and no partial writes.
+
+Each assignment must be represented in the reviewed Core event/validity lifecycle described above. A digest or catalog pin does not substitute for event validity, and rollback/replay behavior must be demonstrated against current-main lifecycle code before assignment writes are enabled.
+
+### 11.5 Version pin and migration policy
+
+- The created world records the exact pack ID, version and digest used for bootstrap.
+- Installing a newer catalog version does not change existing worlds.
+- A missing old version after deployment must not cause silent fallback to the newest version. Startup must either retain the required immutable artifact or mark the world unavailable/non-ready with an explicit error.
+- Changing a world's pinned pack is a separate migration proposal with dry-run, compatibility checks, conflict handling, revision/audit evidence and rollback/replay semantics. It is not part of initial bootstrap.
+- Replaying historical events must use the historical pinned contract where required; a current catalog entry must not reinterpret old effects silently.
+
+### 11.6 Minimum acceptance test matrix
+
+| Test | Setup/action | Required result |
+|---|---|---|
+| Unknown pack | Request ID absent from deployment catalog | Rejected before world creation; no world/event/entity/fact rows |
+| Unknown version | Known ID, absent version | Rejected; no fallback to another version |
+| Duplicate catalog key | Two entries with same ID/version | Catalog fails closed; no arbitrary winner |
+| Digest mismatch | Trusted entry points to bytes that differ from declared digest | Resolution/bootstrap rejected; no writes |
+| Request override | Caller supplies manifest, digest, assignment or trust metadata | Unknown fields rejected; installed catalog remains the only source |
+| Invalid pack contract | Unsupported schema version/operator/field | Rejected before durable writes |
+| Missing subject/item | Assignment points to unresolved pack-local ref | Entire bootstrap rejected atomically |
+| Cross-world mapping | Reference exists only in another world | Rejected; no cross-world assignment |
+| Partial failure | Inject failure after planning / during commit | No partial active world or assignments |
+| Exact replay | Retry identical bootstrap operation | Idempotent result; no duplicate records/effects |
+| Conflicting replay | Same idempotency identity, changed trusted content | Conflict; no mutation |
+| Catalog replacement | Install newer version after world creation | Existing world stays pinned to old exact version/digest |
+| Old version unavailable | Restart without the pinned immutable artifact | Explicit non-ready/unavailable result; never silently use latest |
+| Fact without assignment | Create a canonical fact without an assignment declaration | NPC acquisition read does not return it as acquired |
+| Independent support | Two valid assignments support the same subject/item; invalidate one | Remaining valid support remains active |
+| Rollback/replay | Roll back bootstrap/assignment event and rebuild projection | Assignment status matches Core validity; no ghost acquisition |
+| Client provenance forgery | Caller invents source/rule/version fields | Rejected or ignored only where contract explicitly permits; never accepted as authority |
+| Read boundary | Assigned and restricted items coexist | Assignment alone does not bypass the separate #140/#264/#356 disclosure gate |
+
+These are acceptance requirements, not tests that have already been run. Any implementation report must identify the exact commit/head and show the results of the actual tests.
+
+### 11.7 Stop/go criteria for the first runtime PR
+
+GO for implementation planning only after Core review accepts:
+- the deployment catalog trust boundary and immutable version retention;
+- the complete pack schema/validation contract;
+- the canonical pack-local mapping contract;
+- the transaction/event boundary and idempotency semantics;
+- the migration and failure-state behavior.
+
+NO-GO for acquisition writes or Memory → NPC until exact-head tests prove the matrix above to the extent implemented, and separate disclosure approval is recorded. Catalog validation alone is not evidence that a subject has permission to receive a fact. The imported kind remains unsupported in this slice.
