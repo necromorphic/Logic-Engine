@@ -88,8 +88,6 @@ jobs:
           const browserGuard = script.indexOf('assertProtectedDispatchAllowed({ locator: getCurrentChatId(), messages: chat, storage: localStorage })', generate);
           const chatDeclaration = script.indexOf('export let chat = [];');
           const browserFence = script.indexOf('installProtectedEgressBrowserFence({', chatDeclaration);
-          const chatDeclaration = script.indexOf('export let chat = [];');
-          const browserFence = script.indexOf('installProtectedEgressBrowserFence({', chatDeclaration);
 
           if (loginGuard < 0 || serverGuard <= loginGuard ||
               proxyMount < 0 || serverGuard > proxyMount ||
@@ -161,9 +159,6 @@ jobs:
           ];
           for (const route of requiredBlocked) {
             if (!blockedPrefixes.includes(route)) throw new Error(`Pinned egress route lacks a deny classification: ${route}`);
-          }
-          if (!blockedPrefixes.includes('/api/plugins')) {
-            throw new Error('Dynamic plugin routes must be denied in protected mode');
           }
           if (!blockedPrefixes.includes('/api/plugins')) {
             throw new Error('Dynamic plugin routes must be denied in protected mode');
