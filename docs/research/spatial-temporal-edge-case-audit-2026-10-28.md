@@ -138,3 +138,21 @@ The existing World Pack typed spatial contract explicitly selects one world-scop
 - **S1 temporal evidence:** test-source coverage has been extended for restart mapping, rollback invalidation, intervening writes, equal-time identity/order, and invalid boundary rejection. Full exact-head CI and crash/coordinated-restore evidence are still required.
 - **S2 position-v1 geometry:** synthetic arithmetic is covered in test source; real spatial support remains blocked on immutable World Pack schema identity, full canonical post-state validation, writer-path coverage, and confirmed temporal mapping. No runtime spatial query is authorized.
 - **S3 observer-relative visibility:** synthetic math tests cover explicit FOV/range/occlusion/lighting/staleness inputs. Production perception remains unsupported until typed orientation, geometry/occluder source, and relevant-state invalidation contracts are independently approved and implemented. It must never imply knowledge or memory permission.
+
+## Exact-head test evidence — 2026-10-28 16:59 UTC
+
+A dedicated hosted workflow validated the same spatial test-file blobs as this research branch at validation commit `36a5d9ff8c2b652faa97280a38319017e626cfa4`:
+- Focused spatial/time cursor + synthetic geometry/perception tests: **19 passed, 0 failed**.
+- Complete project suite via `npm test` on Node.js 22.18.0 / Ubuntu: **1007 passed, 0 failed**.
+- Recalculation oracle harness: **20 passed, 0 failed**.
+- Workflow: [Spatial research tests #40731341065](https://github.com/necromorphic/Logic-Engine/actions/runs/40731341065).
+
+The first focused runs exposed two test-fixture issues, not runtime defects: equal-time segment plans include more than just the two trigger events, and the event validity enum is `invalidated`, not `invalid`. Both tests were corrected and the final exact-head run passed. The test suite now also checks rollback of a causal predecessor and rejects a mismatched game-time coordinate.
+
+### Stage disposition after tests
+
+- **S1 — Temporal identity/currentness: TESTED for the inspected Core/TimeEngine paths.** Restart reconstruction, intervening canonical writes, equal-time identity/order, invalid event, causal rollback, coordinate mismatch, and recovery checkpoint tests are covered by the focused tests plus the full suite. A coordinated restore of older Core/Provider state still cannot be detected from database-local markers alone; without an independently verified accepted-head authority, spatial reads must remain NON_READY/manual-recovery. This is a known external blocker, not a passing restore guarantee.
+- **S2 — Position-v1 geometry: SYNTHETIC ALGORITHM TESTS PASS.** Distance, delta, axis comparison, nearest ties, frame/unit/world/boundary rejection are covered. Real spatial state remains BLOCKED because the runtime does not prove immutable World Pack schema identity or enforce typed full post-state validation across all canonical writers.
+- **S3 — Observer-relative visibility: SYNTHETIC ALGORITHM TESTS PASS.** Explicit FOV, range, AABB occlusion, lighting uncertainty, and stale-boundary behavior are covered. Production perception remains unsupported because typed orientation, authoritative geometry/occluder inventory, and invalidation integration are not implemented/approved. No NPC knowledge or Memory permission is inferred.
+
+**Overall research-stage result:** the three stages have test-backed feasibility coverage and a documented gate order. This does **not** mean production 3D reasoning is implemented. Runtime remains NO-GO until schema validation, immutable identity/history, canonical writer coverage, and restore authority are closed and the implementation contract receives the required review.
