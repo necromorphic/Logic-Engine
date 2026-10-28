@@ -154,7 +154,11 @@ test('Core mutation after source validation but before Provider authorization co
     actorEntityId: s.scope.subject_id,
   });
   assert.equal(result.status, 'non_ready');
-  assert.equal(result.reason, 'memory_snapshot_stale');
+  // Provider now validates the exact source token before Core content reads;
+  // a mutation during that awaited validation is surfaced as a generic
+  // authorization-unavailable result, not as an item-level stale detail.
+  assert.equal(result.reason, 'memory_record_authorization_unavailable');
+  assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('changed during validation'), false);
 });
 
