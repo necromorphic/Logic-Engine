@@ -114,8 +114,14 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
           continue;
         }
         const header = parsed[0];
-        const headerId = header.chat_metadata?.logic_engine_conversation_id;
-        if (typeof headerId !== 'string') continue;
+        const metadata = header.chat_metadata;
+        if (!metadata || typeof metadata !== 'object'
+          || !Object.hasOwn(metadata, 'logic_engine_conversation_id')) continue;
+        const headerId = metadata.logic_engine_conversation_id;
+        if (typeof headerId !== 'string' || !validUuid(headerId)) {
+          parseErrors.push('HOST_CONVERSATION_ID_INVALID');
+          continue;
+        }
         const enrollment = enrollmentByUuid.get(headerId);
         if (!enrollment) {
           // A Host-marked persisted artifact absent from the enrollment registry
