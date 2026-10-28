@@ -136,9 +136,11 @@ jobs:
             throw new Error('Pinned private endpoint mount inventory changed; classify every added/removed/reordered router');
           }
 
-          const prefixMatch = guardSource.match(/const PROTECTED_EGRESS_ROUTE_PREFIXES = Object\\.freeze\\(\\[([\\s\\S]*?)\\]\\);/);
-          if (!prefixMatch) throw new Error('Protected egress prefix list missing');
-          const blockedPrefixes = [...prefixMatch[1].matchAll(/['"]([^'"]+)['"]/g)].map((match) => match[1]);
+          const prefixStart = guardSource.indexOf('const PROTECTED_EGRESS_ROUTE_PREFIXES');
+          const prefixOpen = guardSource.indexOf('[', prefixStart);
+          const prefixClose = guardSource.indexOf(']);', prefixOpen);
+          if (prefixStart < 0 || prefixOpen < 0 || prefixClose < 0) throw new Error('Protected egress prefix list missing');
+          const blockedPrefixes = [...guardSource.slice(prefixOpen, prefixClose).matchAll(/['"]([^'"]+)['"]/g)].map((match) => match[1]);
           const requiredBlocked = [
             '/proxy', '/api/extensions', '/api/search',
             '/api/backends/chat-completions', '/api/backends/text-completions',
