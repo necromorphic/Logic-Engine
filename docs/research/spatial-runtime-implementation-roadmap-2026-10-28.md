@@ -130,6 +130,48 @@ Required future reviews:
 
 Until all separate gates are approved, Memory → NPC stays disabled and fail-closed.
 
+## Existing seam findings — what can and cannot be reused
+
+The current repository evidence supports a *read-only research path*, not a production spatial source:
+
+- `LogicEngine.getState()`, `getSnapshot()`, and `getEvents()` expose existing application-level reads. The bounded feasibility work in issue #351 reports a bracketed `getState → getEvents → getState` protocol for checking snapshot consistency. This does not create typed position semantics.
+- `SQLiteStore.commit()` is the canonical event transaction; `commitSegment()` routes segment members through `commit()` and rebuilds projections; `rollback()` invalidates dependent events and rebuilds existing projections. The audited store has no demonstrated typed spatial schema gate.
+- Core's world and event markers are distinct: `world_revision`, `commit_sequence`, and game-time coordinate cannot substitute for each other. Rollback may change revision without consuming a new commit sequence.
+- TimeEngine uses canonical integer millisecond game-time coordinates and persists operation/segment recovery data. The operation's latest `result.last_segment` records a composite result including the final commit sequence, while historical segment mapping requires resolving stored segment event IDs against canonical event history. A dedicated typed list of every confirmed segment-to-Core cursor is not exposed by the inspected operation projection.
+- Therefore the evidence does **not** establish a durable, unambiguous mapping for every historical confirmed TimeEngine boundary to Core's composite `(world_revision, commit_sequence)`, including rollback, restart, intervening writes, and old-backup restore.
+
+These findings align with the current blocker recorded in [Issue #351](https://github.com/necromorphic/Logic-Engine/issues/351): the process/authority question has been resolved by delegated coordinator authority, but the technical gates remain open. The required work is now evidence closure, not another duplicate read/replay harness.
+
+## Representation choice — current disposition
+
+The existing research report compares in-memory projection, persisted rebuildable projection, scene/episode records, snapshots/checkpoints, and a hybrid. The practical disposition is:
+
+| Representation | Disposition now | Reason |
+|---|---|---|
+| In-memory derived spatial projection | Not sufficient as the authoritative durable result | Restart loses it; deterministic reconstruction still needs a typed committed source |
+| Persisted, rebuildable spatial projection | Candidate only; not approved | Best fit with current Core rebuild pattern, but schema identity, lifecycle, rollback and read boundary remain unproven |
+| Scene/episode records | Complementary evidence only | Preserve source occurrence/provenance; cannot replace canonical event history or prove NPC knowledge |
+| Spatial snapshots/checkpoints | Optimization only after deterministic replay is established | A checkpoint without a verified schema and exact Core/time anchor can preserve stale or misinterpreted state |
+| Hybrid | Long-term option, not selected | Most complete lineage but adds reconciliation complexity before the base contract exists |
+
+**Current recommendation:** do not choose a storage layout or introduce a new projection yet. First close typed source/schema identity and temporal cursor mapping. A persisted rebuildable projection can be reconsidered only after those gates have owner-reviewed evidence.
+
+## Closure checklist — what "complete" means for this task
+
+The architecture/research task is not complete merely because a document exists or generic replay tests pass. It is complete only when each line has an exact evidence reference and the status is honestly recorded:
+
+- [ ] World Pack loader/registration and every canonical writer, import, migration, repair, restore path are inventoried; unreviewed paths are explicitly listed.
+- [ ] Supported validator/version and schema dialect are identified; full spatial post-state validation and custom semantic metadata behavior are proven.
+- [ ] Exact immutable World Pack manifest/type-schema identity and historical resolution are specified without assuming a digest stored in the same old-restorable database proves newest state.
+- [ ] Entity deletion/tombstone/recreation identity and replay semantics are closed for every path.
+- [ ] Confirmed TimeEngine segment boundary is bound to the correct Core composite marker; equal-time order, intervening writes, rollback, restart and old-backup recovery are accounted for.
+- [ ] Rollback/rebuild guarantees ensure no spatial result survives invalidated source evidence.
+- [ ] Unknown/stale/conflict/absent/unsupported statuses and provenance are defined without converting generic attributes or narrative output into spatial facts.
+- [ ] Core and TimeEngine evidence is independently separated in the report; any not-run tests remain NOT RUN and any unapproved runtime contract remains blocked.
+- [ ] Separate Host, Memory and NPC reviews remain downstream gates; no NPC admission or Memory→NPC activation is inferred.
+
+The first five technical items are still blockers. Until they close, the research can become more precise, but the spatial contract cannot honestly be declared implementation-ready.
+
 ## Current blockers and next concrete decisions
 
 | Priority | Decision / evidence needed | Why it blocks progress |
