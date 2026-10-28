@@ -343,6 +343,14 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       || currentMessageIds.some((id, index) => id !== priorMessageIds[index])) {
       throw Error('NON_READY: non-structural mutation changed or reordered message identities');
     }
+    const priorRoleByMessageId = new Map(priorIdentitySnapshot.map(message => [message.messageId, message.role]));
+    for (let index = 0; index < chat.length; index++) {
+      const messageId = currentMessageIds[index];
+      if (messageId && priorRoleByMessageId.has(messageId)
+        && roleOf(chat[index]) !== priorRoleByMessageId.get(messageId)) {
+        throw Error('NON_READY: lifecycle mutation changed the role of a pre-existing message');
+      }
+    }
     const liveMessageIds = new Set(currentMessageIds.filter(Boolean));
     if (operation === 'delete-message' && Array.isArray(priorIdentitySnapshot)) {
       for (const priorMessage of priorIdentitySnapshot) {
