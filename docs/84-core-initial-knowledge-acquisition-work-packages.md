@@ -1,25 +1,29 @@
 # Initial NPC Knowledge Acquisition — Coordinator Work Packages
 
-**Status:** ordered work plan; documentation only. Runtime implementation and readiness promotion remain gated by the acceptance evidence below.
+**Status:** ordered work plan; documentation only. Runtime implementation and readiness promotion remain gated by acceptance evidence.
 
 **Tracking issue:** https://github.com/necromorphic/Logic-Engine/issues/557  
+**Existing Core gate:** https://github.com/necromorphic/Logic-Engine/issues/140  
+**Cross-block register:** https://github.com/necromorphic/Logic-Engine/issues/251  
+**Portfolio coordinator:** https://github.com/necromorphic/Logic-Engine/issues/252  
+**Existing dispatch/readiness gates:** [#264](https://github.com/necromorphic/Logic-Engine/issues/264), [#356](https://github.com/necromorphic/Logic-Engine/issues/356)  
 **Contract proposal:** `docs/83-core-owned-initial-knowledge-acquisition-contract-proposal.md`  
-**Governing contract:** `docs/50-npc-initial-knowledge-acquisition-contract.md`  
-**Core implementation plan:** `docs/43-core-npc-knowledge-runtime-implementation-plan.md`
+**Governing contract:** `docs/50-npc-initial-knowledge-acquisition-contract.md`
 
 ## Coordinator decision
 
-Proceed in dependency order. Component ownership is assigned now; individual human assignees are not inferred.
+Proceed in dependency order. Component ownership is assigned; individual human assignees are not inferred.
 
-- **Core:** authoritative subject assignment, provenance, lifecycle, snapshot-consistent reads, restrictions and pre-serialization filtering.
-- **Host/Adapter + Core:** trace and secure the actual production model egress path.
-- **Coordinator:** maintain dependencies, review evidence, run the readiness gate and prevent premature activation.
+- **Core:** authoritative subject assignment, provenance, lifecycle, snapshot-consistent reads and restrictions.
+- **Host/Adapter + Core + Provider:** production disclosure/dispatch only through the existing cross-block gate (#140/#264/#356).
+- **Coordinator:** maintain dependencies, review evidence, update #251/#252, and enforce readiness gates.
+
+**Boundary rule:** this workstream covers initial knowledge assignment semantics only. It must not duplicate the existing global disclosure/dispatch plan or invent a second serialization point, API, store, outbox, journal, or cross-store transaction.
 
 ## Work packages
 
 ### WP-1 — Authoritative source and assignment representation
-**Owner:** Core  
-**Depends on:** bounded source audit in doc 83.
+**Owner:** Core.
 
 1. Trace the actual supported world-start/authoring and import entry points.
 2. Determine whether current seed/import contracts can explicitly assign `author_initial` and `imported` items to a canonical subject in a world.
@@ -29,54 +33,51 @@ Proceed in dependency order. Component ownership is assigned now; individual hum
 **Exit criteria:** named source paths; reviewed representation; explicit authorization and provenance rules; proof that world-level fact/import presence alone does not grant knowledge.
 
 ### WP-2 — Assignment identity and lifecycle
-**Owner:** Core  
-**Depends on:** WP-1 approved representation.
+**Owner:** Core; depends on WP-1.
 
-Define and test create, duplicate replay, conflicting identity reuse, replacement, source invalidation, independent support, and restart/replay reconstruction. Establish whether the chosen representation participates in actual Core validity/replay/rollback semantics. Do not infer causal completeness from generic event fields.
+Define and test create, duplicate replay, conflicting identity reuse, replacement, source invalidation, independent support, and restart/replay reconstruction. Establish whether the selected representation participates in actual Core validity/replay/rollback semantics. Generic event fields alone do not prove causal completeness.
 
 **Exit criteria:** lifecycle transition table and production-path tests against the real representation. If existing lifecycle primitives are insufficient, document the smallest required Core-owned extension and stop for review before coding it.
 
 ### WP-3 — Snapshot-consistent safe read
-**Owner:** Core  
-**Depends on:** WP-1 and WP-2.
+**Owner:** Core; depends on WP-1 and WP-2.
 
 Reuse `Engine.getSnapshot()` / `SQLiteStore.readSnapshot()` and its existing `(world_revision, commit_sequence)` cursor. Resolve subject, source/item, validity and restrictions at one snapshot. Validate actor and bounded purpose. Preserve `known`, `known_absent`, `unknown`, `withheld`, `incomplete`, `unsupported`, and `invalid` distinctions without treating missing data as false.
 
-**Exit criteria:** production tests for subject isolation, no implicit world-to-knowledge copy, stale/mixed snapshots, status fidelity, and read purity. No parallel revision cursor or NPC-local acquisition store.
+**Exit criteria:** real-path tests for subject isolation, no implicit world-to-knowledge copy, stale/mixed snapshots, status fidelity and read purity. No parallel revision cursor or NPC-local acquisition store.
 
-### WP-4 — Actual model egress enforcement
-**Owner:** Host/Adapter + Core  
-**Depends on:** safe Core read from WP-3; path discovery may begin earlier.
+### WP-4 — Integrate with existing disclosure gate
+**Owner:** Core + Host/Adapter + Provider owners; governed by #140/#264/#356.
 
-Trace the real production dispatch path from Core result to serialized model input. Ensure only the filtered envelope crosses the boundary. Check prompt assembly, diagnostics and fallback paths for reintroduction of denied values.
+Use the existing cross-block dispatch/readiness work. Do not create a competing egress mechanism here. Connect the approved Core-filtered acquisition result only when the actual production boundary is approved and implemented.
 
-**Exit criteria:** a production-boundary test inspects the exact serialized model input and all model-accessible diagnostics. Restricted values must be absent, not merely marked denied after serialization. Mock-only tests do not close this gate.
+**Exit criteria:** exact model-boundary tests required by the governing issues pass on the real production path; denied values are absent from model input and model-accessible diagnostics.
 
 ### WP-5 — Acceptance review and readiness decision
-**Owner:** Coordinator, with evidence from Core and Host/Adapter  
-**Depends on:** WP-1 through WP-4.
+**Owner:** Coordinator, with evidence from Core and Host/Adapter/Provider.
 
-Run the relevant tests and review the NKA/KAC acceptance cases against real Core paths. Record results, files changed, limitations and any explicitly justified deferrals.
+Review WP-1–WP-4 evidence and update #140, #251 and #252. Record exact commits, test commands, results and remaining blockers.
 
-**Exit criteria:** gate-by-gate evidence review. Memory → NPC remains `DISABLED / FAIL-CLOSED`; Host remains `NON_READY` until mandatory gates pass. This plan does not authorize merge or production activation.
+**Exit criteria:** gate-by-gate evidence review. Memory → NPC remains `DISABLED / FAIL-CLOSED`; Host remains `NON_READY` until all mandatory governing gates pass. This plan does not authorize merge or production activation.
 
 ## Dependency order
 
 `WP-1 → WP-2 → WP-3 → WP-4 → WP-5`
 
-WP-4 may investigate the dispatch path in parallel, but must not expose an unapproved or unfiltered payload.
+Dispatch path discovery under #264 may proceed in parallel, but no unapproved or unfiltered payload may be exposed.
 
 ## Non-goals for this slice
 
 - Observation, communication, in-world document reading, inference, rumor, belief, delivery, or comprehension.
 - NPC-local acquisition storage, source graph, revision counter, or rollback mechanism.
 - Raw-message storage or implied authorization.
-- Activation of Memory → NPC or promotion of Host readiness without evidence.
+- Duplicating the global dispatch gate.
+- Activating Memory → NPC or promoting Host readiness without evidence.
 
 ## Current blockers from the bounded audit
 
 1. No verified authoritative author/import path that assigns initial information to a specific canonical subject.
 2. No acquisition-specific lifecycle proof for replay, replacement, invalidation, independent support and reconstruction.
-3. No verified production final-send gate that proves restricted values are absent from exact model input and model-visible diagnostics.
+3. Safe disclosure is governed separately by #140/#264/#356; this workstream does not claim that gate is implemented or passed.
 
-These findings are bounded to the inspected repository state; revisit them if the production paths change. A reusable identity or snapshot primitive is not proof that acquisition is implemented.
+These findings are bounded to the inspected repository state; revisit them if production paths change. A reusable identity or snapshot primitive is not proof that acquisition is implemented.
