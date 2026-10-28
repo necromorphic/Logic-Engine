@@ -241,3 +241,58 @@ test('segment events can share the same context manifest base revision', (t) => 
   assert.equal(engine.getState('segment-world').world_revision, 2);
   assert.equal(engine.getState('segment-world').entities.length, 2);
 });
+
+
+test('segment rolls back all canonical writes when projection rebuild fails', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  engine.commitEvent('segment-world', {
+    event_id: 'rebuild-seed',
+    idempotency_key: 'rebuild-seed-key',
+    turn_id: 'rebuild-seed-turn',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [{ kind: 'entity.upsert', entity_id: 'stable', entity_type: 'object', attributes: { value: 'before' } }],
+    caused_by: [],
+    depends_on: [],
+    read_set: [],
+    causal_links: [],
+  });
+
+  const originalRebuild = store.rebuild.bind(store);
+  store.rebuild = (...args) => {
+    originalRebuild(...args);
+    throw new Error('injected rebuild failure');
+  };
+
+  assert.throws(
+    () => engine.commitSegment('segment-world', segment({
+      idempotency_key: 'rebuild-failure-segment-key',
+      expected_revision: 1,
+      expected_commit_sequence: 1,
+      events: [
+        event('rebuild-failure-event-1', 'rebuild-failure-event-key-1', [
+          { kind: 'entity.upsert', entity_id: 'new-before-failure', entity_type: 'object' },
+        ], { time_advance_seconds: 30 }),
+        event('rebuild-failure-event-2', 'rebuild-failure-event-key-2', [
+          { kind: 'entity.upsert', entity_id: 'another-new-entity', entity_type: 'object' },
+        ]),
+      ],
+    })),
+    /injected rebuild failure/,
+  );
+
+  store.rebuild = originalRebuild;
+  const state = engine.getState('segment-world');
+  assert.equal(state.world_revision, 1);
+  assert.equal(state.commit_sequence, 1);
+  assert.equal(state.game_time_coordinate, 0);
+  assert.deepEqual(state.entities.map(({ entity_id, attributes }) => ({ entity_id, attributes })), [
+    { entity_id: 'stable', attributes: { value: 'before' } },
+  ]);
+  assert.deepEqual(engine.getEvents('segment-world').map(({ event_id }) => event_id), ['rebuild-seed']);
+  assert.equal(store.db.prepare(
+    "SELECT COUNT(*) AS count FROM idempotency_keys WHERE world_id=? AND idempotency_key LIKE 'rebuild-failure-%'",
+  ).get('segment-world').count, 0);
+});
