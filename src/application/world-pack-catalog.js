@@ -16,6 +16,10 @@ function safeArtifactPath(root, candidate) {
   }
   const rootReal = realpathSync(root);
   const requested = resolve(rootReal, candidate);
+  const lexicalRel = relative(rootReal, requested);
+  if (!lexicalRel || lexicalRel === '..' || lexicalRel.startsWith('..' + sep) || isAbsolute(lexicalRel)) {
+    fail('WORLD_PACK_ARTIFACT_PATH_INVALID', 'World Pack artifacts must be files below the catalog directory.');
+  }
   let artifactReal;
   try { artifactReal = realpathSync(requested); } catch {
     fail('WORLD_PACK_ARTIFACT_UNAVAILABLE', 'A trusted World Pack artifact cannot be resolved.');
