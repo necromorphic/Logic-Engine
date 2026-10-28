@@ -111,8 +111,6 @@ test('Provider mutations advance accepted head before commit and fail closed whe
     provider = new SQLiteMemoryProvider(providerOptions(providerPath, coordinatorPath));
     providerDb?.close();
     providerDb = new DatabaseSync(providerPath);
-    providerDb?.close();
-    providerDb = new DatabaseSync(providerPath);
     const scope = { world_id: 'world-1', subject_id: 'npc-1', purpose: 'recall' };
 
     provider.grantQuery(scope, true);
@@ -284,6 +282,7 @@ test('Provider fails closed when authority advances but the local checkpoint tra
   const previousEnv = {};
   let child;
   let provider;
+  let providerDb;
   try {
     setEnv('LOGIC_ENGINE_COORDINATOR_DB_PATH', coordinatorPath, previousEnv);
     setEnv('LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED', undefined, previousEnv);
@@ -336,6 +335,7 @@ test('Provider fails closed when authority advances but the local checkpoint tra
     );
   } finally {
     try { provider?.close(); } catch {}
+    try { providerDb?.close(); } catch {}
     if (child) {
       child.stdin.end('stop');
       await once(child, 'exit');
