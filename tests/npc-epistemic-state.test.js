@@ -115,6 +115,19 @@ test("invalidating evidence preserves the belief but marks it for review", () =>
   assert.equal(result.state.beliefs[0].stance, "believes_true");
   assert.equal(result.state.beliefs[0].review_required, true);
   assert.equal(result.state.evidence[0].status, "invalidated");
+  assert.equal(result.state.evidence[0].invalidation_rule_ref, "rule-source-revoked");
+  assert.equal(applyNpcEpistemicEvent(result.state, {
+    type: "evidence_invalidated",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    invalidation_rule_ref: "rule-conflicting-revocation",
+  }).status, "non_ready");
+  assert.equal(applyNpcEpistemicEvent(result.state, {
+    type: "evidence_invalidated",
+    evidence_ref: "evidence-1",
+    evidence_version: "v1",
+    invalidation_rule_ref: "rule-source-revoked",
+  }).status, "unchanged");
   assert.equal(applyNpcEpistemicEvent(result.state, {
     type: "belief_updated",
     proposition_ref: "prop-secret-location",
