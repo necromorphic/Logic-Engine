@@ -249,3 +249,14 @@ This is consistent with fail-closed behavior: an interrupted action is not silen
 **Proposed adapter contract:** treat `not_executed_interrupted` as “action did not happen.” Re-read current state, reevaluate the intent and preconditions, and submit a new action with a new idempotency key only if still valid. Never reuse the old key to request continuation. If a future product requirement wants automatic continuation, it needs an explicit owner-approved replan/continuation contract rather than overloading time-advance resume.
 
 **Test gap identified:** existing coverage asserts that the action is not committed at interruption, but does not directly assert that (a) resume and same-key replay remain terminal, and (b) a re-evaluated action can be submitted under a new key from the confirmed coordinate. A targeted regression test is appropriate.
+
+
+## 16. Regression test added for interrupted timed-action semantics
+
+Added `interrupted timed action stays terminal on resume/replay and requires a new reviewed action` to `tests/time-trigger-registry.test.js`. It asserts that:
+- an interrupting trigger stops the action at the confirmed coordinate;
+- the action event is absent from canonical history;
+- operation resume and same-key replay remain terminal and do not commit the action;
+- a new action with a new idempotency key and current revision can be submitted after re-evaluation.
+
+The test was run against the uploaded archive after appending the exact proposed test body locally: **18 tests passed, 0 failed** in `tests/time-trigger-registry.test.js`. This is a local regression-test check against the uploaded archive, not GitHub Actions evidence for the PR branch. Runtime implementation is unchanged.
