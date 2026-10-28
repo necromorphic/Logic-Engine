@@ -66,7 +66,7 @@ test('enforced server mutation journal records before/after persisted version in
       sourceLocator: 'chat-a', sourcePath: 'chat-a.jsonl', domain: 'chats',
     });
     await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version1,
+      conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
       content_sha256: digest('private-before'), active: true, deleted: false,
     });
     const response = responseMock();
@@ -84,11 +84,11 @@ test('enforced server mutation journal records before/after persisted version in
     await response.finished;
     assert.equal(response.statusCode, 200);
     await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version1,
+      conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
       content_sha256: digest('private-before'), active: false, deleted: false,
     });
     await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version2,
+      conversation_id: conversationId, message_id: messageId, version_id: version2, parent_version_id: version1,
       content_sha256: digest('private-after'), active: true, deleted: false,
     });
     const journal = await readFile(path.join(root, '.logic-engine-host', 'mutation-ledger.jsonl'), 'utf8');
@@ -121,7 +121,7 @@ test('enforced server mutation journal records before/after persisted version in
     await deleteResponse.finished;
     assert.equal(deleteResponse.statusCode, 200);
     await recordHostCaptureAcknowledgement(request, {
-      conversation_id: conversationId, message_id: messageId, version_id: version1,
+      conversation_id: conversationId, message_id: messageId, version_id: version1, parent_version_id: null,
       content_sha256: digest('private-before'), active: false, deleted: true,
     });
     const tombstoneSnapshot = await getHostConversationInventory(request);
