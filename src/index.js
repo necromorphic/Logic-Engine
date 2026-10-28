@@ -4,6 +4,7 @@ import { SQLiteStore } from './storage/sqlite-store.js';
 import { LogicEngine } from './application/engine.js';
 import { createApiServer } from './api/server.js';
 import { HostVersionDigestLedger } from './application/host-version-digest-ledger.js';
+import { loadTrustedWorldPackCatalog } from './application/world-pack-catalog.js';
 
 const token = process.env.ENGINE_API_TOKEN;
 const internalToken = process.env.ENGINE_INTERNAL_TOKEN || null;
@@ -61,6 +62,13 @@ const port = Number(process.env.ENGINE_PORT || 8787), host = process.env.ENGINE_
 if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error('ENGINE_PORT must be between 1 and 65535.');
 if (!['127.0.0.1', '::1', 'localhost'].includes(host) && process.env.ENGINE_ALLOW_REMOTE !== 'true') throw new Error('Remote binding is disabled unless ENGINE_ALLOW_REMOTE=true.');
 
+const worldPackCatalogPath = process.env.LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH;
+if (typeof worldPackCatalogPath !== 'string' || !worldPackCatalogPath.trim()) {
+  process.stderr.write('LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH must point to a deployment-controlled World Pack catalog.\\n');
+  process.exit(1);
+}
+const worldPackCatalog = loadTrustedWorldPackCatalog(resolve(worldPackCatalogPath));
+
 const store = new SQLiteStore(dbPath);
 const hostVersionLedgerPath = process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH
   ? resolve(process.env.ENGINE_HOST_VERSION_LEDGER_DB_PATH)
@@ -79,7 +87,7 @@ const hostVersionLedger = new HostVersionDigestLedger({
   verifyInventorySnapshot: async () => false,
 });
 const server = createApiServer({
-  engine: new LogicEngine(store), token, internalToken, approvalToken, adminToken, adapterTokens,
+  engine: new LogicEngine(store, { worldPackCatalog }), token, internalToken, approvalToken, adminToken, adapterTokens,
   hostVersionLedger,
 });
 server.listen(port, host, () => process.stdout.write(
