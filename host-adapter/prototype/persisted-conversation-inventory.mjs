@@ -14,8 +14,10 @@ const validId = value => typeof value === 'string' && value.length > 0 && value 
 const validUuid = value => typeof value === 'string'
   && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 const validDigest = value => typeof value === 'string' && /^[a-f0-9]{64}$/.test(value);
-const sameStat = (a, b) => a.dev === b.dev && a.ino === b.ino
-  && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+const sameFileIdentity = (a, b) => a.dev === b.dev
+  && (a.ino === b.ino || (process.platform === 'win32' && (!a.ino || !b.ino)));
+const sameStat = (a, b) => sameFileIdentity(a, b)
+  && a.size === b.size && a.mtimeMs === b.mtimeMs;
 const digestHostValue = value => sha256(JSON.stringify(String(value)));
 
 async function readStableFile(absolutePath, fs) {
