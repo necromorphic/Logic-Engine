@@ -264,6 +264,20 @@ test('dispatch validates current heads and grants, records one content-free star
       assert.equal(row.status, 'COMPLETED');
       assert.equal(row.model, 'gemini-2.5-flash-lite');
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
+      const request = validRequest();
+      const expectedDigest = createHash('sha256').update(JSON.stringify({
+        route: request.route,
+        model: request.model,
+        stream: request.stream,
+        transport_target: transportTargetFor(request),
+        body_digest: createHash('sha256').update(request.body, 'utf8').digest('hex'),
+        world_id: request.worldId,
+        actor_id: request.actorId,
+        purpose: request.purpose,
+        sources: request.sources,
+        candidates: request.candidates,
+      }), 'utf8').digest('hex');
+      assert.equal(row.request_digest, expectedDigest, 'dispatch digest must bind the resolved endpoint as well as the exact body');
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
     } finally {
       db.close();
