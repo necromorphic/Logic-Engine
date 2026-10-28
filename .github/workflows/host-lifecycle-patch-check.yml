@@ -44,6 +44,8 @@ jobs:
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-lifecycle.js
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-inventory.mjs
           node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-journal.mjs
+          node --check sillytavern-host-checkout/src/endpoints/logic-engine-host-startup-migration-guard.mjs
+          node --check sillytavern-host-checkout/src/server-main.js
           node --check sillytavern-host-checkout/src/endpoints/backends/chat-completions.js
       - name: Ensure MakerSuite request body is not logged
         run: |
