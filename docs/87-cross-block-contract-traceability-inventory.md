@@ -53,3 +53,34 @@
 ## Evidence update rule
 
 When updating this inventory, every status change must cite an exact current-main file/line or commit SHA and, for tests, the exact workflow run, commit SHA, environment, and result. An open PR or green feature-branch run remains not integrated until merged. A test file existing is not a passing test result.
+
+
+## Source-level reconciliation refresh — 2026-10-28
+
+The cross-block contract was compared with these current-main documents and source files during review:
+
+- `docs/38-npc-author-decisions-and-semantic-delta.md` — explicit NPC semantics, including false beliefs, character-relative reasoning, author-mandated outcomes, off-screen continuity and multidimensional relationships.
+- `docs/39-npc-core-knowledge-contract-proposal.md` and `docs/43-core-npc-knowledge-runtime-implementation-plan.md` — Core-owned knowledge/acquisition boundary and the narrow first vertical slice.
+- `docs/42-npc-relationship-state-contract-proposal.md` and `docs/43-npc-relationship-core-integration-decision.md` — Core owns canonical persisted relationship state and commit/rollback; Relationships owns domain semantics/evaluation, not a competing persistence store.
+- `docs/51-core-authorized-read-boundary-contract.md`, `docs/54-core-proposal-execution-authority-contract.md`, and `docs/55-core-context-manifest-trust-contract.md` — actor-bound reads, proposal execution authority and context-manifest limitations.
+- `docs/73-core-1.5-cross-block-integration-matrix.md`, `docs/76-core-cross-block-decision-register.md`, and `docs/78-memory-provider-accepted-head-revocation-gate.md` — integration blockers and production-dispatch restrictions.
+- `src/application/memory-npc-consumer.js` (current-main blob SHA `63b6d4ea03c34b0cc4321df64b27eacae444a694`) — a future Host seam with injected trusted functions; no default Provider/policy and not wired into the public API.
+- `src/npc/autonomous-intention-selector.js` (SHA `8ffa44aad910cb780a275d3d57307a33377eaec8`), `src/npc/goal-lifecycle.js` (SHA `3fad1e1c8d349a404ca363f256e0c87262813d47`), and `src/npc/plan-progress.js` (SHA `e1eee92492d63fc2658abbc3355c6ff78c696d29`) — isolated deterministic/pure helpers only.
+- `docs/20-minimal-runtime.md` (SHA `6eec17da9ae3d8dbd9702a47d493347c38265422`) — current runtime endpoint inventory and explicit limits of authorized-read.
+
+### Refined boundary findings
+
+| Boundary | What is evidenced | What remains unproven |
+|---|---|---|
+| Core authorized read | A real endpoint resolves a trusted adapter binding and returns actor-bound, policy-filtered entity fields | It is not a complete knowledge/belief system; policy defaults and field-level visibility must be traced for the intended NPC purpose |
+| Memory candidate consumer | Code joins trusted Memory candidate authorization with Core authorized source reads and returns non-ready on malformed/incomplete states | It has no default Provider/policy, is not wired into public API, and does not itself prove Core's explicit initial-assignment record path |
+| Final-dispatch revalidation | The consumer re-reads current authorization/source state and compares it with a prepared result | Its own comment says this is not a transport lease; Host still needs durable dispatch-start serialization and sole-egress Gateway to close the TOCTOU window |
+| Accepted-head/revocation | Core SQLite and enrolled file-backed Provider writes share accepted-head/revocation coordination | Does not prove complete Host source inventory, final-send reauthorization, sole-egress deployment or restore/anti-rollback controls |
+| NPC selector and lifecycle helpers | Pure, bounded local transformations with tests | No candidate discovery, trusted source builder, durable goal persistence, scheduler, universal action mapping, dispatch, or commit loop |
+| Relationship state | Contract and code separate domain interpretation from Core canonical persisted state | The actual combined actor-specific relationship feed into the NPC decision envelope is not established by the current runtime evidence reviewed here |
+| Belief state | Author decision says persistent subject-relative belief is Core-owned and separate from truth/acquisition | Executable representation and reconciliation interface remain unverified; NPC must not add a parallel belief store |
+| Context manifest | Runtime supports registration of generation/snapshot cursor metadata | Manifest does not prove exact final body derivation, source-lineage authorization or protected egress |
+
+### Evidence discipline
+
+This refresh is a source inspection, not an end-to-end run. No integrated Host → Provider → Core → NPC trace was executed as part of this review. The Runtime workflow for contract PR #631 has a passing `npc-boundary` job while the full `test` job remains queued at the latest observed check. Therefore the contract PR remains documentation-only and production Memory → NPC remains **NO-GO / DISABLED / FAIL-CLOSED**.
