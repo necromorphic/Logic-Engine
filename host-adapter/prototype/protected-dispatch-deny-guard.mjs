@@ -2,6 +2,7 @@ const PROTECTED_EGRESS_ROUTE_PREFIXES = Object.freeze([
   // Arbitrary proxying and extension routes can carry protected content outside the native provider families.
   '/proxy',
   '/api/extensions',
+  '/api/plugins',
   '/api/search',
   '/api/backends/chat-completions',
   '/api/backends/text-completions',
