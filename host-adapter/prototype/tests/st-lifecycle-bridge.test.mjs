@@ -642,29 +642,6 @@ test('legacy multi-swipe enrollment is rejected rather than fabricating multiple
   );
   assert.equal(f.db.rows.size, 0, 'refusal must happen before persisting a baseline');
 });
-  const beforeIds = f.chat[0]._logicEngineLifecycle.versions.map(version => version.versionId);
-  const before = await f.bridge.beforeMutation('select-swipe', [0], { targetSwipeIndex: 1 });
-  assert.equal(before.operation, 'before:select-swipe');
-  assert.ok(before.eventId);
-
-  // Model the native selection mutation only after the before checkpoint exists.
-  f.chat[0].swipe_id = 1;
-  f.chat[0].mes = 'answer B';
-  const after = await f.bridge.afterMutation('select-swipe', { selectedMessageIndex: 0 });
-  assert.equal(after.status, 'REVIEW_ONLY');
-  assert.equal(f.chat[0]._logicEngineLifecycle.activeVersionIndex, 1);
-  assert.deepEqual(
-    f.chat[0]._logicEngineLifecycle.versions.map(version => version.versionId),
-    beforeIds,
-    'selecting a retained swipe must not mint or rewrite version identity',
-  );
-
-  const journalRows = [...f.db.rows.values()].filter(row => row.conversationId === 'chat-1');
-  const beforeRow = journalRows.find(row => row.operation === 'before:select-swipe');
-  const afterRow = journalRows.find(row => row.operation === 'after:select-swipe');
-  assert.ok(beforeRow && afterRow);
-  assert.ok(beforeRow.sequence < afterRow.sequence);
-});
 
 
 test('edit/delete checkpoints preserve identity and digests without retaining raw message text', async () => {
