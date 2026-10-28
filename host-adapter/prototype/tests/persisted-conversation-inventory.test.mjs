@@ -115,3 +115,26 @@ test('persisted Host identity without a matching enrollment makes registry compl
     assert.ok(result.errors.includes('HOST_CONVERSATION_ID_WITHOUT_ENROLLMENT'));
   } finally { await rm(f.root, { recursive: true, force: true }); }
 });
+
+
+test('persisted Host marker with a malformed non-string ID makes registry completeness fail closed', async () => {
+  const f = await fixture();
+  try {
+    const enrolledUuid = randomUUID();
+    await writeChat(f.chats, 'chat-enrolled', enrolledUuid, [makeMessage('known chat')]);
+    await writeFile(path.join(f.chats, 'chat-malformed.jsonl'), [
+      JSON.stringify({ chat_metadata: { logic_engine_conversation_id: 17 } }),
+      JSON.stringify(makeMessage('malformed Host marker')),
+    ].join('\\n') + '\\n');
+    const result = await scanPersistedConversationInventories(f.roots, [{
+      conversationId: randomUUID() + ':' + enrolledUuid,
+      sourceLocator: 'chat-enrolled',
+      sourcePath: 'chat-enrolled.jsonl',
+      domain: 'chats',
+    }]);
+    assert.equal(result.status, 'INVENTORY_INCOMPLETE');
+    assert.equal(result.complete, false);
+    assert.deepEqual(result.inventories, []);
+    assert.ok(result.errors.includes('HOST_CONVERSATION_ID_INVALID'));
+  } finally { await rm(f.root, { recursive: true, force: true }); }
+});
