@@ -80,6 +80,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   const hostJournal = await readFile(resolve(root, 'src/endpoints/logic-engine-host-journal.mjs'), 'utf8');
   const lifecycleRoutes = await readFile(resolve(root, 'src/endpoints/logic-engine-lifecycle.js'), 'utf8');
   const groupChatScript = await readFile(resolve(root, 'public/scripts/group-chats.js'), 'utf8');
+  const slashCommands = await readFile(resolve(root, 'public/scripts/slash-commands.js'), 'utf8');
 
   assert.match(script, /prepareSaveCapability[^\n]*'\/api\/chats\/save'/);
   assert.match(script, /X-Logic-Engine-Save-Capability/);
@@ -91,6 +92,9 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.match(script, /const lifecycleBefore = await lifecycleBridge\.beforeMutation\('message-send'/);
   assert.match(script, /const lifecycleBefore = await lifecycleBridge\.beforeMutation\('edit-message'/);
   assert.match(script, /const lifecycleBefore = await lifecycleBridge\.beforeMutation\('delete-swipe'/);
+  assert.match(slashCommands, /const lifecycleBefore = await lifecycle\.guardOperation\('edit-message', \[modifyAt\]\)/);
+  assert.match(slashCommands, /if \(lifecycleBefore\.status === 'NOT_ENROLLED'\) await saveChatConditional\(\)/);
+  assert.match(slashCommands, /completeOperation\('edit-message'\)/);
 
   for (const route of [
     "router.post('/save'", "router.post('/rename'", "router.post('/delete'",
