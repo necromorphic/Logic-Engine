@@ -94,4 +94,67 @@ jobs:
             console.error({ loginGuard, serverGuard, proxyMount, privateRouters, generate, browserGuard });
             process.exit(1);
           }
+
+          const startup = readFileSync('sillytavern-host-checkout/src/server-startup.js', 'utf8');
+          const guardSource = readFileSync('host-adapter/prototype/protected-dispatch-deny-guard.mjs', 'utf8');
+          const privateStart = startup.indexOf('export function setupPrivateEndpoints(app) {');
+          const privateEnd = startup.indexOf('\n}', privateStart);
+          if (privateStart < 0 || privateEnd < 0) throw new Error('Pinned private endpoint router block not found');
+          const privateBlock = startup.slice(privateStart, privateEnd);
+          const mounts = [...privateBlock.matchAll(/app\\.use\\(\\s*['"]([^'"]+)['"]\\s*,\\s*([A-Za-z_$][\\w$]*)\\s*\\)/g)]
+            .map((match) => `${match[1]}:${match[2]}`);
+          const expectedMounts = [
+            '/:userDataRouter',
+            '/api/users:usersPrivateRouter', '/api/users:usersAdminRouter',
+            '/api/moving-ui:movingUIRouter', '/api/images:imagesRouter',
+            '/api/quick-replies:quickRepliesRouter', '/api/avatars:avatarsRouter',
+            '/api/themes:themesRouter', '/api/openai:openAiRouter',
+            '/api/google:googleRouter', '/api/anthropic:anthropicRouter',
+            '/api/tokenizers:tokenizersRouter', '/api/presets:presetsRouter',
+            '/api/secrets:secretsRouter', '/thumbnail:thumbnailRouter',
+            '/api/novelai:novelAiRouter', '/api/extensions:extensionsRouter',
+            '/api/assets:assetsRouter', '/api/files:filesRouter',
+            '/api/characters:charactersRouter', '/api/chats:chatsRouter',
+            '/api/groups:groupsRouter', '/api/worldinfo:worldInfoRouter',
+            '/api/stats:statsRouter', '/api/backgrounds:backgroundsRouter',
+            '/api/sprites:spritesRouter', '/api/content:contentManagerRouter',
+            '/api/settings:settingsRouter', '/api/sd:stableDiffusionRouter',
+            '/api/horde:hordeRouter', '/api/vector:vectorsRouter',
+            '/api/translate:translateRouter', '/api/extra/classify:classifyRouter',
+            '/api/extra/caption:captionRouter', '/api/search:searchRouter',
+            '/api/backends/text-completions:textCompletionsRouter',
+            '/api/openrouter:openRouterRouter', '/api/nanogpt:nanogptRouter',
+            '/api/backends/kobold:koboldRouter',
+            '/api/backends/chat-completions:chatCompletionsRouter',
+            '/api/speech:speechRouter', '/api/azure:azureRouter',
+            '/api/volcengine:volcengineRouter', '/api/minimax:minimaxRouter',
+            '/api/data-maid:dataMaidRouter', '/api/backups:backupsRouter',
+            '/api/image-metadata:imageMetadataRouter',
+          ];
+          if (JSON.stringify(mounts) !== JSON.stringify(expectedMounts)) {
+            console.error({ mounts, expectedMounts });
+            throw new Error('Pinned private endpoint mount inventory changed; classify every added/removed/reordered router');
+          }
+
+          const prefixMatch = guardSource.match(/const PROTECTED_EGRESS_ROUTE_PREFIXES = Object\\.freeze\\(\\[([\\s\\S]*?)\\]\\);/);
+          if (!prefixMatch) throw new Error('Protected egress prefix list missing');
+          const blockedPrefixes = [...prefixMatch[1].matchAll(/['"]([^'"]+)['"]/g)].map((match) => match[1]);
+          const requiredBlocked = [
+            '/proxy', '/api/extensions', '/api/search',
+            '/api/backends/chat-completions', '/api/backends/text-completions',
+            '/api/backends/kobold', '/api/openai', '/api/openrouter', '/api/nanogpt',
+            '/api/google', '/api/anthropic', '/api/novelai', '/api/horde', '/api/sd',
+            '/api/extra/caption', '/api/extra/classify', '/api/speech', '/api/azure',
+            '/api/volcengine', '/api/minimax', '/api/translate',
+          ];
+          for (const route of requiredBlocked) {
+            if (!blockedPrefixes.includes(route)) throw new Error(`Pinned egress route lacks a deny classification: ${route}`);
+          }
+          if (blockedPrefixes.includes('/api/vector')) {
+            throw new Error('Vectorization route is explicitly out of scope and must not be changed by this guard');
+          }
+          const egressMounts = expectedMounts.filter((mount) => requiredBlocked.includes(mount.split(':')[0]));
+          if (egressMounts.length !== requiredBlocked.length - 1) {
+            throw new Error('Every blocked private-router prefix must map to exactly one pinned router mount');
+          }
           NODE
