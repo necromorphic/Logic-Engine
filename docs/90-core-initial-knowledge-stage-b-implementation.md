@@ -14,6 +14,21 @@ The narrow Stage B operation records an explicit initial assignment of a canonic
 - `src/api/server.js`: adds `POST /v1/worlds/:worldId/initial-knowledge`, gated by the separate administrative credential. The ordinary bearer token alone cannot assign knowledge.
 - `tests/initial-knowledge-acquisition.test.js`: covers authorization, both kinds, provenance fields, idempotent replay, duplicate rejection, generic-path forgery, unknown subject, cross-world source, malformed digest, source rollback, and assignment rollback.
 
+## Requirement-to-code/test traceability
+
+| Requirement | Implementation boundary | Executable evidence |
+|---|---|---|
+| Only a separately authorized author may assign initial knowledge | `src/api/server.js` route `POST /v1/worlds/:worldId/initial-knowledge` requires `x-admin-token`; `src/application/engine.js` sets the authority marker | `tests/initial-knowledge-acquisition.test.js`: admin-gating and generic-path-forgery cases |
+| Subject is an existing eligible entity in the requested world | `LogicEngine.assignInitialKnowledge` snapshot check; `SQLiteStore.commit` rechecks current entity eligibility | Unknown-subject case; source-rollback case |
+| Source fact belongs to the same world | Snapshot lookup scoped to the route's `worldId`; store validates the fact in that same world | Cross-world-source case |
+| Only `author_initial` / `imported` are admitted | Closed effect validation in `src/core/rules.js` | Both acquisition-kind cases |
+| Provenance content integrity | Core computes SHA-256 from `source_content`; supplied digest must match | Valid digest and mismatch cases |
+| Duplicate/replay behavior | Existing Core event/idempotency journal | Same-key replay and active duplicate cases |
+| Source/assignment invalidation | Existing event read references and Core rollback lifecycle; no separate rollback store | Source-event rollback and assignment-event rollback cases |
+| No NPC/Memory read is added | Only the admin assignment route is added; existing actor binding remains identity resolution only in `src/application/actor-bindings.js`; Stage C must use the trusted actor/purpose read boundary | Generic-path denial test; no Memory → NPC consumer or dispatch path is changed |
+
+**Actor-binding clarification:** `ActorBindingService.resolve` remains the trusted adapter-to-canonical-actor identity seam, covered by `tests/actor-binding.test.js`. Stage B assignment is an author/import operation, not a claim made by the acting NPC, so the assignment route uses the separate administrative authority and a canonical `subject_id` checked in the target world. This does not grant that subject or any adapter a read permission. Stage C must independently resolve the requesting actor and apply the approved field/access policy.
+
 ## Provenance semantics and limit
 
 `source_ref` and UTF-8 `source_content` are supplied under the separately authenticated administrative trust boundary. Core computes `source_sha256` from the supplied bytes; if the caller also supplies a digest, Core verifies that it matches and rejects mismatches. Raw source content is not persisted in the acquisition effect. Core does **not** independently fetch arbitrary external packages or prove that the supplied bytes genuinely came from the path named by `source_ref`; the administrator is the trust root for that source attribution. An external importer that needs stronger origin guarantees must later bind its actual package identity to a trusted import adapter before making assignments.
