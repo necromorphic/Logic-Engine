@@ -729,44 +729,50 @@ export async function registerHostConversation(request, { conversationId, source
     if (!['chats', 'group_chats'].includes(domain)) throw new Error('HOST_ENROLLMENT_INVALID');
     const paths = await statePaths(request);
     if (sourcePath !== undefined) await validateEnrolledSourcePath(paths, { conversationId, sourceLocator, domain, sourcePath });
-    let registryExists = true;
+    const userKey = digest(String(request.user.profile?.handle ?? paths.roots[0].path));
+    const release = await acquireUserLock(userKey);
     try {
-        const stat = await lstat(paths.registryPath);
-        if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_REGISTRY_UNSAFE');
-    } catch (error) {
-        if (error?.code !== 'ENOENT') throw error;
-        registryExists = false;
-    }
-    const registry = await readRegistry(paths.registryPath, { allowMissing: true });
-    if (!registryExists) {
+        let registryExists = true;
         try {
-            const journalText = await readFile(paths.journalPath, 'utf8');
-            if (journalText.length > 0) throw new Error('HOST_REGISTRY_MISSING_WITH_HISTORY');
+            const stat = await lstat(paths.registryPath);
+            if (!stat.isFile() || stat.isSymbolicLink()) throw new Error('HOST_REGISTRY_UNSAFE');
         } catch (error) {
             if (error?.code !== 'ENOENT') throw error;
+            registryExists = false;
         }
-    }
-    const existing = registry.conversations.find(item => item.conversationId === conversationId);
-    const candidate = { conversationId, sourceLocator, ...(sourcePath === undefined ? {} : { sourcePath }), domain, enrolledAt: new Date().toISOString() };
-    if (existing) {
-        if (existing.sourceLocator !== sourceLocator || existing.domain !== domain
-            || (sourcePath !== undefined && existing.sourcePath !== sourcePath)) throw new Error('HOST_ENROLLMENT_IDENTITY_CONFLICT');
+        const registry = await readRegistry(paths.registryPath, { allowMissing: true });
+        if (!registryExists) {
+            try {
+                const journalText = await readFile(paths.journalPath, 'utf8');
+                if (journalText.length > 0) throw new Error('HOST_REGISTRY_MISSING_WITH_HISTORY');
+            } catch (error) {
+                if (error?.code !== 'ENOENT') throw error;
+            }
+        }
+        const existing = registry.conversations.find(item => item.conversationId === conversationId);
+        const candidate = { conversationId, sourceLocator, ...(sourcePath === undefined ? {} : { sourcePath }), domain, enrolledAt: new Date().toISOString() };
+        if (existing) {
+            if (existing.sourceLocator !== sourceLocator || existing.domain !== domain
+                || (sourcePath !== undefined && existing.sourcePath !== sourcePath)) throw new Error('HOST_ENROLLMENT_IDENTITY_CONFLICT');
+            await ensureEnrollmentMarker(paths);
+            return { status: 'ALREADY_ENROLLED' };
+        }
+        if (!registryExists) {
+            const journalHandle = await open(paths.journalPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+            try {
+                await journalHandle.sync();
+            } finally {
+                await journalHandle.close();
+            }
+        }
+        registry.conversations.push(candidate);
+        registry.conversations.sort((a, b) => a.conversationId.localeCompare(b.conversationId));
+        await atomicWriteJson(paths.registryPath, registry);
         await ensureEnrollmentMarker(paths);
-        return { status: 'ALREADY_ENROLLED' };
+        return { status: 'ENROLLED' };
+    } finally {
+        release();
     }
-    if (!registryExists) {
-        const journalHandle = await open(paths.journalPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
-        try {
-            await journalHandle.sync();
-        } finally {
-            await journalHandle.close();
-        }
-    }
-    registry.conversations.push(candidate);
-    registry.conversations.sort((a, b) => a.conversationId.localeCompare(b.conversationId));
-    await atomicWriteJson(paths.registryPath, registry);
-    await ensureEnrollmentMarker(paths);
-    return { status: 'ENROLLED' };
 }
 
 
