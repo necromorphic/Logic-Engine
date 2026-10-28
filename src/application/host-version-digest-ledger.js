@@ -223,7 +223,7 @@ export class HostVersionDigestLedger {
       }
       return { status: prior.lifecycle === 'tombstoned' ? 'tombstoned' : 'duplicate' };
     }
-    this.db.prepare('INSERT INTO host_version_digest_ledger (world_id,conversation_id,message_id,version_id,content_sha256,parent_version_id,lineage_status,lifecycle,created_at,updated_at,tombstoned_at) VALUES(?,?,?,?,?,?, 'VERIFIED', ?,?,?,?)")
+    this.db.prepare("INSERT INTO host_version_digest_ledger (world_id,conversation_id,message_id,version_id,content_sha256,parent_version_id,lineage_status,lifecycle,created_at,updated_at,tombstoned_at) VALUES(?,?,?,?,?,?, 'VERIFIED', ?,?,?,?)")
       .run(...tuple(v), v.content_sha256, v.parent_version_id, v.deleted ? 'tombstoned' : 'present', now, now, v.deleted ? now : null);
     if (v.active && !v.deleted) this.#setActive(v, now);
     return { status: v.deleted ? 'tombstoned' : 'captured' };
