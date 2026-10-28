@@ -651,7 +651,7 @@ function fail(response, code, status = 503) {
  * A successful pre-snapshot and fsynced intent are required before the handler.
  * The response is held until a post-snapshot and fsynced outcome are recorded.
  */
-export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, getUserDirectories } = {}) {
+export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, getUserDirectories, beforeSavePrestateRecheck = null } = {}) {
     return async function hostLifecycleMutationMiddleware(request, response, next) {
         const routeKey = request.method + ' ' + request.baseUrl + request.path;
         const originalRouteKey = request.method + ' ' + request.originalUrl?.split('?')[0];
@@ -838,6 +838,10 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             let immediateSnapshot = null;
             let preStateStillCurrent = false;
             try {
+                // Internal deterministic test seam; production callers leave this unset.
+                if (typeof beforeSavePrestateRecheck === 'function') {
+                    await beforeSavePrestateRecheck({ request, target: saveTarget, operationId });
+                }
                 const root = paths.roots.find(item => item.domain === saveTarget.domain)?.path;
                 if (!root) throw new Error('HOST_SAVE_CAPABILITY_ROOT_UNAVAILABLE');
                 const sourceFilePath = path.resolve(root, ...saveTarget.sourcePath.split('/'));
