@@ -786,6 +786,23 @@ export class SQLiteMemoryProvider {
       throw new Error('MEMORY_SOURCE_VERSION_UNVERIFIABLE');
     }
 
+    // The trusted source validator is asynchronous. Re-read Core's snapshot
+    // after it returns so a world mutation during that await cannot pass solely
+    // because the Provider's own index still carries its previous ready marker.
+    // This narrows the cross-store race; it cannot make later dispatch atomic.
+    let latestCoreSnapshot;
+    try {
+      latestCoreSnapshot = snapshotOf(await this.getSnapshot(input.world_id));
+    } catch {
+      throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
+    }
+    if (!latestCoreSnapshot) throw new Error('MEMORY_SNAPSHOT_UNAVAILABLE');
+    if (String(latestCoreSnapshot.world_revision) !== initialState.snapshot_revision
+      || String(latestCoreSnapshot.commit_sequence) !== initialState.snapshot_sequence) {
+      this.#setState(input.world_id, 'stale', 'stale', null, 'SNAPSHOT_STALE');
+      throw new Error('MEMORY_SNAPSHOT_STALE');
+    }
+
     // Source validation may await a host/Core read. Recheck that Provider
     // readiness did not change while suspended, as well as the grants below.
     // This is Provider-local consistency, not cross-store dispatch atomicity.
