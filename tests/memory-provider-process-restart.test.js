@@ -72,18 +72,28 @@ async function runChildMode(mode, directory) {
     if (mode === 'read') {
       const rebuild = await provider.rebuildIndex(scope.world_id);
       const reconciliation = await provider.reconcile(scope.world_id);
-      const result = await provider.retrieveCandidates(scope);
-      process.stdout.write(JSON.stringify({
-        rebuild: rebuild.status,
-        reconciliation: reconciliation.status,
-        completeness: result.completeness,
-        candidates: result.candidates.map((candidate) => ({
-          ref: candidate.record.ref,
-          version: candidate.record.version,
-          sourceEntityId: candidate.source.entity_id,
-          sourceVersion: candidate.source.version,
-        })),
-      }));
+      try {
+        const result = await provider.retrieveCandidates(scope);
+        process.stdout.write(JSON.stringify({
+          rebuild: rebuild.status,
+          reconciliation: reconciliation.status,
+          completeness: result.completeness,
+          candidates: result.candidates.map((candidate) => ({
+            ref: candidate.record.ref,
+            version: candidate.record.version,
+            sourceEntityId: candidate.source.entity_id,
+            sourceVersion: candidate.source.version,
+          })),
+        }));
+      } catch (error) {
+        if (error?.message !== 'MEMORY_RECORDS_WITHHELD') throw error;
+        process.stdout.write(JSON.stringify({
+          rebuild: rebuild.status,
+          reconciliation: reconciliation.status,
+          withheld: true,
+          error: error.message,
+        }));
+      }
       return;
     }
 
@@ -123,7 +133,7 @@ if (childMode?.startsWith('--provider-child-')) {
     runChild('revoke', directory);
 
     const afterRevoke = runChild('read', directory);
-    assert.equal(afterRevoke.completeness, 'complete');
-    assert.deepEqual(afterRevoke.candidates, []);
+    assert.equal(afterRevoke.withheld, true);
+    assert.equal(afterRevoke.error, 'MEMORY_RECORDS_WITHHELD');
   });
 }
