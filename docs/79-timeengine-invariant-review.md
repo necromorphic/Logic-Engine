@@ -143,3 +143,50 @@ Inspection of `tests/time-trigger-registry.test.js` found explicit runtime tests
 - refusing ambiguous policy duration before claiming triggers.
 
 This narrows the earlier concern: the repository does have an interruption contract for a **single timed action**. The remaining proposed gap is narrower: a generic composite/multi-step action with durable partial progress and explicit resume semantics. Do not describe all interruption handling as missing.
+
+
+## 11. Process Manager cross-check: composite progression already exists
+
+A deeper check of `docs/16-process-manager-core-boundary.md`, `docs/17-time-process-state-machine-proposal.md`, and `tests/process-manager.integration.test.js` changes the earlier framing.
+
+The repository already has a bounded durable multi-milestone Process Manager:
+- ordered milestones can declare prerequisites and due coordinates;
+- milestone completion is committed with the corresponding trigger segment and process checkpoint;
+- a process can pause/resume while future milestones remain;
+- overdue resume is rejected and requires an explicit replan decision;
+- interrupted time advancement can continue a running process after SQLite close/reopen;
+- rollback invalidates transitive completed prerequisites within the same process and gates the process as `needs_review`.
+
+Therefore, **do not create a second generic composite-action engine inside TimeEngine**. Time owns temporal planning/interruption boundaries; Process Manager owns durable multi-milestone lifecycle and progress; Core owns atomic commits and canonical state.
+
+The remaining question is narrower and is not proven to be a defect: does the project need a general user/NPC action representation that maps to the existing Process Manager, or are current timed-action and process APIs sufficient? That is a product/architecture decision, not a reason to add another scheduler or progress ledger.
+
+## 12. Targeted test matrix from repository evidence
+
+| Contract | Existing test evidence | Assessment |
+|---|---|---|
+| Time advance at due coordinates | `tests/time-advance-operation.test.js`: due-coordinate effects and target reached | Covered in uploaded archive |
+| Same-key replay and changed request | `tests/time-advance-operation.test.js`: replay after revision change; changed payload rejected | Covered in uploaded archive |
+| Checkpoint recovery without replaying committed segment | `tests/time-advance-operation.test.js`: recovery from last persisted checkpoint | Covered in uploaded archive |
+| Registered-trigger atomicity and restart | `tests/time-trigger-registry.test.js`: trigger state survives restart; failed segment rolls back time and completion | Covered in uploaded archive |
+| TimePolicy duration and interruption | `tests/time-trigger-registry.test.js`: policy-based timed action; due trigger interrupts before action event | Covered in uploaded archive |
+| Process milestone + trigger checkpoint atomicity | `tests/process-manager.integration.test.js`: milestone checkpoint commits with trigger segment and survives restart; injected checkpoint failure rolls back segment | Covered in uploaded archive |
+| Process continuation after interrupted advance and restart | `tests/process-manager.integration.test.js`: interrupted time advance resumes running process after SQLite reopen | Covered in uploaded archive |
+| Pause/resume, trigger identity rotation, overdue rejection | `tests/process-manager.integration.test.js`: pause/resume and overdue milestone tests | Covered in uploaded archive |
+| Rollback invalidates transitive same-process chain | `tests/process-manager.integration.test.js`: A→B→C rollback chain survives restart | Covered in uploaded archive |
+| Generic free-form action composition, including concurrency semantics | No direct test or approved generic action contract identified in this review | Unknown requirement; do not implement by assumption |
+| Cross-process causal closure/recomputation | Explicitly called unsupported/incomplete in the process contract | Known limitation, separate from TimeEngine action composition |
+
+### Test run in the uploaded archive
+
+Executed:
+
+```sh
+node --test tests/process-manager.integration.test.js tests/time-trigger-registry.test.js
+```
+
+Result: **31 tests passed, 0 failed** (14 Process Manager integration tests + 17 time-trigger registry tests). The run was against `Logic-Engine-main (1).zip`, not a fresh checkout of the remote PR branch or current `main`.
+
+### Revised conclusion
+
+The evidence does **not** support adding a new generic composite-action/progress subsystem to TimeEngine. The safer next step is to document the mapping boundary between an authored action and existing `time-actions` / Process Manager APIs, then identify a concrete unsupported scenario before proposing runtime changes. The PR remains documentation-only and the invariants remain proposals pending review.
