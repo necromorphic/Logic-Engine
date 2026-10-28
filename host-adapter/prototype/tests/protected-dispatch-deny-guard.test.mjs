@@ -94,3 +94,34 @@ test('denial response contains no request body, prompt, source metadata, or secr
   assert.equal(JSON.stringify(response.body).includes('must-not-leak'), false);
   assert.equal(JSON.stringify(response.body).includes('secret'), false);
 });
+
+
+test('exact existing vectorization endpoints remain outside this deny guard', () => {
+  const middleware = createProtectedDispatchDenyMiddleware({
+    env: { SILLYTAVERN_REQUIRE_PROTECTED_EGRESS_GATEWAY: 'true' },
+  });
+  for (const path of [
+    '/api/backends/kobold/embed',
+    '/api/openrouter/models/embedding',
+    '/api/openai/chutes/models/embedding',
+    '/api/openai/nanogpt/models/embedding',
+    '/api/openai/electronhub/models',
+    '/api/openai/siliconflow/models/embedding',
+    '/api/openai/workers-ai/models/embedding',
+  ]) {
+    const result = invoke(middleware, path, 'POST');
+    assert.equal(result.nextCalls, 1, path);
+    assert.equal(result.response.statusCode, null, path);
+  }
+  for (const [path, method] of [
+    ['/api/backends/kobold/embed', 'GET'],
+    ['/api/backends/kobold/embed/other', 'POST'],
+    ['/api/backends/kobold/generate', 'POST'],
+    ['/api/openai/generate-voice', 'POST'],
+    ['/api/openrouter/chat/completions', 'POST'],
+  ]) {
+    const result = invoke(middleware, path, method);
+    assert.equal(result.nextCalls, 0, path);
+    assert.equal(result.response.statusCode, 503, path);
+  }
+});
