@@ -1127,6 +1127,7 @@ test('final dispatch revalidation returns fresh content and fails closed after a
     turn_id: 'mutate-source-before-final-dispatch',
     event_type: 'action.completed',
     expected_revision: sourceCase.engine.getState('memory-npc-world').world_revision,
+    causal_links: [{ relation: 'REQUIRES', predicate: { kind: 'entity_exists', entity_id: 'source-a' } }],
     effects: [{ kind: 'entity.update', entity_id: 'source-a', attributes: { public_note: 'new source value' } }],
   });
   const stale = await sourceCase.consumer.revalidateForFinalDispatch(request(), sourcePrepared);
