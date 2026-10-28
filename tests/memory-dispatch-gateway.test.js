@@ -508,7 +508,7 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
 });
 
 
-test('real Provider readiness loss and access revocations before dispatch-start produce zero upstream calls', async () => {
+test('real Provider readiness loss and access revocations before dispatch-start produce zero upstream calls', { timeout: 15000 }, async () => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-provider-revoke-dispatch-race-'));
   const authorityPath = join(directory, 'authority.sqlite');
   const coordinatorPath = join(directory, 'coordinator.sqlite');
