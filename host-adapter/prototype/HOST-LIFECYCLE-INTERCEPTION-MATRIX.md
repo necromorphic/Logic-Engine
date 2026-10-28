@@ -28,11 +28,20 @@ Pinned source context: `06bde939fb1e9c4c8d8641d810f0a916b5bce127`; patch file: `
 | Restore backup | `restoreBackup` in `public/scripts/chat-backups.js` | Bulk guard rejects if any Host enrollment exists | **Patched fail-closed guard.** Alternate restore tools/routes and direct filesystem restore remain unproven. |
 | Create branch | `createBranch` in `public/scripts/bookmarks.js`; calls `guardOperation('create-branch')` | Bridge allowlist rejects unsupported operation before branch body proceeds when enrolled | **Patched guard + helper rejection.** This is not a branch-lineage-preserving implementation; other branch/copy routes are not proven covered. |
 | Delete group / bulk delete chats | `deleteGroup`, `deleteCharacter` with `deleteChats` | Bulk guard rejects if any Host enrollment exists | **Patched fail-closed guard.** Does not prove all bulk-deletion routes are intercepted. |
-| Clear/reload/switch chat | `clearChat` in `public/script.js` snapshots the current locator, calls `guardOperation('clear-chat', [])`, and if the bridge is absent rejects when the locator enrollment marker exists; all checks precede timers/UI/in-memory side effects | The bridge does not support `clear-chat`, so an enrolled current chat is rejected before clear/reload proceeds; non-enrolled chats retain native behavior | **Fail-closed at this entry point only.** This deliberately blocks normal reload/switch flows that call `clearChat` for an enrolled chat until an identity-preserving transition exists. Other navigation/reload routes remain unproven; clearing the in-memory array is not proof of file deletion or a journaled source transition. |
+| Clear/reload/switch chat | `clearChat` in `public/script.js` retains native UI-unload behavior and has no Host deletion guard | The in-memory chat array is cleared/reloaded for navigation; this is not treated as deletion of the persisted chat file | **Corrected:** `clearChat` is not a persisted mutation and is not required deletion coverage. Actual chat-file deletion is a separate server/API lifecycle and its full route coverage remains unproven. |
 | Copy branch / export | Native branch/export paths beyond the listed guard | No complete supported lifecycle implementation established | **Coverage unproven.** Must not infer protection from the `create-branch` helper test alone. |
 | Server-side import/delete/rename API called directly | API routes outside the patched browser call site | No proof every API route is bound to the browser guard | **Coverage unproven.** Direct API invocation may bypass client-side guards unless separately intercepted server-side. |
 | External file edit / restore outside application | Filesystem, external tools, unpatched extensions | No Host interception shown | **Not covered by current patch.** Fingerprint mismatch can detect some later differences only relative to an available trusted checkpoint; it does not authenticate source or guarantee detection before mutation. |
 | Journal/storage unavailable | Bridge-open fallback | Re-checks enrollment marker; rejects enrolled chat mutation when journal unavailable | **Helper behavior covered by unit-level path.** Does not establish route interception or independent rollback resistance of local storage. |
+
+## Follow-up corrections under PR #456
+
+- The `clearChat` UI-unload guard was removed; it must not block normal chat switching or be misclassified as persisted deletion.
+- Managed 4xx requests are recorded as `REJECTED_NO_MUTATION` only when complete before/after artifact and version diffs are both empty. Any observed change remains unresolved.
+- The Host digest proxy now sends the Core-required `parent_version_id`; accepted acknowledgements and conflicts retain that lineage field. This remains Host-reported lineage, not proof of historical completeness.
+- Startup guards now stop the two pre-listener SillyTavern migrations when they could rewrite enrolled history outside the server mutation journal.
+
+These changes do not close the complete-history registry, anti-rollback, external-edit/restore, all-route coverage, or live browser/UI blockers. Check PR #456's latest exact-head workflow results before treating the updated patch as validated.
 
 ## Exact-HEAD validation snapshot
 
