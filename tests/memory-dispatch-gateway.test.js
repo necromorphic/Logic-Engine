@@ -19,6 +19,13 @@ import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.
 import { enrollAcceptedHeadDomain } from '../src/security/enroll-accepted-head-domain.js';
 import { createGoogleAiStudioTransport } from '../src/security/memory-dispatch-google-transport.js';
 
+async function stopAuthorityChild(child) {
+  if (!child || child.exitCode !== null || child.signalCode !== null) return;
+  try { child.kill(); } catch {}
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await once(child, 'exit');
+}
+
 const coreToken = 'core-token-for-dispatch-gateway-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-dispatch-gateway-tests-00000000000000000000000000000002';
 const readToken = 'gateway-read-token-for-dispatch-gateway-tests-00000000000000000000000000000003';
