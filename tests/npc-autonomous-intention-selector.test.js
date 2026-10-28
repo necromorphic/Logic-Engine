@@ -167,3 +167,36 @@ test("fails closed when candidate array reflection traps throw", () => {
     intention: null,
   });
 });
+
+
+test("fails closed on Object.prototype pollution without invoking inherited getters", () => {
+  let invoked = false;
+  Object.defineProperty(Object.prototype, "npcInjectedStatus", {
+    configurable: true,
+    get() { invoked = true; return "active"; },
+  });
+  let result;
+  try {
+    result = selectNpcIntention({ goals: [goal("g", 1)], actions: [action("a", "g")] });
+  } finally {
+    delete Object.prototype.npcInjectedStatus;
+  }
+  assert.deepEqual(result, { status: "non_ready", intention: null });
+  assert.equal(invoked, false);
+});
+
+test("fails closed when Array.prototype iterator is replaced", () => {
+  const original = Object.getOwnPropertyDescriptor(Array.prototype, Symbol.iterator);
+  let result;
+  try {
+    Object.defineProperty(Array.prototype, Symbol.iterator, {
+      configurable: true,
+      writable: true,
+      value: function* pollutedIterator() { throw new Error("iterator invoked"); },
+    });
+    result = selectNpcIntention({ goals: [goal("g", 1)], actions: [action("a", "g")] });
+  } finally {
+    Object.defineProperty(Array.prototype, Symbol.iterator, original);
+  }
+  assert.deepEqual(result, { status: "non_ready", intention: null });
+});
