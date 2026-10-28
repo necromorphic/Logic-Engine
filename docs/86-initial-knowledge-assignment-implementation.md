@@ -41,6 +41,8 @@ Internal `readSnapshot` can select `knowledgeSubjectIds` and returns assignments
 
 The admin-only `GET /v1/worlds/:world_id/knowledge-assignments` route is diagnostic inspection only. It is not the NPC read path.
 
+`AuthorizedReadService.readKnowledgeAssignments()` is an internal actor-bound filter for the first acquisition slice. It requires an active adapter-to-actor binding, the `model` recipient, the `npc_decision` purpose, an exact expected snapshot cursor, and an explicitly configured trusted `knowledgePolicy`. With no policy, no assignment is disclosed. The output deliberately says `status: incomplete` and `coverage: initial_assignments_only`; an empty result must not be interpreted as known absence. The service is not yet connected to the serialized model-send path.
+
 ## Current evidence and remaining work
 
 The focused test file `tests/knowledge-acquisition.test.js` covers:
