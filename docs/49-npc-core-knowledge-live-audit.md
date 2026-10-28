@@ -4,7 +4,7 @@ Status: documentation-only audit on 2026-10-24. Original audit baseline: Core `3
 
 ## 1. Decision summary
 
-**The first NPC knowledge slice is still blocked.** Core now has trusted adapter-to-actor binding, bounded snapshots, tri-state condition evaluation, and proposal lifecycle. It still does not provide the Core-owned acquisition/provenance records and actor/purpose/snapshot-bound safe context projection needed to give an NPC model a reliable account of what that NPC knows.
+**Stage B acquisition recording now has an implementation candidate; Stage C safe reads remain blocked.** Core has a typed `knowledge.acquire` event effect and a rebuildable `knowledge_acquisitions` projection on the dedicated Stage B branch. The projection is not a reader or permission grant. Until the exact PR-head suite passes and Stage C implements actor/purpose/snapshot-bound safe context projection, production NPC knowledge reads remain blocked.
 
 Do not implement a parallel NPC-local knowledge store, belief store, authorization layer, event/causality system, revision cursor, or rollback path. Keep NPC work to contract alignment and test-boundary definition until the real Core production boundary exists.
 
@@ -23,8 +23,8 @@ Do not implement a parallel NPC-local knowledge store, belief store, authorizati
 
 | Required capability | Status | Why adjacent features are insufficient |
 |---|---|---|
-| Core-owned initial acquisition records (`author_initial` / imported) | **Missing** | Canonical facts, entity attributes, seed/import data, event references, manifests, and prompt inclusion do not independently prove that a particular actor acquired a particular proposition. |
-| Source/provenance and validity for actor acquisition | **Missing as an acquisition contract** | Existing event causality can be referenced by a future contract, but there is no inspected acquisition record lifecycle that records subject, source, validity, and reconciliation. |
+| Core-owned initial acquisition records (`author_initial` / imported) | **IMPLEMENTED ON FEATURE BRANCH; exact-head CI pending** | `src/application/engine.js::recordInitialAcquisition`, gated `knowledge.acquire` effect in `src/core/rules.js`, derived `knowledge_acquisitions` projection in `src/storage/sqlite-store.js`; tests in `tests/initial-acquisition.test.js`. Trusted policy is deployment-configured and unset by default. |
+| Source/provenance and validity for actor acquisition | **PARTIAL on feature branch** | Provenance reference/digest and authorization reference are recorded by the trusted policy; `READS_CLAIM`/ `READS_ENTITY` tie the acquisition event to canonical sources and rollback/rebuild suppresses unsupported records. Automatic source-package replacement reconciliation beyond canonical rollback remains unimplemented. |
 | Actor + purpose + snapshot-bound knowledge read/filter | **Missing** | Actor binding authenticates identity; `getSnapshot` reads canonical state; a manifest records references; none combines these into a safe actor-relative model envelope. |
 | Reserved-secret exclusion before model serialization | **Not verified / blocking** | The inspected minimal card projector avoids arbitrary attributes, but no end-to-end filter was found that removes restricted values from the exact model input and safe diagnostics. |
 | Knowledge status distinctions (`known`, `unknown`, `known_absent`, `withheld`, `incomplete`, `unsupported`) | **Missing at the knowledge-query boundary** | Tri-state condition evaluation handles a condition over supplied context, not knowledge acquisition, permission, or completeness of a whole read. |
