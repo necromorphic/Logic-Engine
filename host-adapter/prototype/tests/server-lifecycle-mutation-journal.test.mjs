@@ -643,3 +643,38 @@ test('strict lifecycle mode blocks mutation when enrollment state directory disa
     }
 });
 
+
+
+test('backup deletion is rejected while Host history is enrolled because backups may hold prior versions', async () => {
+    const { root, directories, request } = await fixture();
+    try {
+        const chatPath = path.join(directories.chats, 'chat-1.jsonl');
+        const backupPath = path.join(directories.backups, 'chat_backup_chat-1.jsonl');
+        await writeFile(chatPath, '{"mes":"current"}\\n');
+        await writeFile(backupPath, '{"mes":"older version"}\\n');
+        await registerHostConversation(request, {
+            conversationId: 'conversation-1',
+            sourceLocator: 'chat-1',
+            domain: 'chats',
+        });
+        request.path = '/api/backups/chat/delete';
+        request.originalUrl = request.path;
+        request.body = { name: 'chat_backup_chat-1.jsonl' };
+
+        const response = responseMock();
+        let reachedHandler = false;
+        await createHostLifecycleMutationMiddleware()(request, response, async () => {
+            reachedHandler = true;
+            await rm(backupPath, { force: true });
+            response.json({ ok: true });
+        });
+        await response.finished;
+
+        assert.equal(reachedHandler, false);
+        assert.equal(response.statusCode, 409);
+        assert.match(String(response.body), /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
+        assert.equal(await readFile(backupPath, 'utf8'), '{"mes":"older version"}\\n');
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
