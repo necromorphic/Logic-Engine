@@ -637,6 +637,10 @@ export class LogicEngine {
     assert(actor && actor.status !== 'destroyed', 'ACQUISITION_SUBJECT_NOT_ELIGIBLE', 'Subject must be an existing non-destroyed entity in the target world.', 409);
     const fact = this.store.db.prepare('SELECT status,source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?').get(input.world_id, input.fact_id);
     assert(fact && fact.status === 'active' && JSON.parse(fact.source_event_ids_json).length > 0, 'ACQUISITION_SOURCE_NOT_ELIGIBLE', 'Source fact must be active and have valid canonical support in this world.', 409);
+    const sourceEventIds = JSON.parse(fact.source_event_ids_json);
+    assert(Array.isArray(sourceEventIds) && sourceEventIds.length > 0
+      && sourceEventIds.every((eventId) => typeof eventId === 'string' && eventId.trim()),
+    'ACQUISITION_SOURCE_NOT_ELIGIBLE', 'Source fact must have explicit canonical supporting event identities.', 409);
     const trusted = authorizeAssignment(Object.freeze({
       world_id: input.world_id, adapter_id: input.adapter_id, subject_id: input.subject_id, fact_id: input.fact_id,
       acquisition_kind: input.acquisition_kind, world_pack_id: world.world_pack_id,
@@ -654,7 +658,11 @@ export class LogicEngine {
       expected_commit_sequence: input.expected_commit_sequence, time_advance_seconds: 0,
       caused_by: [], depends_on: ['fact:' + input.fact_id, 'entity:' + input.subject_id],
       read_set: ['fact:' + input.fact_id, 'entity:' + input.subject_id],
-      causal_links: [{ relation: 'READS_CLAIM', target_id: input.fact_id }, { relation: 'READS_ENTITY', target_id: input.subject_id }],
+      causal_links: [
+        { relation: 'READS_CLAIM', target_id: input.fact_id },
+        { relation: 'READS_ENTITY', target_id: input.subject_id },
+        ...sourceEventIds.map((eventId) => ({ relation: 'READS_SOURCE', target_id: eventId })),
+      ],
       effects: [{ kind: 'knowledge.acquire', acquisition_id: acquisitionId, subject_id: input.subject_id,
         fact_id: input.fact_id, acquisition_kind: input.acquisition_kind, provenance_ref: trusted.provenance_ref,
         provenance_digest: trusted.provenance_digest, authorization_ref: trusted.authorization_ref }],
