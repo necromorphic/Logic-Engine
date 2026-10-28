@@ -41,6 +41,52 @@ function nonEmptyString(value, name, maxLength = 200) {
   return value.trim();
 }
 
+function assertPlainDataRecord(value, allowed, code, name, required = []) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    fail(code, name + ' must be an object.');
+  }
+  const prototype = Object.getPrototypeOf(value);
+  if (prototype !== Object.prototype && prototype !== null) {
+    fail(code, name + ' must be a plain data object.');
+  }
+  for (const field of required) {
+    if (!Object.hasOwn(value, field)) fail(code, name + ' is missing required field ' + field + '.');
+  }
+  for (const key of Reflect.ownKeys(value)) {
+    if (typeof key !== 'string' || !allowed.includes(key)) {
+      fail(code, name + ' contains an unsupported field.');
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      fail(code, name + ' fields must be own enumerable data properties.');
+    }
+    if (descriptor.value === undefined) {
+      fail(code, name + ' fields must not be explicitly undefined.');
+    }
+  }
+}
+
+function denseArrayValues(value, max, code, name, min = 0) {
+  if (!Array.isArray(value) || value.length < min || value.length > max
+      || Object.getPrototypeOf(value) !== Array.prototype) {
+    fail(code, name + ' must be a plain array with between ' + min + ' and ' + max + ' entries.');
+  }
+  const values = [];
+  for (let index = 0; index < value.length; index += 1) {
+    if (!Object.hasOwn(value, index)) fail(code, name + ' cannot contain sparse entries.');
+    const descriptor = Object.getOwnPropertyDescriptor(value, String(index));
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')) {
+      fail(code, name + ' entries must be own enumerable data properties.');
+    }
+    values.push(descriptor.value);
+  }
+  const allowedKeys = new Set(['length', ...values.map((_, index) => String(index))]);
+  if (Reflect.ownKeys(value).some((key) => typeof key !== 'string' || !allowedKeys.has(key))) {
+    fail(code, name + ' cannot contain extra array properties.');
+  }
+  return values;
+}
+
 function deepFreeze(value) {
   if (value && typeof value === 'object' && !Object.isFrozen(value)) {
     for (const child of Object.values(value)) deepFreeze(child);
@@ -89,9 +135,36 @@ export function createTimeInterval(from, to) {
   return Object.freeze({ from, to, boundary: '(from, to]' });
 }
 
+function assertIntervalRecord(interval) {
+  if (!interval || typeof interval !== 'object' || Array.isArray(interval)) {
+    fail('INVALID_INTERVAL', 'interval must be an object.');
+  }
+  const prototype = Object.getPrototypeOf(interval);
+  if (prototype !== Object.prototype && prototype !== null) {
+    fail('INVALID_INTERVAL', 'interval must be a plain data object.');
+  }
+  for (const field of ['from', 'to']) {
+    if (!Object.hasOwn(interval, field)) {
+      fail('INVALID_INTERVAL', 'interval must contain own from/to coordinates.');
+    }
+  }
+  for (const key of Reflect.ownKeys(interval)) {
+    if (!['from', 'to', 'boundary'].includes(key)) {
+      fail('INVALID_INTERVAL', 'interval contains an unsupported field.');
+    }
+    const descriptor = Object.getOwnPropertyDescriptor(interval, key);
+    if (!descriptor || !descriptor.enumerable || !Object.hasOwn(descriptor, 'value')
+        || descriptor.value === undefined) {
+      fail('INVALID_INTERVAL', 'interval fields must be own enumerable data properties.');
+    }
+  }
+}
+
 export function intervalContainsTime(interval, coordinate) {
-  if (!interval || !Number.isSafeInteger(interval.from) || !Number.isSafeInteger(interval.to)
-      || interval.to < interval.from) {
+  assertIntervalRecord(interval);
+  if (!Number.isSafeInteger(interval.from) || !Number.isSafeInteger(interval.to)
+      || interval.to < interval.from
+      || (Object.hasOwn(interval, 'boundary') && interval.boundary !== '(from, to]')) {
     fail('INVALID_INTERVAL', 'interval must contain safe integer from/to coordinates in ascending order.');
   }
   safeInteger(coordinate, 'coordinate');
@@ -99,9 +172,7 @@ export function intervalContainsTime(interval, coordinate) {
 }
 
 function normalizeMonth(month, yearIndex, monthIndex) {
-  if (!month || typeof month !== 'object' || Array.isArray(month)) {
-    fail('INVALID_CALENDAR_MONTH', 'Every month must be an object.');
-  }
+  assertPlainDataRecord(month, ['id', 'name', 'days'], 'INVALID_CALENDAR_MONTH', 'Calendar month', ['id', 'name', 'days']);
   return {
     id: nonEmptyString(month.id, 'year_cycle[' + yearIndex + '].months[' + monthIndex + '].id'),
     name: nonEmptyString(month.name, 'year_cycle[' + yearIndex + '].months[' + monthIndex + '].name'),
@@ -115,38 +186,35 @@ function normalizeMonth(month, yearIndex, monthIndex) {
  * have different month lengths, including leap-day or leap-month patterns.
  */
 export function createCalendarDefinition(input) {
-  if (!input || typeof input !== 'object' || Array.isArray(input)) {
-    fail('INVALID_CALENDAR', 'Calendar definition must be an object.');
-  }
+  assertPlainDataRecord(input, ['calendar_id', 'version', 'day_length_ms', 'weekdays', 'year_cycle', 'epoch', 'holidays'], 'INVALID_CALENDAR', 'Calendar definition', ['calendar_id', 'version', 'day_length_ms', 'weekdays', 'year_cycle', 'epoch']);
 
   const calendarId = nonEmptyString(input.calendar_id, 'calendar_id');
   const version = nonEmptyString(input.version, 'version', 100);
   const dayLengthMs = positiveSafeInteger(input.day_length_ms, 'day_length_ms');
 
-  if (!Array.isArray(input.weekdays) || input.weekdays.length < 1 || input.weekdays.length > 1000) {
-    fail('INVALID_WEEKDAYS', 'weekdays must be a non-empty array of at most 1000 names.');
-  }
-  const weekdays = input.weekdays.map((name, i) => nonEmptyString(name, 'weekdays[' + i + ']'));
+  const weekdays = denseArrayValues(input.weekdays, 1000, 'INVALID_WEEKDAYS', 'weekdays', 1)
+    .map((name, i) => nonEmptyString(name, 'weekdays[' + i + ']'));
 
-  if (!Array.isArray(input.year_cycle) || input.year_cycle.length < 1 || input.year_cycle.length > 1000) {
-    fail('INVALID_YEAR_CYCLE', 'year_cycle must contain between 1 and 1000 year definitions.');
-  }
-  const yearCycle = input.year_cycle.map((year, yearIndex) => {
-    if (!year || typeof year !== 'object' || Array.isArray(year)) {
-      fail('INVALID_CALENDAR_YEAR', 'Every year-cycle entry must be an object.');
-    }
-    if (!Array.isArray(year.months) || year.months.length < 1 || year.months.length > 1000) {
-      fail('INVALID_CALENDAR_MONTHS', 'Every year-cycle entry must contain between 1 and 1000 months.');
-    }
-    const months = year.months.map((month, monthIndex) => normalizeMonth(month, yearIndex, monthIndex));
+  const yearEntries = denseArrayValues(input.year_cycle, 1000, 'INVALID_YEAR_CYCLE', 'year_cycle', 1);
+  const yearCycle = yearEntries.map((year, yearIndex) => {
+    // Normalized calendars carry a derived `days` field on each year.
+    // Accept it when revalidating an already-normalized calendar, but verify
+    // it against the canonical month sum instead of trusting the supplied value.
+    assertPlainDataRecord(year, ['id', 'name', 'months', 'days'], 'INVALID_CALENDAR_YEAR', 'Calendar year', ['id', 'name', 'months']);
+    const monthEntries = denseArrayValues(year.months, 1000, 'INVALID_CALENDAR_MONTHS', 'year-cycle months', 1);
+    const months = monthEntries.map((month, monthIndex) => normalizeMonth(month, yearIndex, monthIndex));
     if (new Set(months.map((month) => month.id)).size !== months.length) {
       fail('DUPLICATE_MONTH_ID', 'Month ids must be unique within each year-cycle entry.');
+    }
+    const days = sumSafe(months.map((month) => month.days), 'Year length');
+    if (Object.hasOwn(year, 'days') && year.days !== days) {
+      fail('INVALID_CALENDAR_YEAR', 'Derived year days must equal the sum of its month lengths.');
     }
     return {
       id: nonEmptyString(year.id, 'year_cycle[' + yearIndex + '].id'),
       name: nonEmptyString(year.name, 'year_cycle[' + yearIndex + '].name'),
       months,
-      days: sumSafe(months.map((month) => month.days), 'Year length'),
+      days,
     };
   });
 
@@ -159,9 +227,7 @@ export function createCalendarDefinition(input) {
   }
 
   const epochInput = input.epoch;
-  if (!epochInput || typeof epochInput !== 'object' || Array.isArray(epochInput)) {
-    fail('INVALID_CALENDAR_EPOCH', 'epoch must be an object.');
-  }
+  assertPlainDataRecord(epochInput, ['coordinate', 'year_number', 'year_cycle_index', 'month_id', 'day_of_month', 'weekday_index', 'time_of_day_ms'], 'INVALID_CALENDAR_EPOCH', 'Calendar epoch', ['coordinate', 'year_number', 'year_cycle_index', 'month_id', 'day_of_month', 'weekday_index']);
   const epoch = {
     coordinate: safeInteger(epochInput.coordinate, 'epoch.coordinate'),
     year_number: safeInteger(epochInput.year_number, 'epoch.year_number'),
@@ -169,8 +235,8 @@ export function createCalendarDefinition(input) {
     month_id: nonEmptyString(epochInput.month_id, 'epoch.month_id'),
     day_of_month: positiveSafeInteger(epochInput.day_of_month, 'epoch.day_of_month'),
     weekday_index: safeInteger(epochInput.weekday_index, 'epoch.weekday_index'),
-    time_of_day_ms: epochInput.time_of_day_ms === undefined
-      ? 0 : safeInteger(epochInput.time_of_day_ms, 'epoch.time_of_day_ms'),
+    time_of_day_ms: Object.hasOwn(epochInput, 'time_of_day_ms')
+      ? safeInteger(epochInput.time_of_day_ms, 'epoch.time_of_day_ms') : 0,
   };
 
   if (epoch.year_cycle_index < 0 || epoch.year_cycle_index >= yearCycle.length) {
@@ -191,15 +257,11 @@ export function createCalendarDefinition(input) {
   }
 
   const monthIds = new Set(yearCycle.flatMap((year) => year.months.map((month) => month.id)));
-  const holidaysInput = input.holidays ?? [];
-  if (!Array.isArray(holidaysInput) || holidaysInput.length > 10000) {
-    fail('INVALID_HOLIDAYS', 'holidays must be an array of at most 10000 entries.');
-  }
+  const holidaysInput = Object.hasOwn(input, 'holidays') ? input.holidays : [];
+  const holidayEntries = denseArrayValues(holidaysInput, 10000, 'INVALID_HOLIDAYS', 'holidays');
   const holidayIds = new Set();
-  const holidays = holidaysInput.map((holiday, i) => {
-    if (!holiday || typeof holiday !== 'object' || Array.isArray(holiday)) {
-      fail('INVALID_HOLIDAY', 'Every holiday must be an object.');
-    }
+  const holidays = holidayEntries.map((holiday, i) => {
+    assertPlainDataRecord(holiday, ['id', 'name', 'month_id', 'day_of_month', 'year_number'], 'INVALID_HOLIDAY', 'Calendar holiday', ['id', 'name', 'month_id', 'day_of_month']);
     const id = nonEmptyString(holiday.id, 'holidays[' + i + '].id');
     if (holidayIds.has(id)) fail('DUPLICATE_HOLIDAY_ID', 'Holiday ids must be unique.');
     holidayIds.add(id);
@@ -210,7 +272,7 @@ export function createCalendarDefinition(input) {
       fail('INVALID_HOLIDAY_DAY', 'Holiday day_of_month does not exist in any year-cycle entry.');
     }
     const normalized = { id, name: nonEmptyString(holiday.name, 'holidays[' + i + '].name'), month_id: monthId, day_of_month: dayOfMonth };
-    if (holiday.year_number !== undefined) {
+    if (Object.hasOwn(holiday, 'year_number')) {
       normalized.year_number = safeInteger(holiday.year_number, 'holidays[' + i + '].year_number');
       const holidayYearOffset = normalized.year_number - epoch.year_number;
       safeInteger(holidayYearOffset, 'Holiday year offset');
@@ -250,7 +312,19 @@ function rotatedYears(calendar) {
 }
 
 function dayIndexForDate(calendar, date) {
-  if (!date || typeof date !== 'object' || Array.isArray(date)) fail('INVALID_CALENDAR_DATE', 'date must be an object.');
+  // Accept both minimal date inputs and the known projection shape, while
+  // refusing inherited fields or executable accessors at this boundary.
+  assertPlainDataRecord(date, [
+    'calendar_id', 'calendar_version', 'coordinate', 'year_number',
+    'year_cycle_index', 'month_id', 'month_name', 'day_of_month',
+    'weekday_index', 'weekday', 'time_of_day_ms', 'holidays',
+  ], 'INVALID_CALENDAR_DATE', 'Calendar date', ['year_number', 'month_id', 'day_of_month']);
+  if (Object.hasOwn(date, 'calendar_id') && date.calendar_id !== calendar.calendar_id) {
+    fail('CALENDAR_ID_MISMATCH', 'Calendar date belongs to a different calendar.');
+  }
+  if (Object.hasOwn(date, 'calendar_version') && date.calendar_version !== calendar.version) {
+    fail('CALENDAR_VERSION_MISMATCH', 'Calendar date was projected with a different calendar version.');
+  }
   const yearNumber = safeInteger(date.year_number, 'date.year_number');
   const yearOffset = yearNumber - calendar.epoch.year_number;
   safeInteger(yearOffset, 'Year offset');
@@ -263,6 +337,9 @@ function dayIndexForDate(calendar, date) {
   for (let i = 0; i < remainder; i++) days = checkedAdd(days, years[i].days, 'Calendar day offset');
 
   const yearIndex = mod(calendar.epoch.year_cycle_index + mod(yearOffset, cycleLength), cycleLength);
+  if (Object.hasOwn(date, 'year_cycle_index') && date.year_cycle_index !== yearIndex) {
+    fail('CALENDAR_YEAR_CYCLE_INDEX_MISMATCH', 'Calendar date year_cycle_index does not match year_number.');
+  }
   const targetYear = calendar.year_cycle[yearIndex];
   const monthId = nonEmptyString(date.month_id, 'date.month_id');
   const monthIndex = targetYear.months.findIndex((month) => month.id === monthId);
@@ -326,7 +403,7 @@ export function projectCalendarDate(definition, coordinate) {
   const holidays = calendar.holidays
     .filter((holiday) => holiday.month_id === month.id
       && holiday.day_of_month === monthRemaining + 1
-      && (holiday.year_number === undefined || holiday.year_number === yearNumber))
+      && (!Object.hasOwn(holiday, 'year_number') || holiday.year_number === yearNumber))
     .map(({ id, name }) => ({ id, name }));
 
   return {
@@ -348,9 +425,16 @@ export function projectCalendarDate(definition, coordinate) {
 export function calendarDateToCoordinate(definition, date) {
   const calendar = createCalendarDefinition(definition);
   const day = dayIndexForDate(calendar, date);
-  const targetTime = timeOfDay(date.time_of_day_ms, calendar.day_length_ms);
+  const targetTime = timeOfDay(
+    Object.hasOwn(date, 'time_of_day_ms') ? date.time_of_day_ms : undefined,
+    calendar.day_length_ms,
+  );
   const daysFromEpochDate = day.days - epochDayOfYear(calendar);
   const elapsedMs = checkedMultiply(daysFromEpochDate, calendar.day_length_ms, 'Calendar date coordinate');
   const withTime = checkedAdd(elapsedMs, targetTime - calendar.epoch.time_of_day_ms, 'Calendar date coordinate');
-  return checkedAdd(calendar.epoch.coordinate, withTime, 'Calendar date coordinate');
+  const coordinate = checkedAdd(calendar.epoch.coordinate, withTime, 'Calendar date coordinate');
+  if (Object.hasOwn(date, 'coordinate') && date.coordinate !== coordinate) {
+    fail('CALENDAR_DATE_COORDINATE_MISMATCH', 'Projected coordinate does not match the supplied calendar date fields.');
+  }
+  return coordinate;
 }
