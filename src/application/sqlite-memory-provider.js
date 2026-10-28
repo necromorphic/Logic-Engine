@@ -426,10 +426,11 @@ export class SQLiteMemoryProvider {
     return this.#withCoordinatorLock(() => {
       this.#db.exec('BEGIN IMMEDIATE');
       this.#transactionDepth += 1;
-      const beforeSchemaDigest = this.#acceptedHeadConfig ? databaseSchemaDigest(this.#db) : null;
-      let acceptedHeadSession = this.#acceptedHeadConfig ? this.#db.createSession() : null;
-      const changesBefore = this.#db.prepare('SELECT total_changes() AS count').get().count;
+      let acceptedHeadSession = null;
       try {
+        const beforeSchemaDigest = this.#acceptedHeadConfig ? databaseSchemaDigest(this.#db) : null;
+        acceptedHeadSession = this.#acceptedHeadConfig ? this.#db.createSession() : null;
+        const changesBefore = this.#db.prepare('SELECT total_changes() AS count').get().count;
         const result = work();
         const changesAfter = this.#db.prepare('SELECT total_changes() AS count').get().count;
         let acceptedHeadOperation = null;
