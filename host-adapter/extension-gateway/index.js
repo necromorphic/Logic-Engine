@@ -12,6 +12,7 @@ import { interceptProtectedGeneration } from './gateway-policy.mjs';
 const gatewayState = {
     pendingRequest: null,
     dispatch: null,
+    dispatchInFlight: false,
     lastStatus: 'IDLE',
 };
 
@@ -41,6 +42,7 @@ export function getStatus() {
     return {
         status: gatewayState.lastStatus,
         hasPendingRequest: Boolean(gatewayState.pendingRequest),
+        dispatchInFlight: gatewayState.dispatchInFlight,
     };
 }
 
@@ -49,23 +51,37 @@ export function getStatus() {
 globalThis.logicEngineExtensionGatewayGenerationInterceptor = async function (chat, contextSize, abort, type) {
     const pendingRequest = gatewayState.pendingRequest;
     if (!pendingRequest) {
+        // A second generation must not bypass the protected dispatch while it
+        // is in flight. This is a local concurrency guard, not authorization
+        // and not protection against other extensions or server-side callers.
+        if (gatewayState.dispatchInFlight) {
+            abort(true);
+            gatewayState.lastStatus = 'BLOCKED_DISPATCH_IN_FLIGHT';
+        }
         return;
     }
 
-    // Consume the arm before dispatch so a second generation cannot replay it.
+    // Consume the arm and close the generation gate before awaiting anything.
+    // This prevents concurrent generation from taking the native provider path
+    // while the protected callback is still running.
     const dispatch = gatewayState.dispatch;
     gatewayState.pendingRequest = null;
     gatewayState.dispatch = null;
+    gatewayState.dispatchInFlight = true;
 
-    const result = await interceptProtectedGeneration({
-        pendingRequest,
-        chat,
-        contextSize,
-        type,
-        abort,
-        dispatch,
-    });
-    gatewayState.lastStatus = result.status;
+    try {
+        const result = await interceptProtectedGeneration({
+            pendingRequest,
+            chat,
+            contextSize,
+            type,
+            abort,
+            dispatch,
+        });
+        gatewayState.lastStatus = result.status;
+    } finally {
+        gatewayState.dispatchInFlight = false;
+    }
 };
 
 // No automatic activation, network side effects, or authorization claims.
