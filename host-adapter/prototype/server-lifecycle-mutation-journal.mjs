@@ -112,7 +112,7 @@ const validHostUuid = value => typeof value === 'string'
     && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 const hostTextDigest = value => digest(JSON.stringify(String(value)));
 const sameFileStat = (a, b) => a.dev === b.dev && a.ino === b.ino
-    && a.size === b.size && a.mtimeMs === b.mtimeMs && a.ctimeMs === b.ctimeMs;
+    && a.size === b.size && a.mtimeMs === b.mtimeMs;
 
 function purgeExpiredSaveCapabilities(now = Date.now()) {
     for (const [token, capability] of saveCapabilities) {
@@ -1134,8 +1134,8 @@ async function validateEnrolledSourcePath(paths, { conversationId, sourceLocator
         const pathAfter = await lstat(cursor);
         if (!before.isFile() || before.dev !== after.dev || before.ino !== after.ino
             || before.size !== after.size || before.mtimeMs !== after.mtimeMs
-            || before.ctimeMs !== after.ctimeMs || before.dev !== pathAfter.dev
-            || before.ino !== pathAfter.ino || bytes.length !== after.size) {
+            || before.dev !== pathAfter.dev || before.ino !== pathAfter.ino
+            || bytes.length !== after.size) {
             throw new Error('HOST_ENROLLMENT_SOURCE_CHANGED');
         }
         const firstLine = bytes.toString('utf8').split(/\r?\n/).find(line => line.trim().length > 0);
