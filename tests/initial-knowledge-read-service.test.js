@@ -103,11 +103,11 @@ test('missing, throwing, or non-true policy decisions disclose no item metadata'
 test('construction requires a trusted knowledge policy and request cannot nominate a subject or fact', (t) => {
   const { engine, bindings } = setup(t);
   assert.throws(() => new InitialKnowledgeReadService(engine, bindings), /explicit trusted knowledge policy/);
-  assert.throws(() => serviceForBadRequest(engine), /not used/);
-  function serviceForBadRequest() {
-    const service = new InitialKnowledgeReadService(engine, bindings, () => true);
-    return service.read(request(engine, { subjectId: 'actor-b', factIds: ['secret-fact'] }));
-  }
+  const service = new InitialKnowledgeReadService(engine, bindings, () => true);
+  assert.throws(
+    () => service.read(request(engine, { subjectId: 'actor-b', factIds: ['secret-fact'] })),
+    (error) => error.code === 'INVALID_INITIAL_KNOWLEDGE_READ',
+  );
 });
 
 test('actor identity binding prevents reading another subject’s assignments', (t) => {
