@@ -4,6 +4,7 @@ import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
 import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
 import { validateNpcKnowledgeRead, validateNpcKnowledgeReadInput } from './npc-knowledge-read.js';
+import { buildNpcBeliefContext, reduceNpcBeliefTransition } from './npc-belief-state.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
@@ -167,14 +168,19 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store, { trustedInitialKnowledgeSources = [], npcKnowledgeReadAuthorizer = null } = {}) {
+  constructor(store, { trustedInitialKnowledgeSources = [], npcKnowledgeReadAuthorizer = null, npcKnowledgeVisibilityAuthorizer = null } = {}) {
     if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
     if (npcKnowledgeReadAuthorizer !== null
       && (typeof npcKnowledgeReadAuthorizer !== 'function' || npcKnowledgeReadAuthorizer.constructor?.name === 'AsyncFunction')) {
       throw new TypeError('npcKnowledgeReadAuthorizer must be a synchronous deployment-owned function');
     }
     this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
+    if (npcKnowledgeVisibilityAuthorizer !== null
+      && (typeof npcKnowledgeVisibilityAuthorizer !== 'function' || npcKnowledgeVisibilityAuthorizer.constructor?.name === 'AsyncFunction')) {
+      throw new TypeError('npcKnowledgeVisibilityAuthorizer must be a synchronous deployment-owned function');
+    }
     this.npcKnowledgeReadAuthorizer = npcKnowledgeReadAuthorizer;
+    this.npcKnowledgeVisibilityAuthorizer = npcKnowledgeVisibilityAuthorizer;
     this.store = store;
     this.processStore = new ProcessStore(store);
     this.store.processStore = this.processStore;
@@ -599,6 +605,106 @@ export class LogicEngine {
       }),
       authorization_ref: checked.request.authorization_ref,
       items: Object.freeze(items),
+    });
+  }
+
+
+  /**
+   * Build an actor-specific belief context from Core-authorized acquisitions.
+   * This is an internal, non-HTTP method. Visibility is checked per acquisition;
+   * model proposals cannot create evidence or commit world effects.
+   */
+  prepareNpcBeliefContext(input, proposal, currentBelief = null) {
+    assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
+      'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
+      'A trusted deployment-owned per-acquisition visibility authorizer is required.', 403);
+    const read = this.readNpcKnowledge(input);
+    const visibleItems = [];
+    for (const item of read.items) {
+      let decision;
+      try {
+        decision = this.npcKnowledgeVisibilityAuthorizer(Object.freeze({
+          world_id: read.world_id,
+          actor_id: read.actor_id,
+          purpose: read.purpose,
+          world_revision: read.snapshot.world_revision,
+          commit_sequence: read.snapshot.commit_sequence,
+          acquisition_id: item.acquisition_id,
+          fact_id: item.fact_id,
+          subject_ref: item.subject_ref,
+          predicate: item.predicate,
+          provenance_ref: item.provenance_ref,
+          provenance_digest: item.provenance_digest,
+        }));
+      } catch {
+        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+          'The trusted visibility authorizer failed; no belief context was prepared.', 403);
+      }
+      const allowedKeys = [
+        'status', 'world_id', 'actor_id', 'purpose', 'world_revision',
+        'commit_sequence', 'acquisition_id', 'authorization_ref',
+      ];
+      const exactDecision = decision && typeof decision === 'object'
+        && !Array.isArray(decision)
+        && Object.getPrototypeOf(decision) === Object.prototype
+        && Reflect.ownKeys(decision).length === allowedKeys.length
+        && allowedKeys.every((key) => Object.hasOwn(decision, key))
+        && Reflect.ownKeys(decision).every((key) => typeof key === 'string' && allowedKeys.includes(key));
+      if (!exactDecision) {
+        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+          'The visibility authorizer returned a malformed decision.', 403);
+      }
+      if (decision.status === 'denied') {
+        if (decision.world_id !== read.world_id || decision.actor_id !== read.actor_id
+          || decision.purpose !== read.purpose
+          || decision.world_revision !== read.snapshot.world_revision
+          || decision.commit_sequence !== read.snapshot.commit_sequence
+          || decision.acquisition_id !== item.acquisition_id
+          || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
+          throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+            'The visibility denial was not bound to this actor and snapshot.', 403);
+        }
+        continue;
+      }
+      if (decision.status !== 'allowed'
+        || decision.world_id !== read.world_id || decision.actor_id !== read.actor_id
+        || decision.purpose !== read.purpose
+        || decision.world_revision !== read.snapshot.world_revision
+        || decision.commit_sequence !== read.snapshot.commit_sequence
+        || decision.acquisition_id !== item.acquisition_id
+        || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
+        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+          'The visibility decision did not authorize this exact acquisition, actor, purpose, and snapshot.', 403);
+      }
+      visibleItems.push(item);
+    }
+
+    const visibleRead = Object.freeze({ ...read, items: Object.freeze(visibleItems) });
+    const reduced = reduceNpcBeliefTransition({
+      knowledgeRead: visibleRead,
+      currentBelief,
+      proposal,
+    });
+    assert(reduced.status === 'ready', 'NPC_BELIEF_TRANSITION_NOT_READY',
+      'NPC belief proposal failed Core evidence/snapshot validation.', 409,
+      { reason: reduced.reason });
+
+    const worldNow = this.store.world(read.world_id);
+    const sequenceNow = this.store.currentCommitSequence(read.world_id);
+    assert(worldNow && worldNow.status === 'active'
+      && worldNow.world_revision === read.snapshot.world_revision
+      && sequenceNow === read.snapshot.commit_sequence,
+    'NPC_BELIEF_CONTEXT_STALE',
+    'World snapshot changed while preparing the NPC belief context; retry from a fresh snapshot.', 409);
+
+    const built = buildNpcBeliefContext(visibleRead, reduced.transition);
+    assert(built.status === 'ready', 'NPC_BELIEF_CONTEXT_NOT_READY',
+      'NPC belief context failed final validation.', 409, { reason: built.reason });
+    return Object.freeze({
+      status: 'ready',
+      snapshot: visibleRead.snapshot,
+      transition: reduced.transition,
+      context: built.context,
     });
   }
 
