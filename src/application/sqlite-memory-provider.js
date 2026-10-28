@@ -2,6 +2,13 @@ import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { isProxy } from 'node:util/types';
 import { createHash } from 'node:crypto';
+import {
+  advanceAcceptedHeadSync,
+  finalizeAcceptedHeadSync,
+  getAcceptedHeadStatusSync,
+  getAcceptedHeadsSync,
+} from '../security/accepted-head-client-sync.js';
+import { hashRequest } from '../core/request-hash.js';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from '../storage/coordinator-lock.js';
@@ -128,6 +135,27 @@ const decode = (value) => JSON.parse(value);
 const encode = (value) => JSON.stringify(value);
 const rawDigest = (value) => createHash('sha256').update(value, 'utf8').digest('hex');
 
+const acceptedHeadConfigFromEnv = () => {
+  const required = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_REQUIRED === '1';
+  const portRaw = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_PORT;
+  const token = process.env.LOGIC_ENGINE_ACCEPTED_HEAD_PROVIDER_TOKEN;
+  const anyConfigured = portRaw !== undefined || token !== undefined;
+  if (!anyConfigured) {
+    if (required) throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
+    return null;
+  }
+  const port = Number(portRaw);
+  if (!Number.isInteger(port) || port < 1 || port > 65535
+    || typeof token !== 'string' || token.length < 32) {
+    throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_CONFIGURATION_INVALID');
+  }
+  return Object.freeze({ port, token });
+};
+const databaseSchemaDigest = (db) => hashRequest(db.prepare(`
+  SELECT type, name, tbl_name, sql FROM sqlite_master
+  WHERE name NOT LIKE 'sqlite_%' ORDER BY type, name
+`).all());
+
 const validDirectLineage = (row, lineage) => row.source_kind === 'canonical_entity'
   && validId(row.source_entity_id)
   && validId(row.source_version)
@@ -151,6 +179,7 @@ const validDirectLineage = (row, lineage) => row.source_kind === 'canonical_enti
  */
 export class SQLiteMemoryProvider {
   #db;
+  #acceptedHeadConfig;
   #coordinatorDb;
   #getSnapshot;
   #validateSourceVersion;
@@ -192,6 +221,8 @@ export class SQLiteMemoryProvider {
     }
     this.#validateInventory = validateInventory;
     this.#authorizeRawRead = typeof authorizeRawRead === 'function' ? authorizeRawRead : null;
+    this.#acceptedHeadConfig = acceptedHeadConfigFromEnv();
+    if (this.#acceptedHeadConfig && path === ':memory:') throw new Error('PROVIDER_ACCEPTED_HEAD_REQUIRES_FILE_BACKED_STORE');
     // In-memory instances are deliberately isolated test stores and do not
     // join a process-global coordinator merely because the test runner set one.
     const sharedCoordinatorPath = path === ':memory:' ? null : coordinatorPath;
@@ -252,6 +283,22 @@ export class SQLiteMemoryProvider {
         source_reconciliation TEXT NOT NULL, snapshot_revision TEXT,
         snapshot_sequence TEXT, failure_code TEXT, updated_at TEXT NOT NULL
       );
+      CREATE TABLE IF NOT EXISTS accepted_head_state(
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        head INTEGER NOT NULL CHECK(head>=0),
+        enrolled INTEGER NOT NULL DEFAULT 0 CHECK(enrolled IN (0,1)),
+        last_operation_id TEXT,
+        last_operation_digest TEXT
+      );
+      CREATE TABLE IF NOT EXISTS accepted_head_enrollment_audit(
+        singleton INTEGER PRIMARY KEY CHECK(singleton=1),
+        domain TEXT NOT NULL CHECK(domain IN ('core','provider')),
+        approval_id TEXT NOT NULL,
+        baseline_digest TEXT NOT NULL,
+        operation_id TEXT NOT NULL,
+        enrolled_head INTEGER NOT NULL CHECK(enrolled_head=1),
+        enrolled_at TEXT NOT NULL
+      );
       CREATE TABLE IF NOT EXISTS memory_raw_captures (
         world_id TEXT NOT NULL, conversation_id TEXT NOT NULL, message_id TEXT NOT NULL,
         version_id TEXT NOT NULL, role TEXT NOT NULL, content_text TEXT NOT NULL,
@@ -279,8 +326,39 @@ export class SQLiteMemoryProvider {
           ON DELETE CASCADE
       );
     `);
+      if (this.#acceptedHeadConfig) {
+        const requiredObjects = [...this.#db.prepare("SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'").all()]
+          .map((row) => row.object_name);
+        const required = ['table:memory_records','table:memory_index_entries','table:memory_query_grants',
+          'table:memory_record_grants','table:memory_index_state','table:accepted_head_state',
+          'table:accepted_head_enrollment_audit','table:memory_raw_captures',
+          'table:memory_raw_active_versions','table:memory_raw_derived_copies'];
+        if (required.some((name) => !requiredObjects.includes(name))) throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
+      }
       const stateColumns = this.#db.prepare('PRAGMA table_info(memory_index_state)').all();
-      if (!stateColumns.some((column) => column.name === 'failure_code')) this.#db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+      if (!stateColumns.some((column) => column.name === 'failure_code')) {
+        if (this.#acceptedHeadConfig) throw new Error('PROVIDER_SCHEMA_INCOMPLETE');
+        this.#db.exec('ALTER TABLE memory_index_state ADD COLUMN failure_code TEXT');
+      }
+      if (!this.#acceptedHeadConfig) {
+        this.#db.prepare('INSERT OR IGNORE INTO accepted_head_state(singleton,head,enrolled,last_operation_id,last_operation_digest) VALUES(1,0,0,NULL,NULL)').run();
+      } else {
+        const local = this.#db.prepare('SELECT head,enrolled,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1').get();
+        if (!local || local.enrolled !== 1 || !Number.isSafeInteger(local.head) || local.head < 1) throw new Error('PROVIDER_ACCEPTED_HEAD_NOT_ENROLLED');
+        let status = getAcceptedHeadStatusSync({port:this.#acceptedHeadConfig.port,token:this.#acceptedHeadConfig.token});
+        const pending = status.operations.provider;
+        if (pending) {
+          const matches = local.head===pending.head && local.last_operation_id===pending.operation_id
+            && local.last_operation_digest===pending.operation_digest && local.enrolled===1;
+          if (!matches) throw new Error('PROVIDER_ACCEPTED_HEAD_RECOVERY_REQUIRED');
+          finalizeAcceptedHeadSync({domain:'provider',operationId:pending.operation_id,operationDigest:pending.operation_digest,
+            token:this.#acceptedHeadConfig.token,port:this.#acceptedHeadConfig.port});
+          status = getAcceptedHeadStatusSync({port:this.#acceptedHeadConfig.port,token:this.#acceptedHeadConfig.token});
+        }
+        if (status.pending.core || status.pending.provider || status.heads.provider!==local.head
+          || !status.enrolled.provider || !status.enrolled.core
+          || !Number.isSafeInteger(status.heads.core) || status.heads.core<1) throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
+      }
     } catch (error) {
       startupError = error;
     } finally {
@@ -317,18 +395,59 @@ export class SQLiteMemoryProvider {
     return this.#db.prepare('PRAGMA data_version').get().data_version;
   }
 
+  #assertAcceptedHeadCurrent() {
+    if (!this.#acceptedHeadConfig) return;
+    let status;
+    try { status = getAcceptedHeadStatusSync({port:this.#acceptedHeadConfig.port,token:this.#acceptedHeadConfig.token}); }
+    catch { throw new Error('PROVIDER_ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE'); }
+    const local = this.#db.prepare('SELECT head,enrolled FROM accepted_head_state WHERE singleton=1').get();
+    if (!local || local.enrolled!==1 || !Number.isSafeInteger(local.head) || local.head<1
+      || !status.enrolled.provider || !status.enrolled.core
+      || !Number.isSafeInteger(status.heads.provider) || status.heads.provider<1
+      || !Number.isSafeInteger(status.heads.core) || status.heads.core<1
+      || status.heads.provider!==local.head || status.pending.provider || status.pending.core
+      || status.operations.provider || status.operations.core) throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
+  }
+
   #withImmediateTransaction(work) {
     return this.#withCoordinatorLock(() => {
       this.#db.exec('BEGIN IMMEDIATE');
       this.#transactionDepth += 1;
+      const beforeSchema = this.#acceptedHeadConfig ? databaseSchemaDigest(this.#db) : null;
+      let session = this.#acceptedHeadConfig ? this.#db.createSession() : null;
+      const beforeChanges = this.#db.prepare('SELECT total_changes() AS n').get().n;
+      let acceptedOperation = null;
       try {
         const result = work();
+        const afterChanges = this.#db.prepare('SELECT total_changes() AS n').get().n;
+        if (this.#acceptedHeadConfig && afterChanges > beforeChanges) {
+          const local = this.#db.prepare('SELECT head,enrolled FROM accepted_head_state WHERE singleton=1').get();
+          if (!local || local.enrolled!==1 || !Number.isSafeInteger(local.head) || local.head<1) throw new Error('PROVIDER_ACCEPTED_HEAD_NOT_ENROLLED');
+          const heads = getAcceptedHeadsSync({port:this.#acceptedHeadConfig.port,token:this.#acceptedHeadConfig.token});
+          if (heads.provider!==local.head) throw new Error('PROVIDER_ACCEPTED_HEAD_MISMATCH');
+          const changeset = session.changeset(); session.close(); session = null;
+          const operationDigest = hashRequest({domain:'provider',expected_head:local.head,before_schema_digest:beforeSchema,
+            after_schema_digest:databaseSchemaDigest(this.#db),changeset_digest:createHash('sha256').update(changeset).digest('hex')});
+          const operationId = 'provider-' + operationDigest;
+          const advanced = advanceAcceptedHeadSync({domain:'provider',operationId,operationDigest,expectedHead:local.head,
+            token:this.#acceptedHeadConfig.token,port:this.#acceptedHeadConfig.port});
+          if (advanced.status!=='pending' || advanced.head!==local.head+1 || advanced.replayed) throw new Error('PROVIDER_ACCEPTED_HEAD_ADVANCE_INVALID');
+          this.#db.prepare('UPDATE accepted_head_state SET head=?,last_operation_id=?,last_operation_digest=? WHERE singleton=1')
+            .run(advanced.head,operationId,operationDigest);
+          acceptedOperation = {operationId,operationDigest};
+        }
         this.#db.exec('COMMIT');
+        if (acceptedOperation) {
+          try { finalizeAcceptedHeadSync({domain:'provider',operationId:acceptedOperation.operationId,
+            operationDigest:acceptedOperation.operationDigest,token:this.#acceptedHeadConfig.token,port:this.#acceptedHeadConfig.port}); }
+          catch { /* Authority stays pending; protected dispatch fails closed until recovery. */ }
+        }
         return result;
       } catch (error) {
         try { this.#db.exec('ROLLBACK'); } catch {}
         throw error;
       } finally {
+        try { session?.close(); } catch {}
         this.#transactionDepth -= 1;
       }
     });
@@ -671,6 +790,7 @@ export class SQLiteMemoryProvider {
     // Snapshot request identity before the first await. Caller mutation during
     // source validation must not rebind the final grant/readiness checks.
     if (!isPlainDataRecord(input)) return false;
+    this.#assertAcceptedHeadCurrent();
     input = {
       world_id: input.world_id, subject_id: input.subject_id, purpose: input.purpose,
       record_ref: input.record_ref, record_version: input.record_version,
@@ -1031,6 +1151,7 @@ export class SQLiteMemoryProvider {
     // Snapshot the scope before the first await. Reusing a mutable caller object
     // after getSnapshot() would let the eventual SQL query switch subjects.
     if (!isPlainDataRecord(scope)) throw new TypeError('Invalid Memory scope');
+    this.#assertAcceptedHeadCurrent();
     scope = { world_id: scope.world_id, subject_id: scope.subject_id, purpose: scope.purpose };
     // Capture before checking the query grant or readiness. Capturing after
     // those reads can miss a cross-connection revoke/re-grant ABA that finishes
