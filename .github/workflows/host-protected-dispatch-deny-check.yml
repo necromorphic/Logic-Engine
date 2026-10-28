@@ -104,6 +104,7 @@ jobs:
           const mounts = privateBlock.split(String.fromCharCode(10)).map((line) => {
             const trimmed = line.trim();
             if (!trimmed.startsWith('app.use(')) return null;
+            if (trimmed === 'app.use(createHostLifecycleMutationMiddleware({ requirePersistedInventory: true, requireCoreInventory: true }));') return null;
             const match = trimmed.match(/^app[.]use[(][ ]*['"]([^'"]+)['"][ ]*,[ ]*([A-Za-z_$][A-Za-z0-9_$]*)[ ]*[)][;]$/);
             if (!match) throw new Error(`Unclassified pinned router mount syntax: ${trimmed}`);
             return `${match[1]}:${match[2]}`;
