@@ -175,6 +175,22 @@ test('Core commits only when accepted-head authority is current and aborts mutat
       'SELECT head,last_operation_id,last_operation_digest FROM accepted_head_state WHERE singleton=1',
     ).get().last_operation_id, pendingRecovery.operation_id);
 
+    // An enrolled Core must not auto-run a schema migration outside the
+    // accepted-head write protocol. Simulate a missing migration ledger row.
+    const migrationRow = store.db.prepare('SELECT applied_at FROM schema_migrations WHERE version=12').get();
+    assert.ok(migrationRow, 'baseline migration ledger must be present');
+    store.db.prepare('DELETE FROM schema_migrations WHERE version=12').run();
+    store.close();
+    store = null;
+    assert.throws(() => new SQLiteStore(corePath), /CORE_SCHEMA_MIGRATION_REQUIRED/);
+    const migrationRepair = new DatabaseSync(corePath);
+    try {
+      assert.equal(migrationRepair.prepare('SELECT 1 FROM schema_migrations WHERE version=12').get(), undefined,
+        'failed enrolled startup must not silently apply the migration');
+      migrationRepair.prepare('INSERT INTO schema_migrations(version,applied_at) VALUES(12,?)').run(migrationRow.applied_at);
+    } finally { migrationRepair.close(); }
+    store = new SQLiteStore(corePath);
+
     child.stdin.end('stop');
     await once(child, 'exit');
     child = null;
