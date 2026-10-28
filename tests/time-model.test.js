@@ -159,6 +159,27 @@ test('interval coordinates must be own properties even if Object.prototype is po
 });
 
 
+test('inherited interval boundary metadata is ignored without invoking inherited getters', () => {
+  let getterCalled = false;
+  const previous = Object.getOwnPropertyDescriptor(Object.prototype, 'boundary');
+  Object.defineProperty(Object.prototype, 'boundary', {
+    configurable: true,
+    enumerable: true,
+    get() {
+      getterCalled = true;
+      return '[from, to)';
+    },
+  });
+  try {
+    assert.equal(intervalContainsTime({ from: 10, to: 20 }, 15), true);
+    assert.equal(getterCalled, false);
+  } finally {
+    if (previous) Object.defineProperty(Object.prototype, 'boundary', previous);
+    else delete Object.prototype.boundary;
+  }
+});
+
+
 test('calendar definitions reject unknown, symbol, hidden, and accessor fields without invoking getters', () => {
   const unknown = calendar();
   unknown.unexpected = true;
