@@ -1,6 +1,6 @@
-# Typed Position Contract — Draft for Core and TimeEngine Review
+# Typed Position Contract — Revised Draft after Coordinator Review
 
-**Status:** DRAFT — READY FOR CORE/TIMEENGINE REVIEW; NOT APPROVED FOR IMPLEMENTATION  
+**Status:** DRAFT — READY FOR CONTRACT REVISION; NOT APPROVED FOR IMPLEMENTATION REVIEW  
 **Date:** 2026-10-28  
 **Authority:** Core decision for issue #351: A — permit contract preparation only  
 **Scope:** Documentation and source audit only. No runtime, schema, API, event, adapter, storage, Memory, or NPC changes are authorized.
@@ -9,7 +9,7 @@
 
 ## 1. Purpose and evidence rules
 
-This draft defines the proposed contract for a derived, read-only 3D position view. It must be reviewed by Core and TimeEngine before any implementation decision.
+This draft defines a proposed contract for a derived, read-only 3D position view. The coordinator review dated 2026-10-28 found it **READY FOR CONTRACT REVISION**, not approved for implementation review. The review is a source-based coordinator assessment, not two separate owner-authored approvals. This revision records the known blockers and keeps unproven properties explicitly unresolved.
 
 This document distinguishes:
 - **Source-confirmed:** visible in the inspected Logic-Engine source or repository documentation.
@@ -50,13 +50,31 @@ The v1 semantics carried forward from the existing World Pack spatial contract p
 
 Position is distinct from orientation, pose, and movement. Coordinates alone prove none of those concepts.
 
-### 2.3 Identity and provenance envelope
+### 2.3 Identity and provenance variants
 
-A confirmed derived record must conceptually carry:
+The record must not force event-backed and snapshot-backed provenance into one shape. These are conceptual design sketches only; they are not existing API types.
 
 ```ts
-type PositionRecordV1 = {
+type CoreCursorV1 = {
   worldId: string;
+  world_revision: number;
+  commit_sequence: number;
+};
+
+type SnapshotPositionSourceV1 = {
+  kind: "snapshot";
+  cursor: CoreCursorV1;
+  state_id?: string; // include only if the actual snapshot provides it
+};
+
+type EventPositionSourceV1 = {
+  kind: "event";
+  cursor: CoreCursorV1;
+  source_id: string; // exact canonical event identifier, if present
+  game_time_coordinate?: number;
+};
+
+type PositionRecordV1 = {
   entity_id: string;
   status:
     | "UNKNOWN"
@@ -67,26 +85,24 @@ type PositionRecordV1 = {
     | "CONFIRMED";
   position?: PositionV1;
   coordinate_frame_id?: string;
-  source: {
-    kind: "event" | "snapshot";
-    source_id: string;
-    state_id?: string;
-    world_revision: number;
-    commit_sequence: number;
-    game_time_coordinate?: number;
-    confirmed_time_boundary_id?: string;
+  source: SnapshotPositionSourceV1 | EventPositionSourceV1;
+  schema_identity?: {
     world_pack_id: string;
     world_pack_version: string;
     canonical_manifest_digest?: string;
     canonical_entity_type_schema_digest?: string;
     spatial_contract_id: "position-v1";
   };
+  // A TimeEngine boundary field may be added only after its durable
+  // identity and mapping to the Core cursor are established.
 };
 ```
 
-This is a **design sketch only**. Field names and availability must be matched to actual Core and TimeEngine contracts. In particular, this draft does not assert that a `state_id`, confirmed boundary ID, immutable schema digest, or historical schema lookup currently exists. A field may not be fabricated to satisfy the shape. If required provenance cannot be obtained and verified, the status cannot be `CONFIRMED`.
+Do not synthesize identifiers or fill unavailable fields merely to satisfy the sketch. The exact event ID, snapshot state ID, and schema digest fields must be used only if they exist and can be verified. The proposed schema identity tuple is not an implemented guarantee.
 
-Do not combine a state from one revision with events from another revision. The current read methods are separately callable; their combined atomicity is not established by their names.
+**Core finding:** `Engine.getSnapshot(id, request)` delegates to `store.readSnapshot`; `SQLiteStore.readSnapshot` reads the selected snapshot data in a SQLite read transaction and carries the world revision and commit cursor. This is a source-confirmed snapshot read path. It does not by itself establish that a separately fetched event list belongs to the same atomic boundary.
+
+**Required separation:** Core consistency/freshness and TimeEngine temporal confirmation are independent proof obligations. A snapshot does not itself prove a confirmed TimeEngine boundary; a time coordinate does not identify a unique Core history cursor.
 
 ## 3. Position status semantics
 
@@ -99,7 +115,7 @@ Do not combine a state from one revision with events from another revision. The 
 | `UNSUPPORTED` | The entity type, schema, coordinate frame, or source form is outside the supported contract. | Fail closed; do not reinterpret as v1. |
 | `CONFIRMED` | Identity, schema, source provenance, position value, and temporal binding have all been verified against one consistent Core boundary and an approved TimeEngine boundary. | Coordinates may be exposed only to an independently authorized consumer. This status does not grant NPC perception or knowledge. |
 
-Status precedence proposal: if evidence is unsupported, return `UNSUPPORTED`; if source consistency is lost, return `STALE`; if confirmed evidence conflicts, return `CONFLICT`; if an explicit position removal is confirmed, return `ABSENT`; if evidence is insufficient, return `UNKNOWN`; use `CONFIRMED` only after all proof obligations pass. **Core must approve this precedence**; it is not an existing runtime behavior.
+Status precedence is **unapproved and unresolved**. The order shown in earlier drafts must not be treated as a Core guarantee. Keep all six labels as candidate vocabulary only; the contract cannot choose a precedence where multiple conditions apply until Core explicitly decides it. Regardless of precedence, `CONFIRMED` is forbidden unless every required identity, schema, source-consistency, and temporal-binding proof is available.
 
 No status may be encoded as a default coordinate. A partial XYZ tuple is never a position.
 
@@ -107,8 +123,8 @@ No status may be encoded as a default coordinate. A partial XYZ tuple is never a
 
 1. Removing a position attribute is not equivalent to destroying the entity.
 2. `ABSENT` requires an explicit, valid removal/absence event or equivalent authoritative source semantics. A missing field in an incomplete snapshot is not proof of removal.
-3. Destroying an entity terminates its identity. Its prior position must not be reused as current.
-4. Reuse of the same `entity_id` in the same world is prohibited unless a separately approved incarnation model defines a new identity.
+3. A confirmed destroy/tombstone means the prior position must not be reused as current.
+4. The current evidence does not prove an immutable incarnation identity or complete no-reuse coverage across every writer/import/migration/recovery path. Treat ID reuse as a blocker; do not present the broader prohibition as an existing runtime guarantee. Any exception requires a separately approved incarnation model.
 5. A tombstoned entity must not be revived by replay, rebuild, or an `entity.upsert`.
 6. If lifecycle continuity cannot be proven, position status is `UNKNOWN` or `UNSUPPORTED`, not inherited from the old incarnation.
 
@@ -141,44 +157,50 @@ Rules:
 
 ### 6.1 Existing read surface
 
-The API source exposes:
-- `GET .../state` through `engine.getState(worldId)`;
-- `GET .../events` through `engine.getEvents(worldId, include_invalid)`, where invalid events are included only when `include_invalid=true`.
+The reviewed source confirms this Core snapshot path:
+- `Engine.getSnapshot(id, request)` delegates to `store.readSnapshot`;
+- `SQLiteStore.readSnapshot` reads selected data inside a SQLite read transaction and carries the world revision and commit cursor.
 
-The proposed feasibility check may call `getState(worldId)` and `getEvents(worldId, false)`, as authorized by Core. These are read operations; they do not themselves prove that the pair forms one atomic snapshot.
+The API also exposes:
+- `engine.getState(worldId)`;
+- `engine.getEvents(worldId, include_invalid)`, with invalid events included only when explicitly requested.
+
+The snapshot path is the preferred candidate for a consistent Core read because its selected data is read in a transaction. Do not assume that a separate `getEvents(worldId, false)` result is atomically paired with that snapshot. A single snapshot read also does not automatically provide the full event history or a TimeEngine confirmation.
 
 Core source/docs distinguish:
 - `world_revision`: revision of canonical world state;
 - `commit_sequence`: per-world committed event order/cursor, distinct from revision and game time;
 - game-time coordinate: temporal coordinate, not a unique history cursor.
 
-The existing documentation explicitly warns that `world_revision + commit_sequence` identifies a Core snapshot boundary, not a universal source-change journal. The spatial model must not infer freshness from `commit_sequence` alone.
+The reviewed documentation notes that rollback can advance `world_revision` without advancing `commit_sequence`; therefore the cursor alone is insufficient to establish freshness. The pair is a Core snapshot marker, not a universal source-change journal.
 
-### 6.2 Required read protocol (proposed; not implemented by this draft)
+### 6.2 Core read-boundary contract (proposed; not implemented by this draft)
 
-1. Read a candidate state and record its world identity, `world_revision`, and `commit_sequence`.
-2. Read valid events for that same world.
-3. Verify every event used belongs to that world and has valid status and verifiable source identity.
-4. Re-read the state cursor and compare it with the initial cursor.
-5. If the cursor changed, or if state/event history cannot be shown to correspond to the same boundary, discard the candidate and return `STALE`/non-ready.
-6. Do not expose a partial result. Do not write anything back to Core.
+1. Prefer one `getSnapshot`/underlying `readSnapshot` result when it contains the data needed for the query; preserve its returned Core markers as one unit.
+2. If event history is also needed, do not silently combine a separately fetched event list with the snapshot. Establish an authoritative shared boundary or use a marker-check protocol only after its behavior is demonstrated for concurrent commit, rollback, and rebuild.
+3. Treat a changed `world_revision` or `commit_sequence`, a failed boundary comparison, missing provenance, or an event list that cannot be tied to the snapshot as non-ready. Do not publish coordinates as `CONFIRMED`.
+4. A double-read of state around an event read is a candidate feasibility check, not proof of atomicity under every concurrent transaction or rollback interleaving.
+5. Do not write derived spatial data back to Core. No new API or storage mechanism is authorized by this documentation revision.
 
-This double-read check is only a possible feasibility technique. It does not prove atomicity against every concurrent transaction or rollback interleaving. Core must identify an authoritative consistent-read primitive or demonstrate through tests that the permitted methods can meet the required guarantee. No new API is authorized here.
+The contract must not assert a stronger consistency guarantee than the source and tests demonstrate. The reviewed source establishes a transactional snapshot read path; it does not establish atomicity between that snapshot and separately fetched events.
 
 ### 6.3 TimeEngine boundary
 
-A historical position may be reconstructed only at a confirmed temporal boundary whose mapping to Core history is authoritative. Arbitrary interpolation inside an unconfirmed segment is out of scope.
+The reviewed source confirms that canonical TimeEngine coordinates are safe-integer milliseconds relative to the configured world epoch (`src/time/model.js`). The scheduler's `compareTriggers` orders due-work triggers by `due_coordinate`, then `trigger_id`. This is a deterministic tie-break for **due-work trigger planning only**; it is not proof of a global canonical order for all world events or commits.
 
-TimeEngine must define or confirm:
-- the authoritative boundary record/identifier;
-- mapping to `world_revision` and `commit_sequence`;
-- event ordering when game-time coordinates are equal;
-- behavior on rollback and segment invalidation;
-- deterministic rebuild behavior;
-- restart recovery;
-- recovery against an older database backup.
+A historical position may be reconstructed only if a confirmed temporal boundary can be tied authoritatively to the exact Core history being read. The following are not established by the reviewed model/planner source:
+- a durable `confirmed_time_boundary_id`;
+- a mapping from a confirmed time boundary to the exact pair `world_revision` + `commit_sequence`;
+- a global ordering rule for all events sharing the same game-time coordinate;
+- complete rollback/segment-invalidation, restart, deterministic replay, and older-backup recovery guarantees.
 
-Core event order must come from confirmed `commit_sequence`, not from game time or array order. The repository documents `commit_sequence` as per-world and distinct from `world_revision` and game time, but the inspected evidence does not establish TimeEngine's full confirmed-boundary mapping or older-backup guarantees.
+Accordingly:
+- Do not require `confirmed_time_boundary_id` as though it were an existing field.
+- Do not use game time, trigger ID, array order, or due-work trigger order as a substitute for Core event order.
+- Do not claim historical reconstruction or rollback/restart recovery until a durable operation/segment source and current-head test evidence support the claim.
+- Until the boundary-to-Core-cursor relationship is established, temporal binding is an unresolved blocker and the position cannot be `CONFIRMED`.
+
+These are evidence limits, not a claim that TimeEngine lacks every such capability; the reviewed evidence did not prove them.
 
 ## 7. Rollback, rebuild, restart, and stale-result invalidation
 
@@ -196,7 +218,7 @@ These are required contract properties. They are not asserted as fully implement
 
 ## 8. Test and evidence matrix
 
-**Execution status at preparation time:** no tests were run as part of this documentation/source-audit task. “Existing test” means a source file or regression case was identified, not that it passed in the current run.
+**Execution status:** no tests were run for the coordinator review or this documentation revision. No test is marked PASS. The matrix below uses IDs T01–T18; the coordinator report also references POS-01–POS-25 from an earlier version. These ID sets are not assumed to map one-to-one. Do not mark any case passed without exact current-head run evidence. “Existing test” means a source file or regression case was identified, not that it passed in the current run.
 
 | ID | Scenario / input | Expected result | Existing evidence | Status |
 |---|---|---|---|---|
@@ -281,13 +303,22 @@ No row above is marked PASS. The tombstone cases have identified regression test
 6. How does restoring an older database backup reconcile time-boundary records with Core history?
 7. Are arbitrary historical queries within a segment explicitly unsupported, and how is that enforced by the contract?
 
-## 11. Review gate
+## 11. Coordinator revision gate
 
-This draft is ready to be reviewed by Core and TimeEngine because it states a proposed contract and makes gaps explicit. It is not a final approval and not an implementation plan.
+The coordinator's source-based review disposition is **READY FOR CONTRACT REVISION**. This revised draft incorporates the documented distinctions and blockers:
+
+- Use the transactional Core snapshot read path as the candidate consistent-read primitive; do not assume a separately fetched event list is atomically paired with it.
+- Keep event-backed and snapshot-backed provenance separate; never fabricate IDs or digests.
+- Treat the TimeEngine confirmed-boundary identity and mapping to the Core composite cursor as unresolved.
+- Scope deterministic equal-time ordering to due-work trigger planning only.
+- Treat World Pack immutable/historical schema identity, global entity incarnation coverage, status precedence, rollback/restart, and old-backup recovery as unproven until evidenced or separately decided.
+- Preserve test statuses as NOT RUN unless exact run evidence is attached.
+
+This is still a documentation proposal. It is not contract approval, implementation approval, or an implementation plan. The coordinator assessment is not represented as two independent owner-authored approvals.
 
 No runtime/schema/API/event/adapter/storage changes are requested or authorized by this document.
 
-**Status:** READY FOR CORE/TIMEENGINE REVIEW  
+**Status:** READY FOR CONTRACT REVISION  
 **Production:** NO-GO  
 **ST-01–ST-16:** NOT TESTED / NOT PASSED  
 **Memory → NPC:** DISABLED / FAIL-CLOSED
