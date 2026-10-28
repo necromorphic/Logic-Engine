@@ -32,7 +32,7 @@ jobs:
           $backupChild = Join-Path $backupFixture 'nested'
           New-Item -ItemType Directory -Path $backupChild -Force | Out-Null
           Set-Content -LiteralPath (Join-Path $backupChild 'fixture.bak') -Value 'non-sensitive test fixture'
-          & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath) -BackupPath @($backupFixture) -ProcessName @('powershell.exe') -OutputPath $reportPath
+          & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath, $invalidFixturePath) -BackupPath @($backupFixture) -ProcessName @('powershell.exe') -OutputPath $reportPath
           if ($LASTEXITCODE -and $LASTEXITCODE -ne 0) { throw "Collector failed with exit code $LASTEXITCODE" }
           if (-not (Test-Path -LiteralPath $reportPath -PathType Leaf)) { throw 'Collector did not create the report.' }
           $report = Get-Content -LiteralPath $reportPath -Raw | ConvertFrom-Json
