@@ -43,6 +43,7 @@ export function transitionNpcGoal(goal, event) {
     || typeof goal.id !== "string"
     || goal.id.trim().length === 0
     || !["active", "blocked", "completed", "abandoned"].includes(goal.status)
+    || typeof event !== "string"
     || !Object.hasOwn(TRANSITIONS, event)
   ) return invalidTransition();
 
