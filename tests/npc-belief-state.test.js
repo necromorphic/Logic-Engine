@@ -213,3 +213,12 @@ test('withheld evidence for the same proposition blocks belief update without ex
   assert.equal('withheld_proposition_refs' in result, false);
 });
 
+test('a truncated Core acquisition window cannot produce a belief transition', () => {
+  const result = reduceNpcBeliefTransition({
+    knowledgeRead: knowledgeRead({ truncated: true }),
+    proposal: proposal(),
+  });
+  assert.equal(result.status, 'non_ready');
+  assert.equal(result.reason, 'core_knowledge_read_not_ready');
+});
+
