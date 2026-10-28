@@ -352,4 +352,18 @@ Why this is the selected interim state:
 
 **Conditions to reconsider Option B:** an exact implementation diff must bind the authenticated session, conversation/source path, expected pre-state digest, allowed transition, and submitted post-state digest; consume authorization atomically before the native write; and reject stale/replayed requests, malformed identities, version loss, and path mismatch. Acceptance must prove both regular and group save routes preserve source bytes on rejection and that normal create/edit/swipe/select/delete transitions persist on the exact pinned SillyTavern commit. A failed native save must not advance the accepted checkpoint.
 
-**Separate closure gates remain open:** full pinned-source audit on Windows, live installed SillyTavern/Android-Termux validation, complete route coverage including plugins/external filesystem tools, authoritative historical inventory, and independent anti-rollback/restore evidence. This decision does not authorize Gateway positive integration or Memory→NPC enablement.
+**Separate closure gates remain open:** live installed SillyTavern/Android-Termux validation, complete route coverage including plugins/external filesystem tools, authoritative historical inventory, and independent anti-rollback/restore evidence. The Windows pinned-source audit passed on implementation HEAD `352eed1c4b5e80c5054dc3debda0789058b76e15`; see the exact-head CI record below. This decision does not authorize Gateway positive integration or Memory→NPC enablement.
+
+## Exact-head validation refresh (29 Oct 2026)
+
+Implementation HEAD `352eed1c4b5e80c5054dc3debda0789058b76e15` completed all five PR-triggered workflows successfully:
+
+| Workflow | Result | Run |
+|---|---|---|
+| Host lifecycle patch check | PASS | [40748668406](https://github.com/necromorphic/Logic-Engine/actions/runs/40748668406) |
+| Host lifecycle patch validation | PASS | [40748668795](https://github.com/necromorphic/Logic-Engine/actions/runs/40748668795) |
+| Chromium IndexedDB restart | PASS | [40748668615](https://github.com/necromorphic/Logic-Engine/actions/runs/40748668615) |
+| Runtime tests, including NPC-boundary job | PASS | [40748668649](https://github.com/necromorphic/Logic-Engine/actions/runs/40748668649) |
+| Pinned SillyTavern source audit, Linux and Windows/self-hosted jobs | PASS | [40748668715](https://github.com/necromorphic/Logic-Engine/actions/runs/40748668715) |
+
+This is CI evidence for that exact implementation HEAD, not evidence for this subsequent audit-documentation commit until its own checks complete. Passing these workflows does not establish independent security approval, complete lifecycle coverage, a trusted anti-rollback root, or live SillyTavern/Android-Termux behavior. Enrolled regular/group saves remain denied before native writes under interim Option B. Host remains NON_READY; Memory→NPC remains DISABLED / FAIL-CLOSED.
