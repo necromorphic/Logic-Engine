@@ -871,7 +871,7 @@ test('enrollment marker follows the canonical chat root when the configured chat
     const aliasedChats = path.join(aliasParent, 'chats');
     try {
         await mkdir(aliasParent, { recursive: true });
-        await symlink(directories.chats, aliasedChats, 'dir');
+        await symlink(directories.chats, aliasedChats, process.platform === 'win32' ? 'junction' : 'dir');
         request.user.directories.chats = aliasedChats;
 
         await registerHostConversation(request, {
