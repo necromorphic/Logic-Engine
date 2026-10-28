@@ -110,12 +110,19 @@ test('construction requires a trusted knowledge policy and request cannot nomina
   );
 });
 
-test('actor identity binding prevents reading another subject’s assignments', (t) => {
+test('actor identity binding prevents spoofing and isolates each subject’s assignments', (t) => {
   const { engine, service } = setup(t);
   assert.throws(() => service.read(request(engine, {
     actorEntityId: 'actor-b',
     adapterId: 'adapter-a',
   })), (error) => error.code === 'READ_NOT_AVAILABLE' && error.status === 404);
+
+  const actorB = service.read(request(engine, {
+    actorEntityId: 'actor-b',
+    adapterId: 'adapter-b',
+  }));
+  assert.deepEqual(actorB.facts, []);
+  assert.equal(JSON.stringify(actorB).includes('secret-fact'), false);
 });
 
 test('stale composite cursor is rejected before any fact is disclosed', (t) => {
@@ -166,4 +173,19 @@ test('canonical mutation during policy evaluation rejects the whole disclosure',
   engineRef = engine;
   assert.throws(() => service.read(request(engine)),
     (error) => error.code === 'STALE_INITIAL_KNOWLEDGE_SNAPSHOT' && error.status === 409);
+});
+
+test('revoked actor binding during policy evaluation prevents disclosure', (t) => {
+  let bindingsRef;
+  let revoked = false;
+  const { engine, bindings, service } = setup(t, () => {
+    if (!revoked) {
+      revoked = true;
+      assert.equal(bindingsRef.revoke('knowledge-read-world', 'adapter-a', 'actor-a').changed, true);
+    }
+    return true;
+  });
+  bindingsRef = bindings;
+  assert.throws(() => service.read(request(engine)),
+    (error) => error.code === 'READ_NOT_AVAILABLE' && error.status === 404);
 });
