@@ -100,6 +100,64 @@ The result must preserve the distinctions needed by `docs/50-npc-initial-knowled
 
 If completeness, identity, authorization, provenance, validity, or snapshot consistency cannot be established, the result is non-ready and must not be sent to the model. No fallback to raw world state, unfiltered snapshots, character-card prose, vector candidates, prompt text, or model-generated claims is permitted.
 
+## 6A. Coordinator source-audit resolution (Core main at 338a4501b972117538f4d6e92bb25f09d1b53111)
+
+This section resolves the review questions against the inspected repository state. It separates existing reusable primitives from missing acquisition behavior. A reusable primitive is not evidence that the full acquisition contract is implemented.
+
+### KAC-01 — canonical subject identity: primitive exists; acquisition scope still blocked
+
+`src/application/actor-bindings.js` provides Core-owned `ActorBindingService.bind/revoke/resolve`. It binds an adapter to an existing, non-destroyed canonical entity in one world and rejects an inactive/unmapped binding. Its own contract explicitly grants identity resolution only, not knowledge access, action authorization, approval, or commit.
+
+**Disposition:** reuse this identity-resolution seam only after the trusted adapter-authentication boundary is established for the deployment. It does not create or authorize an initial-knowledge assignment. Do not accept model-supplied IDs, card names, or request-provided allowlists as substitutes.
+
+### KAC-02 / KAC-04 / KAC-05 — source item, explicit assignment, and provenance: blocking gap
+
+The bounded audit did not identify an authoritative author/import loader or a Core-owned record that binds a canonical item to a specific subject as `author_initial` or `imported`. `docs/49-npc-core-knowledge-live-audit.md` and `docs/51-npc-acquisition-source-reconciliation.md` classify these capabilities as missing. Canonical facts, source event IDs, world-pack/import presence, context manifests, and prompt inclusion are not assignment records.
+
+**Disposition:** no existing source path can currently be named as satisfying KAC-02/04/05. Core must select the real authoring/import entry point or separately approve a minimal Core-owned extension. Until then, no assignment may be synthesized from world-level data.
+
+### KAC-06–KAC-09 / KAC-13 — validity, replay, replacement, invalidation, reconstruction: partial event primitives; acquisition lifecycle missing
+
+The existing event system has idempotency and partial rollback/reprojection behavior. `docs/21-stage1-causality-contract.md` explicitly distinguishes referential validity from causal completeness. `caused_by`, `depends_on`, `read_set`, and `causal_links` do not prove a complete dependency graph or an OR-set of independently sufficient supports. Current rollback behavior for canonical events/facts does not establish replay, replacement, invalidation, or reconstruction semantics for an acquisition record that does not yet exist.
+
+**Disposition:** do not map acquisition validity directly onto event validity without a reviewed representation and lifecycle proof. KAC-06–09 and KAC-13 remain blockers. Required future production evidence: duplicate replay; conflicting identity reuse; replacement audit; source invalidation; independent-support survival; restart/replay reconstruction. If the chosen representation cannot participate in the actual Core lifecycle, stop and review the smallest Core-owned extension before implementation.
+
+### KAC-10 — snapshot consistency: reusable cursor exists; acquisition read is not implemented
+
+`Engine.getSnapshot()` delegates to `SQLiteStore.readSnapshot()`, which returns canonical state under a read transaction with both `world_revision` and `commit_sequence`. This is the correct existing cursor to reuse; `getState()` is not an equivalent consistency boundary. However, no acquisition records currently exist to be read under that cursor.
+
+**Disposition:** retain the existing composite cursor; do not add a parallel revision counter. KAC-10 remains unproven until assignment, source/item resolution, and validity can be read coherently against that same snapshot and stale/mixed reads are tested.
+
+### KAC-11 / KAC-15 — actor/purpose filtering and exact model-boundary proof: current seams are insufficient
+
+`src/application/authorized-read-service.js` provides a bounded field-read seam: it resolves actor binding, applies a trusted field policy, and returns the composite snapshot cursor. It does not prove subject-specific acquisition. The source audit in `docs/73-core-1.5-cross-block-integration-matrix.md` states that the shipped entry point does not configure a production Memory/NPC visibility policy, and the in-process `MemoryNpcConsumer` is not itself a final model-dispatch/egress receipt. The repository's documented cross-block audit also identifies the production final-send gate as not wired.
+
+**Disposition:** do not treat `AuthorizedReadService` or `MemoryNpcConsumer` as a completed acquisition filter or final disclosure gate. KAC-11 and KAC-15 remain blockers until a real Core-produced acquisition envelope is filtered before serialization and a production-boundary test inspects the exact serialized model input and model-accessible diagnostics. Denied values must be absent, not merely marked denied after serialization. Tests with mocks alone do not close this gate.
+
+### KAC-12 — read purity: requirement is clear; no acquisition read exists to verify
+
+The existing authorized field-read path is a read path, but there is no initial-acquisition query to test. Future tests must compare canonical state, event history, acquisition state, world revision, and commit sequence before/after both non-empty and complete-empty reads.
+
+**Disposition:** requirement accepted; implementation evidence remains unavailable until the acquisition representation and read path exist.
+
+### KAC-03 / KAC-14 — scope and semantic non-promotion: contract resolved
+
+The first slice remains limited to `author_initial` and `imported`. These labels mean explicit initial assignment only; they do not mean objective truth, belief, observation, delivery, comprehension, or permanent memory. Other acquisition paths remain unsupported and fail closed.
+
+### Review disposition
+
+| Acceptance group | Current disposition | What closes it |
+|---|---|---|
+| KAC-01 | Existing identity primitive; assignment blocked | Verify trusted adapter authentication and preserve identity-only semantics |
+| KAC-02 / 04 / 05 | **BLOCKED** | Select and review actual author/import assignment source with explicit subject authorization and provenance |
+| KAC-06–09 / 13 | **BLOCKED** | Acquisition lifecycle integrated with real Core replay/validity/reconstruction; production tests for replacement and independent support |
+| KAC-10 | Partial primitive only | Acquisition/source resolution shares one `readSnapshot` cursor and stale/mixed-snapshot tests pass |
+| KAC-11 / 15 | **BLOCKED** | Real pre-serialization Core filter plus exact model-input/diagnostic leakage tests at the actual production boundary |
+| KAC-12 | Requirement accepted; untested | Read-purity tests on the real acquisition query |
+| KAC-03 / 14 | **CONTRACT RESOLVED** | Preserve narrow kinds and semantic separation in implementation/tests |
+
+These are source-audit findings, not claims that missing features are impossible or that every deployment has the same wiring. The finding is bounded to the inspected repository state and must be revisited if the relevant source paths change.
+
 ## 7. Minimum acceptance criteria for contract review
 
 The following criteria define what the contract must make unambiguous before implementation is separately requested.
