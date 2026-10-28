@@ -82,3 +82,19 @@ The proposal route is not a drop-in substitute for timed-action execution for a 
 `docs/54-core-proposal-execution-authority-contract.md` documents a trusted internal path specifically for committing an **already-approved proposal** through the internal `/events` route. It does not establish that this same orchestrator exists as a deployed service, nor that it is authorized or implemented to create, resume, or resubmit `time-actions` / `time-advances` operations. `docs/11-operations-and-recovery.md` also classifies the internal credential as a trusted host-only capability and keeps it distinct from adapter credentials.
 
 This narrows the evidence: the repository documents a trusted execution path for one proposal workflow, but the reviewed sources do not demonstrate a reusable timed-action orchestration path. Do not infer one from the phrase “trusted orchestration” in proposal documentation. The open integration decision above therefore remains valid.
+
+
+### Minimum acceptance criteria for whichever route is chosen
+
+This is a review checklist, not an approved API design. Any implementation proposal should demonstrate all of the following before enabling Host/Adapter execution:
+
+1. **Credential isolation:** the SillyTavern adapter and model never receive the internal token. Authorization is enforced server-side; no client-supplied world ID, action type, or payload can expand authority.
+2. **Bounded scope:** authorization identifies the adapter/session and allowed world/action classes. Read access for re-evaluation is explicit and no broader than necessary.
+3. **Revision safety:** every resubmission carries the latest authorized expected revision; stale revisions are rejected rather than silently rebased.
+4. **Interruption correctness:** `not_executed_interrupted` is terminal for that operation; resume and same-key replay cannot execute the skipped action. A valid retry is a new reviewed intent with a new idempotency key.
+5. **No blind retry:** the orchestrator rereads current state and re-evaluates preconditions. Unknown state, ambiguous outcome, authorization failure, or conflicting changes stop for review.
+6. **Auditability:** logs correlate original intent, operation ID, interruption coordinate, state revision read, decision, and any new operation ID without logging credentials or unnecessarily retaining raw narrative.
+7. **Failure-window tests:** tests cover duplicate request, same-key replay, stale revision, interrupted operation, unavailable state read, revoked/invalid credentials, cross-world access, and process restart between interruption and re-evaluation.
+8. **No workflow substitution:** proposal approval, timed-action duration resolution, due-trigger processing, and Process Manager milestones remain distinct workflows unless a separate reviewed contract explicitly composes them.
+
+Until a concrete owner and one route are selected, these criteria are a checklist for the next design review only. They do not authorize runtime changes or relax the current `NOT READY` integration status.
