@@ -21,6 +21,11 @@ function validScene(scene) {
     ids.add(entity.id);
     if (!finiteVector(entity.position)) return false;
     if (!finiteVector(entity.forward) || magnitude(entity.forward) === 0) return false;
+    if (entity.body !== undefined) {
+      if (!entity.body || !finiteVector(entity.body.minOffset) || !finiteVector(entity.body.maxOffset)) return false;
+      for (const axis of ['x', 'y', 'z']) if (entity.body.minOffset[axis] > entity.body.maxOffset[axis]) return false;
+    }
+    if (entity.motion !== undefined && (!entity.motion || !finiteVector(entity.motion.velocity))) return false;
     if (!entity.perception ||
         !Number.isFinite(entity.perception.halfAngleRadians) ||
         entity.perception.halfAngleRadians < 0 ||
@@ -55,30 +60,95 @@ function segmentIntersectsAabb(start, end, box) {
   return tMax >= 0 && tMin <= 1;
 }
 
-function see(observer, target, scene) {
+function pointVisibility(observer, point, scene) {
   const delta = {
-    x: target.position.x - observer.position.x,
-    y: target.position.y - observer.position.y,
-    z: target.position.z - observer.position.z,
+    x: point.x - observer.position.x,
+    y: point.y - observer.position.y,
+    z: point.z - observer.position.z,
   };
   const distance = magnitude(delta);
-  if (scene.lighting !== 'clear') {
-    return { status: 'UNKNOWN', visible: null, distance, reason: 'LIGHTING_UNRESOLVED' };
-  }
   if (distance > observer.perception.maxDistance) {
-    return { status: 'CONFIRMED', visible: false, distance, reason: 'OUT_OF_RANGE' };
+    return { visible: false, distance, reason: 'OUT_OF_RANGE' };
   }
   if (distance > 0) {
     const forwardLength = magnitude(observer.forward);
     const cosine = dot(delta, observer.forward) / (distance * forwardLength);
     if (cosine < Math.cos(observer.perception.halfAngleRadians)) {
-      return { status: 'CONFIRMED', visible: false, distance, reason: 'OUTSIDE_FIELD_OF_VIEW' };
+      return { visible: false, distance, reason: 'OUTSIDE_FIELD_OF_VIEW' };
     }
   }
-  if (scene.blockers.some((blocker) => segmentIntersectsAabb(observer.position, target.position, blocker))) {
-    return { status: 'CONFIRMED', visible: false, distance, reason: 'OCCLUDED' };
+  if (scene.blockers.some((blocker) => segmentIntersectsAabb(observer.position, point, blocker))) {
+    return { visible: false, distance, reason: 'OCCLUDED' };
   }
-  return { status: 'CONFIRMED', visible: true, distance, reason: 'CLEAR_LINE_OF_SIGHT' };
+  return { visible: true, distance, reason: 'CLEAR_LINE_OF_SIGHT' };
+}
+
+function bodySamples(target) {
+  if (!target.body) return [target.position];
+  const min = target.body.minOffset;
+  const max = target.body.maxOffset;
+  const middle = {
+    x: (min.x + max.x) / 2,
+    y: (min.y + max.y) / 2,
+    z: (min.z + max.z) / 2,
+  };
+  const offsets = [
+    middle,
+    { x: min.x, y: min.y, z: min.z },
+    { x: min.x, y: min.y, z: max.z },
+    { x: min.x, y: max.y, z: min.z },
+    { x: min.x, y: max.y, z: max.z },
+    { x: max.x, y: min.y, z: min.z },
+    { x: max.x, y: min.y, z: max.z },
+    { x: max.x, y: max.y, z: min.z },
+    { x: max.x, y: max.y, z: max.z },
+  ];
+  return offsets.map((offset) => ({
+    x: target.position.x + offset.x,
+    y: target.position.y + offset.y,
+    z: target.position.z + offset.z,
+  }));
+}
+
+function see(observer, target, scene) {
+  const originDistance = magnitude({
+    x: target.position.x - observer.position.x,
+    y: target.position.y - observer.position.y,
+    z: target.position.z - observer.position.z,
+  });
+  if (scene.lighting !== 'clear') {
+    return { status: 'UNKNOWN', visible: null, distance: originDistance, reason: 'LIGHTING_UNRESOLVED' };
+  }
+
+  const results = bodySamples(target).map((point) => pointVisibility(observer, point, scene));
+  const visibleCount = results.filter((result) => result.visible).length;
+  if (!target.body) {
+    const result = results[0];
+    return { status: 'CONFIRMED', ...result };
+  }
+
+  if (visibleCount === results.length) {
+    return {
+      status: 'CONFIRMED', visible: true, distance: originDistance,
+      reason: 'CLEAR_LINE_OF_SIGHT', visibilityExtent: 'FULL',
+      visibleSampleCount: visibleCount, sampleCount: results.length,
+    };
+  }
+  if (visibleCount > 0) {
+    return {
+      status: 'CONFIRMED', visible: true, distance: originDistance,
+      reason: 'PARTIAL_LINE_OF_SIGHT', visibilityExtent: 'PARTIAL',
+      visibleSampleCount: visibleCount, sampleCount: results.length,
+    };
+  }
+  const reasons = results.map((result) => result.reason);
+  const reason = reasons.includes('OCCLUDED') ? 'OCCLUDED'
+    : reasons.every((item) => item === 'OUT_OF_RANGE') ? 'OUT_OF_RANGE'
+      : 'OUTSIDE_FIELD_OF_VIEW';
+  return {
+    status: 'CONFIRMED', visible: false, distance: originDistance, reason,
+    visibilityExtent: 'NONE', visibleSampleCount: 0, sampleCount: results.length,
+  };
 }
 
 /**
@@ -125,8 +195,12 @@ export function moveEntityInSyntheticScene(scene, entityId, nextPosition, nextBo
       typeof nextBoundary !== 'string' || !nextBoundary || nextBoundary === scene.boundary) {
     return { status: 'UNKNOWN', reason: 'INVALID_MOVE_OR_BOUNDARY' };
   }
-  if (!scene.entities.some((entity) => entity.id === entityId)) {
+  const movingEntity = scene.entities.find((entity) => entity.id === entityId);
+  if (!movingEntity) {
     return { status: 'UNKNOWN', reason: 'ENTITY_NOT_FOUND' };
+  }
+  if (scene.blockers.some((blocker) => segmentIntersectsAabb(movingEntity.position, nextPosition, blocker))) {
+    return { status: 'BLOCKED', reason: 'PATH_INTERSECTS_BLOCKER' };
   }
   const nextScene = {
     ...scene,
@@ -143,4 +217,54 @@ export function moveEntityInSyntheticScene(scene, entityId, nextPosition, nextBo
   return evaluated.status === 'CONFIRMED'
     ? { status: 'CONFIRMED', scene: nextScene, evaluation: evaluated }
     : evaluated;
+}
+
+
+/**
+ * Predict a synthetic scene under constant-velocity motion only.
+ * Every entity must explicitly provide motion.velocity (zero for stationary
+ * entities). This is straight-line extrapolation, not collision/physics solving.
+ */
+export function predictSceneAtHorizon(scene, horizonSeconds, nextBoundary) {
+  if (!validScene(scene) || !Number.isFinite(horizonSeconds) ||
+      horizonSeconds < 0 || horizonSeconds > 60 ||
+      typeof nextBoundary !== 'string' || !nextBoundary || nextBoundary === scene.boundary) {
+    return { status: 'UNKNOWN', reason: 'INVALID_PREDICTION_REQUEST' };
+  }
+  if (scene.entities.some((entity) => !entity.motion || !finiteVector(entity.motion.velocity))) {
+    return { status: 'UNKNOWN', reason: 'MOTION_DATA_INCOMPLETE' };
+  }
+
+  const predictedScene = {
+    ...scene,
+    boundary: nextBoundary,
+    entities: scene.entities.map((entity) => ({
+      ...entity,
+      position: {
+        x: entity.position.x + entity.motion.velocity.x * horizonSeconds,
+        y: entity.position.y + entity.motion.velocity.y * horizonSeconds,
+        z: entity.position.z + entity.motion.velocity.z * horizonSeconds,
+      },
+      forward: { ...entity.forward },
+      perception: { ...entity.perception },
+      body: entity.body ? {
+        minOffset: { ...entity.body.minOffset },
+        maxOffset: { ...entity.body.maxOffset },
+      } : undefined,
+      motion: { velocity: { ...entity.motion.velocity } },
+    })),
+    blockers: scene.blockers.map((blocker) => ({
+      ...blocker, min: { ...blocker.min }, max: { ...blocker.max },
+    })),
+  };
+  const evaluation = evaluateSpatialScene(predictedScene);
+  if (evaluation.status !== 'CONFIRMED') return evaluation;
+  return {
+    status: 'CONFIRMED',
+    model: SPATIAL_SCENE_MODEL,
+    horizonSeconds,
+    assumption: 'CONSTANT_VELOCITY_NO_COLLISION_RESPONSE',
+    scene: predictedScene,
+    evaluation,
+  };
 }
