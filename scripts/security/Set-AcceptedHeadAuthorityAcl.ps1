@@ -297,6 +297,17 @@ if (-not (Test-Path -LiteralPath $evidenceDirectory -PathType Container)) {
     throw 'EvidencePath parent directory must already exist; refusing to create an unreviewed evidence path.'
 }
 Assert-NoReparsePath -Path $evidenceDirectory
+$evidenceProtectedRoots = @($protectedStores | ForEach-Object { [System.IO.Path]::GetFullPath([string]$_.path) }) + @(
+    $BackupRoots | ForEach-Object { [System.IO.Path]::GetFullPath($_) }
+)
+foreach ($protectedRoot in $evidenceProtectedRoots) {
+    $normalizedRoot = $protectedRoot.TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $rootPrefix = $normalizedRoot + [System.IO.Path]::DirectorySeparatorChar
+    if ([string]::Equals($evidenceFullPath, $normalizedRoot, [System.StringComparison]::OrdinalIgnoreCase) -or
+        $evidenceFullPath.StartsWith($rootPrefix, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "EvidencePath must be outside protected database and backup roots: $normalizedRoot"
+    }
+}
 if ($evidenceFullPath.StartsWith($directory.TrimEnd('\') + '\', [System.StringComparison]::OrdinalIgnoreCase)) {
     throw 'EvidencePath must be outside the protected authority directory.'
 }
