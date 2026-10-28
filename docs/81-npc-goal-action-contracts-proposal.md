@@ -283,3 +283,16 @@ Before an implementation proposal can be prepared, the coordinator/Core owner mu
 
 The required decision is whether (A) `observe` is a later slice after the `author_initial`/imported path, or (B) the earlier first-slice direction is being revised. Until the owner records that decision and names the relevant Core-owned source/record/filter contract, both tracks remain design-only and no implementation order should be inferred.
 
+## 12. Cross-contract sequencing decision: initial acquisition before observation (2026-10-28)
+
+**Decision: A — implement and verify the explicitly authorized `author_initial` / `imported` acquisition path first.** This resolves the sequencing question raised in PR #537. It does not approve runtime implementation in this proposal branch.
+
+The distinction is between a *knowledge-acquisition foundation* and a *semantic action*:
+
+1. **First knowledge foundation:** Core-owned `author_initial` / `imported` records, explicit subject assignment, trusted provenance/validity, and an actor + purpose + exact-snapshot safe read/filter. This direction is already specified in `docs/39-npc-core-knowledge-contract-proposal.md` and the implementation gates in `docs/43-core-npc-knowledge-runtime-implementation-plan.md`. The current implementation audit in `docs/49-npc-core-knowledge-live-audit.md` says the required acquisition records and safe actor-relative context are still missing.
+2. **`observe` remains design-only:** the semantics in §11 may be retained as a later action contract, but observation requires its own authoritative evidence source, access/visibility policy, provenance and supported acquisition mapping. It cannot create or substitute for the initial-acquisition foundation.
+3. **No implicit acquisition:** a canonical fact, entity attribute, context manifest, retrieved record, prompt inclusion, or model-generated statement does not establish that an NPC knows it. The first slice must not implement observation, communication, documents, inference, or rumor by relabeling them as `author_initial` / `imported`.
+4. **Owner:** Core owns acquisition records, provenance/validity, snapshot consistency and the safe read/filter. NPC owns neither a parallel knowledge store nor a replacement authorization/reconciliation mechanism. The available evidence does not establish a named individual implementation assignee; do not invent one.
+5. **Next gate:** Core must verify the real author/import source and lifecycle, implement the narrow Core-owned record/read boundary, and add production-boundary tests for actor isolation, provenance, secret exclusion, snapshot freshness and replay/reconciliation. Only after that gate passes should the team decide whether to implement `observe` as the next acquisition path.
+
+This sequencing decision does not claim the blocker is already fixed in executable code. Until the Core implementation and tests exist, the first NPC knowledge slice remains **BLOCKED**, `Memory → NPC` remains **DISABLED / FAIL-CLOSED**, and Host remains **NON_READY**. No API/schema/storage or runtime behavior is authorized by this documentation change.
