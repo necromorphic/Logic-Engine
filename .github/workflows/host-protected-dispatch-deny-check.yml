@@ -78,5 +78,8 @@ jobs:
           const chatRouter = startup.indexOf("app.use('/api/backends/chat-completions', chatCompletionsRouter)");
           const generate = script.indexOf('export async function Generate(type,');
           const browserGuard = script.indexOf('assertProtectedDispatchAllowed({ locator: getCurrentChatId(), storage: localStorage })', generate);
-          if (serverGuard < 0 || chatRouter < 0 || serverGuard > chatRouter || generate < 0 || browserGuard < generate) process.exit(1);
+          if (serverGuard < 0 || chatRouter < 0 || serverGuard > chatRouter || generate < 0 || browserGuard < generate) {
+            console.error({ serverGuard, chatRouter, generate, browserGuard });
+            process.exit(1);
+          }
           NODE
