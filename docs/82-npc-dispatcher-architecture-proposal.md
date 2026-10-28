@@ -213,3 +213,23 @@ Core owns acquisition records, provenance and validity, snapshot consistency, an
 
 The next gate is to verify the authoritative author/import source and lifecycle, implement the Core-owned acquisition/provenance and actor-, purpose-, and snapshot-bound safe-filtering boundary, then test actor isolation, provenance, secret exclusion, snapshot freshness, and replay/reconciliation against production boundaries. This decision resolves sequencing, not implementation status. No dispatcher, worker, scheduler, API/schema/storage, runtime, or plan-reconciliation work is authorized by this documentation update; Memory → NPC remains DISABLED / FAIL-CLOSED and Host remains NON_READY.
 
+
+
+### 7.1 Cross-cutting NPC dispatcher semantic negatives
+
+The following cases extend the end-to-end evidence checklist. They are design acceptance requirements, not executable-test results or proof that the missing dispatcher exists. Keep each case blocked at integration level until the relevant real boundary is available.
+
+| ID | Scenario | Required behavior | Evidence boundary / current limitation |
+|---|---|---|---|
+| DISP-SEM-01 | A canonical off-screen event occurs | Canonical occurrence alone does not make an NPC or the player aware of it. | Must distinguish world event, actor-relative knowledge, and player awareness; no complete NPC dispatch/context path is verified. |
+| DISP-SEM-02 | A report is pending, drafted, or proposed | Do not treat it as sent, delivered, received, acknowledged, understood, or believed. | Requires the real delivery/receipt boundary and durable status evidence; narration is insufficient. |
+| DISP-SEM-03 | A secret is retrievable but the acting NPC lacks authorization/acquisition | Exclude it before model input; fail closed without leaking the withheld detail in diagnostics. | Requires a trusted actor/purpose/snapshot filter at the actual serialization boundary; retrieval and context-manifest references are not permission. |
+| DISP-SEM-04 | The model states that an action succeeded | Keep outcome unresolved unless a trusted Core result is correlated to this specific attempt. | Proposal creation/approval and model text are not a committed outcome; the NPC result-to-plan correlation path is unverified. |
+| DISP-SEM-05 | A dispatcher invocation concerns a player-controlled character | Do not generate or commit that character's voluntary action, dialogue, decision, or internal state on the player's behalf. | Requires an explicit agency policy at the decision/commit boundary; generic proposal validation does not establish it. |
+| DISP-SEM-06 | A new chat turn occurs without canonical game-time advancement | Do not advance deadlines, time triggers, or off-screen processes solely because another chat turn occurred. | Reuse explicit Core game-time semantics; no wall-clock worker or automatic downtime catch-up is established. |
+| DISP-SEM-07 | A social identity/cover is created or edited | Do not automatically disclose it, create a canonical document, reveal private editor fields, or rewrite prior events/other actors' knowledge. | Must use the existing identity/card and canonical document boundaries; runtime identity lifecycle and observer-access path remain unverified. |
+| DISP-SEM-08 | A required source, permission, result, or causal link is missing | Return a bounded unresolved/needs-review result without converting missing or withheld data into false, neutral, success, or failure. | Requires explicit completeness/epistemic statuses and owner-defined outcome semantics; do not infer a universal state enum from this table. |
+
+These cases are derived from the existing semantic boundaries in `docs/31-npc-subsystem-contract.md`, `docs/32-npc-semantic-acceptance-matrix.md`, `docs/38-npc-author-decisions-and-semantic-delta.md`, `docs/40-npc-social-identities-editor-contract.md`, and `docs/48-npc-delivery-acquisition-boundary-matrix.md`. They do not replace those source contracts or broaden the approved `observe` design-only scope.
+
+**Acceptance rule:** a unit test over fabricated dispatcher inputs may verify pure semantic decisions only. It cannot be reported as proof of access control, delivery, player-agency enforcement, time-trigger integration, identity persistence, canonical commit, or rollback/reconciliation. Such claims require the real production boundary and its authoritative records.
