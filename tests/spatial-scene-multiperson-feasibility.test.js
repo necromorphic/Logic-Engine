@@ -414,3 +414,57 @@ test('trajectory-blocker sweep fails closed when motion data or horizon is inval
     { status: 'UNKNOWN', reason: 'INVALID_BLOCKER_PREDICTION_REQUEST' },
   );
 });
+
+test('trajectory sweeps include exact boundary contact and zero-duration overlap', () => {
+  const touching = scene({
+    entities: [
+      { ...entity('runner', { x: 0, y: 0, z: 0 }), motion: { velocity: { x: 1, y: 0, z: 0 } } },
+    ],
+    blockers: [{
+      id: 'wall',
+      min: { x: 2, y: -1, z: -1 },
+      max: { x: 3, y: 1, z: 1 },
+    }],
+  });
+  const contact = detectTrajectoryBlockerIntersections(touching, 2);
+  assert.equal(contact.intersections.length, 1);
+  assert.equal(contact.intersections[0].timeStartSeconds, 2);
+  assert.equal(contact.intersections[0].timeEndSeconds, 2);
+
+  const alreadyOverlapping = scene({
+    entities: [
+      { ...entity('stationary', { x: 2.5, y: 0, z: 0 }), motion: { velocity: { x: 0, y: 0, z: 0 } } },
+    ],
+    blockers: [{
+      id: 'wall',
+      min: { x: 2, y: -1, z: -1 },
+      max: { x: 3, y: 1, z: 1 },
+    }],
+  });
+  const zeroHorizon = detectTrajectoryBlockerIntersections(alreadyOverlapping, 0);
+  assert.equal(zeroHorizon.status, 'CONFIRMED');
+  assert.equal(zeroHorizon.intersections.length, 1);
+  assert.equal(zeroHorizon.intersections[0].timeStartSeconds, 0);
+  assert.equal(zeroHorizon.intersections[0].timeEndSeconds, 0);
+});
+
+test('synchronized trajectory sweep includes bodies touching at the initial boundary', () => {
+  const initial = scene({
+    entities: [
+      { ...entity('alice', { x: 0, y: 0, z: 0 }), body: {
+        minOffset: { x: -0.5, y: -0.5, z: -0.5 },
+        maxOffset: { x: 0.5, y: 0.5, z: 0.5 },
+      }, motion: { velocity: { x: 0, y: 0, z: 0 } } },
+      { ...entity('bob', { x: 1, y: 0, z: 0 }), body: {
+        minOffset: { x: -0.5, y: -0.5, z: -0.5 },
+        maxOffset: { x: 0.5, y: 0.5, z: 0.5 },
+      }, motion: { velocity: { x: 0, y: 0, z: 0 } } },
+    ],
+  });
+  const report = detectSimultaneousTrajectoryCollisions(initial, 0);
+  assert.equal(report.status, 'CONFIRMED');
+  assert.equal(report.collisions.length, 1);
+  assert.equal(report.collisions[0].timeStartSeconds, 0);
+  assert.equal(report.collisions[0].timeEndSeconds, 0);
+});
+
