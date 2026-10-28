@@ -191,7 +191,7 @@ function validateTransportTarget(target, model, stream) {
   if (!validText(target, 2048)) throw new Error('MEMORY_DISPATCH_TRANSPORT_TARGET_INVALID');
   const url = new URL(target);
   if (url.protocol !== 'https:' || url.hostname !== 'generativelanguage.googleapis.com'
-    || url.username || url.password || url.hash) {
+    || url.port || url.username || url.password || url.hash) {
     throw new Error('MEMORY_DISPATCH_TRANSPORT_TARGET_INVALID');
   }
   const expectedActions = stream ? ['streamGenerateContent'] : ['generateContent'];
