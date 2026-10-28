@@ -55,7 +55,7 @@ test('enforcement denies reads and writes under model route families to avoid al
   }
 });
 
-test('prefix matching does not block unrelated routes or similarly named paths', () => {
+test('prefix matching is case-insensitive and does not block unrelated routes', () => {
   const middleware = createProtectedDispatchDenyMiddleware({
     env: { SILLYTAVERN_REQUIRE_PROTECTED_EGRESS_GATEWAY: 'true' },
   });
@@ -68,6 +68,11 @@ test('prefix matching does not block unrelated routes or similarly named paths',
     const result = invoke(middleware, path);
     assert.equal(result.nextCalls, 1, path);
     assert.equal(result.response.statusCode, null, path);
+  }
+  for (const path of ['/API/GOOGLE/CAPTION', '/API/BACKENDS/CHAT-COMPLETIONS/GENERATE']) {
+    const result = invoke(middleware, path);
+    assert.equal(result.nextCalls, 0, path);
+    assert.equal(result.response.statusCode, 503, path);
   }
 });
 
