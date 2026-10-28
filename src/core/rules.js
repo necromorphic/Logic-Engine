@@ -298,6 +298,7 @@ export function validateEffects(effects, options = {}) {
       'entity.upsert': ['kind', 'entity_id', 'entity_type', 'status', 'attributes'],
       'entity.delete': ['kind', 'entity_id'],
       'fact.set': ['kind', 'fact_id', 'subject_ref', 'predicate', 'value'],
+      'knowledge.acquire': ['kind', 'acquisition_id', 'subject_id', 'fact_id', 'acquisition_kind', 'provenance_ref', 'provenance_digest', 'authorization_ref'],
       'mechanic.instance.create': ['kind', 'instance_id', 'template_id', 'template_version', 'parameters', 'state'],
       'mechanic.instance.enable': ['kind', 'instance_id'],
       'mechanic.instance.disable': ['kind', 'instance_id'],
@@ -305,6 +306,9 @@ export function validateEffects(effects, options = {}) {
     }[effect.kind];
     if (effect.kind === 'relationship.transition' && options.allowRelationshipTransition !== true) {
       throw new EngineError('UNSUPPORTED_EFFECT', 'Relationship transitions must use the trusted Core transition operation.', 403);
+    }
+    if (effect.kind === 'knowledge.acquire' && options.allowKnowledgeAcquisition !== true) {
+      throw new EngineError('UNSUPPORTED_EFFECT', 'Knowledge acquisition must use the trusted Core acquisition operation.', 403);
     }
     if (allowedFields && Object.keys(effect).some((key) => !allowedFields.includes(key))) {
       throw new EngineError('UNSUPPORTED_EFFECT_FIELD', 'Effect contains a field not supported by its kind: ' + effect.kind, 400, { kind: effect.kind });
@@ -362,6 +366,18 @@ export function validateEffects(effects, options = {}) {
         && (typeof effect.subject_ref !== 'string' || !effect.subject_ref.trim()
           || effect.subject_ref !== effect.subject_ref.trim())) {
         throw new EngineError('INVALID_EFFECT', 'subject_ref must be a non-empty string or null without surrounding whitespace.');
+      }
+    } else if (effect.kind === 'knowledge.acquire') {
+      for (const key of ['acquisition_id', 'subject_id', 'fact_id', 'provenance_ref', 'authorization_ref']) {
+        if (typeof effect[key] !== 'string' || !effect[key].trim() || effect[key] !== effect[key].trim() || effect[key].length > 200) {
+          throw new EngineError('INVALID_KNOWLEDGE_ACQUISITION', key + ' must be a non-empty canonical identifier/reference of at most 200 characters.');
+        }
+      }
+      if (!['author_initial', 'imported'].includes(effect.acquisition_kind)) {
+        throw new EngineError('UNSUPPORTED_ACQUISITION_KIND', 'Only author_initial and imported knowledge acquisition are supported.', 400);
+      }
+      if (typeof effect.provenance_digest !== 'string' || !/^[a-f0-9]{64}$/.test(effect.provenance_digest)) {
+        throw new EngineError('INVALID_KNOWLEDGE_PROVENANCE', 'provenance_digest must be a lowercase SHA-256 digest.');
       }
     } else if (effect.kind === 'relationship.transition') {
       for (const key of ['subject_id', 'target_id', 'rule_module_id', 'rule_module_version']) {
