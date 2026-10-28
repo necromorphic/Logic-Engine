@@ -37,7 +37,7 @@ const TRANSITIONS = Object.freeze({
  *
  * Terminal goals cannot be reopened or changed. The returned goal is a copy.
  */
-export function transitionNpcGoal(goal, event) {
+function transitionNpcGoalUnsafe(goal, event) {
   if (
     !isPlainDataObject(goal)
     || typeof goal.id !== "string"
@@ -55,4 +55,13 @@ export function transitionNpcGoal(goal, event) {
     status: "transitioned",
     goal: Object.freeze({ ...goal, status: transition.to }),
   });
+}
+
+/** Reflection traps from malformed objects must not escape the NPC boundary. */
+export function transitionNpcGoal(goal, event) {
+  try {
+    return transitionNpcGoalUnsafe(goal, event);
+  } catch {
+    return invalidTransition();
+  }
 }
