@@ -131,7 +131,7 @@ test('body-volume sampling distinguishes partial visibility from total occlusion
   }));
   const visible = pair(partial, 'observer', 'target');
   assert.equal(visible.visible, true);
-  assert.equal(visible.visibilityExtent, 'PARTIAL');
+  assert.equal(visible.visibilityExtent, 'SAMPLED_PARTIAL');
   assert.ok(visible.visibleSampleCount > 0);
   assert.ok(visible.visibleSampleCount < visible.sampleCount);
 
@@ -143,7 +143,7 @@ test('body-volume sampling distinguishes partial visibility from total occlusion
       max: { x: 4, y: 2, z: 3 },
     }],
   }));
-  assert.equal(pair(hidden, 'observer', 'target').visibilityExtent, 'NONE');
+  assert.equal(pair(hidden, 'observer', 'target').visibilityExtent, 'SAMPLED_NONE');
   assert.equal(pair(hidden, 'observer', 'target').visible, false);
 });
 
