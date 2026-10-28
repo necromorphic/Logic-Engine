@@ -141,3 +141,17 @@ test("rejects abandoned plans with impossible step sequences", () => {
     assert.deepEqual(advanceNpcPlan(candidate, { type: "abandon" }), { status: "non_ready", plan: null });
   }
 });
+
+test("rejects accessor-backed plan steps without invoking them", () => {
+  let invoked = false;
+  const steps = [];
+  Object.defineProperty(steps, "0", {
+    enumerable: true,
+    configurable: true,
+    get() { invoked = true; return { id: "step", action_id: "action", status: "active" }; },
+  });
+  steps.length = 1;
+  const candidate = { id: "accessor-plan", status: "active", steps };
+  assert.deepEqual(advanceNpcPlan(candidate, { type: "abandon" }), { status: "non_ready", plan: null });
+  assert.equal(invoked, false);
+});
