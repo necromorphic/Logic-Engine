@@ -824,7 +824,7 @@ export class SQLiteStore {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request must be an object.', 400);
     }
-    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'includeMechanicEvaluationState']);
+    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'knowledgeSubjectIds', 'includeMechanicEvaluationState']);
     if (Object.keys(request).some((key) => !allowedKeys.has(key))) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request contains an unsupported field.', 400);
     }
@@ -846,6 +846,7 @@ export class SQLiteStore {
     const factIds = normalizeIds(request.factIds, 'factIds');
     const eventIds = normalizeIds(request.eventIds, 'eventIds');
     const contextManifestIds = normalizeIds(request.contextManifestIds, 'contextManifestIds');
+    const knowledgeSubjectIds = normalizeIds(request.knowledgeSubjectIds, 'knowledgeSubjectIds');
 
     const read = () => {
       const w = this.world(id);
@@ -940,6 +941,15 @@ export class SQLiteStore {
         }))
         : [];
       const missingEventIds = snapshotEventIds.filter((eventId) => !events.some((event) => event.event_id === eventId));
+      const knowledgeAssignments = knowledgeSubjectIds.length
+        ? this.db.prepare('SELECT assignment_id,subject_id,item_id,source_kind,source_ref,source_version,authorization_ref,event_id,committed_revision,commit_sequence FROM knowledge_assignments WHERE world_id=? AND subject_id IN (' + knowledgeSubjectIds.map(() => '?').join(',') + ') AND commit_sequence<=? ORDER BY commit_sequence,assignment_id')
+          .all(id, ...knowledgeSubjectIds, commitSequence).map((row) => ({
+            assignment_id: row.assignment_id, subject_id: row.subject_id, item_id: row.item_id,
+            source_kind: row.source_kind, source_ref: row.source_ref, source_version: row.source_version,
+            authorization_ref: row.authorization_ref, event_id: row.event_id,
+            committed_revision: row.committed_revision, commit_sequence: row.commit_sequence,
+          }))
+        : [];
       const inconsistentManifestEvents = events.filter((event) => currentManifestEventIds.has(event.event_id)
         && (event.validity !== 'valid' || event.commit_sequence > commitSequence));
       const missingManifestEvents = [...currentManifestEventIds].filter((eventId) => missingEventIds.includes(eventId));
@@ -1036,6 +1046,7 @@ export class SQLiteStore {
         missing_fact_ids: missingFactIds,
         missing_event_ids: missingEventIds,
         missing_context_manifest_ids: missingContextManifestIds,
+        ...(knowledgeSubjectIds.length ? { knowledge_assignments: knowledgeAssignments } : {}),
         ...(mechanicEvaluationSnapshot ? { mechanic_evaluation_snapshot: mechanicEvaluationSnapshot } : {}),
       };
     };
