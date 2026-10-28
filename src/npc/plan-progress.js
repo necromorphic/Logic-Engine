@@ -76,6 +76,16 @@ function validatePlan(plan) {
     }
   } else if (plan.status === "blocked") {
     if (blockedCount !== 1 || activeCount !== 0) return false;
+    let sawBlocked = false;
+    for (const step of plan.steps) {
+      if (step.status === "blocked") {
+        sawBlocked = true;
+      } else if (sawBlocked && step.status !== "pending") {
+        return false;
+      } else if (!sawBlocked && step.status !== "completed") {
+        return false;
+      }
+    }
   } else if (plan.status === "completed") {
     if (completedCount !== plan.steps.length) return false;
   }
