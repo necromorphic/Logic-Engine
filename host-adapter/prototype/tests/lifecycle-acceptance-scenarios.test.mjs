@@ -33,7 +33,7 @@ function fixture() {
   const journal = new HostLifecycleJournal(db);
   const chat = [
     { is_user: true, mes: 'hello' },
-    { is_user: false, mes: 'swipe A', swipes: ['swipe A'], swipe_id: 1 },
+    { is_user: false, mes: 'swipe A', swipes: ['swipe A'], swipe_id: 0 },
   ];
   const bridge = createStLifecycleBridge({
     journal, getConversationId: () => 'scenario-chat', getChat: () => chat,
