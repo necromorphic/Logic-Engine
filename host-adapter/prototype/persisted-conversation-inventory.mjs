@@ -32,7 +32,7 @@ async function readStableFile(absolutePath, fs) {
     // Windows does not expose comparable device/inode/timestamp metadata for
     // every path-stat versus handle-stat pair. Exact bytes are verified twice below.
     if (process.platform !== 'win32') {
-      if (before.dev !== opened.dev) throw Error('ARTIFACT_CHANGED_BEFORE_READ_DEVICE');
+      if (process.platform !== 'win32' && before.dev !== opened.dev) throw Error('ARTIFACT_CHANGED_BEFORE_READ_DEVICE');
       if (before.ino !== opened.ino) throw Error('ARTIFACT_CHANGED_BEFORE_READ_INODE');
       if (before.mtimeMs !== opened.mtimeMs) throw Error('ARTIFACT_CHANGED_BEFORE_READ_MTIME');
     }
