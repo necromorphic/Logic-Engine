@@ -344,6 +344,12 @@ export class SQLiteStore {
       );
       `;
 
+      if (!this.acceptedHeadConfig) {
+        const hasHeadTable = this.db.prepare("SELECT 1 AS present FROM sqlite_master WHERE type='table' AND name='accepted_head_state'").get();
+        if (hasHeadTable && this.db.prepare('SELECT enrolled FROM accepted_head_state WHERE singleton=1').get()?.enrolled === 1) {
+          throw new Error('CORE_ACCEPTED_HEAD_AUTHORITY_REQUIRED');
+        }
+      }
       if (this.acceptedHeadConfig) {
         const existingObjects = new Set(this.db.prepare(
           "SELECT type || ':' || name AS object_name FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
