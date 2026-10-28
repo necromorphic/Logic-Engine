@@ -14,29 +14,35 @@ const expectedSha = '06bde939fb1e9c4c8d8641d810f0a916b5bce127';
 // Capture console output without forwarding it to CI. The pinned upstream
 // handler has a console.debug path that serializes the request body, so debug
 // output is suppressed and separately counted rather than retained as text.
-const loggedOutput = [];
-const capturedDebugOutput = [];
 let capturedDebugCalls = 0;
+let debugMetadataSeen = false;
+let promptSentinelInDebugOutput = false;
+let promptSentinelInOtherOutput = false;
+const containsPromptSentinel = value => {
+  if (typeof value === 'string') return value.includes('HARNESS_SENTINEL_DO_NOT_LOG');
+  if (Array.isArray(value)) return value.some(containsPromptSentinel);
+  if (value && typeof value === 'object') return Object.values(value).some(containsPromptSentinel);
+  return false;
+};
 const originalConsoleMethods = Object.fromEntries(
   ['debug', 'info', 'log', 'warn', 'error'].map(name => [name, console[name]]),
 );
 for (const name of Object.keys(originalConsoleMethods)) {
   console[name] = (...args) => {
-    const rendered = args.map(arg => {
-      try {
-        return typeof arg === 'string' ? arg : JSON.stringify(arg);
-      } catch {
-        return String(arg);
-      }
-    }).join(' ');
     if (name === 'debug') {
-      // Keep debug output in memory only so the test can assert the prompt body
-      // is absent; never print or persist the captured request content.
+      // Inspect only booleans and known metadata fields; never retain or print
+      // raw console arguments or request content.
       capturedDebugCalls += 1;
-      capturedDebugOutput.push(rendered);
+      if (args.some(containsPromptSentinel)) promptSentinelInDebugOutput = true;
+      const metadata = args.find(arg => arg && typeof arg === 'object' && !Array.isArray(arg));
+      if (typeof args[0] === 'string' && args[0].includes('request metadata')
+          && metadata?.model === 'fake-model' && metadata?.messageCount === 1) {
+        debugMetadataSeen = true;
+      }
       return;
     }
-    loggedOutput.push({ method: name, rendered });
+    if (args.some(containsPromptSentinel)) promptSentinelInOtherOutput = true;
+    // Do not retain console text in the harness or forward it to CI.
   };
 }
 
@@ -190,22 +196,97 @@ test('real pinned server Chat Completions handler reaches a recording fake provi
   assert.deepEqual(arrivals, [{ method: 'POST', path: '/v1/v1beta/models/fake-model:generateContent?key=test-only-not-a-real-secret' }]);
   assert.equal(JSON.stringify(arrivals).includes('HARNESS_SENTINEL_DO_NOT_LOG'), false);
   assert.ok(capturedDebugCalls > 0, 'the handler should emit debug diagnostics');
-  assert.ok(
-    capturedDebugOutput.some(line =>
-      line.includes('request metadata')
-      && line.includes('fake-model')
-      && line.includes('messageCount')
-    ),
-    'the debug diagnostic should contain metadata rather than the raw request body',
+  assert.ok(debugMetadataSeen, 'the debug diagnostic should expose known metadata fields only');
+  assert.equal(promptSentinelInDebugOutput, false, 'request-body sentinel must not reach debug output');
+  assert.equal(promptSentinelInOtherOutput, false, 'request-body sentinel must not reach other console output');
+});
+
+
+test('real pinned server OpenAI Chat Completions handler reaches a recording fake provider exactly once', async (t) => {
+  const { execFileSync } = await import('node:child_process');
+  const actualSha = execFileSync('git', ['-C', stRoot, 'rev-parse', 'HEAD'], { encoding: 'utf8' }).trim();
+  assert.equal(actualSha, expectedSha, 'test must run against the exact pinned SillyTavern checkout');
+
+  let requestCount = 0;
+  const arrivals = [];
+  const fakeProvider = requireFromST('node:http').createServer((req, res) => {
+    requestCount += 1;
+    arrivals.push({ method: req.method, path: req.url });
+    req.resume();
+    req.on('end', () => {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({
+        id: 'fake-response',
+        object: 'chat.completion',
+        created: 1,
+        model: 'fake-model',
+        choices: [{ index: 0, message: { role: 'assistant', content: 'harness-ok' }, finish_reason: 'stop' }],
+      }));
+    });
+  });
+
+  const savedConsole = Object.fromEntries(
+    ['debug', 'info', 'log', 'warn', 'error'].map(name => [name, console[name]]),
   );
-  assert.equal(
-    capturedDebugOutput.some(line => line.includes('HARNESS_SENTINEL_DO_NOT_LOG')),
-    false,
-    'request-body sentinel must not appear in captured debug output',
-  );
-  assert.equal(
-    loggedOutput.some(entry => entry.rendered.includes('HARNESS_SENTINEL_DO_NOT_LOG')),
-    false,
-    'request-body sentinel must not appear in any forwarded/captured non-debug console output',
-  );
+  let promptSentinelObserved = false;
+  const containsSentinel = value => {
+    if (typeof value === 'string') return value.includes('HARNESS_SENTINEL_DO_NOT_LOG');
+    if (Array.isArray(value)) return value.some(containsSentinel);
+    if (value && typeof value === 'object') return Object.values(value).some(containsSentinel);
+    return false;
+  };
+  for (const name of Object.keys(savedConsole)) {
+    console[name] = (...args) => {
+      if (args.some(containsSentinel)) promptSentinelObserved = true;
+    };
+  }
+
+  await new Promise((resolveListen, reject) => {
+    fakeProvider.once('error', reject);
+    fakeProvider.listen(0, '127.0.0.1', resolveListen);
+  });
+  const providerAddress = fakeProvider.address();
+  assert.ok(providerAddress && typeof providerAddress === 'object');
+
+  const app = express();
+  app.use(express.json({ limit: '1mb' }));
+  app.use((req, _res, next) => {
+    req.user = { directories: {} };
+    next();
+  });
+  app.use('/api/backends/chat-completions', router);
+  const server = app.listen(0, '127.0.0.1');
+  await once(server, 'listening');
+  const address = server.address();
+  assert.ok(address && typeof address === 'object');
+
+  t.after(async () => {
+    await Promise.all([
+      new Promise(resolveClose => server.close(resolveClose)),
+      new Promise(resolveClose => fakeProvider.close(resolveClose)),
+    ]);
+    for (const [name, method] of Object.entries(savedConsole)) console[name] = method;
+  });
+
+  const response = await fetch(`http://127.0.0.1:${address.port}/api/backends/chat-completions/generate`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({
+      chat_completion_source: 'openai',
+      reverse_proxy: `http://127.0.0.1:${providerAddress.port}/v1`,
+      proxy_password: 'test-only-not-a-real-secret',
+      model: 'fake-model',
+      messages: [{ role: 'user', content: 'HARNESS_SENTINEL_DO_NOT_LOG' }],
+      stream: false,
+      temperature: 0,
+      max_tokens: 8,
+    }),
+  });
+
+  assert.equal(response.status, 200, 'the pinned OpenAI handler should return the fake provider response');
+  const responseJson = await response.json();
+  assert.equal(responseJson.choices?.[0]?.message?.content, 'harness-ok');
+  assert.equal(requestCount, 1, 'exactly one outbound request should arrive at the fake provider');
+  assert.deepEqual(arrivals, [{ method: 'POST', path: '/v1/chat/completions' }]);
+  assert.equal(promptSentinelObserved, false, 'prompt sentinel must not appear in console output');
 });
