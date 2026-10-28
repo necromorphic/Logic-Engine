@@ -78,6 +78,14 @@ jobs:
             $sidecarCollisionRefused = $_.Exception.Message -like '*must not overwrite a SQLite sidecar*'
           }
           if (-not $sidecarCollisionRefused -or (Test-Path -LiteralPath $sidecarCollisionPath)) { throw 'Collector must refuse output that aliases a SQLite sidecar.' }
+          $streamOutputPath = $fixturePath + [char]58 + 'evidence'
+          $streamRefused = $false
+          try {
+            & .\scripts\security\Collect-DeploymentEvidence.ps1 -DataPath @($fixturePath) -OutputPath $streamOutputPath
+          } catch {
+            $streamRefused = $_.Exception.Message -like '*alternate data stream*'
+          }
+          if (-not $streamRefused) { throw 'Collector must reject NTFS alternate data stream output paths.' }
           $backupOutputPath = Join-Path $backupFixture 'must-not-write.json'
           $backupWriteRefused = $false
           try {
