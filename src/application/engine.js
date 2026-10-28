@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import { assert, EngineError } from '../core/errors.js';
 import { hashRequest } from '../core/request-hash.js';
 import { validateEffects } from '../core/rules.js';
+import { validateTrustedInitialKnowledgeSource } from './trusted-initial-knowledge-source.js';
 import { validateMechanicTemplate, validateRuleModuleManifest } from '../core/mechanics.js';
 import { normalizeTimeTrigger, planDueWork } from '../time/scheduler.js';
 import { normalizeProcessDefinition, validateProcessTransition } from '../process/contract.js';
@@ -163,7 +164,9 @@ function validateIndependentSegment(events) {
 }
 
 export class LogicEngine {
-  constructor(store) {
+  constructor(store, { trustedInitialKnowledgeSources = [] } = {}) {
+    if (!Array.isArray(trustedInitialKnowledgeSources)) throw new TypeError('trustedInitialKnowledgeSources must be a deployment-owned array');
+    this.trustedInitialKnowledgeSources = trustedInitialKnowledgeSources.map((entry) => Object.freeze({ ...entry }));
     this.store = store;
     this.processStore = new ProcessStore(store);
     this.store.processStore = this.processStore;
@@ -545,7 +548,10 @@ export class LogicEngine {
     if (seconds > 0) assert(options.durationDecision?.status === 'resolved' || ['time.advance', 'action.completed'].includes(x.event_type), 'INVALID_TIME_ADVANCE', 'Positive duration requires a supported time event or an active TimePolicy decision.');
 
     const effects = x.effects ?? [];
-    validateEffects(effects, { allowRelationshipTransition: options.allowRelationshipTransition === true });
+    validateEffects(effects, {
+      allowRelationshipTransition: options.allowRelationshipTransition === true,
+      allowKnowledgeAcquisition: options.allowKnowledgeAcquisition === true,
+    });
     const request = {
       operation: 'event.commit',
       event_id: x.event_id ?? null,
@@ -599,6 +605,102 @@ export class LogicEngine {
         'A direct timed commit cannot cross registered scheduled work; use the Core timed-action or time-advance operation.',
         409, { trigger_ids: due, from_coordinate: world.game_time_coordinate, to_coordinate: targetCoordinate });
     }
+  }
+
+  /**
+   * Ingests an immutable deployment-approved authoring source into the canonical
+   * event log. This method is intentionally not exposed by the HTTP API.
+   */
+  recordTrustedInitialKnowledgeSource(input) {
+    assert(obj(input), 'INVALID_TRUSTED_SOURCE_REQUEST', 'Source ingestion request must be an object.');
+    const allowed = ['world_id', 'source_bytes', 'idempotency_key', 'expected_revision', 'expected_commit_sequence', 'turn_id'];
+    assert(Object.keys(input).every((key) => allowed.includes(key)), 'UNSUPPORTED_TRUSTED_SOURCE_REQUEST_FIELD', 'Source ingestion request contains an unsupported field.');
+    for (const key of ['world_id', 'idempotency_key']) {
+      assert(typeof input[key] === 'string' && input[key].trim() === input[key] && input[key].length > 0 && input[key].length <= 200,
+        'INVALID_TRUSTED_SOURCE_REQUEST', key + ' must be a canonical non-empty identifier.');
+    }
+    assert(Number.isSafeInteger(input.expected_revision) && input.expected_revision >= 0,
+      'INVALID_REVISION', 'expected_revision is required.');
+    assert(Number.isSafeInteger(input.expected_commit_sequence) && input.expected_commit_sequence >= 0,
+      'INVALID_COMMIT_SEQUENCE', 'expected_commit_sequence is required.');
+
+    const source = validateTrustedInitialKnowledgeSource(input.source_bytes, this.trustedInitialKnowledgeSources);
+    assert(source.source_kind === 'author_initial', 'UNSUPPORTED_TRUSTED_SOURCE_KIND',
+      'The imported source kind remains unsupported until a trusted production importer is connected.', 403);
+    const world = this.store.world(input.world_id);
+    assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
+    assert(world.world_pack_id === source.world_pack_id && world.world_pack_version === source.world_pack_version,
+      'TRUSTED_SOURCE_WORLD_PACK_MISMATCH', 'Approved source identity does not match the target world pack.', 409);
+    assert(world.world_revision === input.expected_revision
+      && this.store.currentCommitSequence(input.world_id) === input.expected_commit_sequence,
+    'STALE_TRUSTED_SOURCE_SNAPSHOT', 'Source assignments must be resolved against the current expected world snapshot.', 409, {
+      expected_revision: input.expected_revision, current_revision: world.world_revision,
+      expected_commit_sequence: input.expected_commit_sequence,
+      current_commit_sequence: this.store.currentCommitSequence(input.world_id),
+    });
+
+    const assignments = [];
+    const sourceEventIds = new Set();
+    const readSet = new Set();
+    const dependsOn = new Set();
+    const causalLinkKeys = new Set();
+    const causalLinks = [];
+    for (const assignment of source.assignments) {
+      const subject = this.store.db.prepare('SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?')
+        .get(input.world_id, assignment.subject_id);
+      assert(subject && subject.status !== 'destroyed', 'ACQUISITION_SUBJECT_NOT_ELIGIBLE',
+        'Every assigned subject must be an existing non-destroyed entity in the target world.', 409);
+      const fact = this.store.db.prepare('SELECT status,source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?')
+        .get(input.world_id, assignment.fact_id);
+      assert(fact && fact.status === 'active', 'ACQUISITION_SOURCE_NOT_ELIGIBLE',
+        'Every assigned item must be an active canonical fact in the target world.', 409);
+      const factSources = JSON.parse(fact.source_event_ids_json);
+      assert(Array.isArray(factSources) && factSources.length > 0
+        && factSources.every((eventId) => typeof eventId === 'string' && eventId.trim()),
+      'ACQUISITION_SOURCE_NOT_ELIGIBLE', 'Every assigned fact must have explicit valid canonical source-event identities.', 409);
+      for (const eventId of factSources) sourceEventIds.add(eventId);
+      const entityRef = 'entity:' + assignment.subject_id;
+      const factRef = 'fact:' + assignment.fact_id;
+      readSet.add(entityRef); readSet.add(factRef); dependsOn.add(entityRef); dependsOn.add(factRef);
+      for (const link of [
+        { relation: 'READS_ENTITY', target_id: assignment.subject_id },
+        { relation: 'READS_CLAIM', target_id: assignment.fact_id },
+      ]) {
+        const key = JSON.stringify(link);
+        if (!causalLinkKeys.has(key)) { causalLinkKeys.add(key); causalLinks.push(link); }
+      }
+      assignments.push({
+        kind: 'knowledge.acquire',
+        acquisition_id: 'acq:' + hashRequest([
+          input.world_id, assignment.subject_id, assignment.fact_id, source.source_kind,
+          source.source_ref, source.source_digest, source.authorization_ref,
+        ]),
+        subject_id: assignment.subject_id,
+        fact_id: assignment.fact_id,
+        acquisition_kind: source.source_kind,
+        provenance_ref: source.source_ref,
+        provenance_digest: source.source_digest,
+        authorization_ref: source.authorization_ref,
+      });
+    }
+    assert(sourceEventIds.size <= 500, 'TRUSTED_SOURCE_TOO_MANY_SUPPORT_EVENTS',
+      'The source assignments resolve to too many supporting events for one bounded Core event.', 400);
+    assert(assignments.length <= 200 && causalLinks.length <= 500, 'TRUSTED_SOURCE_TOO_LARGE',
+      'Source assignments exceed the bounded Core event capacity.', 400);
+
+    return this.commitEvent(input.world_id, {
+      idempotency_key: input.idempotency_key,
+      turn_id: input.turn_id || 'core-trusted-initial-source',
+      event_type: 'knowledge.acquisition.initial',
+      expected_revision: input.expected_revision,
+      expected_commit_sequence: input.expected_commit_sequence,
+      time_advance_seconds: 0,
+      caused_by: [...sourceEventIds].sort(),
+      depends_on: [...dependsOn].sort(),
+      read_set: [...readSet].sort(),
+      causal_links: causalLinks,
+      effects: assignments,
+    }, { allowKnowledgeAcquisition: true });
   }
 
   commitEvent(id, x, options = {}) {
