@@ -934,6 +934,7 @@ export class SQLiteMemoryProvider {
     }
     if (this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     this.#assertAcceptedHeadCurrent();
+    if (this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_AUTHORIZATION_CHANGED');
     return true;
       });
   }
@@ -1337,6 +1338,7 @@ export class SQLiteMemoryProvider {
       throw error;
     }
     this.#assertAcceptedHeadCurrent();
+    if (this.#dataVersion() !== providerDataVersion) throw new Error('MEMORY_INDEX_NOT_READY');
     return lockedResult;
   }
 }
