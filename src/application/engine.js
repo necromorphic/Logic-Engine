@@ -882,11 +882,13 @@ export class LogicEngine {
       'NPC belief proposal failed Core evidence/snapshot validation.', 409,
       { reason: reduced.reason });
 
-    const worldNow = this.store.world(read.world_id);
-    const sequenceNow = this.store.currentCommitSequence(read.world_id);
-    assert(worldNow && worldNow.status === 'active'
-      && worldNow.world_revision === read.snapshot.world_revision
-      && sequenceNow === read.snapshot.commit_sequence,
+    // Use one atomic snapshot read: rollback advances world_revision without
+    // advancing commit_sequence, so separate reads can straddle a rollback and
+    // accidentally accept a stale context.
+    const snapshotNow = this.getSnapshot(read.world_id);
+    assert(snapshotNow && snapshotNow.status === 'active'
+      && snapshotNow.world_revision === read.snapshot.world_revision
+      && snapshotNow.commit_sequence === read.snapshot.commit_sequence,
     'NPC_BELIEF_CONTEXT_STALE',
     'World snapshot changed while preparing the NPC belief context; retry from a fresh snapshot.', 409);
 
