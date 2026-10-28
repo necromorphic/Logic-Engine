@@ -237,6 +237,31 @@ try {
 }
 
 $pathInputs = @($DataPath) + @($BackupPath) | Where-Object { $_ } | Select-Object -Unique
+
+# Never let the evidence output overwrite an input, SQLite sidecar, or file in a backup tree.
+$fullOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
+foreach ($dataFile in @($DataPath | Where-Object { $_ })) {
+    $fullDataPath = [System.IO.Path]::GetFullPath($dataFile)
+    if ([string]::Equals($fullOutputPath, $fullDataPath, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "OutputPath must not overwrite a supplied data path: $fullDataPath"
+    }
+    foreach ($suffix in @("-wal", "-shm", "-journal")) {
+        if ([string]::Equals($fullOutputPath, "$fullDataPath$suffix", [System.StringComparison]::OrdinalIgnoreCase)) {
+            throw "OutputPath must not overwrite a SQLite sidecar: $fullDataPath$suffix"
+        }
+    }
+}
+foreach ($backupRoot in @($BackupPath | Where-Object { $_ })) {
+    $fullBackupRoot = [System.IO.Path]::GetFullPath($backupRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar, [System.IO.Path]::AltDirectorySeparatorChar)
+    $backupPrefix = $fullBackupRoot + [System.IO.Path]::DirectorySeparatorChar
+    if ($fullOutputPath.StartsWith($backupPrefix, [System.StringComparison]::OrdinalIgnoreCase) -or
+        [string]::Equals($fullOutputPath, $fullBackupRoot, [System.StringComparison]::OrdinalIgnoreCase)) {
+        throw "OutputPath must be outside supplied backup roots: $fullBackupRoot"
+    }
+}
+if (Test-Path -LiteralPath $fullOutputPath) {
+    throw "OutputPath already exists; choose a new path to preserve prior evidence: $fullOutputPath"
+}
 $pathEvidence = @(
     foreach ($path in $pathInputs) {
         $isBackupPath = $BackupPath -contains $path
@@ -369,7 +394,6 @@ $report = [ordered]@{
 }
 
 $json = $report | ConvertTo-Json -Depth 10
-$fullOutputPath = [System.IO.Path]::GetFullPath($OutputPath)
 $parentDir = [System.IO.Path]::GetDirectoryName($fullOutputPath)
 if ($parentDir -and -not (Test-Path -LiteralPath $parentDir)) {
     throw "Output directory does not exist: $parentDir"
