@@ -6,7 +6,7 @@ import { LogicEngine } from '../src/application/engine.js';
 import { ActorBindingService } from '../src/application/actor-bindings.js';
 import { AuthorizedReadService } from '../src/application/authorized-read-service.js';
 import { MemoryNpcConsumer } from '../src/application/memory-npc-consumer.js';
-import { createCanonicalEntitySourceVersionValidator } from '../src/application/canonical-entity-source-version.js';
+import { createCanonicalEntitySourceVersionValidator, createCanonicalEntityInventoryValidator } from '../src/application/canonical-entity-source-version.js';
 import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.js';
 
 function setup(t, { twoRecords = false, providerPath = null } = {}) {
@@ -48,6 +48,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
   // Use the real Core-owned source-version validator against the actual SQLiteStore-backed engine.
   // Inventory attestation below remains a test-only fixture and is not Host completeness evidence.
   const canonicalSourceValidator = createCanonicalEntitySourceVersionValidator(engine);
+  const canonicalInventoryValidator = createCanonicalEntityInventoryValidator(engine);
   const sourceVersionValidator = async (record) => {
     if (triggerRace && record.record_ref === 'memory:record-b') {
       triggerRace = false;
@@ -60,7 +61,7 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     return sourceValidatorOverride ? sourceValidatorOverride(record) : canonicalSourceValidator(record);
   };
   const inventoryValidator = async (...args) => inventoryValidatorOverride
-    ? inventoryValidatorOverride(...args) : true;
+    ? inventoryValidatorOverride(...args) : canonicalInventoryValidator(...args);
   provider = new SQLiteMemoryProvider({
     path: effectiveProviderPath,
     coordinatorPath: `${effectiveProviderPath}.coordinator.sqlite`,
@@ -76,13 +77,13 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
     record_version: 'record-v1',
     source_kind: 'canonical_entity',
     source_entity_id: sourceId,
-    source_version: String(engine.getSnapshot(worldId, { entityIds: [sourceId] }).entities[0]?.updated_revision ?? 'unverifiable'),
+    source_version: engine.getSnapshot(worldId, { entityIds: [sourceId], includeSourceVersions: true }).entities[0]?.source_version ?? 'unverifiable',
     content_kind: 'claim',
     epistemic_kind: 'acquired_report',
     producer_kind: 'memory-index',
     content_disposition: 'usable',
     evidence_assessment: 'unassessed',
-    lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: String(engine.getSnapshot(worldId, { entityIds: [sourceId] }).entities[0]?.updated_revision ?? 'unverifiable') }],
+    lineage: [{ source_kind: 'canonical_entity', entity_id: sourceId, source_version: engine.getSnapshot(worldId, { entityIds: [sourceId], includeSourceVersions: true }).entities[0]?.source_version ?? 'unverifiable' }],
   }));
   for (const record of records) {
     provider.putRecord(record);
@@ -111,8 +112,9 @@ function setup(t, { twoRecords = false, providerPath = null } = {}) {
       provider.close();
       provider = new SQLiteMemoryProvider({ path: effectiveProviderPath, coordinatorPath: `${effectiveProviderPath}.coordinator.sqlite`, getSnapshot: snapshotReader,
         validateSourceVersion: sourceVersionValidator,
-        validateInventory: inventoryValidator, // test-only; not Host completeness evidence
+        validateInventory: inventoryValidator,
       });
+      return provider;
     },
   };
 }
@@ -187,10 +189,10 @@ test('Core source-version mismatch is non-ready even when the canonical entity e
 });
 
 
-test('direct Core source validator rejects unknown status and negative revisions', async (t) => {
+test('direct Core source validator rejects unknown status and malformed source tokens', async (t) => {
   for (const [label, mutate] of [
     ['unknown status', (entity) => ({ ...entity, status: 'pending_unknown' })],
-    ['negative revision', (entity) => ({ ...entity, updated_revision: -1 })],
+    ['malformed source token', (entity) => ({ ...entity, source_version: 'not-a-core-token' })],
   ]) {
     const s = setup(t);
     assert.equal((await s.prepare()).status, 'current');
