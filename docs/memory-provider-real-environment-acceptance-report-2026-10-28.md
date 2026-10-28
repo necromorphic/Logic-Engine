@@ -111,12 +111,12 @@ The Provider-owned implementation/test slice is present in main and has strong a
 ## 8. Supplemental Windows execution record (2026-10-28)
 
 - Self-hosted runner: `DESKTOP-77V96AV` (Windows, X64).
-- Tested checkout: merge commit `8efd61e5f1e89386b46a5a529ce928b63e0aa8f6`, combining the inspected main snapshot with the documentation-only PR.
-- Runtime: Node.js `v22.18.0`; Git `2.50.1.windows.1`.
-- Results: `npm test` 1022/1022 passed, 0 failed; recalculation oracle 20/20 passed, 0 failed.
-- Evidence: [GitHub Actions run 40728771597](https://github.com/necromorphic/Logic-Engine/actions/runs/40728771597).
-- Exact Windows OS build and embedded SQLite version were not printed in that run. A focused Provider acceptance suite plus environment-version capture has been added to the workflow in this PR. Run [40730496450](https://github.com/necromorphic/Logic-Engine/actions/runs/40730496450) was queued when this addendum was written; it is not counted as a pass until its Windows job completes.
-- **Still NOT TESTED:** separately launched Provider process with retained DB snapshots/logs; installed pinned SillyTavern lifecycle; target-PC ACL/restore/anti-rollback; complete sole-egress proof. The new workflow does not close these gaps.
+- Confirmed Windows self-hosted run: [GitHub Actions run 40740707455](https://github.com/necromorphic/Logic-Engine/actions/runs/40740707455), runner `DESKTOP-77V96AV`, tested merge checkout `cd88f79cd402cfda094b80586687aa95d77113c9` (PR #636 head `b1a487c270e5debae5993ae5736e72f2f3cf95ef` merged into inspected main snapshot).
+- Runtime: Node.js `v22.18.0`; npm `10.9.3`; Git `2.50.1.windows.1`.
+- Results: focused Provider/Gateway/process-restart suite **93/93 PASS**; full Runtime suite **1023/1023 PASS**; recalculation oracle **20/20 PASS**; both workflow jobs succeeded.
+- The new process test opens a temporary file-backed Provider DB in child processes, forcibly exits the writer process without `Provider.close()`, opens a fresh process, verifies the record, revokes it, and confirms the fresh process withholds records. This is an OS-process restart test of the Provider implementation, not a long-running separately deployed Provider service or a real SillyTavern integration.
+- The initial environment-capture command did not emit the OS/SQLite JSON in the successful run. A portable script `scripts/record-test-environment.mjs` was added; run [40740940856](https://github.com/necromorphic/Logic-Engine/actions/runs/40740940856) is queued to capture exact Windows OS build and embedded SQLite version. Do not count those values as recorded until that run's logs show them.
+- **Still NOT TESTED:** installed pinned SillyTavern lifecycle; target-PC ACL/restore/anti-rollback; complete sole-egress proof. The Provider child-process test does not close these gaps.
 
 
 ### Clarification — raw Host text is not currently ingestible
