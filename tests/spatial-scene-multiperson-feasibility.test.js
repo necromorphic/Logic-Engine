@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { detectSimultaneousTrajectoryCollisions, evaluateSpatialScene, moveEntityInSyntheticScene, predictSceneAtHorizon } from '../experiments/spatial-scene-lab/spatial-scene.js';
+import { detectSimultaneousTrajectoryCollisions, detectTrajectoryBlockerIntersections, evaluateSpatialScene, moveEntityInSyntheticScene, predictSceneAtHorizon } from '../experiments/spatial-scene-lab/spatial-scene.js';
 
 const entity = (id, position, forward = { x: 1, y: 0, z: 0 }) => ({
   id, position, forward, perception: { halfAngleRadians: Math.PI / 3, maxDistance: 12 },
@@ -131,7 +131,7 @@ test('body-volume sampling distinguishes partial visibility from total occlusion
   }));
   const visible = pair(partial, 'observer', 'target');
   assert.equal(visible.visible, true);
-  assert.equal(visible.visibilityExtent, 'PARTIAL');
+  assert.equal(visible.visibilityExtent, 'SAMPLED_PARTIAL');
   assert.ok(visible.visibleSampleCount > 0);
   assert.ok(visible.visibleSampleCount < visible.sampleCount);
 
@@ -143,7 +143,7 @@ test('body-volume sampling distinguishes partial visibility from total occlusion
       max: { x: 4, y: 2, z: 3 },
     }],
   }));
-  assert.equal(pair(hidden, 'observer', 'target').visibilityExtent, 'NONE');
+  assert.equal(pair(hidden, 'observer', 'target').visibilityExtent, 'SAMPLED_NONE');
   assert.equal(pair(hidden, 'observer', 'target').visible, false);
 });
 
@@ -356,3 +356,175 @@ test('trajectory collision prediction fails closed without explicit motion for e
     { status: 'UNKNOWN', reason: 'INVALID_COLLISION_PREDICTION_REQUEST' },
   );
 });
+
+
+test('trajectory sweep reports static-blocker contact intervals and respects 3D separation', () => {
+  const initial = scene({
+    entities: [
+      { ...entity('runner', { x: 0, y: 0, z: 0 }), motion: { velocity: { x: 2, y: 0, z: 0 } } },
+      { ...entity('overhead', { x: 0, y: 0, z: 5 }), motion: { velocity: { x: 2, y: 0, z: 0 } } },
+    ],
+    blockers: [{
+      id: 'wall',
+      min: { x: 3, y: -1, z: -1 },
+      max: { x: 4, y: 1, z: 2 },
+    }],
+  });
+
+  const report = detectTrajectoryBlockerIntersections(initial, 3);
+  assert.equal(report.status, 'CONFIRMED');
+  assert.equal(report.assumption, 'CONSTANT_VELOCITY_STATIC_BLOCKER_AABB_SWEEP');
+  assert.deepEqual(report.intersections, [{
+    entityId: 'runner', blockerId: 'wall', status: 'POSSIBLE',
+    reason: 'CONSTANT_VELOCITY_SWEPT_BODY_OVERLAP',
+    timeStartSeconds: 1.5, timeEndSeconds: 2, horizonSeconds: 3,
+  }]);
+  assert.equal(initial.entities[0].position.x, 0);
+});
+
+test('trajectory-blocker sweep expands geometry by declared body extents', () => {
+  const initial = scene({
+    entities: [{
+      ...entity('runner', { x: 0, y: 0, z: 0 }),
+      body: {
+        minOffset: { x: -0.5, y: -0.5, z: 0 },
+        maxOffset: { x: 0.5, y: 0.5, z: 1.8 },
+      },
+      motion: { velocity: { x: 2, y: 0, z: 0 } },
+    }],
+    blockers: [{
+      id: 'wall',
+      min: { x: 3, y: -1, z: -1 },
+      max: { x: 4, y: 1, z: 2 },
+    }],
+  });
+  const report = detectTrajectoryBlockerIntersections(initial, 3);
+  assert.equal(report.intersections.length, 1);
+  assert.equal(report.intersections[0].timeStartSeconds, 1.25);
+  assert.equal(report.intersections[0].timeEndSeconds, 2.25);
+});
+
+test('trajectory-blocker sweep fails closed when motion data or horizon is invalid', () => {
+  assert.deepEqual(
+    detectTrajectoryBlockerIntersections(scene(), 2),
+    { status: 'UNKNOWN', reason: 'MOTION_DATA_INCOMPLETE' },
+  );
+  assert.deepEqual(
+    detectTrajectoryBlockerIntersections(scene(), 61),
+    { status: 'UNKNOWN', reason: 'INVALID_BLOCKER_PREDICTION_REQUEST' },
+  );
+});
+
+test('trajectory sweeps include exact boundary contact and zero-duration overlap', () => {
+  const touching = scene({
+    entities: [
+      { ...entity('runner', { x: 0, y: 0, z: 0 }), motion: { velocity: { x: 1, y: 0, z: 0 } } },
+    ],
+    blockers: [{
+      id: 'wall',
+      min: { x: 2, y: -1, z: -1 },
+      max: { x: 3, y: 1, z: 1 },
+    }],
+  });
+  const contact = detectTrajectoryBlockerIntersections(touching, 2);
+  assert.equal(contact.intersections.length, 1);
+  assert.equal(contact.intersections[0].timeStartSeconds, 2);
+  assert.equal(contact.intersections[0].timeEndSeconds, 2);
+
+  const alreadyOverlapping = scene({
+    entities: [
+      { ...entity('stationary', { x: 2.5, y: 0, z: 0 }), motion: { velocity: { x: 0, y: 0, z: 0 } } },
+    ],
+    blockers: [{
+      id: 'wall',
+      min: { x: 2, y: -1, z: -1 },
+      max: { x: 3, y: 1, z: 1 },
+    }],
+  });
+  const zeroHorizon = detectTrajectoryBlockerIntersections(alreadyOverlapping, 0);
+  assert.equal(zeroHorizon.status, 'CONFIRMED');
+  assert.equal(zeroHorizon.intersections.length, 1);
+  assert.equal(zeroHorizon.intersections[0].timeStartSeconds, 0);
+  assert.equal(zeroHorizon.intersections[0].timeEndSeconds, 0);
+});
+
+test('synchronized trajectory sweep includes bodies touching at the initial boundary', () => {
+  const initial = scene({
+    entities: [
+      { ...entity('alice', { x: 0, y: 0, z: 0 }), body: {
+        minOffset: { x: -0.5, y: -0.5, z: -0.5 },
+        maxOffset: { x: 0.5, y: 0.5, z: 0.5 },
+      }, motion: { velocity: { x: 0, y: 0, z: 0 } } },
+      { ...entity('bob', { x: 1, y: 0, z: 0 }), body: {
+        minOffset: { x: -0.5, y: -0.5, z: -0.5 },
+        maxOffset: { x: 0.5, y: 0.5, z: 0.5 },
+      }, motion: { velocity: { x: 0, y: 0, z: 0 } } },
+    ],
+  });
+  const report = detectSimultaneousTrajectoryCollisions(initial, 0);
+  assert.equal(report.status, 'CONFIRMED');
+  assert.equal(report.collisions.length, 1);
+  assert.equal(report.collisions[0].timeStartSeconds, 0);
+  assert.equal(report.collisions[0].timeEndSeconds, 0);
+});
+
+test('kinematic position forecast and blocker-intersection forecast remain separate results', () => {
+  const initial = scene({
+    entities: [{
+      ...entity('runner', { x: 0, y: 0, z: 0 }),
+      motion: { velocity: { x: 2, y: 0, z: 0 } },
+    }],
+    blockers: [{
+      id: 'wall',
+      min: { x: 3, y: -1, z: -1 },
+      max: { x: 4, y: 1, z: 2 },
+    }],
+  });
+
+  const positionForecast = predictSceneAtHorizon(initial, 3, 'scene-predicted');
+  const blockerForecast = detectTrajectoryBlockerIntersections(initial, 3);
+
+  assert.equal(positionForecast.status, 'CONFIRMED');
+  assert.deepEqual(positionForecast.scene.entities[0].position, { x: 6, y: 0, z: 0 });
+  assert.equal(positionForecast.assumption, 'CONSTANT_VELOCITY_NO_COLLISION_RESPONSE');
+
+  assert.equal(blockerForecast.status, 'CONFIRMED');
+  assert.equal(blockerForecast.intersections.length, 1);
+  assert.equal(blockerForecast.intersections[0].entityId, 'runner');
+  assert.equal(blockerForecast.intersections[0].blockerId, 'wall');
+  assert.equal(blockerForecast.intersections[0].timeStartSeconds, 1.5);
+  assert.equal(blockerForecast.intersections[0].timeEndSeconds, 2);
+
+  // A kinematic endpoint is not proof that the path is physically feasible.
+  assert.equal(initial.boundary, 'scene-1');
+  assert.equal(initial.entities[0].position.x, 0);
+});
+
+test('movement snapshot deep-copies nested body and motion data for every entity', () => {
+  const initial = scene({
+    entities: [
+      { ...entity('alice', { x: 0, y: 0, z: 0 }), body: {
+        minOffset: { x: -0.5, y: -0.5, z: 0 },
+        maxOffset: { x: 0.5, y: 0.5, z: 1.8 },
+      }, motion: { velocity: { x: 1, y: 0, z: 0 }, maxSpeed: 3 } },
+      { ...entity('bob', { x: 8, y: 4, z: 0 }), body: {
+        minOffset: { x: -0.4, y: -0.4, z: 0 },
+        maxOffset: { x: 0.4, y: 0.4, z: 1.7 },
+      }, motion: { velocity: { x: 0, y: 1, z: 0 } } },
+    ],
+  });
+
+  const moved = moveEntityInSyntheticScene(initial, 'alice', { x: 1, y: 0, z: 0 }, 'scene-2', { durationSeconds: 1 });
+  assert.equal(moved.status, 'CONFIRMED');
+
+  moved.scene.entities[0].body.minOffset.x = -99;
+  moved.scene.entities[0].motion.velocity.x = 99;
+  moved.scene.entities[1].body.maxOffset.y = 99;
+  moved.scene.entities[1].motion.velocity.y = 99;
+
+  assert.equal(initial.entities[0].body.minOffset.x, -0.5);
+  assert.equal(initial.entities[0].motion.velocity.x, 1);
+  assert.equal(initial.entities[1].body.maxOffset.y, 0.4);
+  assert.equal(initial.entities[1].motion.velocity.y, 1);
+});
+

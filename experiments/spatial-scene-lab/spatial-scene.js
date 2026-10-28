@@ -40,9 +40,11 @@ function validScene(scene) {
         !Number.isFinite(entity.perception.maxDistance) ||
         entity.perception.maxDistance < 0) return false;
   }
+  const blockerIds = new Set();
   for (const blocker of scene.blockers) {
-    if (!blocker || typeof blocker.id !== 'string' ||
+    if (!blocker || typeof blocker.id !== 'string' || !blocker.id || blockerIds.has(blocker.id) ||
         !finiteVector(blocker.min) || !finiteVector(blocker.max)) return false;
+    blockerIds.add(blocker.id);
     for (const axis of ['x', 'y', 'z']) if (blocker.min[axis] > blocker.max[axis]) return false;
   }
   return true;
@@ -152,6 +154,9 @@ function pointVisibility(observer, point, scene) {
   return { visible: true, distance, reason: 'CLEAR_LINE_OF_SIGHT' };
 }
 
+// These nine sample rays are an approximation. They cannot prove that every
+// point on the target body is visible or hidden; result labels say "SAMPLED"
+// to avoid implying continuous geometric coverage.
 function bodySamples(target) {
   if (!target.body) return [target.position];
   const min = target.body.minOffset;
@@ -199,14 +204,14 @@ function see(observer, target, scene) {
   if (visibleCount === results.length) {
     return {
       status: 'CONFIRMED', visible: true, distance: originDistance,
-      reason: 'CLEAR_LINE_OF_SIGHT', visibilityExtent: 'FULL',
+      reason: 'CLEAR_LINE_OF_SIGHT', visibilityExtent: 'SAMPLED_ALL',
       visibleSampleCount: visibleCount, sampleCount: results.length,
     };
   }
   if (visibleCount > 0) {
     return {
       status: 'CONFIRMED', visible: true, distance: originDistance,
-      reason: 'PARTIAL_LINE_OF_SIGHT', visibilityExtent: 'PARTIAL',
+      reason: 'PARTIAL_LINE_OF_SIGHT', visibilityExtent: 'SAMPLED_PARTIAL',
       visibleSampleCount: visibleCount, sampleCount: results.length,
     };
   }
@@ -216,7 +221,7 @@ function see(observer, target, scene) {
       : 'OUTSIDE_FIELD_OF_VIEW';
   return {
     status: 'CONFIRMED', visible: false, distance: originDistance, reason,
-    visibilityExtent: 'NONE', visibleSampleCount: 0, sampleCount: results.length,
+    visibilityExtent: 'SAMPLED_NONE', visibleSampleCount: 0, sampleCount: results.length,
   };
 }
 
@@ -317,10 +322,21 @@ export function moveEntityInSyntheticScene(scene, entityId, nextPosition, nextBo
   const nextScene = {
     ...scene,
     boundary: nextBoundary,
-    entities: scene.entities.map((entity) => entity.id === entityId
-      ? { ...entity, position: { ...nextPosition }, forward: { ...nextForward } }
-      : { ...entity, position: { ...entity.position }, forward: { ...entity.forward },
-          perception: { ...entity.perception } }),
+    entities: scene.entities.map((entity) => ({
+      ...entity,
+      position: entity.id === entityId ? { ...nextPosition } : { ...entity.position },
+      forward: entity.id === entityId ? { ...nextForward } : { ...entity.forward },
+      perception: { ...entity.perception },
+      ...(entity.body ? {
+        body: {
+          minOffset: { ...entity.body.minOffset },
+          maxOffset: { ...entity.body.maxOffset },
+        },
+      } : {}),
+      ...(entity.motion ? {
+        motion: { ...entity.motion, velocity: { ...entity.motion.velocity } },
+      } : {}),
+    })),
     blockers: scene.blockers.map((blocker) => ({
       ...blocker, min: { ...blocker.min }, max: { ...blocker.max },
     })),
@@ -401,6 +417,69 @@ export function detectSimultaneousTrajectoryCollisions(scene, horizonSeconds) {
     horizonSeconds,
     assumption: 'CONSTANT_VELOCITY_SYNCHRONIZED_AABB_SWEEP',
     collisions,
+  };
+}
+
+/**
+ * Detect entity-body intersections with static blockers over a bounded synthetic
+ * horizon. This is a conservative AABB sweep under constant velocity; it does
+ * not model acceleration, turning, moving blockers, or collision response.
+ */
+export function detectTrajectoryBlockerIntersections(scene, horizonSeconds) {
+  if (!validScene(scene) || !Number.isFinite(horizonSeconds) ||
+      horizonSeconds < 0 || horizonSeconds > 60) {
+    return { status: 'UNKNOWN', reason: 'INVALID_BLOCKER_PREDICTION_REQUEST' };
+  }
+  if (scene.entities.some((entity) => !entity.motion || !finiteVector(entity.motion.velocity))) {
+    return { status: 'UNKNOWN', reason: 'MOTION_DATA_INCOMPLETE' };
+  }
+
+  const intersections = [];
+  for (const entity of scene.entities) {
+    const body = bodyOffsets(entity);
+    const end = {
+      x: entity.position.x + entity.motion.velocity.x * horizonSeconds,
+      y: entity.position.y + entity.motion.velocity.y * horizonSeconds,
+      z: entity.position.z + entity.motion.velocity.z * horizonSeconds,
+    };
+    for (const blocker of scene.blockers) {
+      const expanded = {
+        min: {
+          x: blocker.min.x - body.maxOffset.x,
+          y: blocker.min.y - body.maxOffset.y,
+          z: blocker.min.z - body.maxOffset.z,
+        },
+        max: {
+          x: blocker.max.x - body.minOffset.x,
+          y: blocker.max.y - body.minOffset.y,
+          z: blocker.max.z - body.minOffset.z,
+        },
+      };
+      const interval = segmentAabbIntersectionInterval(entity.position, end, expanded);
+      if (interval) {
+        intersections.push({
+          entityId: entity.id,
+          blockerId: blocker.id,
+          status: 'POSSIBLE',
+          reason: 'CONSTANT_VELOCITY_SWEPT_BODY_OVERLAP',
+          timeStartSeconds: interval.enter * horizonSeconds,
+          timeEndSeconds: interval.exit * horizonSeconds,
+          horizonSeconds,
+        });
+      }
+    }
+  }
+  intersections.sort((a, b) =>
+    a.timeStartSeconds - b.timeStartSeconds ||
+    a.entityId.localeCompare(b.entityId) ||
+    a.blockerId.localeCompare(b.blockerId));
+
+  return {
+    status: 'CONFIRMED',
+    model: SPATIAL_SCENE_MODEL,
+    horizonSeconds,
+    assumption: 'CONSTANT_VELOCITY_STATIC_BLOCKER_AABB_SWEEP',
+    intersections,
   };
 }
 
