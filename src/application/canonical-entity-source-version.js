@@ -9,7 +9,10 @@ const canonicalSourceVersion = (value) => typeof value === 'string'
   && /^core-entity-v1:[1-9][0-9]*$/.test(value)
   && Number.isSafeInteger(Number(value.slice('core-entity-v1:'.length)));
 
-/** Opaque Core-issued token for one active canonical entity projection. */
+/**
+ * @internal Core/Provider boundary helper. Do not treat this token parser as
+ * a standalone authorization API; use the trusted validator factories below.
+ */
 export function canonicalEntitySourceVersion(entity) {
   if (!object(entity) || !canonicalSourceVersion(entity.source_version)) return null;
   return entity.source_version;
@@ -94,6 +97,8 @@ export function createCanonicalEntitySourceVersionValidator(engine) {
 
  
 /**
+ * @internal Core/Provider boundary. The returned callback must be wired only
+ * from trusted application configuration, never selected by an HTTP caller.
  * Complete-inventory attestation for the direct canonical-entity source slice.
  * Reads every Core entity through snapshot-pinned pages, then verifies that each
  * Provider record is backed by an active entity with the exact current token.
