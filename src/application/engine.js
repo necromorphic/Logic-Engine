@@ -349,12 +349,6 @@ export class LogicEngine {
             }
           }
         }
-        for (const milestone of toRetry) {
-          const oldTrigger = this.getTimeTrigger(id, milestone.trigger_id);
-          if (oldTrigger?.status === 'pending') {
-            this.cancelTimeTrigger(id, milestone.trigger_id, 'process_reconciliation_retry', { processLifecycle: true });
-          }
-        }
         const nextVersion = current.version + 1;
         const newIds = new Map(toRetry.map((milestone) => [milestone.milestone_id,
           'process-trigger:' + hashRequest({
@@ -364,6 +358,52 @@ export class LogicEngine {
         const triggerIdByMilestone = new Map(current.milestones.map((milestone) => [
           milestone.milestone_id, newIds.get(milestone.milestone_id) || milestone.trigger_id,
         ]));
+        // Validate the complete candidate registered schedule before mutating
+        // trigger or process state. This reuses Time's canonical dependency,
+        // temporal-order, interruption and same-coordinate conflict rules.
+        const retryTriggerIds = new Set(toRetry.map((milestone) => milestone.trigger_id));
+        const candidateTriggers = this.listTimeTriggers(id).map((trigger) =>
+          retryTriggerIds.has(trigger.trigger_id) ? { ...trigger, status: 'cancelled' } : trigger);
+        candidateTriggers.push(...toRetry.map((milestone) => ({
+          trigger_id: newIds.get(milestone.milestone_id),
+          world_id: id,
+          due_coordinate: dueById.get(milestone.milestone_id),
+          status: 'pending',
+          dependencies: milestone.prerequisites.map((prerequisiteId) => triggerIdByMilestone.get(prerequisiteId)),
+          read_set: milestone.read_set,
+          write_set: milestone.write_set,
+          processing_mode: 'exact',
+          interrupt_after_coordinate: milestone.interrupt_after_coordinate,
+          payload: { process_id: processId, milestone_id: milestone.milestone_id, event: milestone.event },
+        })));
+        const scheduleEnd = Math.max(world.game_time_coordinate,
+          ...candidateTriggers.filter((trigger) => trigger.status === 'pending').map((trigger) => trigger.due_coordinate));
+        try {
+          const candidatePlan = planDueWork({
+            world_id: id,
+            from_coordinate: world.game_time_coordinate,
+            to_coordinate: scheduleEnd,
+            triggers: candidateTriggers,
+          });
+          if (candidatePlan.status === 'blocked') {
+            throw new EngineError('PROCESS_RECONCILE_SCHEDULE_BLOCKED',
+              'The proposed process schedule has unresolved trigger dependencies.', 409,
+              { blocked: candidatePlan.blocked });
+          }
+        } catch (error) {
+          if (error instanceof EngineError && error.code === 'PROCESS_RECONCILE_SCHEDULE_BLOCKED') throw error;
+          throw new EngineError('PROCESS_RECONCILE_SCHEDULE_CONFLICT',
+            'The proposed schedule conflicts with registered due-work constraints.', 409,
+            { cause_code: error.code || 'INVALID_DUE_WORK_REQUEST' });
+        }
+        // The full proposed schedule is valid; apply cancellation and registration
+        // inside the surrounding transaction so a failed write cannot leave a partial plan.
+        for (const milestone of toRetry) {
+          const oldTrigger = this.getTimeTrigger(id, milestone.trigger_id);
+          if (oldTrigger?.status === 'pending') {
+            this.cancelTimeTrigger(id, milestone.trigger_id, 'process_reconciliation_retry', { processLifecycle: true });
+          }
+        }
         for (const milestone of toRetry) {
           this.registerTimeTrigger(id, {
             trigger_id: newIds.get(milestone.milestone_id),
