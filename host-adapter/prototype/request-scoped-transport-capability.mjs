@@ -41,10 +41,14 @@ export function createRequestScopedTransportCapability({
 
   const copiedHeaders = Object.create(null);
   for (const [name, value] of Object.entries(headers)) {
-    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name) || typeof value !== 'string') {
-      throw new TypeError('Provider headers must be normalized string pairs');
+    const normalizedName = name.toLowerCase();
+    if (!/^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/.test(name)
+      || typeof value !== 'string'
+      || /[\\r\\n]/.test(value)
+      || Object.hasOwn(copiedHeaders, normalizedName)) {
+      throw new TypeError('Provider headers must be unique normalized string pairs without line breaks');
     }
-    copiedHeaders[name.toLowerCase()] = value;
+    copiedHeaders[normalizedName] = value;
   }
   Object.freeze(copiedHeaders);
 
