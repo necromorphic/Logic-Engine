@@ -181,6 +181,15 @@ test('request-bound capability permits only append/select transitions and reject
       errors: afterSelectInventory.errors, mutationJournal: afterSelectInventory.mutationJournal,
     }));
 
+    const bodyToken = await prepare(selectPayload);
+    const bytesBeforeBodyMismatch = await readFile(chatPath, 'utf8');
+    const alteredBody = { ...selectPayload, ch_name: 'different-name' };
+    const bodyMismatch = await invokeSave(alteredBody, bodyToken.token);
+    assert.equal(bodyMismatch.reachedNativeSave, false);
+    assert.equal(bodyMismatch.response.statusCode, 409);
+    assert.match(String(bodyMismatch.response.body), /HOST_SAVE_CAPABILITY_BODY_MISMATCH/);
+    assert.equal(await readFile(chatPath, 'utf8'), bytesBeforeBodyMismatch);
+
     // Append-only version creation is allowed; previous IDs/digests/ancestry remain intact.
     const appendPayload = payload([appendedMessage]);
     const appendCapability = await prepare(appendPayload);
