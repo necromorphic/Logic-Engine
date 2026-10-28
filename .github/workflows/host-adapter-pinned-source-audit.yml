@@ -18,8 +18,10 @@ defaults:
     shell: cmd
 
 jobs:
+  # Hosted Windows verifies platform-specific source behavior without depending on
+  # the target PC's runner being online; target-PC/ACL/restore evidence remains separate.
   pinned-source-audit:
-    runs-on: [self-hosted, Windows, X64]
+    runs-on: windows-latest
     timeout-minutes: 15
     steps:
       - name: Checkout Logic-Engine
