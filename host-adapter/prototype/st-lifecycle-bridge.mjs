@@ -321,15 +321,23 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
         throw Error('NON_READY: message deletion left missing or duplicate surviving identities');
       }
       let priorIndex = 0;
+      const survivingPriorIndexes = [];
       for (const id of currentExistingIds) {
         while (priorIndex < priorMessageIds.length && priorMessageIds[priorIndex] !== id) priorIndex++;
         if (priorIndex >= priorMessageIds.length) {
           throw Error('NON_READY: message deletion also introduced or reordered message identities');
         }
+        survivingPriorIndexes.push(priorIndex);
         priorIndex++;
       }
-      if (currentExistingIds.length >= priorMessageIds.length) {
+      const survivingIndexes = new Set(survivingPriorIndexes);
+      const removedPriorIndexes = priorMessageIds.map((_, index) => index)
+        .filter(index => !survivingIndexes.has(index));
+      if (!removedPriorIndexes.length) {
         throw Error('NON_READY: delete-message checkpoint did not remove a prior message identity');
+      }
+      if (removedPriorIndexes.at(-1) - removedPriorIndexes[0] + 1 !== removedPriorIndexes.length) {
+        throw Error('NON_READY: delete-message checkpoint removed non-contiguous prior message identities');
       }
     } else if (currentMessageIds.length !== priorMessageIds.length
       || currentMessageIds.some((id, index) => id !== priorMessageIds[index])) {
