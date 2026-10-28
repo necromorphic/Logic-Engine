@@ -80,4 +80,15 @@ Dispatch path discovery under #264 may proceed in parallel, but no unapproved or
 2. No acquisition-specific lifecycle proof for replay, replacement, invalidation, independent support and reconstruction.
 3. Safe disclosure is governed separately by #140/#264/#356; this workstream does not claim that gate is implemented or passed.
 
+### WP-1 source-audit result (main at 338a4501b972117538f4d6e92bb25f09d1b53111)
+
+The first source-path check now has concrete evidence:
+
+- `docs/04-world-pack-format.md` explicitly says the complete World Pack format is not finalized and the current schemas do not constitute a production loader or full conformance validation. Its sample `knowledge_channels` and `propose_knowledge` shape is illustrative, not executable evidence.
+- `src/application/engine.js` exposes `LogicEngine.createWorld()` and canonical event/effect paths; the audited code does not establish an author/import loader that takes a world pack and explicitly assigns initial knowledge to a canonical subject.
+- `src/core/mechanic-effect-translator.js` recognizes `propose_knowledge` as a known intent but only supports `create_entity`, `update_attribute`, and `assert_fact`. It rejects `propose_knowledge` as unsupported; the `assert_fact` path writes canonical `fact.set`, not subject acquisition.
+- Existing tests such as `tests/core.test.js` and `tests/snapshot-read.test.js` construct worlds and entities through test helpers/canonical events. They do not establish a production initial-knowledge assignment contract.
+
+**WP-1 disposition: BLOCKED pending Core design decision.** Do not retrofit subject acquisition into `fact.set`, the illustrative World Pack shape, or a context manifest. Core must choose whether to add an explicit assignment to a reviewed author/import contract or introduce the smallest separately reviewed Core-owned representation. The current source audit supports the absence of a demonstrated path in inspected main; it does not prove that no deployment-specific loader exists.
+
 These findings are bounded to the inspected repository state; revisit them if production paths change. A reusable identity or snapshot primitive is not proof that acquisition is implemented.
