@@ -24,6 +24,28 @@ function pointDistance(a, b) {
   return Number.isFinite(distance) ? { status: 'CONFIRMED', distance } : { status: 'UNKNOWN' };
 }
 
+function relativeDelta(a, b) {
+  const distance = pointDistance(a, b);
+  if (distance.status !== 'CONFIRMED') return distance;
+  return {
+    status: 'CONFIRMED',
+    delta: { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z },
+  };
+}
+
+function axisRelation(a, b, axis) {
+  if (!['x', 'y', 'z'].includes(axis)) return { status: 'UNSUPPORTED' };
+  const distance = pointDistance(a, b);
+  if (distance.status !== 'CONFIRMED') return distance;
+  const delta = b[axis] - a[axis];
+  return {
+    status: 'CONFIRMED',
+    axis,
+    relation: delta === 0 ? 'SAME' : delta > 0 ? 'GREATER' : 'LESS',
+    delta,
+  };
+}
+
 function nearest(point, candidates, { completeSet }) {
   if (!point || point.status !== 'CONFIRMED' || !Array.isArray(candidates) || !candidates.length) {
     return { status: 'UNKNOWN' };
@@ -83,6 +105,34 @@ test('missing axes and unsupported frame or units never become zero coordinates'
   assert.equal(syntheticConfirmedPoint({ worldId: 'w', entityId: 'a', x: 0, y: 0, z: 0, frame: 'other-frame', boundary: 'c1' }), null);
   assert.equal(syntheticConfirmedPoint({ worldId: 'w', entityId: 'a', x: 0, y: 0, z: 0, units: 'meters', boundary: 'c1' }), null);
   assert.deepEqual(pointDistance(null, null), { status: 'UNKNOWN' });
+});
+
+test('relative delta and axis relation use the declared coordinate axes without guessing labels', () => {
+  const a = syntheticConfirmedPoint({ worldId: 'w', entityId: 'a', x: 2, y: 5, z: 1, boundary: 'c1' });
+  const b = syntheticConfirmedPoint({ worldId: 'w', entityId: 'b', x: 7, y: 3, z: 4, boundary: 'c1' });
+
+  assert.deepEqual(relativeDelta(a, b), {
+    status: 'CONFIRMED',
+    delta: { x: 5, y: -2, z: 3 },
+  });
+  assert.deepEqual(axisRelation(a, b, 'x'), {
+    status: 'CONFIRMED', axis: 'x', relation: 'GREATER', delta: 5,
+  });
+  assert.deepEqual(axisRelation(a, b, 'y'), {
+    status: 'CONFIRMED', axis: 'y', relation: 'LESS', delta: -2,
+  });
+  assert.deepEqual(axisRelation(a, b, 'z'), {
+    status: 'CONFIRMED', axis: 'z', relation: 'GREATER', delta: 3,
+  });
+  assert.equal(axisRelation(a, b, 'north').status, 'UNSUPPORTED');
+});
+
+test('relative delta and axis relation refuse cross-boundary or unknown positions', () => {
+  const a = syntheticConfirmedPoint({ worldId: 'w', entityId: 'a', x: 0, y: 0, z: 0, boundary: 'c1' });
+  const b = syntheticConfirmedPoint({ worldId: 'w', entityId: 'b', x: 1, y: 0, z: 0, boundary: 'c2' });
+
+  assert.equal(relativeDelta(a, b).status, 'UNSUPPORTED');
+  assert.equal(axisRelation(null, b, 'x').status, 'UNKNOWN');
 });
 
 test('nearest preserves ties and states when the candidate set is bounded', () => {
