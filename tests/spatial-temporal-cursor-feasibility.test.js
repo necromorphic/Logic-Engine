@@ -175,3 +175,66 @@ test('rollback invalidates the affected historical boundary and makes the stored
   assert.equal(firstCursorIsValid, false);
   assert.equal(checkpointMatchesCurrentWorld, false);
 });
+
+
+test('ordinary world writes after TimeEngine completion do not make an old segment cursor current', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-spatial-cursor-intervening-write-'));
+  const path = join(directory, 'state.sqlite');
+  let store = new SQLiteStore(path);
+  let engine = new LogicEngine(store);
+  const worldId = 'spatial-cursor-intervening-write-world';
+
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    try { store.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  engine.registerTimeTrigger(worldId, trigger('intervening-write-at-10', 10000, 'intervening-time-entity'));
+  const operation = engine.startTimeAdvance(worldId, {
+    idempotency_key: 'spatial-cursor-intervening-write-operation',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(operation.status, 'completed');
+
+  const segments = readSegmentRows(store, worldId, operation.operation_id);
+  const mapped = assertSegmentCursorMapping(store, worldId, segments);
+  assert.equal(mapped.length, 1);
+  const boundary = mapped[0].boundaryCursor;
+  assert.equal(Number.isInteger(boundary.committed_revision), true);
+  assert.equal(Number.isInteger(boundary.commit_sequence), true);
+
+  const beforeWrite = engine.getState(worldId);
+  assert.equal(operation.current_world_revision, beforeWrite.world_revision);
+
+  engine.commitEvent(worldId, {
+    idempotency_key: 'spatial-cursor-intervening-ordinary-write',
+    turn_id: 'spatial-cursor-intervening-ordinary-write-turn',
+    event_type: 'test.ordinary-write',
+    expected_revision: beforeWrite.world_revision,
+    effects: [{
+      kind: 'entity.upsert',
+      entity_id: 'ordinary-write-entity',
+      entity_type: 'object',
+      attributes: { source: 'intervening-write-test' },
+    }],
+  });
+
+  const afterWrite = engine.getState(worldId);
+  const storedOperation = engine.getTimeAdvanceOperation(worldId, operation.operation_id);
+  assert.ok(afterWrite.world_revision > beforeWrite.world_revision);
+  assert.notEqual(storedOperation.current_world_revision, afterWrite.world_revision);
+
+  const persistedBoundary = store.db.prepare(
+    'SELECT committed_revision,commit_sequence,validity FROM world_events WHERE world_id=? AND event_id=?',
+  ).get(worldId, boundary.event_id);
+  assert.equal(persistedBoundary.validity, 'valid');
+  assert.equal(persistedBoundary.committed_revision, boundary.committed_revision);
+  assert.equal(persistedBoundary.commit_sequence, boundary.commit_sequence);
+  assert.notEqual(persistedBoundary.committed_revision, afterWrite.world_revision);
+});
