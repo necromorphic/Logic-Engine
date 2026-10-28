@@ -1,7 +1,7 @@
 diff --git a/public/script.js b/public/script.js
 --- a/public/script.js
 +++ b/public/script.js
-@@ -11,3 +11,10 @@
+@@ -12,3 +12,10 @@
  } from './lib.js';
 +import { HostLifecycleJournal } from './scripts/logic-engine-lifecycle/lifecycle-journal.mjs';
 +import { createStLifecycleBridge, createUnavailableStLifecycleBridge } from './scripts/logic-engine-lifecycle/st-lifecycle-bridge.mjs';
