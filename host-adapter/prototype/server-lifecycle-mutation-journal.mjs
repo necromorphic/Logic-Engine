@@ -38,6 +38,16 @@ const stableValue = value => {
     }
     return value;
 };
+function hasEnrolledChatUnderCharacter(registry, avatarUrl) {
+    if (typeof avatarUrl !== 'string' || !avatarUrl) return false;
+    const characterDirectory = path.parse(avatarUrl).name;
+    if (!characterDirectory || characterDirectory === '.' || characterDirectory === '..') return false;
+    const prefix = characterDirectory + '/';
+    return registry.conversations.some(conversation => conversation.domain === 'chats'
+        && typeof conversation.sourcePath === 'string'
+        && conversation.sourcePath.startsWith(prefix));
+}
+
 const safeUserDirectories = request => {
     const directories = request.user?.directories;
     const roots = [
