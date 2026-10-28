@@ -66,10 +66,13 @@ test('pinned ST enrollment binds the exact persisted source path before register
 
 test('production middleware requires persisted version inventory and journals version-level deltas', async () => {
   const patch = await readFile(patchPath, 'utf8');
+  const journalPath = fileURLToPath(new URL('../server-lifecycle-mutation-journal.mjs', import.meta.url));
+  const journal = await readFile(journalPath, 'utf8');
   assert.match(patch, /createHostLifecycleMutationMiddleware\(\{ requirePersistedInventory: true \}\)/);
-  assert.match(patch, /beforeConversationInventories/);
-  assert.match(patch, /afterConversationInventories/);
-  assert.match(patch, /versionChanges: diffConversationInventories\(before, after\)/);
+  assert.match(journal, /beforeConversationInventories/);
+  assert.match(journal, /afterConversationInventories/);
+  assert.match(journal, /const versionChanges = diffConversationInventories\(before, after\)/);
+  assert.match(journal, /\n\s+versionChanges,/);
 });
 
 
