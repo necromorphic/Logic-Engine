@@ -82,6 +82,7 @@ test('cross-connection revoke/re-grant during source validation invalidates in-f
     record_version: record.record_version,
     source_kind: record.source_kind,
     source_entity_id: record.source_entity_id,
+    source_version: record.source_version,
   });
   await validationStarted;
 
@@ -173,6 +174,7 @@ test('cross-connection query revoke/re-grant during source validation invalidate
     record_version: record.record_version,
     source_kind: record.source_kind,
     source_entity_id: record.source_entity_id,
+    source_version: record.source_version,
   });
   await validationStarted;
 
