@@ -157,7 +157,7 @@ test('movement rejects a path through a blocker without mutating the source scen
     }],
   });
   const moved = moveEntityInSyntheticScene(initial, 'alice', { x: 8, y: 0, z: 0 }, 'scene-2');
-  assert.deepEqual(moved, { status: 'BLOCKED', reason: 'PATH_INTERSECTS_BLOCKER' });
+  assert.deepEqual(moved, { status: 'BLOCKED', reason: 'BODY_PATH_INTERSECTS_BLOCKER' });
   assert.deepEqual(initial.entities[0].position, { x: 0, y: 0, z: 0 });
 });
 
