@@ -624,7 +624,7 @@ index 0000000..0000000
 +import { constants } from 'node:fs';
 +import { mkdir, open, readFile, lstat, realpath, rename, writeFile } from 'node:fs/promises';
 +import path from 'node:path';
-+import { scanHostArtifactRoots } from './server-inventory-scanner.mjs';
++import { scanHostArtifactRoots } from './logic-engine-host-inventory.mjs';
 +import { scanPersistedConversationInventories } from './persisted-conversation-inventory.mjs';
 +
 +const MUTATIONS = new Map([
