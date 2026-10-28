@@ -84,3 +84,35 @@ The cross-block contract was compared with these current-main documents and sour
 ### Evidence discipline
 
 This refresh is a source inspection, not an end-to-end run. No integrated Host → Provider → Core → NPC trace was executed as part of this review. The Runtime workflow for contract PR #631 has a passing `npc-boundary` job while the full `test` job remains queued at the latest observed check. Therefore the contract PR remains documentation-only and production Memory → NPC remains **NO-GO / DISABLED / FAIL-CLOSED**.
+
+
+## Test-location map — test existence is not a pass
+
+The following are current-main test files identified by repository listing. This table maps the contract to likely relevant suites; it does **not** assert that every scenario in the new contract is already covered, nor that these files passed on the latest commit.
+
+| Contract area | Current-main test files | Coverage limit to preserve |
+|---|---|---|
+| Adapter ↔ actor binding | `tests/actor-binding.test.js`, `tests/authorized-read-api.test.js`, `tests/authorized-read-service.test.js` | These establish the existing binding/read seam; they do not prove a complete NPC decision envelope or Memory → NPC disclosure |
+| Canonical snapshot and revision | `tests/snapshot-read.test.js`, `tests/core.test.js`, `tests/causality-contract.test.js` | Does not by itself establish actor-relative acquisition or prompt-safe filtering |
+| Proposal lifecycle / API | `tests/api.test.js`, `tests/api-least-privilege-policy.test.js`, `tests/core.test.js` | Does not prove NPC semantic alignment, player-agency checks, or that every NPC proposal reaches the same protected commit route |
+| Relationship state and interpretation | `tests/relationship-transition-core.test.js`, `tests/relationship-assess-interaction-interpretations.test.js`, `tests/relationship-evaluate-candidate.test.js` | Does not prove the full actor-specific Relationship feed into the NPC decision envelope |
+| Memory candidate admission and final revalidation | `tests/memory-npc-consumer.test.js`, `tests/npc-memory-candidate-eligibility.test.js` | Consumer is not wired to the public API; final revalidation is not a transport lease; Core initial-assignment read is missing |
+| Provider source lifecycle / revocation | `tests/memory-provider-core-integration.test.js`, `tests/memory-provider-query-revocation-race.test.js`, `tests/memory-provider-cross-connection-revocation-race.test.js`, `tests/memory-provider-corrupt-lineage.test.js`, `tests/accepted-head-authority.test.js` | Does not prove Host inventory completeness, final-body binding, or production sole-egress |
+| Host version inventory | `tests/host-version-digest-ledger.test.js`, `tests/host-version-ledger-api.test.js`, `tests/memory-dispatch-gateway.test.js` | Digest ledger is not proof of complete Host source inventory; deployment-level sole-egress and ACL evidence remain outstanding |
+| NPC goal/intention/plan helpers | `tests/npc-autonomous-intention-selector.test.js`, `tests/npc-goal-lifecycle.test.js`, `tests/npc-plan-progress.test.js` | Pure helper behavior only; no autonomous scheduling, durable goal persistence, action discovery, or commit reconciliation |
+| Process/time triggers | `tests/process-api.test.js`, `tests/process-contract.test.js`, `tests/process-manager.integration.test.js`, `tests/process-time-contract.test.js`, `tests/time-scheduler.test.js`, `tests/time-trigger-registry.test.js` | Generic process/time support is not an NPC-specific off-screen scheduler and must not silently advance world time |
+| Storage migration/recovery | `tests/storage-migrations.test.js`, `tests/core-transaction-recovery.test.js`, `tests/memory-provider-coordinated-restore.characterization.test.js` | Does not yet prove the proposed Core-owned acquisition record's causal lifecycle, migration, rollback, and recovery behavior because that record is not implemented |
+| Final narrative/output | No single current-main suite was identified as proving the exact authorized NPC context through final serialization and delivery | A real serializer/outbound integration test is still required |
+
+### Immediate next implementation gate
+
+The next bounded Core-owned work item is **Stage B: initial/imported acquisition and provenance**, after confirming the already-existing actor-binding seam is the chosen trusted identity source. It must not start by connecting raw Memory candidates directly to NPC.
+
+Minimum acceptance evidence for that work item:
+
+1. A Core-owned record distinguishes canonical truth from subject-relative acquisition.
+2. Only `author_initial` and `imported` are supported; all other acquisition kinds return explicit unsupported/non-ready.
+3. The record binds world, subject, source/proposition, acquisition kind, provenance, validity, and any required visibility restriction.
+4. The implementation uses Core's existing revision/event/causal lifecycle or documents and tests a compatible Core-owned lifecycle; no parallel NPC store or revision counter.
+5. Tests cover cross-world/unknown/destroyed subjects, duplicate/idempotent assignment, missing or malformed provenance, source invalidation, snapshot changes, rollback/replay, and unauthorized reads.
+6. Until Stage B and Stage C are implemented and tested, the Memory candidate consumer must continue to reject initial/imported rows without Core assignment proof, and production Memory → NPC remains disabled.
