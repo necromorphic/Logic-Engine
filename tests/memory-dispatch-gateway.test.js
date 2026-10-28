@@ -471,10 +471,15 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
 test('Google transport invokes fetch synchronously and returns a response promise', async () => {
   let upstreamCalls = 0;
   let responseForwarded = false;
+  let observedUrl;
+  let observedInit;
+  const exactSerializedBody = '{"contents":[]}';
   const transport = createGoogleAiStudioTransport({
     apiKey: 'google-ai-studio-test-key-not-real',
-    fetchImpl: () => {
+    fetchImpl: (url, init) => {
       upstreamCalls += 1;
+      observedUrl = String(url);
+      observedInit = init;
       return Promise.resolve(new Response('ok', { status: 200 }));
     },
   });
@@ -482,7 +487,7 @@ test('Google transport invokes fetch synchronously and returns a response promis
     route: 'google-ai-studio-chat-completions',
     model: 'gemini-test-model',
     stream: false,
-    body: '{"contents":[]}',
+    body: exactSerializedBody,
     signal: undefined,
     forwardResponse: async () => { responseForwarded = true; },
   });
@@ -490,6 +495,11 @@ test('Google transport invokes fetch synchronously and returns a response promis
   assert.equal(prepared.target, 'https://generativelanguage.googleapis.com/v1beta/models/gemini-test-model:generateContent');
   const handoff = prepared.start();
   assert.equal(upstreamCalls, 1, 'upstream fetch must be initiated synchronously by start()');
+  assert.equal(observedUrl, prepared.target, 'the actual fetch URL must equal the validated target');
+  assert.equal(observedInit.method, 'POST');
+  assert.equal(observedInit.body, exactSerializedBody, 'transport must send the exact serialized body without reserialization');
+  assert.equal(observedInit.headers['x-goog-api-key'], 'google-ai-studio-test-key-not-real');
+  assert.equal(observedInit.headers['content-type'], 'application/json');
   assert.equal(handoff.started, true);
   assert.equal(typeof handoff.response?.then, 'function');
   await handoff.response;
