@@ -361,14 +361,17 @@ diff --git a/public/script.js b/public/script.js
 +    await lifecycleBridge.afterMutation('delete-swipe', { removedSwipeIndex: swipeId, selectedMessageIndex: messageId });
  
      return newSwipeId;
-@@ -9412,28 +9531,30 @@
+@@ -9412,28 +9531,36 @@
 -export async function saveChatConditional() {
 +export async function saveChatConditional({ throwOnError = false } = {}) {
      try {
          await waitUntilCondition(() => !isChatSaving, DEFAULT_SAVE_EDIT_TIMEOUT, 100);
      } catch {
          console.warn('Timeout waiting for chat to save');
-+        if (throwOnError) throw new Error('NON_READY: timed out waiting for enrolled chat save');
++        if (throwOnError) {
++            if (typeof toastr !== 'undefined') toastr.error('This change was not saved. Reload this chat to restore the last persisted state.');
++            throw new Error('NON_READY: timed out waiting for enrolled chat save');
++        }
          return;
      }
  
@@ -388,7 +391,10 @@ diff --git a/public/script.js b/public/script.js
          saveItemizedPrompts(getCurrentChatId());
      } catch (error) {
          console.error('Error saving chat', error);
-+        if (throwOnError) throw error;
++        if (throwOnError) {
++            if (typeof toastr !== 'undefined') toastr.error('This change was not saved. Reload this chat to restore the last persisted state.');
++            throw error;
++        }
      } finally {
          isChatSaving = false;
      }
