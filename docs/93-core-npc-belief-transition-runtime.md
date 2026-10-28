@@ -1,6 +1,6 @@
 # Core-Owned NPC Belief Transition Runtime
 
-**Status:** implementation candidate in draft PR #667. Not production-enabled. No prompt dispatch or HTTP route is added.
+**Status:** implementation candidate in draft PR #670, with canonical-event persistence follow-up in PR #671. Not production-enabled. No prompt dispatch or HTTP route is added.
 
 ## Ownership
 
@@ -17,7 +17,7 @@
 3. Validate every proposed evidence reference against the visible acquisition set.
 4. Require both support and contradiction references when the proposal marks an unresolved conflict. Contradictory evidence cannot be forced into a winning stance by this reducer.
 5. Recheck world revision and commit sequence immediately before returning the context.
-6. Persist an accepted transition through `recordNpcBeliefTransition()` as a no-effect canonical Core event plus a Core-owned SQLite projection row. The row is linked to the event and is filtered out if that transition event is rolled back.
+6. Persist an accepted transition through `recordNpcBeliefTransition()` as a typed `npc.belief.transition` effect inside the canonical Core event. The SQLite table is a derived projection rebuilt from valid canonical event effects; it is not the only copy of transition data. Generic event callers cannot forge this privileged effect.
 7. `getNpcBeliefState()` returns the latest valid transition and compares its evidence references with current actor acquisitions. Source rollback/revocation makes support `unsupported` or `partially_supported`; it does not silently rewrite the character's stance or delete its history.
 
 ## API contract (internal Core methods only)
@@ -33,13 +33,15 @@ Belief stances are qualitative: `believes_true`, `believes_false`, `suspects_tru
 ## Failure behavior
 
 - Missing visibility authorizer: no context.
-- Visibility authorizer error or malformed decision: no context.
+- Visibility authorizer error, accessor-backed decision, or malformed decision: no context.
 - Actor, purpose, snapshot, or evidence mismatch: reject.
 - Retrieved or unacquired evidence: reject.
 - Conflicting evidence with a non-conflict stance: reject.
 - Stale snapshot: reject and require a fresh read.
 - Source invalidation: preserve transition history; mark support as unsupported/partial rather than auto-correcting the belief.
 - Replayed idempotency key with identical request: return the existing transition. Reuse with different request: reject.
+- Projection deletion/rebuild: reconstruct transition rows from canonical event effects. Rolling back the transition event removes it from the rebuilt projection; rolling back source evidence leaves valid belief history and reports reduced support.
+- Accessor-backed or proxy-backed model input fails closed before executing getters or proxy traps.
 
 ## Boundaries still not enabled
 
