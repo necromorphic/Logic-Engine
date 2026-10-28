@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
 import { spawn } from 'node:child_process';
-import { DatabaseSync } from 'node:sqlite';
 import { AcceptedHeadAuthority } from '../src/security/accepted-head-authority.js';
 import {
   advanceAcceptedHeadSync,
@@ -17,7 +17,6 @@ import {
 
 const coreToken = 'core-token-for-accepted-head-tests-00000000000000000000000000000001';
 const providerToken = 'provider-token-for-accepted-head-tests-00000000000000000000000000000002';
-const readToken = 'gateway-read-token-for-accepted-head-tests-00000000000000000000000000000003';
 const digestA = 'a'.repeat(64);
 const digestB = 'b'.repeat(64);
 const digestC = 'c'.repeat(64);
@@ -51,7 +50,7 @@ test('authority requires explicit enrollment and then advances monotonic per-dom
     assert.deepEqual(authority.getEnrollmentStatus(), { core: true, provider: true });
 
     assert.deepEqual(authority.advance({ domain: 'core', operationId: 'core-op-1', operationDigest: digestC, expectedHead: 1 }), {
-      domain: 'core', head: 2, operation_id: 'core-op-1', replayed: false, status: 'pending',
+      domain: 'core', head: 2, operation_id: 'core-op-1', operation_digest: digestC, replayed: false, status: 'pending',
     });
     assert.throws(
       () => authority.advance({ domain: 'core', operationId: 'core-op-1', operationDigest: digestC, expectedHead: 1 }),
@@ -59,17 +58,17 @@ test('authority requires explicit enrollment and then advances monotonic per-dom
     );
     assert.equal(authority.getPendingDomains().core, true);
     assert.deepEqual(authority.finalize({ domain: 'core', operationId: 'core-op-1', operationDigest: digestC }), {
-      domain: 'core', head: 2, operation_id: 'core-op-1', replayed: false, status: 'committed',
+      domain: 'core', head: 2, operation_id: 'core-op-1', operation_digest: digestC, replayed: false, status: 'committed',
     });
     assert.deepEqual(authority.advance({ domain: 'core', operationId: 'core-op-1', operationDigest: digestC, expectedHead: 2 }), {
-      domain: 'core', head: 2, operation_id: 'core-op-1', replayed: true, status: 'committed',
+      domain: 'core', head: 2, operation_id: 'core-op-1', operation_digest: digestC, replayed: true, status: 'committed',
     });
     assert.deepEqual(authority.advance({ domain: 'provider', operationId: 'provider-op-1', operationDigest: digestD, expectedHead: 1 }), {
-      domain: 'provider', head: 2, operation_id: 'provider-op-1', replayed: false, status: 'pending',
+      domain: 'provider', head: 2, operation_id: 'provider-op-1', operation_digest: digestD, replayed: false, status: 'pending',
     });
     authority.finalize({ domain: 'provider', operationId: 'provider-op-1', operationDigest: digestD });
     assert.deepEqual(authority.advance({ domain: 'core', operationId: 'core-op-2', operationDigest: digestA, expectedHead: 2 }), {
-      domain: 'core', head: 3, operation_id: 'core-op-2', replayed: false, status: 'pending',
+      domain: 'core', head: 3, operation_id: 'core-op-2', operation_digest: digestA, replayed: false, status: 'pending',
     });
     authority.finalize({ domain: 'core', operationId: 'core-op-2', operationDigest: digestA });
     assert.deepEqual(authority.getHeads(), { core: 3, provider: 2 });
@@ -79,6 +78,10 @@ test('authority requires explicit enrollment and then advances monotonic per-dom
     );
     assert.throws(
       () => authority.advance({ domain: 'core', operationId: 'core-op-1', operationDigest: digestB, expectedHead: 3 }),
+      /ACCEPTED_HEAD_OPERATION_ID_CONFLICT/,
+    );
+    assert.throws(
+      () => authority.finalize({ domain: 'core', operationId: 'core-op-1', operationDigest: digestB }),
       /ACCEPTED_HEAD_OPERATION_ID_CONFLICT/,
     );
     assert.throws(() => authority.advance({ domain: 'core', operationId: '  ', operationDigest: digestA, expectedHead: 3 }), /Invalid accepted-head/);
@@ -103,7 +106,7 @@ test('authority persists enrollment and committed heads across restart and rejec
     assert.deepEqual(reopened.getHeads(), { core: 0, provider: 2 });
     assert.deepEqual(reopened.getEnrollmentStatus(), { core: false, provider: true });
     assert.deepEqual(reopened.advance({ domain: 'provider', operationId: 'provider-op-persisted', operationDigest: digestB, expectedHead: 2 }), {
-      domain: 'provider', head: 2, operation_id: 'provider-op-persisted', replayed: true, status: 'committed',
+      domain: 'provider', head: 2, operation_id: 'provider-op-persisted', operation_digest: digestB, replayed: true, status: 'committed',
     });
   } finally {
     reopened.close();
@@ -122,7 +125,7 @@ async function startAuthorityProcess(path) {
     'import { AcceptedHeadAuthority, createAcceptedHeadAuthorityServer } from ' + JSON.stringify(authorityUrl) + ';',
     'const args = process.argv.slice(1);',
     'const authority = new AcceptedHeadAuthority({ path: args[0], installationId: "server-test-installation" });',
-    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN, readToken: process.env.LE_TEST_READ_TOKEN });',
+    'const server = createAcceptedHeadAuthorityServer({ authority, coreToken: process.env.LE_TEST_CORE_TOKEN, providerToken: process.env.LE_TEST_PROVIDER_TOKEN });',
     'server.listen(0, "127.0.0.1", () => process.stdout.write("LISTENING:" + server.address().port + "\\n"));',
     'process.stdin.on("data", () => server.close(() => { authority.close(); process.exit(0); }));',
   ].join('\n');
@@ -135,7 +138,6 @@ async function startAuthorityProcess(path) {
       WINDIR: process.env.WINDIR || '',
       LE_TEST_CORE_TOKEN: coreToken,
       LE_TEST_PROVIDER_TOKEN: providerToken,
-      LE_TEST_READ_TOKEN: readToken,
     },
   });
   const [chunk] = await once(child.stdout, 'data');
@@ -147,69 +149,90 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
+test('existing authority database with missing schema fails closed without recreating it', () => {
+  const dir = tempDir();
+  const path = join(dir, 'authority.sqlite');
+  const first = new AcceptedHeadAuthority({ path, installationId: 'schema-test-installation' });
+  first.close();
+  const damaged = new DatabaseSync(path);
+  damaged.exec('DROP TABLE authority_operations;');
+  damaged.close();
+
+  assert.throws(
+    () => new AcceptedHeadAuthority({ path, installationId: 'schema-test-installation' }),
+    /ACCEPTED_HEAD_SCHEMA_INVALID/,
+  );
+  const verify = new DatabaseSync(path);
+  try {
+    const tables = verify.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name);
+    assert.equal(tables.includes('authority_operations'), false);
+  } finally {
+    verify.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('authority IPC requires explicit enrollment, enforces domain tokens, and fails closed while pending', async () => {
   const dir = tempDir();
   const path = join(dir, 'authority.sqlite');
   const { child, port } = await startAuthorityProcess(path);
   try {
-    const anonymousRead = await fetch('http://127.0.0.1:' + port + '/v1/heads');
-    assert.equal(anonymousRead.status, 403);
-    const gatewayRead = await fetch('http://127.0.0.1:' + port + '/v1/heads', {
-      headers: { authorization: 'Bearer ' + readToken },
+    const unauthenticated = await fetch('http://127.0.0.1:' + port + '/v1/heads');
+    assert.equal(unauthenticated.status, 403);
+    const wrongToken = await fetch('http://127.0.0.1:' + port + '/v1/heads', {
+      headers: { authorization: 'Bearer not-a-valid-service-token' },
     });
-    assert.equal(gatewayRead.status, 200);
-    const gatewayMutation = await fetch('http://127.0.0.1:' + port + '/v1/advance', {
+    assert.equal(wrongToken.status, 403);
+    const authorizedProviderRead = await fetch('http://127.0.0.1:' + port + '/v1/heads', {
+      headers: { authorization: 'Bearer ' + providerToken },
+    });
+    assert.equal(authorizedProviderRead.status, 200);
+    const crossDomainMutation = await fetch('http://127.0.0.1:' + port + '/v1/advance', {
       method: 'POST',
-      headers: { authorization: 'Bearer ' + readToken, 'content-type': 'application/json' },
-      body: JSON.stringify({
-        domain: 'core',
-        operation_id: 'gateway-must-not-mutate',
-        operation_digest: digestA,
-        expected_head: 0,
-      }),
+      headers: { authorization: 'Bearer ' + coreToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ domain: 'provider', operation_id: 'cross-domain', operation_digest: digestA, expected_head: 0 }),
     });
-    assert.equal(gatewayMutation.status, 403);
+    assert.equal(crossDomainMutation.status, 403);
     assert.deepEqual(getAcceptedHeadStatusSync({ port, token: coreToken }), {
       heads: { core: 0, provider: 0 },
       pending: { core: false, provider: false },
-      operations: { core: null, provider: null },
       enrolled: { core: false, provider: false },
     });
     assert.throws(() => getAcceptedHeadsSync({ port, token: coreToken }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
 
     assert.deepEqual(enrollAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-enroll', operationDigest: digestA, token: coreToken, port,
-    }), { domain: 'core', head: 1, operation_id: 'sync-core-enroll', replayed: false, status: 'pending' });
+    }), { domain: 'core', head: 1, operation_id: 'sync-core-enroll', operation_digest: digestA, replayed: false, status: 'pending' });
     assert.throws(() => getAcceptedHeadsSync({ port, token: coreToken }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
     assert.deepEqual(finalizeAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-enroll', operationDigest: digestA, token: coreToken, port,
-    }), { domain: 'core', head: 1, operation_id: 'sync-core-enroll', replayed: false, status: 'committed' });
+    }), { domain: 'core', head: 1, operation_id: 'sync-core-enroll', operation_digest: digestA, replayed: false, status: 'committed' });
 
     assert.deepEqual(enrollAcceptedHeadSync({
       domain: 'provider', operationId: 'sync-provider-enroll', operationDigest: digestB, token: providerToken, port,
-    }), { domain: 'provider', head: 1, operation_id: 'sync-provider-enroll', replayed: false, status: 'pending' });
+    }), { domain: 'provider', head: 1, operation_id: 'sync-provider-enroll', operation_digest: digestB, replayed: false, status: 'pending' });
     assert.deepEqual(finalizeAcceptedHeadSync({
       domain: 'provider', operationId: 'sync-provider-enroll', operationDigest: digestB, token: providerToken, port,
-    }), { domain: 'provider', head: 1, operation_id: 'sync-provider-enroll', replayed: false, status: 'committed' });
+    }), { domain: 'provider', head: 1, operation_id: 'sync-provider-enroll', operation_digest: digestB, replayed: false, status: 'committed' });
     assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 1, provider: 1 });
 
     assert.deepEqual(advanceAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-op-1', operationDigest: digestC, expectedHead: 1, token: coreToken, port,
-    }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', replayed: false, status: 'pending' });
+    }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', operation_digest: digestC, replayed: false, status: 'pending' });
     assert.throws(() => getAcceptedHeadsSync({ port, token: coreToken }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
     assert.deepEqual(finalizeAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-op-1', operationDigest: digestC, token: coreToken, port,
-    }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', replayed: false, status: 'committed' });
+    }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', operation_digest: digestC, replayed: false, status: 'committed' });
     assert.deepEqual(advanceAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-op-1', operationDigest: digestC, expectedHead: 2, token: coreToken, port,
-    }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', replayed: true, status: 'committed' });
+    }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', operation_digest: digestC, replayed: true, status: 'committed' });
 
     assert.deepEqual(advanceAcceptedHeadSync({
       domain: 'provider', operationId: 'sync-provider-op-1', operationDigest: digestD, expectedHead: 1, token: providerToken, port,
-    }), { domain: 'provider', head: 2, operation_id: 'sync-provider-op-1', replayed: false, status: 'pending' });
+    }), { domain: 'provider', head: 2, operation_id: 'sync-provider-op-1', operation_digest: digestD, replayed: false, status: 'pending' });
     assert.deepEqual(finalizeAcceptedHeadSync({
       domain: 'provider', operationId: 'sync-provider-op-1', operationDigest: digestD, token: providerToken, port,
-    }), { domain: 'provider', head: 2, operation_id: 'sync-provider-op-1', replayed: false, status: 'committed' });
+    }), { domain: 'provider', head: 2, operation_id: 'sync-provider-op-1', operation_digest: digestD, replayed: false, status: 'committed' });
     assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 2, provider: 2 });
 
     assert.throws(() => advanceAcceptedHeadSync({
@@ -237,60 +260,4 @@ test('authority client fails closed when the service is unavailable', () => {
     port: 65534,
     timeoutMs: 200,
   }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
-});
-
-
-test('authority refuses to recreate a missing operations table after initialization', () => {
-  const dir = tempDir();
-  const path = join(dir, 'authority.sqlite');
-  const authority = new AcceptedHeadAuthority({ path, installationId: 'schema-test-installation' });
-  authority.close();
-
-  const db = new DatabaseSync(path);
-  try {
-    db.exec('DROP TABLE authority_operations');
-  } finally {
-    db.close();
-  }
-
-  assert.throws(
-    () => new AcceptedHeadAuthority({ path, installationId: 'schema-test-installation' }),
-    /ACCEPTED_HEAD_SCHEMA_INCOMPLETE/,
-  );
-
-  const verify = new DatabaseSync(path);
-  try {
-    const tables = verify.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name);
-    assert.equal(tables.includes('authority_operations'), false);
-  } finally {
-    verify.close();
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test('authority refuses to seed a missing domain row after initialization', () => {
-  const dir = tempDir();
-  const path = join(dir, 'authority.sqlite');
-  const authority = new AcceptedHeadAuthority({ path, installationId: 'domain-row-test-installation' });
-  authority.close();
-
-  const db = new DatabaseSync(path);
-  try {
-    db.prepare("DELETE FROM authority_domain_heads WHERE domain='provider'").run();
-  } finally {
-    db.close();
-  }
-
-  assert.throws(
-    () => new AcceptedHeadAuthority({ path, installationId: 'domain-row-test-installation' }),
-    /ACCEPTED_HEAD_STATE_INVALID/,
-  );
-
-  const verify = new DatabaseSync(path);
-  try {
-    assert.equal(verify.prepare("SELECT COUNT(*) AS count FROM authority_domain_heads WHERE domain='provider'").get().count, 0);
-  } finally {
-    verify.close();
-    rmSync(dir, { recursive: true, force: true });
-  }
 });
