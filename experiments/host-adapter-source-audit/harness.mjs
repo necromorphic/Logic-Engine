@@ -122,7 +122,7 @@ test('server-side Host mutation middleware covers pinned direct API routes for e
   assert.match(hostJournal, /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
   assert.match(hostJournal, /HOST_OPERATION_ALREADY_RECORDED/);
   assert.match(hostJournal, /targetUserHasEnrolledState/);
-  assert.match(hostJournal, /HOST_ENROLLED_USER_PURGE_UNSUPPORTED/);
+  assert.match(hostJournal, /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
   assert.match(hostJournal, /routeKey === 'POST \/api\/users\/delete'/);
   assert.match(hostJournal, /request\.body\?\.purge/);
   assert.match(startup, /getUserDirectories/);
