@@ -435,3 +435,45 @@ These cases are design acceptance requirements, not tests claimed to have run. T
 - `Memory → NPC`: **DISABLED / FAIL-CLOSED**; Host: **NON_READY**.
 
 This section is an independent design clarification. It does not resolve or bypass the coordinator's pending review of the Core-owned initial-knowledge acquisition contract.
+
+
+## 15. Goal-formation vertical slice and implementation gate
+
+The conceptual goal contract above still does not authorize a goal generator. Before implementation, the first slice must be limited to one goal family whose inputs and admissibility rules are already owned and testable.
+
+### 15.1 Required inputs
+
+The trusted caller must provide, using existing approved source contracts only:
+
+- the acting NPC identity and decision purpose;
+- a consistent, authorized world/rule snapshot;
+- only the Personality motive/trait fields approved for this decision;
+- only the Relationships fields approved for this NPC and purpose;
+- the NPC's existing goal state, if an approved source exists;
+- completeness/accessibility status for each required input.
+
+No combined Personality/Relationships/Core context feed has been verified. Until the owners identify the exact source path and authority for each item, the generator must not be implemented by guessing field names or inventing a shared schema.
+
+### 15.2 Proposal-only behavior
+
+Once the input contracts and first goal family are approved, the NPC helper may return one of three bounded outcomes:
+
+- `goal_proposed` — a candidate goal with traceable references to the approved inputs and explicit assumptions;
+- `no_goal` — complete permitted inputs were assessed and no candidate met the approved admissibility rules;
+- `needs_review` — required information is missing, incomplete, inaccessible, contradictory, or outside the supported goal family.
+
+These are conceptual outcomes, not approved wire values. A proposed goal must not automatically become persisted/active state, execute an action, mutate canonical world state, grant knowledge, or alter relationships. Missing context must never be converted into a negative fact.
+
+### 15.3 Decisions required before implementation
+
+1. Personality owner: exact permitted motive/trait source and completeness signal.
+2. Relationships owner: exact actor-/purpose-scoped read contract and completeness signal.
+3. Core/mechanic owner: current world/rule evidence and snapshot binding for the chosen goal family.
+4. NPC owner: existing goal-state source, duplicate-intent handling, and whether the first proposal remains transient.
+5. Coordinating owner: one first goal family and its authoritative admissibility rule.
+
+### 15.4 Acceptance evidence
+
+The later implementation must test deterministic output for identical approved inputs; missing versus known-absent versus inaccessible inputs; contradictory evidence; unsupported goal families; terminal existing goals; duplicate proposals under approved identity semantics; no input mutation; no world mutation; and no conversion of Memory retrieval into knowledge. Unit tests alone do not prove the production caller or persistence path.
+
+**Current gate:** goal formation remains **BLOCKED / NOT IMPLEMENTED** until these decisions are supplied. The next step is contract-owner review, not a speculative runtime implementation.
