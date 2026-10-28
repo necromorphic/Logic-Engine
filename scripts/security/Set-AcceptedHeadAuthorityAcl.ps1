@@ -202,6 +202,9 @@ function Assert-ServiceIdentitiesNotLocalAdministrators {
             if (-not $_.SID -or -not $_.SID.Value) {
                 throw 'Local Administrators membership returned an entry without a resolvable SID.'
             }
+            if ([string]$_.ObjectClass -eq 'Group') {
+                throw "Local Administrators contains group '$($_.Name)'; nested/effective membership cannot be proven by this guard. Refusing ACL changes."
+            }
             [string]$_.SID.Value
         })
     } catch {
