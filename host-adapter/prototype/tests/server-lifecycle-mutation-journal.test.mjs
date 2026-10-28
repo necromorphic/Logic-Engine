@@ -678,3 +678,64 @@ test('backup deletion is rejected while Host history is enrolled because backups
         await rm(root, { recursive: true, force: true });
     }
 });
+
+
+test('chat and group-chat imports are rejected while their respective Host histories are enrolled', async () => {
+    const cases = [
+        {
+            route: '/api/chats/import',
+            domain: 'chats',
+            sourceLocator: 'chat-1',
+            sourcePath: 'character-a/chat-1.jsonl',
+            directory: 'chats',
+            persisted: '{"chat_metadata":{"logic_engine_conversation_id":"00000000-0000-4000-8000-000000000002"}}\\n{"mes":"preserve chat"}\\n',
+        },
+        {
+            route: '/api/chats/group/import',
+            domain: 'group_chats',
+            sourceLocator: 'group-1',
+            sourcePath: 'group-1.jsonl',
+            directory: 'groupChats',
+            persisted: '{"chat_metadata":{"logic_engine_conversation_id":"00000000-0000-4000-8000-000000000004"}}\\n{"mes":"preserve group chat"}\\n',
+        },
+    ];
+    for (const [index, item] of cases.entries()) {
+        const { root, directories, request } = await fixture();
+        try {
+            const directory = item.directory === 'chats'
+                ? path.join(directories.chats, 'character-a')
+                : directories.groupChats;
+            await mkdir(directory, { recursive: true });
+            const chatPath = path.join(directory, path.basename(item.sourcePath));
+            await writeFile(chatPath, item.persisted.replaceAll('\\\\n', '\\n'));
+            const identity = index === 0
+                ? '00000000-0000-4000-8000-000000000002'
+                : '00000000-0000-4000-8000-000000000004';
+            await registerHostConversation(request, {
+                conversationId: '00000000-0000-4000-8000-000000000001:' + identity,
+                sourceLocator: item.sourceLocator,
+                sourcePath: item.sourcePath,
+                domain: item.domain,
+            });
+            request.path = item.route;
+            request.originalUrl = item.route;
+            request.body = { import_data: 'replacement payload' };
+
+            const response = responseMock();
+            let reachedHandler = false;
+            await createHostLifecycleMutationMiddleware()(request, response, async () => {
+                reachedHandler = true;
+                await writeFile(chatPath, '{"mes":"imported replacement"}\\n');
+                response.json({ ok: true });
+            });
+            await response.finished;
+
+            assert.equal(reachedHandler, false, item.route + ' must be rejected before native import');
+            assert.equal(response.statusCode, 409);
+            assert.match(String(response.body), /HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED/);
+            assert.equal(await readFile(chatPath, 'utf8'), item.persisted.replaceAll('\\\\n', '\\n'));
+        } finally {
+            await rm(root, { recursive: true, force: true });
+        }
+    }
+});
