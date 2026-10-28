@@ -16,6 +16,24 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
+function Assert-NoNtfsAlternateDataStreamPath {
+    param([Parameter(Mandatory = $true)][string]$Path)
+    # Reject ADS syntax before .NET path normalization, which can reject or normalize
+    # stream paths differently across Windows PowerShell/.NET Framework versions.
+    $pathAfterDrive = $Path
+    if ($Path.Length -ge 2 -and $Path[1] -eq [char]58) {
+        $pathAfterDrive = $Path.Substring(2)
+    }
+    if ($pathAfterDrive.IndexOf([char]58) -ge 0) {
+        throw "Path must not use an NTFS alternate data stream: $Path"
+    }
+}
+
+# Validate raw caller input before GetFullPath/Test-Path can reinterpret it.
+foreach ($inputPath in @($AuthorityDbPath, $CoreDbPath, $ProviderDbPath, $CoordinatorDbPath, $EvidencePath) + @($BackupRoots)) {
+    Assert-NoNtfsAlternateDataStreamPath -Path $inputPath
+}
+
 function Get-ServiceIdentity {
     param([Parameter(Mandatory = $true)][string]$Name)
     $service = Get-CimInstance Win32_Service -ErrorAction Stop |
