@@ -64,7 +64,7 @@ if (!['127.0.0.1', '::1', 'localhost'].includes(host) && process.env.ENGINE_ALLO
 
 const worldPackCatalogPath = process.env.LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH;
 if (typeof worldPackCatalogPath !== 'string' || !worldPackCatalogPath.trim()) {
-  process.stderr.write('LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH must point to a deployment-controlled World Pack catalog.\\n');
+  process.stderr.write('LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH must point to a deployment-controlled World Pack catalog.' + String.fromCharCode(10));
   process.exit(1);
 }
 const worldPackCatalog = loadTrustedWorldPackCatalog(resolve(worldPackCatalogPath));
