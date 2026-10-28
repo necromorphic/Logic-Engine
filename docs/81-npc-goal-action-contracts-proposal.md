@@ -168,3 +168,84 @@ Therefore **do not choose an action ID or effect target by guessing from test fi
 5. the pending-proposal handoff and the authoritative result source after a separately authorized commit.
 
 Until that concrete template/action and the NPC action-authorization contract are evidenced, the first technical seam is approved for design but the first semantic action slice and runtime implementation remain **BLOCKED**.
+
+## 11. First semantic action contract: `observe` (design only, 2026-10-28)
+
+**Decision:** coordinator-approved for contract design only. This section does not make `observe` executable and does not authorize runtime integration.
+
+### 11.1 Meaning and boundary
+
+`observe` means: an NPC attempts to obtain a fact about one explicitly identified target. It is an information-acquisition attempt, not a claim that the NPC successfully saw, learned, or proved anything.
+
+The action must be read-only with respect to canonical world state. It must not create/update world entities, assert a canonical fact, advance time, create a committed event, grant durable NPC knowledge, or update an NPC goal/plan. A generated sentence such as “I saw X” is not evidence that observation occurred.
+
+The target must be explicitly supplied by trusted input and validated against the exact pinned, trusted snapshot used for the decision. Do not resolve an ambiguous target by model guesswork. A missing, malformed, ambiguous, stale, or out-of-scope target yields a bounded `unknown/denied` outcome and no asserted fact.
+
+### 11.2 Evidence and epistemic result
+
+A successful observation can be considered for a knowledge proposal only if all of the following are established by trusted code:
+
+1. A specific authoritative evidence source is identified.
+2. The source is valid for the target and the current pinned snapshot.
+3. Access/visibility policy explicitly permits this NPC, target/scope, action family `observe`, and decision purpose.
+4. The evidence is sufficiently unambiguous to support the exact proposed claim.
+5. The source and snapshot references can be preserved as provenance for independent validation.
+
+Model-generated text, retrieved text not yet validated, prompt inclusion, a target's mere existence, or a test fixture is not evidence. No inference may be silently substituted for direct observation. If the source contract does not distinguish direct observation from other evidence types, return `unknown/denied` or `needs_review`; do not relabel inference as observation.
+
+Outcomes are conceptual labels, not approved API enum values:
+
+- `observed_candidate`: trusted evidence supports a bounded claim, with source and snapshot references; this is not yet durable NPC knowledge.
+- `unknown`: evidence is absent, incomplete, ambiguous, stale, or cannot establish the claim.
+- `denied`: the explicit authorization check fails or the requested source/target/purpose is outside the allowlist.
+- `needs_review`: a required semantic owner, evidence type, or safe mapping is unresolved.
+
+Do not reveal withheld source details in a denial rationale. Unknown/inaccessible must not be converted into known-false.
+
+### 11.3 Authorization
+
+Authorization is an explicit allowlist and defaults to deny. A decision must cover the acting NPC, action family, target/scope, permitted purpose, and the evidence source or source class where applicable. Each decision must be current and bound to the same relevant snapshot/context.
+
+Identity binding, adapter identity, `instanceId`, `actionId`, a successful authorized read, or possession of a reference does not grant permission to perform `observe` or to acquire the returned information. Missing, stale, ambiguous, or mismatched authorization denies. The authorization owner and runtime contract remain unimplemented/unassigned; this paragraph records required semantics only.
+
+### 11.4 Knowledge proposal and Core proposal/effect boundary
+
+A supported observation result may be submitted for consideration as an ordinary knowledge proposal only after the authoritative evidence, authorization, provenance, and effect mapping are independently validated. Any such proposal remains `pending`; separate existing approval and commit requirements continue to apply. No automatic approval, commit, or NPC plan reconciliation is permitted.
+
+**Important compatibility finding:** the current reviewed mechanic-intent translator documents only `create_entity`, `update_attribute`, and `assert_fact` in its supported slice. The illustrative World Pack `propose_knowledge` intent in `docs/04-world-pack-format.md` is explicitly not an executable contract. The current `docs/34-npc-decision-context-and-proposal.md` also says observation remains unsupported until its evidence path is specified and tested. Therefore this proposal does **not** claim that `observe` or a knowledge-proposal effect can currently pass through `MechanicExecutor.evaluate(...)` → `ProposalService.createFromMechanicEvaluation(...)`. The existing seam is a design reference only; a real supported mapping and source contract must be evidenced before implementation is considered.
+
+Generic proposal validation does not establish NPC actor authorization or semantic alignment with the source. Do not treat a `pending` proposal as evidence that observation occurred or that knowledge was acquired. For any future committed proposal, the authoritative outcome must be correlated to the Core-owned committed result/event record and audit trail; model output, NPC response, or proposal status alone is insufficient. A future plan-reconciliation consumer remains separately blocked.
+
+### 11.5 Negative-test and acceptance matrix (required before implementation review)
+
+These are required test cases for a future implementation; **they were not run by this documentation change**.
+
+| Case | Required expected behavior |
+|---|---|
+| Target missing, malformed, or wrong type | Reject/unknown; no fact, proposal, or state mutation |
+| Target reference is ambiguous or does not resolve in the pinned snapshot | Unknown/denied; do not guess a target |
+| Target resolves only in a newer/different snapshot | Stale-context outcome; no claim from the mismatched snapshot |
+| NPC is not on the allowlist for `observe` | Deny by default |
+| Action family, target/scope, purpose, or source is absent/mismatched in authorization | Deny; identity or read access must not substitute |
+| Authorization record is stale, ambiguous, or cannot be verified | Deny |
+| Evidence source is absent or unavailable | Unknown; do not assert a fact |
+| Evidence is ambiguous, conflicting, incomplete, or cannot support the exact claim | Unknown/needs review; preserve uncertainty |
+| Evidence is retrieved/generated text without authoritative validation | Do not treat it as evidence or NPC knowledge |
+| Evidence is stale or not bound to the decision snapshot | Unknown/stale; no proposal |
+| Source access is forbidden or source is withheld | Deny without leaking protected details |
+| Evidence supports a different claim from the model's wording | Reject the unsupported wording; do not broaden the evidence |
+| Observation evaluation completes | Canonical world state, world revision/time, event log, NPC knowledge, goals, and plans remain unchanged |
+| A supported evidence-backed knowledge proposal is eventually permitted by a separately approved mapping | Create ordinary `pending` proposal only; no auto-approval/commit and no knowledge grant |
+| Proposal validation/approval/commit fails or snapshot becomes stale | No committed knowledge claim; preserve failure/unknown state |
+| Later commit succeeds | Consumer must correlate to the Core-owned committed result/event and audit record; do not reconcile from model output or proposal status alone |
+| Duplicate/replayed result is presented to a future consumer | Do not assume idempotency; plan reconciliation remains disabled until its separate replay/idempotency contract and tests exist |
+
+### 11.6 Gate summary
+
+- `observe` semantics: **APPROVED FOR DESIGN**.
+- Trusted NPC/action/target/purpose/source authorization: **NOT IMPLEMENTED / FAIL-CLOSED**.
+- Authoritative observation evidence source and executable knowledge-effect mapping: **UNCONFIRMED / BLOCKED**.
+- Ordinary pending proposal and later Core commit: existing generic infrastructure only; no proven NPC observation integration.
+- NPC plan reconciliation: **DISABLED / BLOCKED**.
+- Runtime/API/schema/storage/dispatcher/scheduler/worker changes: **NOT AUTHORIZED**.
+- `Memory → NPC`: **DISABLED / FAIL-CLOSED**; Host: **NON_READY** until independent gates pass.
