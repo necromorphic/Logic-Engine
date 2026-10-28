@@ -122,7 +122,7 @@ async function readAndValidateJournal(journalPath) {
         previousHash = recordHash;
         records.push(record);
         if (record.kind === 'intent') pending.add(record.operationId);
-        if (record.kind === 'outcome' && record.status === 'COMMITTED') pending.delete(record.operationId);
+        if (record.kind === 'outcome' && ['COMMITTED', 'REJECTED_NO_MUTATION'].includes(record.status)) pending.delete(record.operationId);
         if (record.kind === 'reconciliation') {
             pending.delete(record.operationId);
             degraded = true;
@@ -420,7 +420,14 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                         });
                     }
                     const changes = diffSnapshots(before, after);
-                    const status = response.statusCode >= 200 && response.statusCode < 300 ? 'COMMITTED' : 'UNRESOLVED';
+                    const versionChanges = diffConversationInventories(before, after);
+                    const isRejectedNoMutation = response.statusCode >= 400
+                        && response.statusCode < 500
+                        && changes.length === 0
+                        && versionChanges.length === 0;
+                    const status = response.statusCode >= 200 && response.statusCode < 300
+                        ? 'COMMITTED'
+                        : isRejectedNoMutation ? 'REJECTED_NO_MUTATION' : 'UNRESOLVED';
                     const hash = await appendRecord(paths.journalPath, chain.lastHash, {
                         version: 1,
                         kind: 'outcome',
@@ -433,7 +440,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                         changes,
                         afterConversationInventoryDigest: after.conversationInventory?.inventory_sha256 ?? null,
                         afterConversationInventories: after.conversationInventory?.inventories ?? null,
-                        versionChanges: diffConversationInventories(before, after),
+                        versionChanges,
                     });
                     chain.lastHash = hash;
                     return commitBufferedResponse(args, null);
