@@ -116,6 +116,20 @@ The audit found no production World Pack loader or bootstrap/authoring adapter t
 
 A Core-computed digest can identify bytes; it does not prove who authored them or whether they are trusted. An admin-authenticated caller is an administrator, not automatically the original author/import source. A deployment callback that is unset by default is a policy seam, not proof that a trusted source exists.
 
+### Recommended first vertical slice: deployment-owned authoring catalog
+
+The lowest-risk route to an actual source is **not** to trust an admin request or arbitrary uploaded pack. First introduce a deployment-owned, immutable catalog of world-pack versions; do not enable acquisition writes as part of catalog discovery alone.
+
+1. The catalog is configured/installed by the deployment, not writable through the public Core API. Each entry binds an exact `world_pack_id`, immutable `version`, and content digest to the trusted catalog entry. The catalog's deployment-controlled origin is the trust root; the digest identifies content but does not authenticate it by itself.
+2. `createWorld()` must resolve the requested ID/version against that catalog and reject missing or ambiguous versions. Today it only stores caller-supplied ID/version, so it does not currently perform this check.
+3. A future pack version may contain explicit `author_initial_assignments`, each naming a stable pack-local subject reference, a source item/proposition reference, and a versioned assignment rule. This must be added to a reviewed complete pack contract/schema; the current manifest schema has no such field, and `knowledge_channels` describe channel policy, not subject assignments.
+4. The bootstrap adapter must map pack-local subject/item references to canonical entities/facts in the target world, validate the mapping, and commit world bootstrap plus assignments through an explicitly reviewed Core transaction/event lifecycle. No assignment should be written if the bootstrap only partially succeeds.
+5. The accepted assignment records must retain the exact catalog entry/version and assignment rule identity/version. Replacing a catalog entry must not silently mutate an existing world's pinned version or historical assignment; a version change requires explicit migration/reconciliation.
+
+This provides a plausible trust root for **`author_initial` only**. It is a proposed prerequisite, not existing runtime capability, and it does not authorize implementing the writer until the catalog, bootstrap transaction, canonical mapping, event lifecycle, and tests are separately reviewed.
+
+**Keep `imported` unsupported in the first vertical slice.** It needs a separate importer trust root that verifies package origin/authenticity (for example, a deployment allowlist or verified signature scheme), immutable package version, and explicit per-subject mapping. Reusing the authoring catalog or accepting an upload plus digest is not sufficient evidence of import authenticity. Do not expand the first slice to imported records merely to make both enum values appear implemented.
+
 ### Minimum acceptance contract for a future trusted adapter
 
 Before a runtime writer is added, the source owner must demonstrate all of the following:
