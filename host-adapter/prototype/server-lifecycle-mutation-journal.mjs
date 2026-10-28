@@ -55,7 +55,7 @@ async function targetUserHasEnrolledState(directories) {
     const chatRootPath = directories?.chats;
     if (typeof rootPath !== 'string' || !path.isAbsolute(rootPath)
         || typeof chatRootPath !== 'string' || !path.isAbsolute(chatRootPath)) {
-        throw new Error('HOST_TARGET_USER_SCOPE_UNAVAILABLE');
+        throw new Error('HOST_JOURNAL_UNAVAILABLE');
     }
     const resolvedRoot = path.resolve(rootPath);
     const resolvedChatRoot = path.resolve(chatRootPath);
@@ -411,7 +411,7 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                     return fail(response, 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED', 409);
                 }
             } catch {
-                return fail(response, 'HOST_TARGET_USER_SCOPE_UNAVAILABLE', 503);
+                return fail(response, 'HOST_JOURNAL_UNAVAILABLE', 503);
             }
             return next();
         }
