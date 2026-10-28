@@ -368,7 +368,7 @@ test('character rename is rejected before it can orphan an enrolled chat path', 
         const chatPath = path.join(chatDirectory, 'chat-1.jsonl');
         await writeFile(chatPath, '{"mes":"before"}\n');
         await registerHostConversation(request, {
-            conversationId: 'conversation-1',
+            conversationId: '00000000-0000-4000-8000-000000000001:00000000-0000-4000-8000-000000000002',
             sourceLocator: 'chat-1',
             sourcePath: 'character-a/chat-1.jsonl',
             domain: 'chats',
@@ -402,7 +402,7 @@ test('character deletion with chat cleanup is rejected before enrolled history i
         const chatPath = path.join(chatDirectory, 'chat-1.jsonl');
         await writeFile(chatPath, '{"mes":"before"}\n');
         await registerHostConversation(request, {
-            conversationId: 'conversation-1',
+            conversationId: '00000000-0000-4000-8000-000000000001:00000000-0000-4000-8000-000000000002',
             sourceLocator: 'chat-1',
             sourcePath: 'character-a/chat-1.jsonl',
             domain: 'chats',
