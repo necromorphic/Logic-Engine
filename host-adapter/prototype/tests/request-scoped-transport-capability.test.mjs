@@ -114,7 +114,7 @@ test('invalid endpoint, non-string body, and URL credentials are rejected', () =
   assert.throws(() => makeCapability({ endpoint: 'https://user:pass@provider.example/v1' }), /resolved HTTP\(S\) endpoint/);
   assert.throws(() => makeCapability({ serializedBody: { model: 'test' } }), /exact serialized request body/);
   assert.throws(() => makeCapability({ headers: { Authorization: 'Bearer one', authorization: 'Bearer two' } }), /unique normalized string pairs/);
-  assert.throws(() => makeCapability({ headers: { 'x-provider': 'value\\r\\nInjected: yes' } }), /unique normalized string pairs/);
+  assert.throws(() => makeCapability({ headers: { 'x-provider': 'value\r\nInjected: yes' } }), /unique normalized string pairs/);
 });
 
 test('request digest binds endpoint, headers, streaming mode, and exact body bytes without exposing secrets', () => {
