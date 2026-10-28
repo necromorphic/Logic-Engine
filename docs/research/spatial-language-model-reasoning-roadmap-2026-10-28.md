@@ -69,7 +69,7 @@ The context text is an adapter output for the LLM, not a canonical record and no
 - [ ] Test invalidation across actual event/restart/rollback boundaries; production evidence remains unavailable.
 - [x] Add auditory propagation as a separate result from visibility, using explicit sound levels and door attenuation.
 - [x] Add deterministic route costs and explicit traversal constraints (synthetic weighted routes; unknown-state doors preserve uncertainty).
-- [ ] Add scenario-based evaluation for multi-NPC scenes (ambush, doorway, sound behind a wall, out-of-room NPC); current synthetic route traces cover route-cost changes only.
+- [x] Add scenario-based evaluation for multi-NPC scenes (doorway, sound behind a door, out-of-room NPC, wall occlusion, movement across scene boundaries); ambush behavior remains outside this geometry-only model.
 
 ### Phase B — evidence and contracts
 - [ ] Close typed position/frame/schema identity and entity-incarnation requirements with named Core/World Pack/TimeEngine review.
@@ -120,3 +120,8 @@ New module: `experiments/spatial-scene-lab/spatial-navigation.js`. It ranks simp
 ### Fifth research increment — route costs and scene-boundary traces
 
 The route-cost module now ranks simple room paths by explicit positive per-door costs and supports forbidden-door and maximum-cost constraints. A scene trace checks that closing a door changes the selected cheapest route and marks a prediction stale when its declared door dependency changes. A second trace ensures an unknown-state shortcut prevents a confirmed optimality claim. These are bounded synthetic tests only; costs do not represent physical time, accessibility, or safety.
+
+
+### Sixth research increment — multi-NPC visibility and movement traces
+
+The multi-person scenario tests now cover a runner occluded by a wall, visibility changing after a movement into a new synthetic boundary, movement rejected when its body path intersects a wall, and UNKNOWN visibility when lighting or the blocker inventory is unresolved. These checks report geometry only; they do not infer noticing, attention, intent, or awareness. The movement model remains a conservative AABB approximation.

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { buildLanguageModelSceneContext, evaluateSpatialTopology } from '../experiments/spatial-scene-lab/spatial-topology.js';
 import { estimateSoundAudibility } from '../experiments/spatial-scene-lab/spatial-sound.js';
+import { evaluateSpatialScene, moveEntityInSyntheticScene } from '../experiments/spatial-scene-lab/spatial-scene.js';
 
 const makeScene = (doorState) => ({
   worldId: 'multi-npc-doorway',
@@ -67,4 +68,67 @@ test('multi-NPC scene: an entity outside declared rooms remains explicitly unkno
   const context = buildLanguageModelSceneContext(scene, 'speaker');
   assert.equal(context.status, 'CONFIRMED');
   assert.match(context.text, /Entity unlocated-npc: location UNKNOWN \(POSITION_OUTSIDE_DECLARED_ROOMS\)/);
+});
+
+
+const sceneEntity = (id, position, forward = { x: 1, y: 0, z: 0 }) => ({
+  id, position, forward,
+  perception: { halfAngleRadians: Math.PI / 3, maxDistance: 12 },
+});
+
+const visibilityScene = (boundary = 'visibility-1') => ({
+  worldId: 'multi-npc-visibility',
+  boundary,
+  lighting: 'clear',
+  occluderInventoryComplete: true,
+  entities: [
+    sceneEntity('observer', { x: 0, y: 0, z: 0 }),
+    sceneEntity('runner', { x: 8, y: 0, z: 0 }, { x: -1, y: 0, z: 0 }),
+    sceneEntity('ally', { x: 0, y: 5, z: 0 }),
+  ],
+  blockers: [{
+    id: 'wall',
+    min: { x: 3, y: -1, z: -1 },
+    max: { x: 4, y: 1, z: 2 },
+  }],
+});
+
+const visibilityPair = (result, observerId, targetId) =>
+  result.visibility.find((item) => item.observerId === observerId && item.targetId === targetId);
+
+test('multi-NPC trace: wall blocks visibility until the runner moves to a new boundary', () => {
+  const before = visibilityScene();
+  const first = evaluateSpatialScene(before);
+  assert.equal(first.status, 'CONFIRMED');
+  assert.equal(visibilityPair(first, 'observer', 'runner').visible, false);
+  assert.equal(visibilityPair(first, 'observer', 'runner').reason, 'OCCLUDED');
+
+  const moved = moveEntityInSyntheticScene(before, 'runner', { x: 8, y: 4, z: 0 }, 'visibility-2');
+  assert.equal(moved.status, 'CONFIRMED');
+  assert.equal(moved.scene.boundary, 'visibility-2');
+  assert.equal(visibilityPair(moved.evaluation, 'observer', 'runner').visible, true);
+  assert.equal(visibilityPair(moved.evaluation, 'observer', 'runner').reason, 'CLEAR_LINE_OF_SIGHT');
+
+  // The evaluator reports geometry only; it cannot claim that the observer noticed the runner.
+  assert.equal(before.boundary, 'visibility-1');
+  assert.deepEqual(before.entities.find((item) => item.id === 'runner').position, { x: 8, y: 0, z: 0 });
+});
+
+test('multi-NPC trace: movement through a wall is rejected and leaves the scene unchanged', () => {
+  const before = visibilityScene();
+  const moved = moveEntityInSyntheticScene(before, 'runner', { x: 0, y: 0, z: 0 }, 'blocked-move');
+  assert.deepEqual(moved, { status: 'BLOCKED', reason: 'BODY_PATH_INTERSECTS_BLOCKER' });
+  assert.equal(before.boundary, 'visibility-1');
+  assert.deepEqual(before.entities.find((item) => item.id === 'runner').position, { x: 8, y: 0, z: 0 });
+});
+
+test('multi-NPC visibility remains UNKNOWN when lighting or blocker inventory is unresolved', () => {
+  const dark = evaluateSpatialScene({ ...visibilityScene(), lighting: 'unknown' });
+  assert.equal(dark.status, 'CONFIRMED');
+  assert.equal(visibilityPair(dark, 'observer', 'runner').status, 'UNKNOWN');
+  assert.equal(visibilityPair(dark, 'observer', 'runner').visible, null);
+
+  const incomplete = evaluateSpatialScene({ ...visibilityScene(), occluderInventoryComplete: false });
+  assert.equal(incomplete.status, 'UNKNOWN');
+  assert.equal(incomplete.reason, 'INVALID_OR_INCOMPLETE_SCENE');
 });
