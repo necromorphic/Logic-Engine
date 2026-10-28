@@ -1577,6 +1577,9 @@ export async function prepareHostSaveCapability(request, { route, payload } = {}
             projectHostChatRecords(currentFile.records, expectedUuid),
             targetEnrollment,
         );
+        if (canonical(stableValue(currentFile.records[0])) !== canonical(stableValue(payload.chat[0]))) {
+            throw new Error('HOST_SAVE_CAPABILITY_HEADER_CHANGED');
+        }
         if (currentProjection.inventory.inventory_sha256 !== currentInventory.inventory_sha256) {
             throw new Error('HOST_SAVE_CAPABILITY_PRESTATE_INVENTORY_MISMATCH');
         }
