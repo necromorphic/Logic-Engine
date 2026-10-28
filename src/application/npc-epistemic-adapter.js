@@ -38,6 +38,23 @@ function validRule(rule) {
     && POLARITIES.has(rule.polarity);
 }
 
+/** Validate and freeze deployment-owned fact-to-proposition admission rules. */
+export function normalizeNpcEpistemicAdmissionRules(rules) {
+  if (!Array.isArray(rules) || rules.length > 2000 || !rules.every(validRule)) {
+    throw new TypeError("npcEpistemicAdmissionRules must be an array of exact trusted fact mappings");
+  }
+  const seen = new Set();
+  return Object.freeze(rules.map((rule) => {
+    if (seen.has(rule.fact_id)) throw new TypeError("npcEpistemicAdmissionRules contains a duplicate fact_id");
+    seen.add(rule.fact_id);
+    return Object.freeze({
+      fact_id: rule.fact_id,
+      proposition_ref: rule.proposition_ref,
+      polarity: rule.polarity,
+    });
+  }));
+}
+
 /**
  * Translate a successful Core knowledge read into explicit NPC-local reducer
  * events. This does not decide belief stance and never creates belief_updated.
