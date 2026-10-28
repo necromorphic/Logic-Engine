@@ -16,8 +16,23 @@ async function readHostEnrollmentState(directories, fs) {
     const stateStat = await fs.lstat(stateDirectory);
     if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) throw new Error('unsafe');
   } catch (error) {
-    if (error?.code === 'ENOENT') return { enrolled: false, stateDirectoryExists: false };
-    throw new Error('HOST_STARTUP_MIGRATION_STATE_UNAVAILABLE');
+    if (error?.code !== 'ENOENT') throw new Error('HOST_STARTUP_MIGRATION_STATE_UNAVAILABLE');
+    // The sibling marker survives accidental deletion of the state directory.
+    // Check it before treating this as a never-enrolled user: this guard runs
+    // before HTTP middleware and must not allow startup migrations to rewrite
+    // artifacts after Host enrollment state has been lost.
+    const markerPath = path.join(path.dirname(canonicalChatsRoot), '.logic-engine-host-enrollment-marker');
+    let markerStat;
+    try {
+      markerStat = await fs.lstat(markerPath);
+    } catch (markerError) {
+      if (markerError?.code === 'ENOENT') return { enrolled: false, stateDirectoryExists: false };
+      throw new Error('HOST_STARTUP_MIGRATION_MARKER_UNAVAILABLE');
+    }
+    if (!markerStat.isFile() || markerStat.isSymbolicLink()) {
+      throw new Error('HOST_STARTUP_MIGRATION_MARKER_UNSAFE');
+    }
+    throw new Error('HOST_STARTUP_MIGRATION_STATE_LOST');
   }
   let registryText;
   try {
