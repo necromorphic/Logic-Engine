@@ -468,3 +468,35 @@ test('synchronized trajectory sweep includes bodies touching at the initial boun
   assert.equal(report.collisions[0].timeEndSeconds, 0);
 });
 
+test('kinematic position forecast and blocker-intersection forecast remain separate results', () => {
+  const initial = scene({
+    entities: [{
+      ...entity('runner', { x: 0, y: 0, z: 0 }),
+      motion: { velocity: { x: 2, y: 0, z: 0 } },
+    }],
+    blockers: [{
+      id: 'wall',
+      min: { x: 3, y: -1, z: -1 },
+      max: { x: 4, y: 1, z: 2 },
+    }],
+  });
+
+  const positionForecast = predictSceneAtHorizon(initial, 3, 'scene-predicted');
+  const blockerForecast = detectTrajectoryBlockerIntersections(initial, 3);
+
+  assert.equal(positionForecast.status, 'CONFIRMED');
+  assert.deepEqual(positionForecast.scene.entities[0].position, { x: 6, y: 0, z: 0 });
+  assert.equal(positionForecast.assumption, 'CONSTANT_VELOCITY_NO_COLLISION_RESPONSE');
+
+  assert.equal(blockerForecast.status, 'CONFIRMED');
+  assert.equal(blockerForecast.intersections.length, 1);
+  assert.equal(blockerForecast.intersections[0].entityId, 'runner');
+  assert.equal(blockerForecast.intersections[0].blockerId, 'wall');
+  assert.equal(blockerForecast.intersections[0].timeStartSeconds, 1.5);
+  assert.equal(blockerForecast.intersections[0].timeEndSeconds, 2);
+
+  // A kinematic endpoint is not proof that the path is physically feasible.
+  assert.equal(initial.boundary, 'scene-1');
+  assert.equal(initial.entities[0].position.x, 0);
+});
+
