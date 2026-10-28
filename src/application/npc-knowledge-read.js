@@ -1,10 +1,11 @@
+import { types as utilTypes } from "node:util";
+
 const ID_MAX = 200;
 const PURPOSES = new Set(["npc_turn_context", "npc_action_evaluation"]);
-
 const nonReady = (reason) => Object.freeze({ status: "non_ready", request: null, reason });
 
 function plainDataObject(value) {
-  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  if (value === null || typeof value !== "object" || Array.isArray(value) || utilTypes.isProxy(value)) return false;
   try {
     const prototype = Object.getPrototypeOf(value);
     if (prototype !== Object.prototype && prototype !== null) return false;
@@ -36,11 +37,8 @@ function exactKeys(value, keys) {
     && Reflect.ownKeys(value).every((key) => typeof key === "string" && keys.includes(key));
 }
 
-/**
- * Validate a Core-owned, actor/purpose/snapshot-bound read request.
- * The authorizer is a deployment-injected trusted dependency, not request data.
- */
-export function validateNpcKnowledgeRead(input, world, commitSequence, authorization) {
+/** Validate untrusted request data before the Core reads any request property. */
+export function validateNpcKnowledgeReadInput(input) {
   try {
     if (!exactKeys(input, [
       "world_id", "actor_id", "purpose",
@@ -55,10 +53,36 @@ export function validateNpcKnowledgeRead(input, world, commitSequence, authoriza
       return nonReady("invalid_request_fields");
     }
 
-    if (!world || world.world_id !== input.world_id) return nonReady("world_not_found");
+    return Object.freeze({
+      status: "ready",
+      reason: null,
+      request: Object.freeze({
+        world_id: input.world_id,
+        actor_id: input.actor_id,
+        purpose: input.purpose,
+        expected_revision: input.expected_revision,
+        expected_commit_sequence: input.expected_commit_sequence,
+        limit: input.limit,
+      }),
+    });
+  } catch {
+    return nonReady("invalid_read_input");
+  }
+}
+
+/**
+ * Validate a Core-owned, actor/purpose/snapshot-bound read request.
+ * The authorizer is a deployment-injected trusted dependency, not request data.
+ */
+export function validateNpcKnowledgeRead(input, world, commitSequence, authorization) {
+  const inputCheck = validateNpcKnowledgeReadInput(input);
+  if (inputCheck.status !== "ready") return inputCheck;
+  const request = inputCheck.request;
+  try {
+    if (!world || world.world_id !== request.world_id) return nonReady("world_not_found");
     if (world.status !== "active") return nonReady("world_not_active");
-    if (input.expected_revision !== world.world_revision
-      || input.expected_commit_sequence !== commitSequence) {
+    if (request.expected_revision !== world.world_revision
+      || request.expected_commit_sequence !== commitSequence) {
       return nonReady("stale_snapshot");
     }
 
@@ -66,9 +90,9 @@ export function validateNpcKnowledgeRead(input, world, commitSequence, authoriza
       "status", "world_id", "actor_id", "purpose",
       "world_revision", "commit_sequence", "authorization_ref",
     ]) || authorization.status !== "authorized"
-      || authorization.world_id !== input.world_id
-      || authorization.actor_id !== input.actor_id
-      || authorization.purpose !== input.purpose
+      || authorization.world_id !== request.world_id
+      || authorization.actor_id !== request.actor_id
+      || authorization.purpose !== request.purpose
       || authorization.world_revision !== world.world_revision
       || authorization.commit_sequence !== commitSequence
       || !validId(authorization.authorization_ref)) {
@@ -79,13 +103,13 @@ export function validateNpcKnowledgeRead(input, world, commitSequence, authoriza
       status: "ready",
       reason: null,
       request: Object.freeze({
-        world_id: input.world_id,
-        actor_id: input.actor_id,
-        purpose: input.purpose,
+        world_id: request.world_id,
+        actor_id: request.actor_id,
+        purpose: request.purpose,
         world_revision: world.world_revision,
         commit_sequence: commitSequence,
         authorization_ref: authorization.authorization_ref,
-        limit: input.limit,
+        limit: request.limit,
       }),
     });
   } catch {
