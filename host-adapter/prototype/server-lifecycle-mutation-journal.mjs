@@ -29,6 +29,7 @@ const MUTATIONS = new Map([
     ['POST /api/data-maid/delete', 'data-maid-delete'],
 ]);
 
+const ENROLLMENT_MARKER_NAME = '.logic-engine-host-enrollment-marker';
 const digest = value => createHash('sha256').update(value).digest('hex');
 const canonical = value => JSON.stringify(value);
 const stableValue = value => {
@@ -347,12 +348,26 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 if (enforce) return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
                 return next();
             }
-            const stateDirectory = path.join(path.dirname(canonicalChatRoot), '.logic-engine-host');
+            const userRoot = path.dirname(canonicalChatRoot);
+            const stateDirectory = path.join(userRoot, '.logic-engine-host');
             try {
                 const stateStat = await lstat(stateDirectory);
                 if (!stateStat.isDirectory() || stateStat.isSymbolicLink()) throw new Error('HOST_STATE_DIRECTORY_UNSAFE');
             } catch (error) {
                 if (error?.code === 'ENOENT') {
+                    // Enrollment leaves a marker outside the journal directory. If the
+                    // journal directory is later removed, never treat that as an
+                    // unconfigured installation and pass the native mutation through.
+                    try {
+                        const markerPath = path.join(userRoot, ENROLLMENT_MARKER_NAME);
+                        const markerStat = await lstat(markerPath);
+                        if (!markerStat.isFile() || markerStat.isSymbolicLink()) {
+                            return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
+                        }
+                        return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
+                    } catch (markerError) {
+                        if (markerError?.code !== 'ENOENT') return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
+                    }
                     if (enforce) return fail(response, 'HOST_JOURNAL_UNAVAILABLE');
                     return next();
                 }
@@ -659,6 +674,22 @@ export async function registerHostConversation(request, { conversationId, source
     }
     if (!['chats', 'group_chats'].includes(domain)) throw new Error('HOST_ENROLLMENT_INVALID');
     const paths = await statePaths(request);
+    // Durable-enough local sentinel outside the journal directory: this detects
+    // accidental journal-directory loss. It is not an anti-rollback trust anchor.
+    const markerPath = path.join(path.dirname(paths.roots[0].path), ENROLLMENT_MARKER_NAME);
+    try {
+        const markerStat = await lstat(markerPath);
+        if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('HOST_ENROLLMENT_MARKER_UNSAFE');
+    } catch (error) {
+        if (error?.code !== 'ENOENT') throw error;
+        const markerHandle = await open(markerPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
+        try {
+            await markerHandle.writeFile(JSON.stringify({ version: 1, purpose: 'host-enrollment-present' }) + '\\n', 'utf8');
+            await markerHandle.sync();
+        } finally {
+            await markerHandle.close();
+        }
+    }
     if (sourcePath !== undefined) await validateEnrolledSourcePath(paths, { conversationId, sourceLocator, domain, sourcePath });
     let registryExists = true;
     try {
