@@ -237,6 +237,10 @@ test('real pinned server OpenAI Chat Completions handler reaches a recording fak
   };
   for (const name of Object.keys(savedConsole)) {
     console[name] = (...args) => {
+      // The mainline probe suppresses debug output because the pinned upstream
+      // handler may serialize request bodies there. This assertion covers only
+      // non-debug output and never stores console text.
+      if (name === 'debug') return;
       if (args.some(containsSentinel)) promptSentinelObserved = true;
     };
   }
