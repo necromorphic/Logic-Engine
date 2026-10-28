@@ -46,7 +46,7 @@ try {
     New-Item -ItemType SymbolicLink -Path $sidecar -Target $outsideTarget | Out-Null
     $rejected = $false
     try {
-      & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $sidecarEvidence -Apply -Confirm:$false
+      & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $sidecarEvidence -Apply -MaintenanceWindowConfirmed -Confirm:$false
     } catch { $rejected = $_.Exception.Message -match 'reparse point' }
     if (-not $rejected) { throw 'An accepted-head SQLite sidecar symlink was not rejected specifically as a reparse point.' }
   } finally {
@@ -76,7 +76,7 @@ try {
   try {
     $rejected = $false
     try {
-      & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $unsafeDb -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $unsafeEvidence -Apply -Confirm:$false
+      & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $unsafeDb -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $unsafeEvidence -Apply -MaintenanceWindowConfirmed -Confirm:$false
     } catch { $rejected = $_.Exception.Message -match 'Parent path grants directory replacement/ACL-control rights' }
     if (-not $rejected) { throw 'A replaceable accepted-head authority parent path was not rejected specifically by parent ACL screening.' }
   } finally {
@@ -104,7 +104,7 @@ try {
     Set-Acl -LiteralPath $authorityUnsafeParent -AclObject $authorityParentAcl
     $rejected = $false
     try {
-      & .\\scripts\\security\\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $authorityUnsafeDb -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $authorityUnsafeEvidence -Apply -Confirm:$false
+      & .\\scripts\\security\\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $authorityUnsafeDb -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $authorityUnsafeEvidence -Apply -MaintenanceWindowConfirmed -Confirm:$false
     } catch { $rejected = $_.Exception.Message -match 'Parent path grants directory replacement/ACL-control rights' }
     if (-not $rejected) { throw 'Authority identity was incorrectly trusted for dangerous ancestor ACL rights.' }
   } finally {
