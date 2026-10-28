@@ -410,6 +410,69 @@ export function detectSimultaneousTrajectoryCollisions(scene, horizonSeconds) {
 }
 
 /**
+ * Detect entity-body intersections with static blockers over a bounded synthetic
+ * horizon. This is a conservative AABB sweep under constant velocity; it does
+ * not model acceleration, turning, moving blockers, or collision response.
+ */
+export function detectTrajectoryBlockerIntersections(scene, horizonSeconds) {
+  if (!validScene(scene) || !Number.isFinite(horizonSeconds) ||
+      horizonSeconds < 0 || horizonSeconds > 60) {
+    return { status: 'UNKNOWN', reason: 'INVALID_BLOCKER_PREDICTION_REQUEST' };
+  }
+  if (scene.entities.some((entity) => !entity.motion || !finiteVector(entity.motion.velocity))) {
+    return { status: 'UNKNOWN', reason: 'MOTION_DATA_INCOMPLETE' };
+  }
+
+  const intersections = [];
+  for (const entity of scene.entities) {
+    const body = bodyOffsets(entity);
+    const end = {
+      x: entity.position.x + entity.motion.velocity.x * horizonSeconds,
+      y: entity.position.y + entity.motion.velocity.y * horizonSeconds,
+      z: entity.position.z + entity.motion.velocity.z * horizonSeconds,
+    };
+    for (const blocker of scene.blockers) {
+      const expanded = {
+        min: {
+          x: blocker.min.x - body.maxOffset.x,
+          y: blocker.min.y - body.maxOffset.y,
+          z: blocker.min.z - body.maxOffset.z,
+        },
+        max: {
+          x: blocker.max.x - body.minOffset.x,
+          y: blocker.max.y - body.minOffset.y,
+          z: blocker.max.z - body.minOffset.z,
+        },
+      };
+      const interval = segmentAabbIntersectionInterval(entity.position, end, expanded);
+      if (interval) {
+        intersections.push({
+          entityId: entity.id,
+          blockerId: blocker.id,
+          status: 'POSSIBLE',
+          reason: 'CONSTANT_VELOCITY_SWEPT_BODY_OVERLAP',
+          timeStartSeconds: interval.enter * horizonSeconds,
+          timeEndSeconds: interval.exit * horizonSeconds,
+          horizonSeconds,
+        });
+      }
+    }
+  }
+  intersections.sort((a, b) =>
+    a.timeStartSeconds - b.timeStartSeconds ||
+    a.entityId.localeCompare(b.entityId) ||
+    a.blockerId.localeCompare(b.blockerId));
+
+  return {
+    status: 'CONFIRMED',
+    model: SPATIAL_SCENE_MODEL,
+    horizonSeconds,
+    assumption: 'CONSTANT_VELOCITY_STATIC_BLOCKER_AABB_SWEEP',
+    intersections,
+  };
+}
+
+/**
  * Predict a synthetic scene under constant-velocity motion only.
  * Every entity must explicitly provide motion.velocity (zero for stationary
  * entities). This is straight-line extrapolation, not collision/physics solving.
