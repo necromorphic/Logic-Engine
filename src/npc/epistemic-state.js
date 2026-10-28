@@ -115,6 +115,7 @@ function validState(state) {
 
   const evidenceKeys = new Set();
   const evidenceRefs = new Set();
+  const evidenceByRef = new Map();
   for (const item of state.evidence) {
     if (!isPlainDataObject(item)
       || !validId(item.ref)
@@ -131,6 +132,7 @@ function validState(state) {
     if (evidenceKeys.has(key) || evidenceRefs.has(item.ref)) return false;
     evidenceKeys.add(key);
     evidenceRefs.add(item.ref);
+    evidenceByRef.set(item.ref, item);
   }
 
   const propositionKeys = new Set();
@@ -144,6 +146,19 @@ function validState(state) {
       || !denseArray(belief.conflicting_evidence_refs)
       || !denseArray(belief.history)
       || propositionKeys.has(belief.proposition_ref)) return false;
+    const currentRefs = [...belief.supporting_evidence_refs, ...belief.conflicting_evidence_refs];
+    if (currentRefs.some((ref) => !validId(ref) || !evidenceByRef.has(ref)
+      || evidenceByRef.get(ref).proposition_ref !== belief.proposition_ref)) return false;
+    if (new Set(belief.supporting_evidence_refs).size !== belief.supporting_evidence_refs.length
+      || new Set(belief.conflicting_evidence_refs).size !== belief.conflicting_evidence_refs.length
+      || belief.supporting_evidence_refs.some((ref) => belief.conflicting_evidence_refs.includes(ref))) return false;
+    for (const entry of belief.history) {
+      if (!isPlainDataObject(entry)
+        || !STANCES.has(entry.stance)
+        || !validId(entry.revision_rule_ref)
+        || !denseArray(entry.evidence_refs)
+        || !entry.evidence_refs.every((ref) => validId(ref) && evidenceByRef.has(ref))) return false;
+    }
     propositionKeys.add(belief.proposition_ref);
   }
   return true;
