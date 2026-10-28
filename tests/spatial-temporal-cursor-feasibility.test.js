@@ -111,3 +111,66 @@ test('persisted TimeEngine segment plan can reconstruct each segment boundary cu
     mappingBeforeRestart.map((item) => item.boundaryCursor),
   );
 });
+
+
+test('rollback invalidates the affected historical boundary and makes the stored checkpoint stale', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-spatial-cursor-rollback-'));
+  const path = join(directory, 'state.sqlite');
+  let store = new SQLiteStore(path);
+  let engine = new LogicEngine(store);
+  const worldId = 'spatial-cursor-rollback-world';
+
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    try { store.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  engine.registerTimeTrigger(worldId, trigger('rollback-at-10', 10000, 'rollback-entity-10'));
+  engine.registerTimeTrigger(worldId, trigger('rollback-at-20', 20000, 'rollback-entity-20'));
+  const operation = engine.startTimeAdvance(worldId, {
+    idempotency_key: 'spatial-cursor-rollback-operation',
+    expected_revision: 2,
+    to_coordinate: 20000,
+  });
+  assert.equal(operation.status, 'completed');
+
+  const segments = readSegmentRows(store, worldId, operation.operation_id);
+  assert.equal(segments.length, 2);
+  const firstBoundaryEventId = segments[0].events.at(-1).event_id;
+  const secondBoundaryEventId = segments[1].events.at(-1).event_id;
+  const storedRevision = operation.current_world_revision;
+
+  const rollback = engine.rollbackEvent(worldId, {
+    root_event_id: firstBoundaryEventId,
+    idempotency_key: 'rollback-spatial-cursor-first-boundary',
+  });
+  assert.equal(rollback.accepted, true);
+  assert.ok(rollback.invalidated_event_ids.includes(firstBoundaryEventId));
+
+  const first = store.db.prepare(
+    'SELECT validity FROM world_events WHERE world_id=? AND event_id=?',
+  ).get(worldId, firstBoundaryEventId);
+  const second = store.db.prepare(
+    'SELECT validity FROM world_events WHERE world_id=? AND event_id=?',
+  ).get(worldId, secondBoundaryEventId);
+  assert.notEqual(first.validity, 'valid');
+  assert.equal(second.validity, 'valid');
+
+  const currentWorld = engine.getState(worldId);
+  const recoveredOperation = engine.getTimeAdvanceOperation(worldId, operation.operation_id);
+  assert.equal(recoveredOperation.status, 'completed');
+  assert.notEqual(currentWorld.world_revision, storedRevision);
+
+  // The completed operation row is not automatically rewritten by a later
+  // rollback. Consumers must not treat its old checkpoint as the current world
+  // marker; the invalidated earlier segment must not be a confirmed boundary.
+  const firstCursorIsValid = first.validity === 'valid';
+  const checkpointMatchesCurrentWorld = recoveredOperation.current_world_revision === currentWorld.world_revision;
+  assert.equal(firstCursorIsValid, false);
+  assert.equal(checkpointMatchesCurrentWorld, false);
+});
