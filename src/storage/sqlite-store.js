@@ -84,10 +84,10 @@ const parseRelationshipRef = (value) => {
     return subjectId && targetId ? { subjectId, targetId } : null;
   } catch { return null; }
 };
-const refs = (effects) => effects.map((e) => e.kind === 'relationship.transition'
+const refs = (effects) => effects.flatMap((e) => e.kind === 'knowledge.acquire' ? [] : [e.kind === 'relationship.transition'
   ? relationshipRef(e.subject_id, e.target_id)
   : e.kind.startsWith('entity.') ? 'entity:' + e.entity_id
-    : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id);
+    : e.kind.startsWith('mechanic.instance.') ? 'mechanic:' + e.instance_id : 'fact:' + e.fact_id]);
 const applyEntityEffects = (entities, effects) => {
   for (const effect of effects) {
     if (effect.kind === 'entity.create' || effect.kind === 'entity.upsert') {
@@ -661,6 +661,27 @@ export class SQLiteStore {
           if (violations.length) {
             throw new Error('WORLD_EVENT_IDENTITY_MIGRATION_FOREIGN_KEY_CHECK_FAILED: ' + JSON.stringify(violations));
           }
+        },
+      },
+      {
+        version: 13,
+        apply: () => {
+          this.db.exec(`CREATE TABLE IF NOT EXISTS knowledge_acquisitions(
+            world_id TEXT NOT NULL REFERENCES worlds(world_id),
+            acquisition_id TEXT NOT NULL,
+            subject_id TEXT NOT NULL,
+            fact_id TEXT NOT NULL,
+            acquisition_kind TEXT NOT NULL CHECK(acquisition_kind IN ('author_initial','imported')),
+            provenance_ref TEXT NOT NULL,
+            provenance_digest TEXT NOT NULL,
+            authorization_ref TEXT NOT NULL,
+            event_id TEXT NOT NULL,
+            committed_revision INTEGER NOT NULL,
+            PRIMARY KEY(world_id,acquisition_id),
+            UNIQUE(world_id,event_id,acquisition_id)
+          );
+          CREATE INDEX IF NOT EXISTS knowledge_acquisitions_subject
+            ON knowledge_acquisitions(world_id,subject_id,acquisition_id);`);
         },
       },
     ];
@@ -1525,7 +1546,32 @@ export class SQLiteStore {
       const entityEffectIds = new Set();
       const mechanicEffectIds = new Set();
       const factEffectIds = new Set();
+      const acquisitionEffectIds = new Set();
+      const acquisitionEffects = x.effects.filter((effect) => effect.kind === 'knowledge.acquire');
+      if (acquisitionEffects.length && acquisitionEffects.length !== x.effects.length) {
+        throw new EngineError('MIXED_KNOWLEDGE_ACQUISITION_EFFECTS_UNSUPPORTED',
+          'Knowledge acquisition effects must be the only effect family in their canonical event.', 400);
+      }
       for (const effect of x.effects) {
+        if (effect.kind === 'knowledge.acquire') {
+          if (acquisitionEffectIds.has(effect.acquisition_id)) {
+            throw new EngineError('DUPLICATE_KNOWLEDGE_ACQUISITION', 'An event may contain at most one acquisition record per ID.', 400);
+          }
+          acquisitionEffectIds.add(effect.acquisition_id);
+          const subject = currentEntities.get(effect.subject_id);
+          const source = this.db.prepare('SELECT status,source_event_ids_json FROM facts WHERE world_id=? AND fact_id=?')
+            .get(id, effect.fact_id);
+          if (!subject || subject.status === 'destroyed') {
+            throw new EngineError('ACQUISITION_SUBJECT_NOT_ELIGIBLE', 'Acquisition subject must be a non-destroyed entity in this world.', 409);
+          }
+          if (!source || source.status !== 'active' || dec(source.source_event_ids_json).length === 0) {
+            throw new EngineError('ACQUISITION_SOURCE_NOT_ELIGIBLE', 'Acquisition source must be an active canonical fact in this world.', 409);
+          }
+          if (this.db.prepare('SELECT 1 FROM knowledge_acquisitions WHERE world_id=? AND acquisition_id=?').get(id, effect.acquisition_id)) {
+            throw new EngineError('DUPLICATE_KNOWLEDGE_ACQUISITION', 'Acquisition ID already exists in this world.', 409);
+          }
+          continue;
+        }
         if (effect.kind === 'relationship.transition') {
           if (x.effects.length !== 1) throw new EngineError('MIXED_RELATIONSHIP_EFFECTS_UNSUPPORTED', 'A Relationship transition must be the only effect in its canonical event.', 400);
           const pairKey = JSON.stringify([effect.subject_id, effect.target_id]);
@@ -2479,6 +2525,7 @@ export class SQLiteStore {
     this.db.prepare('DELETE FROM facts WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM fact_claims WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM relationships WHERE world_id=?').run(id);
+    this.db.prepare('DELETE FROM knowledge_acquisitions WHERE world_id=?').run(id);
     const upsertEntity = this.db.prepare(`INSERT INTO entities(
       world_id,entity_id,entity_type,status,attributes_json,created_by_event_id,updated_revision
     ) VALUES(?,?,?,?,?,?,?) ON CONFLICT(world_id,entity_id) DO UPDATE SET
@@ -2541,6 +2588,22 @@ export class SQLiteStore {
       const conflict = values.size > 1;
       insertFact.run(id, factId, last.subject_ref, last.predicate, conflict ? 'conflicted' : 'active',
         conflict ? null : last.value_json, enc([...values.values()]), enc(group.map((claim) => claim.event_id)), revision);
+    }
+
+    // Derived projection only: canonical valid world_events remain the authority.
+    const insertAcquisition = this.db.prepare(`INSERT INTO knowledge_acquisitions(
+      world_id,acquisition_id,subject_id,fact_id,acquisition_kind,provenance_ref,provenance_digest,authorization_ref,event_id,committed_revision
+    ) VALUES(?,?,?,?,?,?,?,?,?,?)`);
+    const eligibleSubjects = new Set(this.db.prepare("SELECT entity_id FROM entities WHERE world_id=? AND status<>'destroyed'").all(id).map((row) => row.entity_id));
+    const eligibleFacts = new Set(this.db.prepare("SELECT fact_id,source_event_ids_json FROM facts WHERE world_id=? AND status='active'").all(id)
+      .filter((row) => dec(row.source_event_ids_json).length > 0).map((row) => row.fact_id));
+    for (const event of events) {
+      for (const effect of dec(event.effects_json)) {
+        if (effect.kind !== 'knowledge.acquire') continue;
+        if (!eligibleSubjects.has(effect.subject_id) || !eligibleFacts.has(effect.fact_id)) continue;
+        insertAcquisition.run(id, effect.acquisition_id, effect.subject_id, effect.fact_id, effect.acquisition_kind,
+          effect.provenance_ref, effect.provenance_digest, effect.authorization_ref, event.event_id, event.committed_revision);
+      }
     }
   }
 }

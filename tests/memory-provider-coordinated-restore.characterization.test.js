@@ -22,6 +22,8 @@ test('characterizes coordinated Core+Provider database restore as undetectable b
   let provider;
 
   const open = () => {
+    // Reassert the fixture-owned path for each reopen; other tests/modules may alter process.env.
+    process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH = coordinatorPath;
     store = new SQLiteStore(corePath);
     engine = new LogicEngine(store);
     provider = new SQLiteMemoryProvider({
