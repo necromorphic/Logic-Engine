@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, realpathSync, statSync } from 'node:fs';
 import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
 import { beginCoordinatorLock, openCoordinatorDatabase } from './coordinator-lock.js';
-import { randomUUID } from 'node:crypto';
+import { createHmac, randomBytes, randomUUID } from 'node:crypto';
 import { DatabaseSync } from 'node:sqlite';
 import { isDeepStrictEqual } from 'node:util';
 import { EngineError } from '../core/errors.js';
@@ -181,8 +181,15 @@ function aliasesSameFile(left, right) {
   return identity(left) === identity(right);
 }
 
+// Inventory cursors are authenticated with a process-local secret and become
+// invalid after restart; reconciliation must then restart from page one.
+function inventoryCursorDigest(key, value) {
+  return createHmac('sha256', key).update(hashRequest(value)).digest('hex');
+}
+
 export class SQLiteStore {
   constructor(path = ':memory:') {
+    this.inventoryCursorKey = randomBytes(32);
     const corePath = path === ':memory:' ? ':memory:' : resolve(path);
     const configuredCoordinatorPath = process.env.LOGIC_ENGINE_COORDINATOR_DB_PATH;
     const coordinatorPath = corePath === ':memory:' ? null
@@ -859,12 +866,15 @@ export class SQLiteStore {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request must be an object.', 400);
     }
-    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'includeMechanicEvaluationState']);
+    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'includeMechanicEvaluationState', 'includeSourceVersions']);
     if (Object.keys(request).some((key) => !allowedKeys.has(key))) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request contains an unsupported field.', 400);
     }
     if (request.includeMechanicEvaluationState !== undefined && typeof request.includeMechanicEvaluationState !== 'boolean') {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'includeMechanicEvaluationState must be a boolean.', 400);
+    }
+    if (request.includeSourceVersions !== undefined && typeof request.includeSourceVersions !== 'boolean') {
+      throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'includeSourceVersions must be a boolean.', 400);
     }
     const normalizeIds = (value, fieldName) => {
       if (value === undefined) return [];
@@ -940,12 +950,19 @@ export class SQLiteStore {
       const snapshotFactIds = combineIds(factIds, derivedFactIds, 'factIds');
       const snapshotEventIds = combineIds(eventIds, derivedEventIds, 'eventIds');
 
-      const entities = snapshotEntityIds.length
-        ? this.db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...snapshotEntityIds).map((r) => ({
-          entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
-          created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
-        }))
+      const entityRows = snapshotEntityIds.length
+        ? (request.includeSourceVersions === true
+          ? this.db.prepare('SELECT entities.*, entity_source_versions.source_version AS source_version_token FROM entities LEFT JOIN entity_source_versions ON entity_source_versions.world_id=entities.world_id AND entity_source_versions.entity_id=entities.entity_id WHERE entities.world_id=? AND entities.entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entities.entity_id').all(id, ...snapshotEntityIds)
+          : this.db.prepare('SELECT * FROM entities WHERE world_id=? AND entity_id IN (' + snapshotEntityIds.map(() => '?').join(',') + ') ORDER BY entity_id').all(id, ...snapshotEntityIds))
         : [];
+      const entities = entityRows.map((r) => ({
+        entity_id: r.entity_id, entity_type: r.entity_type, status: r.status, attributes: dec(r.attributes_json),
+        created_by_event_id: r.created_by_event_id, updated_revision: r.updated_revision,
+        ...(request.includeSourceVersions === true ? {
+          source_version: Number.isSafeInteger(r.source_version_token) && r.source_version_token > 0
+            ? 'core-entity-v1:' + String(r.source_version_token) : null,
+        } : {}),
+      }));
       const missingEntityIds = snapshotEntityIds.filter((entityId) => !entities.some((entity) => entity.entity_id === entityId));
       if (missingEntityIds.length) {
         throw new EngineError('ENTITY_NOT_FOUND', 'One or more requested entities were not found in this world snapshot.', 404, { entity_ids: missingEntityIds });
@@ -1090,6 +1107,112 @@ export class SQLiteStore {
       this.db.exec('COMMIT');
       began = false;
       return snapshot;
+    } catch (error) {
+      if (began) {
+        try { this.db.exec('ROLLBACK'); } catch {}
+      }
+      throw error;
+    }
+  }
+
+  readCanonicalEntityInventory(id, request = {}) {
+    if (!request || typeof request !== 'object' || Array.isArray(request)
+      || Object.keys(request).some((key) => !['limit', 'cursor'].includes(key))) {
+      throw new EngineError('INVALID_ENTITY_INVENTORY_REQUEST', 'Inventory request contains unsupported fields.', 400);
+    }
+    const limit = request.limit ?? 200;
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 200) {
+      throw new EngineError('INVALID_ENTITY_INVENTORY_LIMIT', 'Inventory limit must be an integer from 1 to 200.', 400);
+    }
+    if (this.txDepth > 0) {
+      throw new EngineError('SNAPSHOT_READ_DURING_WRITE_TRANSACTION', 'A canonical inventory cannot be read from inside a store write transaction.', 409);
+    }
+
+    const cursorPayload = request.cursor ?? null;
+    let afterEntityId = '';
+    let expectedRevision = null;
+    let expectedSequence = null;
+    if (cursorPayload !== null) {
+      if (!cursorPayload || typeof cursorPayload !== 'object' || Array.isArray(cursorPayload)
+        || Object.keys(cursorPayload).sort().join(',') !== 'after_entity_id,commit_sequence,cursor_digest,world_id,world_revision'
+        || cursorPayload.world_id !== id
+        || typeof cursorPayload.after_entity_id !== 'string'
+        || !Number.isSafeInteger(cursorPayload.world_revision) || cursorPayload.world_revision < 0
+        || !Number.isSafeInteger(cursorPayload.commit_sequence) || cursorPayload.commit_sequence < 0
+        || typeof cursorPayload.cursor_digest !== 'string') {
+        throw new EngineError('INVALID_ENTITY_INVENTORY_CURSOR', 'Inventory cursor is malformed.', 400);
+      }
+      const unsigned = {
+        world_id: id,
+        world_revision: cursorPayload.world_revision,
+        commit_sequence: cursorPayload.commit_sequence,
+        after_entity_id: cursorPayload.after_entity_id,
+      };
+      if (cursorPayload.cursor_digest !== inventoryCursorDigest(this.inventoryCursorKey, unsigned)) {
+        throw new EngineError('INVALID_ENTITY_INVENTORY_CURSOR', 'Inventory cursor integrity check failed.', 400);
+      }
+      afterEntityId = cursorPayload.after_entity_id;
+      expectedRevision = cursorPayload.world_revision;
+      expectedSequence = cursorPayload.commit_sequence;
+    }
+
+    let began = false;
+    try {
+      this.db.exec('BEGIN');
+      began = true;
+      const world = this.world(id);
+      if (!world) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+      const commitSequence = this.currentCommitSequence(id);
+      if (expectedRevision !== null
+        && (world.world_revision !== expectedRevision || commitSequence !== expectedSequence)) {
+        throw new EngineError('ENTITY_INVENTORY_SNAPSHOT_STALE', 'Canonical world changed between inventory pages; restart reconciliation from the first page.', 409);
+      }
+
+      const rows = this.db.prepare(`
+        SELECT entities.entity_id, entities.entity_type, entities.status,
+          entities.updated_revision,
+          entity_source_versions.source_version AS source_version_token
+        FROM entities
+        LEFT JOIN entity_source_versions
+          ON entity_source_versions.world_id=entities.world_id
+          AND entity_source_versions.entity_id=entities.entity_id
+        WHERE entities.world_id=? AND entities.entity_id>?
+        ORDER BY entities.entity_id
+        LIMIT ?
+      `).all(id, afterEntityId, limit + 1);
+      const hasMore = rows.length > limit;
+      const pageRows = hasMore ? rows.slice(0, limit) : rows;
+      const entities = pageRows.map((row) => ({
+        entity_id: row.entity_id,
+        entity_type: row.entity_type,
+        status: row.status,
+        updated_revision: row.updated_revision,
+        source_version: Number.isSafeInteger(row.source_version_token) && row.source_version_token > 0
+          ? 'core-entity-v1:' + String(row.source_version_token) : null,
+      }));
+      const lastEntityId = pageRows.length ? pageRows[pageRows.length - 1].entity_id : afterEntityId;
+      const nextCursor = hasMore ? (() => {
+        const unsigned = {
+          world_id: id,
+          world_revision: world.world_revision,
+          commit_sequence: commitSequence,
+          after_entity_id: lastEntityId,
+        };
+        return {
+          ...unsigned,
+          cursor_digest: inventoryCursorDigest(this.inventoryCursorKey, unsigned),
+        };
+      })() : null;
+      this.db.exec('COMMIT');
+      began = false;
+        return {
+        world_id: id,
+        world_revision: world.world_revision,
+        commit_sequence: commitSequence,
+        entities,
+        complete: !hasMore,
+        next_cursor: nextCursor,
+      };
     } catch (error) {
       if (began) {
         try { this.db.exec('ROLLBACK'); } catch {}
