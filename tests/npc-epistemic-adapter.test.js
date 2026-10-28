@@ -5,7 +5,7 @@ import {
   prepareNpcEpistemicEventsFromCoreRead,
 } from "../src/application/npc-epistemic-adapter.js";
 
-function readResult(items = []) {
+function readResult(items = [{ acquisition_id: 'acq-1', fact_id: 'fact-secret' }]) {
   return Object.freeze({
     status: "ready",
     world_id: "world-1",
