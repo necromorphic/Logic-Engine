@@ -1,0 +1,21 @@
+diff --git a/src/server-startup.js b/src/server-startup.js
+index 4bfc843..0000000 100644
+--- a/src/server-startup.js
++++ b/src/server-startup.js
+@@ -1,6 +1,7 @@
+ import https from 'node:https';
+ import http from 'node:http';
+ import fs from 'node:fs';
+ import { color, urlHostnameToIPv6, getHasIP } from './util.js';
++import { createProtectedDispatchDenyMiddleware } from './endpoints/logic-engine-protected-dispatch-guard.mjs';
+ 
+ // Express routers
+ import { router as userDataRouter } from './users.js';
+@@ -129,6 +130,7 @@
+  * @param {import('express').Express} app The Express app to use
+  */
+ export function setupPrivateEndpoints(app) {
++    app.use(createProtectedDispatchDenyMiddleware());
+     app.use('/', userDataRouter);
+     app.use('/api/users', usersPrivateRouter);
+     app.use('/api/users', usersAdminRouter);
