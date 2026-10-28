@@ -36,9 +36,9 @@ Do not enroll a real database until its current state and source inventory have 
 
 ## Executable evidence
 
-- Focused accepted-head/Provider/Gateway gate: [22/22 tests passed](https://github.com/necromorphic/Logic-Engine/actions/runs/40698386692).
-- Native Windows Runtime and recalculation oracle: [1,021/1,021 Runtime tests and 20/20 oracle tests passed](https://github.com/necromorphic/Logic-Engine/actions/runs/40698386669).
-- Tested code head before this service-entrypoint test was added: `a067359aae51da43e9ace3ba0199bb39a62faa75`. The service-entrypoint test is being rerun at the updated PR head; its result must be checked before treating the new entrypoint as validated.
+- Focused accepted-head/Provider/Gateway gate: [23/23 tests passed](https://github.com/necromorphic/Logic-Engine/actions/runs/40700013471) (includes the runnable authority service entrypoint test).
+- Native Windows Runtime and recalculation oracle: [1,022/1,022 Runtime tests and 20/20 oracle tests passed](https://github.com/necromorphic/Logic-Engine/actions/runs/40700013443).
+- Tested code head: `9c4f6d279124b13441b0fcdd028c7d824c29a41f`. The subsequent change to this note is documentation-only; exact-head CI is rerun on the updated PR head.
 
 ## Boundary that remains blocked
 
