@@ -11,13 +11,13 @@
 - Main snapshot inspected: `9f653e3669c3bf042cc3ab36f91d615e784e69ff` ([commit](https://github.com/necromorphic/Logic-Engine/commit/9f653e3669c3bf042cc3ab36f91d615e784e69ff)).
 - Provider integration merged into main: PR [#618](https://github.com/necromorphic/Logic-Engine/pull/618), merge commit `1ad46f96161778d8cf6f1bc66e8db31d56593f65`.
 - Current package requirement: Node.js `>=22.13.0`; tests use Node's built-in `node:sqlite`. The repository `package.json` declares no external dependencies and no package lockfile was found at the inspected path.
-- Exact Node.js version, OS/build, embedded SQLite version, and runner image for the cited acceptance execution: **NOT TESTED / NOT RECORDED in the evidence reviewed here**. Do not infer them from the package requirement.
+- Confirmed Windows self-hosted execution on runner `DESKTOP-77V96AV`: Node.js `v22.18.0`, Git `2.50.1.windows.1`, Windows platform. The original run did not print the exact Windows build or `process.versions.sqlite`, so those remain **NOT RECORDED** for that run. This report branch adds an environment-recording step; its new run is pending and is not counted as evidence yet.
 - Agreed Host target: SillyTavern `1.19.0-1-g06bde939f`, source SHA `06bde939fb1e9c4c8d8641d810f0a916b5bce127`.
 - Reproduction entry point from a checkout with a supported Node.js:
   - Full repository suite: `npm test`
   - Focused Provider suite:
     `node --import ./tests/configure-test-env.js --test tests/sqlite-memory-provider.test.js tests/memory-provider-typed-failures.test.js tests/memory-provider-reconcile-interruption.test.js tests/memory-provider-raw-archive.test.js`
-- The commands above are instructions, not a claim that this report's author ran them locally. No local or target-PC execution was performed for this report.
+- Confirmed execution after the initial report: GitHub Actions run [40728771597](https://github.com/necromorphic/Logic-Engine/actions/runs/40728771597) ran on self-hosted Windows runner `DESKTOP-77V96AV`, checked out merge commit `8efd61e5f1e89386b46a5a529ce928b63e0aa8f6`, and passed `npm test` **1022/1022** plus recalculation oracle **20/20**. This is the repository test suite on the user's Windows runner, not a separately launched Provider service or live SillyTavern integration. The focused Provider command and environment recording were added to this report branch's workflow; run [40730496450](https://github.com/necromorphic/Logic-Engine/actions/runs/40730496450) is pending and is not counted as a pass.
 
 ## 2. Evidence already present on main (separate from open PRs)
 
@@ -28,7 +28,7 @@ Reported exact-head evidence for the merged Provider slice:
 - Linux Runtime suite: **1022/1022 PASS**.
 - Recalculation oracle: **20/20 PASS**.
 - NPC-boundary: **PASS**.
-- A Windows Runtime execution for the exact candidate head was reported as queued in the available issue discussion; this report does **not** count it as a pass.
+- Windows Runtime execution on the self-hosted runner: **1022/1022 PASS**, recalculation oracle **20/20 PASS**; [run 40728771597](https://github.com/necromorphic/Logic-Engine/actions/runs/40728771597), merge commit `8efd61e5f1e89386b46a5a529ce928b63e0aa8f6`. This confirms automated tests on the Windows runner only; it does not establish a live Provider process or SillyTavern→Provider path.
 - Evidence discussion: [Provider blocker #181](https://github.com/necromorphic/Logic-Engine/issues/181), [global gate #264](https://github.com/necromorphic/Logic-Engine/issues/264), [Core gate #140](https://github.com/necromorphic/Logic-Engine/issues/140).
 
 These are automated repository/acceptance tests, including file-backed SQLite and an injected transport. They are not proof of a live installed SillyTavern → Host → Provider → Core → NPC path or target-PC deployment isolation.
@@ -105,3 +105,14 @@ The Provider-owned implementation/test slice is present in main and has strong a
 4. **Evidence owner:** publish the exact execution environment versions, commands, redacted logs, before/after state digests, and CI/run links for the exact tested HEAD. Label every result as unit, test-harness integration, live process, or target deployment.
 
 **Production remains disabled.** This report does not approve Memory → NPC, change the existing vectorization/Ollama remote-store patch, or authorize new runtime mechanisms.
+
+
+## 8. Supplemental Windows execution record (2026-10-28)
+
+- Self-hosted runner: `DESKTOP-77V96AV` (Windows, X64).
+- Tested checkout: merge commit `8efd61e5f1e89386b46a5a529ce928b63e0aa8f6`, combining the inspected main snapshot with the documentation-only PR.
+- Runtime: Node.js `v22.18.0`; Git `2.50.1.windows.1`.
+- Results: `npm test` 1022/1022 passed, 0 failed; recalculation oracle 20/20 passed, 0 failed.
+- Evidence: [GitHub Actions run 40728771597](https://github.com/necromorphic/Logic-Engine/actions/runs/40728771597).
+- Exact Windows OS build and embedded SQLite version were not printed in that run. A focused Provider acceptance suite plus environment-version capture has been added to the workflow in this PR. Run [40730496450](https://github.com/necromorphic/Logic-Engine/actions/runs/40730496450) was queued when this addendum was written; it is not counted as a pass until its Windows job completes.
+- **Still NOT TESTED:** separately launched Provider process with retained DB snapshots/logs; installed pinned SillyTavern lifecycle; target-PC ACL/restore/anti-rollback; complete sole-egress proof. The new workflow does not close these gaps.
