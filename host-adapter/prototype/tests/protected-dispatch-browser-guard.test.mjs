@@ -13,7 +13,7 @@ function storageWith(entries = {}) {
   };
 }
 
-test('non-enrolled chat can continue using native SillyTavern generation', () => {
+test('non-enrolled chat can continue using native SillyTavern generation before any Host enrollment exists', () => {
   assert.deepEqual(
     assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage: storageWith() }),
     { status: 'NOT_ENROLLED' },
@@ -52,6 +52,17 @@ test('missing locator or unavailable storage fails closed', () => {
   );
   assert.throws(
     () => assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage: null }),
+    /PROTECTED_EGRESS_GATEWAY_REQUIRED/,
+  );
+});
+
+test('lost enrollment markers for the active chat fail closed while any other Host enrollment remains', () => {
+  const storage = storageWith({
+    'logic-engine-host-lifecycle:install-id:conversation-a': 'enrolled:chat-a.jsonl',
+    'logic-engine-host-lifecycle-locator:chat-b.jsonl': 'install-id:conversation-b',
+  });
+  assert.throws(
+    () => assertProtectedDispatchAllowed({ locator: 'chat-a.jsonl', storage }),
     /PROTECTED_EGRESS_GATEWAY_REQUIRED/,
   );
 });
