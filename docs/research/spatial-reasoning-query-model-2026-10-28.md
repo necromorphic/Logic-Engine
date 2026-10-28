@@ -63,6 +63,17 @@ For this project, the documented convention is +X = logical east, +Y = logical n
 
 Historical queries are supported only at a boundary for which the implementation can prove the exact mapping to a Core composite marker. An arbitrary game-time coordinate is not automatically a reconstructable world state. Do not interpolate or extrapolate between samples in v1. If multiple commits share a game-time coordinate, use the exact approved commit cursor; a time-only query that cannot identify the intended boundary is ambiguous.
 
+### 3.4 Entity continuity: confirmed source-level guard, spatial proof still incomplete
+
+A read-only review of Core at `main` source revision `80cbc54fb174a8074088ee9234524e401b7dbb68` found existing entity identity safeguards:
+
+- `entity.create` rejects an identity already present, including a destroyed tombstone (`ENTITY_ALREADY_EXISTS`).
+- `entity.upsert` rejects a destroyed identity (`ENTITY_TOMBSTONE_REUSE`).
+- Projection rebuild validates valid event history and rejects identity reuse or resurrection after a tombstone (`ENTITY_HISTORY_ID_REUSE`, `ENTITY_HISTORY_TOMBSTONE_REUSE`).
+- The documented safe path after terminal destruction is a new `entity_id`, unless the destroying event is itself validly retracted/rolled back through Core's canonical event lifecycle.
+
+This narrows the spatial lifecycle risk: the current canonical Core path already prevents ordinary reuse of a destroyed entity ID. It does **not** prove spatial continuity by itself. A confirmed spatial point still needs typed position provenance, exact schema identity, a supported temporal boundary, and a coherent current marker. Generic attributes on an entity remain untyped. These safeguards were inspected in source; this paragraph does not claim a new test was run.
+
 ## 4. Result contract for reasoning
 
 The result state is as important as the computed value. Proposed statuses:
@@ -113,6 +124,7 @@ These are proposed scenario IDs for a future test-only harness; they are NOT exe
 | SRQ-14 | Rollback invalidates a source event | Rebuild/recompute; no stale derived result |
 | SRQ-15 | NPC requests spatial fact through Memory/NPC | Existing deny/fail-closed boundary remains unchanged |
 | SRQ-16 | Same accepted event history rebuilt after process restart | Same derived result for same supported boundary and schema evidence, or fail closed if evidence cannot be reconstructed |
+| SRQ-17 | Attempt to reuse a destroyed entity ID or rebuild valid history with ID reuse | Canonical Core rejects the reuse; spatial consumer still requires typed position provenance and exact boundary evidence |
 
 ## 7. What can be done next without a contract approval
 
