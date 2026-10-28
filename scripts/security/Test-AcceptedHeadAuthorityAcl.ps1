@@ -14,7 +14,7 @@ try {
     New-LocalUser -Name $account -Password $securePassword -PasswordNeverExpires -UserMayNotChangePassword | Out-Null
     $testAccounts += $account
     $accountName = "$env:COMPUTERNAME\$account"
-    & sc.exe create $service binPath= "$env:WINDIR\System32\cmd.exe /c exit" obj= $accountName password= $password start= demand | Out-Null
+    & sc.exe create $service binPath= "$env:WINDIR\System32\cmd.exe /c exit" obj= $accountName password= $password start= disabled | Out-Null
     if ($LASTEXITCODE -ne 0) { throw "Failed to create disposable service identity fixture for $role." }
     $testServices += $service
   }
@@ -128,6 +128,25 @@ try {
     }
   } finally {
     if (Test-Path -LiteralPath $existingEvidence) { Remove-Item -LiteralPath $existingEvidence -Force }
+  }
+
+  # Regression: a stopped service that can still be started must fail the maintenance gate.
+  $startableServiceEvidence = $evidence + '.startable-service'
+  try {
+    & sc.exe config $testServices[0] start= demand | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not prepare disposable service fixture for start-mode gate test.' }
+    $rejected = $false
+    try {
+      & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $startableServiceEvidence -Apply -MaintenanceWindowConfirmed -Confirm:$false
+    } catch { $rejected = $_.Exception.Message -match 'must be Disabled and Stopped with PID 0' }
+    if (-not $rejected) { throw 'Apply was not refused when a service remained startable during maintenance.' }
+    if (-not (Test-Path -LiteralPath $startableServiceEvidence)) { throw 'Maintenance refusal did not record its evidence.' }
+    $startableReport = Get-Content -LiteralPath $startableServiceEvidence -Raw | ConvertFrom-Json
+    if ($startableReport.status -ne 'REFUSED_NO_ACL_CHANGES') { throw 'Startable-service refusal did not record REFUSED_NO_ACL_CHANGES.' }
+  } finally {
+    & sc.exe config $testServices[0] start= disabled | Out-Null
+    if ($LASTEXITCODE -ne 0) { throw 'Could not restore disposable service fixture to disabled start mode.' }
+    if (Test-Path -LiteralPath $startableServiceEvidence) { Remove-Item -LiteralPath $startableServiceEvidence -Force }
   }
 
   # Regression: Apply must require an explicit maintenance-window attestation.
