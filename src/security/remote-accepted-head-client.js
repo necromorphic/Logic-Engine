@@ -23,7 +23,7 @@ function validId(value) {
   return typeof value === 'string' && ID.test(value);
 }
 
-function canonicalRecord(record) {
+export function serializeRemoteAnchorRecord(record) {
   // Fixed field order is the wire-level signing contract. Do not sign arbitrary
   // JSON property order or accept unknown fields.
   return JSON.stringify({
@@ -128,7 +128,7 @@ export function verifyRemoteAnchorEnvelope({
   validateRecord(record, installationId);
   if (record.sequence < minimumSequence) fail('REMOTE_ANCHOR_ROLLBACK_DETECTED');
 
-  const bytes = Buffer.from(canonicalRecord(record), 'utf8');
+  const bytes = Buffer.from(serializeRemoteAnchorRecord(record), 'utf8');
   const signatureBytes = decodeSignature(signature);
   let valid = false;
   try {
