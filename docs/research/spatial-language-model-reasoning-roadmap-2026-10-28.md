@@ -28,7 +28,7 @@ The spatial layer should help a language model narrate physically and causally c
 | S4 | Door-aware room route/reachability | Stops the model assuming it can pass through closed doors | **Implemented in isolated synthetic research module** | Graph of explicitly declared doors; unknown door state fails closed |
 | S5 | Compact language-model scene context | Translates structured results into useful prompt facts | **Implemented in isolated synthetic research module** | Synthetic-only marker; does not assert visibility or knowledge |
 | S6 | Geometry/obstacles and body-volume movement | Prevents impossible movement through walls or other bodies | Existing synthetic prototype; conservative AABB approximation | No full physics, body rotation, sliding, or collision response |
-| S7 | Field of view and line-of-sight approximation | Helps distinguish physically visible from occluded | Existing synthetic prototype | Requires explicit lighting and complete blocker inventory; not actual noticing |
+| S7 | Field of view and line-of-sight approximation | Helps distinguish physically visible from occluded | Existing synthetic prototype; target-body result is based on nine sample rays | Requires explicit lighting and complete blocker inventory; sampled rays cannot prove continuous full-body visibility; not actual noticing |
 | S8 | Auditory perception | Allows sound to cross some spaces while walls/doors attenuate it | **Implemented in isolated synthetic research module** | Requires explicit source level, listener threshold, and per-door open/closed attenuation; estimates audibility only, not actual hearing or noticing |
 | S9 | Actual noticing, recognition, and knowledge acquisition | Separates objective world facts from what each NPC believes | **Planned, separate workstream** | Requires dedicated observer/knowledge contract; no Memory/NPC integration implied |
 | S10 | Scene changes and stale prediction invalidation | A changed door/obstacle/action should invalidate affected forecasts | **Implemented in isolated synthetic research module** | Caller must declare complete dependencies; no Core event/rollback integration |
@@ -125,3 +125,8 @@ The route-cost module now ranks simple room paths by explicit positive per-door 
 ### Sixth research increment — multi-NPC visibility and movement traces
 
 The multi-person scenario tests now cover a runner occluded by a wall, visibility changing after a movement into a new synthetic boundary, movement rejected when its body path intersects a wall, and UNKNOWN visibility when lighting or the blocker inventory is unresolved. These checks report geometry only; they do not infer noticing, attention, intent, or awareness. The movement model remains a conservative AABB approximation.
+
+
+### Seventh research increment — explicit limits of sampled body visibility
+
+Target-body visibility uses nine sample rays (center plus corners). Result extents are named `SAMPLED_ALL`, `SAMPLED_PARTIAL`, or `SAMPLED_NONE` so the output does not imply continuous geometric coverage. Duplicate or empty blocker IDs now invalidate the synthetic scene rather than being silently accepted. This remains a simplified research approximation, not a production perception contract.
