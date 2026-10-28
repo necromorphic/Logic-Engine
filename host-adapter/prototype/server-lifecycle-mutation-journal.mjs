@@ -669,7 +669,7 @@ async function validateEnrolledSourcePath(paths, { conversationId, sourceLocator
 async function ensureEnrollmentMarker(paths) {
     // This sibling marker detects accidental loss of the journal directory;
     // it is not an independent anti-rollback trust anchor.
-    const markerPath = path.join(path.dirname(paths.roots[0].path), ENROLLMENT_MARKER_NAME);
+    const markerPath = path.join(path.dirname(await realpath(paths.roots[0].path)), ENROLLMENT_MARKER_NAME);
     try {
         const markerStat = await lstat(markerPath);
         if (!markerStat.isFile() || markerStat.isSymbolicLink()) throw new Error('HOST_ENROLLMENT_MARKER_UNSAFE');
@@ -679,7 +679,7 @@ async function ensureEnrollmentMarker(paths) {
     }
     const markerHandle = await open(markerPath, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY, 0o600);
     try {
-        await markerHandle.writeFile(JSON.stringify({ version: 1, purpose: 'host-enrollment-present' }) + '\\n', 'utf8');
+        await markerHandle.writeFile(JSON.stringify({ version: 1, purpose: 'host-enrollment-present' }) + '\n', 'utf8');
         await markerHandle.sync();
     } finally {
         await markerHandle.close();
