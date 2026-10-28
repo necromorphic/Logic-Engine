@@ -125,7 +125,7 @@ test('persisted Host marker with a malformed non-string ID makes registry comple
     await writeFile(path.join(f.chats, 'chat-malformed.jsonl'), [
       JSON.stringify({ chat_metadata: { logic_engine_conversation_id: 17 } }),
       JSON.stringify(makeMessage('malformed Host marker')),
-    ].join('\\n') + '\\n');
+    ].join('\n') + '\n');
     const result = await scanPersistedConversationInventories(f.roots, [{
       conversationId: randomUUID() + ':' + enrolledUuid,
       sourceLocator: 'chat-enrolled',
