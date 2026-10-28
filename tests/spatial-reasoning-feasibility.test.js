@@ -224,3 +224,106 @@ test('segment commit also accepts malformed position-shaped generic attributes',
   // This is a negative feasibility finding: segment acceptance has no typed
   // spatial validation gate. It does not authorize using the value as position.
 });
+
+// Synthetic observer geometry helpers. These are isolated algorithm tests,
+// not production NPC perception or Memory → NPC integration.
+function syntheticLineIntersectsAabb(start, end, box) {
+  let tMin = 0;
+  let tMax = 1;
+  for (const axis of ['x', 'y', 'z']) {
+    const direction = end[axis] - start[axis];
+    if (direction === 0) {
+      if (start[axis] < box.min[axis] || start[axis] > box.max[axis]) return false;
+      continue;
+    }
+    let t1 = (box.min[axis] - start[axis]) / direction;
+    let t2 = (box.max[axis] - start[axis]) / direction;
+    if (t1 > t2) [t1, t2] = [t2, t1];
+    tMin = Math.max(tMin, t1);
+    tMax = Math.min(tMax, t2);
+    if (tMin > tMax) return false;
+  }
+  return tMax >= 0 && tMin <= 1;
+}
+
+function syntheticVisibility({ observer, target, forward, halfAngleRadians, maxDistance, blockers, lighting, observedBoundary, currentBoundary }) {
+  if (!observer || !target || observer.status !== 'CONFIRMED' || target.status !== 'CONFIRMED') {
+    return { status: 'UNKNOWN', visible: null, reason: 'POSITION_UNCONFIRMED' };
+  }
+  const comparable = pointDistance(observer, target);
+  if (comparable.status !== 'CONFIRMED') return { status: comparable.status, visible: null };
+  if (observedBoundary !== currentBoundary) return { status: 'STALE', visible: null };
+  if (lighting !== 'clear') return { status: 'UNKNOWN', visible: null, reason: 'LIGHTING_UNRESOLVED' };
+
+  const v = { x: target.x - observer.x, y: target.y - observer.y, z: target.z - observer.z };
+  const d = Math.hypot(v.x, v.y, v.z);
+  const f = Math.hypot(forward.x, forward.y, forward.z);
+  if (!Number.isFinite(f) || f === 0) return { status: 'UNKNOWN', visible: null, reason: 'ORIENTATION_INVALID' };
+  if (d > maxDistance) return { status: 'CONFIRMED', visible: false, reason: 'OUT_OF_RANGE' };
+  if (d > 0) {
+    const cosine = (v.x * forward.x + v.y * forward.y + v.z * forward.z) / (d * f);
+    if (cosine < Math.cos(halfAngleRadians)) return { status: 'CONFIRMED', visible: false, reason: 'OUTSIDE_FIELD_OF_VIEW' };
+  }
+  const start = { x: observer.x, y: observer.y, z: observer.z };
+  const end = { x: target.x, y: target.y, z: target.z };
+  if (blockers.some((box) => syntheticLineIntersectsAabb(start, end, box))) {
+    return { status: 'CONFIRMED', visible: false, reason: 'OCCLUDED' };
+  }
+  return { status: 'CONFIRMED', visible: true, reason: 'CLEAR_LINE_OF_SIGHT' };
+}
+
+test('synthetic 3D line-of-sight checks an explicit blocker between two points', () => {
+  const start = { x: 0, y: 0, z: 0 };
+  const end = { x: 10, y: 0, z: 0 };
+  assert.equal(syntheticLineIntersectsAabb(start, end, {
+    min: { x: 4, y: -1, z: -1 }, max: { x: 5, y: 1, z: 1 },
+  }), true);
+  assert.equal(syntheticLineIntersectsAabb(start, end, {
+    min: { x: 4, y: 2, z: -1 }, max: { x: 5, y: 3, z: 1 },
+  }), false);
+  assert.equal(syntheticLineIntersectsAabb(start, end, {
+    min: { x: 11, y: -1, z: -1 }, max: { x: 12, y: 1, z: 1 },
+  }), false);
+});
+
+test('synthetic visibility distinguishes field of view, range, blockers, lighting, and stale boundaries', () => {
+  const observer = syntheticConfirmedPoint({ worldId: 'w', entityId: 'observer', x: 0, y: 0, z: 0, boundary: 'c1' });
+  const target = syntheticConfirmedPoint({ worldId: 'w', entityId: 'target', x: 10, y: 0, z: 0, boundary: 'c1' });
+  const common = {
+    observer, target, forward: { x: 1, y: 0, z: 0 }, halfAngleRadians: Math.PI / 6,
+    maxDistance: 12, blockers: [], lighting: 'clear',
+    observedBoundary: 'c1', currentBoundary: 'c1',
+  };
+  assert.deepEqual(syntheticVisibility(common), {
+    status: 'CONFIRMED', visible: true, reason: 'CLEAR_LINE_OF_SIGHT',
+  });
+  assert.deepEqual(syntheticVisibility({ ...common, forward: { x: -1, y: 0, z: 0 } }), {
+    status: 'CONFIRMED', visible: false, reason: 'OUTSIDE_FIELD_OF_VIEW',
+  });
+  assert.deepEqual(syntheticVisibility({ ...common, maxDistance: 5 }), {
+    status: 'CONFIRMED', visible: false, reason: 'OUT_OF_RANGE',
+  });
+  assert.deepEqual(syntheticVisibility({ ...common, blockers: [{
+    min: { x: 4, y: -1, z: -1 }, max: { x: 5, y: 1, z: 1 },
+  }] }), {
+    status: 'CONFIRMED', visible: false, reason: 'OCCLUDED',
+  });
+  assert.deepEqual(syntheticVisibility({ ...common, lighting: 'unknown' }), {
+    status: 'UNKNOWN', visible: null, reason: 'LIGHTING_UNRESOLVED',
+  });
+  assert.deepEqual(syntheticVisibility({ ...common, currentBoundary: 'c2' }), {
+    status: 'STALE', visible: null,
+  });
+});
+
+test('synthetic perception never promotes visibility into NPC knowledge or Memory permission', () => {
+  const observer = syntheticConfirmedPoint({ worldId: 'w', entityId: 'observer', x: 0, y: 0, z: 0, boundary: 'c1' });
+  const target = syntheticConfirmedPoint({ worldId: 'w', entityId: 'target', x: 1, y: 0, z: 0, boundary: 'c1' });
+  const result = syntheticVisibility({
+    observer, target, forward: { x: 1, y: 0, z: 0 }, halfAngleRadians: Math.PI / 4,
+    maxDistance: 5, blockers: [], lighting: 'clear', observedBoundary: 'c1', currentBoundary: 'c1',
+  });
+  assert.equal(result.visible, true);
+  assert.equal(Object.hasOwn(result, 'npc_knows'), false);
+  assert.equal(Object.hasOwn(result, 'memory_permission'), false);
+});

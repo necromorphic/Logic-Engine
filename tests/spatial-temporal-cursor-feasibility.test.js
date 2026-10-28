@@ -44,7 +44,7 @@ function assertSegmentCursorMapping(store, worldId, segments) {
     assert.ok(Array.isArray(segment.events) && segment.events.length > 0);
     const boundaryEventId = segment.events.at(-1).event_id;
     const event = store.db.prepare(
-      'SELECT event_id,game_time_coordinate,commit_sequence,validity FROM world_events WHERE world_id=? AND event_id=?',
+      'SELECT event_id,game_time_coordinate,committed_revision,commit_sequence,validity FROM world_events WHERE world_id=? AND event_id=?',
     ).get(worldId, boundaryEventId);
     assert.ok(event, `segment boundary event ${boundaryEventId} must exist`);
     assert.equal(event.game_time_coordinate, segment.coordinate);
@@ -53,6 +53,7 @@ function assertSegmentCursorMapping(store, worldId, segments) {
     segment.boundaryCursor = {
       event_id: event.event_id,
       game_time_coordinate: event.game_time_coordinate,
+      committed_revision: event.committed_revision,
       commit_sequence: event.commit_sequence,
     };
   }
@@ -173,4 +174,255 @@ test('rollback invalidates the affected historical boundary and makes the stored
   const checkpointMatchesCurrentWorld = recoveredOperation.current_world_revision === currentWorld.world_revision;
   assert.equal(firstCursorIsValid, false);
   assert.equal(checkpointMatchesCurrentWorld, false);
+});
+
+
+test('ordinary world writes after TimeEngine completion do not make an old segment cursor current', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-spatial-cursor-intervening-write-'));
+  const path = join(directory, 'state.sqlite');
+  let store = new SQLiteStore(path);
+  let engine = new LogicEngine(store);
+  const worldId = 'spatial-cursor-intervening-write-world';
+
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    try { store.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  engine.registerTimeTrigger(worldId, trigger('intervening-write-at-10', 10000, 'intervening-time-entity'));
+  const operation = engine.startTimeAdvance(worldId, {
+    idempotency_key: 'spatial-cursor-intervening-write-operation',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(operation.status, 'completed');
+
+  const segments = readSegmentRows(store, worldId, operation.operation_id);
+  const mapped = assertSegmentCursorMapping(store, worldId, segments);
+  assert.equal(mapped.length, 1);
+  const boundary = mapped[0].boundaryCursor;
+  assert.equal(Number.isInteger(boundary.committed_revision), true);
+  assert.equal(Number.isInteger(boundary.commit_sequence), true);
+
+  const beforeWrite = engine.getState(worldId);
+  assert.equal(operation.current_world_revision, beforeWrite.world_revision);
+
+  engine.commitEvent(worldId, {
+    idempotency_key: 'spatial-cursor-intervening-ordinary-write',
+    turn_id: 'spatial-cursor-intervening-ordinary-write-turn',
+    event_type: 'test.ordinary-write',
+    expected_revision: beforeWrite.world_revision,
+    effects: [{
+      kind: 'entity.upsert',
+      entity_id: 'ordinary-write-entity',
+      entity_type: 'object',
+      attributes: { source: 'intervening-write-test' },
+    }],
+  });
+
+  const afterWrite = engine.getState(worldId);
+  const storedOperation = engine.getTimeAdvanceOperation(worldId, operation.operation_id);
+  assert.ok(afterWrite.world_revision > beforeWrite.world_revision);
+  assert.notEqual(storedOperation.current_world_revision, afterWrite.world_revision);
+
+  const persistedBoundary = store.db.prepare(
+    'SELECT committed_revision,commit_sequence,validity FROM world_events WHERE world_id=? AND event_id=?',
+  ).get(worldId, boundary.event_id);
+  assert.equal(persistedBoundary.validity, 'valid');
+  assert.equal(persistedBoundary.committed_revision, boundary.committed_revision);
+  assert.equal(persistedBoundary.commit_sequence, boundary.commit_sequence);
+  assert.notEqual(persistedBoundary.committed_revision, afterWrite.world_revision);
+});
+
+
+test('equal-time events require stable event identity and commit ordering for a segment boundary', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-spatial-cursor-equal-time-'));
+  const path = join(directory, 'state.sqlite');
+  let store = new SQLiteStore(path);
+  let engine = new LogicEngine(store);
+  const worldId = 'spatial-cursor-equal-time-world';
+
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    try { store.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  engine.registerTimeTrigger(worldId, trigger('equal-time-a', 10000, 'equal-time-entity-a'));
+  engine.registerTimeTrigger(worldId, trigger('equal-time-b', 10000, 'equal-time-entity-b'));
+  const operation = engine.startTimeAdvance(worldId, {
+    idempotency_key: 'spatial-cursor-equal-time-operation',
+    expected_revision: 2,
+    to_coordinate: 10000,
+  });
+
+  assert.equal(operation.status, 'completed');
+  const segments = readSegmentRows(store, worldId, operation.operation_id);
+  assert.equal(segments.length, 1);
+  assert.ok(segments[0].events.length >= 2, 'multiple same-time events must share the segment');
+
+  const mapped = assertSegmentCursorMapping(store, worldId, segments);
+  const boundary = mapped[0].boundaryCursor;
+  const plannedEventIds = segments[0].events.map((event) => event.event_id);
+  const placeholders = plannedEventIds.map(() => '?').join(',');
+  const sameCoordinateEvents = store.db.prepare(
+    `SELECT event_id,game_time_coordinate,committed_revision,commit_sequence,validity FROM world_events WHERE world_id=? AND event_id IN (${placeholders}) ORDER BY commit_sequence`,
+  ).all(worldId, ...plannedEventIds);
+
+  assert.equal(sameCoordinateEvents.length, plannedEventIds.length);
+  assert.deepEqual(
+    sameCoordinateEvents.map((event) => event.event_id),
+    segments[0].events.map((event) => event.event_id),
+  );
+  assert.equal(boundary.event_id, segments[0].events.at(-1).event_id);
+  assert.equal(boundary.commit_sequence, sameCoordinateEvents.at(-1).commit_sequence);
+  assert.ok(sameCoordinateEvents[0].commit_sequence < sameCoordinateEvents[1].commit_sequence);
+  assert.equal(sameCoordinateEvents[0].game_time_coordinate, sameCoordinateEvents[1].game_time_coordinate);
+});
+
+test('an invalidated segment boundary is rejected instead of reconstructed as a confirmed cursor', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-spatial-cursor-invalid-boundary-'));
+  const path = join(directory, 'state.sqlite');
+  const store = new SQLiteStore(path);
+  const engine = new LogicEngine(store);
+  const worldId = 'spatial-cursor-invalid-boundary-world';
+
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    try { store.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  engine.registerTimeTrigger(worldId, trigger('invalid-boundary-at-10', 10000, 'invalid-boundary-entity'));
+  const operation = engine.startTimeAdvance(worldId, {
+    idempotency_key: 'spatial-cursor-invalid-boundary-operation',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(operation.status, 'completed');
+
+  const segments = readSegmentRows(store, worldId, operation.operation_id);
+  const boundaryEventId = segments[0].events.at(-1).event_id;
+  store.db.prepare(
+    "UPDATE world_events SET validity='invalidated' WHERE world_id=? AND event_id=?",
+  ).run(worldId, boundaryEventId);
+
+  assert.throws(
+    () => assertSegmentCursorMapping(store, worldId, segments),
+    /valid/,
+    'an invalid boundary must fail validation; no nearby event may be substituted',
+  );
+});
+
+test('rollback of a causal predecessor invalidates a dependent spatial boundary', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-spatial-cursor-causal-rollback-'));
+  const path = join(directory, 'state.sqlite');
+  const store = new SQLiteStore(path);
+  const engine = new LogicEngine(store);
+  const worldId = 'spatial-cursor-causal-rollback-world';
+
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    try { store.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  engine.registerTimeTrigger(worldId, trigger('causal-boundary-at-10', 10000, 'causal-boundary-entity'));
+  const operation = engine.startTimeAdvance(worldId, {
+    idempotency_key: 'spatial-cursor-causal-boundary-operation',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(operation.status, 'completed');
+
+  const segments = readSegmentRows(store, worldId, operation.operation_id);
+  const boundaryEventId = segments[0].events.at(-1).event_id;
+  const state = engine.getState(worldId);
+  const dependent = engine.commitEvent(worldId, {
+    event_id: 'causal-boundary-dependent-update',
+    idempotency_key: 'causal-boundary-dependent-update',
+    turn_id: 'causal-boundary-dependent-update-turn',
+    event_type: 'action.completed',
+    expected_revision: state.world_revision,
+    causal_links: [{
+      relation: 'REQUIRES',
+      predicate: { kind: 'entity_exists', entity_id: 'causal-boundary-entity' },
+    }],
+    effects: [{
+      kind: 'entity.update',
+      entity_id: 'causal-boundary-entity',
+      attributes: { dependent_update: true },
+    }],
+    caused_by: [boundaryEventId],
+    depends_on: ['entity:causal-boundary-entity'],
+    read_set: ['entity:causal-boundary-entity'],
+  });
+  assert.equal(dependent.accepted, true);
+
+  const rollback = engine.rollbackEvent(worldId, {
+    root_event_id: boundaryEventId,
+    idempotency_key: 'rollback-causal-spatial-boundary',
+  });
+  assert.ok(rollback.invalidated_event_ids.includes(boundaryEventId));
+  assert.ok(rollback.invalidated_event_ids.includes('causal-boundary-dependent-update'));
+  assert.throws(
+    () => assertSegmentCursorMapping(store, worldId, segments),
+    /valid/,
+    'a boundary whose causal predecessor was invalidated cannot remain confirmed',
+  );
+});
+
+test('coordinate mismatch at an otherwise valid boundary is rejected', (t) => {
+  const directory = mkdtempSync(join(tmpdir(), 'logic-engine-spatial-cursor-coordinate-mismatch-'));
+  const path = join(directory, 'state.sqlite');
+  const store = new SQLiteStore(path);
+  const engine = new LogicEngine(store);
+  const worldId = 'spatial-cursor-coordinate-mismatch-world';
+
+  engine.createWorld({
+    world_id: worldId,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00.000Z',
+  });
+  t.after(() => {
+    try { store.close(); } finally { rmSync(directory, { recursive: true, force: true }); }
+  });
+
+  engine.registerTimeTrigger(worldId, trigger('coordinate-mismatch-at-10', 10000, 'coordinate-mismatch-entity'));
+  const operation = engine.startTimeAdvance(worldId, {
+    idempotency_key: 'spatial-cursor-coordinate-mismatch-operation',
+    expected_revision: 1,
+    to_coordinate: 10000,
+  });
+  assert.equal(operation.status, 'completed');
+
+  const segments = readSegmentRows(store, worldId, operation.operation_id);
+  const boundaryEventId = segments[0].events.at(-1).event_id;
+  store.db.prepare(
+    'UPDATE world_events SET game_time_coordinate=? WHERE world_id=? AND event_id=?',
+  ).run(9999, worldId, boundaryEventId);
+
+  assert.throws(
+    () => assertSegmentCursorMapping(store, worldId, segments),
+    /strictEqual|10000/,
+    'coordinate disagreement must fail instead of selecting a different event',
+  );
 });
