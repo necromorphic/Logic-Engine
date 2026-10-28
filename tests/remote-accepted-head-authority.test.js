@@ -138,6 +138,50 @@ test('sequence exhaustion fails closed without mutating the anchor store', async
   assert.equal(appendCalls, 0);
 });
 
+test('stored head from another epoch or contract fails closed without appending', async (t) => {
+  for (const override of [
+    { epoch_id: 'old-epoch-server-test', contract_version: 1 },
+    { epoch_id: 'epoch-server-test', contract_version: 2 },
+  ]) {
+    const record = {
+      installation_id: installationId,
+      epoch_id: override.epoch_id,
+      key_id: 'key-server-test',
+      sequence: 1,
+      previous_record_digest: null,
+      core_head_digest: coreDigestA,
+      provider_readiness_digest: providerDigest,
+      contract_version: override.contract_version,
+      record_type: 'ADVANCE',
+      recovery_reason: null,
+    };
+    const envelope = {
+      record,
+      signature: sign(null, Buffer.from(serializeRemoteAnchorRecord(record), 'utf8'), privateKey).toString('base64url'),
+    };
+    let appendCalls = 0;
+    const store = {
+      async getHead() { return envelope; },
+      async appendIfHead() { appendCalls += 1; return true; },
+    };
+    const { base } = await withServer(t, { store });
+
+    const fetched = await fetch(base + '/v1/installations/' + installationId + '/head', {
+      headers: { authorization: 'Bearer ' + token },
+    });
+    assert.equal(fetched.status, 503);
+    assert.deepEqual(await fetched.json(), { error: 'ANCHOR_STORE_INVALID' });
+
+    const attemptedAppend = await append(base, requestBody({
+      expected_sequence: 1,
+      expected_digest: recordDigest(envelope),
+    }));
+    assert.equal(attemptedAppend.status, 503);
+    assert.deepEqual(await attemptedAppend.json(), { error: 'ANCHOR_STORE_INVALID' });
+    assert.equal(appendCalls, 0);
+  }
+});
+
 test('compare-and-append rejects stale heads and concurrent append forks', async (t) => {
   const { base } = await withServer(t);
   assert.equal((await append(base, requestBody())).status, 201);
