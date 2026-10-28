@@ -107,7 +107,7 @@ The current GitHub access does not expose a verified named Core/TimeEngine owner
 - Runtime implementation, integration and merge: **NOT AUTHORIZED**
 - Tests executed for this review: **none**
 
-**Next coordinator action:** publish this candidate contract/report as a documentation-only draft PR, request the separate scoped Core and TimeEngine reviews once named owners can be verified, then reconcile their findings without reopening the now-decided v1 axis convention absent new evidence.
+**Next coordinator action:** maintain separate Core and TimeEngine source/evidence assessments under the delegated coordinator authority. Do not treat the absence of a named reviewer roster as an administrative blocker or claim independent owner approval. Reopen the v1 axis convention only if new evidence materially changes it; keep the contract blocked on technical guarantees until those guarantees are implemented and proven.
 
 
 ## 8. Exact-head refresh — 2026-10-28 09:50 UTC
