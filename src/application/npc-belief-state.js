@@ -1,3 +1,5 @@
+import { types as utilTypes } from 'node:util';
+
 const STANCES = new Set([
   'believes_true',
   'believes_false',
@@ -343,7 +345,9 @@ function buildNpcBeliefContextUnsafe(knowledgeRead, transition) {
     reason_rule_ref: transition.reason_rule_ref,
   });
   return Object.freeze({ status: 'ready', reason: null, context });
-}export function buildNpcBeliefContext(knowledgeRead, transition) {
+}
+
+export function buildNpcBeliefContext(knowledgeRead, transition) {
   try {
     return buildNpcBeliefContextUnsafe(knowledgeRead, transition);
   } catch {
