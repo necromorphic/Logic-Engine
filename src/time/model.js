@@ -164,7 +164,7 @@ export function intervalContainsTime(interval, coordinate) {
   assertIntervalRecord(interval);
   if (!Number.isSafeInteger(interval.from) || !Number.isSafeInteger(interval.to)
       || interval.to < interval.from
-      || (interval.boundary !== undefined && interval.boundary !== '(from, to]')) {
+      || (Object.hasOwn(interval, 'boundary') && interval.boundary !== '(from, to]')) {
     fail('INVALID_INTERVAL', 'interval must contain safe integer from/to coordinates in ascending order.');
   }
   safeInteger(coordinate, 'coordinate');
