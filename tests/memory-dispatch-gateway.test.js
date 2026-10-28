@@ -103,11 +103,6 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
       sources,
       candidates: providerCandidatesOverride ?? candidates,
     }),
-    sendUpstream: (request) => {
-      calls.push(request);
-      if (sendUpstream) return sendUpstream(request);
-      return { started: true, response: Promise.resolve({ status: 200, body: 'accepted' }) };
-    },
   });
   gateway = makeGateway();
 
@@ -115,6 +110,16 @@ async function createFixture({ sendUpstream, coreHead = 1, providerHead = 1, ini
     directory, authorityPath, coordinatorPath, ledgerPath, child: service.child, port: service.port,
     get gateway() { return gateway; },
     calls,
+    dispatch(request) {
+      return gateway.dispatchProtectedRequest({
+        ...request,
+        transport: (details) => {
+          calls.push(details);
+          if (sendUpstream) return sendUpstream(details);
+          return { started: true, response: Promise.resolve({ status: 200, body: 'accepted' }) };
+        },
+      });
+    },
     reopenGateway() {
       try { gateway?.close(); } catch {}
       gateway = makeGateway();
@@ -221,7 +226,7 @@ test('dispatch rejects Provider evidence whose exact candidate record/version se
   });
   try {
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('provider-candidate-mismatch')),
+      fixture.dispatch(validRequest('provider-candidate-mismatch')),
       /MEMORY_DISPATCH_NOT_READY/,
     );
     assert.equal(fixture.calls.length, 0, 'mismatched Provider evidence must block all upstream calls');
@@ -233,12 +238,12 @@ test('dispatch rejects Provider evidence whose exact candidate record/version se
 test('dispatch validates current heads and grants, records one content-free start, and sends once', async () => {
   const fixture = await createFixture();
   try {
-    const response = await fixture.gateway.dispatchProtectedRequest(validRequest());
+    const response = await fixture.dispatch(validRequest());
     assert.equal(response.status, 200);
     assert.equal(fixture.calls.length, 1);
     assert.equal(fixture.calls[0].body, validRequest().body);
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest()),
+      fixture.dispatch(validRequest()),
       /MEMORY_DISPATCH_DUPLICATE_ID/,
     );
     assert.equal(fixture.calls.length, 1);
@@ -259,11 +264,38 @@ test('dispatch validates current heads and grants, records one content-free star
   }
 });
 
+test('request-scoped transport is invoked exactly once after durable DISPATCH_STARTED', async () => {
+  let fixture;
+  let observedStatus;
+  let invocations = 0;
+  fixture = await createFixture({
+    sendUpstream: (details) => {
+      invocations += 1;
+      const db = new DatabaseSync(fixture.ledgerPath);
+      try {
+        observedStatus = db.prepare('SELECT status FROM dispatch_ledger WHERE request_id=?')
+          .get(details.requestId)?.status;
+      } finally {
+        db.close();
+      }
+      assert.equal(details.body, validRequest().body);
+      return { started: true, response: Promise.resolve({ status: 200, body: 'accepted' }) };
+    },
+  });
+  try {
+    await fixture.dispatch(validRequest('capability-after-start'));
+    assert.equal(invocations, 1);
+    assert.equal(observedStatus, 'DISPATCH_STARTED');
+  } finally {
+    await fixture.close();
+  }
+});
+
 test('local Core or Provider head mismatch prevents dispatch before transport', async () => {
   const fixture = await createFixture({ coreHead: 2 });
   try {
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('stale-local-head')),
+      fixture.dispatch(validRequest('stale-local-head')),
       /MEMORY_DISPATCH_NOT_READY/,
     );
     assert.equal(fixture.calls.length, 0);
@@ -276,12 +308,12 @@ test('unsupported route, denied Provider grant, and pending authority all produc
   const fixture = await createFixture();
   try {
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('unsupported', { route: 'vertex-ai-chat-completions' })),
+      fixture.dispatch(validRequest('unsupported', { route: 'vertex-ai-chat-completions' })),
       /MEMORY_DISPATCH_NOT_READY/,
     );
     fixture.setProviderGranted(false);
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('denied-grant')),
+      fixture.dispatch(validRequest('denied-grant')),
       /MEMORY_DISPATCH_NOT_READY/,
     );
     fixture.setProviderGranted(true);
@@ -294,7 +326,7 @@ test('unsupported route, denied Provider grant, and pending authority all produc
       port: fixture.port,
     });
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('pending-authority')),
+      fixture.dispatch(validRequest('pending-authority')),
       /MEMORY_DISPATCH_NOT_READY/,
     );
     assert.equal(fixture.calls.length, 0);
@@ -313,7 +345,7 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
   });
   try {
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request')),
+      fixture.dispatch(validRequest('ambiguous-request')),
       /MEMORY_DISPATCH_OUTCOME_UNKNOWN/,
     );
     assert.equal(sends, 1);
@@ -331,11 +363,11 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
     }
 
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request')),
+      fixture.dispatch(validRequest('ambiguous-request')),
       /MEMORY_DISPATCH_DUPLICATE_ID/,
     );
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('ambiguous-request-new-id')),
+      fixture.dispatch(validRequest('ambiguous-request-new-id')),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
     assert.equal(sends, 1);
@@ -347,28 +379,33 @@ test('ambiguous transport outcome is recorded UNKNOWN and the request identity c
 test('loopback Gateway endpoint authenticates Host and delegates only to the injected Host-owned transport', async () => {
   const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
   const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
+  let factoryCalls = 0;
   let upstreamCalls = 0;
   let observedRoute;
   let observedModel;
   let observedBody;
-  const transport = ({ route, model, body, forwardResponse }) => {
-    upstreamCalls += 1;
-    observedRoute = route;
-    observedModel = model;
-    observedBody = body;
-    return {
-      started: true,
-      response: forwardResponse(new Response('{"result":"host-owned-test-transport"}', {
-        status: 200,
-        headers: { 'content-type': 'application/json' },
-      })).then(() => ({ status: 200 })),
-    };
-  };
-  const fixture = await createFixture({ sendUpstream: transport });
+  const fixture = await createFixture();
   const server = await createMemoryDispatchGatewayServer({
     gateway: fixture.gateway,
     hostToken,
     hostSigningKey: signingKey,
+    createTransportCapability: ({ route, model, body }) => {
+      factoryCalls += 1;
+      // Constructing the capability is dormant; only invocation starts transport.
+      return ({ forwardResponse }) => {
+      upstreamCalls += 1;
+      observedRoute = route;
+      observedModel = model;
+      observedBody = body;
+      return {
+        started: true,
+        response: forwardResponse(new Response('{"result":"host-owned-test-transport"}', {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })).then(() => ({ status: 200 })),
+      };
+      };
+    },
   });
   try {
     const boundAddress = server.address();
@@ -398,6 +435,7 @@ test('loopback Gateway endpoint authenticates Host and delegates only to the inj
       body: JSON.stringify(payload),
     });
     assert.equal(anonymous.status, 403);
+    assert.equal(factoryCalls, 0);
     assert.equal(upstreamCalls, 0);
 
     const tampered = await fetch(url, {
@@ -406,6 +444,7 @@ test('loopback Gateway endpoint authenticates Host and delegates only to the inj
       body: JSON.stringify({ ...payload, body: payload.body + 'tampered' }),
     });
     assert.equal(tampered.status, 403);
+    assert.equal(factoryCalls, 0);
     assert.equal(upstreamCalls, 0);
 
     const response = await fetch(url, {
@@ -415,10 +454,56 @@ test('loopback Gateway endpoint authenticates Host and delegates only to the inj
     });
     assert.equal(response.status, 200);
     assert.match(await response.text(), /host-owned-test-transport/);
+    assert.equal(factoryCalls, 1);
     assert.equal(upstreamCalls, 1);
     assert.equal(observedBody, request.body);
     assert.equal(observedRoute, 'host-managed-chat-completions');
     assert.equal(observedModel, 'host-owned-model-id');
+  } finally {
+    await new Promise((resolve) => server.close(resolve));
+    await fixture.close();
+  }
+});
+
+test('loopback Gateway rejects an async transport factory before invoking it or dispatching', async () => {
+  const hostToken = 'host-dispatch-token-for-gateway-tests-00000000000000000000000000000004';
+  const signingKey = 'host-dispatch-signing-key-for-gateway-tests-00000000000000000000000000000005';
+  let factoryCalls = 0;
+  const fixture = await createFixture();
+  const server = await createMemoryDispatchGatewayServer({
+    gateway: fixture.gateway,
+    hostToken,
+    hostSigningKey: signingKey,
+    createTransportCapability: async () => {
+      factoryCalls += 1;
+      return () => ({ started: true, response: Promise.resolve({ status: 200 }) });
+    },
+  });
+  try {
+    const request = validRequest('async-factory-must-not-run');
+    const payload = {
+      request_id: request.requestId,
+      route: request.route,
+      model: request.model,
+      stream: request.stream,
+      body: request.body,
+      adapter_id: request.adapterId,
+      conversation_id: request.conversationId,
+      world_id: request.worldId,
+      actor_id: request.actorId,
+      purpose: request.purpose,
+      sources: request.sources,
+      candidates: request.candidates,
+      signature: createDispatchRequestSignature(signingKey, request),
+    };
+    const response = await fetch('http://127.0.0.1:' + server.address().port + '/v1/dispatch', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + hostToken, 'content-type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    assert.equal(response.status, 503);
+    assert.equal(factoryCalls, 0, 'async factory must be rejected before it can run side effects');
+    assert.equal(fixture.calls.length, 0, 'Gateway must not be entered when capability construction is unsafe');
   } finally {
     await new Promise((resolve) => server.close(resolve));
     await fixture.close();
@@ -439,7 +524,7 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
   const fixture = await createFixture();
   try {
     const request = validRequest('crash-before-response');
-    await fixture.gateway.dispatchProtectedRequest(request);
+    await fixture.dispatch(request);
     const db = new DatabaseSync(fixture.ledgerPath);
     try {
       db.prepare("UPDATE dispatch_ledger SET status='DISPATCH_STARTED', finished_at=NULL WHERE request_id=?")
@@ -455,7 +540,7 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
       verify.close();
     }
     await assert.rejects(
-      fixture.gateway.dispatchProtectedRequest(validRequest('crash-replay-new-id')),
+      fixture.dispatch(validRequest('crash-replay-new-id')),
       /MEMORY_DISPATCH_REPLAY_BLOCKED/,
     );
     assert.equal(fixture.calls.length, 1);
@@ -464,21 +549,28 @@ test('gateway startup converts stale DISPATCH_STARTED rows to UNKNOWN and blocks
   }
 });
 
-test('gateway rejects an async transport callback before invoking any transport code', () => {
-  const directory = mkdtempSync(join(tmpdir(), 'logic-dispatch-async-transport-reject-'));
+test('gateway rejects missing or async request-scoped transport before ledger mutation', async () => {
+  const fixture = await createFixture();
   try {
-    assert.throws(() => new MemoryDispatchGateway({
-      ledgerPath: join(directory, 'ledger.sqlite'),
-      coordinatorPath: join(directory, 'coordinator.sqlite'),
-      authorityPort: 1,
-      readToken,
-      readCoreEvidence: () => ({}),
-      readProviderEvidence: () => ({}),
-      sendUpstream: async () => ({ status: 200 }),
-    }), /synchronous transport-start callback/);
-    assert.equal(existsSync(join(directory, 'ledger.sqlite')), false);
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('missing-transport')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('async-transport', {
+        transport: async () => ({ started: true, response: Promise.resolve({ status: 200 }) }),
+      })),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(db.prepare('SELECT COUNT(*) AS count FROM dispatch_ledger').get().count, 0);
+    } finally {
+      db.close();
+    }
   } finally {
-    rmSync(directory, { recursive: true, force: true });
+    await fixture.close();
   }
 });
 
@@ -491,7 +583,7 @@ test('transport initiation occurs synchronously before dispatch returns control 
     },
   });
   try {
-    const pending = fixture.gateway.dispatchProtectedRequest(validRequest('sync-start-order'));
+    const pending = fixture.dispatch(validRequest('sync-start-order'));
     order.push('caller-resumed');
     assert.deepEqual(order, ['transport-start', 'caller-resumed']);
     await pending;
@@ -514,7 +606,6 @@ test('existing dispatch ledger with missing schema fails closed without auto-rep
       readToken,
       readCoreEvidence: () => ({}),
       readProviderEvidence: () => ({}),
-      sendUpstream: () => ({ started: true, response: Promise.resolve({ status: 200 }) }),
     }), /DISPATCH_LEDGER_SCHEMA_INCOMPLETE/);
     const verify = new DatabaseSync(ledgerPath);
     try {

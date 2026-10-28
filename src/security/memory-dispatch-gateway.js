@@ -202,9 +202,10 @@ function assertSyncResult(value) {
  *
  * The caller must provide trusted synchronous Core/Provider readers that open
  * their databases read-only and validate the exact current source/grant state.
- * The module intentionally has no fallback reader or transport. Only the explicitly allowlisted Host-owned route is supported. This module
- * does not implement or select any external model-provider API; sendUpstream
- * must be an existing trusted Host transport supplied by the integration.
+ * The module intentionally has no fallback reader or transport implementation.
+ * Only the explicitly allowlisted Host-owned route is supported. A trusted
+ * request-scoped capability is supplied per dispatch and invoked directly by
+ * this Gateway after durable DISPATCH_STARTED.
  */
 export class MemoryDispatchGateway {
   constructor({
@@ -216,7 +217,6 @@ export class MemoryDispatchGateway {
     readProviderEvidence,
     coreDatabasePath,
     providerDatabasePath,
-    sendUpstream,
   }) {
     const injectedReaders = typeof readCoreEvidence === 'function' && typeof readProviderEvidence === 'function';
     const configuredReaderPaths = typeof coreDatabasePath === 'string' && typeof providerDatabasePath === 'string';
@@ -227,9 +227,8 @@ export class MemoryDispatchGateway {
       || injectedReaders === configuredReaderPaths
       || (!injectedReaders && (readCoreEvidence !== undefined || readProviderEvidence !== undefined))
       || (!configuredReaderPaths && (coreDatabasePath !== undefined || providerDatabasePath !== undefined))
-      || typeof sendUpstream !== 'function'
-      || sendUpstream.constructor?.name === 'AsyncFunction') {
-      throw new TypeError('MemoryDispatchGateway requires exactly one pair of trusted Core/Provider readers (injected functions or read-only database paths) and a synchronous transport-start callback returning { started: true, response: Promise }.');
+    ) {
+      throw new TypeError('MemoryDispatchGateway requires exactly one pair of trusted Core/Provider readers (injected functions or read-only database paths). A trusted request-scoped transport capability is required for each dispatch.');
     }
     if (sameFile(ledgerPath, coordinatorPath)) {
       throw new Error('DISPATCH_LEDGER_COORDINATOR_PATH_ALIAS');
@@ -244,7 +243,6 @@ export class MemoryDispatchGateway {
       : null;
     this.readCoreEvidence = this.evidenceReaders?.readCoreEvidence ?? readCoreEvidence;
     this.readProviderEvidence = this.evidenceReaders?.readProviderEvidence ?? readProviderEvidence;
-    this.sendUpstream = sendUpstream;
 
     this.coordinatorDb = openCoordinatorDatabase(this.coordinatorPath);
     this.db = null;
@@ -322,11 +320,12 @@ export class MemoryDispatchGateway {
     }
   }
 
-  async dispatchProtectedRequest({ requestId, route, model, stream, body, adapterId, conversationId, worldId, actorId, purpose, sources, candidates, forwardResponse, signal }) {
+  async dispatchProtectedRequest({ requestId, route, model, stream, body, adapterId, conversationId, worldId, actorId, purpose, sources, candidates, transport, forwardResponse, signal }) {
     if (!validText(requestId, 200) || !SUPPORTED_PROTECTED_MEMORY_ROUTES.includes(route)
       || typeof model !== 'string' || !/^[A-Za-z0-9._-]{1,128}$/.test(model)
       || typeof stream !== 'boolean'
       || typeof body !== 'string' || body.length === 0 || body.length > 4_000_000
+      || typeof transport !== 'function' || transport.constructor?.name === 'AsyncFunction'
       || !validText(adapterId, 200) || !validText(conversationId, 200)
       || !validText(worldId, 200) || !validText(actorId, 200) || !validText(purpose, 200)) {
       throw new Error('MEMORY_DISPATCH_NOT_READY');
@@ -426,7 +425,9 @@ export class MemoryDispatchGateway {
         // This serializes transport initiation against Core/Provider revocation;
         // only waiting for the response happens outside the lock.
         try {
-          upstreamHandle = this.sendUpstream({
+          // The Gateway itself invokes the sole request-scoped capability. No
+          // secondary sender callback may ignore it or start an alternate send.
+          upstreamHandle = transport({
             route, model, stream, body, requestId, requestDigest, forwardResponse, signal,
           });
           if (!object(upstreamHandle) || upstreamHandle.started !== true
