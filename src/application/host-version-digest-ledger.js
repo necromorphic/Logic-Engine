@@ -432,6 +432,8 @@ export class HostVersionDigestLedger {
     const seen = new Set();
     for (const v of snapshot.versions) {
       if (!validTuple(v) || v.world_id !== snapshot.world_id || v.conversation_id !== snapshot.conversation_id
+        || !Object.hasOwn(v, 'parent_version_id')
+        || (v.parent_version_id !== null && !validId(v.parent_version_id))
         || !validDigest(v.content_sha256) || typeof v.active !== 'boolean' || typeof v.deleted !== 'boolean') {
         return this.#rejectSnapshot(snapshot, 'HOST_INVENTORY_INVALID', true);
       }
