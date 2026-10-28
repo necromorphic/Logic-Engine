@@ -24,8 +24,8 @@ The proposed Host-server adapter would be a server-side integration at the pinne
 
 Trust requirements:
 
-1. Bind adapter identity, conversation identity, world/actor scope, request purpose, and the exact prompt/context version from trusted server-side state.
-2. Never treat browser-supplied identity, scope, authorization, or readiness fields as authority.
+1. Bind adapter identity, conversation identity, world/actor scope, request purpose, and the exact prompt/context version from trusted server-side state. The implementation must identify the concrete source of each value; a value being present in the request is not evidence of authority.
+2. Never treat browser-supplied identity, scope, authorization, readiness, provider selection, endpoint, or prompt provenance as authority.
 3. Bind the dispatch to the exact source/candidate set and version evidence used by the Gateway pre-dispatch decision.
 4. Keep the lock/serialization critical section through the durable `DISPATCH_STARTED` decision and actual transport-start callback; release the lock before awaiting the response.
 5. If transport outcome is ambiguous, report `UNKNOWN` and do not automatically replay the provider request.
@@ -34,7 +34,15 @@ Trust requirements:
 
 The adapter must not independently declare Host readiness. Existing Host inventory/lifecycle work in PR #632 remains owned by that separate workstream and must not be duplicated or altered here.
 
-## 3. Required route coverage
+## 3. Client request provenance is a separate trust gate
+
+The pinned source confirms that the browser builds the generation payload and sends it to the backend: `public/scripts/openai.js` calls `createGenerationParameters(...)` and posts `JSON.stringify(generate_data)` to `/api/backends/chat-completions/generate` (around lines 3144–3152). The chat backend selects a provider from `request.body.chat_completion_source` (around lines 2259 onward). The text backend reads `api_type` and `api_server` from `request.body` and forwards request data (around lines 280–329).
+
+Therefore, a server-side hash of the received body can bind the exact bytes that arrived, but it does **not** prove that those bytes were generated from the authorized conversation, world, actor, source versions, or selected backend. The implementation review must identify an existing server-owned authority for that binding. If the pinned Host has no such authority and cannot reconstruct/validate the required context, the affected route must be denied before any provider call; it must not infer authority from a client payload or invent a new contract implicitly.
+
+This provenance gate is distinct from the no-direct-egress gate: even a Gateway-only transport can send an unauthorized client-authored prompt if context provenance is not established.
+
+## 4. Required route coverage
 
 The implementation diff must inventory every outbound generation path reachable from both pinned backend routes, including provider-specific paths, streaming and non-streaming modes, retry/fallback behavior, and any alternate route that can send a prompt to a model.
 
@@ -44,7 +52,7 @@ For each path, the review must record one of:
 
 An unaccounted-for outbound path is a failure, not an accepted limitation.
 
-## 4. Required acceptance evidence
+## 5. Required acceptance evidence
 
 Tests must run against the exact pinned SillyTavern commit and use a recording fake transport; no real provider credentials or live model calls are permitted.
 
@@ -59,12 +67,13 @@ Tests must run against the exact pinned SillyTavern commit and use a recording f
 | Streaming response | Chunks, termination, and error semantics preserved without bypassing Gateway |
 | Non-streaming response | Existing response shape and error semantics preserved |
 | Every provider route and fallback/retry path | Gateway exactly once or explicit deny; never direct fallback |
-| Client attempts to forge identity/scope/readiness | Server-side values win; forged values cannot authorize dispatch |
+| Client attempts to forge identity/scope/readiness/backend selection | Server-side values win; forged values cannot authorize dispatch |
+| Client changes prompt body while retaining valid conversation metadata | Provenance must be validated against an existing server-owned authority; body hashing alone is insufficient; otherwise zero provider calls |
 | Gateway unavailable or rejects dispatch | Fail closed; zero direct-provider fallback calls |
 
 Acceptance requires both route-level tests and an outbound-source audit demonstrating that no supported provider path can bypass the Gateway. A passing unit test or a green source-level check alone is insufficient.
 
-## 5. Explicit non-goals
+## 6. Explicit non-goals
 
 This proposal does not:
 - enable Memory → NPC;
@@ -74,14 +83,15 @@ This proposal does not:
 - claim production readiness, complete installed-client coverage, or independent anti-rollback protection;
 - authorize merging to `main`.
 
-## 6. Review decision requested
+## 7. Review decision requested
 
 Core review should answer these questions against the future exact implementation diff:
 
-1. Is the server-side trust boundary and context binding contract correct?
-2. Is route coverage exhaustive for the pinned SillyTavern revision?
-3. Are dispatch-start serialization and ambiguous-outcome rules sufficient to prevent duplicate or unauthorized sends?
-4. Do the acceptance tests prove zero provider calls on every denied path and prove no direct egress bypass?
-5. Are all new API/schema/lifecycle changes explicitly identified and approved before implementation?
+1. Is there an existing server-owned source that can bind the browser-built prompt to the authorized conversation/world/source versions, or must that route remain denied?
+2. Is the server-side trust boundary and context binding contract correct?
+3. Is route coverage exhaustive for the pinned SillyTavern revision?
+4. Are dispatch-start serialization and ambiguous-outcome rules sufficient to prevent duplicate or unauthorized sends?
+5. Do the acceptance tests prove zero provider calls on every denied path and prove no direct egress bypass?
+6. Are all new API/schema/lifecycle changes explicitly identified and approved before implementation?
 
 Until those questions are answered against an exact code diff and the required tests pass, the integration remains blocked and production Memory → NPC remains disabled.
