@@ -651,7 +651,7 @@ function fail(response, code, status = 503) {
  * A successful pre-snapshot and fsynced intent are required before the handler.
  * The response is held until a post-snapshot and fsynced outcome are recorded.
  */
-export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, getUserDirectories, beforeSavePrestateRecheck = null } = {}) {
+export function createHostLifecycleMutationMiddleware({ enforce = process.env.LOGIC_ENGINE_HOST_LIFECYCLE_ENFORCE === 'true', requirePersistedInventory = false, getUserDirectories, beforeSavePrestateRecheck = null, beforeSaveNativeHandoff = null } = {}) {
     return async function hostLifecycleMutationMiddleware(request, response, next) {
         const routeKey = request.method + ' ' + request.baseUrl + request.path;
         const originalRouteKey = request.method + ' ' + request.originalUrl?.split('?')[0];
@@ -1007,6 +1007,44 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
             })();
             return response;
         };
+
+        if (saveCapability) {
+            try {
+                // This is the last asynchronous boundary before entering the native
+                // save handler. Re-open the exact target with no-follow/stable-stat
+                // checks after the durable intent and inventory scan; do not rely on
+                // the earlier prestate scan to cover this final race window.
+                if (typeof beforeSaveNativeHandoff === 'function') {
+                    await beforeSaveNativeHandoff({ request, target: saveTarget, operationId });
+                }
+                const root = paths.roots.find(item => item.domain === saveTarget.domain)?.path;
+                if (!root) throw new Error('HOST_SAVE_CAPABILITY_ROOT_UNAVAILABLE');
+                const sourceFilePath = path.resolve(root, ...saveTarget.sourcePath.split('/'));
+                const relative = path.relative(root, sourceFilePath);
+                if (!relative || relative.startsWith('..' + path.sep) || path.isAbsolute(relative)) {
+                    throw new Error('HOST_SAVE_CAPABILITY_PATH_UNSAFE');
+                }
+                await readStableHostChatFile(sourceFilePath, saveCapability.preStateFileDigest);
+            } catch {
+                restoreResponseMethods();
+                try {
+                    await appendRecord(paths.journalPath, chain.lastHash, {
+                        version: 1,
+                        kind: 'outcome',
+                        operationId,
+                        status: 'UNRESOLVED',
+                        completedAt: new Date().toISOString(),
+                        httpStatus: 409,
+                        afterSnapshotStatus: 'HOST_SAVE_CAPABILITY_STALE_PRESTATE_AT_NATIVE_HANDOFF',
+                    });
+                } catch {
+                    // Keep the request blocked even if the journal outcome cannot be recorded.
+                }
+                release();
+                return fail(response, 'HOST_SAVE_CAPABILITY_STALE_PRESTATE_AT_NATIVE_HANDOFF', 409);
+            }
+        }
+
         return next();
     };
 }
