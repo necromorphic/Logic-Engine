@@ -398,19 +398,17 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
         const routeKey = request.method + ' ' + request.baseUrl + request.path;
         const originalRouteKey = request.method + ' ' + request.originalUrl?.split('?')[0];
         if (request.method === 'POST'
-            && (routeKey === 'POST /api/users/delete' || originalRouteKey === 'POST /api/users/delete')
-            && request.body?.purge) {
-            // Admin purge targets another user's root; the current request.user
-            // registry is not the target's authority. Resolve the target using
-            // SillyTavern's own server-side directory resolver and fail closed if
-            // its enrollment state cannot be verified.
+            && (routeKey === 'POST /api/users/delete' || originalRouteKey === 'POST /api/users/delete')) {
+            // Admin deletion removes the target's profile and may also remove its
+            // data root. The current request.user registry is not the target's
+            // authority; resolve the target using SillyTavern's server-side resolver.
             if (typeof request.body?.handle !== 'string' || !/^[a-z0-9-]{1,128}$/.test(request.body.handle) || typeof getUserDirectories !== 'function') {
-                return fail(response, 'HOST_TARGET_USER_SCOPE_UNAVAILABLE', 503);
+                return fail(response, 'HOST_JOURNAL_UNAVAILABLE', 503);
             }
             try {
                 const targetDirectories = getUserDirectories(request.body.handle);
                 if (await targetUserHasEnrolledState(targetDirectories)) {
-                    return fail(response, 'HOST_ENROLLED_USER_PURGE_UNSUPPORTED', 409);
+                    return fail(response, 'HOST_ENROLLED_HISTORY_PATH_MUTATION_UNSUPPORTED', 409);
                 }
             } catch {
                 return fail(response, 'HOST_TARGET_USER_SCOPE_UNAVAILABLE', 503);
