@@ -603,6 +603,11 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     const transportStarted = new Promise((resolve) => { signalTransportStart = resolve; });
     let releaseTransport;
     const transportGate = new Promise((resolve) => { releaseTransport = resolve; });
+    let signalBeforeCoordinatorLock;
+    const beforeCoordinatorLockReached = new Promise((resolve) => { signalBeforeCoordinatorLock = resolve; });
+    let releaseBeforeCoordinatorLock;
+    const beforeCoordinatorLockGate = new Promise((resolve) => { releaseBeforeCoordinatorLock = resolve; });
+    let holdFirstDispatch = true;
     gateway = new MemoryDispatchGateway({
       ledgerPath,
       coordinatorPath,
@@ -627,6 +632,12 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
           candidates: stored ? [{ record_ref: stored.record_ref, record_version: stored.record_version, source_kind: stored.source_kind, source_entity_id: stored.source_entity_id, source_version: stored.source_version }] : [],
         };
       },
+      beforeCoordinatorLock: async () => {
+        if (!holdFirstDispatch) return;
+        holdFirstDispatch = false;
+        signalBeforeCoordinatorLock();
+        await beforeCoordinatorLockGate;
+      },
       sendUpstream: async (outgoing) => {
         calls.push(outgoing);
         signalTransportStart();
@@ -649,9 +660,14 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
     assert.ok(providerHead() > beforePurge, 'purge must advance the accepted Provider head');
     assert.equal(getAcceptedHeadsSync({ port: service.port, token: providerToken }).provider, providerHead());
 
-    // The real Provider revoke writer wins before dispatch-start; Gateway must see the committed denial.
+    // Pause after request validation but before the Gateway acquires the shared
+    // coordinator lock. Commit the real Provider revocation, then let Gateway
+    // proceed: this proves the writer wins the ordering race, not just a stale read.
+    const blockedDispatch = gateway.dispatchProtectedRequest(request);
+    await beforeCoordinatorLockReached;
     provider.revokeRecord(scope, record.record_ref, record.record_version);
-    await assert.rejects(gateway.dispatchProtectedRequest(request), /MEMORY_DISPATCH_NOT_READY/);
+    releaseBeforeCoordinatorLock();
+    await assert.rejects(blockedDispatch, /MEMORY_DISPATCH_NOT_READY/);
     assert.equal(calls.length, 0, 'revocation before dispatch-start must cause zero upstream calls');
     const ledger = new DatabaseSync(ledgerPath);
     try {
@@ -678,6 +694,7 @@ test('real Provider revokeRecord committed before dispatch-start produces zero u
       completedLedger.close();
     }
   } finally {
+    try { releaseBeforeCoordinatorLock?.(); } catch {}
     try { releaseTransport?.(); } catch {}
     try { gateway?.close(); } catch {}
     try { providerReader?.close(); } catch {}
