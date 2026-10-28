@@ -1104,3 +1104,39 @@ test('malformed Memory snapshot cursor values are non-ready, including matching 
     assert.equal(JSON.stringify(result).includes(JSON.stringify(malformedSnapshot)), false);
   }
 });
+
+
+test('final dispatch revalidation returns fresh content and fails closed after access revocation or source mutation', async (t) => {
+  const accessCase = setup(t);
+  const prepared = await accessCase.consumer.retrieveForNpc(request());
+  assert.equal(prepared.status, 'ready');
+  const current = await accessCase.consumer.revalidateForFinalDispatch(request(), prepared);
+  assert.equal(current.status, 'ready');
+  assert.deepEqual(current, prepared);
+
+  accessCase.provider.authorizeCandidate = async () => false;
+  const revoked = await accessCase.consumer.revalidateForFinalDispatch(request(), prepared);
+  assert.equal(revoked.status, 'non_ready');
+  assert.equal(revoked.reason, 'final_dispatch_source_or_authorization_changed');
+  assert.deepEqual(revoked.candidates, []);
+
+  const sourceCase = setup(t);
+  const sourcePrepared = await sourceCase.consumer.retrieveForNpc(request());
+  sourceCase.engine.commitEvent('memory-npc-world', {
+    idempotency_key: 'mutate-source-before-final-dispatch',
+    turn_id: 'mutate-source-before-final-dispatch',
+    event_type: 'action.completed',
+    expected_revision: sourceCase.engine.getState('memory-npc-world').world_revision,
+    effects: [{ kind: 'entity.set', entity_id: 'source-a', path: 'attributes.public_note', value: 'new source value' }],
+  });
+  const stale = await sourceCase.consumer.revalidateForFinalDispatch(request(), sourcePrepared);
+  assert.equal(stale.status, 'non_ready');
+});
+
+test('final dispatch revalidation rejects forged or malformed prepared results', async (t) => {
+  const { consumer } = setup(t);
+  assert.equal((await consumer.revalidateForFinalDispatch(request(), { status: 'ready', admitted: [], candidates: [] })).status, 'non_ready');
+  const prepared = await consumer.retrieveForNpc(request());
+  const tampered = { ...prepared, candidates: [] };
+  assert.equal((await consumer.revalidateForFinalDispatch(request(), tampered)).status, 'non_ready');
+});
