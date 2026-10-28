@@ -142,3 +142,30 @@ test('inventory validator fails closed if any canonical entity lacks its Core so
   const validateInventory = createCanonicalEntityInventoryValidator(s.engine);
   assert.equal(await validateInventory(s.worldId, []), false);
 });
+
+
+test('non-entity commits advance both inventory freshness markers; continuation conservatively fails closed', (t) => {
+  const s = setup(t);
+  s.createEntities(['entity-a', 'entity-b']);
+  const first = s.engine.getCanonicalEntityInventory(s.worldId, { limit: 1 });
+  assert.ok(first.next_cursor);
+
+  const result = s.engine.commitEvent(s.worldId, {
+    event_id: 'inventory-non-entity-commit',
+    idempotency_key: 'inventory-non-entity-commit',
+    turn_id: 'inventory-non-entity-commit',
+    event_type: 'action.completed',
+    expected_revision: s.revision,
+    effects: [],
+  });
+  assert.equal(result.accepted, true);
+  const current = s.engine.getCanonicalEntityInventory(s.worldId);
+  assert.equal(current.world_revision, first.world_revision + 1);
+  assert.equal(current.commit_sequence, first.commit_sequence + 1);
+  assert.deepEqual(current.entities.map((entity) => entity.entity_id), ['entity-a', 'entity-b']);
+
+  assert.throws(
+    () => s.engine.getCanonicalEntityInventory(s.worldId, { limit: 1, cursor: first.next_cursor }),
+    (error) => error.code === 'ENTITY_INVENTORY_SNAPSHOT_STALE',
+  );
+});
