@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: npm install --no-package-lock --no-audit --no-fund
       - name: Run NPC memory boundary tests
-        run: node --import ./tests/configure-test-env.js --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js tests/npc-knowledge-read.test.js tests/npc-epistemic-adapter.test.js
+        run: node --import ./tests/configure-test-env.js --test tests/npc-memory-candidate-eligibility.test.js tests/memory-npc-consumer.test.js tests/trusted-initial-knowledge-source.test.js tests/npc-knowledge-read.test.js tests/npc-epistemic-adapter.test.js tests/core-npc-epistemic-adapter.test.js
 
   test:
     runs-on: [self-hosted, Windows, X64]
