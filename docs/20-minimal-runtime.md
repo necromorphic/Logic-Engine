@@ -6,7 +6,34 @@ The first executable slice is host-independent. SillyTavern is a future client a
 
 Node.js 22.13+ (uses the built-in `node:sqlite` API, which is experimental in supported Node releases). Set `ENGINE_API_TOKEN` to a secret at least 16 characters long. Configure `ENGINE_ADAPTER_TOKENS` as a JSON object of adapter IDs to distinct secrets for proposal creation/cancellation. Set a separate `ENGINE_APPROVAL_TOKEN` for approvals, `ENGINE_ADMIN_TOKEN` for world creation, global registry reads/writes/audit, and `ENGINE_INTERNAL_TOKEN` only if the restricted internal proposal-commit route is required. Optionally set `ENGINE_DB_PATH`, then run `npm start`. See `.env.example`; run `npm test` for contract tests.
 
-## Endpoints
+
+## Trusted World Pack catalog
+
+Runtime startup requires `LOGIC_ENGINE_WORLD_PACK_CATALOG_PATH` to point to a deployment-controlled JSON catalog. The API does not accept a catalog path, artifact path, digest, or manifest from a world-creation request.
+
+Catalog shape (one immutable artifact per exact ID/version):
+
+```json
+{
+  "schema_version": 1,
+  "entries": [
+    {
+      "world_pack_id": "fixture.biological-world",
+      "version": "0.1.0",
+      "artifact_path": "biological-world.json",
+      "sha256": "<64-character lowercase SHA-256 of the exact artifact bytes>"
+    }
+  ]
+}
+```
+
+- `artifact_path` must be a relative path to a regular file below the catalog directory; symlink/path traversal outside that directory is rejected.
+- The artifact bytes must match the catalog SHA-256 and parse as JSON whose `world_pack_id` and `version` exactly match the entry.
+- IDs/versions are immutable within the catalog. A changed artifact requires a new version and updated deployment catalog. Restart the runtime to load a changed catalog; it is read once at startup.
+- Newly created worlds persist the artifact SHA-256 as `world_pack_digest`, and the `world.created` audit record includes that pin. Existing worlds retain a null digest because the prior runtime did not capture an artifact identity; migration does not retroactively assert trust.
+- This is **artifact identity and trust pinning, not full World Pack conformance validation**. The existing World Pack format remains partial; unsupported pack fields are not thereby executed or validated. The digest is not a signature: trust derives from control of the deployment catalog and artifact directory.
+- The low-level `LogicEngine` constructor remains usable without a catalog for isolated tests/embedding. The shipped runtime entry point fails closed when the catalog path is missing, and passes the loaded catalog to world creation.
+\n## Endpoints
 
 - `POST /v1/worlds` — create a world with a pinned World Pack ID/version and explicit in-world time (requires `x-admin-token`).
 - `POST /v1/worlds/:id/proposals` — create an adapter-owned proposal (requires configured adapter credentials).
