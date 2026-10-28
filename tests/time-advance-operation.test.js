@@ -204,3 +204,48 @@ test('recovery resumes after the last persisted segment checkpoint without repla
   assert.equal(store.db.prepare('SELECT next_segment_index FROM time_advance_operations WHERE operation_id=?')
     .get('recovery-operation').next_segment_index, 2);
 });
+
+test('recovery fails closed when the persisted segment index disagrees with the confirmed coordinate', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const makeEvent = (index) => engine.prepareEvent({
+    event_id: 'mismatched-checkpoint-event-' + index,
+    idempotency_key: 'mismatched-checkpoint-key-' + index,
+    turn_id: 'mismatched-checkpoint-turn-' + index,
+    event_type: 'time.advance',
+    time_advance_seconds: 10,
+    time_mode: 'explicit_skip',
+    effects: [],
+  });
+  const segments = [1, 2].map((index) => ({
+    coordinate: index * 10000,
+    idempotency_key: 'mismatched-checkpoint-segment-key-' + index,
+    request_hash: 'mismatched-checkpoint-segment-hash-' + index,
+    events: [makeEvent(index)],
+  }));
+  store.createTimeAdvanceOperation({
+    world_id: 'time-operation-world',
+    operation_id: 'mismatched-checkpoint-operation',
+    idempotency_key: 'mismatched-checkpoint-operation-key',
+    request_hash: 'mismatched-checkpoint-operation-hash',
+    from_coordinate: 0,
+    target_coordinate: 20000,
+    starting_world_revision: 0,
+    status: 'running',
+    segments,
+    plan: { status: 'planned', completed_trigger_ids: [] },
+  });
+
+  // Simulate a persisted checkpoint whose index advanced but coordinate did not.
+  store.db.prepare('UPDATE time_advance_operations SET next_segment_index=1 WHERE world_id=? AND operation_id=?')
+    .run('time-operation-world', 'mismatched-checkpoint-operation');
+
+  const recovered = engine.resumeTimeAdvance('time-operation-world', 'mismatched-checkpoint-operation');
+  assert.equal(recovered.status, 'needs_review');
+  assert.equal(recovered.error.code, 'TIME_ADVANCE_CHECKPOINT_INVALID');
+  assert.equal(engine.getState('time-operation-world').game_time_coordinate, 0);
+  assert.equal(engine.getEvents('time-operation-world').length, 0);
+  assert.equal(store.db.prepare('SELECT next_segment_index FROM time_advance_operations WHERE operation_id=?')
+    .get('mismatched-checkpoint-operation').next_segment_index, 1);
+});
