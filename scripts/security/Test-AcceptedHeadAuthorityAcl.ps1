@@ -130,7 +130,7 @@ try {
     if (Test-Path -LiteralPath $existingEvidence) { Remove-Item -LiteralPath $existingEvidence -Force }
   }
 
-  & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $evidence -Apply -Confirm:$false
+  & .\scripts\security\Set-AcceptedHeadAuthorityAcl.ps1 -AuthorityServiceName $testServices[0] -CoreServiceName $testServices[1] -ProviderServiceName $testServices[2] -GatewayServiceName $testServices[3] -AuthorityDbPath $db -CoreDbPath $coreDb -ProviderDbPath $providerDb -CoordinatorDbPath $coordinatorDb -BackupRoots @($backupRoot) -EvidencePath $evidence -Apply -MaintenanceWindowConfirmed -Confirm:$false
   $report = Get-Content -LiteralPath $evidence -Raw | ConvertFrom-Json
   if ($report.status -ne 'APPLIED_AND_ACL_SHAPE_VERIFIED') {
     throw "Unexpected ACL smoke status: $($report.status)"

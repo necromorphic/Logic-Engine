@@ -10,7 +10,8 @@ param(
     [Parameter(Mandatory = $true)][string]$CoordinatorDbPath,
     [Parameter(Mandatory = $true)][string[]]$BackupRoots,
     [Parameter(Mandatory = $true)][string]$EvidencePath,
-    [switch]$Apply
+    [switch]$Apply,
+    [switch]$MaintenanceWindowConfirmed
 )
 
 Set-StrictMode -Version Latest
@@ -39,6 +40,19 @@ function Get-ServiceIdentity {
         account = $account
         sid = $sid
         processId = [int]$service.ProcessId
+    }
+}
+
+function Assert-MaintenanceWindow {
+    param([Parameter(Mandatory = $true)][string[]]$ServiceNames)
+    foreach ($name in $ServiceNames) {
+        $service = Get-CimInstance Win32_Service -ErrorAction Stop |
+            Where-Object { $_.Name -eq $name } |
+            Select-Object -First 1
+        if (-not $service) { throw "Required Windows service not found during maintenance check: $name" }
+        if ([string]$service.State -ne 'Stopped' -or [int]$service.ProcessId -ne 0) {
+            throw "Maintenance gate refused: service '$name' is not stopped with PID 0 (state=$($service.State), pid=$($service.ProcessId)). No ACL mutation is permitted."
+        }
     }
 }
 
@@ -286,7 +300,10 @@ $report = [ordered]@{
     targetDirectory = $directory
     targetPaths = $targets
     priorAcl = $before
+    maintenanceWindowConfirmed = [bool]$MaintenanceWindowConfirmed
     limitations = @(
+        'Apply requires explicit operator attestation that the maintenance window is active and all authority DB/SQLite sidecar handles are closed.',
+        'The script verifies the four named services are stopped with PID 0 immediately before each ACL mutation, but cannot enumerate every arbitrary process handle; the operator attestation remains required.',
         'Protects only the dedicated authority DB directory and current SQLite sidecars.',
         'Does not create or validate the authority service, protocol, monotonic semantics, or inventory authority.',
         'Administrators/SYSTEM remain trusted recovery principals; audited recovery controls are separate.',
@@ -301,6 +318,9 @@ if (-not $Apply) {
     Write-Output "PLAN_ONLY: authority identities and target paths recorded at $evidenceFullPath; no ACLs changed."
     exit 0
 }
+if (-not $MaintenanceWindowConfirmed) {
+    throw 'Apply requires -MaintenanceWindowConfirmed after the operator has verified the maintenance window and closed all authority DB/SQLite sidecar handles.'
+}
 if (-not $PSCmdlet.ShouldProcess($directory, 'Replace ACLs on the dedicated accepted-head authority database directory and SQLite files')) {
     Write-Output 'No ACL changes applied.'
     exit 0
@@ -311,14 +331,18 @@ if (-not (New-Object Security.Principal.WindowsPrincipal([Security.Principal.Win
     throw 'Applying the boundary requires an elevated PowerShell session.'
 }
 $evidenceStream = New-EvidenceStream -Path $evidenceFullPath
+$aclMutationStarted = $false
 try {
     Write-EvidenceReport -Stream $evidenceStream -Report $report
+    Assert-MaintenanceWindow -ServiceNames @($AuthorityServiceName, $CoreServiceName, $ProviderServiceName, $GatewayServiceName)
     foreach ($target in $targets) {
         Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints -TrustedSids $trustedParentSids
         $current = Get-Acl -LiteralPath $target
         $isDirectory = ([System.IO.File]::GetAttributes($target) -band [System.IO.FileAttributes]::Directory) -ne 0
         $replacement = New-AuthorityAcl -CurrentAcl $current -AuthorityAccount $authority.account -Directory:$isDirectory
         Assert-TargetSetUnchanged -Directory $directory -Targets $targets -Fingerprints $targetFingerprints -TrustedSids $trustedParentSids
+        Assert-MaintenanceWindow -ServiceNames @($AuthorityServiceName, $CoreServiceName, $ProviderServiceName, $GatewayServiceName)
+        $aclMutationStarted = $true
         Set-Acl -LiteralPath $target -AclObject $replacement
     }
     foreach ($target in $targets) {
@@ -339,7 +363,7 @@ try {
     Write-EvidenceReport -Stream $evidenceStream -Report $report
     Write-Output "APPLIED_AND_ACL_SHAPE_VERIFIED: evidence written to $evidenceFullPath."
 } catch {
-    $report.status = 'PARTIAL_OR_FAILED_APPLY'
+    $report.status = if ($aclMutationStarted) { 'PARTIAL_OR_FAILED_APPLY' } else { 'REFUSED_NO_ACL_CHANGES' }
     $report.error = $_.Exception.GetType().Name
     $rollbackErrors = @()
     foreach ($prior in $before) {
