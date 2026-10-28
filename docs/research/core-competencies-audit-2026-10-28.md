@@ -73,7 +73,7 @@ The narrow Core read service is stronger than a simple snapshot wrapper, but it 
 
 **Finding:** the existing service can prove a bounded, policy-filtered read for the tested in-process path. It does not prove safe final model-send authorization, full disclosure revocation ordering, relationship projection authorization, or a production Memory → NPC path.
 
-Next proof should be a **read-path inventory**, not a new API: enumerate every route and in-process consumer that can serialize canonical state, relationship projections, Memory candidates, summaries, events, or mechanic state; classify each as privileged-internal, authorized-filtered, or unverified; then trace the actual consumer to the final serializer. No runtime changes are proposed here.
+An existing inventory already exists in `docs/architecture/core-cross-block-contract-path-matrix.md` and `docs/architecture/core-source-authority-audit.md`; the older `docs/73-core-1.5-cross-block-integration-matrix.md` explicitly warns that it is a historical snapshot. Do not create a duplicate read-path matrix. The next documentation step is to reconcile the current source-authority/cross-block findings against the latest `main` and record only stale or unresolved rows, especially the final-dispatch boundary. No runtime changes are proposed here.
 
 ## Current Core assessment
 
