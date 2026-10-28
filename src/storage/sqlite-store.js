@@ -1731,6 +1731,29 @@ export class SQLiteStore {
       if (!current) throw new EngineError('TIME_ADVANCE_OPERATION_NOT_FOUND', 'Time-advance operation not found.', 404);
       if (current.status !== 'running') return timeAdvanceOperation(current);
       const segments = dec(current.segments_json);
+      const expectedConfirmedCoordinate = current.next_segment_index === 0
+        ? current.from_coordinate
+        : current.next_segment_index > 0 && current.next_segment_index <= segments.length
+          ? segments[current.next_segment_index - 1]?.coordinate
+          : null;
+      if (!Number.isSafeInteger(current.next_segment_index)
+        || current.next_segment_index < 0
+        || current.next_segment_index > segments.length
+        || !Number.isSafeInteger(expectedConfirmedCoordinate)
+        || current.confirmed_coordinate !== expectedConfirmedCoordinate) {
+        this.tx(() => {
+          this.db.prepare("UPDATE time_advance_operations SET status='needs_review',error_json=?,updated_at=? WHERE world_id=? AND operation_id=? AND status='running'")
+            .run(enc({
+              code: 'TIME_ADVANCE_CHECKPOINT_INVALID',
+              message: 'Persisted segment index and confirmed coordinate do not describe the same checkpoint.',
+              next_segment_index: current.next_segment_index,
+              segment_count: segments.length,
+              confirmed_coordinate: current.confirmed_coordinate,
+              expected_confirmed_coordinate: expectedConfirmedCoordinate,
+            }), now(), worldId, operationId);
+        });
+        continue;
+      }
       if (current.next_segment_index >= segments.length) {
         this.tx(() => {
           const fresh = this.db.prepare('SELECT * FROM time_advance_operations WHERE world_id=? AND operation_id=?')
