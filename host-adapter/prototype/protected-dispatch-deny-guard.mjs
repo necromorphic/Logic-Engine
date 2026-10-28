@@ -1,4 +1,8 @@
-const PROTECTED_MODEL_ROUTE_PREFIXES = Object.freeze([
+const PROTECTED_EGRESS_ROUTE_PREFIXES = Object.freeze([
+  // Arbitrary proxying and extension routes can carry protected content outside the native provider families.
+  '/proxy',
+  '/api/extensions',
+  '/api/search',
   '/api/backends/chat-completions',
   '/api/backends/text-completions',
   '/api/backends/kobold',
@@ -25,14 +29,15 @@ function isWithinPrefix(path, prefix) {
 }
 
 /**
- * Deny-only deployment guard for SillyTavern's known model-capable route
+ * Deny-only deployment guard for SillyTavern's known model-capable and unclassified egress route
  * families. It intentionally does not proxy or authorize requests: the current
  * Core/Provider contract cannot yet prove inventory readiness or final-send
  * ordering. When enforcement is enabled, these route families are unavailable
  * rather than allowed to fall back to direct provider transport.
  *
- * This is a bounded native-route guard, not proof that custom extensions or
- * unlisted outbound transports are covered. Those remain unsupported for
+ * The guard blocks the native extension router and generic CORS proxy because they
+ * can expose arbitrary outbound transports. Direct browser extension traffic and
+ * unlisted transports remain outside this server middleware and unsupported for
  * protected Memory material. The vectorization route family is intentionally
  * not touched.
  */
