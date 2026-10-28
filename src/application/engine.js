@@ -792,6 +792,7 @@ export class LogicEngine {
       purpose: input.purpose,
       expected_revision: input.expected_revision,
       expected_commit_sequence: input.expected_commit_sequence,
+      limit: input.limit ?? 200,
       proposition_ref: input.proposition_ref,
       proposition_value: input.proposition_value,
       stance: input.stance,
@@ -928,6 +929,9 @@ export class LogicEngine {
     ];
     assert(Object.keys(input).every((key) => allowed.includes(key)),
       'UNSUPPORTED_NPC_BELIEF_STATE_FIELD', 'Belief state request contains an unsupported field.');
+    assert(typeof input.proposition_ref === 'string' && input.proposition_ref.trim()
+      && input.proposition_ref.length <= 200,
+    'INVALID_NPC_BELIEF_STATE_REQUEST', 'proposition_ref must be a non-empty reference of at most 200 characters.');
     const read = this.readNpcKnowledge({
       world_id: input.world_id,
       actor_id: input.actor_id,
