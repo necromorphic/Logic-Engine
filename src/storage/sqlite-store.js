@@ -249,6 +249,15 @@ export class SQLiteStore {
         predicate TEXT NOT NULL, status TEXT NOT NULL, value_json TEXT, candidates_json TEXT NOT NULL,
         source_event_ids_json TEXT NOT NULL, updated_revision INTEGER NOT NULL, PRIMARY KEY(world_id,fact_id)
       );
+      CREATE TABLE IF NOT EXISTS knowledge_assignments(
+        world_id TEXT NOT NULL REFERENCES worlds(world_id), assignment_id TEXT NOT NULL,
+        subject_id TEXT NOT NULL, item_id TEXT NOT NULL, source_kind TEXT NOT NULL,
+        source_ref TEXT NOT NULL, source_version TEXT NOT NULL, authorization_ref TEXT NOT NULL,
+        event_id TEXT NOT NULL, committed_revision INTEGER NOT NULL, commit_sequence INTEGER NOT NULL,
+        PRIMARY KEY(world_id,assignment_id)
+      );
+      CREATE INDEX IF NOT EXISTS knowledge_assignments_subject
+        ON knowledge_assignments(world_id,subject_id,commit_sequence);
       CREATE TABLE IF NOT EXISTS audit_entries(
         audit_id INTEGER PRIMARY KEY AUTOINCREMENT, world_id TEXT NOT NULL REFERENCES worlds(world_id),
         world_revision INTEGER NOT NULL, action TEXT NOT NULL, target_id TEXT, payload_json TEXT NOT NULL,
@@ -815,7 +824,7 @@ export class SQLiteStore {
     if (!request || typeof request !== 'object' || Array.isArray(request)) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request must be an object.', 400);
     }
-    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'includeMechanicEvaluationState']);
+    const allowedKeys = new Set(['entityIds', 'factIds', 'eventIds', 'contextManifestIds', 'knowledgeSubjectIds', 'includeMechanicEvaluationState']);
     if (Object.keys(request).some((key) => !allowedKeys.has(key))) {
       throw new EngineError('INVALID_SNAPSHOT_REQUEST', 'Snapshot request contains an unsupported field.', 400);
     }
@@ -837,6 +846,7 @@ export class SQLiteStore {
     const factIds = normalizeIds(request.factIds, 'factIds');
     const eventIds = normalizeIds(request.eventIds, 'eventIds');
     const contextManifestIds = normalizeIds(request.contextManifestIds, 'contextManifestIds');
+    const knowledgeSubjectIds = normalizeIds(request.knowledgeSubjectIds, 'knowledgeSubjectIds');
 
     const read = () => {
       const w = this.world(id);
@@ -931,6 +941,15 @@ export class SQLiteStore {
         }))
         : [];
       const missingEventIds = snapshotEventIds.filter((eventId) => !events.some((event) => event.event_id === eventId));
+      const knowledgeAssignments = knowledgeSubjectIds.length
+        ? this.db.prepare('SELECT assignment_id,subject_id,item_id,source_kind,source_ref,source_version,authorization_ref,event_id,committed_revision,commit_sequence FROM knowledge_assignments WHERE world_id=? AND subject_id IN (' + knowledgeSubjectIds.map(() => '?').join(',') + ') AND commit_sequence<=? ORDER BY commit_sequence,assignment_id')
+          .all(id, ...knowledgeSubjectIds, commitSequence).map((row) => ({
+            assignment_id: row.assignment_id, subject_id: row.subject_id, item_id: row.item_id,
+            source_kind: row.source_kind, source_ref: row.source_ref, source_version: row.source_version,
+            authorization_ref: row.authorization_ref, event_id: row.event_id,
+            committed_revision: row.committed_revision, commit_sequence: row.commit_sequence,
+          }))
+        : [];
       const inconsistentManifestEvents = events.filter((event) => currentManifestEventIds.has(event.event_id)
         && (event.validity !== 'valid' || event.commit_sequence > commitSequence));
       const missingManifestEvents = [...currentManifestEventIds].filter((eventId) => missingEventIds.includes(eventId));
@@ -1027,6 +1046,7 @@ export class SQLiteStore {
         missing_fact_ids: missingFactIds,
         missing_event_ids: missingEventIds,
         missing_context_manifest_ids: missingContextManifestIds,
+        ...(knowledgeSubjectIds.length ? { knowledge_assignments: knowledgeAssignments } : {}),
         ...(mechanicEvaluationSnapshot ? { mechanic_evaluation_snapshot: mechanicEvaluationSnapshot } : {}),
       };
     };
@@ -1085,6 +1105,28 @@ export class SQLiteStore {
       }
       throw error;
     }
+  }
+
+  listKnowledgeAssignments(id, subjectId = null) {
+    const w = this.world(id);
+    if (!w) throw new EngineError('WORLD_NOT_FOUND', 'World not found.', 404);
+    if (subjectId !== null && (typeof subjectId !== 'string' || !subjectId.trim())) {
+      throw new EngineError('INVALID_KNOWLEDGE_SUBJECT', 'subjectId must be a non-empty string when supplied.', 400);
+    }
+    const rows = subjectId === null
+      ? this.db.prepare('SELECT * FROM knowledge_assignments WHERE world_id=? ORDER BY commit_sequence,assignment_id').all(id)
+      : this.db.prepare('SELECT * FROM knowledge_assignments WHERE world_id=? AND subject_id=? ORDER BY commit_sequence,assignment_id').all(id, subjectId);
+    return {
+      world_id: id,
+      world_revision: w.world_revision,
+      commit_sequence: this.currentCommitSequence(id),
+      assignments: rows.map((row) => ({
+        assignment_id: row.assignment_id, subject_id: row.subject_id, item_id: row.item_id,
+        source_kind: row.source_kind, source_ref: row.source_ref, source_version: row.source_version,
+        authorization_ref: row.authorization_ref, event_id: row.event_id,
+        committed_revision: row.committed_revision, commit_sequence: row.commit_sequence,
+      })),
+    };
   }
 
   events(id, includeInvalid = false) {
@@ -1391,7 +1433,46 @@ export class SQLiteStore {
       const entityEffectIds = new Set();
       const mechanicEffectIds = new Set();
       const factEffectIds = new Set();
+      const knowledgeAssignmentIds = new Set();
       for (const effect of x.effects) {
+        if (effect.kind === 'knowledge.assignment') {
+          if (options.allowKnowledgeAssignment !== true) {
+            throw new EngineError('KNOWLEDGE_ASSIGNMENT_TRUSTED_PATH_REQUIRED', 'Knowledge assignments may only be committed through the trusted Core author/import operation.', 403);
+          }
+          if (knowledgeAssignmentIds.has(effect.assignment_id)) {
+            throw new EngineError('DUPLICATE_KNOWLEDGE_ASSIGNMENT_EFFECT', 'An event may contain at most one knowledge assignment for an assignment_id.', 400);
+          }
+          knowledgeAssignmentIds.add(effect.assignment_id);
+          const subject = currentEntities.get(effect.subject_id);
+          if (!subject || subject.status === 'destroyed') {
+            throw new EngineError('KNOWLEDGE_SUBJECT_NOT_ELIGIBLE', 'Knowledge assignment subject must be an existing non-destroyed canonical entity in this world.', 409, { subject_id: effect.subject_id });
+          }
+          const priorRows = this.db.prepare('SELECT event_id,effects_json FROM world_events WHERE world_id=?').all(id);
+          for (const prior of priorRows) {
+            const priorEffect = dec(prior.effects_json).find((item) => item?.kind === 'knowledge.assignment' && item.assignment_id === effect.assignment_id);
+            if (priorEffect) {
+              throw new EngineError('KNOWLEDGE_ASSIGNMENT_ID_CONFLICT', 'assignment_id has already been used in this world; use exact idempotent replay or a new identity.', 409, { assignment_id: effect.assignment_id, prior_event_id: prior.event_id });
+            }
+          }
+          if (effect.source_ref.startsWith('event:')) {
+            const sourceEventId = effect.source_ref.slice('event:'.length);
+            const source = this.db.prepare("SELECT validity,commit_sequence FROM world_events WHERE world_id=? AND event_id=?").get(id, sourceEventId);
+            if (!source || source.validity !== 'valid' || source.commit_sequence >= this.currentCommitSequence(id) + 1
+              || effect.source_version !== String(source.commit_sequence)
+              || !x.caused_by.includes(sourceEventId)
+              || !(x.causal_links ?? []).some((link) => link.relation === 'READS_SOURCE' && link.target_id === sourceEventId)) {
+              throw new EngineError('KNOWLEDGE_SOURCE_NOT_ELIGIBLE', 'Event-backed knowledge assignments require a prior valid source event in caused_by and READS_SOURCE.', 409, { source_ref: effect.source_ref });
+            }
+          } else if (effect.source_ref.startsWith('world_pack:')) {
+            const expected = 'world_pack:' + w.world_pack_id + '@' + w.world_pack_version;
+            if (effect.source_ref !== expected || effect.source_version !== w.world_pack_version) {
+              throw new EngineError('KNOWLEDGE_SOURCE_NOT_ELIGIBLE', 'World-pack source must exactly match the world-pinned pack ID and version.', 409, { expected_source_ref: expected });
+            }
+          } else {
+            throw new EngineError('INVALID_KNOWLEDGE_SOURCE_REF', 'source_ref must be event:<event_id> or world_pack:<id>@<version>.', 400);
+          }
+          continue;
+        }
         if (effect.kind === 'relationship.transition') {
           if (x.effects.length !== 1) throw new EngineError('MIXED_RELATIONSHIP_EFFECTS_UNSUPPORTED', 'A Relationship transition must be the only effect in its canonical event.', 400);
           const pairKey = JSON.stringify([effect.subject_id, effect.target_id]);
@@ -2322,12 +2403,14 @@ export class SQLiteStore {
     this.db.prepare('DELETE FROM facts WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM fact_claims WHERE world_id=?').run(id);
     this.db.prepare('DELETE FROM relationships WHERE world_id=?').run(id);
+    this.db.prepare('DELETE FROM knowledge_assignments WHERE world_id=?').run(id);
     const upsertEntity = this.db.prepare(`INSERT INTO entities(
       world_id,entity_id,entity_type,status,attributes_json,created_by_event_id,updated_revision
     ) VALUES(?,?,?,?,?,?,?) ON CONFLICT(world_id,entity_id) DO UPDATE SET
       entity_type=excluded.entity_type,status=excluded.status,attributes_json=excluded.attributes_json,
       created_by_event_id=excluded.created_by_event_id,updated_revision=excluded.updated_revision`);
     const insertClaim = this.db.prepare('INSERT INTO fact_claims(world_id,fact_id,event_id,subject_ref,predicate,value_json,committed_revision) VALUES(?,?,?,?,?,?,?)');
+    const insertKnowledgeAssignment = this.db.prepare('INSERT INTO knowledge_assignments(world_id,assignment_id,subject_id,item_id,source_kind,source_ref,source_version,authorization_ref,event_id,committed_revision,commit_sequence) VALUES(?,?,?,?,?,?,?,?,?,?,?)');
     const insertMechanic = this.db.prepare(`INSERT INTO mechanic_instances(
       world_id,instance_id,template_id,template_version,status,parameters_json,state_json,created_by_event_id,created_revision,updated_revision,disabled_at_revision,needs_review_reason,last_event_id
     ) VALUES(?,?,?,?,?,?,?,?,?,?,?,NULL,?)`);
@@ -2367,6 +2450,9 @@ export class SQLiteStore {
           upsertEntity.run(id, effect.entity_id, 'unknown', 'destroyed', '{}', event.event_id, event.committed_revision);
         } else if (effect.kind === 'fact.set') {
           insertClaim.run(id, effect.fact_id, event.event_id, effect.subject_ref || null, effect.predicate, enc(effect.value), event.committed_revision);
+        } else if (effect.kind === 'knowledge.assignment') {
+          insertKnowledgeAssignment.run(id, effect.assignment_id, effect.subject_id, effect.item_id, effect.source_kind,
+            effect.source_ref, effect.source_version, effect.authorization_ref, event.event_id, event.committed_revision, event.commit_sequence);
         }
       }
     }

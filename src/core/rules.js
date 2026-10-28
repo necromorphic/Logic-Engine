@@ -275,11 +275,14 @@ function validateEffectJson(value, label) {
 export function validateEffects(effects, options = {}) {
   assertDenseDataArray(effects, 200, 'INVALID_EFFECTS', 'effects');
   assertPlainDataObject(options, 'INVALID_EFFECT_OPTIONS', 'Effect validation options');
-  if (Object.keys(options).some((key) => key !== 'allowRelationshipTransition')) {
+  if (Object.keys(options).some((key) => !['allowRelationshipTransition', 'allowKnowledgeAssignment'].includes(key))) {
     throw new EngineError('INVALID_EFFECT_OPTIONS', 'Effect validation options contain an unsupported field.');
   }
   if (options.allowRelationshipTransition !== undefined && typeof options.allowRelationshipTransition !== 'boolean') {
     throw new EngineError('INVALID_EFFECT_OPTIONS', 'allowRelationshipTransition must be boolean.');
+  }
+  if (options.allowKnowledgeAssignment !== undefined && typeof options.allowKnowledgeAssignment !== 'boolean') {
+    throw new EngineError('INVALID_EFFECT_OPTIONS', 'allowKnowledgeAssignment must be boolean.');
   }
 
   for (const effect of effects) {
@@ -298,6 +301,7 @@ export function validateEffects(effects, options = {}) {
       'entity.upsert': ['kind', 'entity_id', 'entity_type', 'status', 'attributes'],
       'entity.delete': ['kind', 'entity_id'],
       'fact.set': ['kind', 'fact_id', 'subject_ref', 'predicate', 'value'],
+      'knowledge.assignment': ['kind', 'assignment_id', 'subject_id', 'item_id', 'source_kind', 'source_ref', 'source_version', 'authorization_ref'],
       'mechanic.instance.create': ['kind', 'instance_id', 'template_id', 'template_version', 'parameters', 'state'],
       'mechanic.instance.enable': ['kind', 'instance_id'],
       'mechanic.instance.disable': ['kind', 'instance_id'],
@@ -363,6 +367,15 @@ export function validateEffects(effects, options = {}) {
           || effect.subject_ref !== effect.subject_ref.trim())) {
         throw new EngineError('INVALID_EFFECT', 'subject_ref must be a non-empty string or null without surrounding whitespace.');
       }
+    } else if (effect.kind === 'knowledge.assignment') {
+      for (const key of ['assignment_id', 'subject_id', 'item_id', 'source_kind', 'source_ref', 'source_version', 'authorization_ref']) {
+        if (typeof effect[key] !== 'string' || !effect[key].trim() || effect[key] !== effect[key].trim() || effect[key].length > 200) {
+          throw new EngineError('INVALID_KNOWLEDGE_ASSIGNMENT', key + ' must be a non-empty string of at most 200 characters without surrounding whitespace.', 400);
+        }
+      }
+      if (!['author_initial', 'imported'].includes(effect.source_kind)) {
+        throw new EngineError('INVALID_KNOWLEDGE_ASSIGNMENT', 'source_kind must be author_initial or imported.', 400);
+      }
     } else if (effect.kind === 'relationship.transition') {
       for (const key of ['subject_id', 'target_id', 'rule_module_id', 'rule_module_version']) {
         if (typeof effect[key] !== 'string' || !effect[key].trim() || effect[key].length > 200) {
@@ -400,6 +413,9 @@ export function validateEffects(effects, options = {}) {
     }
     if (effect.kind === 'relationship.transition') {
       assertDenseDataArray(effect.evidence_refs, 128, 'INVALID_RELATIONSHIP_TRANSITION', 'evidence_refs');
+    }
+    if (effect.kind === 'knowledge.assignment' && options.allowKnowledgeAssignment !== true) {
+      throw new EngineError('KNOWLEDGE_ASSIGNMENT_TRUSTED_PATH_REQUIRED', 'Knowledge assignments may only be committed through the trusted Core author/import operation.', 403);
     }
     if (effect.kind === 'entity.update' && effect.remove_attributes !== undefined) {
       assertDenseDataArray(effect.remove_attributes, 200, 'INVALID_EFFECT', 'remove_attributes');
