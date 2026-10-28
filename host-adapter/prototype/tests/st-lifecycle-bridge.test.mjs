@@ -784,3 +784,30 @@ test('unique raw-content sentinels never enter persisted journal rows or exporte
   await f.bridge.afterMutation('delete-message');
   await assertNoRawSentinels('after delete');
 });
+
+
+test('post-delete checkpoint rejects an unrelated reorder of surviving message identities', async () => {
+  const f = makeFixture([
+    { is_user: true, mes: 'first' },
+    { is_user: false, mes: 'second' },
+    { is_user: true, mes: 'third' },
+  ]);
+  await f.bridge.enrollCurrentConversation();
+  const originalIds = f.chat.map(message => message._logicEngineLifecycle.messageId);
+
+  await f.bridge.beforeMutation('delete-message', [2]);
+  f.chat.splice(2, 1);
+  f.chat.reverse();
+
+  await assert.rejects(
+    f.bridge.afterMutation('delete-message'),
+    /message deletion also introduced or reordered message identities/,
+  );
+  const ledger = await f.journal.exportCaptureLedger('chat-1');
+  assert.equal(
+    ledger.records.some(record => record.operation === 'after:delete-message'),
+    false,
+    'a malformed post-delete state must not become the next accepted checkpoint',
+  );
+  assert.deepEqual(originalIds.slice(0, 2).sort(), f.chat.map(message => message._logicEngineLifecycle.messageId).sort());
+});
