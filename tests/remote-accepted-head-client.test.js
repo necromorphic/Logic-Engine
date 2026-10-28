@@ -75,6 +75,7 @@ test('rejects altered records, bad signatures, and wrong installation identity',
   assert.throws(() => verifyRemoteAnchorEnvelope({
     envelope,
     installationId: 'another-installation',
+    expectedKeyId: 'key-01',
     publicKey: publicPem,
   }), /REMOTE_ANCHOR_IDENTITY_MISMATCH/);
   assert.throws(() => verifyRemoteAnchorEnvelope({
@@ -87,7 +88,7 @@ test('rejects altered records, bad signatures, and wrong installation identity',
 
 test('requires an explicit recovery reason for recovery records', () => {
   const envelope = makeEnvelope({ record_type: 'RECOVERY', recovery_reason: 'operator-approved restore' });
-  const result = verifyRemoteAnchorEnvelope({ envelope, installationId, publicKey: publicPem });
+  const result = verifyRemoteAnchorEnvelope({ envelope, installationId, expectedKeyId: 'key-01', publicKey: publicPem });
   assert.equal(result.recordType, 'RECOVERY');
   assert.equal(result.recoveryReason, 'operator-approved restore');
   assert.throws(() => verifyRemoteAnchorEnvelope({
@@ -96,6 +97,15 @@ test('requires an explicit recovery reason for recovery records', () => {
     expectedKeyId: 'key-01',
     publicKey: publicPem,
   }), /REMOTE_ANCHOR_RECOVERY_REASON_INVALID/);
+});
+
+test('rejects records signed under an unexpected key identifier', () => {
+  assert.throws(() => verifyRemoteAnchorEnvelope({
+    envelope: makeEnvelope(),
+    installationId,
+    expectedKeyId: 'rotated-key-02',
+    publicKey: publicPem,
+  }), /REMOTE_ANCHOR_KEY_ID_MISMATCH/);
 });
 
 test('rejects unknown fields, invalid chain metadata, and sequence rollback', () => {
