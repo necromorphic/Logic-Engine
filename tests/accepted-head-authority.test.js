@@ -326,7 +326,7 @@ test('accepted-head authority service entrypoint starts authenticated loopback s
         LOGIC_ENGINE_ACCEPTED_HEAD_READ_TOKEN: readServiceToken,
         LOGIC_ENGINE_ACCEPTED_HEAD_PORT: String(port),
       },
-      stdio: ['ignore', 'pipe', 'pipe'],
+      stdio: ['pipe', 'pipe', 'pipe'],
     });
     let output = '';
     const ready = new Promise((resolve, reject) => {
@@ -350,7 +350,7 @@ test('accepted-head authority service entrypoint starts authenticated loopback s
     assert.deepEqual(body.heads, { core: 0, provider: 0 });
     assert.deepEqual(body.enrolled, { core: false, provider: false });
     const childExited = once(child, 'exit');
-    child.kill('SIGTERM');
+    child.stdin.write('stop\\n');
     const [code] = await childExited;
     assert.equal(code, 0);
     child = null;
@@ -358,7 +358,7 @@ test('accepted-head authority service entrypoint starts authenticated loopback s
     try { portProbe?.close(); } catch {}
     if (child) {
       const childExited = once(child, 'exit');
-      child.kill('SIGTERM');
+      try { child.stdin.write('stop\\n'); } catch { child.kill('SIGTERM'); }
       await childExited;
     }
     rmSync(directory, { recursive: true, force: true });
