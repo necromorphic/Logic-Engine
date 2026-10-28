@@ -154,6 +154,12 @@ test('recovery and re-enrollment require explicit privileged credentials', async
 
 test('rejects unknown fields, contract mismatch, and oversized request bodies', async (t) => {
   const { base } = await withServer(t);
+  const wrongContentType = await fetch(base + '/v1/installations/' + installationId + '/records', {
+    method: 'POST',
+    headers: { authorization: 'Bearer ' + token, 'content-type': 'text/plain' },
+    body: JSON.stringify(requestBody()),
+  });
+  assert.equal(wrongContentType.status, 415);
   assert.equal((await append(base, { ...requestBody(), installation_id: 'spoofed' })).status, 400);
   assert.equal((await append(base, requestBody({ contract_version: 2 }))).status, 400);
   const oversized = await fetch(base + '/v1/installations/' + installationId + '/records', {
