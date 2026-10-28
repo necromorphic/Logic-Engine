@@ -9,7 +9,9 @@
 
 ## 1. Purpose and evidence rules
 
-This draft defines a proposed contract for a derived, read-only 3D position view. The coordinator review dated 2026-10-28 found it **READY FOR CONTRACT REVISION**, not approved for implementation review. The review is a source-based coordinator assessment, not two separate owner-authored approvals. This revision records the known blockers and keeps unproven properties explicitly unresolved.
+This document is a supplementary Core/TimeEngine source-and-blocker audit for a derived, read-only 3D position view. The coordinator's initial review of PR #558 found it **READY FOR CONTRACT REVISION**, not approved for implementation review. This was one source-based coordinator assessment, not two separate owner-authored approvals.
+
+**Reconciliation with later decisions in issue #351:** the coordinator subsequently selected World Pack-owned typed spatial attributes validated by Core at the canonical commit boundary as the preferred design direction, and the design-only proposal was merged via [PR #548](https://github.com/necromorphic/Logic-Engine/pull/548). The approved v1 meaning includes 3D world-relative X/Y/Z, a right-handed frame, +Z up, abstract logical units, and an entity-origin anchor. This audit does not supersede PR #548's proposal, prove that the runtime implements it, or authorize implementation.
 
 This document distinguishes:
 - **Source-confirmed:** visible in the inspected Logic-Engine source or repository documentation.
@@ -46,7 +48,7 @@ The v1 semantics carried forward from the existing World Pack spatial contract p
 - Position refers to the declared `entity-origin`.
 - No implicit scale, local frames, transforms, interpolation, or extrapolation.
 
-**Open decision:** the source decision does not yet specify the direction of `+X` and `+Y`, the origin convention beyond the entity anchor, or the canonical coordinate-frame identifier. Therefore v1 must not transform or compare positions across coordinate frames until Core approves those details. The final contract must define `coordinate_frame_id`, axis orientation, origin convention, and compatibility rules.
+**Still unresolved:** the later decision fixes the frame as world-relative, right-handed, with +Z up, but does not specify the directions of +X/+Y or a canonical `coordinate_frame_id`. The entity-origin anchor is approved; it must not be confused with the coordinate frame's world origin. Until the missing axis directions and frame identity are decided, do not transform or compare positions across frames.
 
 Position is distinct from orientation, pose, and movement. Coordinates alone prove none of those concepts.
 
@@ -265,14 +267,14 @@ The line ranges below were checked against the repository's `main` source during
 
 ### B. Requires confirmation from Core or TimeEngine
 
-1. Whether the two permitted read methods can produce or verify one consistent boundary under concurrent commits, rollback, and rebuild.
+1. The Core snapshot path `getSnapshot/readSnapshot` provides a transaction-bound snapshot with both freshness markers. What remains unproven is an atomic pairing between that snapshot and a separately fetched full event stream, and the exact behavior of any proposed consumer across concurrent commits, rollback, and rebuild. The bounded source/replay seam is described as test-verified in the [canonical research report](https://github.com/necromorphic/Logic-Engine/blob/research/spatial-temporal-evidence-2026-10-26/docs/research/spatial-temporal-world-model-evidence-2026-10-26.md#146); this documentation revision did not rerun those tests and does not claim that they prove typed spatial semantics.
 2. Exact canonical identity and storage/recovery for immutable World Pack schema content/digests.
 3. The authoritative TimeEngine confirmed-boundary record and mapping to Core cursors.
 4. Equal-game-time ordering across Core and TimeEngine records.
 5. Restart and old-backup restoration guarantees.
 6. The authoritative event/source representation for explicit position removal.
 7. Complete coverage of entity identity rules across import, migration, recovery, direct writers, and replay.
-8. Canonical +X/+Y axes, coordinate-frame identifier, and origin convention.
+8. Canonical +X/+Y directions and coordinate-frame identifier. The world-relative frame, right-handedness, +Z up, abstract logical units, and entity-origin anchor are already specified in the later issue #351 decision; the world-coordinate origin remains distinct from the entity anchor.
 9. Approved precedence among status outcomes where more than one condition applies.
 
 ### C. Not implemented or not evidenced by this audit
@@ -295,7 +297,7 @@ The line ranges below were checked against the repository's `main` source during
 4. Is entity ID reuse forbidden globally per world across all write/import/migration/recovery paths, and what test inventory proves it?
 5. Which JSON Schema draft/features does the actual validator support, and how will spatial metadata be validated rather than merely stored?
 6. Which exact source marker changes on rollback or event invalidation, and how does a consumer detect it?
-7. What are the approved `+X`/`+Y` orientations, coordinate-frame ID, and origin convention?
+7. What are the canonical `+X`/`+Y` directions and coordinate-frame ID? Do not reopen the already selected world-relative/right-handed/+Z-up/abstract-unit/entity-origin semantics unless a decision owner explicitly revises them.
 
 ### TimeEngine
 1. What record is authoritative evidence of a confirmed time boundary?
