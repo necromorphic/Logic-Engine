@@ -46,7 +46,8 @@ async function readStableFile(absolutePath, fs) {
     } finally {
       await pathHandle.close().catch(() => {});
     }
-    if (!sameStat(opened, afterHandle) || !sameStat(opened, afterPath)
+    if (afterPath.isSymbolicLink() || !afterPath.isFile()
+        || !sameStat(opened, afterHandle) || !sameStat(opened, afterPath)
         || bytes.length !== afterHandle.size || !pathBytes.equals(bytes)) {
       throw Error('ARTIFACT_CHANGED_DURING_READ');
     }
