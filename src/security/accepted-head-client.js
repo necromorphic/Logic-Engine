@@ -27,9 +27,13 @@ async function main() {
   const action = input?.action;
   let url;
   let options;
-  if (action === 'heads') {
+  if (action === 'heads' && typeof input.token === 'string' && input.token.length >= 32) {
     url = 'http://127.0.0.1:' + port + '/v1/heads';
-    options = { method: 'GET', signal: AbortSignal.timeout(timeoutMs) };
+    options = {
+      method: 'GET',
+      headers: { authorization: 'Bearer ' + input.token, 'cache-control': 'no-store' },
+      signal: AbortSignal.timeout(timeoutMs),
+    };
   } else if ((action === 'enroll' || action === 'advance' || action === 'finalize')
     && ['core', 'provider'].includes(input.domain)
     && typeof input.operation_id === 'string' && input.operation_id.length > 0

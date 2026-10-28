@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
+import { DatabaseSync } from 'node:sqlite';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { once } from 'node:events';
@@ -148,22 +149,61 @@ async function startAuthorityProcess(path) {
   return { child, port: Number(match[1]) };
 }
 
+test('existing authority database with missing schema fails closed without recreating it', () => {
+  const dir = tempDir();
+  const path = join(dir, 'authority.sqlite');
+  const first = new AcceptedHeadAuthority({ path, installationId: 'schema-test-installation' });
+  first.close();
+  const damaged = new DatabaseSync(path);
+  damaged.exec('DROP TABLE authority_operations;');
+  damaged.close();
+
+  assert.throws(
+    () => new AcceptedHeadAuthority({ path, installationId: 'schema-test-installation' }),
+    /ACCEPTED_HEAD_SCHEMA_INVALID/,
+  );
+  const verify = new DatabaseSync(path);
+  try {
+    const tables = verify.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().map((row) => row.name);
+    assert.equal(tables.includes('authority_operations'), false);
+  } finally {
+    verify.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('authority IPC requires explicit enrollment, enforces domain tokens, and fails closed while pending', async () => {
   const dir = tempDir();
   const path = join(dir, 'authority.sqlite');
   const { child, port } = await startAuthorityProcess(path);
   try {
-    assert.deepEqual(getAcceptedHeadStatusSync({ port }), {
+    const unauthenticated = await fetch('http://127.0.0.1:' + port + '/v1/heads');
+    assert.equal(unauthenticated.status, 403);
+    const wrongToken = await fetch('http://127.0.0.1:' + port + '/v1/heads', {
+      headers: { authorization: 'Bearer not-a-valid-service-token' },
+    });
+    assert.equal(wrongToken.status, 403);
+    const authorizedProviderRead = await fetch('http://127.0.0.1:' + port + '/v1/heads', {
+      headers: { authorization: 'Bearer ' + providerToken },
+    });
+    assert.equal(authorizedProviderRead.status, 200);
+    const crossDomainMutation = await fetch('http://127.0.0.1:' + port + '/v1/advance', {
+      method: 'POST',
+      headers: { authorization: 'Bearer ' + coreToken, 'content-type': 'application/json' },
+      body: JSON.stringify({ domain: 'provider', operation_id: 'cross-domain', operation_digest: digestA, expected_head: 0 }),
+    });
+    assert.equal(crossDomainMutation.status, 403);
+    assert.deepEqual(getAcceptedHeadStatusSync({ port, token: coreToken }), {
       heads: { core: 0, provider: 0 },
       pending: { core: false, provider: false },
       enrolled: { core: false, provider: false },
     });
-    assert.throws(() => getAcceptedHeadsSync({ port }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
+    assert.throws(() => getAcceptedHeadsSync({ port, token: coreToken }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
 
     assert.deepEqual(enrollAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-enroll', operationDigest: digestA, token: coreToken, port,
     }), { domain: 'core', head: 1, operation_id: 'sync-core-enroll', operation_digest: digestA, replayed: false, status: 'pending' });
-    assert.throws(() => getAcceptedHeadsSync({ port }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
+    assert.throws(() => getAcceptedHeadsSync({ port, token: coreToken }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
     assert.deepEqual(finalizeAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-enroll', operationDigest: digestA, token: coreToken, port,
     }), { domain: 'core', head: 1, operation_id: 'sync-core-enroll', operation_digest: digestA, replayed: false, status: 'committed' });
@@ -174,12 +214,12 @@ test('authority IPC requires explicit enrollment, enforces domain tokens, and fa
     assert.deepEqual(finalizeAcceptedHeadSync({
       domain: 'provider', operationId: 'sync-provider-enroll', operationDigest: digestB, token: providerToken, port,
     }), { domain: 'provider', head: 1, operation_id: 'sync-provider-enroll', operation_digest: digestB, replayed: false, status: 'committed' });
-    assert.deepEqual(getAcceptedHeadsSync({ port }), { core: 1, provider: 1 });
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 1, provider: 1 });
 
     assert.deepEqual(advanceAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-op-1', operationDigest: digestC, expectedHead: 1, token: coreToken, port,
     }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', operation_digest: digestC, replayed: false, status: 'pending' });
-    assert.throws(() => getAcceptedHeadsSync({ port }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
+    assert.throws(() => getAcceptedHeadsSync({ port, token: coreToken }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
     assert.deepEqual(finalizeAcceptedHeadSync({
       domain: 'core', operationId: 'sync-core-op-1', operationDigest: digestC, token: coreToken, port,
     }), { domain: 'core', head: 2, operation_id: 'sync-core-op-1', operation_digest: digestC, replayed: false, status: 'committed' });
@@ -193,7 +233,7 @@ test('authority IPC requires explicit enrollment, enforces domain tokens, and fa
     assert.deepEqual(finalizeAcceptedHeadSync({
       domain: 'provider', operationId: 'sync-provider-op-1', operationDigest: digestD, token: providerToken, port,
     }), { domain: 'provider', head: 2, operation_id: 'sync-provider-op-1', operation_digest: digestD, replayed: false, status: 'committed' });
-    assert.deepEqual(getAcceptedHeadsSync({ port }), { core: 2, provider: 2 });
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 2, provider: 2 });
 
     assert.throws(() => advanceAcceptedHeadSync({
       domain: 'core', operationId: 'unauthorized-op', operationDigest: digestD, expectedHead: 2, token: providerToken, port,
@@ -201,7 +241,7 @@ test('authority IPC requires explicit enrollment, enforces domain tokens, and fa
     assert.throws(() => advanceAcceptedHeadSync({
       domain: 'core', operationId: 'invalid-op', operationDigest: digestA, expectedHead: 2, token: 'too-short', port,
     }), /Invalid accepted-head client configuration/);
-    assert.deepEqual(getAcceptedHeadsSync({ port }), { core: 2, provider: 2 });
+    assert.deepEqual(getAcceptedHeadsSync({ port, token: coreToken }), { core: 2, provider: 2 });
   } finally {
     child.stdin.end('stop');
     await once(child, 'exit');
@@ -210,7 +250,7 @@ test('authority IPC requires explicit enrollment, enforces domain tokens, and fa
 });
 
 test('authority client fails closed when the service is unavailable', () => {
-  assert.throws(() => getAcceptedHeadStatusSync({ port: 65534, timeoutMs: 200 }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
+  assert.throws(() => getAcceptedHeadStatusSync({ port: 65534, token: coreToken, timeoutMs: 200 }), /ACCEPTED_HEAD_AUTHORITY_UNAVAILABLE/);
   assert.throws(() => advanceAcceptedHeadSync({
     domain: 'provider',
     operationId: 'provider-op-offline',
