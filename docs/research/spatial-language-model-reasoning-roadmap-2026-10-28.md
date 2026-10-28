@@ -31,7 +31,7 @@ The spatial layer should help a language model narrate physically and causally c
 | S7 | Field of view and line-of-sight approximation | Helps distinguish physically visible from occluded | Existing synthetic prototype | Requires explicit lighting and complete blocker inventory; not actual noticing |
 | S8 | Auditory perception | Allows sound to cross some spaces while walls/doors attenuate it | **Implemented in isolated synthetic research module** | Requires explicit source level, listener threshold, and per-door open/closed attenuation; estimates audibility only, not actual hearing or noticing |
 | S9 | Actual noticing, recognition, and knowledge acquisition | Separates objective world facts from what each NPC believes | **Planned, separate workstream** | Requires dedicated observer/knowledge contract; no Memory/NPC integration implied |
-| S10 | Scene changes and stale prediction invalidation | A changed door/obstacle/action should invalidate affected forecasts | **Planned** | First implement pure immutable scene revisions and dependency checks |
+| S10 | Scene changes and stale prediction invalidation | A changed door/obstacle/action should invalidate affected forecasts | **Implemented in isolated synthetic research module** | Caller must declare complete dependencies; no Core event/rollback integration |
 | S11 | Dynamic movement and synchronized trajectory collision | Supports interceptions, missed encounters, and timing | Existing synthetic prototype | Constant velocity and conservative AABB intervals only |
 | S12 | Navigation costs, route choice, and constraints | Supports shortest/safer/accessible route decisions | Planned | Build on room/door graph; costs and character constraints must be explicit |
 | S13 | Event-to-spatial-action proposals | Lets the LLM suggest “walks to the window” without authoring truth | Planned architecture direction | No action accepted without future approved validator and canonical commit |
@@ -64,8 +64,8 @@ The context text is an adapter output for the LLM, not a canonical record and no
 ### Phase A — isolated research foundation
 - [x] Rooms, zones, containment, door graph, conservative reachability.
 - [x] Compact text context with explicit unknowns and epistemic limits.
-- [ ] Add scenario traces across two immutable scene boundaries.
-- [ ] Add revision/dependency tracking so changes invalidate stale predictions.
+- [x] Add immutable synthetic scene revision diffing and declared-dependency freshness checks.
+- [ ] Add scenario traces across two immutable scene boundaries and test invalidation across event/rollback boundaries.
 - [x] Add auditory propagation as a separate result from visibility, using explicit sound levels and door attenuation.
 - [ ] Add deterministic route costs and explicit traversal constraints.
 - [ ] Add scenario-based evaluation for multi-NPC scenes (ambush, doorway, sound behind a wall, out-of-room NPC).
@@ -101,3 +101,7 @@ The tests cover unique containment, unmapped areas, overlapping zones, invalid z
 ### Second research increment: sound propagation
 
 New module: `experiments/spatial-scene-lab/spatial-sound.js`. It estimates whether a sound could exceed a listener's explicit hearing threshold, using explicitly supplied source sound level and open/closed door attenuation. Unknown door states return UNKNOWN if they could change audibility. This does not establish that an NPC actually heard, noticed, understood, recognized, or remembers the sound. The attenuation values are synthetic inputs, not universal physical constants.
+
+### Third research increment: scene revision and prediction freshness
+
+New module: `experiments/spatial-scene-lab/spatial-revisions.js`. It compares two complete synthetic snapshots with the same world ID and increasing revision numbers, and reports changed dependency keys for entities, rooms, zones, and doors. A prediction can declare the keys it depends on; if one changes, the result is STALE. Missing or malformed revision/prediction metadata returns UNKNOWN. A result with no changed declared dependency is only `FRESH_WITH_RESPECT_TO_DECLARED_DEPENDENCIES`, not proof that the dependency list is complete. This module does not subscribe to events and does not prove restart, rollback, or production state provenance.
