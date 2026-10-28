@@ -82,3 +82,11 @@ Code/test evidence is tracked separately from cross-block production gates. Exac
 | Raw SillyTavern text retention and disclosure | Policy owner + Core | Provider methods fail closed with `MEMORY_RAW_CAPTURE_NOT_APPROVED` / `MEMORY_RAW_DISCLOSURE_NOT_APPROVED` | Policy gate | **BLOCKED / DISABLED** | Explicit retention/access/deletion/revocation/restore policy approval required |
 
 **Disposition:** Provider-owned exact-token, revocation/restart, rollback, and local tombstone tests pass on the cited code/test HEAD. This is not end-to-end Host integration evidence and does not approve merge or production traffic. Memory→NPC remains **DISABLED / FAIL-CLOSED**.
+
+
+## Coordinator decision and authoritative-token regression — 28 October 2026
+
+- Coordinator decision in [PR #538 comment](https://github.com/necromorphic/Logic-Engine/pull/538#issuecomment-6462558233): Host-message sources are **UNSUPPORTED FOR NOW**. Only the already-approved direct `canonical_entity` path is eligible, with the exact Core-issued token passed unchanged. No `parent_version_id`, inferred root marker, Host-message mapping, or API/schema change is approved.
+- Added `tests/memory-provider-authoritative-source-version.test.js`: after successful reconciliation, the persisted Provider token remains byte-for-byte consistent but the trusted Core validator's authoritative version changes. Candidate authorization must raise `MEMORY_SOURCE_VERSION_UNVERIFIABLE`, not accept the locally matching token. This is Provider unit evidence for the authority recheck, not production Core wiring.
+- Code/test HEAD after this regression: `7cbefddbaa6d52a5ef33fdf6fd1651ae4c21a24e`. CI must run on this exact head before the test is counted as passed. The earlier successful CI evidence applies to the earlier code/test HEAD only.
+- This test does not close Host inventory, real final-send reauthorization, or coordinated Core + Provider backup-restore anti-rollback. Memory → NPC remains **DISABLED / FAIL-CLOSED**.
