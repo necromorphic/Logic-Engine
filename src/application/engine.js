@@ -704,9 +704,13 @@ export class LogicEngine {
     const request = inputCheck.request;
     assert(typeof this.npcKnowledgeReadAuthorizer === 'function',
       'NPC_KNOWLEDGE_READ_NOT_CONFIGURED', 'A trusted deployment-owned NPC knowledge read authorizer is required.', 403);
-    const world = this.store.world(request.world_id);
+    // Read the authorization cursor from one Core snapshot transaction. Separate
+    // world/current-sequence reads can straddle a rollback because rollback advances
+    // world_revision without advancing the event commit_sequence.
+    const snapshot = this.getSnapshot(request.world_id);
+    const world = snapshot;
     assert(world, 'WORLD_NOT_FOUND', 'World not found.', 404);
-    const commitSequence = this.store.currentCommitSequence(request.world_id);
+    const commitSequence = snapshot.commit_sequence;
     const actor = this.store.db.prepare(
       "SELECT entity_id,status FROM entities WHERE world_id=? AND entity_id=?"
     ).get(request.world_id, request.actor_id);
@@ -783,11 +787,14 @@ export class LogicEngine {
     // The authorizer and SQL read happen after the initial cursor capture. Re-read
     // the canonical cursor before returning so a concurrent commit cannot make
     // this ready response combine newer acquisition rows with an older snapshot.
-    const worldNow = this.store.world(request.world_id);
-    const sequenceNow = this.store.currentCommitSequence(request.world_id);
-    assert(worldNow && worldNow.status === 'active'
-      && worldNow.world_revision === checked.request.world_revision
-      && sequenceNow === checked.request.commit_sequence,
+    // Re-read the cursor atomically. A rollback changes world_revision but not
+    // commit_sequence, so two separate reads could observe the pre-rollback world
+    // row and post-rollback sequence and incorrectly accept a stale result.
+    let snapshotNow;
+    try { snapshotNow = this.getSnapshot(request.world_id); } catch { snapshotNow = null; }
+    assert(snapshotNow && snapshotNow.status === 'active'
+      && snapshotNow.world_revision === checked.request.world_revision
+      && snapshotNow.commit_sequence === checked.request.commit_sequence,
     'NPC_KNOWLEDGE_READ_NOT_READY',
     'World snapshot changed while reading NPC knowledge; retry from a fresh snapshot.', 409);
 
@@ -1109,18 +1116,70 @@ export class LogicEngine {
       ORDER BY e.commit_sequence DESC LIMIT 1
     `).get(input.world_id, input.actor_id, input.proposition_ref);
     if (!row) return Object.freeze({ status: 'unknown', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
-    const active = new Set(read.items.map((item) => item.acquisition_id));
+    assert(typeof this.npcKnowledgeVisibilityAuthorizer === 'function',
+      'NPC_KNOWLEDGE_VISIBILITY_NOT_CONFIGURED',
+      'A trusted deployment-owned visibility authorizer is required for belief-state reads.', 403);
     const evidence = JSON.parse(row.evidence_acquisition_ids_json);
-    const surviving = evidence.filter((ref) => active.has(ref));
+    const visibleAcquisitionIds = new Set();
+    let propositionWithheld = false;
+    for (const item of read.items) {
+      if (npcPropositionRefFor(item) !== row.proposition_ref) continue;
+      let decision;
+      try {
+        decision = this.npcKnowledgeVisibilityAuthorizer(Object.freeze({
+          world_id: read.world_id,
+          actor_id: read.actor_id,
+          purpose: read.purpose,
+          world_revision: read.snapshot.world_revision,
+          commit_sequence: read.snapshot.commit_sequence,
+          acquisition_id: item.acquisition_id,
+          fact_id: item.fact_id,
+          subject_ref: item.subject_ref,
+          predicate: item.predicate,
+          provenance_ref: item.provenance_ref,
+          provenance_digest: item.provenance_digest,
+        }));
+      } catch {
+        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+          'The trusted visibility authorizer failed; no belief state was returned.', 403);
+      }
+      const allowedKeys = [
+        'status', 'world_id', 'actor_id', 'purpose', 'world_revision',
+        'commit_sequence', 'acquisition_id', 'authorization_ref',
+      ];
+      const exactDecision = decision && typeof decision === 'object'
+        && !Array.isArray(decision)
+        && Object.getPrototypeOf(decision) === Object.prototype
+        && Reflect.ownKeys(decision).length === allowedKeys.length
+        && allowedKeys.every((key) => Object.hasOwn(decision, key))
+        && Reflect.ownKeys(decision).every((key) => typeof key === 'string' && allowedKeys.includes(key));
+      if (!exactDecision || !['allowed', 'denied'].includes(decision.status)
+        || decision.world_id !== read.world_id || decision.actor_id !== read.actor_id
+        || decision.purpose !== read.purpose
+        || decision.world_revision !== read.snapshot.world_revision
+        || decision.commit_sequence !== read.snapshot.commit_sequence
+        || decision.acquisition_id !== item.acquisition_id
+        || typeof decision.authorization_ref !== 'string' || !decision.authorization_ref.trim()) {
+        throw new EngineError('NPC_KNOWLEDGE_VISIBILITY_NOT_AUTHORIZED',
+          'The visibility decision did not bind to this actor, acquisition, purpose, and snapshot.', 403);
+      }
+      if (decision.status === 'denied') propositionWithheld = true;
+      else visibleAcquisitionIds.add(item.acquisition_id);
+    }
+    // Do not reveal whether a hidden proposition or its evidence exists.
+    if (propositionWithheld) {
+      return Object.freeze({ status: 'unavailable', actor_id: input.actor_id, proposition_ref: input.proposition_ref });
+    }
+    const surviving = evidence.filter((ref) => visibleAcquisitionIds.has(ref));
     return Object.freeze({
       status: 'ready',
       actor_id: input.actor_id,
       proposition_ref: row.proposition_ref,
-      proposition_value: JSON.parse(row.proposition_value_json),
+      ...(surviving.length > 0 ? { proposition_value: JSON.parse(row.proposition_value_json) } : {}),
       stance: row.stance,
       evidence_status: surviving.length === evidence.length ? 'supported'
         : surviving.length > 0 ? 'partially_supported' : 'unsupported',
-      evidence_acquisition_ids: Object.freeze(evidence),
+      evidence_acquisition_ids: Object.freeze(surviving),
       surviving_evidence_acquisition_ids: Object.freeze(surviving),
       reason_rule_ref: row.reason_rule_ref,
       snapshot: Object.freeze({
