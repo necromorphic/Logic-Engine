@@ -169,6 +169,12 @@ test('time-trigger lifecycle is internal-only and registered triggers drive dura
     method: 'POST', headers: internalHeaders, body: json(futureTrigger),
   });
   assert.equal(futureRegistered.status, 201);
+  const deniedCancel = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger-to-cancel/cancel', {
+    method: 'POST', headers, body: json({ reason: 'unauthorized_cancel_attempt' }),
+  });
+  assert.equal(deniedCancel.status, 403);
+  assert.equal((await deniedCancel.json()).error.code, 'INTERNAL_REQUIRED');
+
   const cancelled = await fetch(base + '/v1/worlds/api-time-trigger-world/time-triggers/api-trigger-to-cancel/cancel', {
     method: 'POST', headers: internalHeaders, body: json({ reason: 'test_cancel' }),
   });
