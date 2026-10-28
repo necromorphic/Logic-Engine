@@ -17,21 +17,27 @@ function makeEnvelope(overrides = {}) {
   const record = {
     installation_id: installationId,
     epoch_id: epochId,
+    key_id: 'key-01',
     sequence: 1,
     previous_record_digest: null,
     core_head_digest: coreDigest,
     provider_readiness_digest: providerDigest,
+    contract_version: 1,
     record_type: 'ADVANCE',
+    recovery_reason: null,
     ...overrides,
   };
   const bytes = Buffer.from(JSON.stringify({
     installation_id: record.installation_id,
     epoch_id: record.epoch_id,
+    key_id: record.key_id,
     sequence: record.sequence,
     previous_record_digest: record.previous_record_digest,
     core_head_digest: record.core_head_digest,
     provider_readiness_digest: record.provider_readiness_digest,
+    contract_version: record.contract_version,
     record_type: record.record_type,
+    recovery_reason: record.recovery_reason,
   }));
   return {
     record,
@@ -47,6 +53,9 @@ test('verifies a signed current head and returns a frozen normalized result', ()
   });
   assert.equal(result.installationId, installationId);
   assert.equal(result.sequence, 1);
+  assert.equal(result.keyId, 'key-01');
+  assert.equal(result.contractVersion, 1);
+  assert.equal(result.recoveryReason, null);
   assert.equal(result.coreHeadDigest, coreDigest);
   assert.equal(result.providerReadinessDigest, providerDigest);
   assert.equal(result.recordType, 'ADVANCE');
@@ -71,6 +80,18 @@ test('rejects altered records, bad signatures, and wrong installation identity',
     installationId,
     publicKey: publicPem,
   }), /REMOTE_ANCHOR_SIGNATURE_INVALID/);
+});
+
+test('requires an explicit recovery reason for recovery records', () => {
+  const envelope = makeEnvelope({ record_type: 'RECOVERY', recovery_reason: 'operator-approved restore' });
+  const result = verifyRemoteAnchorEnvelope({ envelope, installationId, publicKey: publicPem });
+  assert.equal(result.recordType, 'RECOVERY');
+  assert.equal(result.recoveryReason, 'operator-approved restore');
+  assert.throws(() => verifyRemoteAnchorEnvelope({
+    envelope: makeEnvelope({ record_type: 'RECOVERY', recovery_reason: null }),
+    installationId,
+    publicKey: publicPem,
+  }), /REMOTE_ANCHOR_RECOVERY_REASON_INVALID/);
 });
 
 test('rejects unknown fields, invalid chain metadata, and sequence rollback', () => {
