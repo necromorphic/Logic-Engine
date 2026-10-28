@@ -19,3 +19,5 @@ The mapping list is deployment-owned configuration, not prompt or request data. 
 A mapping means “this canonical fact is eligible to be considered evidence for this proposition with this polarity.” It does not mean the NPC automatically believes it, must disclose it, or should use it for every action. No free-text inference is performed.
 
 Memory → NPC remains **DISABLED / FAIL-CLOSED**. This PR does not merge its dependency, modify `main`, or enable prompt injection or production dispatch.
+
+Acceptance requires the full Runtime suite, recalculation oracle, and NPC boundary tests to pass on the exact merged PR head.
