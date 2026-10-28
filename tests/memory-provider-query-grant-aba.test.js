@@ -8,6 +8,7 @@ import { SQLiteMemoryProvider } from '../src/application/sqlite-memory-provider.
 test('query grant revoke/re-grant through a second Provider connection invalidates in-flight retrieval', async (t) => {
   const directory = mkdtempSync(join(tmpdir(), 'logic-memory-query-aba-'));
   const path = join(directory, 'provider.sqlite');
+  const coordinatorPath = join(directory, 'coordinator.sqlite');
   let holdSnapshot = false;
   let snapshotStarted;
   let releaseSnapshot;
@@ -22,6 +23,7 @@ test('query grant revoke/re-grant through a second Provider connection invalidat
   };
   const options = {
     path,
+    coordinatorPath,
     getSnapshot,
     validateSourceVersion: async (record) => record.source_version === 'source-v1'
       && record.source_entity_id === 'source-entity',
