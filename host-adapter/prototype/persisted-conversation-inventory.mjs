@@ -26,7 +26,13 @@ async function readStableFile(absolutePath, fs) {
   const handle = await fs.open(absolutePath, constants.O_RDONLY | constants.O_NOFOLLOW);
   try {
     const opened = await handle.stat();
-    if (!opened.isFile() || !sameStat(before, opened)) throw Error('ARTIFACT_CHANGED_BEFORE_READ');
+    if (!opened.isFile()) throw Error('ARTIFACT_OPENED_NOT_FILE');
+    if (before.dev !== opened.dev) throw Error('ARTIFACT_CHANGED_BEFORE_READ_DEVICE');
+    if (before.ino !== opened.ino && !(process.platform === 'win32' && (!before.ino || !opened.ino))) {
+      throw Error('ARTIFACT_CHANGED_BEFORE_READ_INODE');
+    }
+    if (before.size !== opened.size) throw Error('ARTIFACT_CHANGED_BEFORE_READ_SIZE');
+    if (before.mtimeMs !== opened.mtimeMs) throw Error('ARTIFACT_CHANGED_BEFORE_READ_MTIME');
     const bytes = await handle.readFile();
     const afterHandle = await handle.stat();
     const afterPath = await fs.lstat(absolutePath);
@@ -124,7 +130,11 @@ export async function scanPersistedConversationInventories(roots, enrollments, {
           // never the absolute path or chat contents.
           const safeMessageCodes = [
             'ARTIFACT_TYPE_UNSUPPORTED',
-            'ARTIFACT_CHANGED_BEFORE_READ',
+            'ARTIFACT_OPENED_NOT_FILE',
+            'ARTIFACT_CHANGED_BEFORE_READ_DEVICE',
+            'ARTIFACT_CHANGED_BEFORE_READ_INODE',
+            'ARTIFACT_CHANGED_BEFORE_READ_SIZE',
+            'ARTIFACT_CHANGED_BEFORE_READ_MTIME',
             'ARTIFACT_CHANGED_DURING_READ',
             'JSONL_RECORD_INVALID',
           ];
