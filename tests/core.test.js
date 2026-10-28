@@ -77,11 +77,8 @@ test('entity.upsert cannot revive a destroyed entity identity', (t) => {
   assert.equal(h.engine.getState('w').world_revision, 2);
   assert.equal(h.engine.getState('w').entities.find((entity) => entity.entity_id === 'dead-id').status, 'destroyed');
 
-  // Rebuild must apply the same invariant to historical events before mutating projections.
-  assert.throws(
-    () => h.store.rebuild('w', 2),
-    (error) => error.code !== 'ENTITY_HISTORY_TOMBSTONE_REUSE',
-  );
+  // Rebuild must preserve the same terminal tombstone from valid history.
+  h.store.rebuild('w', 2);
   assert.equal(h.engine.getState('w').entities.find((entity) => entity.entity_id === 'dead-id').status, 'destroyed');
 });
 
