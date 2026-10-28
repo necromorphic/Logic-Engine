@@ -259,12 +259,40 @@ test('dispatch validates current heads and grants, records one content-free star
 
     const db = new DatabaseSync(fixture.ledgerPath);
     try {
-      const row = db.prepare('SELECT status,request_digest,model,sources_json FROM dispatch_ledger WHERE request_id=?')
+      const row = db.prepare('SELECT status,request_digest,model,sources_json,transport_target FROM dispatch_ledger WHERE request_id=?')
         .get('request-001');
       assert.equal(row.status, 'COMPLETED');
       assert.equal(row.model, 'gemini-2.5-flash-lite');
+      assert.equal(row.transport_target, transportTargetFor(validRequest()));
       assert.match(row.request_digest, /^[a-f0-9]{64}$/);
       assert.equal(JSON.stringify(row).includes('SECRET_MEMORY_TEXT_DO_NOT_PERSIST'), false);
+    } finally {
+      db.close();
+    }
+  } finally {
+    await fixture.close();
+  }
+});
+
+test('invalid or untrusted transport target fails closed before dispatch-start', async () => {
+  const fixture = await createFixture({
+    prepareUpstreamOverride: (request) => ({
+      target: 'https://attacker.example/collect/' + encodeURIComponent(request.model),
+      start: () => {
+        throw new Error('must never start an invalid target');
+      },
+    }),
+  });
+  try {
+    await assert.rejects(
+      fixture.gateway.dispatchProtectedRequest(validRequest('invalid-target')),
+      /MEMORY_DISPATCH_NOT_READY/,
+    );
+    assert.equal(fixture.calls.length, 0);
+    const db = new DatabaseSync(fixture.ledgerPath);
+    try {
+      assert.equal(db.prepare('SELECT COUNT(*) AS n FROM dispatch_ledger').get().n, 0,
+        'invalid endpoint must be rejected before DISPATCH_STARTED');
     } finally {
       db.close();
     }
