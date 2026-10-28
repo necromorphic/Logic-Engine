@@ -50,11 +50,16 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       }
       for (let index = 0; index < identity.versions.length; index++) {
         const version = identity.versions[index];
+        if (!Object.hasOwn(version, 'parentVersionId') || version.parentVersionId === undefined) {
+          const state = { status: 'NON_READY', published: false, versionCount: 0,
+            reason: 'source-backed parent lineage is unavailable for one or more versions' };
+          coreCaptureStates.set(conversationId, state);
+          return state;
+        }
         if (!version?.versionId || !/^[a-f0-9]{64}$/.test(version.payloadDigest)
-          || !Object.hasOwn(version, 'parentVersionId')
           || (version.parentVersionId !== null
             && (typeof version.parentVersionId !== 'string' || !version.parentVersionId))) {
-          throw Error('NON_READY: cannot publish Host version inventory with invalid or missing parent lineage');
+          throw Error('NON_READY: cannot publish Host version inventory with invalid parent lineage');
         }
         entries.push({
           conversation_id: conversationId,
@@ -72,12 +77,17 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
     entries.sort((a, b) => Number(a.active) - Number(b.active)
       || a.message_id.localeCompare(b.message_id) || a.version_id.localeCompare(b.version_id));
     for (const tombstone of tombstones) {
+      if (tombstone && (!Object.hasOwn(tombstone, 'parentVersionId') || tombstone.parentVersionId === undefined)) {
+        const state = { status: 'NON_READY', published: false, versionCount: 0,
+          reason: 'source-backed parent lineage is unavailable for one or more tombstones' };
+        coreCaptureStates.set(conversationId, state);
+        return state;
+      }
       if (!tombstone || typeof tombstone.messageId !== 'string' || typeof tombstone.versionId !== 'string'
         || !/^[a-f0-9]{64}$/.test(tombstone.payloadDigest)
-        || !Object.hasOwn(tombstone, 'parentVersionId')
         || (tombstone.parentVersionId !== null
           && (typeof tombstone.parentVersionId !== 'string' || !tombstone.parentVersionId))) {
-        throw Error('NON_READY: cannot publish malformed Host tombstone or missing parent lineage');
+        throw Error('NON_READY: cannot publish malformed Host tombstone or invalid parent lineage');
       }
       entries.push({
         conversation_id: conversationId,
@@ -191,15 +201,7 @@ export function createStLifecycleBridge({ journal, getConversationId, getSourceL
       // fingerprint/identity validation must fail closed; enrollment cannot be retried.
       throw Error('NON_READY: baseline persisted but native identity metadata could not be saved; ' + (error?.message || error));
     }
-    const hasUnprovenLineage = chat.some(message =>
-      message?._logicEngineLifecycle?.versions?.some(version =>
-        !Object.hasOwn(version, 'parentVersionId') || version.parentVersionId === undefined));
-    const coreCapture = hasUnprovenLineage
-      ? (coreCaptureStates.set(conversationId, {
-          status: 'NON_READY', published: false, versionCount: 0,
-          reason: 'source-backed parent lineage is unavailable for legacy baseline',
-        }), { status: 'NON_READY', published: false, versionCount: 0 })
-      : await publishCurrentDigestInventory(conversationId, chat);
+    const coreCapture = await publishCurrentDigestInventory(conversationId, chat);
     return {
       conversationId,
       baselineSequence: result.baselineSequence,
