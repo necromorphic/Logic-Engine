@@ -137,3 +137,40 @@ test('generic attributes accept malformed position-shaped data without a typed s
   // This test records the present generic-attribute behavior as a gap.
   // It is not permission to interpret either value as a spatial position.
 });
+
+
+test('segment commit also accepts malformed position-shaped generic attributes', (t) => {
+  const { store, engine } = setup();
+  t.after(() => store.close());
+
+  const result = engine.commitSegment('spatial-lab', {
+    idempotency_key: 'segment-untyped-position',
+    expected_revision: 0,
+    expected_commit_sequence: 0,
+    events: [{
+      event_id: 'segment-partial-position',
+      idempotency_key: 'segment-partial-position-key',
+      turn_id: 'segment-partial-position-turn',
+      event_type: 'action.completed',
+      time_advance_seconds: 0,
+      effects: [{
+        kind: 'entity.upsert',
+        entity_id: 'segment-partial-point',
+        entity_type: 'object',
+        attributes: { position: { x: 1, y: 2 } },
+      }],
+      caused_by: [],
+      depends_on: [],
+      read_set: [],
+      causal_links: [],
+    }],
+  });
+
+  assert.equal(result.accepted, true);
+  assert.deepEqual(
+    engine.getState('spatial-lab').entities.find((entity) => entity.entity_id === 'segment-partial-point').attributes.position,
+    { x: 1, y: 2 },
+  );
+  // This is a negative feasibility finding: segment acceptance has no typed
+  // spatial validation gate. It does not authorize using the value as position.
+});
