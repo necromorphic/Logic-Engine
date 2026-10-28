@@ -172,15 +172,18 @@ test('Provider rejects a candidate whose presented source token differs from the
   }), /MEMORY_SOURCE_VERSION_UNVERIFIABLE/);
 });
 
-test('real provider revocation during candidate B authorization excludes previously allowed A', async (t) => {
+test('provider mutation during candidate B authorization fails closed and returns no candidates', async (t) => {
   const s = setup(t, { twoRecords: true });
   assert.equal((await s.prepare()).status, 'current');
   s.triggerRace();
   const result = await s.consumer.retrieveForNpc({
     worldId: s.scope.world_id, adapterId: 'provider-e2e-adapter', actorEntityId: s.scope.subject_id,
   });
-  assert.equal(result.status, 'ready');
-  assert.deepEqual(result.candidates.map((candidate) => candidate.record_ref), ['memory:record-b']);
+  // A Provider write during an awaited authorization invalidates the shared
+  // Provider data epoch. Do not continue with candidate B under a stale index;
+  // reconciliation must run again before any candidate can be admitted.
+  assert.equal(result.status, 'non_ready');
+  assert.deepEqual(result.candidates, []);
   assert.equal(JSON.stringify(result).includes('visible source-a'), false);
 });
 test('query access revoked during candidate source validation never becomes ready-empty', async (t) => {
