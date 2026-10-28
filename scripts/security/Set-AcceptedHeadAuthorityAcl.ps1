@@ -170,10 +170,31 @@ $authority = Get-ServiceIdentity -Name $AuthorityServiceName
 $core = Get-ServiceIdentity -Name $CoreServiceName
 $provider = Get-ServiceIdentity -Name $ProviderServiceName
 $gateway = Get-ServiceIdentity -Name $GatewayServiceName
+function Assert-ServiceIdentitiesNotLocalAdministrators {
+    param([Parameter(Mandatory = $true)][object[]]$Services)
+    try {
+        $members = @(Get-LocalGroupMember -SID 'S-1-5-32-544' -ErrorAction Stop)
+        $memberSids = @($members | ForEach-Object {
+            if (-not $_.SID -or -not $_.SID.Value) {
+                throw 'Local Administrators membership returned an entry without a resolvable SID.'
+            }
+            [string]$_.SID.Value
+        })
+    } catch {
+        throw "Cannot establish local Administrators membership; refusing ACL changes. $($_.Exception.Message)"
+    }
+    foreach ($service in $Services) {
+        if ([string]$service.sid -in $memberSids) {
+            throw "Service identity '$($service.serviceName)' is a direct member of local Administrators; role isolation cannot be established. No ACL changes were made."
+        }
+    }
+}
+
 $identities = @($authority.sid, $core.sid, $provider.sid, $gateway.sid)
 if (@($identities | Select-Object -Unique).Count -ne 4) {
     throw 'Authority, Core, Provider, and gateway must use four distinct service identities. No ACL changes were made.'
 }
+Assert-ServiceIdentitiesNotLocalAdministrators -Services @($authority, $core, $provider, $gateway)
 if ($authority.sid -in @('S-1-5-18', 'S-1-5-19', 'S-1-5-20')) {
     throw 'Accepted-head authority must use a dedicated service identity, not a built-in service account.'
 }
