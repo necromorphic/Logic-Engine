@@ -782,11 +782,9 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                 return fail(response, 'HOST_INVENTORY_INCOMPLETE');
             }
             if (requiresSaveCapability) {
-                const acceptedInventory = await getHostConversationInventory(request);
-                if (!acceptedInventory.complete) {
-                    release();
-                    return fail(response, 'HOST_SAVE_CAPABILITY_INVENTORY_NOT_READY', 503);
-                }
+                // Consume/validate the one-shot token first. A replay must be
+                // rejected as such even if the previous accepted write has not
+                // yet been acknowledged by the inventory publisher.
                 try {
                     saveCapability = consumeHostSaveCapability(request, saveTarget, before, saveCapabilityHeader);
                 } catch (error) {
@@ -794,6 +792,11 @@ export function createHostLifecycleMutationMiddleware({ enforce = process.env.LO
                     const code = typeof error?.message === 'string' && error.message.startsWith('HOST_SAVE_CAPABILITY_')
                         ? error.message : 'HOST_SAVE_CAPABILITY_INVALID';
                     return fail(response, code, 409);
+                }
+                const acceptedInventory = await getHostConversationInventory(request);
+                if (!acceptedInventory.complete) {
+                    release();
+                    return fail(response, 'HOST_SAVE_CAPABILITY_INVENTORY_NOT_READY', 503);
                 }
             }
             const suppliedOperationId = request.headers?.['x-logic-engine-operation-id'];
