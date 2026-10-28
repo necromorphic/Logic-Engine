@@ -146,3 +146,24 @@ test("rejects accessor-backed array entries without invoking them", () => {
   });
   assert.equal(invoked, false);
 });
+
+
+test("fails closed when input reflection traps throw", () => {
+  const input = new Proxy({}, {
+    getPrototypeOf() { throw new Error("prototype trap"); },
+  });
+  assert.deepEqual(selectNpcIntention(input), { status: "non_ready", intention: null });
+});
+
+test("fails closed when candidate array reflection traps throw", () => {
+  const goals = new Proxy([], {
+    get(target, key, receiver) {
+      if (key === "length") throw new Error("length trap");
+      return Reflect.get(target, key, receiver);
+    },
+  });
+  assert.deepEqual(selectNpcIntention({ goals, actions: [] }), {
+    status: "non_ready",
+    intention: null,
+  });
+});
