@@ -329,7 +329,7 @@ Each branch includes its current head SHA, heuristic class, and current open-PR 
 | `docs/relationships-current-main-evidence-v2` | `5f5e9a75bce6275feaf073d75514acd0fe0b6e3b` | DUPLICATE_CANDIDATE | — |
 | `docs/relationships-current-main-evidence-v3` | `ac49c6b71790be294bf0f369ea214f8bce259f11` | DUPLICATE_CANDIDATE | — |
 | `docs/relationships-refresh-after-core-107-108` | `e1d30d8e3a8bbe719abac4a978121c44704c472c` | DUPLICATE_CANDIDATE | — |
-| `docs/remove-google-branding` | `4dec965ef9a6eed14684699819d9fd622ea8c290` | OPEN_PR_HEAD | `docs/repository-front-page-status` | `8ab0e650a9c2fb033b5c99e6a83108a5bdccd0f1` | DOC_OR_AUDIT_CANDIDATE | — |
+| `docs/provider-neutral-docs` | `4dec965ef9a6eed14684699819d9fd622ea8c290` | OPEN_PR_HEAD | `docs/repository-front-page-status` | `8ab0e650a9c2fb033b5c99e6a83108a5bdccd0f1` | DOC_OR_AUDIT_CANDIDATE | — |
 | `docs/security-single-writer-boundary-current-main` | `69af1ad12c21f726843f9c251961ef29811bbfef` | DUPLICATE_CANDIDATE | — |
 | `docs/spatial-position-contract-proposal-2026-10-28` | `19fc2505ce326b2b651c9b39bb529be928f31acd` | OPEN_PR_HEAD | [#533](https://github.com/necromorphic/Logic-Engine/pull/533) |
 | `docs/storage-schema-lifecycle-contract` | `bb830aa119280d04655dffdcefac59fcd6720280` | DOC_OR_AUDIT_CANDIDATE | — |
@@ -465,7 +465,7 @@ Each branch includes its current head SHA, heuristic class, and current open-PR 
 | `fix/time-trigger-resource-bounds-2026-10-24` | `ac9a004886212c7222d8ed0af6181764632bf8fb` | WORKSTREAM_UNCLASSIFIED | — |
 | `fix/world-scoped-event-identity` | `1ccd681f3849cc4ea5db1bdf09c712cf678f736e` | OPEN_PR_HEAD | [#473](https://github.com/necromorphic/Logic-Engine/pull/473) |
 | `host/digest-proxy-bridge-integration` | `25d10e48192a155dc7c0737af01746987ddb8a8f` | WORKSTREAM_UNCLASSIFIED | — |
-| `host/google-ai-studio-egress-gateway-audit-2026-10-26` | `8a3130f4aaef8255ff3eddb0c9332e627dea29f7` | WORKSTREAM_UNCLASSIFIED | — |
+| `host/provider-egress-gateway-audit-2026-10-26` | `8a3130f4aaef8255ff3eddb0c9332e627dea29f7` | WORKSTREAM_UNCLASSIFIED | — |
 | `host/issue-258-lifecycle-matrix-2026-10-25` | `e9576afb29f1205345a542f094385797ef310156` | WORKSTREAM_UNCLASSIFIED | — |
 | `host/lifecycle-completeness-followup-2026-10-25` | `4c8d193ca55cf96e46d7371ecfbec6ab7e54eff1` | DUPLICATE_CANDIDATE | — |
 | `host/lifecycle-evidence-mainline-2026-10-26` | `41125a42d2267a6732116fca42ccae6d316dd294` | DUPLICATE_CANDIDATE | — |
@@ -474,7 +474,7 @@ Each branch includes its current head SHA, heuristic class, and current open-PR 
 | `host/lifecycle-mainline-integration-2026-10-27` | `dcb4db6f7e31dd6c926958366f5db67c6795743d` | OPEN_PR_HEAD | [#456](https://github.com/necromorphic/Logic-Engine/pull/456) |
 | `host/pinned-source-audit-mainline-2026-10-26` | `db2f9ef1134caa6120945683d00108319c6f284c` | DUPLICATE_CANDIDATE | — |
 | `host/pinned-st-source-audit-2026-10-27` | `1ad2a1fa42cdde1bfc1ab1aede817c77fdbdbea0` | OPEN_PR_HEAD | [#503](https://github.com/necromorphic/Logic-Engine/pull/503) |
-| `host/redact-makersuite-prompt-logging-2026-10-27` | `e6b0f129940f8298d7e598f9f4a74dc588f72e58` | WORKSTREAM_UNCLASSIFIED | — |
+| `host/redact-provider-prompt-logging-2026-10-27` | `e6b0f129940f8298d7e598f9f4a74dc588f72e58` | WORKSTREAM_UNCLASSIFIED | — |
 | `host/remote-digest-ledger-sync-current-main` | `2b9a1a3fd146ae1dde79f68b4ff8005b412989d6` | DUPLICATE_CANDIDATE | — |
 | `host/save-persistence-receipt-2026-10-27` | `966c6d28658eb61825b241cf4da1177545ea60a8` | OPEN_PR_HEAD | [#507](https://github.com/necromorphic/Logic-Engine/pull/507) |
 | `host/source-inventory-freshness-gate-2026-10-27` | `337a510a481fa3cf0e381346889569c81b657f21` | WORKSTREAM_UNCLASSIFIED | — |
@@ -914,7 +914,7 @@ Current lifecycle classification uses the latest open-PR API response. Open PR h
 | `docs/relationships-current-main-evidence-v2` | `5f5e9a75bce6275feaf073d75514acd0fe0b6e3b` | CLOSED_UNMERGED_REVIEW | — | #113 | Closed without merge: #113; inspect unique commits/tests and whether another open PR depends on it |
 | `docs/relationships-current-main-evidence-v3` | `ac49c6b71790be294bf0f369ea214f8bce259f11` | CLOSED_UNMERGED_REVIEW | — | #116 | Closed without merge: #116; inspect unique commits/tests and whether another open PR depends on it |
 | `docs/relationships-refresh-after-core-107-108` | `e1d30d8e3a8bbe719abac4a978121c44704c472c` | CLOSED_UNMERGED_REVIEW | — | #110 | Closed without merge: #110; inspect unique commits/tests and whether another open PR depends on it |
-| `docs/remove-google-branding` | `4dec965ef9a6eed14684699819d9fd622ea8c290` | KEEP_OPEN_PR | — | — | Head of current open PR(s): #470 |
+| `docs/provider-neutral-docs` | `4dec965ef9a6eed14684699819d9fd622ea8c290` | KEEP_OPEN_PR | — | — | Head of current open PR(s): #470 |
 | `docs/repository-front-page-status` | `8ab0e650a9c2fb033b5c99e6a83108a5bdccd0f1` | CLOSED_UNMERGED_REVIEW | — | #48 | Closed without merge: #48; inspect unique commits/tests and whether another open PR depends on it |
 | `docs/security-single-writer-boundary-current-main` | `69af1ad12c21f726843f9c251961ef29811bbfef` | MERGED_PR_BRANCH_REVIEW | #403 | — | Merged PR(s): #403; verify ancestry and open-PR base references before deletion |
 | `docs/spatial-position-contract-proposal-2026-10-28` | `19fc2505ce326b2b651c9b39bb529be928f31acd` | KEEP_OPEN_PR | — | — | Head of current open PR(s): #533 |
@@ -1051,7 +1051,7 @@ Current lifecycle classification uses the latest open-PR API response. Open PR h
 | `fix/time-trigger-resource-bounds-2026-10-24` | `ac9a004886212c7222d8ed0af6181764632bf8fb` | MERGED_PR_BRANCH_REVIEW | #236 | #234 | Merged PR(s): #236; verify ancestry and open-PR base references before deletion |
 | `fix/world-scoped-event-identity` | `1ccd681f3849cc4ea5db1bdf09c712cf678f736e` | KEEP_OPEN_PR | — | — | Head of current open PR(s): #473 |
 | `host/digest-proxy-bridge-integration` | `25d10e48192a155dc7c0737af01746987ddb8a8f` | MERGED_PR_BRANCH_REVIEW | #412 | — | Merged PR(s): #412; verify ancestry and open-PR base references before deletion |
-| `host/google-ai-studio-egress-gateway-audit-2026-10-26` | `8a3130f4aaef8255ff3eddb0c9332e627dea29f7` | CLOSED_UNMERGED_REVIEW | — | #378 | Closed without merge: #378; inspect unique commits/tests and whether another open PR depends on it |
+| `host/provider-egress-gateway-audit-2026-10-26` | `8a3130f4aaef8255ff3eddb0c9332e627dea29f7` | CLOSED_UNMERGED_REVIEW | — | #378 | Closed without merge: #378; inspect unique commits/tests and whether another open PR depends on it |
 | `host/issue-258-lifecycle-matrix-2026-10-25` | `e9576afb29f1205345a542f094385797ef310156` | CLOSED_UNMERGED_REVIEW | — | #332 | Closed without merge: #332; inspect unique commits/tests and whether another open PR depends on it |
 | `host/lifecycle-completeness-followup-2026-10-25` | `4c8d193ca55cf96e46d7371ecfbec6ab7e54eff1` | MERGED_PR_BRANCH_REVIEW | #323 | — | Merged PR(s): #323; verify ancestry and open-PR base references before deletion |
 | `host/lifecycle-evidence-mainline-2026-10-26` | `41125a42d2267a6732116fca42ccae6d316dd294` | MERGED_PR_BRANCH_REVIEW | #363 | — | Merged PR(s): #363; verify ancestry and open-PR base references before deletion |
@@ -1060,7 +1060,7 @@ Current lifecycle classification uses the latest open-PR API response. Open PR h
 | `host/lifecycle-mainline-integration-2026-10-27` | `dcb4db6f7e31dd6c926958366f5db67c6795743d` | KEEP_OPEN_PR | — | — | Head of current open PR(s): #456 |
 | `host/pinned-source-audit-mainline-2026-10-26` | `db2f9ef1134caa6120945683d00108319c6f284c` | MERGED_PR_BRANCH_REVIEW | #361 | — | Merged PR(s): #361; verify ancestry and open-PR base references before deletion |
 | `host/pinned-st-source-audit-2026-10-27` | `1ad2a1fa42cdde1bfc1ab1aede817c77fdbdbea0` | KEEP_OPEN_PR | — | — | Head of current open PR(s): #503 |
-| `host/redact-makersuite-prompt-logging-2026-10-27` | `e6b0f129940f8298d7e598f9f4a74dc588f72e58` | MERGED_PR_BRANCH_REVIEW | #440 | — | Merged PR(s): #440; verify ancestry and open-PR base references before deletion |
+| `host/redact-provider-prompt-logging-2026-10-27` | `e6b0f129940f8298d7e598f9f4a74dc588f72e58` | MERGED_PR_BRANCH_REVIEW | #440 | — | Merged PR(s): #440; verify ancestry and open-PR base references before deletion |
 | `host/remote-digest-ledger-sync-current-main` | `2b9a1a3fd146ae1dde79f68b4ff8005b412989d6` | UNMAPPED_CANDIDATE | — | — | No mapped PR head; compare against main and sibling branches |
 | `host/save-persistence-receipt-2026-10-27` | `966c6d28658eb61825b241cf4da1177545ea60a8` | KEEP_OPEN_PR | — | — | Head of current open PR(s): #507 |
 | `host/source-inventory-freshness-gate-2026-10-27` | `337a510a481fa3cf0e381346889569c81b657f21` | CLOSED_UNMERGED_REVIEW | — | #445 | Closed without merge: #445; inspect unique commits/tests and whether another open PR depends on it |
