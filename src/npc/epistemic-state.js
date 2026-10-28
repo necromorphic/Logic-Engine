@@ -310,6 +310,8 @@ function applyEventUnsafe(state, event) {
       ? {
         ...item,
         stance: "unknown",
+        supporting_evidence_refs: [],
+        conflicting_evidence_refs: [],
         revision_rule_ref: event.forgetting_rule_ref,
         review_required: false,
         history,
