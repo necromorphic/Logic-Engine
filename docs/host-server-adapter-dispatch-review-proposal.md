@@ -52,6 +52,20 @@ For each path, the review must record one of:
 
 An unaccounted-for outbound path is a failure, not an accepted limitation.
 
+## 4.1 Concrete outbound-call inventory at the pinned revision
+
+Source audit at `06bde939fb1e9c4c8d8641d810f0a916b5bce127` (line numbers are relative to that exact commit):
+
+- Chat backend blob SHA: `0d98c77f7b64502c5b0f504eaa1f67df0f26041e`.
+- Text backend blob SHA: `c92fc3a14fabd0ad120f877874bc16353eed4831`.
+- Browser payload builder blob SHA: `bab82eec57e0927b809b0571534e96f1b13360e1`.
+
+Candidate outbound generation call sites reachable through the chat-completions handler include chat backend lines **410, 733, 852, 942, 1042/1045, 1153, 1259, 1364, 1476, 1577, 1658, 1752, and 2689**. The paired calls at 1042/1045 and the text backend's 402/405/409 are separate stream/non-stream branches and must be inspected for mutual exclusivity and bypass behavior, not mechanically counted as independent requests. The text-completions `POST /generate` has outbound completion calls at lines **402, 405, and 409**. These are the candidate send sites to classify in the implementation diff; this list does not count model-list, model-info, health, abort, or download calls as generation dispatches.
+
+The chat route itself begins at line 2242 and selects provider-specific send functions from `request.body.chat_completion_source`. The text route begins at line 272 and reads `api_type` and `api_server` from `request.body`. The browser assigns `generate_data.chat_id = getCurrentChatId()` at `public/scripts/openai.js:2902`; the chat backend uses that body value at lines 2473–2474 only to derive `x-session-affinity`. That is not a server-side authorization/provenance check.
+
+**Audit disposition:** the existing endpoint code inspected here does not establish that prompt messages match a server-owned conversation/world/source-version record. The future patch must either demonstrate and use an existing server-owned authority or deny the affected route before provider I/O. It must also classify every listed generation send site as Gateway-routed exactly once or denied before transport.
+
 ## 5. Required acceptance evidence
 
 Tests must run against the exact pinned SillyTavern commit and use a recording fake transport; no real provider credentials or live model calls are permitted.
