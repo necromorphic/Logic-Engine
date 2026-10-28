@@ -518,3 +518,111 @@ test('belief transition refuses a stale snapshot and does not write a projection
   assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 0);
 });
 
+
+
+test('over-limit contradictory acquisition fails closed before context or belief persistence', (t) => {
+  const store = new SQLiteStore(':memory:');
+  t.after(() => store.close());
+
+  const multiSourceBytes = JSON.stringify({
+    schema_version: 1,
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    source_kind: 'author_initial',
+    source_ref: 'authoring:test.world@1.0.0',
+    authorization_ref: 'rule:initial-knowledge-v1',
+    assignments: [
+      { subject_id: 'npc-a', fact_id: 'fact-a' },
+      { subject_id: 'npc-a', fact_id: 'fact-b' },
+    ],
+  });
+  const registry = [{
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    source_kind: 'author_initial',
+    source_ref: 'authoring:test.world@1.0.0',
+    authorization_ref: 'rule:initial-knowledge-v1',
+    sha256: createHash('sha256').update(multiSourceBytes).digest('hex'),
+  }];
+  const engine = new LogicEngine(store, {
+    trustedInitialKnowledgeSources: registry,
+    npcKnowledgeReadAuthorizer: (scope) => ({
+      status: 'authorized',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      authorization_ref: 'rule:npc-read-v1',
+    }),
+    npcKnowledgeVisibilityAuthorizer: (scope) => ({
+      status: 'allowed',
+      world_id: scope.world_id,
+      actor_id: scope.actor_id,
+      purpose: scope.purpose,
+      world_revision: scope.world_revision,
+      commit_sequence: scope.commit_sequence,
+      acquisition_id: scope.acquisition_id,
+      authorization_ref: 'rule:npc-visibility-v1',
+    }),
+  });
+
+  engine.createWorld({
+    world_id: 'world-a',
+    world_pack_id: 'test.world',
+    world_pack_version: '1.0.0',
+    game_time: '2026-01-01T00:00:00Z',
+  });
+  engine.commitEvent('world-a', {
+    event_id: 'author-seed',
+    idempotency_key: 'author-seed-key',
+    turn_id: 'author-seed',
+    event_type: 'action.completed',
+    expected_revision: 0,
+    effects: [
+      { kind: 'entity.create', entity_id: 'npc-a', entity_type: 'character' },
+      { kind: 'fact.set', fact_id: 'fact-a', subject_ref: 'character:target', predicate: 'location', value: 'Kamurocho' },
+      { kind: 'fact.set', fact_id: 'fact-b', subject_ref: 'character:target', predicate: 'location', value: 'Sotenbori' },
+    ],
+  });
+  engine.recordTrustedInitialKnowledgeSource({
+    world_id: 'world-a',
+    source_bytes: multiSourceBytes,
+    idempotency_key: 'author-source-multi',
+    expected_revision: 1,
+    expected_commit_sequence: 1,
+  });
+
+  const current = request(store, { limit: 1 });
+  const read = engine.readNpcKnowledge(current);
+  assert.equal(read.items.length, 1);
+  assert.equal(read.truncated, true);
+  assert.throws(() => engine.prepareNpcBeliefContext(current, {
+    world_id: read.world_id,
+    actor_id: read.actor_id,
+    snapshot: read.snapshot,
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+  }), { code: 'NPC_KNOWLEDGE_READ_INCOMPLETE' });
+
+  assert.throws(() => engine.getNpcBeliefState({
+    ...current,
+    proposition_ref: propositionRefFor(read.items[0]),
+  }), { code: 'NPC_KNOWLEDGE_READ_INCOMPLETE' });
+
+  assert.throws(() => engine.recordNpcBeliefTransition({
+    ...current,
+    proposition_ref: propositionRefFor(read.items[0]),
+    proposition_value: read.items[0].value,
+    stance: 'believes_true',
+    supporting_acquisition_ids: [read.items[0].acquisition_id],
+    contradicting_acquisition_ids: [],
+    reason_rule_ref: 'rule:belief-update-v1',
+    idempotency_key: 'belief-transition-incomplete-inventory',
+  }), { code: 'NPC_KNOWLEDGE_READ_INCOMPLETE' });
+  assert.equal(store.db.prepare('SELECT COUNT(*) AS count FROM npc_belief_transitions').get().count, 0);
+});
