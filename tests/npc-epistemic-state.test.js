@@ -168,3 +168,31 @@ test("reducer does not mutate input state or event", () => {
   assert.deepEqual(state, stateBefore);
   assert.deepEqual(event, eventBefore);
 });
+
+test("nested getters and proxy inputs fail closed without executing getters", () => {
+  let invoked = false;
+  const event = {
+    type: "information_received",
+    event_ref: "receipt-1",
+    source_ref: "message-1",
+    source_version: "v1",
+  };
+  Object.defineProperty(event, "extra", {
+    enumerable: true,
+    get() { invoked = true; return "unsafe"; },
+  });
+  assert.equal(applyNpcEpistemicEvent(emptyState(), event).status, "non_ready");
+  assert.equal(invoked, false);
+  assert.equal(applyNpcEpistemicEvent(new Proxy(emptyState(), {}), {
+    type: "information_received",
+    event_ref: "receipt-1",
+    source_ref: "message-1",
+    source_version: "v1",
+  }).status, "non_ready");
+});
+
+test("a stable evidence reference cannot ambiguously identify two versions", () => {
+  const first = admit(emptyState()).state;
+  const result = admit(first, { evidence_version: "v2", source_version: "v2" });
+  assert.equal(result.status, "non_ready");
+});
