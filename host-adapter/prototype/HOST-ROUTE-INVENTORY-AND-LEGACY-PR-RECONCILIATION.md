@@ -168,3 +168,43 @@ The runtime harness proves one bounded no-egress property against the actual pin
 ### Remaining acceptance boundary
 
 This is still **deny-only candidate behavior**, not a positive Gateway and not a claim of universal egress control. It does not intercept direct browser-side extension fetches to external providers, unknown native/plugin transports outside the server route inventory, or every media/provider branch with its own recording-transport test. The pinned source audit is a bounded lexical inventory, not proof that every enabled outbound call has been traced. No live SillyTavern installation or Android/Termux run is claimed. Stage 2 remains **NO-GO** and Memory→NPC remains **DISABLED / FAIL-CLOSED** until the complete enabled-path inventory, final-send authorization/revocation race, and live deployment gates pass.
+
+## Follow-up — pinned router contract and direct browser egress fence (28 Oct 2026)
+
+### Exact-pin router inventory contract
+
+PR [#591](https://github.com/necromorphic/Logic-Engine/pull/591) added a CI contract that reads `src/server-startup.js` from exact SillyTavern commit `06bde939fb1e9c4c8d8641d810f0a916b5bce127`, extracts every `setupPrivateEndpoints()` router mount, and compares the ordered `path:router` list against a reviewed list. A new/removed/reordered/renamed router fails CI until classified. The check also requires the enumerated native model/media routes plus proxy/extension/search paths to be denied, and explicitly prevents adding `/api/vector` to the guard. The lifecycle route `/api/logic-engine` is present in the staged pinned build and is included in the contract.
+
+This closes router-mount **inventory drift detection**. It does not inspect every internal handler branch and does not establish that all provider transports are mediated.
+
+### Direct extension transports discovered at the pinned SHA
+
+Source inspection found browser extension TTS code that can call configurable local services directly, without using SillyTavern's server endpoint middleware. Examples include:
+- `public/scripts/extensions/tts/alltalk.js`: direct `fetch(`${provider_endpoint}/...`)` calls, including TTS and settings/voice endpoints.
+- `public/scripts/extensions/tts/chatterbox.js`: direct configurable `provider_endpoint` fetches, including `/tts`.
+- `public/scripts/extensions/tts/cosyvoice.js`, `gpt-sovits-adapter.js`, `gpt-sovits-v2.js`, and `gsvi.js`: direct browser fetches to configurable local service endpoints.
+- Standard TTS providers such as OpenAI, Google, Azure, ElevenLabs, NovelAI, MiniMax, and Volcengine generally call same-origin `/api/...` routes; those are covered by the server deny prefixes in protected mode.
+
+The first group is a concrete bypass of a server-only route guard. PR [#593](https://github.com/necromorphic/Logic-Engine/pull/593) adds a browser fence in the exact-pin patch: for an installation with any Host enrollment, cross-origin `fetch` and `XMLHttpRequest.open` are rejected before the native transport call. Same-origin requests still reach the server-side guard. It also denies `/api/plugins` to cover common dynamically registered plugin routes such as `/api/plugins/edge-tts/...`.
+
+### Evidence and remaining limits
+
+- [Exact-pin router/order and browser-fence CI](https://github.com/necromorphic/Logic-Engine/actions/runs/40673113550) — SUCCESS on candidate head `2b7c43a0f43c99131d44699e978aa925e0b89cac`.
+- The browser-fence tests prove zero calls to the fake `fetch`/XHR transport for enrolled cross-origin requests; they are unit tests, not a real browser/device run.
+- This is still not a complete browser sandbox: arbitrary extension code may use other primitives (for example WebSocket, image/navigation beacons, workers, or custom native bindings), and arbitrary plugin routes may not follow the common `/api/plugins` convention. The route inventory and fence are therefore **stronger fail-closed coverage, not proof of universal egress enforcement**.
+- No vectorization files, worker vectorization logic, or `/api/vector` behavior were changed.
+- Positive Gateway routing, exact serialized request/candidate binding, durable `DISPATCH_STARTED`, revocation-vs-transport serialization, and the actual live ST runtime remain open gates. Memory→NPC stays **DISABLED / FAIL-CLOSED**.
+
+
+### Vectorization non-regression exception list
+
+The pinned `public/scripts/extensions/vectors/index.js` uses these same-origin endpoints for existing embedding/model discovery:
+- `POST /api/backends/kobold/embed` (KoboldCpp embeddings);
+- `POST /api/openrouter/models/embedding`;
+- `POST /api/openai/chutes/models/embedding`;
+- `POST /api/openai/nanogpt/models/embedding`;
+- `POST /api/openai/electronhub/models`;
+- `POST /api/openai/siliconflow/models/embedding`;
+- `POST /api/openai/workers-ai/models/embedding`.
+
+The server deny guard now exempts **only these exact POST paths** before prefix matching. Wrong methods, extra path segments, native generation, TTS, and other provider paths remain denied. The route-specific regression test passes at the current candidate head [`e48e727`](https://github.com/necromorphic/Logic-Engine/commit/e48e72723e078d97a9b75d580700d8241a77c358) ([CI](https://github.com/necromorphic/Logic-Engine/actions/runs/40673626105)). This exception preserves the existing vectorization behavior; it is not a declaration that the vectorization subsystem is a protected Memory disclosure gate.
