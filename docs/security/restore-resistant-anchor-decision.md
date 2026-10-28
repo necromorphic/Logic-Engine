@@ -24,14 +24,18 @@ This follows Core's decision in issue #140 that the authority must survive a coo
 
 ## Minimum remote record and protocol contract
 
-Each signed record must bind at least:
-- immutable installation identifier;
-- authority epoch/key identifier;
-- strictly increasing sequence number;
-- previous record digest;
-- accepted Core source-ledger/inventory head digest and schema/contract version;
-- Provider compatibility/readiness digest required by the accepted contract;
-- record type (ADVANCE, RECOVERY, or REENROLL) and explicit recovery reason where applicable.
+Each signed record uses a strict versioned wire shape with exactly these fields:
+- `installation_id`: immutable enrolled installation identifier;
+- `epoch_id` and `key_id`: authority epoch and signing-key identity;
+- `sequence`: strictly increasing positive safe integer;
+- `previous_record_digest`: null only for sequence 1; otherwise SHA-256 digest of the immediately preceding canonical record;
+- `core_head_digest`: accepted Core source-ledger/inventory head digest;
+- `provider_readiness_digest`: Provider compatibility/readiness digest required by the accepted contract;
+- `contract_version`: positive integer identifying the record/contract schema;
+- `record_type`: ADVANCE, RECOVERY, or REENROLL;
+- `recovery_reason`: required bounded non-control text for RECOVERY; null for other record types.
+
+The signed bytes are UTF-8 JSON serialized in the fixed field order above (not arbitrary caller property order); unknown fields are rejected. The returned envelope contains exactly `record` and base64url `signature`. The client independently verifies the Ed25519 signature with a pinned public key and requires HTTPS plus service authentication. This authenticates the record but does not itself prove that the remote service has not rolled its own history back; that property belongs to the independently protected service/storage deployment.
 
 The remote service must:
 1. authenticate the caller as the enrolled installation/service, not trust caller-supplied installation labels;
