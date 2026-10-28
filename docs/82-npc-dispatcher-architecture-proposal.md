@@ -262,3 +262,8 @@ This classification applies the existing test-boundary rules in `docs/32-npc-sem
 4. **Report status precisely:** “pure semantic test passed” is not “NPC integration passed.” A mock or fixture can validate a contract decision but cannot stand in for missing production authorization, storage, serialization, delivery, or canonical state.
 
 No implementation owner is inferred here. This classification does not select the concrete `observe` evidence source, resolve the trusted NPC caller/purpose policy, or change the coordinator's sequencing decision that `author_initial` / `imported` acquisition comes first.
+
+
+#### Specification link
+
+Concrete input/expected-result cases for the first seven pure semantic checks are specified in `docs/86-npc-pure-semantic-test-specification.md`. This is a test design artifact only: it does not assert that a suitable pure function exists, that tests have been implemented or run, or that any production integration gate is satisfied.
