@@ -84,7 +84,6 @@ test('detects added and removed objects as dependency changes', () => {
   assert.deepEqual(result.changedDependencies, ['zone:zone-a']);
 });
 
-
 test('detects obstacle changes and marks predictions depending on that obstacle stale', () => {
   const previous = makeScene(11, { blockers: [{ id: 'wall-a', min: { x: 3, y: 0, z: 0 }, max: { x: 4, y: 4, z: 3 } }] });
   const current = makeScene(12, { blockers: [{ id: 'wall-a', min: { x: 3, y: 0, z: 0 }, max: { x: 4, y: 5, z: 3 } }] });
@@ -96,4 +95,17 @@ test('detects obstacle changes and marks predictions depending on that obstacle 
   }, previous, current);
   assert.equal(freshness.freshness, 'STALE');
   assert.deepEqual(freshness.affectedDependencies, ['blocker:wall-a']);
+});
+
+test('fails closed when any revision collection contains duplicate or missing IDs', () => {
+  const duplicateEntity = makeScene(13, {
+    entities: [
+      { id: 'npc-a', position: { x: 1, y: 1, z: 0 } },
+      { id: 'npc-a', position: { x: 2, y: 1, z: 0 } },
+    ],
+  });
+  assert.equal(diffSceneRevisions(makeScene(12), duplicateEntity).status, 'UNKNOWN');
+
+  const missingBlockerId = makeScene(14, { blockers: [{ min: { x: 0, y: 0, z: 0 }, max: { x: 1, y: 1, z: 1 } }] });
+  assert.equal(diffSceneRevisions(makeScene(13), missingBlockerId).status, 'UNKNOWN');
 });
