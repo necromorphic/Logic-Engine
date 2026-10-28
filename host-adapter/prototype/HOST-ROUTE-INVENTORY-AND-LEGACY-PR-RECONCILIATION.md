@@ -195,3 +195,17 @@ The first group is a concrete bypass of a server-only route guard. PR [#593](htt
 - This is still not a complete browser sandbox: arbitrary extension code may use other primitives (for example WebSocket, image/navigation beacons, workers, or custom native bindings), and arbitrary plugin routes may not follow the common `/api/plugins` convention. The route inventory and fence are therefore **stronger fail-closed coverage, not proof of universal egress enforcement**.
 - No vectorization files, worker vectorization logic, or `/api/vector` behavior were changed.
 - Positive Gateway routing, exact serialized request/candidate binding, durable `DISPATCH_STARTED`, revocation-vs-transport serialization, and the actual live ST runtime remain open gates. Memory→NPC stays **DISABLED / FAIL-CLOSED**.
+
+
+### Vectorization non-regression exception list
+
+The pinned `public/scripts/extensions/vectors/index.js` uses these same-origin endpoints for existing embedding/model discovery:
+- `POST /api/backends/kobold/embed` (KoboldCpp embeddings);
+- `POST /api/openrouter/models/embedding`;
+- `POST /api/openai/chutes/models/embedding`;
+- `POST /api/openai/nanogpt/models/embedding`;
+- `POST /api/openai/electronhub/models`;
+- `POST /api/openai/siliconflow/models/embedding`;
+- `POST /api/openai/workers-ai/models/embedding`.
+
+The server deny guard now exempts **only these exact POST paths** before prefix matching. Wrong methods, extra path segments, native generation, TTS, and other provider paths remain denied. The route-specific regression test passes at the current candidate head [`e48e727`](https://github.com/necromorphic/Logic-Engine/commit/e48e72723e078d97a9b75d580700d8241a77c358) ([CI](https://github.com/necromorphic/Logic-Engine/actions/runs/40673626105)). This exception preserves the existing vectorization behavior; it is not a declaration that the vectorization subsystem is a protected Memory disclosure gate.
