@@ -304,7 +304,7 @@ export class HostVersionDigestLedger {
     // A conflicting digest must never be allowed to mutate the active pointer
     // from the same untrusted event. Record the conflict first; reconciliation
     // can rebuild pointers only from a trusted complete inventory.
-    if (prior && prior.content_sha256 !== v.content_sha256) return this.#put(v, now);
+    if (prior && (prior.content_sha256 !== v.content_sha256 || prior.parent_version_id !== v.parent_version_id)) return this.#put(v, now);
     // Host may report an existing swipe with a changed active flag. Reflect
     // that pointer mutation here as well as through selectActiveVersion.
     if (prior?.lifecycle === 'present' && !v.deleted) {
